@@ -212,7 +212,8 @@ RUN echo "${BUILD_COMMIT_SHA}" > /opt/nvidia/via/BUILD_COMMIT_SHA
 # vendoring it, so the source tree stays free of the proprietary EULA. Landing
 # it under /opt/nvidia/via means the existing COPY --from=app-builder below
 # carries it into the distroless runtime alongside LICENSE.3rdparty.
-RUN curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
+RUN curl -fL --proto '=https' --proto-redir '=https' \
+    --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
     -o /opt/nvidia/via/NVIDIA-Software-License-Agreement.pdf \
     https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
     && head -c4 /opt/nvidia/via/NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'

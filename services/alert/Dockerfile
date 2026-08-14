@@ -39,7 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Fetch the NVIDIA Software License Agreement at build time rather than
 # vendoring it, so the source tree stays free of the proprietary EULA. The
 # final stage is FROM scratch, so this is copied across explicitly below.
-RUN curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
+RUN curl -fL --proto '=https' --proto-redir '=https' \
+    --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
     -o /app/NVIDIA-Software-License-Agreement.pdf \
     https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
     && head -c4 /app/NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'

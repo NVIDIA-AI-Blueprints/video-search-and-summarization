@@ -25,7 +25,8 @@ WORKDIR /repo/services/ui
 # vendoring it. The source tree stays free of the proprietary EULA while the
 # distributed image still carries it. node:22.23.2 already provides curl and
 # the CA bundle, so no package install is needed here.
-RUN curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
+RUN curl -fL --proto '=https' --proto-redir '=https' \
+    --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
     -o NVIDIA-Software-License-Agreement.pdf \
     https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
     && head -c4 NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'
@@ -85,7 +86,10 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 # not tracked in the source tree, so it arrives via --from=builder rather than
 # from the build context.
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE* ./
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
+# Owned by root rather than the runtime user: nothing reads or rewrites the
+# agreement at runtime, and root:root 444 leaves it unmodifiable by the
+# non-root process (matches how services/agent ships its license files).
+COPY --from=builder --chown=root:root --chmod=444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
 
 # Set environment variables
 ENV NODE_ENV=production

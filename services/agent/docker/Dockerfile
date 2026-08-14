@@ -55,7 +55,8 @@ COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss
 # vendoring it. The source tree stays free of the proprietary EULA while the
 # distributed image still carries it. curl and ca-certificates are already
 # installed by this stage's apt layer above, so nothing new is added here.
-RUN curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
+RUN curl -fL --proto '=https' --proto-redir '=https' \
+    --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
     -o /vss-agent/NVIDIA-Software-License-Agreement.pdf \
     https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
     && head -c4 /vss-agent/NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'
