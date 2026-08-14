@@ -118,9 +118,11 @@
     {
       "name": "vss-rt-embed",
       "strategy": "build",
-      "ghcr_build": false,
+      "ghcr_build": true,
       "source_path": "services/rtvi/rt-embed",
+      "context": "services/rtvi/rt-embed",
       "dockerfile": "services/rtvi/rt-embed/docker/Dockerfile",
+      "lfs_include": "services/rtvi/rt-embed/docker/binaries/**",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-embed"],
       "tag_variables": ["RTVI_EMBED_TAG"]

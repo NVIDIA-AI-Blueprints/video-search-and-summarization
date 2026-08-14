@@ -145,7 +145,8 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             for image in inventory["images"]
             if image.get("ghcr_build") is True
         }
-        self.assertEqual(managed, set(HELM_VALUES))
+        self.assertEqual(managed - set(HELM_VALUES), {"vss-rt-embed"})
+        self.assertTrue(set(HELM_VALUES).issubset(managed))
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():

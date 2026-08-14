@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG ARM_PLATFORM="sbsa"
+ARG ARM_PLATFORM="igpu"
 
 ######## Pytorch container
 FROM nvcr.io/nvidia/pytorch:26.03-py3 AS pytorch_src-amd64

@@ -293,6 +293,27 @@ class SelectImagesTest(unittest.TestCase):
             ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
         )
 
+    def test_repository_inventory_builds_rtvi_embed_with_lfs_assets(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        entry = next(
+            item for item in inventory["images"] if item["name"] == "vss-rt-embed"
+        )
+
+        self.assertTrue(entry["ghcr_build"])
+        self.assertEqual(entry["strategy"], "build")
+        self.assertEqual(entry["source_path"], "services/rtvi/rt-embed")
+        self.assertEqual(entry["context"], "services/rtvi/rt-embed")
+        self.assertEqual(
+            entry["lfs_include"], "services/rtvi/rt-embed/docker/binaries/**"
+        )
+        self.assertEqual(entry["platforms"], ["linux/amd64", "linux/arm64"])
+
+        entries, _ = dci.select_images(
+            inventory, ["services/rtvi/rt-embed/src/main.py"]
+        )
+        self.assertEqual([item["name"] for item in entries], ["vss-rt-embed"])
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
