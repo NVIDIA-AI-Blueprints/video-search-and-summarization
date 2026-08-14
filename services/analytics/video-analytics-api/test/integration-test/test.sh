@@ -108,8 +108,8 @@ if kill -0 $COMPOSE_PID 2>/dev/null; then
     wait $COMPOSE_PID 2>/dev/null || true
     COMPOSE_EXIT=1
 fi
-echo "--- Elasticsearch container logs (web-api-elastic) ---"
-docker logs web-api-elastic 2>&1 || true
+echo "--- Elasticsearch container logs (elasticsearch) ---"
+docker logs elasticsearch 2>&1 || true
 echo "--- end logs ---"
 
 if [ "$COMPOSE_EXIT" -ne 0 ]; then
@@ -128,8 +128,8 @@ for i in $(seq 1 60); do
     fi
     if [ "$i" -eq 60 ]; then
         echo "✗ Elasticsearch did not become ready"
-        echo "--- Elasticsearch container logs (web-api-elastic) ---"
-        docker logs web-api-elastic 2>&1 || true
+        echo "--- Elasticsearch container logs (elasticsearch) ---"
+        docker logs elasticsearch 2>&1 || true
         echo "--- end logs ---"
         cleanup_docker_environment
         exit 1
