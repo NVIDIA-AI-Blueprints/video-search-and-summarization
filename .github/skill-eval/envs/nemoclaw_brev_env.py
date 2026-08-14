@@ -96,7 +96,9 @@ scratch=/tmp/skill-eval/nemoclaw
 mkdir -p "$scratch"
 export NEMOCLAW_SETUP_CELL_TIMEOUT_SEC={timeout}
 timeout --signal=TERM --kill-after=120 {timeout}s \
-  python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
+  uv run --isolated --no-project --python 3.12 \
+  --with nbformat --with nbclient --with ipykernel -- \
+  python .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --env-out "$scratch/nemoclaw.env" \
   --timeout "$NEMOCLAW_SETUP_CELL_TIMEOUT_SEC"
 """.strip()
