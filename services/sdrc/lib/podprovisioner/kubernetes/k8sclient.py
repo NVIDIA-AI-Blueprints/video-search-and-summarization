@@ -137,8 +137,8 @@ class k8sclient:
     def getPodIps(self, WLObject):
         podIps = []
         for i in WLObject:
-            logger.info(
-                "->>> %s\t%s\t%s\t%s\t%s\t%s"
+            logger.debug(
+                "pod inventory %s\t%s\t%s\t%s\t%s\t%s"
                 % (
                     i.status.pod_ip,
                     i.status.phase,
