@@ -33,6 +33,7 @@ from run_leg import HARBOR_REQUIREMENT, run_command
 DEFAULT_DATASET_ROOT = Path("/tmp/skill-eval/datasets/nemoclaw")
 DEFAULT_RESULTS_ROOT = Path("/tmp/skill-eval/results/nemoclaw")
 DEFAULT_SCRATCH_ROOT = Path("/tmp/skill-eval")
+DEFAULT_COMPATIBLE_MATRIX = Path(__file__).with_name("compatible_matrix.json")
 INSTANCE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 SLUG_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 ENV_BUILD_BASE_SECONDS = 600
@@ -173,7 +174,58 @@ def _selected_rows(skills: str) -> list[MatrixRow]:
     return rows
 
 
-def _matrix_json(rows: list[MatrixRow]) -> str:
+def _load_matrix_file(
+    path: Path, worker_profile: str = ""
+) -> tuple[list[MatrixRow], dict[str, int]]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or document.get("schema_version") != 1:
+        raise ValueError(f"{path}: unsupported compatibility matrix schema")
+    configured = document.get("rows")
+    if not isinstance(configured, list) or not configured:
+        raise ValueError(f"{path}: rows must be a non-empty list")
+
+    planned = {(row.skill, row.spec, row.platform): row for row in _selected_rows("*")}
+    rows: list[MatrixRow] = []
+    task_limits: dict[str, int] = {}
+    seen: set[tuple[str, str, str]] = set()
+    for index, item in enumerate(configured):
+        if not isinstance(item, dict):
+            raise TypeError(f"{path}: row {index} must be an object")
+        configured_profile = str(item.get("worker_profile") or "")
+        if not configured_profile:
+            raise ValueError(f"{path}: row {index} has no worker_profile")
+        if worker_profile and configured_profile != worker_profile:
+            continue
+        key = tuple(
+            str(item.get(field) or "") for field in ("skill", "spec", "platform")
+        )
+        if key in seen:
+            raise ValueError(f"{path}: duplicate row {'/'.join(key)}")
+        row = planned.get(key)
+        if row is None:
+            raise ValueError(
+                f"{path}: row {'/'.join(key)} is not in the shared eval plan"
+            )
+        task_limit = item.get("task_limit")
+        if (
+            isinstance(task_limit, bool)
+            or not isinstance(task_limit, int)
+            or task_limit < 1
+        ):
+            raise ValueError(f"{path}: row {'/'.join(key)} has invalid task_limit")
+        seen.add(key)
+        rows.append(row)
+        task_limits[row.slug] = task_limit
+    if not rows:
+        suffix = f" for worker profile {worker_profile}" if worker_profile else ""
+        raise ValueError(f"{path}: no selected rows{suffix}")
+    return rows, task_limits
+
+
+def _matrix_json(
+    rows: list[MatrixRow], task_limits: dict[str, int] | None = None
+) -> str:
+    limits = task_limits or {}
     return json.dumps(
         [
             {
@@ -183,6 +235,7 @@ def _matrix_json(rows: list[MatrixRow]) -> str:
                 "platform": row.platform,
                 "kind": row.kind,
                 "slug": row.slug,
+                **({"task_limit": limits[row.slug]} if row.slug in limits else {}),
             }
             for row in rows
         ],
@@ -679,6 +732,11 @@ def _skipped_record(scenario: Scenario, reason: str) -> dict[str, Any]:
     }
 
 
+def _blocks_dependent_scenarios(record: dict[str, Any]) -> bool:
+    """Stop a dependent chain only when the harness did not produce a result."""
+    return record.get("status") == "ERROR"
+
+
 def _row_status(row_records: list[dict[str, Any]]) -> str:
     statuses = {record["status"] for record in row_records}
     if not statuses:
@@ -787,6 +845,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--results-root", default=str(DEFAULT_RESULTS_ROOT))
     parser.add_argument("--scratch-root", default=str(DEFAULT_SCRATCH_ROOT))
+    parser.add_argument("--matrix-file")
+    parser.add_argument("--matrix-worker-profile", default="")
     parser.add_argument("--print-matrix", action="store_true")
     parser.add_argument(
         "--agent-timeout",
@@ -805,9 +865,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    rows = _selected_rows(args.skills)
+    task_limits: dict[str, int] = {}
+    if args.matrix_file:
+        rows, task_limits = _load_matrix_file(
+            Path(args.matrix_file), args.matrix_worker_profile
+        )
+    else:
+        rows = _selected_rows(args.skills)
     if args.print_matrix:
-        print(_matrix_json(rows))
+        print(_matrix_json(rows, task_limits))
         return 0
     if not args.instance:
         parser.error("--instance is required for execution")
@@ -872,6 +938,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         try:
             task_dirs = _generate_dataset(row, dataset_run_root / row.slug)
+            task_limit = task_limits.get(row.slug)
+            if task_limit is not None:
+                if len(task_dirs) < task_limit:
+                    raise RuntimeError(
+                        f"{row.skill}/{row.spec}: adapter generated "
+                        f"{len(task_dirs)} task(s); matrix requires {task_limit}"
+                    )
+                task_dirs = task_dirs[:task_limit]
             scenarios = [
                 _wrap_task(task_dir, row, args.agent_timeout) for task_dir in task_dirs
             ]
@@ -926,7 +1000,7 @@ def main(argv: list[str] | None = None) -> int:
                     benchmark=benchmark,
                 )
             records.append(record)
-            if record["status"] in {"FAIL", "ERROR"}:
+            if _blocks_dependent_scenarios(record):
                 stop_reason = (
                     f"dependent task skipped after {scenario.task_dir.name} "
                     f"reported {record['status']}"
