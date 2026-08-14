@@ -269,7 +269,7 @@ def _parameterize_notebook(notebook: Any, path: Path) -> None:
             f"{parameter_source}\n\n{_DERIVED_SETTINGS_MARKER}",
             1,
         )
-        cell["source"] = source.splitlines(keepends=True)
+        cell["source"] = source
         return
     raise RuntimeError(f"Could not locate Derived settings in {path.name}")
 
