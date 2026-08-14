@@ -275,7 +275,12 @@ Resolve `$AB` / `$VST` once in *Deployment prerequisite* (Kubernetes forces
 
 **Availability check:** `curl -sf --connect-timeout 5 "$AB/health"` (note: `/health`, not `/api/v1/health`).
 
-**Sensor resolution:** rule create/list and incident filtering resolve a sensor **name → `sensorId` (UUID) + RTSP `url`** via `GET $VST/vst/api/v1/sensor/list` — see `references/alert-subscriptions.md`. Never fabricate a `sensor_id` or `live_stream_url`.
+**Sensor resolution — two different identities, do not mix them:**
+
+- **Rule create/replay (Workflow D)** resolves a sensor **name → `sensorId` (UUID) + RTSP `url`** via `GET $VST/vst/api/v1/sensor/list` — RT-VLM keys its stream registration on the VIOS UUID. See `references/alert-subscriptions.md`.
+- **Incident filtering (Workflow C)** takes the sensor **name** — `GET /api/v1/realtime/incidents?sensor_id=<name>` term-matches the `sensorId` field stored in the incident documents, which RT-VLM / Behavior Analytics fill with the name. No VIOS lookup is needed, and a UUID there silently returns zero.
+
+Never fabricate a `sensor_id` or `live_stream_url`.
 
 ---
 
@@ -382,11 +387,19 @@ Query past incidents **directly** from Alert Bridge — no `/generate`:
 ```bash
 # recent incidents (optionally filter by sensor / category / time / limit)
 curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq .
-# scope to one sensor: resolve name → sensorId (UUID) via VIOS, then:
-curl -sf "$AB/api/v1/realtime/incidents?sensor_id=<UUID>&start_time=<ISO>&end_time=<ISO>" | jq .
+# scope to one sensor — pass the sensor NAME, not a VIOS UUID:
+curl -sf "$AB/api/v1/realtime/incidents?sensor_id=<sensor NAME>&start_time=<ISO>&end_time=<ISO>" | jq .
 ```
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (reverse-resolve `sensor_id` → name), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer**: report "none found / count 0" and STOP; do not fall back to listing rules.
+> **`sensor_id` here is a name, not a UUID.** The filter is an exact term match on the
+> `sensorId` field the incident documents actually carry, and RT-VLM / Behavior Analytics
+> write the **sensor name** there (`warehouse_sample`, `sample-warehouse-ladder`, `ondemand`
+> …). A VIOS UUID matches nothing and returns `count: 0` — indistinguishable from "no
+> incidents". This is the opposite of Workflow D, where the rule-create payload's
+> `sensor_id` **must** be the VIOS UUID. When unsure which name a sensor writes, read it off
+> an unfiltered `/incidents` response instead of guessing.
+
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (the `sensorId` field is already the name — no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer**: report "none found / count 0" and STOP; do not fall back to listing rules.
 
 **Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D). Incidents produced by **always-on** rules (Workflow G) appear here like any other realtime incident, and so do **on-demand verification results** (incident-kind, `sensorId: "ondemand"` — see Workflow F).
 

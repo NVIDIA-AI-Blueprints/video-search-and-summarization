@@ -83,6 +83,11 @@ VST_API_BASE="${VST}/vst/api/v1"
 - Call `GET $VST_API_BASE/sensor/list`
 - Match by name, extract the `sensorId` field (UUID).
 - Put that UUID in the Alert Bridge payload's `sensor_id` field — not the name.
+- **Scope: the rule-creation payload only.** RT-VLM keys its stream registration on the VIOS
+  UUID, so create/replay needs it. The `sensor_id` **query parameter** on
+  `GET /api/v1/realtime/incidents` (Workflow C) is a different identity: it is an exact-match
+  filter on the `sensorId` field the incident documents carry, and that field holds the sensor
+  **name**. Passing a UUID there silently returns zero incidents.
 
 **Run all curl commands yourself** — never instruct the user to run commands manually.
 
