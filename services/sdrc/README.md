@@ -952,7 +952,7 @@ Example (`text`):
 ```text
 2026-08-14 13:07:30 INFO [workload:vss-rtvi-cv] __main__ - Committing message id 1786623678634-0 component=workload
 2026-08-14 13:07:30 INFO [router] run_workloads - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.05 component=router
-2026-08-14 13:07:30.401 info [envoy] [upstream] cds: added/updated 0 cluster(s), skipped 5 unmodified cluster(s)
+2026-08-14 13:07:30.401 INFO [envoy] [upstream] cds: added/updated 0 cluster(s), skipped 5 unmodified cluster(s)
 ```
 
 Filter muxed `docker logs` by source:
