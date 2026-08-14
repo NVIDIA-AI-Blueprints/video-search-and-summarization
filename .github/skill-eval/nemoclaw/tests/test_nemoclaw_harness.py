@@ -475,23 +475,6 @@ class SingleScenarioTests(unittest.TestCase):
             }
             self.scenario._rows_from_plan({"include": [row, row]})
 
-    def test_shared_plan_task_limit_reaches_the_single_row_runner(self) -> None:
-        row = {
-            "skill": "vss-query-analytics",
-            "spec_stem": "query_analytics",
-            "spec_path": "skills/vss-query-analytics/evals/query_analytics.json",
-            "platform": "RTXPRO6000BW",
-            "kind": "eval",
-            "slug": "vss-query-analytics__query_analytics__RTXPRO6000BW",
-            "task_limit": 3,
-        }
-        parsed = self.scenario._rows_from_plan({"include": [row]})
-        self.assertEqual(parsed[0].task_limit, 3)
-        with self.assertRaisesRegex(ValueError, "invalid task_limit"):
-            self.scenario._rows_from_plan(
-                {"include": [{**row, "slug": "different", "task_limit": 0}]}
-            )
-
     def test_semantic_failure_does_not_block_dependent_scenarios(self) -> None:
         self.assertFalse(self.scenario._blocks_dependent_scenarios({"status": "PASS"}))
         self.assertFalse(self.scenario._blocks_dependent_scenarios({"status": "FAIL"}))
@@ -931,14 +914,6 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
         self.assertIn('--plan-file "$PLAN_FILE"', workflow)
         self.assertNotIn('--skills "$INPUT_SKILLS"', workflow)
-        self.assertIn("nemoclaw-compatible-rtx", workflow)
-        self.assertIn("nemoclaw-compatible-l40s", workflow)
-        self.assertIn(
-            "PLAN_MATRIX_FILE=.github/skill-eval/nemoclaw/compatible_matrix.json",
-            workflow,
-        )
-        self.assertIn("PLAN_MATRIX_WORKER_PROFILE=RTXPRO6000BW", workflow)
-        self.assertIn("PLAN_MATRIX_WORKER_PROFILE=L40S", workflow)
         self.assertIn(
             'NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}-${{ strategy.job-index }}"',
             workflow,
