@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Nginx media server for serving LVS benchmark test videos.
+# Set VSS_BENCHMARK_DATA_DIR to the directory containing your test videos (mp4 files).
+# Videos are served at: http://localhost:8888/videos/<filename>
+# Directory listing (JSON): http://localhost:8888/videos/
+# Health check: http://localhost:8888/health
+
+services:
+  media-server:
+    image: nginx:alpine
+    container_name: lvs-benchmark-media-server
+    ports:
+      - "8888:80"
+    volumes:
+      # Mount test videos (read-only)
+      - "${VSS_BENCHMARK_DATA_DIR}/videos:/usr/share/nginx/html/videos:ro"
+      # Mount custom nginx config with autoindex enabled
+      - "./configmaps/nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped

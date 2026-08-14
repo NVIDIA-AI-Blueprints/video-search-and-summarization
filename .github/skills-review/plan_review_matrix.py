@@ -39,8 +39,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILLS_DIR = REPO_ROOT / "skills"
 
-# Any tracked file under a skill dir puts the whole skill in review scope.
-SKILL_FILE_RE = re.compile(r"^skills/([^/]+)/")
+# A changed file is attributed to its owning skill by discover_skills() +
+# skill_for_file() below (both flat skills/<name>/ and nested skills/<category>/<name>/).
 # A skill-dir name accepted from the workflow_dispatch input (path-escape guard).
 SAFE_SKILL_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
 # A leg's slug names its artifact (skills-review-<slug>) and its scratch path;
@@ -85,15 +85,52 @@ def list_changed_files() -> list[str]:
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
 
+def discover_skills() -> dict[str, Path]:
+    """Map leaf skill-name -> skill dir for every dir under skills/ that holds a
+    SKILL.md. Supports flat (skills/<name>/) and one category level
+    (skills/<category>/<name>/). Leaf names are the identity and must be unique."""
+    out: dict[str, Path] = {}
+    if not SKILLS_DIR.is_dir():
+        return out
+    for md in sorted(SKILLS_DIR.rglob("SKILL.md")):
+        d = md.parent
+        rel = d.relative_to(SKILLS_DIR)
+        if any(part.startswith((".", "_")) for part in rel.parts):
+            continue
+        if d.name in out and out[d.name] != d:
+            raise ValueError(
+                f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
+                f"skill leaf names must be unique across categories"
+            )
+        out[d.name] = d
+    return out
+
+
+def skill_for_file(path: str, skills: dict[str, Path]) -> str | None:
+    """The skill (leaf name) that owns a repo-relative changed file — the skill
+    dir that is the longest ancestor of the file. None if outside any live skill
+    (a deleted skill's dir is absent from `skills`, so its files are ignored)."""
+    if not path.startswith("skills/"):
+        return None
+    # Resolve the file against SKILLS_DIR's parent so it shares one root with
+    # the discovered skill dirs.
+    abs_file = SKILLS_DIR.parent / path
+    best: str | None = None
+    best_depth = -1
+    for name, d in skills.items():
+        try:
+            abs_file.relative_to(d)
+        except ValueError:
+            continue
+        if len(d.parts) > best_depth:
+            best, best_depth = name, len(d.parts)
+    return best
+
+
 def changed_skills(changed: list[str]) -> list[str]:
-    """Sorted, deduped skill-dir names from a changed-file list (live dirs only)."""
-    out: set[str] = set()
-    for f in changed:
-        m = SKILL_FILE_RE.match(f)
-        # Only review live skill dirs — a deleted skill still shows in the diff.
-        if m and (SKILLS_DIR / m.group(1)).is_dir():
-            out.add(m.group(1))
-    return sorted(out)
+    """Sorted, deduped skill leaf-names from a changed-file list (live dirs only)."""
+    skills = discover_skills()
+    return sorted({s for f in changed if (s := skill_for_file(f, skills))})
 
 
 def parse_manual(manual: str) -> list[str]:
@@ -105,8 +142,9 @@ def parse_manual(manual: str) -> list[str]:
     rather than emitting an empty matrix the review job would silently skip.
     """
     manual = manual.strip()
+    skills = discover_skills()
     if manual == "*":
-        return sorted(p.name for p in SKILLS_DIR.iterdir() if p.is_dir())
+        return sorted(skills)
     if manual.startswith("["):
         try:
             names = json.loads(manual)
@@ -123,9 +161,9 @@ def parse_manual(manual: str) -> list[str]:
                 f"unsafe skill name {n!r}: expected a skill-dir name "
                 f"([A-Za-z0-9_-], not starting with '-')"
             )
-        if not (SKILLS_DIR / n).is_dir():
+        if n not in skills:
             raise ValueError(
-                f"skills/{n}/ does not exist on this ref — check the skill name"
+                f"skill {n!r} not found under skills/ on this ref — check the skill name"
             )
     return sorted(set(names))
 

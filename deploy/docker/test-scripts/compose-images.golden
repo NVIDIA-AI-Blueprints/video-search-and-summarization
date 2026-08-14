@@ -58,6 +58,7 @@ deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
 deploy/docker/services/rtvi/rtvi-cv/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion:develop-latest
+deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
 deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
 deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
