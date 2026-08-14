@@ -62,12 +62,6 @@ services:
     profiles: ["nvstreamer-2d-fusion"]
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
-    deploy:
-      resources:
-        reservations:
-          devices:
-          - capabilities: [gpu]
-            device_ids: ["0"]
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json

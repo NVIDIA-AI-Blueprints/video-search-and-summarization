@@ -20,16 +20,31 @@
   class-label taxonomy the resolved RT-CV detector emits — label set and casing.
   In a combined build these follow the single converged detector, not the value
   a source profile's config happened to ship.
+- This service's operating mode — the `numWorkersFor*` gates, `playbackLoop`,
+  class scope — lives in the mounted analytics JSON, not env or `COMPOSE_PROFILES`,
+  so env-delta resolution cannot touch it. A build that adds a capability or
+  ingestion mode the source config did not assume **must replace** that JSON; env
+  reconciliation alone silently inherits the source mode (Search ships
+  `numWorkersForIncidentGeneration=0`, so it generates no incidents and yields no
+  alerts).
 - To serve more than one capability at once, run a single combined instance
-  rather than two, mounting the shipped joint config
-  `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
-  via a service-definition patch (no developer profile mounts it by default; the
-  setup skill owns the recipe). Its `numWorkersFor*` knobs gate each processor
-  independently, so enable one only for a requested capability: incident
-  generation for detection-rule alerts, behavior creation for search analytics,
-  embed filtering for search embeddings — leave the rest at zero. In particular,
-  alerts that do not derive from this owner (see the Alerts owner) leave incident
-  generation off.
+  rather than two — under the selected Foundation's key for the one
+  `vss-behavior-analytics` container, never both — mounting the shipped joint config
+  `<repo-root>/services/analytics/behavior-analytics/configs/search_and_alerts_config.json`.
+  This file is outside `VSS_APPS_DIR`, which points to
+  `<repo-root>/deploy/docker`. Bind the shipped file directly, without copying
+  it into `_builds/`, through
+  `patches/vss-search-analytics-2d-fusion.yml` as
+  `<repo-root>/services/analytics/behavior-analytics/configs/search_and_alerts_config.json:/resources/vss-search-analytics-config.json:ro`.
+  No developer profile mounts it by default. Its `numWorkersFor*` knobs gate
+  each processor independently, so enable one only for a requested capability:
+  incident generation for detection-rule alerts, behavior creation for search
+  analytics, embed filtering for search embeddings — leave the rest at zero. In
+  particular, alerts that do not derive from this owner (see the Alerts owner)
+  leave incident generation off.
+- Verify the mounted config matches the request: incident workers non-zero only
+  when alerts are requested, `inSimulationMode` unset for live-stream builds, and
+  multi-capability builds on the joint config.
 - A combined instance writes more than one Elasticsearch index family, so its
   Kibana initializer must seed all of them — see `elk.md` (Kibana seeding).
 
@@ -38,7 +53,7 @@
 | Environment variable | Use |
 |---|---|
 | `VSS_BEHAVIOR_ANALYTICS_IMAGE`, `VSS_BEHAVIOR_ANALYTICS_TAG` | Select the Behavior Analytics image. |
-| `VSS_APPS_DIR` | Resolve the profile-owned mounted JSON config. |
+| `VSS_APPS_DIR` | Resolve profile-owned mounted JSON configs; it does not contain the repo-root combined config. |
 | `STREAM_TYPE` | Select the checked-in Kafka or Redis Search config where supported. |
 
 Incident rules, broker addresses, thresholds, and sensor settings are fields in
@@ -50,5 +65,6 @@ there is a config change outside this env-only contract.
 - `deploy/docker/services/analytics/behavior-analytics/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`
+- `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
 - `skills/vss-setup-behavior-analytics/references/configuration.md`
 - `skills/vss-setup-behavior-analytics/references/deploy-behavior-analytics-service.md`
