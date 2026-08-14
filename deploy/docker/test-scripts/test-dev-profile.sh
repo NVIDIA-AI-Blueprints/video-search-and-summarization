@@ -1201,7 +1201,7 @@ _common_overrides_env_keys=(
   NGC_CLI_API_KEY NVIDIA_API_KEY OPENAI_API_KEY
 )
 _split_failed=0
-for _profile in base lvs search alerts; do
+for _profile in base gym lvs search alerts; do
   _stable_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_profile}/.env"
   _overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_profile}/overrides.env"
   if [[ ! -f "${_stable_env}" || ! -f "${_overrides_env}" ]]; then
@@ -1216,7 +1216,7 @@ for _profile in base lvs search alerts; do
   # no arm silently inherits the previous iteration's expectations.
   _expected_stable_keys=()
   case "${_profile}" in
-    base)
+    base|gym)
       _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_stable_keys=(MODE RTVI_VLM_MAX_MODEL_LEN)
       _allowed_duplicate_keys=(RTVI_VLM_MAX_MODEL_LEN)
@@ -1473,6 +1473,9 @@ run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "b
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
 # DGX-SPARK (and IGX-THOR) are only valid for base and alerts
+# gym is deliberately absent: dev-profile.sh restricts DGX-SPARK/IGX-THOR/
+# AGX-THOR to base and alerts, and gym adds a large eval container that has
+# no place on an edge device.
 for _profile in base alerts; do
   run_spark_test_for_profile "${_profile}"
 done
@@ -1799,7 +1802,7 @@ else
   echo "FAIL: VIOS service env should expose shared Helm-compatible VST endpoint defaults"
   ((TESTS_FAILED++)) || true
 fi
-for _profile in base search lvs alerts; do
+for _profile in base gym search lvs alerts; do
   _env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_profile}/.env"
   _overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_profile}/overrides.env"
   if ! grep -Fq "VST_INTERNAL_IP=" "${_env}" && ! grep -Fq "VST_INGRESS_ENDPOINT=" "${_env}" && grep -Fq "VST_BASE_URL=" "${_overrides_env}"; then
