@@ -159,15 +159,19 @@ class WlObjectNameFilter(logging.Filter):
 
 
 class ContextAndTraceFilter(logging.Filter):
-    """Merge contextvars + OpenTelemetry trace/span ids onto each record."""
+    """Merge contextvars + OpenTelemetry trace/span ids onto each record.
+
+    Also overrides the source bracket (``wl_object_name``) from the bound
+    ``component`` so in-process controller threads can emit ``[controller]``
+    without reinstalling root handlers that were configured as ``[router]``.
+    """
 
     def filter(self, record):
         ctx = _log_context.get() or {}
         for key, value in ctx.items():
             if not hasattr(record, key) or getattr(record, key) in (None, ""):
                 setattr(record, key, value)
-        if not getattr(record, "wl_object_name", None):
-            record.wl_object_name = ctx.get("workload") or ctx.get("wl_object_name") or "-"
+        _apply_source_bracket(record, ctx)
         trace_id, span_id = _otel_ids()
         if not getattr(record, "trace_id", None):
             record.trace_id = trace_id
@@ -176,6 +180,30 @@ class ContextAndTraceFilter(logging.Filter):
         if not hasattr(record, "event"):
             record.event = ""
         return True
+
+
+def _apply_source_bracket(record: logging.LogRecord, ctx: Optional[Mapping[str, Any]] = None) -> None:
+    """Set ``wl_object_name`` from component context when present."""
+    ctx = ctx or {}
+    component = getattr(record, "component", None) or ctx.get("component")
+    if component == "controller":
+        record.wl_object_name = "controller"
+        return
+    if component == "router":
+        record.wl_object_name = "router"
+        return
+    if component == "envoy":
+        record.wl_object_name = "envoy"
+        return
+    if component == "workload":
+        wl = getattr(record, "workload", None) or ctx.get("workload")
+        if wl:
+            record.wl_object_name = f"workload:{wl}"
+            return
+    if not getattr(record, "wl_object_name", None):
+        record.wl_object_name = (
+            ctx.get("workload") or ctx.get("wl_object_name") or "-"
+        )
 
 
 def _record_fields(record: logging.LogRecord) -> dict:
@@ -328,7 +356,19 @@ class RateLimitedLogger:
             return False, 0
 
 
-_default_rate_limiter = RateLimitedLogger(interval_s=30.0)
+_rate_limiters: dict[float, RateLimitedLogger] = {}
+_rate_limiters_lock = threading.Lock()
+
+
+def _get_rate_limiter(interval_s: float) -> RateLimitedLogger:
+    """Return a process-wide limiter for ``interval_s`` (stateful across calls)."""
+    key = float(interval_s)
+    with _rate_limiters_lock:
+        limiter = _rate_limiters.get(key)
+        if limiter is None:
+            limiter = RateLimitedLogger(interval_s=key)
+            _rate_limiters[key] = limiter
+        return limiter
 
 
 def log_rate_limited(
@@ -341,10 +381,7 @@ def log_rate_limited(
     **kwargs: Any,
 ) -> None:
     """Rate-limit repeated identical log lines; includes suppressed_count when repeating."""
-    limiter = _default_rate_limiter
-    if interval_s != limiter.interval_s:
-        # uncommon path: ad-hoc interval
-        limiter = RateLimitedLogger(interval_s=interval_s)
+    limiter = _get_rate_limiter(interval_s)
     ok, suppressed = limiter.should_log(key)
     if not ok:
         return

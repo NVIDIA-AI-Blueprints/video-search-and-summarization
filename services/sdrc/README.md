@@ -960,9 +960,12 @@ Filter muxed `docker logs` by source:
 ```bash
 docker logs sdr-controller 2>&1 | grep '\[envoy\]'
 docker logs sdr-controller 2>&1 | grep '\[router\]'
+docker logs sdr-controller 2>&1 | grep '\[controller\]'
 docker logs sdr-controller 2>&1 | grep '\[workload:'
 docker logs sdr-controller 2>&1 | grep '\[workload:vss-rtvi-cv\]'
 ```
+
+In the combined `sdr-mw` process, router HTTP/xDS stays `[router]`; background controller watchers bind `component=controller` on their threads so their lines are `[controller]` without reinstalling root handlers.
 
 Example (`json`):
 

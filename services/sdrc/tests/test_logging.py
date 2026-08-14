@@ -20,6 +20,7 @@ import logging
 import pytest
 
 from lib.logging.wdm_logging import (
+    ContextAndTraceFilter,
     JsonFormatter,
     RateLimitedLogger,
     TextFormatter,
@@ -166,3 +167,92 @@ def test_rate_limited_logger_suppresses_bursts():
     # Should not raise
     log_rate_limited(logger, logging.ERROR, "burst-key", "boom %s", "x", interval_s=60.0)
     log_rate_limited(logger, logging.ERROR, "burst-key", "boom %s", "x", interval_s=60.0)
+
+
+def test_log_rate_limited_custom_interval_retains_state():
+    """Custom interval_s must reuse the same limiter (Greptile P2)."""
+    logger = logging.getLogger("sdrc.test.rate.custom")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.handlers.clear()
+    logger.addHandler(handler)
+    logger.setLevel(logging.ERROR)
+    logger.propagate = False
+
+    key = "custom-interval-unique-key"
+    log_rate_limited(logger, logging.ERROR, key, "first", interval_s=5.0)
+    log_rate_limited(logger, logging.ERROR, key, "second", interval_s=5.0)
+    log_rate_limited(logger, logging.ERROR, key, "third", interval_s=5.0)
+    lines = [ln for ln in stream.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1
+    assert lines[0] == "first"
+
+
+def test_component_context_overrides_handler_source_bracket():
+    """Router-configured handlers must still show [controller] when context is bound."""
+    clear_context()
+    logger = logging.getLogger("sdrc.test.component.override")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(TextFormatter())
+    # Simulate run_workloads installing a router bracket filter.
+    handler.addFilter(WlObjectNameFilter("router"))
+    handler.addFilter(ContextAndTraceFilter())
+    logger.handlers.clear()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    bind_context(component="router")
+    logger.info("from router")
+    router_line = stream.getvalue()
+    assert "[router]" in router_line
+    assert "component=router" in router_line
+
+    stream.truncate(0)
+    stream.seek(0)
+    bind_context(component="controller")
+    logger.info("from controller")
+    controller_line = stream.getvalue()
+    assert "[controller]" in controller_line
+    assert "component=controller" in controller_line
+    assert "[router]" not in controller_line
+
+    stream.truncate(0)
+    stream.seek(0)
+    bind_context(component="workload", workload="vss-rtvi-cv")
+    logger.info("from workload")
+    wl_line = stream.getvalue()
+    assert "[workload:vss-rtvi-cv]" in wl_line
+    assert "component=workload" in wl_line
+    clear_context()
+
+
+def test_controller_context_bind_does_not_leak_to_parent_thread():
+    """Watcher-thread bind_context(component=controller) must not flip parent router tag."""
+    import threading
+
+    from lib.logging import get_context
+
+    clear_context()
+    bind_context(component="router")
+    seen = {}
+
+    def _run_as_controller(fn):
+        def _wrapped(*args, **kwargs):
+            bind_context(component="controller")
+            return fn(*args, **kwargs)
+
+        return _wrapped
+
+    def worker():
+        seen.update(get_context())
+
+    t = threading.Thread(target=_run_as_controller(worker))
+    t.start()
+    t.join(timeout=5)
+    assert not t.is_alive()
+    assert seen.get("component") == "controller"
+    assert get_context().get("component") == "router"
+    clear_context()
