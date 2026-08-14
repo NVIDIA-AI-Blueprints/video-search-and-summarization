@@ -28,6 +28,7 @@ from .models import TimestampPoint
 from .models import TimeWindow
 from .models import UnifiedMemoryRecord
 from .store import coerce_utc_instant
+from .summary import SummaryExtension
 
 _ADAPTER_REGISTRY: dict[MemoryGroup, type[MemoryAdapter]] = {}
 
@@ -232,6 +233,7 @@ class SummaryAdapter(_BaseGroupAdapter):
         *,
         answer: str | None,
         events: list[dict[str, Any]] | None = None,
+        summary: SummaryExtension | dict[str, Any] | None = None,
         ext: dict[str, Any] | None = None,
         event_ids: list[str] | None = None,
         media_urls: list[str] | None = None,
@@ -240,6 +242,13 @@ class SummaryAdapter(_BaseGroupAdapter):
         normalized_events = [_require_row_timestamp(dict(event), kind="summary event") for event in (events or [])]
         resolved_event_ids = list(event_ids or _event_ids_from(normalized_events))
         payload_ext = dict(ext or {})
+        if summary is not None:
+            if "summary" in payload_ext:
+                raise ValueError("output.ext.summary must be supplied through the summary argument")
+            summary_model = (
+                summary if isinstance(summary, SummaryExtension) else SummaryExtension.model_validate(summary)
+            )
+            payload_ext["summary"] = summary_model.model_dump_summary()
         if "incidents" in payload_ext:
             incidents = payload_ext["incidents"]
             if not isinstance(incidents, list):
@@ -297,8 +306,12 @@ class SearchAdapter(_BaseGroupAdapter):
             if has_start and has_end:
                 start = window["start"]
                 end = window["end"]
-                start_ts = start["timestamp"] if isinstance(start, dict) else str(start)
-                end_ts = end["timestamp"] if isinstance(end, dict) else str(end)
+                start_value = start["timestamp"] if isinstance(start, dict) else str(start)
+                end_value = end["timestamp"] if isinstance(end, dict) else str(end)
+                start_ts = coerce_utc_instant(start_value)
+                end_ts = coerce_utc_instant(end_value)
+                if start_ts is None or end_ts is None:  # pragma: no cover - guarded by truthiness above
+                    raise ValueError("input.window timestamps must not be empty")
                 window_model = TimeWindow(
                     start=TimestampPoint(timestamp=start_ts),
                     end=TimestampPoint(timestamp=end_ts),

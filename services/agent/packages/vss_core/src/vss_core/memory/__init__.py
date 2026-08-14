@@ -14,6 +14,7 @@ from typing import Any
 
 __all__ = [
     "SCHEMA_ID",
+    "SUMMARY_SCHEMA_ID",
     "InMemoryStore",
     "JobFilters",
     "JobInfo",
@@ -26,6 +27,8 @@ __all__ = [
     "MemoryStore",
     "SearchAdapter",
     "SummaryAdapter",
+    "SummaryEvent",
+    "SummaryExtension",
     "UnifiedMemoryRecord",
     "build_memory_service",
     "get_adapter",
@@ -46,6 +49,9 @@ _LAZY_EXPORTS = {
     "MemoryNotFoundError": ".service",
     "build_memory_service": ".service",
     "SummaryAdapter": ".adapters",
+    "SUMMARY_SCHEMA_ID": ".summary",
+    "SummaryEvent": ".summary",
+    "SummaryExtension": ".summary",
     "SearchAdapter": ".adapters",
     "register_adapter": ".adapters",
     "get_adapter": ".adapters",
@@ -70,6 +76,9 @@ if TYPE_CHECKING:
     from .store import JobFilters
     from .store import MemoryQuery
     from .store import MemoryStore
+    from .summary import SUMMARY_SCHEMA_ID
+    from .summary import SummaryEvent
+    from .summary import SummaryExtension
 
 
 def __getattr__(name: str) -> Any:

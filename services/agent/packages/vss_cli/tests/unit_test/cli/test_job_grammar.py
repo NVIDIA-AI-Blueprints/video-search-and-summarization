@@ -125,7 +125,7 @@ def test_out_of_range_value_is_rejected() -> None:
 
 
 def test_read_verbs_fail_honestly_without_a_memory_tier() -> None:
-    """status/get/list are memory reads (SDD 6.2); vss_core ships no memory yet."""
+    """status/get/list fail clearly when no persistent deployment is configured."""
     for argv in (["status", "--job-id", "x"], ["get", "--job-id", "x"], ["list"]):
         result = CliRunner().invoke(_Group().cli(), argv)
         assert result.exit_code == int(Exit.CONFIGURATION), argv
@@ -226,10 +226,13 @@ def test_library_errors_map_to_exit_codes() -> None:
 
     class ConfigurationError(LibraryError): ...
 
+    class MemoryNotFoundError(LibraryError): ...
+
     # most-derived wins: IndexNotFoundError subclasses BackendUnreachableError
     assert _exit_for(IndexNotFoundError("gone")) == Exit.NOT_FOUND
     assert _exit_for(BackendUnreachableError("down")) == Exit.BACKEND_UNREACHABLE
     assert _exit_for(ConfigurationError("bad")) == Exit.CONFIGURATION
+    assert _exit_for(MemoryNotFoundError("missing")) == Exit.NOT_FOUND
     # anything unrecognised propagates rather than being flattened to one code
     assert _exit_for(RuntimeError("?")) is None
 

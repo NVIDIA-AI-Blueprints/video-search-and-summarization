@@ -31,6 +31,8 @@ from vss_core.memory.service import MemoryNotFoundError
 from vss_core.memory.service import MemoryService
 from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
+from vss_core.memory.summary import SUMMARY_SCHEMA_ID
+from vss_core.memory.summary import SummaryExtension
 
 
 def _sample_record(**overrides: object) -> UnifiedMemoryRecord:
@@ -372,6 +374,48 @@ def test_search_and_summary_adapters_map_results() -> None:
     assert "event_ids" not in search_out.handles.model_dump()
     assert "object_ids" not in search_out.handles.model_dump()
     assert "frame_ids" not in search_out.handles.model_dump()
+
+
+def test_summary_extension_is_nested_and_independently_versioned() -> None:
+    summary = SummaryExtension(
+        summary_id="completion-1",
+        events=[
+            {
+                "id": 1,
+                "start_time": 0.0,
+                "end_time": 10.0,
+                "type": "search",
+                "description": "An officer searches a vehicle.",
+            }
+        ],
+        total_events=1,
+        metadata={"model": "cosmos-reason"},
+    )
+    output = SummaryAdapter.build_output(answer="An officer searches a vehicle.", summary=summary)
+
+    assert output.ext == {
+        "summary": {
+            "schema": SUMMARY_SCHEMA_ID,
+            "summary_id": "completion-1",
+            "events": [
+                {
+                    "id": 1,
+                    "start_time": 0.0,
+                    "end_time": 10.0,
+                    "type": "search",
+                    "description": "An officer searches a vehicle.",
+                }
+            ],
+            "total_events": 1,
+            "metadata": {"model": "cosmos-reason"},
+        }
+    }
+    assert "events" not in output.ext
+
+
+def test_summary_extension_rejects_an_inconsistent_event_count() -> None:
+    with pytest.raises(ValidationError, match="total_events"):
+        SummaryExtension(summary_id="completion-1", events=[], total_events=1)
 
 
 def test_summary_events_require_timestamp() -> None:
