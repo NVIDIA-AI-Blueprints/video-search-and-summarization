@@ -13,7 +13,7 @@ SDK_REQUIREMENT = "claude-agent-sdk==0.2.128"
 
 def test_pr_and_daily_workflows_pin_every_python_job() -> None:
     python_job_counts = {
-        ".github/workflows/skills-eval.yml": 3,
+        ".github/workflows/skills-eval.yml": 2,
         ".github/workflows/skills-eval-daily.yml": 2,
     }
     for relative_path, python_job_count in python_job_counts.items():
