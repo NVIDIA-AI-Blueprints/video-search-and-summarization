@@ -28,7 +28,7 @@ dependencies:
   repository: file://../../../services/bp-configurator
   condition: bp-configurator.enabled
 - name: calibration-import
-  version: 3.2.0
+  version: 3.3.0
   repository: file://../../../services/calibration-import
   condition: calibration-import.enabled
 - name: rtvi
