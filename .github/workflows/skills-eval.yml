@@ -35,7 +35,7 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-query-analytics`)."
+        description: "Which skill to eval. NemoClaw sweeps use `nemoclaw-compatible-rtx` or `nemoclaw-compatible-l40s`; otherwise use `*` or a bare skill-dir name."
         required: false
         default: "*"
         type: string
@@ -383,6 +383,25 @@ jobs:
             exit 1
           fi
           INPUT_SKILLS="${INPUT_SKILLS:-*}"
+          MATRIX_ARGS=()
+          case "$INPUT_SKILLS" in
+            nemoclaw-compatible-rtx)
+              INPUT_SKILLS="*"
+              export NEMOCLAW_HARDWARE_PROFILE=RTXPRO6000BW
+              MATRIX_ARGS=(
+                --matrix-file .github/skill-eval/nemoclaw/compatible_matrix.json
+                --matrix-worker-profile RTXPRO6000BW
+              )
+              ;;
+            nemoclaw-compatible-l40s)
+              INPUT_SKILLS="*"
+              export NEMOCLAW_HARDWARE_PROFILE=L40S
+              MATRIX_ARGS=(
+                --matrix-file .github/skill-eval/nemoclaw/compatible_matrix.json
+                --matrix-worker-profile L40S
+              )
+              ;;
+          esac
 
           set -a
           source /home/ubuntu/eval-coordinator/.env
@@ -415,7 +434,7 @@ jobs:
           # skip optional tier presets that overlap with that policy.
           export NEMOCLAW_POLICY_MODE=skip
           export NEMOCLAW_INSTALL_REF=v0.0.108
-          export HARDWARE_PROFILE=RTXPRO6000BW
+          export HARDWARE_PROFILE="${NEMOCLAW_HARDWARE_PROFILE:-RTXPRO6000BW}"
           export NEMOCLAW_SETUP_TIMEOUT_SEC=5400
           export NEMOCLAW_AGENT_TIMEOUT_SEC=3300
           export NEMOCLAW_HARBOR_TIMEOUT_SEC=12600
@@ -424,7 +443,8 @@ jobs:
 
           python3 .github/skill-eval/nemoclaw/single_scenario.py \
             --instance "$NEMOCLAW_INSTANCE" \
-            --skills "$INPUT_SKILLS"
+            --skills "$INPUT_SKILLS" \
+            "${MATRIX_ARGS[@]}"
 
       - name: Collect Harbor result artifact
         if: always()
