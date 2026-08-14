@@ -63,6 +63,8 @@ fi
 # listener from metadata. Advertising the Docker bridge/container IP breaks the
 # in-container healthcheck and topic initialization in CI, so advertise loopback.
 HOST_IP="localhost"
+VSS_APPS_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker"
+SHARED_INFRA_COMPOSE="$VSS_APPS_DIR/services/infra/compose.yml"
 
 # Create/populate the .env file based on profiles
 ENV_FILE="$SCRIPT_DIR/docker_compose/.env"
@@ -89,8 +91,8 @@ PLAYBACK_MODE="$PLAYBACK_MODE"
 PROJ_ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MDX_SAMPLE_APPS_DIR="${SCRIPT_DIR}/docker_compose"
 MDX_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
-VSS_APPS_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker"
-SHARED_INFRA_COMPOSE="$VSS_APPS_DIR/services/infra/compose.yml"
+VSS_APPS_DIR="$VSS_APPS_DIR"
+SHARED_INFRA_COMPOSE="$SHARED_INFRA_COMPOSE"
 VSS_DATA_DIR="$MDX_DATA_DIR"
 
 # Host configuration
