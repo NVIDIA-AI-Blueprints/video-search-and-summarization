@@ -30,12 +30,39 @@ python3 /opt/wdm-runtime/envoy/generate_envoy_config_xds_mw.py \
 N=$(nproc)
 MAX=$((N - 1))
 [ "$MAX" -gt 63 ] && MAX=63
-echo "$(date '+%Y-%m-%d %H:%M:%S') info [envoy] Pinning envoy to CPUs 0-$MAX (host exposes $N CPU(s)) to avoid tcmalloc percpu crash"
-# Match SDRC Python layout: timestamp, level, [envoy], category, message.
+echo "$(date '+%Y-%m-%d %H:%M:%S') INFO [envoy] Pinning envoy to CPUs 0-$MAX (host exposes $N CPU(s)) to avoid tcmalloc percpu crash"
+# Match SDRC Python layout: timestamp, LEVEL, [envoy], category, message.
+# Envoy's %l is lowercase only; pipe through sed to emit INFO/DEBUG/… like SDRC.
 # Filter with: grep '\[envoy\]'  (see lib/logging/wdm_logging.py / README).
 ENVOY_LOG_FORMAT="${ENVOY_LOG_FORMAT:-%Y-%m-%d %T.%e %l [envoy] [%n] %v}"
-exec /usr/bin/taskset -c 0-"$MAX" /usr/local/bin/envoy \
+ENVOY_FIFO="${ENVOY_LOG_FIFO:-/tmp/envoy-sdrc.log.fifo}"
+rm -f "$ENVOY_FIFO"
+mkfifo "$ENVOY_FIFO"
+
+# Line-buffered: uppercase severity token after the timestamp.
+sed -u -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) (trace|debug|info|warning|error|critical) /\1 \U\2 /' \
+  < "$ENVOY_FIFO" &
+SED_PID=$!
+
+/usr/bin/taskset -c 0-"$MAX" /usr/local/bin/envoy \
   -c "$GEN_OUT" \
   --concurrency 16 \
   --base-id 1 \
-  --log-format "$ENVOY_LOG_FORMAT"
+  --log-format "$ENVOY_LOG_FORMAT" \
+  > "$ENVOY_FIFO" 2>&1 &
+ENVOY_PID=$!
+
+term_handler() {
+  kill -TERM "$ENVOY_PID" 2>/dev/null || true
+  wait "$ENVOY_PID" 2>/dev/null || true
+  kill "$SED_PID" 2>/dev/null || true
+  rm -f "$ENVOY_FIFO"
+  exit 0
+}
+trap term_handler TERM INT
+
+STATUS=0
+wait "$ENVOY_PID" || STATUS=$?
+kill "$SED_PID" 2>/dev/null || true
+rm -f "$ENVOY_FIFO"
+exit "$STATUS"
