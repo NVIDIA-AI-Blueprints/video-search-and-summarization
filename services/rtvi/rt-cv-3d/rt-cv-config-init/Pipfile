@@ -1,0 +1,12 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+numpy = "==2.2.6"
+PyYAML = "==6.0.2"
+tqdm = "==4.67.1"
+
+[requires]
+python_version = "3.13"

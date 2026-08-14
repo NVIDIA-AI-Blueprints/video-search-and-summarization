@@ -69,6 +69,27 @@ without editing this subchart.
 {{- printf "%s:%s" $repository $tag -}}
 {{- end -}}
 
+{{/*
+Managed-image resolution for the MV3DT config-init container.
+Same contract as vss-rtvi-cv.fusionImage, for the init container that generates
+camInfo and the pub/sub topology from calibration:
+- Default repository/tag come from values (ghcr.io/.../vss-rt-cv-mv3dt-config-init:develop-latest).
+- global.container_prefix overrides the repository prefix (uses image basename).
+- global.container_tag overrides the tag.
+*/}}
+{{- define "vss-rtvi-cv.configInitImage" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $dynamic := ((.Values.standaloneWarehouse | default dict).mv3dt | default dict).dynamicCameraConfig | default dict -}}
+{{- $img := ($dynamic.configInit | default dict).image | default dict -}}
+{{- $repository := $img.repository -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-rt-cv-mv3dt-config-init" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default $img.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+
 {{- define "vss-rtvi-cv.scriptsConfigMapName" -}}
 {{- if .Values.scripts.existingConfigMap }}
 {{- .Values.scripts.existingConfigMap }}
