@@ -22,15 +22,12 @@ FROM nvcr.io/nvidia/pytorch:26.03-py3 AS pytorch_src-arm64
 FROM pytorch_src-$TARGETARCH AS pytorch_src
 ##############################
 
-######## vLLM container
-FROM nvcr.io/nvidia/vllm:26.03-py3 AS vllm_src
-##############################
-
 ######### Define base image per platform
 FROM nvcr.io/nvidia/tritonserver:26.03-py3 AS base-amd64
 
 RUN wget -O /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 \
         https://github.com/NVIDIA/DeepStream/releases/download/v9.1.0/deepstream_sdk_v9.1.0_x86_64.tbz2 && \
+    echo "fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc  /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2" | sha256sum -c - && \
     tar xf /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 -C / && \
     /opt/nvidia/deepstream/deepstream-9.1/install.sh && \
     rm /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2
@@ -65,8 +62,8 @@ FROM builder-base-${TARGETARCH} AS video_sei_metadata_builder
 ARG TARGETARCH
 
 # Install build dependencies (header is bundled in source).
-# Bind-mount ubuntu.sources like other stages so apt does not rely on
-# archive.ubuntu.com (often blocked or flaky off-corporate-network).
+# Bind the public Ubuntu source configuration so this stage also works on
+# GitHub-hosted CI runners without NVIDIA internal-network access.
 RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
     apt update && apt install -y --no-install-recommends \
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev pkg-config \
@@ -76,7 +73,7 @@ RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt
 # the public GitHub SDK in base-amd64; ARM uses the DeepStream base image.
 
 # Install pybind11 Python module and ensure python3-config is available
-RUN pip install pybind11 && \
+RUN pip install --index-url https://pypi.org/simple pybind11 && \
     if [ ! -f /usr/bin/python3-config ] && [ -f /usr/bin/python3.12-config ]; then \
         ln -sf /usr/bin/python3.12-config /usr/bin/python3-config; \
     fi
@@ -106,12 +103,6 @@ ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
     HF_HOME=/tmp/huggingface \
     TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 8.7 9.0 10.0 11.0 12.0+PTX" \
     CUDA_CACHE_DISABLE=0 \
-    TRITON_CUDACRT_PATH=/usr/local/cuda/include \
-    TRITON_CUDART_PATH=/usr/local/cuda/include \
-    TRITON_CUOBJDUMP_PATH=/usr/local/cuda/bin/cuobjdump \
-    TRITON_CUPTI_PATH=/usr/local/cuda/include \
-    TRITON_NVDISASM_PATH=/usr/local/cuda/bin/nvdisasm \
-    TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     GST_PLUGIN_PATH=/opt/nvidia/rtvi/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins
 
 # Set LD_LIBRARY_PATH to include DeepStream libs (needed for gst_video_sei_meta module).
@@ -248,23 +239,8 @@ RUN --mount=type=bind,source=docker/binaries/,target=/tmp/binaries \
 
 RUN --mount=type=bind,from=generate-requirements,source=/tmp/python/requirements.txt,target=/tmp/requirements.txt \
     --mount=type=cache,target=/root/.cache/pip \
-    pip install -r /tmp/requirements.txt --no-deps --ignore-installed \
+    pip install --index-url https://pypi.org/simple -r /tmp/requirements.txt --no-deps --ignore-installed \
     && rm -f /usr/local/lib/python3.12/dist-packages/decord.libs/libx264*
-
-# The SBSA FlashInfer cubin wheel bundles the TensorRT-LLM batched-GEMM
-# headers in its versioned artifact directory, while the runtime looks for
-# them under the FlashInfer cache path. Populate that path at build time so
-# the non-root VLM user does not attempt to write under site-packages.
-RUN if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "sbsa" ]; then \
-        set -eux; cubin_root=/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins; \
-        artifact_rel=b55211623be7f5697c5262ffd8361fc06c147bc9/batched_gemm-b3c1646-c111d7c; \
-        source_rel=include/trtllmGen_bmm_export; \
-        destination="$cubin_root/flashinfer/trtllm/batched_gemm/trtllmGen_bmm_export"; \
-        cd "$cubin_root/$artifact_rel"; \
-        grep -E "  include/(flashinferMetaInfo[.]h|trtllmGen_bmm_export/)" checksums.txt | sha256sum -c -; \
-        mkdir -p "$destination"; cp -a "$cubin_root/$artifact_rel/$source_rel/." "$destination/"; \
-        printf '%s' "$artifact_rel/" > "$destination/.artifact_hash"; \
-    fi
 
 RUN --mount=type=bind,from=pytorch_src,source=/usr/local/lib/python3.12/dist-packages,target=/tmp/pytorch_src \
     /bin/bash -lc 'set -e; shopt -s nullglob; \
@@ -329,7 +305,7 @@ COPY src/ /opt/nvidia/rtvi/src/
 RUN mkdir -p /opt/mm/
 
 # Install transformers==4.52.4 needed by Cosmos-Embed1-448p model
-RUN pip install transformers==4.52.4 >/dev/null
+RUN pip install --index-url https://pypi.org/simple transformers==4.52.4 >/dev/null
 
 # DLFW 26.03 carries Torch 2.11 while onnxscript 0.5.7 has shims up to Torch 2.9.
 # Cosmos-Embed1 model repo generation imports the Torch-versioned onnxscript shim.
