@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_container_tag_source import (  # noqa: E402
+    IMAGE_CONFIGS,
     image_refs_in_text,
     resolve_compose_vars,
 )
@@ -146,6 +147,33 @@ services:
             "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-deadbeef",
         )
         self.assertEqual(missing, ())
+
+    def test_rtvi_embed_source_mapping_and_fixed_deployment_coordinate(self):
+        config = IMAGE_CONFIGS["vss-rt-embed"]
+        self.assertEqual(config.source_path, Path("services/rtvi/rt-embed"))
+
+        compose = Path(
+            "deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml"
+        ).read_text()
+        refs = image_refs_in_text(compose, config.compose_names())
+        self.assertEqual(len(refs), 1)
+
+        resolved, missing = resolve_compose_vars(refs[0], {})
+        self.assertEqual(missing, ())
+        self.assertEqual(
+            resolved,
+            "nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4",
+        )
+
+        overridden, missing = resolve_compose_vars(
+            refs[0],
+            {
+                "RTVI_EMBED_IMAGE": "registry.example/rtvi-embed",
+                "RTVI_EMBED_TAG": "immutable-tag",
+            },
+        )
+        self.assertEqual(missing, ())
+        self.assertEqual(overridden, "registry.example/rtvi-embed:immutable-tag")
 
 
 if __name__ == "__main__":
