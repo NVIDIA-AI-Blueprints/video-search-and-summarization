@@ -334,12 +334,9 @@ rtvi:
   vss-rtvi-embed:
     enabled: true
     replicas: 1
-    # Shared managed-image channel (ghcr_build: true in container-inventory.json).
-    # Keep aligned with the rtvi-embed subchart default so global.container_prefix /
-    # global.container_tag continue to drive the resolved image.
     image:
-      repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
-      tag: develop-latest
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+      tag: "3.3.0-26.07.4"
       pullPolicy: IfNotPresent
     port: 8000
     service:

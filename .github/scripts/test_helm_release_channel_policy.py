@@ -100,6 +100,9 @@ HELM_HELPERS = {
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
     ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/templates/_helpers.tpl",
+    ],
 }
 COMPOSE_FILES = {
     "vss-agent": ["deploy/docker/services/agent/compose.yml"],
