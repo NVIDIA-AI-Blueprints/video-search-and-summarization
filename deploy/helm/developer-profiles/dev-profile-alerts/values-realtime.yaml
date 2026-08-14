@@ -97,6 +97,12 @@ rtvi:
         value: "kafka"
       - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
         value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
+        value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
+        value: "1024"
+      - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
+        value: "false"
       # Optional EVS++ session controls.
       - name: VIA_EVS_SESSION
         value: ""

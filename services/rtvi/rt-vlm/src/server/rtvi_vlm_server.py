@@ -24,6 +24,7 @@ import functools
 import gc
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -121,6 +122,8 @@ from gi.repository import GstRtsp  # noqa: E402
 API_PREFIX = "/v1"
 CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC = 0.001
 GENERATE_CAPTIONS_STREAM_POLL_INTERVAL_SEC = 0.001
+DEFAULT_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC = 300.0
+INPUT_MEDIA_VERIFICATION_TIMEOUT_ENV = "VSS_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC"
 
 # Cache environment variables for performance
 _SKIP_INPUT_MEDIA_VERIFICATION = not os.environ.get("VSS_SKIP_INPUT_MEDIA_VERIFICATION", "")
@@ -160,6 +163,42 @@ def _create_vlm_query(query_data: dict) -> VlmQuery:
         return VlmQuery(**query_data)
     except ValidationError as e:
         raise ServiceException(str(e), "InvalidParameters", 400) from e
+
+
+def _input_media_verification_timeout_sec() -> float:
+    raw_timeout = os.environ.get(INPUT_MEDIA_VERIFICATION_TIMEOUT_ENV, "")
+    if not raw_timeout:
+        return DEFAULT_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC
+
+    try:
+        timeout_sec = float(raw_timeout)
+    except ValueError:
+        timeout_sec = 0
+
+    if not math.isfinite(timeout_sec) or timeout_sec <= 0:
+        logger.warning(
+            "Invalid %s=%r; using default %.0fs",
+            INPUT_MEDIA_VERIFICATION_TIMEOUT_ENV,
+            raw_timeout,
+            DEFAULT_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC,
+        )
+        return DEFAULT_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC
+    return timeout_sec
+
+
+async def _get_media_info_with_timeout(media_path: str, media_label: str):
+    timeout_sec = _input_media_verification_timeout_sec()
+    try:
+        return await asyncio.wait_for(
+            MediaFileInfo.get_info_async(media_path),
+            timeout=timeout_sec,
+        )
+    except asyncio.TimeoutError as err:
+        raise ServiceException(
+            f"Timed out verifying {media_label} after {timeout_sec:g}s",
+            "InvalidFile",
+            400,
+        ) from err
 
 
 def _build_chat_content_with_think_tags(content: str, reasoning_description: str = "") -> str:
@@ -309,6 +348,7 @@ async def _delete_live_streams_batch_impl(
                     stream_handler.remove_rtsp_stream,
                     asset,
                     drain_timeout_sec=drain_timeout_sec,
+                    abort_inflight=request.blocking,
                 ),
             )
             await loop.run_in_executor(
@@ -383,6 +423,7 @@ class RTVIServer:
         self._cleanup_executor = ThreadPoolExecutor(
             max_workers=4, thread_name_prefix="rtvi-cleanup"
         )
+        self._temporary_chat_asset_cleanup_tasks = set()
 
         # Use FastAPI to implement the REST API
         openapi_tags = [
@@ -930,10 +971,46 @@ class RTVIServer:
             return
 
         loop = asyncio.get_running_loop()
+        cleaned_asset_ids = set()
         for temp_asset_id in temp_asset_ids:
+            if temp_asset_id in cleaned_asset_ids:
+                continue
+            cleaned_asset_ids.add(temp_asset_id)
+
             try:
                 asset = self._asset_manager.get_asset(temp_asset_id)
                 await _await_file_release(asset, temp_asset_id)
+            except ServiceException as e:
+                logger.warning(
+                    "Failed to inspect temporary chat asset %s before cleanup: %s",
+                    temp_asset_id,
+                    e.message,
+                )
+                continue
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error inspecting temporary chat asset %s before cleanup: %s",
+                    temp_asset_id,
+                    e,
+                    exc_info=True,
+                )
+                continue
+
+            try:
+                await loop.run_in_executor(
+                    self._async_executor,
+                    self._stream_handler.remove_video_file,
+                    asset,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to deregister temporary chat asset %s from VLM handler: %s",
+                    temp_asset_id,
+                    e,
+                    exc_info=True,
+                )
+
+            try:
                 await loop.run_in_executor(
                     self._async_executor,
                     functools.partial(
@@ -955,6 +1032,41 @@ class RTVIServer:
                     e,
                     exc_info=True,
                 )
+
+    def _track_temporary_chat_asset_cleanup_task(self, task: asyncio.Task) -> None:
+        self._temporary_chat_asset_cleanup_tasks.add(task)
+
+        def _cleanup_done(completed_task: asyncio.Task) -> None:
+            self._temporary_chat_asset_cleanup_tasks.discard(completed_task)
+            try:
+                completed_task.result()
+            except asyncio.CancelledError:
+                logger.warning("Temporary chat asset cleanup task was cancelled")
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error in temporary chat asset cleanup task: %s",
+                    e,
+                    exc_info=True,
+                )
+
+        task.add_done_callback(_cleanup_done)
+
+    async def _cleanup_temporary_chat_assets_after_stream_close(
+        self, temp_asset_ids: list[str]
+    ) -> None:
+        if not temp_asset_ids:
+            return
+
+        cleanup_task = asyncio.create_task(self._cleanup_temporary_chat_assets(temp_asset_ids))
+        self._track_temporary_chat_asset_cleanup_task(cleanup_task)
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            logger.info(
+                "Temporary chat asset cleanup will continue after stream cancellation: %s",
+                ",".join(temp_asset_ids),
+            )
+            raise
 
     def _build_vlm_query_from_cv_metadata(self, asset_id, metadata):
         """Build VlmQuery from CV StreamMetadata for auto-inference."""
@@ -1101,6 +1213,7 @@ class RTVIServer:
         vlm_query: VlmQuery,
         video_id_list: List[str],
         log_prefix: str = "VLM",
+        is_chat_completion: bool = False,
     ) -> tuple[str, Asset, List[Asset]]:
         """
         Common helper method to process VLM requests (validate, get assets, generate request ID).
@@ -1240,9 +1353,15 @@ class RTVIServer:
             # Each live generate request is an independent query, even when it
             # targets a stream that was already added through /streams/add.
             try:
+                generate_captions = self._stream_handler.generate_vlm_captions
+                if is_chat_completion:
+                    generate_captions = functools.partial(
+                        generate_captions,
+                        is_chat_completion=True,
+                    )
                 request_id = await loop.run_in_executor(
                     self._async_executor,
-                    self._stream_handler.generate_vlm_captions,
+                    generate_captions,
                     [asset],  # Pass as list for consistency
                     vlm_query,
                     True,  # is_rtsp=True for rtsp stream
@@ -1260,9 +1379,15 @@ class RTVIServer:
                 asset_list = [asset]
             # Summarize on a file or multiple files
             try:
+                generate_captions = self._stream_handler.generate_vlm_captions
+                if is_chat_completion:
+                    generate_captions = functools.partial(
+                        generate_captions,
+                        is_chat_completion=True,
+                    )
                 request_id = await loop.run_in_executor(
                     self._async_executor,
-                    self._stream_handler.generate_vlm_captions,
+                    generate_captions,
                     asset_list,
                     vlm_query,
                     False,  # is_rtsp=False for file
@@ -1685,9 +1810,15 @@ class RTVIServer:
                 raise
 
             asset = self._asset_manager.get_asset(video_id)
+            media_type_value = (
+                media_type.value if isinstance(media_type, MediaType) else str(media_type)
+            )
             try:
                 if _SKIP_INPUT_MEDIA_VERIFICATION:
-                    media_info = await MediaFileInfo.get_info_async(asset.path)
+                    media_info = await _get_media_info_with_timeout(
+                        asset.path,
+                        f"{media_type_value} file {asset.filename}",
+                    )
                     if not media_info.video_codec:
                         raise Exception("Invalid file")
                     if (media_type == "image") != media_info.is_image:
@@ -1696,14 +1827,27 @@ class RTVIServer:
                     # Cache video FPS in the asset
                     if media_type == "video" and hasattr(media_info, "video_fps"):
                         asset.update_video_fps(float(media_info.video_fps))
+            except ServiceException as e:
+                logger.error(
+                    "Failed to verify %s file %s: %s",
+                    media_type_value,
+                    asset.filename,
+                    e.message,
+                )
+                self._asset_manager.cleanup_asset(video_id)
+                self._stream_handler._send_error_message_to_kafka(
+                    f"File does not seem to be a valid {media_type_value} file: {e.message}",
+                    asset.asset_id,
+                )
+                raise
             except Exception as e:
                 logger.error("".join(traceback.format_exception(e)))
                 self._asset_manager.cleanup_asset(video_id)
                 self._stream_handler._send_error_message_to_kafka(
-                    f"File does not seem to be a valid {media_type} file", asset.asset_id
+                    f"File does not seem to be a valid {media_type_value} file", asset.asset_id
                 )
                 raise ServiceException(
-                    f"File does not seem to be a valid {media_type} file",
+                    f"File does not seem to be a valid {media_type_value} file",
                     "InvalidFile",
                     400,
                 )
@@ -3147,18 +3291,26 @@ class RTVIServer:
                         get_frame_sampling_params_from_media_io_kwargs(request_body.media_io_kwargs)
                     )
                 except (ValueError, TypeError) as e:
+                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
                     raise ServiceException(
                         f"Invalid media_io_kwargs.video value: {e}",
                         "InvalidParameters",
                         400,
                     ) from e
-            vlm_query = _create_vlm_query(vlm_query_dict)
+            try:
+                vlm_query = _create_vlm_query(vlm_query_dict)
+            except Exception:
+                await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                raise
 
             # Use common helper to process VLM request
             # ServiceException from _process_vlm_request will be caught by exception handler
             try:
                 request_id, asset, assetList = await self._process_vlm_request(
-                    vlm_query, videoIdList, log_prefix="NIM chat completion"
+                    vlm_query,
+                    videoIdList,
+                    log_prefix="NIM chat completion",
+                    is_chat_completion=True,
                 )
             except ServiceException:
                 await self._cleanup_temporary_chat_assets(temp_asset_ids)
@@ -3185,6 +3337,7 @@ class RTVIServer:
                 # Allow only one SSE reader for this request. Multiple requests
                 # may independently target the same file or live stream asset.
                 if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
+                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
                     )
@@ -3332,34 +3485,35 @@ class RTVIServer:
                                     final_created = int(req_info.queue_time)
                                 except ServiceException:
                                     break
+                        # Send final chunk with finish_reason
+                        response = {
+                            "id": str(request_id),
+                            "object": "chat.completion.chunk",
+                            "created": final_created,
+                            "model": model_info.id,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {},
+                                    "finish_reason": "stop",
+                                }
+                            ],
+                        }
+                        # EventSourceResponse adds "data: " prefix automatically
+                        yield json.dumps(response)
+                        # Send final done message - EventSourceResponse handles this
+                        yield "[DONE]"
                     finally:
                         self._sse_active_clients.pop(sse_client_key, None)
-                        await self._cleanup_temporary_chat_assets(temp_asset_ids)
-
-                    # Send final chunk with finish_reason
-                    response = {
-                        "id": str(request_id),
-                        "object": "chat.completion.chunk",
-                        "created": final_created,
-                        "model": model_info.id,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {},
-                                "finish_reason": "stop",
-                            }
-                        ],
-                    }
-                    # EventSourceResponse adds "data: " prefix automatically
-                    yield json.dumps(response)
-                    # Send final done message - EventSourceResponse handles this
-                    yield "[DONE]"
+                        await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
 
                 try:
                     return EventSourceResponse(chat_message_generator(), send_timeout=5, ping=1)
                 except ServiceException:
+                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
                     raise
                 except Exception as ex:
+                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
                     self._stream_handler._send_error_message_to_kafka(
                         VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
                         videoId,
@@ -3430,8 +3584,6 @@ class RTVIServer:
                         total_tokens=text_prompt_tokens + total_output_tokens,
                     )
 
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
-
                     return ChatCompletionResponse(
                         id=str(request_id),
                         created=int(req_info.queue_time),
@@ -3450,6 +3602,8 @@ class RTVIServer:
                     raise ServiceException(
                         "Failed to generate chat completion.", "InternalServerError", 500
                     ) from ex
+                finally:
+                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
 
         @self._app.post(
             f"{API_PREFIX}/completions",
