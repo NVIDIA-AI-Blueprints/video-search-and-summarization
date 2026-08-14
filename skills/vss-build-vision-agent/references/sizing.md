@@ -27,8 +27,10 @@ contract.
    headroom under load.
 5. Use a remote endpoint only when the user requested one or approved it after
    local sizing failed.
-6. Put every selected device ID and utilization value in the build
-   `override.env`, resolve Compose, and verify those values in `resolved.yml`.
+6. Put every device ID and utilization value the placement **changes** from the
+   Foundation default into the build `override.env` (with its derived closure; do
+   not repeat unchanged defaults, per `composition.md`), resolve Compose, and
+   verify the full effective placement in `resolved.yml`.
 7. Under load, watch `nvidia-smi` and model-service logs. Tune one variable at
    a time and regenerate `resolved.yml`.
 
