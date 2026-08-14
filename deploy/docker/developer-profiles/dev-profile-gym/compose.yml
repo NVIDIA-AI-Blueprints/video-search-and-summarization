@@ -13,21 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include:
-  - path: ./dev-profile-base/compose.yml
-    env_file:
-      - ${VSS_APPS_DIR}/services/vios/vst.env
-  - path: ./dev-profile-gym/compose.yml
-    env_file:
-      - ${VSS_APPS_DIR}/services/vios/vst.env
-  - path: ./dev-profile-lvs/compose.yml
-    env_file:
-      - ${VSS_APPS_DIR}/services/vios/vst.env
-  - path: ./dev-profile-alerts/compose.yml
-    env_file:
-      - ${VSS_APPS_DIR}/services/vios/vst.env
-      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
-  - path: ./dev-profile-search/compose.yml
-    env_file:
-      - ${VSS_APPS_DIR}/services/vios/vst.env
-      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
+# Defines no services of its own: every developer-profile compose file is
+# included unconditionally and selection happens through COMPOSE_PROFILES, so
+# gym-eval (defined in dev-profile-base) is activated from overrides.env.
