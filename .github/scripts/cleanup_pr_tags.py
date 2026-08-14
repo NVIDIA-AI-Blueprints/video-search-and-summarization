@@ -24,6 +24,25 @@ whole version. The cost of being wrong in that direction is deleting a live
 develop image, which is unrecoverable without a rebuild; the cost of being
 conservative is a retained tag. Untagged versions are left alone entirely: they
 are not ours to reason about here.
+
+DETACH — why the rule above deleted nothing
+-------------------------------------------
+Every publishing build pushes the content tag ``tree-<tree_sha>`` alongside the
+candidate tag, so in practice *almost every* PR digest carries a foreign tag and
+the rule above keeps it. Measured on PR #1623: ``0 version(s) deleted, 14 kept``.
+The Packages API has no untag operation — only whole-version deletion — so the
+tags cannot be separated by deleting.
+
+They can be separated by *retagging*. GHCR tags are mutable (that is how
+``develop-latest`` moves), so pointing this PR's tags at a throwaway manifest
+leaves the real digest holding only ``tree-``/``develop-`` and puts the PR tags
+on a scratch digest whose every tag belongs to the PR — which the unchanged rule
+above then deletes.
+
+``--emit-detach-plan`` prints the ``<package> <tag>`` pairs to retag. The
+workflow performs the retag (it needs a registry client, this script deliberately
+speaks only to the REST API) and then runs the normal delete pass. Detaching is
+best-effort: if it fails, the tags stay where they are and nothing is lost.
 """
 from __future__ import annotations
 
@@ -60,6 +79,20 @@ def is_deletable(tags: list[str], pattern: re.Pattern[str]) -> tuple[bool, str]:
     return True, f"only this PR's tags ({', '.join(sorted(owned))})"
 
 
+def detachable_tags(tags: list[str], pattern: re.Pattern[str]) -> list[str]:
+    """This PR's tags on a version that :func:`is_deletable` refuses to delete.
+
+    Empty when the version has no foreign tag (the delete pass handles it) or no
+    tag of this PR's (not ours to touch).
+    """
+    owned = sorted(tag for tag in tags if pattern.fullmatch(tag))
+    if not owned:
+        return []
+    if len(owned) == len(tags):
+        return []  # deletable outright — no need to detach first
+    return owned
+
+
 def ghcr_packages(inventory: dict) -> list[str]:
     """GHCR package names (``vss/<image>``) from the container inventory."""
     images = inventory.get("images") or []
@@ -87,6 +120,35 @@ def _request(method: str, url: str) -> object:
         raise
 
 
+PER_PAGE = 100
+
+
+def iter_versions(
+    org: str, package: str, requester: Requester = _request
+) -> list[dict]:
+    """Every version of ``package``, following pagination.
+
+    These packages routinely run to several pages — ``vss/vss-agent`` alone has
+    600 versions — so a single ``per_page=100`` request silently sees a fraction
+    of them and leaves the rest of the PR's tags behind.
+    """
+    encoded = urllib.parse.quote(package, safe="")
+    versions: list[dict] = []
+    page = 1
+    while True:
+        url = (
+            f"{API_ROOT}/orgs/{org}/packages/container/{encoded}"
+            f"/versions?per_page={PER_PAGE}&page={page}"
+        )
+        batch = requester("GET", url)
+        if not batch:
+            return versions
+        versions.extend(batch)
+        if len(batch) < PER_PAGE:
+            return versions
+        page += 1
+
+
 def plan_deletions(
     org: str,
     package: str,
@@ -97,9 +159,7 @@ def plan_deletions(
 
     ``to_delete`` is ``(version_id, reason)``; ``skipped`` is ``(tags, reason)``.
     """
-    encoded = urllib.parse.quote(package, safe="")
-    url = f"{API_ROOT}/orgs/{org}/packages/container/{encoded}/versions?per_page=100"
-    versions = requester("GET", url)
+    versions = iter_versions(org, package, requester)
     if not versions:
         return [], []
     pattern = pr_tag_pattern(pr_number)
@@ -119,6 +179,42 @@ def plan_deletions(
     return to_delete, skipped
 
 
+def plan_detach(
+    org: str,
+    package: str,
+    pr_number: int,
+    requester: Requester = _request,
+) -> list[str]:
+    """Return this PR's tags that sit on versions the delete pass must keep."""
+    versions = iter_versions(org, package, requester)
+    if not versions:
+        return []
+    pattern = pr_tag_pattern(pr_number)
+    tags: list[str] = []
+    for version in versions:
+        version_tags = (
+            ((version.get("metadata") or {}).get("container") or {}).get("tags") or []
+        )
+        tags.extend(detachable_tags(list(version_tags), pattern))
+    return sorted(set(tags))
+
+
+def emit_detach_plan(org: str, packages: list[str], pr_number: int) -> int:
+    """Print ``<package> <tag>`` pairs for the workflow to retag. Never fails."""
+    pairs = 0
+    for package in packages:
+        try:
+            tags = plan_detach(org, package, pr_number)
+        except urllib.error.HTTPError as exc:
+            print(f"[pr-tags] {package}: SKIP (HTTP {exc.code})", file=sys.stderr)
+            continue
+        for tag in tags:
+            print(f"{package} {tag}")
+            pairs += 1
+    print(f"[pr-tags] detach plan: {pairs} tag(s) to move", file=sys.stderr)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--org", required=True)
@@ -129,10 +225,22 @@ def main() -> int:
         default=Path("deploy/docker/container-inventory.json"),
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--emit-detach-plan",
+        action="store_true",
+        help=(
+            "Print '<package> <tag>' for this PR's tags that share a digest with a "
+            "foreign tag, then exit. Deletes nothing."
+        ),
+    )
     args = parser.parse_args()
 
     inventory = json.loads(args.inventory.read_text())
     packages = ghcr_packages(inventory)
+
+    if args.emit_detach_plan:
+        return emit_detach_plan(args.org, packages, args.pr)
+
     print(f"[pr-tags] PR #{args.pr}: scanning {len(packages)} GHCR packages")
 
     deleted = kept = 0
