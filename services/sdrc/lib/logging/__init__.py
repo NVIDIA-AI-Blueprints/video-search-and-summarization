@@ -14,13 +14,35 @@
 # limitations under the License.
 
 from lib.logging.wdm_logging import (
+    ContextAndTraceFilter,
+    JsonFormatter,
+    RateLimitedLogger,
+    TextFormatter,
     WlObjectNameFilter,
+    bind_context,
+    clear_context,
     configure_root_logging,
+    get_context,
+    log_event,
+    log_rate_limited,
+    parse_log_level,
+    reset_context,
     wdm_log_formatter,
 )
 
 __all__ = [
+    "ContextAndTraceFilter",
+    "JsonFormatter",
+    "RateLimitedLogger",
+    "TextFormatter",
     "WlObjectNameFilter",
+    "bind_context",
+    "clear_context",
     "configure_root_logging",
+    "get_context",
+    "log_event",
+    "log_rate_limited",
+    "parse_log_level",
+    "reset_context",
     "wdm_log_formatter",
 ]
