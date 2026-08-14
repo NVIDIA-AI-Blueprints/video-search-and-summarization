@@ -50,13 +50,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      build-behavior-analytics: ${{ steps.analytics-changes.outputs.behavior }}
-      build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
+      build-behavior-analytics: ${{ steps.managed-image-changes.outputs.behavior }}
+      build-video-analytics-api: ${{ steps.managed-image-changes.outputs.video }}
       current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
       current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
-      sdr-mw-l-changed: ${{ steps.analytics-changes.outputs.sdr-mw-l }}
-      vss-configurator-changed: ${{ steps.analytics-changes.outputs.vss-configurator }}
-      vss-rt-config-adaptor-changed: ${{ steps.analytics-changes.outputs.vss-rt-config-adaptor }}
+      sdr-mw-l-changed: ${{ steps.managed-image-changes.outputs.sdr-mw-l }}
+      vss-configurator-changed: ${{ steps.managed-image-changes.outputs.vss-configurator }}
+      vss-rt-config-adaptor-changed: ${{ steps.managed-image-changes.outputs.vss-rt-config-adaptor }}
       unit-test-workflow-changed: ${{ steps.changed-paths.outputs.unit-test-workflow-changed }}
       trigger-from-src-change: ${{ steps.changed-paths.outputs.trigger-from-src-change }}
     steps:
@@ -128,7 +128,7 @@ jobs:
           PY
 
       - name: Detect managed image changes
-        id: analytics-changes
+        id: managed-image-changes
         run: |
           python3 .github/scripts/detect_changed_images.py \
             --event-name "${{ github.event_name }}" \
