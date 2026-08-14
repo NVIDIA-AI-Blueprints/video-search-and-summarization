@@ -154,10 +154,11 @@ public:
         int ret = 0;
         int maxRetries = 3; // Total attempts including the first try
         int attempt = 0;
+        RtspServer* rtspserver = nullptr;
 
         if (!url.empty())
         {
-            RtspServer* rtspserver = getRtspServerFromDbList(streamId);
+            rtspserver = getRtspServerFromDbList(streamId);
             if (rtspserver == nullptr)
             {
                 rtspserver = rtspServer();
@@ -183,10 +184,18 @@ public:
 
         if (ret == 0)
         {
-            /* A round-robin fashion */
+            /* Round-robin, but publish the index of the instance the proxy was
+             * actually created on (rtspserver) instead of the free-running
+             * m_currentServerIndex, which a concurrent addProxyStream() may have
+             * advanced between selection and here. Otherwise the client URL
+             * derived from m_serverIndexMap can point at a different instance
+             * than the one hosting the session -> persistent 404 Stream Not
+             * Found and a stream that never starts. */
             std::lock_guard<std::mutex> guard(m_serverMapLock);
-            m_serverIndexMap[streamId] = m_currentServerIndex;
-            m_currentServerIndex = (m_currentServerIndex + 1) % m_serversCount;
+            int usedIndex = (rtspserver != nullptr) ? serverIndexOf(rtspserver)
+                                                    : static_cast<int>(m_currentServerIndex.load());
+            m_serverIndexMap[streamId] = usedIndex;
+            m_currentServerIndex = (usedIndex + 1) % m_serversCount;
         }
         return ret;
     }
@@ -204,10 +213,13 @@ public:
         {
             rtspserver->addStream(streamId, url);
 
-            /* A round-robin fashion */
+            /* Publish the index of the instance actually used (see
+             * addProxyStream()), so the map never diverges from where the
+             * session lives under concurrent registration. */
             std::lock_guard<std::mutex> guard(m_serverMapLock);
-            m_serverIndexMap[streamId] = m_currentServerIndex;
-            m_currentServerIndex = (m_currentServerIndex + 1) % m_serversCount;
+            int usedIndex = serverIndexOf(rtspserver);
+            m_serverIndexMap[streamId] = usedIndex;
+            m_currentServerIndex = (usedIndex + 1) % m_serversCount;
         }
         return ret;
     }
@@ -310,6 +322,25 @@ public:
     }
 
 private:
+    /* Index of `server` within m_servers, or the current round-robin index as a
+     * fallback. Lets addProxyStream()/addStream() publish the index of the
+     * instance the session was actually created on, so a concurrent restore
+     * cannot leave m_serverIndexMap pointing at a different instance than the
+     * one hosting the session (which surfaced as a persistent "404 Stream Not
+     * Found" on the client and a stream that never started). m_servers is
+     * immutable between start() and stop(); callers hold m_serverMapLock. */
+    int serverIndexOf(const RtspServer* server) const
+    {
+        for (int i = 0; i < static_cast<int>(m_servers.size()); ++i)
+        {
+            if (m_servers[i].get() == server)
+            {
+                return i;
+            }
+        }
+        return static_cast<int>(m_currentServerIndex.load());
+    }
+
     std::vector<std::unique_ptr<RtspServer>> m_servers;
     uint16_t m_serversCount = 0;
     std::atomic<unsigned int> m_currentServerIndex{0};
