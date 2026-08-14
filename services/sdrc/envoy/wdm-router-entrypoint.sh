@@ -31,16 +31,16 @@ N=$(nproc)
 MAX=$((N - 1))
 [ "$MAX" -gt 63 ] && MAX=63
 echo "$(date '+%Y-%m-%d %H:%M:%S') INFO [envoy] Pinning envoy to CPUs 0-$MAX (host exposes $N CPU(s)) to avoid tcmalloc percpu crash"
-# Match SDRC Python layout: timestamp, LEVEL, [envoy], category, message.
+# Match SDRC Python layout: YYYY-MM-DD HH:MM:SS, LEVEL, [envoy], category, message.
 # Envoy's %l is lowercase only; pipe through sed to emit INFO/DEBUG/… like SDRC.
 # Filter with: grep '\[envoy\]'  (see lib/logging/wdm_logging.py / README).
-ENVOY_LOG_FORMAT="${ENVOY_LOG_FORMAT:-%Y-%m-%d %T.%e %l [envoy] [%n] %v}"
+ENVOY_LOG_FORMAT="${ENVOY_LOG_FORMAT:-%Y-%m-%d %T %l [envoy] [%n] %v}"
 ENVOY_FIFO="${ENVOY_LOG_FIFO:-/tmp/envoy-sdrc.log.fifo}"
 rm -f "$ENVOY_FIFO"
 mkfifo "$ENVOY_FIFO"
 
-# Line-buffered: uppercase severity token after the timestamp.
-sed -u -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) (trace|debug|info|warning|error|critical) /\1 \U\2 /' \
+# Line-buffered: uppercase severity token after the timestamp (with or without ms).
+sed -u -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?) (trace|debug|info|warning|error|critical) /\1 \U\3 /' \
   < "$ENVOY_FIFO" &
 SED_PID=$!
 
