@@ -27,7 +27,6 @@ SKILLS_ROOT = REPO_ROOT / "skills"
 if str(SKILL_EVAL_ROOT) not in sys.path:
     sys.path.insert(0, str(SKILL_EVAL_ROOT))
 
-from plan_matrix import build_matrix, list_changed_files
 from run_leg import HARBOR_REQUIREMENT, run_command
 
 DEFAULT_DATASET_ROOT = Path("/tmp/skill-eval/datasets/nemoclaw")
@@ -144,20 +143,17 @@ def _validate_instance(instance: str) -> None:
         raise RuntimeError(f"cannot reach explicit NemoClaw worker {instance!r}")
 
 
-def _selected_rows(skills: str) -> list[MatrixRow]:
-    requested = skills.strip() or "*"
-    previous = os.environ.get("MANUAL_SKILLS_FILTER")
-    os.environ["MANUAL_SKILLS_FILTER"] = requested
-    try:
-        planned = build_matrix(list_changed_files())
-    finally:
-        if previous is None:
-            os.environ.pop("MANUAL_SKILLS_FILTER", None)
-        else:
-            os.environ["MANUAL_SKILLS_FILTER"] = previous
-
+def _rows_from_plan(document: object) -> list[MatrixRow]:
+    if not isinstance(document, dict):
+        raise TypeError("shared eval plan must be an object")
+    planned = document.get("include")
+    if not isinstance(planned, list) or not planned:
+        raise ValueError("shared eval plan must contain a non-empty include list")
     rows: list[MatrixRow] = []
-    for item in planned:
+    seen: set[str] = set()
+    for index, item in enumerate(planned):
+        if not isinstance(item, dict):
+            raise TypeError(f"shared eval plan row {index} must be an object")
         kind = str(item.get("kind") or "")
         skill = str(item.get("skill") or "")
         spec = str(item.get("spec_stem") or "")
@@ -170,12 +166,21 @@ def _selected_rows(skills: str) -> list[MatrixRow]:
             raise ValueError(f"invalid skill-eval plan row: {item!r}")
         if kind == "eval" and not spec_file:
             raise ValueError(f"incomplete skill-eval plan row: {item!r}")
+        if slug in seen:
+            raise ValueError(f"duplicate skill-eval plan slug: {slug!r}")
+        seen.add(slug)
         rows.append(MatrixRow(skill, spec, spec_file, platform, kind, slug))
     return rows
 
 
+def _load_plan_file(path: Path) -> list[MatrixRow]:
+    return _rows_from_plan(json.loads(path.read_text(encoding="utf-8")))
+
+
 def _load_matrix_file(
-    path: Path, worker_profile: str = ""
+    path: Path,
+    planned_rows: list[MatrixRow],
+    worker_profile: str = "",
 ) -> tuple[list[MatrixRow], dict[str, int]]:
     document = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(document, dict) or document.get("schema_version") != 1:
@@ -184,7 +189,11 @@ def _load_matrix_file(
     if not isinstance(configured, list) or not configured:
         raise ValueError(f"{path}: rows must be a non-empty list")
 
-    planned = {(row.skill, row.spec, row.platform): row for row in _selected_rows("*")}
+    planned = {
+        (row.skill, row.spec, row.platform): row
+        for row in planned_rows
+        if row.kind == "eval"
+    }
     rows: list[MatrixRow] = []
     task_limits: dict[str, int] = {}
     seen: set[tuple[str, str, str]] = set()
@@ -841,7 +850,7 @@ def _write_aggregate(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instance", default=os.environ.get("NEMOCLAW_INSTANCE", ""))
-    parser.add_argument("--skills", default=os.environ.get("INPUT_SKILLS", "*"))
+    parser.add_argument("--plan-file", required=True)
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--results-root", default=str(DEFAULT_RESULTS_ROOT))
     parser.add_argument("--scratch-root", default=str(DEFAULT_SCRATCH_ROOT))
@@ -865,13 +874,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    planned_rows = _load_plan_file(Path(args.plan_file))
     task_limits: dict[str, int] = {}
     if args.matrix_file:
         rows, task_limits = _load_matrix_file(
-            Path(args.matrix_file), args.matrix_worker_profile
+            Path(args.matrix_file), planned_rows, args.matrix_worker_profile
         )
     else:
-        rows = _selected_rows(args.skills)
+        rows = planned_rows
     if args.print_matrix:
         print(_matrix_json(rows, task_limits))
         return 0

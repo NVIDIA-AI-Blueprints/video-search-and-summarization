@@ -396,6 +396,22 @@ class SingleScenarioTests(unittest.TestCase):
             "single_scenario",
             NEMOCLAW_DIR / "single_scenario.py",
         )
+        cls.planner = _load(
+            "plan_matrix_for_nemoclaw_tests",
+            REPO_ROOT / ".github/skill-eval/plan_matrix.py",
+        )
+
+    def _planned_rows(self, skills: str):
+        with mock.patch.dict(
+            os.environ,
+            {"MANUAL_SKILLS_FILTER": skills},
+            clear=False,
+        ):
+            os.environ.pop("CHANGED_FILES", None)
+            changed = self.planner.list_changed_files()
+        return self.scenario._rows_from_plan(
+            {"include": self.planner.build_matrix(changed)}
+        )
 
     def test_task_wrapper_is_fail_closed_nemoclaw_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -432,8 +448,8 @@ class SingleScenarioTests(unittest.TestCase):
             self.assertIn("Original eval request", prompt)
             self.assertIn("Deploy the base profile.", prompt)
 
-    def test_matrix_comes_from_the_shared_skill_eval_planner(self) -> None:
-        rows = self.scenario._selected_rows("vss-query-analytics")
+    def test_serial_runner_consumes_the_shared_skill_eval_plan(self) -> None:
+        rows = self._planned_rows("vss-query-analytics")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].skill, "vss-query-analytics")
         self.assertEqual(rows[0].spec, "query_analytics")
@@ -443,11 +459,26 @@ class SingleScenarioTests(unittest.TestCase):
         )
         self.assertEqual(rows[0].kind, "eval")
         with self.assertRaisesRegex(ValueError, "does not exist|skill not found"):
-            self.scenario._selected_rows("not-a-skill")
+            self._planned_rows("not-a-skill")
+
+    def test_shared_plan_rows_are_validated_at_the_serial_boundary(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-empty include"):
+            self.scenario._rows_from_plan({"include": []})
+        with self.assertRaisesRegex(ValueError, "duplicate.*slug"):
+            row = {
+                "skill": "vss-query-analytics",
+                "spec_stem": "query_analytics",
+                "spec_path": "skills/vss-query-analytics/evals/query_analytics.json",
+                "platform": "RTXPRO6000BW",
+                "kind": "eval",
+                "slug": "vss-query-analytics__query_analytics__RTXPRO6000BW",
+            }
+            self.scenario._rows_from_plan({"include": [row, row]})
 
     def test_compatible_matrix_selects_validated_shared_plan_rows(self) -> None:
         rows, task_limits = self.scenario._load_matrix_file(
-            self.scenario.DEFAULT_COMPATIBLE_MATRIX
+            self.scenario.DEFAULT_COMPATIBLE_MATRIX,
+            self._planned_rows("*"),
         )
         self.assertEqual(len(rows), 8)
         self.assertEqual(sum(task_limits.values()), 19)
@@ -466,10 +497,14 @@ class SingleScenarioTests(unittest.TestCase):
             },
         )
         rtx_rows, rtx_limits = self.scenario._load_matrix_file(
-            self.scenario.DEFAULT_COMPATIBLE_MATRIX, "RTXPRO6000BW"
+            self.scenario.DEFAULT_COMPATIBLE_MATRIX,
+            self._planned_rows("*"),
+            "RTXPRO6000BW",
         )
         l40s_rows, l40s_limits = self.scenario._load_matrix_file(
-            self.scenario.DEFAULT_COMPATIBLE_MATRIX, "L40S"
+            self.scenario.DEFAULT_COMPATIBLE_MATRIX,
+            self._planned_rows("*"),
+            "L40S",
         )
         self.assertEqual((len(rtx_rows), sum(rtx_limits.values())), (5, 11))
         self.assertEqual((len(l40s_rows), sum(l40s_limits.values())), (3, 8))
@@ -482,10 +517,10 @@ class SingleScenarioTests(unittest.TestCase):
     def test_common_adapter_contract_generates_complete_ordered_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            rows = self.scenario._selected_rows("vss-query-analytics")
+            rows = self._planned_rows("vss-query-analytics")
             rows += [
                 row
-                for row in self.scenario._selected_rows("vss-deploy-profile")
+                for row in self._planned_rows("vss-deploy-profile")
                 if row.spec == "base" and row.platform == "RTXPRO6000BW"
             ]
             self.assertEqual(len(rows), 2)
@@ -515,7 +550,7 @@ class SingleScenarioTests(unittest.TestCase):
                     self.assertIn("GPU resource boundary", prompt)
 
     def test_every_planned_adapter_exposes_the_common_cli(self) -> None:
-        rows = self.scenario._selected_rows("*")
+        rows = self._planned_rows("*")
         skills = sorted({row.skill for row in rows if row.kind == "eval"})
         self.assertTrue(skills)
         for skill in skills:
@@ -699,7 +734,7 @@ class SingleScenarioTests(unittest.TestCase):
         )
 
     def test_aggregate_treats_semantic_failure_as_reported(self) -> None:
-        rows = self.scenario._selected_rows("vss-setup-behavior-analytics")[:2]
+        rows = self._planned_rows("vss-setup-behavior-analytics")[:2]
         records = [
             {
                 "skill": rows[0].skill,
@@ -899,13 +934,18 @@ class WorkflowScopeTests(unittest.TestCase):
         workflow = (REPO_ROOT / ".github/workflows/skills-eval.yml").read_text(
             encoding="utf-8"
         )
+        plan_job = workflow.split("  plan:\n", 1)[1].split("\n  eval:\n", 1)[0]
+        nemoclaw_job = workflow.split("  nemoclaw-eval:\n", 1)[1]
         self.assertIn('default: "claude-code"', workflow)
-        self.assertIn("inputs.runner != 'nemoclaw'", workflow)
+        self.assertNotIn("inputs.runner != 'nemoclaw'", plan_job)
+        self.assertIn("needs: plan", nemoclaw_job)
+        self.assertIn("EVAL_PLAN_JSON: ${{ needs.plan.outputs.matrix }}", workflow)
         self.assertIn("nemoclaw_instance must name", workflow)
         self.assertIn("timeout-minutes: 380", workflow)
         self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
-        self.assertIn('--skills "$INPUT_SKILLS"', workflow)
+        self.assertIn('--plan-file "$PLAN_FILE"', workflow)
+        self.assertNotIn('--skills "$INPUT_SKILLS"', workflow)
         self.assertIn("nemoclaw-compatible-rtx", workflow)
         self.assertIn("nemoclaw-compatible-l40s", workflow)
         self.assertIn(
