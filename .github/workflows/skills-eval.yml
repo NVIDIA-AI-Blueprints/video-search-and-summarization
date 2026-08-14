@@ -382,8 +382,9 @@ jobs:
           export PR_REPO="${{ github.repository }}"
           export SKILLS_EVAL_RUNNER=nemoclaw
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
-          # Each matrix leg owns one sandbox lifecycle on the reserved worker.
-          export NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}-${{ strategy.job-index }}"
+          # The workflow serializes access to this worker. Reuse one CI sandbox
+          # name so the next run can destroy it cleanly before onboarding.
+          export NEMOCLAW_SANDBOX_NAME="skill-eval"
           # Keep CI's NemoClaw gateway/state separate from interactive sandboxes
           # already registered on the worker's default port (8080).
           export NEMOCLAW_GATEWAY_PORT=8990

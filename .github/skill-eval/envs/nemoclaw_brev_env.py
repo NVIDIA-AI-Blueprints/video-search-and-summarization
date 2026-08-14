@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Brev environment that adds the opt-in NemoClaw notebook setup."""
+"""Brev environment that runs the checked-in NemoClaw setup notebooks."""
 
 from __future__ import annotations
 
@@ -52,12 +52,11 @@ def _bounded_setup_timeout() -> int:
 
 
 def _forwarded_nemoclaw_env() -> str:
-    values: list[tuple[str, str]] = []
-    for key in _SETUP_KEYS:
-        value = os.environ.get(key)
-        if value is not None:
-            values.append((key, value))
-    # These empty values are intentional on the one-GPU representative task.
+    values = [
+        (key, value)
+        for key in _SETUP_KEYS
+        if (value := os.environ.get(key)) is not None
+    ]
     values.extend(
         [
             ("AGENT_RUNTIME", "openclaw"),
@@ -69,10 +68,23 @@ def _forwarded_nemoclaw_env() -> str:
     return "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values)
 
 
+def _destroy_sandbox_command(sandbox: str) -> str:
+    quoted = shlex.quote(sandbox)
+    return f"""
+set -e
+set +u
+. "$HOME/.profile" 2>/dev/null || true
+set -u
+if command -v nemoclaw >/dev/null 2>&1 && \
+   command -v openshell >/dev/null 2>&1 && \
+   openshell sandbox get {quoted} >/dev/null 2>&1; then
+  timeout --signal=TERM --kill-after=30 600s \
+    nemoclaw {quoted} destroy --yes
+fi
+""".strip()
+
+
 def _setup_command(timeout: int) -> str:
-    # Reserve time for the venv and command/transport headroom inside the
-    # total setup budget. Readiness is part of the notebook execution.
-    adapter_timeout = max(300, timeout - 1500)
     return f"""
 set -e
 set +u
@@ -81,414 +93,44 @@ set -u
 . "$HOME/.eval_env"
 cd "$HOME/video-search-and-summarization"
 scratch=/tmp/skill-eval/nemoclaw
-venv="$scratch/notebook-venv"
-# A retry of the same Actions run reuses its run-scoped sandbox name. Remove
-# that sandbox before running the notebook; onboarding itself stays unchanged.
-if command -v nemoclaw >/dev/null 2>&1 && \
-   command -v openshell >/dev/null 2>&1 && \
-   openshell sandbox get "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1; then
-  timeout --signal=TERM --kill-after=30 600s \
-    nemoclaw "$NEMOCLAW_SANDBOX_NAME" destroy --yes
-fi
-# Earlier skill-eval runs can leave rows written by older NemoClaw schemas.
-# Remove only known CI sandbox names from the default and gateway-scoped
-# registries before the current `se-<run-id>` sandbox is onboarded.
-python3 - <<'__NEMOCLAW_LEGACY_ROW_CLEANUP__'
-import json
-import os
-import re
-import stat
-from pathlib import Path
-
-home = Path.home()
-state_root = home / ".nemoclaw"
-registries = [state_root / "sandboxes.json"]
-gateways = state_root / "gateways"
-if os.path.lexists(gateways):
-    gateways_metadata = gateways.lstat()
-    if stat.S_ISLNK(gateways_metadata.st_mode) or not stat.S_ISDIR(
-        gateways_metadata.st_mode
-    ):
-        raise SystemExit(f"Refusing unsafe NemoClaw gateways path: {{gateways}}")
-    if gateways_metadata.st_uid != os.getuid():
-        raise SystemExit(
-            f"Refusing NemoClaw gateways owned by uid {{gateways_metadata.st_uid}}"
-        )
-    for gateway in gateways.iterdir():
-        if not re.fullmatch(r"[0-9]{{1,5}}", gateway.name):
-            continue
-        gateway_port = int(gateway.name)
-        if not 1 <= gateway_port <= 65535:
-            continue
-        gateway_metadata = gateway.lstat()
-        if stat.S_ISLNK(gateway_metadata.st_mode) or not stat.S_ISDIR(
-            gateway_metadata.st_mode
-        ):
-            raise SystemExit(f"Refusing unsafe NemoClaw gateway path: {{gateway}}")
-        if gateway_metadata.st_uid != os.getuid():
-            raise SystemExit(
-                f"Refusing NemoClaw gateway owned by uid {{gateway_metadata.st_uid}}"
-            )
-        registries.append(gateway / "sandboxes.json")
-
-legacy_name = re.compile(
-    r"(?:skill-eval-[0-9]+|se-[0-9]+|"
-    r"vss-eval-u[0-9]+-p[0-9]+(?:-nc[0-9]+-c[0-9]+)?)"
-)
-for registry in registries:
-    if not os.path.lexists(registry):
-        continue
-    metadata = registry.lstat()
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-        raise SystemExit(f"Refusing unsafe NemoClaw registry path: {{registry}}")
-    if metadata.st_uid != os.getuid():
-        raise SystemExit(f"Refusing NemoClaw registry owned by uid {{metadata.st_uid}}")
-    if metadata.st_size > 16 * 1024 * 1024:
-        raise SystemExit(f"Refusing oversized NemoClaw registry: {{registry}}")
-    document = json.loads(registry.read_text(encoding="utf-8"))
-    sandboxes = document.get("sandboxes")
-    if not isinstance(sandboxes, dict):
-        raise SystemExit("NemoClaw registry has no sandbox mapping")
-    legacy = [name for name in sandboxes if legacy_name.fullmatch(name)]
-    if legacy:
-        for name in legacy:
-            del sandboxes[name]
-        if document.get("defaultSandbox") in legacy:
-            document["defaultSandbox"] = None
-        replacement = registry.with_name(f".{{registry.name}}.skill-eval-{{os.getpid()}}")
-        with replacement.open("x", encoding="utf-8") as stream:
-            json.dump(document, stream, indent=2)
-            stream.write("\\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(replacement, stat.S_IMODE(metadata.st_mode))
-        os.replace(replacement, registry)
-        print(
-            f"Removed {{len(legacy)}} stale skill-eval row(s) from {{registry}}"
-        )
-__NEMOCLAW_LEGACY_ROW_CLEANUP__
-# The Docker reset runs before this command. Remove the remaining host-side
-# state that Docker cannot see so both notebooks start from a deterministic
-# baseline while retaining image and package caches.
-for cleanup_path in \
-  "$scratch" \
-  "$PWD/.orchestrator-artifacts" \
-  "$PWD/services/agent/.venv"; do
-  [ ! -L "$cleanup_path" ] || {{
-    echo "Refusing symlinked notebook cleanup path: $cleanup_path" >&2
-    exit 1
-  }}
-  rm -rf -- "$cleanup_path" 2>/dev/null || true
-  if [ -e "$cleanup_path" ]; then
-    sudo -n rm -rf -- "$cleanup_path"
-  fi
-  [ ! -e "$cleanup_path" ] || {{
-    echo "Notebook cleanup did not remove: $cleanup_path" >&2
-    exit 1
-  }}
-done
 mkdir -p "$scratch"
-# Reuse #925's narrow warm-worker repair: a prior sudo-run gateway can leave
-# only its SQLite files root-owned. Refuse symlinks and unexpected owners;
-# never recurse through the user's state tree.
-gateway_state="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
-if [ -d "$gateway_state" ]; then
-  for state_path in \
-    "$HOME/.local" \
-    "$HOME/.local/state" \
-    "$HOME/.local/state/nemoclaw" \
-    "$gateway_state"; do
-    [ ! -L "$state_path" ] || {{
-      echo "Refusing symlinked OpenShell state path: $state_path" >&2
-      exit 1
-    }}
-  done
-  current_uid=$(id -u)
-  current_gid=$(id -g)
-  for db_name in openshell.db openshell.db-wal openshell.db-shm; do
-    db_path="$gateway_state/$db_name"
-    [ -e "$db_path" ] || continue
-    [ ! -L "$db_path" ] || {{
-      echo "Refusing symlinked OpenShell database: $db_path" >&2
-      exit 1
-    }}
-    db_uid=$(stat -c %u -- "$db_path")
-    [ "$db_uid" != "0" ] || \
-      sudo -n chown --no-dereference "$current_uid:$current_gid" -- "$db_path"
-    db_uid=$(stat -c %u -- "$db_path")
-    [ "$db_uid" = "$current_uid" ] || {{
-      echo "Unexpected OpenShell database owner $db_uid: $db_path" >&2
-      exit 1
-    }}
-  done
-fi
-export PATH="$HOME/.local/bin:$PATH"
-# The OpenShell gateway is a host process. A previous generic Docker reset
-# may have pruned its bridge while leaving the listener alive. Reuse #925's
-# scoped lifecycle helper so onboarding can recreate the bridge; a free port
-# needs no repair.
-gateway_port="${{NEMOCLAW_GATEWAY_PORT:-8080}}"
-case "$gateway_port" in
-  ""|*[!0-9]*)
-    echo "Invalid NEMOCLAW_GATEWAY_PORT: $gateway_port" >&2
-    exit 1
-    ;;
-esac
-if [ "$gateway_port" -lt 1024 ] || [ "$gateway_port" -gt 65535 ]; then
-  echo "NEMOCLAW_GATEWAY_PORT is outside 1024-65535: $gateway_port" >&2
-  exit 1
-fi
-gateway_port_is_free() {{
-  python3 - "$gateway_port" <<'__NEMOCLAW_PORT_PROBE__'
-import socket
-import sys
-
-with socket.socket() as probe:
-    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        probe.bind(("127.0.0.1", int(sys.argv[1])))
-    except OSError:
-        raise SystemExit(1)
-__NEMOCLAW_PORT_PROBE__
-}}
-openshell_network_names="$(docker network ls \
-  --filter type=custom --format '{{{{.Name}}}}')" || {{
-  echo "Failed to inspect the OpenShell Docker network before setup" >&2
-  exit 1
-}}
-if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
-  if gateway_port_is_free; then
-    echo "OpenShell bridge is absent; fresh onboarding will recreate it"
-  else
-    gateway_release_module="$HOME/.nemoclaw/source/dist/lib/tunnel/gateway-port-release.js"
-    gateway_release_status=0
-    if command -v node >/dev/null 2>&1 && \
-       [ -f "$gateway_release_module" ]; then
-      (
-        GATEWAY_RELEASE_MODULE="$gateway_release_module" \
-        GATEWAY_RELEASE_PORT="$gateway_port" \
-          node <<'__NEMOCLAW_GATEWAY_RELEASE__'
-const modulePath = process.env.GATEWAY_RELEASE_MODULE;
-const port = Number(process.env.GATEWAY_RELEASE_PORT);
-const runtime = require(modulePath);
-const result = runtime.releaseManagedGatewayPort({{
-  port,
-  confirmTimeoutMs: 5000,
-  confirmPollIntervalMs: 100,
-}});
-if (result && result.skipped === true) {{
-  process.exit(42);
-}}
-if (!result || result.released !== true) {{
-  console.error(
-    `Scoped NemoClaw gateway release failed for port ${{port}}: ` +
-      JSON.stringify(result),
-  );
-  process.exit(1);
-}}
-__NEMOCLAW_GATEWAY_RELEASE__
-      ) || gateway_release_status=$?
-    else
-      gateway_release_status=1
-    fi
-    if [ "$gateway_release_status" -eq 42 ]; then
-      echo "Cannot safely release stale OpenShell gateway: lifecycle authority refused" >&2
-      exit 1
-    fi
-    if [ "$gateway_release_status" -ne 0 ]; then
-      if ! [ -x /usr/bin/lsof ] && ! [ -x /usr/sbin/lsof ] && \
-         ! [ -x /bin/lsof ] && ! [ -x /sbin/lsof ]; then
-        if ! command -v apt-get >/dev/null 2>&1 || \
-           ! sudo -n true >/dev/null 2>&1; then
-          echo "Cannot install trusted lsof for scoped gateway recovery" >&2
-          exit 1
-        fi
-        sudo -n apt-get update -qq
-        sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive \
-          apt-get install -y -qq lsof
-      fi
-      /usr/bin/python3 \
-        .github/skill-eval/nemoclaw/release_gateway_port.py \
-        --port "$gateway_port"
-    fi
-    gateway_port_is_free || {{
-      echo "OpenShell gateway port $gateway_port remains busy after recovery" >&2
-      exit 1
-    }}
-    echo "Released stale OpenShell gateway; onboarding will recreate its bridge"
-  fi
-fi
-if ! command -v uv >/dev/null 2>&1; then
-  timeout --signal=TERM --kill-after=30 300s \
-    sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
-  export PATH="$HOME/.local/bin:$PATH"
-fi
-# Some Brev images still default to Python 3.10, while the current notebook
-# helpers use StrEnum. Run the notebook with the repo's CI Python contract.
-# Reinstall without uv's download cache because warm workers can retain a
-# partially written managed interpreter after an interrupted prior setup.
-timeout --signal=TERM --kill-after=30 600s \
-  uv python install --reinstall --force --no-cache 3.12
-timeout --signal=TERM --kill-after=30 600s \
-  uv venv --managed-python --python 3.12 --clear "$venv"
-timeout --signal=TERM --kill-after=30 600s \
-  uv pip install --python "$venv/bin/python" \
-    nbformat nbclient ipykernel
-"$venv/bin/python" -m ipykernel install --user \
-  --name nemoclaw-skill-eval --display-name "NemoClaw skill eval"
-export NEMOCLAW_CI_KERNEL=nemoclaw-skill-eval
-export NEMOCLAW_SETUP_CELL_TIMEOUT_SEC={adapter_timeout}
-timeout --signal=TERM --kill-after=120 {adapter_timeout}s \
-  "$venv/bin/python" \
-  .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
+export NEMOCLAW_SETUP_CELL_TIMEOUT_SEC={timeout}
+timeout --signal=TERM --kill-after=120 {timeout}s \
+  python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --env-out "$scratch/nemoclaw.env" \
   --timeout "$NEMOCLAW_SETUP_CELL_TIMEOUT_SEC"
 """.strip()
 
 
 class NemoClawBrevEnvironment(BrevEnvironment):
-    """Run normal Brev preparation, then both setup notebooks once."""
+    """Run normal Brev preparation, then the checked-in setup notebooks."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._nemoclaw_ready = False
 
-    async def _reset_docker_runtime(self) -> None:
-        """Reset the worker while retaining a valid OpenShell bridge.
-
-        OpenShell's Docker gateway runs on the host. The base reset removes
-        unused custom networks, which can strand that live gateway with a
-        recorded route to a deleted ``openshell-docker`` bridge. This is the
-        scoped preservation behavior already proven in #925: only the exact
-        OpenShell-managed IPv4 bridge is allowed to survive.
-        """
-        cmd = r"""set -euo pipefail
-docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
-cids=$(docker ps -aq) || { echo "failed to enumerate docker containers" >&2; exit 1; }
-if [ -n "$cids" ]; then
-  docker rm -f $cids >/dev/null || {
-    echo "failed to remove docker containers during reset" >&2
-    exit 1
-  }
-fi
-vols=$(docker volume ls -q) || { echo "failed to enumerate docker volumes" >&2; exit 1; }
-if [ -n "$vols" ]; then
-  docker volume rm -f $vols >/dev/null || {
-    echo "failed to remove docker volumes during reset" >&2
-    exit 1
-  }
-fi
-validate_openshell_network() {
-  network_id="$1"
-  network_driver=$(docker network inspect --format '{{.Driver}}' "$network_id") || {
-    echo "failed to inspect driver for OpenShell network $network_id" >&2
-    return 1
-  }
-  network_owner=$(docker network inspect \
-    --format '{{index .Labels "openshell.ai/managed-by"}}' "$network_id") || {
-    echo "failed to inspect owner for OpenShell network $network_id" >&2
-    return 1
-  }
-  network_gateways=$(docker network inspect \
-    --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' "$network_id") || {
-    echo "failed to inspect IPAM for OpenShell network $network_id" >&2
-    return 1
-  }
-  [ "$network_driver" = "bridge" ] || {
-    echo "refusing to preserve OpenShell network with driver $network_driver" >&2
-    return 1
-  }
-  [ "$network_owner" = "openshell" ] || {
-    echo "refusing to preserve OpenShell network without managed ownership label" >&2
-    return 1
-  }
-  has_ipv4_gateway=0
-  for network_gateway in $network_gateways; do
-    if python3 -c \
-      'import ipaddress,sys; raise SystemExit(ipaddress.ip_address(sys.argv[1]).version != 4)' \
-      "$network_gateway"; then
-      has_ipv4_gateway=1
-      break
-    fi
-  done
-  [ "$has_ipv4_gateway" = "1" ] || {
-    echo "refusing to preserve OpenShell network without an IPv4 IPAM gateway" >&2
-    return 1
-  }
-}
-network_ids=$(docker network ls --filter type=custom -q) || {
-  echo "failed to enumerate docker networks during reset" >&2
-  exit 1
-}
-for network_id in $network_ids; do
-  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
-    echo "failed to inspect docker network $network_id during reset" >&2
-    exit 1
-  }
-  if [ "$network_name" = "openshell-docker" ]; then
-    validate_openshell_network "$network_id"
-    continue
-  fi
-  docker network rm "$network_id" >/dev/null || {
-    echo "failed to remove docker network $network_name ($network_id)" >&2
-    exit 1
-  }
-done
-docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
-rc=$(docker ps -aq | wc -l | tr -d ' ')
-rv=$(docker volume ls -q | wc -l | tr -d ' ')
-rn=0
-surviving_network_ids=$(docker network ls --filter type=custom -q) || {
-  echo "failed to enumerate surviving docker networks" >&2
-  exit 1
-}
-for network_id in $surviving_network_ids; do
-  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
-    echo "failed to inspect surviving docker network $network_id" >&2
-    exit 1
-  }
-  if [ "$network_name" = "openshell-docker" ]; then
-    validate_openshell_network "$network_id"
-  else
-    rn=$((rn + 1))
-  fi
-done
-if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
-  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} unexpected user-defined networks remain" >&2
-  exit 1
-fi
-echo "docker runtime reset OK; images and valid OpenShell bridge preserved when present ($(docker images -q | wc -l | tr -d ' ') layers)"
-"""
-        logger.info(
-            "Resetting Docker runtime while preserving the validated "
-            "OpenShell bridge on %s",
-            self._instance_name,
-        )
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
-        if result.return_code != 0:
-            tail = "\n".join(
-                part
-                for part in (
-                    (result.stdout or "").strip(),
-                    (result.stderr or "").strip(),
-                )
-                if part
-            )[-2000:]
-            raise RuntimeError(
-                f"Docker runtime reset failed on {self._instance_name}: "
-                f"exit {result.return_code}; tail:\n{tail}"
-            )
-        logger.info(
-            "Docker reset on %s: %s",
-            self._instance_name,
-            (result.stdout or "").strip().splitlines()[-1]
-            if result.stdout
-            else "<no output>",
-        )
-
     async def start(self, force_build: bool) -> None:
         if self._nemoclaw_ready:
             return
+
+        # Use one stable CI sandbox name per locked worker. Destroying it
+        # before the base provider resets Docker gives onboarding a clean
+        # lifecycle without teaching this harness how to repair host state.
+        instance = self._resolve_instance_name()
+        sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval")
+        if instance:
+            destroyed = await _run_brev_exec(
+                instance,
+                _destroy_sandbox_command(sandbox),
+                timeout=660,
+            )
+            if destroyed.return_code != 0:
+                detail = (destroyed.stderr or destroyed.stdout or "")[-2000:]
+                raise RuntimeError(
+                    f"Could not destroy existing NemoClaw sandbox {sandbox!r}:\n"
+                    f"{detail}"
+                )
+
         await super().start(force_build)
         if self._instance_name is None:
             raise RuntimeError("NemoClaw setup requires an explicit Brev instance")
@@ -511,7 +153,7 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
 
         timeout = _bounded_setup_timeout()
         logger.info(
-            "Running both NemoClaw setup notebooks end to end on %s (timeout=%ss)",
+            "Running NemoClaw setup notebooks on %s (timeout=%ss)",
             self._instance_name,
             timeout,
         )
@@ -523,7 +165,8 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
         if result.return_code != 0:
             detail = (result.stderr or result.stdout or "")[-12000:]
             raise RuntimeError(
-                f"NemoClaw notebook setup failed (exit {result.return_code}):\n{detail}"
+                f"NemoClaw notebook setup failed (exit {result.return_code}):\n"
+                f"{detail}"
             )
         self._nemoclaw_ready = True
         logger.info("NemoClaw is ready on %s", self._instance_name)
