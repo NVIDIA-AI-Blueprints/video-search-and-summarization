@@ -4,11 +4,9 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 import os
 import shlex
-from pathlib import Path
 
 from envs.brev_env import BrevEnvironment, _run_brev_exec
 
@@ -43,6 +41,13 @@ _SETUP_KEYS = (
     "RTSP_SAMPLE_URL",
 )
 
+_NEMOCLAW_DEFAULTS = {
+    "NEMOCLAW_INSTALL_REF": "v0.0.108",
+    "NEMOCLAW_SANDBOX_NAME": "skill-eval",
+    "NEMOCLAW_GATEWAY_PORT": "8990",
+    "NEMOCLAW_POLICY_MODE": "skip",
+}
+
 
 def _bounded_setup_timeout() -> int:
     value = int(os.environ.get("NEMOCLAW_SETUP_TIMEOUT_SEC", "5400"))
@@ -52,11 +57,21 @@ def _bounded_setup_timeout() -> int:
 
 
 def _forwarded_nemoclaw_env() -> str:
-    values = [
-        (key, value)
-        for key in _SETUP_KEYS
-        if (value := os.environ.get(key)) is not None
-    ]
+    defaults = dict(_NEMOCLAW_DEFAULTS)
+    run_id = os.environ.get("GITHUB_RUN_ID", "0")
+    if run_id.isdigit():
+        defaults["NEMOCLAW_DASHBOARD_PORT"] = str(20000 + int(run_id) % 40000)
+    platform = os.environ.get("EVAL_PLATFORM", "")
+    if platform in {"L40S", "RTXPRO6000BW"}:
+        defaults["HARDWARE_PROFILE"] = platform
+    elif platform == "ANY":
+        defaults["HARDWARE_PROFILE"] = "RTXPRO6000BW"
+
+    values = []
+    for key in _SETUP_KEYS:
+        value = os.environ.get(key, defaults.get(key))
+        if value is not None:
+            values.append((key, value))
     values.extend(
         [
             ("AGENT_RUNTIME", "openclaw"),
@@ -137,12 +152,6 @@ class NemoClawBrevEnvironment(BrevEnvironment):
         if self._instance_name is None:
             raise RuntimeError("NemoClaw setup requires an explicit Brev instance")
 
-        metadata = self._read_task_metadata()
-        if metadata.get("runner") != "nemoclaw":
-            raise RuntimeError(
-                "NemoClawBrevEnvironment requires metadata.runner='nemoclaw'"
-            )
-
         env_block = _forwarded_nemoclaw_env()
         append = (
             "cat >> \"$HOME/.eval_env\" <<'__NEMOCLAW_ENV__'\n"
@@ -167,73 +176,7 @@ class NemoClawBrevEnvironment(BrevEnvironment):
         if result.return_code != 0:
             detail = (result.stderr or result.stdout or "")[-12000:]
             raise RuntimeError(
-                f"NemoClaw notebook setup failed (exit {result.return_code}):\n"
-                f"{detail}"
+                f"NemoClaw notebook setup failed (exit {result.return_code}):\n{detail}"
             )
         self._nemoclaw_ready = True
         logger.info("NemoClaw is ready on %s", self._instance_name)
-
-    async def exec(
-        self,
-        command: str,
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
-        timeout_sec: int | None = None,
-        user: str | int | None = None,
-    ):
-        metadata = self._read_task_metadata()
-        is_nemoclaw = metadata.get("runner") == "nemoclaw"
-        is_claude_agent = "claude --verbose --output-format=stream-json" in command
-        if not is_nemoclaw or not is_claude_agent:
-            return await super().exec(
-                command,
-                cwd=cwd,
-                env=env,
-                timeout_sec=timeout_sec,
-                user=user,
-            )
-
-        instructions = [
-            value
-            for key, value in (env or {}).items()
-            if key.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")
-        ]
-        if "headless_runner.py" not in command and not any(
-            "headless_runner.py" in value for value in instructions
-        ):
-            raise RuntimeError(
-                "NemoClaw task is missing the expected Harbor launcher instruction"
-            )
-        prompt_path = Path(self.environment_dir).parent / "tests" / "nemoclaw_prompt.md"
-        if not prompt_path.is_file():
-            raise RuntimeError(
-                "NemoClaw prompt is unavailable; refusing to run outer Claude"
-            )
-        prompt_b64 = base64.b64encode(prompt_path.read_bytes()).decode("ascii")
-        agent_timeout = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "3300"))
-        launcher = f"""set -euo pipefail
-cd "$HOME/video-search-and-summarization"
-mkdir -p /tmp/skill-eval/nemoclaw /logs/agent /logs/artifacts/nemoclaw
-printf %s {shlex.quote(prompt_b64)} | base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md
-cat > /logs/agent/claude-code.txt <<'__NEMOCLAW__'
-Harbor intentionally bypassed outer Claude for this opt-in NemoClaw task.
-The task ran through OpenClaw with repository skills and VSS Orchestrator MCP.
-__NEMOCLAW__
-python3 .github/skill-eval/nemoclaw/headless_runner.py \
-  --prompt-file /tmp/skill-eval/nemoclaw/current_prompt.md \
-  --log-dir /logs/artifacts/nemoclaw \
-  --agent-log-dir /logs/agent \
-  --timeout {agent_timeout}
-"""
-        clean_env = {
-            key: value
-            for key, value in (env or {}).items()
-            if not key.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")
-        }
-        return await super().exec(
-            launcher,
-            cwd=cwd,
-            env=clean_env,
-            timeout_sec=max(timeout_sec or 0, agent_timeout + 180),
-            user=user,
-        )

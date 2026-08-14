@@ -192,7 +192,6 @@ jobs:
           python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
       - name: Prepare isolated agent runtime
-        if: github.event_name != 'workflow_dispatch' || inputs.runner != 'nemoclaw'
         env:
           SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
         run: |
@@ -203,7 +202,6 @@ jobs:
           echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
-        if: github.event_name != 'workflow_dispatch' || inputs.runner != 'nemoclaw'
         run: |
           # The runner host (vss-skill-validator-v2) keeps coordinator
           # secrets in a single .env. Don't echo contents.
@@ -214,7 +212,6 @@ jobs:
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
 
       - name: Run skills eval agent (single spec)
-        if: github.event_name != 'workflow_dispatch' || inputs.runner != 'nemoclaw'
         id: agent
         env:
           # github-actions[bot] token; scoped by the permissions: block.
@@ -224,6 +221,8 @@ jobs:
           # below, then this value is restored so it cannot overwrite the
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
+          NEMOCLAW_INSTANCE: ${{ inputs.nemoclaw_instance }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -262,6 +261,15 @@ jobs:
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
+          if [ "$EVAL_AGENT" = "nemoclaw" ]; then
+            if [ -z "$NEMOCLAW_INSTANCE" ]; then
+              echo "::error::nemoclaw_instance must name an operator-reserved worker"
+              exit 1
+            fi
+            # Explicit infrastructure selection only; run_leg.py still holds
+            # the same process-scoped worker lock used by every other runtime.
+            export BREV_INSTANCE="$NEMOCLAW_INSTANCE"
           fi
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
@@ -304,9 +312,7 @@ jobs:
           python3 .github/skill-eval/skills_eval_agent.py
 
       - name: Collect results for workflow artifact
-        if: >-
-          always() &&
-          (github.event_name != 'workflow_dispatch' || inputs.runner != 'nemoclaw')
+        if: always()
         env:
           EVAL_SLUG: ${{ matrix.slug }}
         run: |
@@ -343,115 +349,10 @@ jobs:
           fi
 
       - name: Upload results artifact
-        if: >-
-          always() &&
-          (github.event_name != 'workflow_dispatch' || inputs.runner != 'nemoclaw')
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: skills-eval-results-pr-${{ needs.plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
           path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
-
-      - name: Run selected skill through NemoClaw and Harbor
-        if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
-        timeout-minutes: 360
-        env:
-          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          NEMOCLAW_INSTANCE: ${{ inputs.nemoclaw_instance }}
-          EVAL_PLAN_ROW: ${{ toJSON(matrix) }}
-        run: |
-          if [ -z "$NEMOCLAW_INSTANCE" ]; then
-            echo "::error::nemoclaw_instance must name an operator-reserved worker"
-            exit 1
-          fi
-
-          set -a
-          source /home/ubuntu/eval-coordinator/.env
-          set +a
-          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
-            export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
-          fi
-
-          eval "$(ssh-agent -s)" > /dev/null
-          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
-
-          export BREV_INSTANCE="$NEMOCLAW_INSTANCE"
-          export PR_BASE="${{ github.ref_name }}"
-          export PR_HEAD_SHA="${{ github.sha }}"
-          export PR_REPO="${{ github.repository }}"
-          export SKILLS_EVAL_RUNNER=nemoclaw
-          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
-          # The workflow serializes access to this worker. Reuse one CI sandbox
-          # name so the next run can destroy it cleanly before onboarding.
-          export NEMOCLAW_SANDBOX_NAME="skill-eval"
-          # Keep CI's NemoClaw gateway/state separate from interactive sandboxes
-          # already registered on the worker's default port (8080).
-          export NEMOCLAW_GATEWAY_PORT=8990
-          export NEMOCLAW_DASHBOARD_PORT=$((20000 + (GITHUB_RUN_ID + ${{ strategy.job-index }}) % 40000))
-          # The notebook applies the repository's VSS policy after onboarding;
-          # skip optional tier presets that overlap with that policy.
-          export NEMOCLAW_POLICY_MODE=skip
-          export NEMOCLAW_INSTALL_REF=v0.0.108
-          if [ "${{ matrix.platform }}" = "L40S" ]; then
-            export HARDWARE_PROFILE=L40S
-          else
-            export HARDWARE_PROFILE=RTXPRO6000BW
-          fi
-          export NEMOCLAW_SETUP_TIMEOUT_SEC=5400
-          export NEMOCLAW_AGENT_TIMEOUT_SEC=3300
-          export NEMOCLAW_HARBOR_TIMEOUT_SEC=12600
-          export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
-          PLAN_FILE="${RUNNER_TEMP}/nemoclaw-plan-${GITHUB_RUN_ID}-${{ matrix.slug }}.json"
-          printf '{"include":[%s]}\n' "$EVAL_PLAN_ROW" > "$PLAN_FILE"
-
-          python3 .github/skill-eval/nemoclaw/single_scenario.py \
-            --instance "$NEMOCLAW_INSTANCE" \
-            --plan-file "$PLAN_FILE" \
-            --dataset-root "/tmp/skill-eval/datasets/nemoclaw/${{ matrix.slug }}" \
-            --results-root "/tmp/skill-eval/results/nemoclaw/${{ matrix.slug }}" \
-            --scratch-root "/tmp/skill-eval/reports/nemoclaw/${{ matrix.slug }}"
-
-      - name: Collect Harbor result artifact
-        if: >-
-          always() &&
-          github.event_name == 'workflow_dispatch' &&
-          inputs.runner == 'nemoclaw'
-        run: |
-          TARBALL="/tmp/nemoclaw-skill-eval-${{ matrix.slug }}-${GITHUB_RUN_ID}.tar.gz"
-          RUN_RESULTS="/tmp/skill-eval/results/nemoclaw/${{ matrix.slug }}/${GITHUB_RUN_ID}"
-          rm -f "$TARBALL"
-          if [ -d "$RUN_RESULTS" ]; then
-            tar czf "$TARBALL" \
-              -C "/tmp/skill-eval/results/nemoclaw/${{ matrix.slug }}" \
-              --exclude='agent' \
-              "$GITHUB_RUN_ID"
-          else
-            echo "No Harbor result directory was produced"
-          fi
-
-      - name: Upload Harbor result artifact
-        if: >-
-          always() &&
-          github.event_name == 'workflow_dispatch' &&
-          inputs.runner == 'nemoclaw'
-        uses: actions/upload-artifact@v4
-        with:
-          name: skills-eval-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
-          path: /tmp/nemoclaw-skill-eval-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
-          if-no-files-found: ignore
-          retention-days: 28
-
-      - name: Upload benchmark report
-        if: >-
-          always() &&
-          github.event_name == 'workflow_dispatch' &&
-          inputs.runner == 'nemoclaw'
-        uses: actions/upload-artifact@v4
-        with:
-          name: skills-eval-nemoclaw-report-${{ matrix.slug }}-${{ github.run_id }}
-          path: |
-            /tmp/skill-eval/reports/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/benchmark.md
-            /tmp/skill-eval/reports/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/verdict.json
-          if-no-files-found: ignore
-          retention-days: 28
