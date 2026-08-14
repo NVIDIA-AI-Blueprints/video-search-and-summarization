@@ -309,7 +309,7 @@ Third-party open-source components bundled in the container image are attributed
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
 The container image carries `LICENSE-3rd-party.txt` and `NVIDIA-Software-License-Agreement.pdf`
-under `/vss-agent`. The agreement is **not** vendored in this source tree — the builder stage
-fetches it from `nvidia.com` at build time and the runtime stage copies it in, which keeps the
-repository free of a proprietary EULA. Note that `LICENSE.md` is source-only and is not copied
+under `/vss-agent`. The agreement is **not** vendored in this source tree — the Dockerfile's `ADD` instruction
+fetches it from `nvidia.com` at build time with a pinned SHA-256, which keeps the repository free
+of a proprietary EULA and needs no HTTP client in any build stage. Note that `LICENSE.md` is source-only and is not copied
 into the image.

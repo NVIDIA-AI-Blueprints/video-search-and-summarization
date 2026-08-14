@@ -21,16 +21,6 @@ ENV NEXT_BUILD_TRACES=false
 # which is where `package.json` and `package-lock.json` live after the COPY above.
 WORKDIR /repo/services/ui
 
-# Fetch the NVIDIA Software License Agreement at build time rather than
-# vendoring it. The source tree stays free of the proprietary EULA while the
-# distributed image still carries it. node:22.23.2 already provides curl and
-# the CA bundle, so no package install is needed here.
-RUN curl -fL --proto '=https' --proto-redir '=https' \
-    --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
-    -o NVIDIA-Software-License-Agreement.pdf \
-    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
-    && head -c4 NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'
-
 RUN npm ci
 # Matches CI: run `bundle` after `build` where defined (e.g. nv-metropolis-bp-vss-ui). The runner
 # stage still COPYs standalone, `.next/static`, and `public` explicitly for custom-server.js, so this
@@ -81,15 +71,18 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 # Copy custom server (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/custom-server.js ./custom-server.js
 
-# Copy license files (read-only): LICENSE (MIT), LICENSE-3rd-party.txt, and the
-# NVIDIA Software License Agreement fetched by the builder stage. The EULA is
-# not tracked in the source tree, so it arrives via --from=builder rather than
-# from the build context.
+# Copy license files (read-only): LICENSE (MIT) and LICENSE-3rd-party.txt.
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE* ./
-# Owned by root rather than the runtime user: nothing reads or rewrites the
-# agreement at runtime, and root:root 444 leaves it unmodifiable by the
-# non-root process (matches how services/agent ships its license files).
-COPY --from=builder --chown=root:root --chmod=444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
+
+# The NVIDIA Software License Agreement is not vendored in this source tree.
+# BuildKit performs this download itself, so no HTTP client is needed in any
+# stage, and --checksum verifies the bytes before the layer is created: a
+# CDN error page or a silently replaced document fails the build. Owned by
+# root so the non-root runtime process cannot modify it.
+ADD --chown=root:root --chmod=444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    ./NVIDIA-Software-License-Agreement.pdf
 
 # Set environment variables
 ENV NODE_ENV=production

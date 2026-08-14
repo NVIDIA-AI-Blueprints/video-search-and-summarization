@@ -51,16 +51,6 @@ COPY --chown=root:root --chmod=0444 agent/packages/vss_cli/pyproject.toml /vss-a
 COPY --chown=root:root --chmod=0555 agent/packages/vss_cli/src /vss-agent/packages/vss_cli/src
 COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
 
-# Fetch the NVIDIA Software License Agreement at build time rather than
-# vendoring it. The source tree stays free of the proprietary EULA while the
-# distributed image still carries it. curl and ca-certificates are already
-# installed by this stage's apt layer above, so nothing new is added here.
-RUN curl -fL --proto '=https' --proto-redir '=https' \
-    --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
-    -o /vss-agent/NVIDIA-Software-License-Agreement.pdf \
-    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
-    && head -c4 /vss-agent/NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'
-
 # Create virtual environment and install dependencies
 # Use architecture-specific cache to avoid ARM64/AMD64 conflicts
 RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=private \
@@ -173,7 +163,15 @@ COPY --from=security-patches /patches/liblzma5.md5sums /var/lib/dpkg/status.d/li
 # Copy application without any dev needs
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
-COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
+
+# The NVIDIA Software License Agreement is not vendored in this source tree.
+# BuildKit performs this download itself, so no HTTP client is needed in any
+# stage, and --checksum verifies the bytes before the layer is created: a
+# CDN error page or a silently replaced document fails the build.
+ADD --chown=root:root --chmod=0444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    /vss-agent/NVIDIA-Software-License-Agreement.pdf
 
 # Entrypoint wrapper + opt-in proprietary-codec installer (read-only app resources).
 COPY --chown=root:root --chmod=0555 agent/docker/entrypoint.py /vss-agent/entrypoint.py

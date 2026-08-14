@@ -96,12 +96,10 @@ RUN if id -u ${USER_ID} >/dev/null 2>&1; then \
     fi
 
 # Static shell utilities are required by CI and start_via.sh in the distroless runtime image.
-# Only ca-certificates (data file, ships at runtime), patchelf and curl
-# (both build-time only) remain. curl fetches the NVIDIA Software License
-# Agreement below; the /usr/local/bin/curl shipped to the runtime is a bash
-# /dev/tcp shim that speaks plain HTTP only and cannot fetch an https:// URL.
+# Only ca-certificates (data file, ships at runtime) and patchelf (build-time only)
+# remain.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates patchelf curl \
+    && apt-get install -y --no-install-recommends ca-certificates patchelf \
     && rm -rf /var/lib/apt/lists/*
 
 # Prepare bash, lightweight shell utilities, and bash's non-core shared libraries.
@@ -208,16 +206,6 @@ RUN --mount=type=bind,source=src,target=/tmp/via-src/src \
     && docker/copy_sources.sh src/ /opt/nvidia/via/
 RUN echo "${BUILD_COMMIT_SHA}" > /opt/nvidia/via/BUILD_COMMIT_SHA
 
-# Fetch the NVIDIA Software License Agreement at build time rather than
-# vendoring it, so the source tree stays free of the proprietary EULA. Landing
-# it under /opt/nvidia/via means the existing COPY --from=app-builder below
-# carries it into the distroless runtime alongside LICENSE.3rdparty.
-RUN curl -fL --proto '=https' --proto-redir '=https' \
-    --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
-    -o /opt/nvidia/via/NVIDIA-Software-License-Agreement.pdf \
-    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
-    && head -c4 /opt/nvidia/via/NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'
-
 # Final distroless production image — builder stages are discarded
 FROM runtime-base
 
@@ -256,6 +244,15 @@ COPY start_via.sh /opt/nvidia/via/
 COPY VERSION /opt/nvidia/via/
 
 COPY LICENSE /opt/mm/LICENSE
+
+# The NVIDIA Software License Agreement is not vendored in this source tree.
+# BuildKit performs this download itself, so no HTTP client is needed in any
+# stage, and --checksum verifies the bytes before the layer is created: a
+# CDN error page or a silently replaced document fails the build.
+ADD --chown=root:root --chmod=444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    /opt/nvidia/via/NVIDIA-Software-License-Agreement.pdf
 LABEL com.nvidia.mm.nspect="NSPECT-MZI5-0FE7"
 
 WORKDIR /opt/nvidia/via/
