@@ -71,9 +71,12 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 # Copy custom server (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/custom-server.js ./custom-server.js
 
-# Copy license files (read-only)
+# Copy license files (read-only).
+# LICENSE (MIT) and LICENSE-3rd-party.txt only. The NVIDIA Software License
+# Agreement is deliberately NOT copied: this image is built from MIT-licensed
+# source and published to GHCR, so shipping a proprietary EULA inside it
+# misstates the terms the artifact is distributed under.
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE* ./
-COPY --from=builder --chown=root:root --chmod=0444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
 
 # Set environment variables
 ENV NODE_ENV=production

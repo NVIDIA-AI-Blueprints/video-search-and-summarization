@@ -243,7 +243,6 @@ COPY --from=app-builder /etc/group /etc/group
 COPY start_via.sh /opt/nvidia/via/
 COPY VERSION /opt/nvidia/via/
 
-COPY NVIDIA-Software-License-Agreement.pdf /opt/nvidia/via/
 COPY LICENSE /opt/mm/LICENSE
 LABEL com.nvidia.mm.nspect="NSPECT-MZI5-0FE7"
 
