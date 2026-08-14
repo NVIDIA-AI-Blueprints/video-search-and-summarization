@@ -219,16 +219,16 @@ class RtviEmbedDependencySourcesTest(unittest.TestCase):
 
         deepstream_checksum = "fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
         pdm_checksum = "e1c7f6455fa7ffc50cbc13e4d49c06dfaaf8e9b74d0c9b46287bf767f6a4e4fc"
-        pyds_wheels = {
+        pyds_x86_wheels = {
             (
                 "https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/"
                 "download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_x86_64.whl"
             ): "74e13a6431cbef66b7a27da08658e0e30e7ca84bccb00a25a1a9c969608d3088",
-            (
-                "https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/"
-                "download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_aarch64.whl"
-            ): "924bdbefb4dd931e62d7aca0b5967187e91eec618fc064f8239c52e9e4ed3a9b",
         }
+        pyds_source_commit = "6fdeefb7128435873f7794d2242ed48a1471ad7e"
+        pyds_source_checksum = (
+            "bc71ee88923c6c2f5ed60476504d338068a35a8e87157547571061b416d4ab20"
+        )
         self.assertIn(deepstream_checksum, dockerfile)
         self.assertLess(
             dockerfile.index(deepstream_checksum),
@@ -244,7 +244,7 @@ class RtviEmbedDependencySourcesTest(unittest.TestCase):
 
         self.assertNotIn("pip install https://github.com/NVIDIA-AI-IOT", dockerfile)
         self.assertIn('pip install "$pyds_wheel_path" --no-deps', dockerfile)
-        for wheel_url, checksum in pyds_wheels.items():
+        for wheel_url, checksum in pyds_x86_wheels.items():
             self.assertIn(wheel_url, dockerfile)
             self.assertIn(checksum, dockerfile)
             self.assertLess(
@@ -253,6 +253,20 @@ class RtviEmbedDependencySourcesTest(unittest.TestCase):
             )
         self.assertIn(
             'echo "$pyds_sha256  $pyds_wheel_path" | sha256sum -c -', dockerfile
+        )
+        self.assertIn(pyds_source_commit, dockerfile)
+        self.assertIn(pyds_source_checksum, dockerfile)
+        self.assertIn("docker/patches/pyds-arm64.patch", dockerfile)
+        self.assertIn('-DIS_SBSA=on', dockerfile)
+        self.assertIn("-DDS_PATH=/opt/nvidia/deepstream/deepstream-9.1", dockerfile)
+        self.assertIn("submodule update --init --recursive --depth 1", dockerfile)
+        self.assertIn("/usr/lib/aarch64-linux-gnu/tegra/", dockerfile)
+        self.assertIn("FROM pyds-${TARGETARCH} AS pyds-wheel", dockerfile)
+        self.assertIn("/tmp/deepstream_python_apps/bindings/dist/pyds-*.whl", dockerfile)
+        self.assertIn("COPY --from=pyds-wheel /tmp/pyds-arm64 /tmp/pyds-arm64", dockerfile)
+        self.assertNotIn("pyds-1.2.2-cp312-cp312-linux_aarch64.whl", dockerfile)
+        self.assertIn(
+            "get_nvds_buf_surface_gpu: Currently we only support x86", dockerfile
         )
 
 

@@ -38,6 +38,51 @@ FROM nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark AS base-sbsa
 FROM base-$ARM_PLATFORM AS base-arm64
 ###############################
 
+# Build a Thor-compatible PyDS wheel from the public DeepStream Python bindings.
+# The upstream release arm64 wheel deliberately rejects get_nvds_buf_surface_gpu
+# on non-SBSA arm64; the local Cosmos Embed1 raw-frame path requires it.
+FROM base-arm64 AS pyds_arm64_builder
+ARG TARGETARCH
+ARG PYDS_SOURCE_COMMIT=6fdeefb7128435873f7794d2242ed48a1471ad7e
+ARG PYDS_SOURCE_SHA256=bc71ee88923c6c2f5ed60476504d338068a35a8e87157547571061b416d4ab20
+COPY docker/binaries/igpu/libnvbufsurface.so \
+     docker/binaries/igpu/libnvbufsurftransform.so \
+     /usr/lib/aarch64-linux-gnu/tegra/
+RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
+    apt update && apt install -y --no-install-recommends \
+    build-essential cmake git libglib2.0-dev libgstreamer1.0-dev \
+    python3.12-dev python3-setuptools python3-wheel \
+    && rm -rf /var/lib/apt/lists/*
+ADD https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/archive/refs/tags/v1.2.2.tar.gz /tmp/deepstream_python_apps.tar.gz
+RUN echo "${PYDS_SOURCE_SHA256}  /tmp/deepstream_python_apps.tar.gz" | sha256sum -c - \
+    && mkdir -p /tmp/deepstream_python_apps \
+    && tar -xzf /tmp/deepstream_python_apps.tar.gz --strip-components=1 -C /tmp/deepstream_python_apps \
+    && rm /tmp/deepstream_python_apps.tar.gz \
+    && git -C /tmp/deepstream_python_apps init \
+    && git -C /tmp/deepstream_python_apps remote add origin https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git \
+    && git -C /tmp/deepstream_python_apps fetch --depth=1 origin "${PYDS_SOURCE_COMMIT}" \
+    && git -C /tmp/deepstream_python_apps checkout --detach --force FETCH_HEAD \
+    && test "$(git -C /tmp/deepstream_python_apps rev-parse HEAD)" = "${PYDS_SOURCE_COMMIT}" \
+    && git -C /tmp/deepstream_python_apps submodule update --init --recursive --depth 1 \
+    && cd /tmp/deepstream_python_apps \
+    && python3 bindings/3rdparty/git-partial-submodule/git-partial-submodule.py restore-sparse
+COPY docker/patches/pyds-arm64.patch /tmp/pyds-arm64.patch
+RUN cd /tmp/deepstream_python_apps \
+    && git apply /tmp/pyds-arm64.patch \
+    && cd bindings \
+    && CMAKE_ARGS="-DIS_SBSA=on -DDS_PATH=/opt/nvidia/deepstream/deepstream-9.1" \
+       CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)" python3 setup.py bdist_wheel \
+    && python3 -c 'import pathlib, zipfile; wheel = next(pathlib.Path("dist").glob("pyds-*.whl")); assert b"get_nvds_buf_surface_gpu: Currently we only support x86" not in zipfile.ZipFile(wheel).read("pyds.so")'
+
+# Only the selected target's PyDS stage is evaluated. amd64 deliberately
+# provides an empty directory because it retains the verified release wheel.
+FROM pyds_arm64_builder AS pyds-arm64
+RUN mkdir -p /tmp/pyds-arm64 \
+    && cp /tmp/deepstream_python_apps/bindings/dist/pyds-*.whl /tmp/pyds-arm64/
+FROM base-amd64 AS pyds-amd64
+RUN mkdir -p /tmp/pyds-arm64
+FROM pyds-${TARGETARCH} AS pyds-wheel
+
 ######## Generate requirements.txt
 FROM pytorch_src AS generate-requirements
 ARG TARGETARCH
@@ -254,20 +299,22 @@ RUN --mount=type=bind,from=pytorch_src,source=/usr/local/lib/python3.12/dist-pac
     fi'
 
 COPY --from=pytorch_src /usr/local/lib/libnvpl* /usr/local/lib/
+COPY --from=pyds-wheel /tmp/pyds-arm64 /tmp/pyds-arm64
 
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         pyds_url=https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_x86_64.whl; \
         pyds_wheel_path=/tmp/pyds-1.2.2-cp312-cp312-linux_x86_64.whl; \
         pyds_sha256=74e13a6431cbef66b7a27da08658e0e30e7ca84bccb00a25a1a9c969608d3088; \
+        curl --fail --location --output "$pyds_wheel_path" "$pyds_url" \
+        && echo "$pyds_sha256  $pyds_wheel_path" | sha256sum -c - \
+        && pip install "$pyds_wheel_path" --no-deps \
+        && rm -f "$pyds_wheel_path"; \
     else \
-        pyds_url=https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_aarch64.whl; \
-        pyds_wheel_path=/tmp/pyds-1.2.2-cp312-cp312-linux_aarch64.whl; \
-        pyds_sha256=924bdbefb4dd931e62d7aca0b5967187e91eec618fc064f8239c52e9e4ed3a9b; \
-    fi \
-    && curl --fail --location --output "$pyds_wheel_path" "$pyds_url" \
-    && echo "$pyds_sha256  $pyds_wheel_path" | sha256sum -c - \
-    && pip install "$pyds_wheel_path" --no-deps \
-    && rm -f "$pyds_wheel_path"
+        pyds_wheel_path="$(find /tmp/pyds-arm64 -maxdepth 1 -name 'pyds-*.whl' -print -quit)"; \
+        test -n "$pyds_wheel_path" \
+        && pip install "$pyds_wheel_path" --no-deps \
+        && rm -rf /tmp/pyds-arm64; \
+    fi
 
 COPY LICENSE.3rdparty /opt/nvidia/rtvi/
 
