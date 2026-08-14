@@ -1479,6 +1479,28 @@ run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "b
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
 # DGX-SPARK (and IGX-THOR) are only valid for base and alerts
+# --- gym-eval must stay switched off in EVERY profile ---
+# The service is declared in dev-profile-base/compose.yml but must not appear in
+# any profile's COMPOSE_PROFILES until VSS_GYM_EVAL_TAG points at a build after
+# NVIDIA-NeMo/Gym#2376; the pinned 26.05 still carries the codec libraries
+# check_no_patented_codecs.py forbids, and dev-profile.sh runs `up --pull always`.
+# Without this check, enabling it is a one-word edit no test would catch --
+# which is exactly the mistake review caught in this series once already.
+_gym_eval_enabled_in=()
+for _gym_off_env in "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/overrides.env; do
+  [[ -f "${_gym_off_env}" ]] || continue
+  if grep -Eq '^COMPOSE_PROFILES=.*(^|,)gym-eval(,|$)' "${_gym_off_env}"; then
+    _gym_eval_enabled_in+=("${_gym_off_env#"${REPO_ROOT}/"}")
+  fi
+done
+if [[ ${#_gym_eval_enabled_in[@]} -eq 0 ]]; then
+  echo "PASS: gym-eval is not enabled in any profile's COMPOSE_PROFILES"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: gym-eval is enabled in ${_gym_eval_enabled_in[*]} -- point VSS_GYM_EVAL_TAG at a post-NVIDIA-NeMo/Gym#2376 build before enabling it (see containers.env)"
+  ((TESTS_FAILED++)) || true
+fi
+
 # gym is deliberately absent: dev-profile.sh restricts DGX-SPARK/IGX-THOR/
 # AGX-THOR to base and alerts, and gym adds a large eval container that has
 # no place on an edge device.
@@ -1497,6 +1519,25 @@ run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
   "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "RTVI_VLM_KAFKA_ENABLED" "false"
+
+# gym must derive byte-identical VLM wiring to base -- that equality is the whole
+# point of profile_has_base_topology in dev-profile.sh. Asserted with the same
+# values as the base case directly above, so if the predicate ever stops covering
+# gym this fails loudly instead of producing a generated.env with no VLM config.
+run_dry_run_up_and_check_generated_env "generated.env gym local VLM matches base exactly" "gym" \
+ -i 127.0.0.1 -H OTHER -d -- \
+  "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
+  "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
+  "RTVI_VLM_KAFKA_ENABLED" "false"
+
+# Same equality on the remote-VLM path, which is a different branch in state_up.
+# VLM_ENDPOINT_URL is required whenever --use-remote-vlm is passed.
+VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+run_dry_run_up_and_check_generated_env "generated.env gym remote VLM matches base exactly" "gym" \
+ -i 127.0.0.1 -H OTHER --use-remote-vlm --vlm nvidia/cosmos-reason1-7b -d -- \
+  "VLM_PORT" "30082" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
 run_dry_run_up_and_check_generated_env "generated.env MODE for alerts" "alerts" \
  -i 127.0.0.1 -m verification -d -- \
