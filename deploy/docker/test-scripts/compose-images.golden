@@ -13,6 +13,7 @@ deploy/docker/services/analytics/behavior-analytics/compose.yml ghcr.io/nvidia-a
 deploy/docker/services/analytics/video-analytics-api/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
 deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.3.0-2
 deploy/docker/services/auto-calibration/ui/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.3.0-2
+deploy/docker/services/configurators/vss-configurator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-configurator:develop-latest
 deploy/docker/services/infra/compose.yml alpine:3.24.1
 deploy/docker/services/infra/compose.yml arizephoenix/phoenix:19.8.0
 deploy/docker/services/infra/compose.yml confluentinc/cp-kafka:8.3.0
