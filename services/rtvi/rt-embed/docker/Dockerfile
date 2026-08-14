@@ -256,10 +256,18 @@ RUN --mount=type=bind,from=pytorch_src,source=/usr/local/lib/python3.12/dist-pac
 COPY --from=pytorch_src /usr/local/lib/libnvpl* /usr/local/lib/
 
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        pip install https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_x86_64.whl --no-deps; \
+        pyds_url=https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_x86_64.whl; \
+        pyds_wheel_path=/tmp/pyds-1.2.2-cp312-cp312-linux_x86_64.whl; \
+        pyds_sha256=74e13a6431cbef66b7a27da08658e0e30e7ca84bccb00a25a1a9c969608d3088; \
     else \
-        pip install https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_aarch64.whl --no-deps; \
-    fi
+        pyds_url=https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_aarch64.whl; \
+        pyds_wheel_path=/tmp/pyds-1.2.2-cp312-cp312-linux_aarch64.whl; \
+        pyds_sha256=924bdbefb4dd931e62d7aca0b5967187e91eec618fc064f8239c52e9e4ed3a9b; \
+    fi \
+    && curl --fail --location --output "$pyds_wheel_path" "$pyds_url" \
+    && echo "$pyds_sha256  $pyds_wheel_path" | sha256sum -c - \
+    && pip install "$pyds_wheel_path" --no-deps \
+    && rm -f "$pyds_wheel_path"
 
 COPY LICENSE.3rdparty /opt/nvidia/rtvi/
 

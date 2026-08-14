@@ -219,6 +219,16 @@ class RtviEmbedDependencySourcesTest(unittest.TestCase):
 
         deepstream_checksum = "fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
         pdm_checksum = "e1c7f6455fa7ffc50cbc13e4d49c06dfaaf8e9b74d0c9b46287bf767f6a4e4fc"
+        pyds_wheels = {
+            (
+                "https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/"
+                "download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_x86_64.whl"
+            ): "74e13a6431cbef66b7a27da08658e0e30e7ca84bccb00a25a1a9c969608d3088",
+            (
+                "https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/"
+                "download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_aarch64.whl"
+            ): "924bdbefb4dd931e62d7aca0b5967187e91eec618fc064f8239c52e9e4ed3a9b",
+        }
         self.assertIn(deepstream_checksum, dockerfile)
         self.assertLess(
             dockerfile.index(deepstream_checksum),
@@ -231,6 +241,19 @@ class RtviEmbedDependencySourcesTest(unittest.TestCase):
             readme.index(pdm_checksum), readme.index('python3 "$PDM_INSTALLER_PATH"')
         )
         self.assertIn("sha256sum -c - &&", readme)
+
+        self.assertNotIn("pip install https://github.com/NVIDIA-AI-IOT", dockerfile)
+        self.assertIn('pip install "$pyds_wheel_path" --no-deps', dockerfile)
+        for wheel_url, checksum in pyds_wheels.items():
+            self.assertIn(wheel_url, dockerfile)
+            self.assertIn(checksum, dockerfile)
+            self.assertLess(
+                dockerfile.index(checksum),
+                dockerfile.index('pip install "$pyds_wheel_path" --no-deps'),
+            )
+        self.assertIn(
+            'echo "$pyds_sha256  $pyds_wheel_path" | sha256sum -c -', dockerfile
+        )
 
 
 if __name__ == "__main__":
