@@ -26,3 +26,4 @@ ui/**/*.js -filter -diff -merge text=auto
 ui/**/*.js.map -filter -diff -merge text=auto
 ui/**/*.js.LICENSE.txt -filter -diff -merge text=auto
 ui/vios-ui/public/runtime-config.js -filter diff -merge text
+LICENSE.3rdparty filter=lfs diff=lfs merge=lfs -text
