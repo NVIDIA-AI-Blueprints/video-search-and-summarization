@@ -29,6 +29,12 @@ HELM_VALUES = {
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/values.yaml",
     ],
+    "vss-vios-sensor": [
+        "deploy/helm/services/vios/charts/vios-sensor/values.yaml",
+    ],
+    "vss-vios-streamprocessing": [
+        "deploy/helm/services/vios/charts/vios-streamprocessing/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -45,6 +51,12 @@ HELM_HELPERS = {
     ],
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/templates/_helpers.tpl",
+    ],
+    "vss-vios-sensor": [
+        "deploy/helm/services/vios/charts/vios-sensor/templates/_helpers.tpl",
+    ],
+    "vss-vios-streamprocessing": [
+        "deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl",
     ],
 }
 COMPOSE_FILES = {

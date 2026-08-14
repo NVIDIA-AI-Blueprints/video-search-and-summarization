@@ -120,7 +120,7 @@
     {
       "name": "vss-vios-sensor",
       "strategy": "build",
-      "ghcr_build": false,
+      "ghcr_build": true,
       "source_path": "services/vios",
       "context": "services/vios",
       "dockerfile": "services/vios/docker/Dockerfile",
@@ -129,12 +129,12 @@
       "lfs_include": "services/vios/prebuilts/**",
       "compose_image_names": ["vss-vios-sensor"],
       "tag_variables": ["VSS_VIOS_SENSOR_TAG"],
-      "notes": "Built from services/vios/docker/Dockerfile (MODULE=sensor). STAGED: flip ghcr_build=true after a real build is validated and build_args matrix support lands."
+      "notes": "Built from services/vios/docker/Dockerfile (MODULE=sensor). Native per-arch GHCR build (build_args MODULE + NATIVE_PLATFORM_IMAGE_NAMES); Helm serves it from the managed ghcr develop-latest channel. No vios-ui, so unaffected by the develop UI fix."
     },
     {
       "name": "vss-vios-streamprocessing",
       "strategy": "build",
-      "ghcr_build": false,
+      "ghcr_build": true,
       "source_path": "services/vios",
       "context": "services/vios",
       "dockerfile": "services/vios/docker/Dockerfile",
@@ -143,7 +143,7 @@
       "lfs_include": "services/vios/prebuilts/**",
       "compose_image_names": ["vss-vios-streamprocessing"],
       "tag_variables": ["VSS_VIOS_STREAMPROCESSING_TAG"],
-      "notes": "Built from services/vios/docker/Dockerfile (MODULE=streamprocessing). STAGED: flip ghcr_build=true after validation."
+      "notes": "Built from services/vios/docker/Dockerfile (MODULE=streamprocessing). Native per-arch GHCR build (build_args MODULE + NATIVE_PLATFORM_IMAGE_NAMES); Helm serves it from the managed ghcr develop-latest channel. No vios-ui, so unaffected by the develop UI fix."
     },
     {
       "name": "vss-vios-nvstreamer",

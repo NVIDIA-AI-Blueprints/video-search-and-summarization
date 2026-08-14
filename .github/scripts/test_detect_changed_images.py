@@ -261,6 +261,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
+                        "build_args": "",
                     },
                     {
                         "name": "vss-agent-ui",
@@ -269,6 +270,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/ui",
+                        "build_args": "",
                     },
                 ]
             },

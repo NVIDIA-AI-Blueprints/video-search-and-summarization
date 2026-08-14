@@ -57,7 +57,18 @@ SHARED_TAG_IMAGE_NAMES = frozenset({"vss-agent", "vss-agent-ui", "vss-alert-ms"}
 # must not build arm64 through QEMU on an amd64 runner. The build workflow
 # expands it into one job per platform, then combines the native results into
 # the same multiarch candidate expected by the release-set flow.
-NATIVE_PLATFORM_IMAGE_NAMES = frozenset({"vss-behavior-analytics"})
+# Images built on native per-arch runners instead of QEMU multiarch. The VIOS
+# images compile grpc + a large C++/CUDA tree, which is impractically slow under
+# emulated arm64, so they build natively like behavior-analytics.
+NATIVE_PLATFORM_IMAGE_NAMES = frozenset(
+    {
+        "vss-behavior-analytics",
+        "vss-vios-sensor",
+        "vss-vios-streamprocessing",
+        "vss-vios-nvstreamer",
+        "vss-vios-ingress",
+    }
+)
 RUNNER_BY_PLATFORM = {
     "linux/amd64": "ubuntu-24.04",
     "linux/arm64": "ubuntu-24.04-arm",
@@ -253,6 +264,15 @@ def content_tag_missing(
     return probe(reference) is not True
 
 
+def _format_build_args(build_args: dict | None) -> str:
+    """Render inventory build_args as newline KEY=VALUE for build-push-action.
+
+    Empty string when an image declares no build_args, which build-push-action
+    treats as "no args" -- so existing images are unaffected.
+    """
+    return "\n".join(f"{key}={value}" for key, value in (build_args or {}).items())
+
+
 def matrix_entry(entry: dict) -> dict:
     return {
         "name": entry["name"],
@@ -261,6 +281,7 @@ def matrix_entry(entry: dict) -> dict:
         "lfs_include": entry.get("lfs_include", ""),
         "platforms": ",".join(entry["platforms"]),
         "source_path": entry["source_path"],
+        "build_args": _format_build_args(entry.get("build_args")),
     }
 
 
