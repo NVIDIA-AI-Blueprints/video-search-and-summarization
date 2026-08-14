@@ -28,6 +28,32 @@ NOTEBOOK_RELATIVE_PATHS = (
     Path("deploy/docker/scripts/deploy_nemoclaw.ipynb"),
     Path("deploy/docker/scripts/deploy_vss_orchestrator.ipynb"),
 )
+_DERIVED_SETTINGS_MARKER = (
+    "# ================== Derived (no need to touch) =================="
+)
+_NOTEBOOK_PARAMETERS = {
+    "deploy_nemoclaw.ipynb": (
+        "NEMOCLAW_ENDPOINT_URL",
+        "NEMOCLAW_MODEL",
+        "COMPATIBLE_API_KEY",
+    ),
+    "deploy_vss_orchestrator.ipynb": (
+        "NGC_CLI_API_KEY",
+        "NVIDIA_API_KEY",
+        "HARDWARE_PROFILE",
+        "EXTERNAL_IP",
+        "LLM_DEVICE_ID",
+        "VLM_DEVICE_ID",
+        "LLM_NAME",
+        "LLM_ENDPOINT_URL",
+        "LLM_MODEL_TYPE",
+        "LLM_ENABLE_THINKING",
+        "OPENAI_API_KEY",
+        "VLM_NAME",
+        "VLM_ENDPOINT_URL",
+        "VLM_MODEL_TYPE",
+    ),
+}
 
 
 def _repo_root() -> Path:
@@ -215,6 +241,39 @@ def stop_owned_mcp_processes(*, root: Path, port: int) -> int:
     return len(owned)
 
 
+def _parameterize_notebook(notebook: Any, path: Path) -> None:
+    """Apply CI inputs to the in-memory notebook without changing its source."""
+
+    parameters = _NOTEBOOK_PARAMETERS.get(path.name)
+    if parameters is None:
+        raise ValueError(f"No CI parameter contract for notebook {path.name}")
+    assignments = [
+        "# Injected by the skill-eval notebook adapter; never persisted.",
+        "import os as _skill_eval_os",
+        *(
+            f"{name} = _skill_eval_os.environ.get({name!r}, {name})"
+            for name in parameters
+        ),
+    ]
+    parameter_source = "\n".join(assignments)
+
+    for cell in notebook.get("cells", []):
+        source_value = cell.get("source", "")
+        source = (
+            source_value if isinstance(source_value, str) else "".join(source_value)
+        )
+        if _DERIVED_SETTINGS_MARKER not in source:
+            continue
+        source = source.replace(
+            _DERIVED_SETTINGS_MARKER,
+            f"{parameter_source}\n\n{_DERIVED_SETTINGS_MARKER}",
+            1,
+        )
+        cell["source"] = source.splitlines(keepends=True)
+        return
+    raise RuntimeError(f"Could not locate Derived settings in {path.name}")
+
+
 def execute_notebook(path: Path, *, cwd: Path, timeout: int) -> Any:
     try:
         import nbformat
@@ -225,6 +284,7 @@ def execute_notebook(path: Path, *, cwd: Path, timeout: int) -> Any:
         ) from exc
 
     notebook = nbformat.read(path, as_version=4)
+    _parameterize_notebook(notebook, path)
     client = NotebookClient(
         notebook,
         timeout=timeout,

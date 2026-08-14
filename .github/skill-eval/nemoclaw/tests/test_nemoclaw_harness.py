@@ -60,6 +60,10 @@ class NotebookRunnerTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        self.adapter._parameterize_notebook(
+            notebook,
+            REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb",
+        )
         cells = {cell.get("id"): cell for cell in notebook["cells"]}
         namespace: dict[str, object] = {}
         with (
@@ -88,6 +92,41 @@ class NotebookRunnerTests(unittest.TestCase):
             namespace["NEMOCLAW_MODEL"],
             "aws/anthropic/bedrock-claude-sonnet-4-6",
         )
+
+    def test_orchestrator_ci_values_are_injected_without_source_edits(self) -> None:
+        environment = {
+            "NGC_CLI_API_KEY": "ngc-test",
+            "NVIDIA_API_KEY": "nvapi-test",
+            "HARDWARE_PROFILE": "L40S",
+            "LLM_DEVICE_ID": "",
+            "VLM_DEVICE_ID": "",
+            "LLM_NAME": "llm-model",
+            "LLM_ENDPOINT_URL": "https://llm.example.test",
+            "OPENAI_API_KEY": "provider-test-key",
+            "VLM_NAME": "vlm-model",
+            "VLM_ENDPOINT_URL": "https://vlm.example.test",
+        }
+        path = REPO_ROOT / "deploy/docker/scripts/deploy_vss_orchestrator.ipynb"
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        self.adapter._parameterize_notebook(notebook, path)
+        cells = {cell.get("id"): cell for cell in notebook["cells"]}
+        namespace: dict[str, object] = {}
+        with (
+            mock.patch.dict(os.environ, environment, clear=True),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            for cell_id in ("7db6e569", "20b35654"):
+                source = "".join(cells[cell_id]["source"])
+                exec(  # noqa: S102 - checked-in notebook settings cells only.
+                    compile(source, f"deploy_vss_orchestrator.ipynb:{cell_id}", "exec"),
+                    namespace,
+                )
+
+        self.assertEqual(namespace["HARDWARE_PROFILE"], "L40S")
+        self.assertEqual(namespace["LLM_DEVICE_ID"], "")
+        self.assertEqual(namespace["VLM_DEVICE_ID"], "")
+        self.assertEqual(namespace["LLM_NAME"], "llm-model")
+        self.assertEqual(namespace["VLM_NAME"], "vlm-model")
 
     def test_remote_vss_models_are_mapped_to_notebook_variables(self) -> None:
         environment = {
@@ -132,7 +171,7 @@ class NotebookRunnerTests(unittest.TestCase):
         self.assertIn("export MCP_URL=http://127.0.0.1:9988/mcp", content)
         self.assertNotIn("must-not-be-written", content)
 
-    def test_adapter_has_no_notebook_mutation_or_custom_secret_scrubber(self) -> None:
+    def test_adapter_never_persists_notebooks_or_adds_a_secret_scrubber(self) -> None:
         source = (NEMOCLAW_DIR / "notebook_setup_adapter.py").read_text(
             encoding="utf-8"
         )
