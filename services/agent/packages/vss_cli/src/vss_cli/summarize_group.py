@@ -622,6 +622,7 @@ class SummarizeGroup(CommandGroup):
             # Retrieval succeeded and only the write did not: exit 6 tells the
             # harness to keep this answer instead of re-running the job.
             body["persist"] = {"status": "failed", "error": persist_error}
+            body["record"] = close("partial", persist_error)
             return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
 
         # ValueError joins the store's own failures: a completion this command
@@ -642,9 +643,13 @@ class SummarizeGroup(CommandGroup):
             )
         except unpersistable as error:
             # Never lose the summary the caller already paid for: degrade to
-            # partial so only the write is retried, not the whole job.
-            close("partial", str(error))
+            # partial so only the write is retried, not the whole job. What the
+            # close answers matters as much as the failure that forced it: when
+            # the partial write cannot land either, the record still reads
+            # `submitted` and `status` will call this job running, so the marker
+            # is the only place that can say the handle went stale.
             body["persist"] = {"status": "failed", "error": str(error)}
+            body["record"] = close("partial", str(error))
             return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
 
         body["persist"] = {

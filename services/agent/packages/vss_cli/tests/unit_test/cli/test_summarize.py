@@ -120,14 +120,17 @@ class _Store(InMemoryStore):
     has nothing to resume from.
     """
 
-    def __init__(self, *, fail_on: str | None = None) -> None:
+    def __init__(self, *, fail_on: str | tuple[str, ...] | None = None) -> None:
         super().__init__()
         self.statuses: list[str] = []
-        self._fail_on = fail_on
+        # Several statuses, because an index that refuses the outcome refuses
+        # the attempt to record the failure too -- which is the case that
+        # decides whether a stale record is reported or swallowed.
+        self._fail_on = (fail_on,) if isinstance(fail_on, str) else fail_on or ()
 
     def upsert(self, record: Any) -> Any:
         self.statuses.append(record.job.status)
-        if record.job.status == self._fail_on:
+        if record.job.status in self._fail_on:
             raise BackendUnreachableError("elasticsearch", "index is read-only")
         return super().upsert(record)
 
@@ -673,6 +676,30 @@ def test_failed_write_is_partial_and_keeps_the_summary(
     body = json.loads(result.output)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
+    # The close landed, so the job reads `partial` rather than still running.
+    assert body["record"] == "closed"
+
+
+def test_a_partial_that_could_not_be_closed_says_so(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An index refusing the outcome refuses the record of the failure too.
+
+    The summary survives either way, so the exit stays 6 -- but the record is
+    still `submitted`, which is the one state `status` reports as running. Left
+    out of the marker, a caller reading only stdout would trust a handle that
+    answers with the wrong state, exactly as it would on the timeout path.
+    """
+    _capture_post(monkeypatch)
+    _memory(monkeypatch, _Store(fail_on=("completed", "partial")))
+    result = _run("--id", "v1")
+
+    assert result.exit_code == int(Exit.PARTIAL), result.output
+    marker = json.loads(result.stdout)
+    assert marker["summary"]["id"] == "cmpl-1"
+    assert marker["persist"]["status"] == "failed"
+    assert marker["record"] == "stale"
+    assert "still reports it submitted" in result.stderr
 
 
 def test_a_store_that_refuses_the_first_write_still_summarizes(
@@ -694,6 +721,8 @@ def test_a_store_that_refuses_the_first_write_still_summarizes(
     body = json.loads(result.stdout)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
+    # Nothing was ever written, so there is no record to be stale about.
+    assert body["record"] == "absent"
 
 
 def test_a_status_rejection_is_a_persist_failure_not_a_crash(
