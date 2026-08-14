@@ -460,8 +460,8 @@ up, else use the documented defaults.
 > **Which backend is this?** Any model id containing `cosmos` reached as a **direct/base NIM**
 > endpoint is NIM Cosmos and needs these fields. An `nim_nvidia_…_bf16` / `_hf`-style id (e.g.
 > `nim_nvidia_cosmos3-nano-reasoner_bf16-final`) does **not** make it RT-VLM: RT-VLM is decided by
-> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM genuinely
-> does not need them — it preprocesses server-side.
+> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM takes its
+> own sampling fields instead of these two — see immediately below.
 >
 > **Run the `curl` below verbatim rather than hand-writing your own**, and answer a second or
 > follow-up question by re-running the same block with a new `USER_QUESTION` / `UPLOAD_FORMAT`.
@@ -473,6 +473,14 @@ up, else use the documented defaults.
 > "mm_processor_kwargs": {"videos_kwargs": {"min_pixels": 3136, "max_pixels": 8388608}}  // other cosmos (reason1, reason3/cosmos3)
 > "media_io_kwargs": {"video": {"num_frames": <NUM_FRAMES>}}                             // both shapes
 > ```
+
+On **RT-VLM** the fields differ but are just as **required**. Its `ChatCompletionRequest` defaults
+`num_frames_per_second_or_fixed_frames_chunk` to **0** (with `use_fps_for_chunking: false`, i.e. a
+fixed count) and `vlm_input_width` / `vlm_input_height` to **0**, so a bare request samples the clip
+at zero frames and answers from its opening frame — a clip that starts on a black frame comes back
+as *"the frame is completely black"* however long the video is, and trimming past the black frame
+only hides it. Send what the profile's own agent config sends to RT-VLM
+(`rtvi_vlm.model_kwargs.extra_body`): 20 fixed frames per chunk at 1280×720.
 
 ```bash
 USER_QUESTION='<the user's question, verbatim>'
@@ -560,8 +568,8 @@ esac
 
 # Cosmos NIM frame-sampling + visual-token budget. REQUIRED on both video-block paths
 # (`video_url` AND `file_base64` data-URI): without `media_io_kwargs.num_frames` the NIM
-# under-samples the inline MP4 and can hallucinate (verified on cosmos-reason2-8b). Not needed
-# for RT-VLM (preprocesses server-side).
+# under-samples the inline MP4 and can hallucinate (verified on cosmos-reason2-8b). RT-VLM uses
+# its own sampling fields instead (built below).
 if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] || [ "$UPLOAD_FORMAT" = "file_base64" ]; }; then
   case "$VLM_MODEL" in
     *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
@@ -573,8 +581,18 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] |
   esac
 fi
 
+# RT-VLM frame sampling. REQUIRED: RT-VLM defaults num_frames_per_second_or_fixed_frames_chunk and
+# vlm_input_width/height to 0, so a bare request samples zero frames and answers from the clip's
+# opening frame (a black first frame then reads as "completely black"). Values match
+# rtvi_vlm.model_kwargs.extra_body in the profile agent config; override via env if yours differs.
+RTVI_SAMPLING=""
+if [ "${VLM_BACKEND}" = "rtvlm" ]; then
+  RTVI_SAMPLING=", \"num_frames_per_second_or_fixed_frames_chunk\": ${RTVI_NUM_FRAMES:-20}, \"use_fps_for_chunking\": ${RTVI_USE_FPS:-false}, \"vlm_input_width\": ${RTVI_INPUT_WIDTH:-1280}, \"vlm_input_height\": ${RTVI_INPUT_HEIGHT:-720}"
+fi
+
 # Send THIS body for both formats. Do not write a separate minimal video_url curl — hand-built
-# video_url requests keep dropping ${MM_KWARGS}, which under-samples the clip on NIM Cosmos.
+# requests keep dropping ${MM_KWARGS} / ${RTVI_SAMPLING}, which under-samples the clip: on NIM
+# Cosmos it degrades the answer, and on RT-VLM it collapses to the first frame.
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
@@ -590,7 +608,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
     }
   ],
   "max_tokens": 1024,
-  "temperature": 0.0${MM_KWARGS}
+  "temperature": 0.0${MM_KWARGS}${RTVI_SAMPLING}
 }
 EOF
 ```
