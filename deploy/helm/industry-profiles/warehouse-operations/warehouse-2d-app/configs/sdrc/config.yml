@@ -47,6 +47,7 @@ k8s-workload-streamprocessing:
   ENVOY_REQUEST_TIMEOUT: "30"
   ENVOYROUTEHEADER: streamid
   WDM_WL_CONFIG_PORT: "30001"
+  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false
 
 k8s-workload-rtvi-cv:
   wl_obj_name: vss-rtvi-cv
@@ -68,3 +69,7 @@ k8s-workload-rtvi-cv:
   WDM_MAX_REPLICAS: 1
   WDM_WL_CONFIG_PORT: "9000"
   WDM_HANDLE_CONFIG_EVENTS: false
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
+  WDM_WL_HEALTH_CHECK_URL: '/api/v1/live'
+  WDM_ADD_CALL_DELAY: 1
+  WDM_PROVISION_ASYNC: false
