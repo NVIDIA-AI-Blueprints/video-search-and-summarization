@@ -517,9 +517,9 @@ run_negative_test "invalid VLM model name" 1 up -p base --vlm invalid-vlm
 run_negative_test "llm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 0 --vlm-device-id 1
 run_negative_test "vlm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 1 --vlm-device-id 0
 
-# L40S: neither LLM nor VLM may be local_shared (device ID cannot be shared with other services)
+# L40S forbids a local_shared LLM (no hw-L40S-shared.env). Search RT-VLM may share GPU 0 with RT-CV.
 run_negative_test "L40S rejects local_shared LLM" 1 up -p search -i 127.0.0.1 -H L40S -d
-run_negative_test "L40S rejects local_shared VLM" 1 up -p base -i 127.0.0.1 -H L40S --llm-device-id 0 --vlm-device-id 0 -d
+run_negative_test "L40S rejects LLM and VLM on the same GPU" 1 up -p base -i 127.0.0.1 -H L40S --llm-device-id 0 --vlm-device-id 0 -d
 
 # Edge hardware: device IDs fixed to 0; profile defaults used for mode when no base URL override
 run_dry_run_test "edge (DGX-SPARK) local_shared+local_shared uses device ID 0" up -p alerts -i 127.0.0.1 -m verification -H DGX-SPARK -d
@@ -704,8 +704,10 @@ run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "ba
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
-# L40S forbids local_shared for LLM/VLM; the search profile shares both GPUs (devices 0,1 in FIXED_SHARED), so LLM and VLM must both be remote for L40S to be allowed.
-LLM_ENDPOINT_URL=http://127.0.0.1:1 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x --use-remote-vlm --vlm my-remote-vlm -d
+# L40S search with a remote LLM is allowed; local RT-VLM shares GPU 0 with RT-CV.
+LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_up_and_check_generated_env "generated.env search L40S remote LLM keeps local RT-VLM on GPU 0" "search" \
+  -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d -- \
+  "LLM_MODE" "remote" "VLM_MODE" "local_shared" "VLM_DEVICE_ID" "0" "RT_VLM_DEVICE_ID" "0"
 
 _out_compose_env_order="$(mktemp)"
 _err_compose_env_order="$(mktemp)"
