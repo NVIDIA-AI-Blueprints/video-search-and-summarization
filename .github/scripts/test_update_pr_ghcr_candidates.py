@@ -100,6 +100,14 @@ class CandidateCommentTest(unittest.TestCase):
         self.assertEqual(
             module.moving_alias("pr-1190-deadbeef"), "pr-1190-latest"
         )
+        self.assertEqual(
+            module.moving_alias("develop-deadbeef-sbsa"),
+            "develop-latest-sbsa",
+        )
+        self.assertEqual(
+            module.moving_alias("pr-1190-deadbeef-sbsa"),
+            "pr-1190-latest-sbsa",
+        )
         self.assertEqual(module.moving_alias("release-3.2.0"), "")
 
     def test_github_network_adapter_is_injected(self):
