@@ -53,7 +53,10 @@ class NemoClaw(OpenClaw):
         prompt = base64.b64encode(instruction.encode("utf-8")).decode("ascii")
         prompt_path = "/tmp/skill-eval/nemoclaw/current_prompt.md"
         command = f"""set -euo pipefail
-cd "$HOME/video-search-and-summarization"
+host_home=$HOME
+repo="$host_home/video-search-and-summarization"
+export HOME="$host_home/.skill-eval/nemoclaw-home"
+cd "$repo"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}
 python3 .github/skill-eval/nemoclaw/headless_runner.py \
