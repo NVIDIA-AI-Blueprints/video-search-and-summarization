@@ -260,10 +260,15 @@ def test_controller_context_bind_does_not_leak_to_parent_thread():
     clear_context()
     bind_context(component="router")
     seen = {}
+    startup_lines = []
 
-    def _run_as_controller(fn):
+    def _run_as_controller(fn, *, start_message=None):
         def _wrapped(*args, **kwargs):
             bind_context(component="controller")
+            if start_message:
+                startup_lines.append(
+                    (get_context().get("component"), start_message)
+                )
             return fn(*args, **kwargs)
 
         return _wrapped
@@ -271,10 +276,15 @@ def test_controller_context_bind_does_not_leak_to_parent_thread():
     def worker():
         seen.update(get_context())
 
-    t = threading.Thread(target=_run_as_controller(worker))
+    t = threading.Thread(
+        target=_run_as_controller(
+            worker, start_message="pod watcher thread started"
+        )
+    )
     t.start()
     t.join(timeout=5)
     assert not t.is_alive()
     assert seen.get("component") == "controller"
+    assert startup_lines == [("controller", "pod watcher thread started")]
     assert get_context().get("component") == "router"
     clear_context()
