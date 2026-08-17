@@ -72,8 +72,14 @@ COPY docker/deps.json deps.json
 
 # Install jq so generate_metadata.sh does not try to download it from GitHub (fails in CI)
 # Ensure status.d exists for py-deploy COPY (python:3.13-trixie may not have it)
-RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl=8.14.1-2+deb13u4 \
+        jq=1.7.1-6+deb13u3 \
+    && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/dpkg/status.d
+
+RUN curl -fL -o NVIDIA-Software-License-Agreement.pdf \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf
 
 # Vendored from urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v1.0.sh
 # Copied in locally instead of curl-at-build-time so the build does not depend on Artifactory reachability.
@@ -124,6 +130,7 @@ RUN mkdir -p /runtime && \
     cp -r apps /runtime/ && \
     cp -r src/mdx/analytics/core/tools /runtime/tools && \
     cp 3rdParty_Licenses.md /runtime/ && \
+    cp /build/NVIDIA-Software-License-Agreement.pdf /runtime/NVIDIA-Software-License-Agreement.pdf && \
     chown -R 1000:1000 /runtime
 
 # ###################################################

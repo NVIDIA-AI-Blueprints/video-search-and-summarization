@@ -321,7 +321,7 @@ re-voice either backend's content.
 
 Use the debugging reference for deeper diagnostics and the deployment
 reference for logs or configuration. The LVS image is a multi-arch manifest, so
-`LVS_TAG=3.3.0-rc2` is the x86/Jetson Thor default; use `3.3.0-rc2-sbsa` on SBSA/DGX Spark/Grace. RT-VLM likewise needs a host-matched tag (`3.3.0-26.08.1` on x86/Jetson Thor, `3.3.0-26.08.1-sbsa` on SBSA/DGX Spark/Grace).
+`LVS_TAG=3.3.0-rc2` is the x86/Jetson Thor default; use `3.3.0-rc2-sbsa` on SBSA/DGX Spark/Grace. RT-VLM likewise needs a host-matched tag (`3.3.0-26.08.2` on x86/Jetson Thor, `3.3.0-26.08.2-sbsa` on SBSA/DGX Spark/Grace).
 
 ## Direct API and Service Operations
 

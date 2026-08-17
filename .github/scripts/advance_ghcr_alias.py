@@ -122,11 +122,14 @@ def alias_plan(
                 "cannot retag without an immutable source"
             )
         source = f"{repository}:{content_tag}"
+        target_tag = f"{alias}{image.get('tag_suffix') or ''}"
+        if not ALIAS_RE.fullmatch(target_tag):
+            raise ValueError(f"{name}: invalid variant alias {target_tag!r}")
         updates.append(
             AliasUpdate(
                 name=name,
                 source=source,
-                target=f"{repository}:{alias}",
+                target=f"{repository}:{target_tag}",
                 digest=digest,
             )
         )
@@ -174,7 +177,8 @@ def tree_sources(
             continue  # mirror entries carry no repo source
         tree_sha = tree_reader(repo_root, commit, str(source_path))
         if tree_sha:
-            sources[str(image.get("name") or "")] = f"tree-{tree_sha}"
+            suffix = str(image.get("tag_suffix") or "")
+            sources[str(image.get("name") or "")] = f"tree-{tree_sha}{suffix}"
     return sources
 
 

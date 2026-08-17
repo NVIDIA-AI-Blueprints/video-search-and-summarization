@@ -336,7 +336,7 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-      tag: "3.3.0-26.07.4"
+      tag: "3.3.0-26.08.1"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -450,6 +450,12 @@ rtvi:
         value: "kafka"
       - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
         value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
+        value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
+        value: "1024"
+      - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
+        value: "false"
       # Optional EVS++ session controls.
       - name: VIA_EVS_SESSION
         value: ""

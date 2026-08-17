@@ -123,7 +123,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.3.0-26.08.1` for x86/Tegra; `3.3.0-26.08.1-sbsa` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.3.0-26.08.1` as of 2026-06-02).** | `3.3.0-26.08.1` (per `dev-profile-base/.env`) | optional |
+| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.3.0-26.08.2` for x86/Tegra; `3.3.0-26.08.2-sbsa` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.3.0-26.08.2` as of 2026-06-02).** | `3.3.0-26.08.2` (per `dev-profile-base/.env`) | optional |
 
 ## Network Requirements
 
@@ -159,7 +159,7 @@ Minimal IN-1-relevant block. Full upstream compose is at `deploy/docker/services
 ```yaml
 services:
   rtvi-vlm:
-    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.08.1}   # resolve tag from dev-profile-base/.env; registry is nvstaging in 3.2.0
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.08.2}   # resolve tag from dev-profile-base/.env; registry is nvstaging in 3.2.0
     container_name: vss-rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia

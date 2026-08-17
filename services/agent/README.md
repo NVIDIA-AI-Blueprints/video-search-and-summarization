@@ -308,8 +308,8 @@ This module is governed by **two separate licenses**, depending on what you use:
 Third-party open-source components bundled in the container image are attributed in
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
-The container image itself carries only `LICENSE` and `LICENSE-3rd-party.txt`. The NVIDIA Software
-License Agreement is not copied into the image: it is built from Apache 2.0-licensed source and
-published to GHCR, so embedding a proprietary EULA in the artifact would misstate the terms it is
-distributed under. Where that agreement governs an NVIDIA-distributed build, it is conveyed by that
-distribution channel rather than by a file inside the image.
+The container image carries `LICENSE-3rd-party.txt` and `NVIDIA-Software-License-Agreement.pdf`
+under `/vss-agent`. The agreement is **not** vendored in this source tree — the Dockerfile's `ADD` instruction
+fetches it from `nvidia.com` at build time with a pinned SHA-256, which keeps the repository free
+of a proprietary EULA and needs no HTTP client in any build stage. Note that `LICENSE.md` is source-only and is not copied
+into the image.

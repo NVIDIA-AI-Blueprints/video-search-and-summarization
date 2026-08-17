@@ -88,7 +88,7 @@ class provisionconfig:
             event_obj_key = remap[self.app_config["WDM_EVENT_OBJECT_FIELD"]]
         camera_id = configData.get(event_obj_key, {}).get(self.app_config["WDM_WL_ID_FIELD"], "?")
         logger.info("adding camera at {} (pod: {}, camera_id: {})".format(url, podInfo.get("podName", "?"), camera_id))
-        logger.info("payload: {}".format(json.dumps(configData, indent=2)))
+        logger.debug("payload: {}".format(json.dumps(configData, indent=2)))
         response = None
         failed_to_add = True
         logger.info (f"Max retry attempt {self.app_config['WDM_ADD_REMOVE_RETRY_ATTEMPTS']}")
@@ -154,7 +154,7 @@ class provisionconfig:
         )
 
         logger.info("deleting camera at {}".format(url))
-        logger.info("payload: {}".format(json.dumps(configData, indent=2)))
+        logger.debug("payload: {}".format(json.dumps(configData, indent=2)))
         response = None
         failed_to_delete = True
         logger.info (f"Max retry attempt {self.app_config['WDM_ADD_REMOVE_RETRY_ATTEMPTS']}")
@@ -194,7 +194,7 @@ class provisionconfig:
         )
 
         logger.info("configuring at {}".format(url))
-        logger.info("payload: {}".format(json.dumps(configData, indent=2)))
+        logger.debug("payload: {}".format(json.dumps(configData, indent=2)))
         retry_attempts = self.app_config.get("WDM_CONFIG_RETRY_ATTEMPTS")
         if retry_attempts is None:
             retry_attempts = min(

@@ -52,9 +52,11 @@ from utils.otel_helper import create_historical_span, get_tracer
 from utils.request_profiler import GPUMonitor, RequestMetrics
 
 from vlm_pipeline import VlmPipeline, PipelineChunkResult  # isort:skip
+from vlm_pipeline.errors import is_cuda_oom_error  # isort:skip
 
 REASONING_INFO_KEY = "reasoning"
 REASONING_DESCRIPTION_INFO_KEY = "reasoningDescription"
+DEFAULT_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB = 1024
 
 
 def _add_reasoning_to_info(info: MutableMapping[str, str], reasoning: str) -> None:
@@ -62,6 +64,34 @@ def _add_reasoning_to_info(info: MutableMapping[str, str], reasoning: str) -> No
         return
     info[REASONING_INFO_KEY] = reasoning
     info[REASONING_DESCRIPTION_INFO_KEY] = reasoning
+
+
+def _get_bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    logger.warning("Invalid %s=%r; using %s", name, value, default)
+    return default
+
+
+def _get_nonnegative_int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using %s", name, value, default)
+        return default
+    if parsed < 0:
+        logger.warning("%s must be non-negative; using %s instead of %s", name, default, parsed)
+        return default
+    return parsed
 
 
 # Convert PTS offset to absolute ISO8601 timestamp.
@@ -142,6 +172,7 @@ class RequestInfo:
 
     # Query information
     query: VlmQuery | None = None  # VlmQuery object - contains all query parameters
+    is_chat_completion: bool = False
     chunk_count: int = 0
     video_fps: float | None = None
 
@@ -699,6 +730,17 @@ class RTVIStreamHandler:
 
         request_profiling_value = os.environ.get("ENABLE_REQUEST_PROFILING", "").lower()
         self._profile_requests = request_profiling_value in ("true", "1")
+        self._live_stream_gpu_memory_guard_enabled = _get_bool_env(
+            "RTVI_LIVE_STREAM_GPU_MEMORY_GUARD", True
+        )
+        self._live_stream_gpu_memory_headroom_bytes = (
+            _get_nonnegative_int_env(
+                "RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB",
+                DEFAULT_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB,
+            )
+            * 1024
+            * 1024
+        )
 
         # Initialize generated-message output bus configuration.
         # MESSAGE_BUS is the startup source of truth: kafka, redis, or unset/empty.
@@ -990,6 +1032,11 @@ class RTVIStreamHandler:
         try:
             self._vlm_pipeline = VlmPipeline(args.asset_dir, args)
             self._loaded_models_info = self.get_models_info()
+            if self._live_stream_gpu_memory_guard_enabled:
+                logger.info(
+                    "Live stream GPU memory guard enabled: headroom=%d MiB",
+                    self._live_stream_gpu_memory_headroom_bytes // (1024 * 1024),
+                )
         except Exception as e:
             self._send_error_message_to_kafka(
                 f"Failed to initialize Inference pipeline: {e}",
@@ -1009,6 +1056,18 @@ class RTVIStreamHandler:
         """Return whether chunk protobuf output should be built for a message bus."""
         with self._lock:
             return self._message_bus in {"kafka", "redis"}
+
+    def _messages_enabled_for_request(self, req_info: RequestInfo) -> bool:
+        """Return whether generated result messages should be published for this request."""
+        if not req_info.is_chat_completion:
+            return True
+        return os.getenv("ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS", "false").lower() == "true"
+
+    def _normal_output_bus_enabled_for_request(self, req_info: RequestInfo) -> bool:
+        """Return whether this request may publish to the configured output bus."""
+        with self._lock:
+            message_bus = self._message_bus
+        return message_bus in {"kafka", "redis"} and self._messages_enabled_for_request(req_info)
 
     def _ensure_kafka_producer(self) -> bool:
         """Ensure a Kafka producer exists for the configured bootstrap servers."""
@@ -1423,6 +1482,70 @@ class RTVIStreamHandler:
                     )
                 }
             )
+
+    @staticmethod
+    def _cuda_call_succeeded(result: object) -> bool:
+        if result is None:
+            return True
+        if hasattr(result, "value"):
+            return result.value == 0
+        try:
+            return int(result) == 0
+        except (TypeError, ValueError):
+            return str(result) in {"0", "cudaSuccess", "cudaError_t.cudaSuccess"}
+
+    @classmethod
+    def _get_gpu_memory_info_bytes(cls) -> tuple[int, int] | None:
+        """Return free and total CUDA memory for the current visible device."""
+        try:
+            result = cuda.bindings.runtime.cudaMemGetInfo()
+        except Exception as exc:
+            logger.debug("Unable to query CUDA memory for live-stream admission: %s", exc)
+            return None
+
+        if not isinstance(result, tuple) or len(result) < 3:
+            logger.debug("Unexpected cudaMemGetInfo result: %r", result)
+            return None
+
+        status, free_bytes, total_bytes = result[0], result[1], result[2]
+        if not cls._cuda_call_succeeded(status):
+            logger.debug("cudaMemGetInfo failed during live-stream admission: %r", status)
+            return None
+        try:
+            return int(free_bytes), int(total_bytes)
+        except (TypeError, ValueError):
+            logger.debug("Unexpected cudaMemGetInfo memory values: %r", result)
+            return None
+
+    def _raise_if_insufficient_gpu_memory_for_new_live_stream(
+        self,
+        active_live_stream_assets: int,
+    ) -> None:
+        """Reject only after free CUDA memory reaches the configured watermark."""
+        if not self._live_stream_gpu_memory_guard_enabled:
+            return
+
+        memory_info = self._get_gpu_memory_info_bytes()
+        if memory_info is None:
+            logger.debug("Skipping live-stream GPU memory guard; CUDA memory is unavailable")
+            return
+
+        free_bytes, total_bytes = memory_info
+        if free_bytes >= self._live_stream_gpu_memory_headroom_bytes:
+            return
+
+        message = (
+            "Insufficient GPU memory to start another live stream. "
+            f"free={free_bytes // (1024 * 1024)} MiB, "
+            f"minimum_free={self._live_stream_gpu_memory_headroom_bytes // (1024 * 1024)} MiB, "
+            f"active_live_streams={active_live_stream_assets}, "
+            f"total={total_bytes // (1024 * 1024)} MiB. "
+            "The request was rejected at the configured free-memory watermark. "
+            "Reduce live-stream concurrency or lower "
+            "RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB after profiling this platform."
+        )
+        logger.warning(message)
+        raise ServiceException(message, "ServerBusy", 503, auto_log=False)
 
     def _process_output(
         self,
@@ -1861,6 +1984,17 @@ class RTVIStreamHandler:
             else None
         )
         creation_time = ntp_to_unix_timestamp(creation_time_str) if creation_time_str else None
+        # Chat completions do not accept creation_time. For file requests without a
+        # creation time, anchor relative media PTS to the server time at which the
+        # request was queued. Keep this fallback local to message serialization so
+        # the HTTP API continues to report media offsets for such files.
+        if (
+            creation_time is None
+            and req_info.is_chat_completion
+            and not req_info.is_live
+            and req_info.queue_time is not None
+        ):
+            creation_time = req_info.queue_time
         start_seconds, end_seconds = self._resolve_chunk_time_bounds(chunk)
 
         if creation_time is not None:
@@ -2600,7 +2734,7 @@ class RTVIStreamHandler:
             chunk_result.chunk.streamId = req_info.stream_id
 
         try:
-            if self._normal_output_bus_enabled():
+            if self._normal_output_bus_enabled_for_request(req_info):
                 vision_llm_message, incident_message = self._chunk_result_to_vision_llm(
                     chunk_result, req_info
                 )
@@ -3062,6 +3196,7 @@ class RTVIStreamHandler:
         self,
         assets: list[Asset],
         query: VlmQuery,
+        is_chat_completion: bool = False,
     ):
         """Run a query on a file
 
@@ -3101,6 +3236,7 @@ class RTVIStreamHandler:
         req_info = RequestInfo()
         req_info.media_file_info = media_file_info
         req_info.query = query  # Store the entire query object
+        req_info.is_chat_completion = is_chat_completion
         req_info.assets = assets
         req_info.start_timestamp = (
             query.media_info.start_offset
@@ -3140,7 +3276,13 @@ class RTVIStreamHandler:
         self._trigger_query(req_info, None)
         return req_info.request_id
 
-    def generate_vlm_captions(self, assets: list[Asset], query: VlmQuery, is_rtsp=False):
+    def generate_vlm_captions(
+        self,
+        assets: list[Asset],
+        query: VlmQuery,
+        is_rtsp=False,
+        is_chat_completion: bool = False,
+    ):
         """Run VLM captions generation on a file or RTSP stream.
         This reuses the query function since they have identical logic.
         """
@@ -3178,17 +3320,22 @@ class RTVIStreamHandler:
             asset = assets[0]
 
             # Create VLM captions request (includes stream setup and validation)
-            req_id = self._create_rtsp_vlm_captions_request(asset, query)
+            req_id = self._create_rtsp_vlm_captions_request(
+                asset, query, is_chat_completion=is_chat_completion
+            )
             return req_id
         else:
             # Handle file-based VLM captions
             req_id = self.query(
                 assets=assets,
                 query=query,
+                is_chat_completion=is_chat_completion,
             )
             return req_id
 
-    def _create_rtsp_vlm_captions_request(self, asset: Asset, query: VlmQuery):
+    def _create_rtsp_vlm_captions_request(
+        self, asset: Asset, query: VlmQuery, is_chat_completion: bool = False
+    ):
         """Create a VLM captions request for RTSP streams without requiring summary_duration."""
 
         # Validate chunk_duration parameter
@@ -3198,6 +3345,7 @@ class RTVIStreamHandler:
         # Create a RequestInfo object and populate it for VLM captions
         req_info = RequestInfo()
         req_info.query = query  # Store the entire query object
+        req_info.is_chat_completion = is_chat_completion
         req_info.assets = [asset]
         req_info.is_live = True
         req_info.status = RequestInfo.Status.PROCESSING
@@ -3218,15 +3366,17 @@ class RTVIStreamHandler:
                         409,
                     )
                 existing_requests = self._get_live_stream_requests(asset.asset_id)
-                if (
-                    not existing_requests
-                    and self._count_active_live_stream_assets() >= self._args.max_live_streams
-                ):
-                    raise ServiceException(
-                        "Server is already processing maximum number of live streams"
-                        f" ({self._args.max_live_streams})",
-                        "ServerBusy",
-                        503,
+                if not existing_requests:
+                    active_live_stream_assets = self._count_active_live_stream_assets()
+                    if active_live_stream_assets >= self._args.max_live_streams:
+                        raise ServiceException(
+                            "Server is already processing maximum number of live streams"
+                            f" ({self._args.max_live_streams})",
+                            "ServerBusy",
+                            503,
+                        )
+                    self._raise_if_insufficient_gpu_memory_for_new_live_stream(
+                        active_live_stream_assets
                     )
 
                 # Lock once per live caption request so deletes fail while any
@@ -3305,6 +3455,20 @@ class RTVIStreamHandler:
             self._cleanup_request_files(req_info)
             if asset_locked and asset.use_count > 0:
                 asset.unlock()
+            if is_cuda_oom_error(e):
+                memory_info = self._get_gpu_memory_info_bytes()
+                free_memory = (
+                    f" free={memory_info[0] // (1024 * 1024)} MiB."
+                    if memory_info is not None
+                    else ""
+                )
+                message = (
+                    "GPU memory was exhausted while starting live stream."
+                    f"{free_memory} The failed request was rolled back; reduce live-stream "
+                    "concurrency and retry."
+                )
+                logger.warning(message)
+                raise ServiceException(message, "ServerBusy", 503, auto_log=False) from e
             raise
 
         return req_info.request_id
@@ -3490,7 +3654,12 @@ class RTVIStreamHandler:
         # the pop-then-release structure mirrors remove_rtsp_stream so any future
         # lock-escaping cleanup can be added below without reshuffling.
 
-    def remove_rtsp_stream(self, asset: Asset, drain_timeout_sec: Optional[float] = None):
+    def remove_rtsp_stream(
+        self,
+        asset: Asset,
+        drain_timeout_sec: Optional[float] = None,
+        abort_inflight: bool = False,
+    ):
         """Remove an RTSP stream from the server."""
         _start = time.monotonic()
         stream_id = asset.asset_id
@@ -3527,8 +3696,12 @@ class RTVIStreamHandler:
                     logger.info("Removing live stream %s from pipeline", stream_id)
                     # Take drain latency from the return value to avoid racing on a
                     # shared attribute under parallel batch delete.
+                    remove_kwargs = {"timeout_sec": drain_timeout_sec}
+                    if abort_inflight:
+                        remove_kwargs["abort_inflight"] = True
                     drain_latency = self._vlm_pipeline.remove_live_stream(
-                        stream_id, timeout_sec=drain_timeout_sec
+                        stream_id,
+                        **remove_kwargs,
                     )
                     logger.info("Removed live stream %s from pipeline", stream_id)
                 except Exception:

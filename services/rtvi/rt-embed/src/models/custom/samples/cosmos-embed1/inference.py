@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -50,7 +50,9 @@ class CosmosEmbedModel(BaseVlmModel):
         import tritonserver
 
         server_options = tritonserver.Options(
-            model_repository=self._triton_repo_path, exit_timeout=30
+            model_repository=self._triton_repo_path,
+            exit_timeout=30,
+            metrics=False,  # metrics collection is not supported on Orin, needs NVML/DCGM
         )
         self._triton_server = tritonserver.Server(server_options)
         self._triton_server.start(wait_until_ready=True)

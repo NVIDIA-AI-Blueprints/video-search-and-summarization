@@ -100,10 +100,17 @@ def candidate_entries(release_set: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def moving_alias(tag: str) -> str:
-    if re.fullmatch(r"develop-[0-9a-f]{7,40}", tag):
-        return "develop-latest"
-    match = re.fullmatch(r"pr-(\d+)-[0-9a-f]{7,40}", tag)
-    return f"pr-{match.group(1)}-latest" if match else ""
+    suffix_pattern = r"(?P<suffix>-[A-Za-z0-9_.-]+)?"
+    match = re.fullmatch(rf"develop-[0-9a-f]{{7,40}}{suffix_pattern}", tag)
+    if match:
+        return f"develop-latest{match.group('suffix') or ''}"
+    match = re.fullmatch(
+        rf"pr-(?P<number>\d+)-[0-9a-f]{{7,40}}{suffix_pattern}",
+        tag,
+    )
+    if not match:
+        return ""
+    return f"pr-{match.group('number')}-latest{match.group('suffix') or ''}"
 
 
 def render_comment(release_set: dict[str, Any], sha: str) -> str:

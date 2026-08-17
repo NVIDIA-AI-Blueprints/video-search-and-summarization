@@ -19,7 +19,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
-  tag: "3.3.0-26.08.1"
+  tag: "3.3.0-26.08.2"
   pullPolicy: IfNotPresent
 replicas: 1
 
@@ -112,6 +112,12 @@ env:
     value: "kafka"
   - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
     value: "true"
+  - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
+    value: "true"
+  - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
+    value: "1024"
+  - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
+    value: "false"
   - name: VIA_EVS_SESSION
     value: ""
   - name: VLLM_EVS_SIMILARITY_THRESHOLD

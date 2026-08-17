@@ -41,6 +41,7 @@ def candidate_coordinates(
     owner: str,
     image_name: str,
     tree_sha: str,
+    tag_suffix: str = "",
 ) -> CandidateCoordinates:
     short = commit_sha[:12]
     if not re.fullmatch(r"[0-9a-f]{12}", short):
@@ -61,11 +62,16 @@ def candidate_coordinates(
         raise ValueError(f"invalid GHCR owner {owner!r}")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", image_name):
         raise ValueError(f"invalid image name {image_name!r}")
+    if tag_suffix and not re.fullmatch(r"-[A-Za-z0-9_.-]+", tag_suffix):
+        raise ValueError(
+            f"tag suffix must be empty or start with '-' and contain only "
+            f"tag-safe characters, got {tag_suffix!r}"
+        )
     return CandidateCoordinates(
         image=f"ghcr.io/{normalized_owner}/vss/{image_name}",
-        tag=tag,
+        tag=f"{tag}{tag_suffix}",
         tree_sha=tree_sha,
-        content_tag=f"tree-{tree_sha}",
+        content_tag=f"tree-{tree_sha}{tag_suffix}",
     )
 
 
@@ -141,6 +147,7 @@ def main() -> int:
     metadata.add_argument("--owner", required=True)
     metadata.add_argument("--image-name", required=True)
     metadata.add_argument("--tree-sha", required=True)
+    metadata.add_argument("--tag-suffix", default="")
     metadata.add_argument("--github-output", type=Path, required=True)
 
     verify = subparsers.add_parser("verify-manifest")
@@ -156,6 +163,7 @@ def main() -> int:
             owner=args.owner,
             image_name=args.image_name,
             tree_sha=args.tree_sha,
+            tag_suffix=args.tag_suffix,
         )
         write_github_outputs(
             args.github_output,

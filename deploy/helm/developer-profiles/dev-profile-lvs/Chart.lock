@@ -20,5 +20,8 @@ dependencies:
 - name: rtvi
   repository: file://../../services/rtvi
   version: 3.2.1
-digest: sha256:6e9f3505990f678acc88a46049c5beebf39faaa50311fb3e45aa7d0a44b9eebe
-generated: "2026-07-13T20:09:17.924858116+00:00"
+- name: monitoring
+  repository: file://../../services/monitoring
+  version: 3.2.0
+digest: sha256:0b03c6a9585f194b71f7e9ea874f132452b46770ecda05d576f84f66845ea733
+generated: "2026-08-13T15:31:24.499182814Z"

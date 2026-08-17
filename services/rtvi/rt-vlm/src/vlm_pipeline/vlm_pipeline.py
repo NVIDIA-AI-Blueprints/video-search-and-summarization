@@ -44,7 +44,13 @@ from utils.asset_manager import Asset
 
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
 from .ngc_model_downloader import download_model, download_model_git
-from .process_base import ProcessBase, _move_cuda_frames_to_cpu, _safe_cuda_empty_cache
+from .process_base import (
+    ProcessBase,
+    _contains_cuda_tensor,
+    _move_cuda_frames_to_cpu,
+    _safe_cuda_empty_cache,
+    _spill_cuda_frames_to_cpu,
+)
 
 # Built-in model class paths
 BUILTIN_MODEL_CLASSES = {
@@ -314,7 +320,81 @@ class DecoderProcess(ProcessBase):
             max_workers=int(self._num_decoders_per_gpu + 1)
         )
         self._fgetter_handoff_lock = Lock()
+        # A live GStreamer callback must not block while it still owns the
+        # completed chunk's per-frame CUDA cache. Once the bounded raw CUDA
+        # transport is full, stage a host copy here and let one dispatcher wait
+        # for the multiprocessing queue. The unsaturated CUDA-IPC path remains
+        # direct.
+        self._live_output_handoff_queue = queue.Queue()
+        self._live_output_handoff_pending = 0
+        self._live_output_handoff_lock = Lock()
+        self._dropped_live_handoff_stream_ids = set()
+        self._live_output_handoff_thread = Thread(
+            target=self._live_output_handoff_loop,
+            name=f"live-output-handoff-{self._gpu_id}",
+            daemon=True,
+        )
+        self._live_output_handoff_thread.start()
         return True
+
+    def _live_output_handoff_loop(self):
+        while not self._stop.is_set():
+            try:
+                item = self._live_output_handoff_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            delivered = False
+            chunk = item.get("chunk")
+            stream_id = getattr(chunk, "streamId", None)
+            if stream_id not in self._dropped_live_handoff_stream_ids:
+                while not self._stop.is_set():
+                    try:
+                        self._output_queue.put(item, timeout=0.1)
+                        delivered = True
+                        break
+                    except queue.Full:
+                        if stream_id in self._dropped_live_handoff_stream_ids:
+                            break
+                        continue
+
+            with self._live_output_handoff_lock:
+                self._live_output_handoff_pending -= 1
+            self._live_output_handoff_queue.task_done()
+            if not delivered:
+                del item
+
+    def _enqueue_live_output(self, item, raw_transport_slots):
+        """Enqueue without blocking a live callback that owns CUDA frames."""
+        if _contains_cuda_tensor(item.get("frames")) and (
+            self._output_queue.qsize() >= raw_transport_slots
+            or self._live_output_handoff_pending > 0
+        ):
+            item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
+            logger.debug(
+                "Spilled live decoded CUDA frames to CPU while the "
+                "%d-slot CUDA transport window was full",
+                raw_transport_slots,
+            )
+
+        with self._live_output_handoff_lock:
+            must_stage = self._live_output_handoff_pending > 0
+            if not must_stage:
+                try:
+                    self._output_queue.put_nowait(item)
+                    return
+                except queue.Full:
+                    pass
+            self._live_output_handoff_pending += 1
+
+        if _contains_cuda_tensor(item.get("frames")):
+            item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
+            logger.debug(
+                "Spilled live decoded CUDA frames to CPU while the "
+                "%d-slot CUDA transport window was full",
+                raw_transport_slots,
+            )
+        self._live_output_handoff_queue.put(item)
 
     def _warmup(self):
         chunk = ChunkInfo()
@@ -501,6 +581,9 @@ class DecoderProcess(ProcessBase):
 
     def _handle_command(self, command, **kwargs):
         logger.debug(f"command is {command}")
+        if command == "drop-live-handoff":
+            self._dropped_live_handoff_stream_ids.add(kwargs["stream_id"])
+            return None
         if command == "start-live-stream":
             asset = kwargs["asset"]
             live_stream_id = asset.asset_id
@@ -723,8 +806,9 @@ class DecoderProcess(ProcessBase):
                     )
                     _safe_cuda_empty_cache(force=True)
                 else:
+                    raw_transport_slots = max(1, self._num_decoders_per_gpu)
                     for request_id, request_params in subscribers.items():
-                        self._output_queue.put(
+                        self._enqueue_live_output(
                             {
                                 "chunk": _copy_live_chunk(chunk, live_stream_id),
                                 "frames": frames_for_vlm,
@@ -740,7 +824,8 @@ class DecoderProcess(ProcessBase):
                                 "decode_start_time": decode_start_time,
                                 "decode_end_time": decode_end_time,
                                 **passthrough_kwargs,
-                            }
+                            },
+                            raw_transport_slots,
                         )
                     return
 
@@ -824,6 +909,9 @@ class DecoderProcess(ProcessBase):
         for fgetter in self._fgetters:
             fgetter.destroy_pipeline()
 
+        if hasattr(self, "_live_output_handoff_thread"):
+            self._live_output_handoff_thread.join(timeout=2)
+
         # Shutdown thread pools
         if hasattr(self, "_thread_pool") and self._thread_pool is not None:
             try:
@@ -898,6 +986,17 @@ class VlmProcess(ProcessBase):
             if hasattr(self._model, "_close_evs_session"):
                 self._model._close_evs_session(kwargs["stream_id"])
             return None
+        if command == "abort-live-stream-requests":
+            if not hasattr(self._model, "abort_live_stream_requests"):
+                return 0
+            try:
+                return self._model.abort_live_stream_requests(kwargs["stream_id"])
+            except Exception:
+                logger.exception(
+                    "Failed to abort in-flight VLM requests for live stream %s",
+                    kwargs["stream_id"],
+                )
+                return 0
 
     def _deinitialize(self):
         self._model = None
@@ -1057,6 +1156,7 @@ class VlmProcess(ProcessBase):
                 video_frames_times=frame_times,
                 generation_config=request_params[0].vlm_generation_config,
                 audio_frames=audio_frames,
+                is_live_stream=bool(kwargs.get("is_live_stream", [False])[0]),
             )
         if "is_live_stream" in kwargs and self._num_gpus > 1:
             time.sleep(0.1)
@@ -1469,6 +1569,9 @@ class VlmPipeline:
         logger.info(f"Have peer access: {have_peer_access}")
 
         if have_peer_access:
+            # Match the Python pipeline's global 128-request transport queue.
+            # CUDA-IPC producers independently keep only one decoder-window of
+            # queued chunks on device and spill the rest to host memory.
             self._vlm_q = mp_ctx.Queue(maxsize=(128 * self._args.num_gpus))
             self._vlm_q_lock = mp_ctx.Lock()
         else:
@@ -2171,7 +2274,10 @@ class VlmPipeline:
         return remaining
 
     def remove_live_stream(
-        self, live_stream_id: str, timeout_sec: Optional[float] = None
+        self,
+        live_stream_id: str,
+        timeout_sec: Optional[float] = None,
+        abort_inflight: bool = False,
     ) -> Optional[float]:
         """Drain and remove a live stream.
 
@@ -2192,14 +2298,22 @@ class VlmPipeline:
         if timeout_sec is None:
             timeout_sec = float(os.environ.get("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "30"))
 
-        self._decoder_procs[lsinfo.gpu_id].send_command(
-            "stop-live-stream", live_stream_id=live_stream_id
-        )
+        decoder_proc = self._decoder_procs[lsinfo.gpu_id]
+        decoder_proc.send_command("drop-live-handoff", stream_id=live_stream_id)
+        decoder_proc.send_command("stop-live-stream", live_stream_id=live_stream_id)
 
         for proc in self._vlm_procs:
             proc.send_command("drop-chunks", stream_id=live_stream_id)
         for proc in self._asr_procs:
             proc.send_command("drop-chunks", stream_id=live_stream_id)
+
+        if abort_inflight:
+            aborted_requests = self._abort_live_stream_vlm_requests(live_stream_id)
+            logger.info(
+                "Aborted %d in-flight VLM request(s) for blocking live-stream delete %s",
+                aborted_requests,
+                live_stream_id,
+            )
 
         drain_start = time.monotonic()
         deadline = drain_start + timeout_sec
@@ -2212,13 +2326,26 @@ class VlmPipeline:
         drain_elapsed = time.monotonic() - drain_start
 
         if timed_out:
+            aborted_requests = self._abort_live_stream_vlm_requests(live_stream_id)
             logger.warning(
                 "Drain timed out after %.1fs for live-stream %s; "
-                "forcing completion and aborting in-flight chunks.",
+                "aborted %d in-flight VLM request(s) before forcing completion.",
                 drain_elapsed,
                 live_stream_id,
+                aborted_requests,
             )
             lsinfo.all_chunks_processed = True
+
+        # Release the stream's EVS sessions before the map pop. The EOS-driven
+        # close (see the end-of-stream branch in the output loop) only fires on a
+        # natural end of stream and bails once the stream is out of
+        # _live_stream_id_map, so an explicitly deleted stream would otherwise
+        # leak its sessions for the life of the process -- eventually failing
+        # session creation with "max sessions reached". Sent after the drain and
+        # while drop-chunks is still active, so no in-flight chunk can recreate a
+        # session behind us. Idempotent: a stream already closed via EOS has no
+        # cache entries left.
+        self.close_evs_sessions(live_stream_id)
 
         if live_stream_lock:
             with live_stream_lock:
@@ -2235,6 +2362,18 @@ class VlmPipeline:
             proc.send_command("stop-drop-chunks", stream_id=live_stream_id)
 
         return drain_elapsed
+
+    def _abort_live_stream_vlm_requests(self, live_stream_id: str) -> int:
+        aborted_requests = 0
+        for proc in self._vlm_procs:
+            aborted_requests += int(
+                proc.send_command(
+                    "abort-live-stream-requests",
+                    stream_id=live_stream_id,
+                )
+                or 0
+            )
+        return aborted_requests
 
     def get_health_status(self):
         checks = []
