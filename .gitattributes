@@ -1,2 +1,4 @@
 *.mp4 filter=lfs diff=lfs merge=lfs -text
 *.gem filter=lfs diff=lfs merge=lfs -text
+services/rtvi/rt-vlm/artifacts/**/*.so filter=lfs diff=lfs merge=lfs -text
+services/rtvi/rt-vlm/docker/base/binaries/**/*.so filter=lfs diff=lfs merge=lfs -text
