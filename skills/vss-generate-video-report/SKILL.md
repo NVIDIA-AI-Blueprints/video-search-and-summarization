@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.3.2"
+  version: "3.3.3"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -161,15 +161,17 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/v1/models" | jq -r '.data[].id'
 fi
 
-# Docker only — from running vss-agent env (when present). Prefer docker inspect
-# if the image is distroless (no sh/printenv).
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-agent sh -lc '
-  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-    v="$(printenv "$k")"
-    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-  done
-  ' 2>/dev/null || true
+# Docker only — from running vss-agent env (when present).
+# Use docker inspect, not docker exec: the vss-agent image is distroless
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ] && docker ps --format '{{.Names}}' | grep -qx vss-agent; then
+  while IFS='=' read -r _k _v; do
+    case "$_k" in
+      HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL|RTVI_VLM_MODEL_TO_USE)
+        printf -v "$_k" '%s' "$_v"; export "$_k"
+        printf '%s=%s\n' "$_k" "$_v"
+        ;;
+    esac
+  done < <(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}')
 
   # Probe common local endpoints
   curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # base RT-VLM default
@@ -377,16 +379,19 @@ fi
 ```
 
 Otherwise, on **Docker only**, read the live values off a running `vss-agent`
-container (when present) and do not guess:
+container (when present) and do not guess. Use `docker inspect`, **not**
+`docker exec … sh`: the image is distroless (no `sh`/`printenv` on `PATH`).
 
 ```bash
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-agent sh -lc '
-  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-    v="$(printenv "$k")"
-    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-  done
-  ' 2>/dev/null || true
+# Assign into a fixed whitelist of vars WITHOUT eval, so a hostile or malformed
+# env value is always treated as data and never executed.
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ] && docker ps --format '{{.Names}}' | grep -qx vss-agent; then
+  while IFS='=' read -r _k _v; do
+    case "$_k" in
+      HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL|RTVI_VLM_MODEL_TO_USE)
+        printf -v "$_k" '%s' "$_v"; export "$_k" ;;
+    esac
+  done < <(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}')
 fi
 ```
 
