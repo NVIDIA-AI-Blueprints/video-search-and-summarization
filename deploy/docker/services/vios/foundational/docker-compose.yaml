@@ -42,7 +42,7 @@ services:
       start_period: 2s
 
   vst-ingress:
-    image: ${VSS_VIOS_INGRESS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-ingress}:${VSS_VIOS_INGRESS_TAG:-2.1.0-26.07.1}
+    image: ${VSS_VIOS_INGRESS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-ingress}:${VSS_VIOS_INGRESS_TAG:-1.4.0-26.08.1}
     profiles: ["vst-ingress"]
     user: "0:0"
     environment:
