@@ -340,7 +340,7 @@ jobs:
           # partially-created or stale sandbox after onboarding fails.
           set +e
           brev exec "$NEMOCLAW_INSTANCE" \
-            "bash -lc 'env -u NEMOCLAW_SANDBOX_NAME -u NEMOCLAW_SANDBOX -u SANDBOX_NAME nemoclaw debug --quick --output ${REMOTE_TARBALL}'" \
+            "bash -lc 'host_home=\$HOME; export HOME=\"\$host_home/.skill-eval/nemoclaw-home\"; export NEMOCLAW_GATEWAY_PORT=8991; env -u NEMOCLAW_SANDBOX_NAME -u NEMOCLAW_SANDBOX -u SANDBOX_NAME nemoclaw debug --quick --output ${REMOTE_TARBALL}'" \
             2>&1 | tee "$DIAGNOSTICS_DIR/collector.log"
           collect_rc=${PIPESTATUS[0]}
           if [ "$collect_rc" -eq 0 ]; then
