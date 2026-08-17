@@ -403,20 +403,6 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertIn("export NEMOCLAW_DASHBOARD_PORT=20123", forwarded)
         self.assertIn("export HARDWARE_PROFILE=L40S", forwarded)
 
-    def test_setup_failure_quarantine_contains_no_runtime_output(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            marker = Path(temporary) / "worker.nemoclaw-quarantine"
-            with mock.patch.dict(
-                os.environ,
-                {"NEMOCLAW_WORKER_QUARANTINE_FILE": str(marker)},
-                clear=True,
-            ):
-                self.env_module._set_worker_quarantine(True)
-                self.assertTrue(marker.exists())
-                self.assertEqual(marker.read_text(encoding="utf-8"), "")
-                self.env_module._set_worker_quarantine(False)
-                self.assertFalse(marker.exists())
-
     def test_environment_does_not_intercept_agent_execution(self) -> None:
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
             encoding="utf-8"

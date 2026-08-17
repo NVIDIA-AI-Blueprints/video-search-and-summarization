@@ -63,11 +63,6 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 # (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
 # the host, not per leg, so every leg publishes its trials in here.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
-NEMOCLAW_QUARANTINE_SUFFIX = ".nemoclaw-quarantine"
-# Keep a poisoned worker out of one full 14-hour matrix job while remaining
-# self-healing if the coordinator survives longer than the run.
-NEMOCLAW_QUARANTINE_TTL_SEC = 12 * 60 * 60
-NEMOCLAW_QUARANTINE_FILE_ENV = "NEMOCLAW_WORKER_QUARANTINE_FILE"
 
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
@@ -692,36 +687,6 @@ def pool_candidates(
         return (0 if registered else 1, exact, name.lower())
 
     return [name for name, _ in sorted(candidates, key=sort_key)]
-
-
-def _nemoclaw_quarantine_path(lock_dir: Path, instance: str) -> Path:
-    return lock_dir / f"{instance}{NEMOCLAW_QUARANTINE_SUFFIX}"
-
-
-def _nemoclaw_worker_quarantined(
-    lock_dir: Path,
-    instance: str,
-    *,
-    now: float | None = None,
-) -> bool:
-    """Skip a worker that recently failed NemoClaw environment setup."""
-    if os.environ.get("EVAL_AGENT") != "nemoclaw":
-        return False
-    marker = _nemoclaw_quarantine_path(lock_dir, instance)
-    try:
-        age = (time.time() if now is None else now) - marker.stat().st_mtime
-    except FileNotFoundError:
-        return False
-    if age < NEMOCLAW_QUARANTINE_TTL_SEC:
-        print(
-            f"[run-leg] skipping {instance}: recent NemoClaw setup failure "
-            f"({int(max(0, age))}s ago)",
-            flush=True,
-        )
-        return True
-    with contextlib.suppress(FileNotFoundError, OSError):
-        marker.unlink()
-    return False
 
 
 @contextlib.contextmanager
@@ -1531,12 +1496,9 @@ def main(argv: list[str] | None = None) -> int:
                   flush=True)
             candidates_fn = lambda: [pinned]  # noqa: E731
         else:
-            def candidates_fn():
-                return [
-                    name
-                    for name in pool_candidates(metadata, args.spec_stem)
-                    if not _nemoclaw_worker_quarantined(args.lock_dir, name)
-                ]
+            candidates_fn = (  # noqa: E731
+                lambda: pool_candidates(metadata, args.spec_stem)
+            )
         # Timed either side of the lock: the wait for a free box is the leg's
         # least visible cost and the one the pickup analysis most needs split
         # out from the Harbor run itself.
@@ -1554,10 +1516,6 @@ def main(argv: list[str] | None = None) -> int:
                 candidates_fn, args.lock_dir, effective_lock_timeout
             ) as instance:
                 lock_acquired = True
-                if os.environ.get("EVAL_AGENT") == "nemoclaw":
-                    os.environ[NEMOCLAW_QUARANTINE_FILE_ENV] = str(
-                        _nemoclaw_quarantine_path(args.lock_dir, instance)
-                    )
                 leg_timing.record_phase(
                     "lock-wait", lock_wait_started, leg_timing.leg_elapsed()
                 )
