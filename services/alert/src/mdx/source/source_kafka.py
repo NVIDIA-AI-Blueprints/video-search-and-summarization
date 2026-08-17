@@ -15,6 +15,7 @@
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -143,6 +144,24 @@ class SourceKafka(SourceBase):
             self.heartbeat_topic = config['kafka'].get('heartbeat_topic', 'its-streaming-heartbeats')
             self.source_topics = [self.anomaly_topic]
             self.topic_to_kind = {self.anomaly_topic: 'anomaly'}
+
+    def await_ready(self, timeout: float = 60.0) -> bool:
+        """Create every source consumer up front and wait for the group join."""
+        deadline = time.monotonic() + timeout
+        joined = True
+        for topic in self.source_topics:
+            self._ensure_consumer(topic)
+            remaining = max(0.0, deadline - time.monotonic())
+            if not self.kafka_message_broker.await_group_join(
+                self.topic_consumer_map[topic], remaining
+            ):
+                logging.warning(
+                    "Consumer for topic %s did not join group %s within %.0fs; "
+                    "records published before it joins may be skipped",
+                    topic, self.groupId, timeout,
+                )
+                joined = False
+        return joined
 
     def _ensure_consumer(self, topic: str) -> None:
         """Create and cache a consumer for the given topic if not already present."""

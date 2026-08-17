@@ -51,7 +51,18 @@ class SourceBase(ABC):
         Clean up resources
         """
         pass
-    
+
+    def await_ready(self, timeout: float = 60.0) -> bool:
+        """Block until this source can receive what a producer sends next.
+
+        Sources that are readable the moment they are constructed need no
+        override. Kafka does: its consumers are created lazily and join their
+        group asynchronously, so announcing readiness before that completes
+        invites a producer to write past an offset nobody is reading yet.
+        """
+        return True
+
+
     # Legacy methods for backward compatibility
     def read_data(self) -> List[Any]:
         """Legacy method - use poll() instead"""

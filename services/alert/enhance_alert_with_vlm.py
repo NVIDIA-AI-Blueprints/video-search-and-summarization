@@ -29,9 +29,9 @@ import sys
 import time
 import threading
 from datetime import datetime, timezone
-from multiprocessing import Process
+from multiprocessing import Event as ProcessEvent, Process
 from queue import Queue, Empty
-from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from concurrent.futures import ThreadPoolExecutor, Future, TimeoutError as FutureTimeoutError
 
@@ -86,6 +86,11 @@ if TYPE_CHECKING:
 # without paying a circular-import lazy-import penalty.
 _PLUGGABLE_PARSER_OK_STATUS = PLUGGABLE_PARSER_OK_STATUS
 _PLUGGABLE_PARSER_ERROR_STATUS = PLUGGABLE_PARSER_ERROR_STATUS
+
+# Covers one pipeline construction plus a group join, per child, while several
+# of them contend on Elasticsearch. Only bounds how long readiness is awaited;
+# a child that arrives later still runs and still serves its partitions.
+READINESS_TIMEOUT_SECONDS = 600.0
 from handlers.enrichment import EnrichmentProcessor
 from handlers.direct_media import DirectMediaHandler
 from handlers.async_dispatch_mixin import (
@@ -2523,7 +2528,8 @@ def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -
     )
 
 
-def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process_count: int = 1) -> None:
+def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process_count: int = 1,
+                          ready_event: Optional[Any] = None) -> None:
     """Child entry point: one independent consume + dispatch stack."""
     _exit_when_parent_dies(parent_pid)
 
@@ -2540,10 +2546,20 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         # with it; the others never start them.
         enhancer = AnomalyEnhancer(config_path, instance_leader=(index == 0))
         # Construction is where children contend on Elasticsearch, and it can
-        # take tens of seconds with several of them. The parent's readiness
-        # line is printed before the fork, so anything gating on readiness has
-        # to count these instead.
+        # take tens of seconds with several of them; the group join then adds
+        # its own. Both have to finish before this child counts as ready, or
+        # the instance announces readiness while some partitions are still
+        # unowned and a producer writes past them.
+        if not enhancer.source.await_ready():
+            # Restartable rather than fatal: a broker blip should recover on
+            # the next attempt. What must not happen is reporting ready, which
+            # would let a producer publish past an offset nobody is reading.
+            raise RuntimeError(
+                f"pipeline process {index} could not join the consumer group"
+            )
         logger.info("Pipeline process %d ready (pid=%d)", index, os.getpid())
+        if ready_event is not None:
+            ready_event.set()
         if index == 0:
             _log_instance_concurrency(enhancer, process_count)
         enhancer.process_anomalies()
@@ -2555,23 +2571,56 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
     logger.info("Pipeline process %d stopped", index)
 
 
-def _start_pipeline_process(config_path: str, index: int, process_count: int) -> Process:
+def _start_pipeline_process(config_path: str, index: int, process_count: int,
+                            ready_event: Optional[Any] = None) -> Process:
     process = Process(
         target=_run_pipeline_process,
-        args=(config_path, index, os.getpid(), process_count),
+        args=(config_path, index, os.getpid(), process_count, ready_event),
         name=f"ab-pipeline-{index}",
     )
     process.start()
     return process
 
 
-def run_multi_process_pipeline(config_path: str, process_count: int) -> None:
+def _announce_when_all_ready(ready_events: List[Any], on_ready: Callable[[], None],
+                             timeout: float = READINESS_TIMEOUT_SECONDS) -> None:
+    """Call ``on_ready`` once every child has joined the consumer group.
+
+    Bounded so the wait cannot outlive the run silently, and never announced
+    on expiry: a partially-joined instance leaves partitions unowned, and
+    saying otherwise is what this whole path exists to prevent.
+    """
+    def wait() -> None:
+        deadline = time.monotonic() + timeout
+        for index, event in enumerate(ready_events):
+            if not event.wait(max(0.0, deadline - time.monotonic())):
+                logger.error(
+                    "Pipeline process %d was not ready within %.0fs; the instance "
+                    "stays unready and its partitions may be unowned",
+                    index, timeout,
+                )
+                return
+        on_ready()
+
+    threading.Thread(target=wait, name="ab-readiness", daemon=True).start()
+
+
+def run_multi_process_pipeline(config_path: str, process_count: int,
+                               on_ready: Optional[Callable[[], None]] = None) -> None:
     """Fork ``process_count`` pipeline children and supervise them until shutdown."""
     global _pipeline_supervisor
 
+    # One per slot rather than a Barrier: a child restarted later must not
+    # block on peers that already passed, and readiness is announced once.
+    ready_events = [ProcessEvent() for _ in range(process_count)]
+    if on_ready is not None:
+        _announce_when_all_ready(ready_events, on_ready)
+
     _pipeline_supervisor = ProcessSupervisor(
         count=process_count,
-        spawn=lambda index: _start_pipeline_process(config_path, index, process_count),
+        spawn=lambda index: _start_pipeline_process(
+            config_path, index, process_count, ready_events[index]
+        ),
         on_exit=_mark_prometheus_process_dead,
     )
     try:
@@ -2647,6 +2696,7 @@ if __name__ == "__main__":
 
     fastapi_process = None
     enhancer = None
+    exit_code = 0
 
     try:
         # Initialize and start the anomaly processing loop in main process.
@@ -2730,9 +2780,14 @@ if __name__ == "__main__":
         else:
             logger.info("VLM warmup disabled via VLM_WARMUP_ENABLED=false")
 
-        # Canonical readiness line: health checks and the functional-test
-        # harness gate on it, so both branches must emit it exactly once.
-        logger.info("Starting anomaly processing loop...")
+        def announce_ready() -> None:
+            # Canonical readiness line: health checks and the functional-test
+            # harness gate on it, so both branches must emit it exactly once --
+            # and only once the source can receive what a producer sends next.
+            # Kafka consumers are built on first read and join their group
+            # asynchronously, so announcing any earlier invites a producer to
+            # write past a `latest` offset no member has reached.
+            logger.info("Starting anomaly processing loop...")
 
         if multi_process:
             if source_partitions is None:
@@ -2759,21 +2814,30 @@ if __name__ == "__main__":
                     process_count,
                     source_partitions,
                 )
-            run_multi_process_pipeline(os.path.abspath(args.config), process_count)
+            run_multi_process_pipeline(os.path.abspath(args.config), process_count,
+                                       on_ready=announce_ready)
         else:
+            if not enhancer.source.await_ready():
+                raise RuntimeError("source could not join the consumer group")
+            announce_ready()
             enhancer.process_anomalies()
 
     except KeyboardInterrupt:
         # This handles Ctrl+C when not in Docker (development)
         logger.info("Received KeyboardInterrupt, shutting down Alert Bridge...")
 
-    except SystemExit:
+    except SystemExit as e:
         # Handle sys.exit() calls
         logger.info("Received SystemExit, shutting down Alert Bridge...")
+        exit_code = e.code if isinstance(e.code, int) else 0
 
     except Exception as e:
         # Handle any other unexpected exceptions
         logger.error(f"Unexpected error in main process: {e}", exc_info=True)
+        # An error here is not a clean stop: the supervisor gives up like this
+        # when a slot cannot stay alive, and reporting success would let an
+        # orchestrator treat a crash-looping deployment as a finished job.
+        exit_code = 1
 
     finally:
         # Cleanup code that always runs
@@ -2814,3 +2878,6 @@ if __name__ == "__main__":
             logger.warning(f"Error during FastAPI cleanup: {e}")
 
         logger.info("Alert Bridge shutdown complete")
+
+    if exit_code:
+        sys.exit(exit_code)

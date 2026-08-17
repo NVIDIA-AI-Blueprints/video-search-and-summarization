@@ -183,8 +183,8 @@ start_ab() {
     echo $! > "$PID_DIR/alert_bridge.pid"
     local waited=0
     while [ $waited -lt 90 ]; do
+        # Readiness now trails the consumer group join, so no settle needed.
         if grep -q "Starting anomaly processing loop" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
-            sleep 3   # consumer group join settle
             return 0
         fi
         if ! kill -0 "$(cat "$PID_DIR/alert_bridge.pid")" 2>/dev/null; then

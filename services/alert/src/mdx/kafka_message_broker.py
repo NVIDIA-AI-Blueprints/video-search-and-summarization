@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from typing import Any, Dict, List, Tuple, Optional
 
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
@@ -31,6 +32,10 @@ class KafkaMessageBroker:
     def __init__(self, kafkaConfig: dict) -> None:
         self.config = kafkaConfig
         self.batch_commit = bool(kafkaConfig.get('kafka', {}).get('batch_commit', False))
+        # Messages that arrived while waiting for a group join, keyed by
+        # consumer. Kafka only delivers to an assigned member, so anything the
+        # wait poll returns is real traffic and has to reach the caller.
+        self._prefetched: Dict[int, List[Any]] = {}
 
     def get_consumer(self, topic: str, group_id: str) -> Consumer:
         """
@@ -53,6 +58,27 @@ class KafkaMessageBroker:
         consumer = Consumer(consumer_config)
         consumer.subscribe([topic])
         return consumer
+
+    def await_group_join(self, consumer: Consumer, timeout: float) -> bool:
+        """Poll until the coordinator admits ``consumer`` to its group.
+
+        ``subscribe`` only starts the join; it completes on a later poll. Until
+        then the member holds no partitions, so a producer that starts in the
+        meantime writes past a ``latest`` offset the consumer has not reached
+        yet and those records are never delivered.
+
+        Membership is read from ``memberid`` rather than ``assignment`` because
+        a member with fewer partitions than peers is still a member, and with
+        more processes than partitions some legitimately get none.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            message = consumer.poll(timeout=0.1)
+            if message is not None and message.error() is None:
+                self._prefetched.setdefault(id(consumer), []).append(message)
+            if consumer.memberid():
+                return True
+        return bool(consumer.memberid())
 
     def get_producer(self) -> Producer:
         """
@@ -97,14 +123,20 @@ class KafkaMessageBroker:
         """
         messages = {}
         pending_commits: Dict[Tuple[str, int], Any] = {}
+        # Anything the group-join wait pulled off the wire is delivered here
+        # first, ahead of a fresh poll, so waiting never drops a message.
+        prefetched = self._prefetched.pop(id(consumer), [])
         try:
             # Resolve effective batch size from argument or configuration
             effective_batch_size = batch_size if batch_size is not None else self.config['kafka'].get('max_poll_records', 10)
 
             for _ in range(effective_batch_size):  # Loop to fetch up to `batch_size` messages
-                msg = consumer.poll(
-                    timeout=self.config['kafka']['poll_timeout'] / 1000
-                )
+                if prefetched:
+                    msg = prefetched.pop(0)
+                else:
+                    msg = consumer.poll(
+                        timeout=self.config['kafka']['poll_timeout'] / 1000
+                    )
                 if msg is None:
                     break  # No message available, stop polling this topic
 
@@ -138,6 +170,9 @@ class KafkaMessageBroker:
         except KafkaException as e:
             logger.error(f"Kafka error: {e}")
         finally:
+            if prefetched:
+                # More arrived during the wait than one batch can carry.
+                self._prefetched[id(consumer)] = prefetched
             if pending_commits:
                 self._commit_pending(consumer, pending_commits)
 

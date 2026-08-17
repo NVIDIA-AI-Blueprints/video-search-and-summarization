@@ -270,17 +270,16 @@ start_ab() {
     echo $! > "$PID_DIR/alert_bridge.pid"
     local waited=0 ready
     while [ $waited -lt 240 ]; do
+        # The readiness line is now emitted only after every child has joined
+        # the consumer group, so it needs no settle sleep behind it. If a run
+        # starts dropping the first records again, that guarantee is what
+        # broke -- do not paper over it with a sleep here.
         if grep -q "Starting anomaly processing loop" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
-            if [ "$expected_children" -le 1 ]; then
-                sleep 8   # consumer group join + partition assignment settle
-                return 0
-            fi
             ready=$(grep -c "Pipeline process .* ready" "$PID_DIR/alert_bridge.log" 2>/dev/null)
-            if [ "${ready:-0}" -ge "$expected_children" ]; then
+            if [ "$expected_children" -gt 1 ]; then
                 print_status "ok" "$ready/$expected_children pipeline children ready after ${waited}s"
-                sleep 8
-                return 0
             fi
+            return 0
         fi
         if ! kill -0 "$(cat "$PID_DIR/alert_bridge.pid")" 2>/dev/null; then
             print_status "fail" "Alert Bridge exited during startup"
