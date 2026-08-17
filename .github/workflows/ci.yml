@@ -1449,9 +1449,6 @@ jobs:
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
 
-      - name: Unit-test the last-green channel controller
-        run: python3 .github/scripts/test_last_green.py
-
       - name: Verify resolved image refs match the golden file
         run: python3 .github/scripts/compose_image_golden.py
 

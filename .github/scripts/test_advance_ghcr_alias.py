@@ -103,6 +103,38 @@ class AliasPlanTest(unittest.TestCase):
             all(item.target.endswith(":develop-deadbeef1234") for item in plan)
         )
 
+    def test_variant_alias_keeps_shared_repository_and_adds_suffix(self):
+        data = release_set()
+        variant = {
+            **data["images"][0],
+            "name": "vss-agent-sbsa",
+            "image": "ghcr.io/nvidia-ai-blueprints/vss/vss-agent",
+            "tag": "develop-deadbeef1234-sbsa",
+            "tag_suffix": "-sbsa",
+        }
+        data["images"].append(variant)
+        content = {
+            **ALL_CONTENT,
+            "vss-agent-sbsa": "tree-" + "a" * 40 + "-sbsa",
+        }
+        by_name = {
+            item.name: item
+            for item in alias_plan(data, "develop-latest", content)
+        }
+        update = by_name["vss-agent-sbsa"]
+        self.assertEqual(
+            update.source,
+            "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:"
+            + "tree-"
+            + "a" * 40
+            + "-sbsa",
+        )
+        self.assertEqual(
+            update.target,
+            "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:"
+            "develop-latest-sbsa",
+        )
+
     def test_pull_request_ref_is_accepted(self):
         """A PR branch publishes pr-<N>-* and needs the same complete coverage."""
         plan = alias_plan(release_set("pull-request/1190"), "pr-1190-abc123abc123", ALL_CONTENT)
@@ -215,6 +247,17 @@ class TreeSourceTest(unittest.TestCase):
             self._digestless(), Path("/repo"), "abc123", lambda *_: TREE
         )
         self.assertEqual(found.get("vss-agent"), f"tree-{TREE}")
+
+    def test_variant_content_tag_includes_suffix(self):
+        data = self._digestless()
+        variant = {
+            **data["images"][0],
+            "name": "vss-agent-sbsa",
+            "tag_suffix": "-sbsa",
+        }
+        data["images"].append(variant)
+        found = tree_sources(data, Path("/repo"), "abc123", lambda *_: TREE)
+        self.assertEqual(found["vss-agent-sbsa"], f"tree-{TREE}-sbsa")
 
     def test_mirror_entry_without_source_path_has_none(self):
         found = tree_sources(
