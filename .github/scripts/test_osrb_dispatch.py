@@ -33,6 +33,26 @@ check = load_python("osrb_check", DIRECTORY / "osrb_check.py")
 
 
 class DispatchTests(unittest.TestCase):
+    def test_explicit_downstream_commit_takes_precedence(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DOWNSTREAM_COMMIT_SHA": "reviewed-head",
+                "GITHUB_SHA": "workflow-sha",
+            },
+            clear=False,
+        ):
+            self.assertEqual(trigger.downstream_commit_sha(), "reviewed-head")
+
+    def test_downstream_commit_falls_back_to_event_sha(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"GITHUB_SHA": "event-sha"},
+            clear=False,
+        ):
+            os.environ.pop("DOWNSTREAM_COMMIT_SHA", None)
+            self.assertEqual(trigger.downstream_commit_sha(), "event-sha")
+
     def test_extra_variables_are_string_map(self) -> None:
         with mock.patch.dict(
             os.environ,
@@ -142,6 +162,16 @@ class DispatchTests(unittest.TestCase):
         workflow = WORKFLOW.read_text()
         for variable in ("OSRB_CODE_REF", "OSRB_ALLOW_UNREVIEWED_CODE"):
             self.assertNotIn(variable, workflow)
+
+    def test_dispatch_passes_the_reviewed_pr_head_explicitly(self) -> None:
+        workflow = WORKFLOW.read_text()
+        trigger_block = workflow.split("- name: Trigger private OSRB pipeline", 1)[1]
+        trigger_block = trigger_block.split("- name:", 1)[0]
+        self.assertIn(
+            "DOWNSTREAM_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}",
+            trigger_block,
+        )
+        self.assertNotIn("GITHUB_SHA:", trigger_block)
 
     def test_github_output_explains_developer_actions(self) -> None:
         guide = DEVELOPER_GUIDE.read_text()
