@@ -6,8 +6,8 @@
 A *release set* is one complete, immutable inventory of container images for a
 source commit: every first-party image resolves to an immutable reference, and
 unchanged components are explicitly carried forward instead of being silently
-absent. The manifest — not a moving tag — is what acceptance tests, the
-last-green channel, and the weekly promotion all point at
+absent. The manifest — not a moving tag — is what acceptance tests and the
+weekly promotion point at
 (deploy/docker/release-set.schema.json documents the contract).
 
 Subcommands
@@ -38,8 +38,10 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -79,6 +81,19 @@ def inventory_by_compose_name(inventory: dict) -> dict[str, dict]:
         for compose_name in entry.get("compose_image_names", [entry["name"]]):
             mapping[compose_name] = entry
     return mapping
+
+
+def git_tree_sha(repo_root: Path, source_path: str) -> str | None:
+    """Return the current commit's tree SHA for ``source_path``."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", f"HEAD:{source_path}"],
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value if TREE_RE.fullmatch(value) else None
 
 
 def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
@@ -200,6 +215,18 @@ def build_fragment(
         problems.append("tag must be non-empty")
 
     if entry is not None:
+        expected_repository = entry.get("repository", name)
+        if image.rsplit("/", 1)[-1] != expected_repository:
+            problems.append(
+                f"{name}: image repository {image!r} does not end in "
+                f"/{expected_repository}"
+            )
+        expected_suffix = entry.get("tag_suffix", "")
+        if expected_suffix and not tag.endswith(expected_suffix):
+            problems.append(
+                f"{name}: tag {tag!r} does not end in inventory suffix "
+                f"{expected_suffix!r}"
+            )
         required = set(entry.get("platforms", []))
         missing = required - set(platforms)
         if missing:
@@ -231,6 +258,7 @@ def build_fragment(
         "strategy": strategy,
         "image": image,
         "tag": tag,
+        "tag_suffix": entry.get("tag_suffix", ""),
         "digest": digest,
         "platforms": sorted(platforms),
         "source_path": entry.get("source_path"),
@@ -284,7 +312,10 @@ def _split_ref(resolved_ref: str) -> tuple[str, str]:
 
 
 def reuse_entries(
-    repo_root: Path, inventory: dict, built_names: set[str]
+    repo_root: Path,
+    inventory: dict,
+    built_names: set[str],
+    tree_reader: Callable[[Path, str], str | None] = git_tree_sha,
 ) -> tuple[list[dict], list[str]]:
     """Explicit ``reuse-pinned`` entries for every in-scope inventory image
     that has no fragment, at its current committed coordinate. Returns
@@ -304,6 +335,27 @@ def reuse_entries(
         if name in built_names or entry.get("strategy") not in IN_SCOPE_STRATEGIES:
             continue
         coordinates = sorted(pinned.get(name, set()))
+        # A tagged variant can intentionally have no dedicated Compose
+        # reference: it shares the base image repository and is selected by
+        # an environment/profile tag override (for example, ``-sbsa``).
+        # Carry it forward from its immutable content tag so a no-change
+        # commit still produces a complete release set. This is branch-neutral:
+        # a PR must never fall back to develop-latest for unchanged content.
+        if not coordinates and entry.get("tag_suffix"):
+            ghcr_roots = [
+                root.rstrip("/")
+                for root in inventory.get("first_party_registry_roots", [])
+                if root.startswith("ghcr.io/")
+            ]
+            tree_sha = tree_reader(repo_root, str(entry.get("source_path") or ""))
+            if len(ghcr_roots) == 1 and tree_sha:
+                repository = entry.get("repository", name)
+                coordinates = [
+                    (
+                        f"{ghcr_roots[0]}/{repository}",
+                        f"tree-{tree_sha}{entry['tag_suffix']}",
+                    )
+                ]
         if not coordinates:
             problems.append(
                 f"{name}: in-scope inventory image has no resolvable compose "
@@ -323,6 +375,7 @@ def reuse_entries(
                 "strategy": "reuse-pinned",
                 "image": image,
                 "tag": tag,
+                "tag_suffix": entry.get("tag_suffix", ""),
                 "digest": None,
                 "platforms": sorted(entry.get("platforms", [])),
                 "source_path": entry.get("source_path"),
@@ -368,9 +421,27 @@ def validate_release_set(release_set: dict, inventory: dict) -> list[str]:
             problems.append(f"{name}: tag is required")
         elif "${" in tag:
             problems.append(f"{name}: tag contains unresolved variable {tag!r}")
+        expected_suffix = names.get(name, {}).get("tag_suffix", "")
+        tag_suffix = item.get("tag_suffix", "")
+        if tag_suffix != expected_suffix:
+            problems.append(
+                f"{name}: tag_suffix {tag_suffix!r} does not match inventory "
+                f"{expected_suffix!r}"
+            )
         image = item.get("image") or ""
         if "${" in image:
             problems.append(f"{name}: image contains unresolved variable {image!r}")
+        expected_repository = names.get(name, {}).get("repository", name)
+        if image and image.rsplit("/", 1)[-1] != expected_repository:
+            problems.append(
+                f"{name}: image repository {image!r} does not end in "
+                f"/{expected_repository}"
+            )
+        if tag_suffix and tag and not tag.endswith(tag_suffix):
+            problems.append(
+                f"{name}: tag {tag!r} does not end in tag_suffix "
+                f"{tag_suffix!r}"
+            )
         digest = item.get("digest")
         if item.get("strategy") in ("build", "mirror"):
             if not DIGEST_RE.match(digest or ""):

@@ -953,14 +953,15 @@ function process_args() {
         ((_all_good++))
       fi
 
-      # L40S: neither LLM nor VLM may use local_shared (device ID cannot be shared with other services)
+      # L40S (48 GB) cannot share the LLM with another NIM (no hw-L40S-shared.env).
+      # Search RT-VLM may share GPU 0 with RT-CV. LLM and VLM still cannot share a GPU.
       if [[ "${hardware_profile}" == "L40S" ]]; then
         if [[ "${llm_mode}" == "local_shared" ]]; then
           echo "[ERROR] On L40S, the device ID for the LLM cannot be shared with other services"
           ((_all_good++))
         fi
-        if [[ "${vlm_mode}" == "local_shared" ]]; then
-          echo "[ERROR] On L40S, the device ID for the VLM cannot be shared with other services"
+        if [[ "${llm_mode}" != "remote" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]] && [[ -n "${vlm_device_id}" ]] && [[ "${llm_device_id}" == "${vlm_device_id}" ]]; then
+          echo "[ERROR] On L40S, the LLM and VLM cannot share the same GPU"
           ((_all_good++))
         fi
       fi

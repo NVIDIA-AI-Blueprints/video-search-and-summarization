@@ -703,6 +703,30 @@ class Config(object):
         else False
     )
 
+    # Logging controls (see lib/logging/wdm_logging.py). Defaults keep text +
+    # stdout-only; set WDM_LOG_FORMAT=json for collectors, WDM_LOG_LEVEL=DEBUG
+    # for polls, and WDM_LOG_TO_FILE=true for rotating files under logs/.
+    WDM_LOG_LEVEL = (
+        os.environ["WDM_LOG_LEVEL"].strip()
+        if "WDM_LOG_LEVEL" in os.environ
+        and os.environ["WDM_LOG_LEVEL"].strip() != ""
+        else "INFO"
+    )
+    WDM_LOG_FORMAT = (
+        os.environ["WDM_LOG_FORMAT"].strip().lower()
+        if "WDM_LOG_FORMAT" in os.environ
+        and os.environ["WDM_LOG_FORMAT"].strip() != ""
+        else "text"
+    )
+    WDM_LOG_TO_FILE = (
+        True
+        if "WDM_LOG_TO_FILE" in os.environ
+        and os.environ["WDM_LOG_TO_FILE"].strip() != ""
+        and os.environ["WDM_LOG_TO_FILE"].strip().lower()
+        not in ("0", "false", "no", "off")
+        else False
+    )
+
     WDM_RESET_ON_WLOBJ_CRASH = (
         False
         if "WDM_RESET_ON_WLOBJ_CRASH" in os.environ

@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
@@ -126,11 +125,10 @@ class DownstreamVariablesTest(unittest.TestCase):
         self.assertEqual(
             variables["VSS_CONTAINER_TAG"], "pr-1396-" + "a" * 12
         )
-        self.assertEqual(
-            variables["VSS_RELEASE_SET_ID"], release_set["release_set_id"]
-        )
-        decoded = json.loads(base64.b64decode(variables["VSS_RELEASE_SET_B64"]))
-        self.assertEqual(decoded, release_set)
+        # The release set itself is deliberately not sent: ci-vss-oss has no
+        # consumer for it. Assert its absence so a reintroduction is caught.
+        self.assertNotIn("VSS_RELEASE_SET_ID", variables)
+        self.assertNotIn("VSS_RELEASE_SET_B64", variables)
 
     def test_main_with_release_set_file_performs_no_network(self):
         sha = "a" * 40

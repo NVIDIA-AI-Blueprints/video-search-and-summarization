@@ -31,7 +31,8 @@ import logging
 import requests
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+# Do not call logging.basicConfig here — app/run_workloads configure root logging
+# via lib.logging.configure_root_logging (level/format/handlers).
 
 # OTEL Configs
 REDIS_OTEL_CONTEXT_HASHMAP = "trace_contexts"

@@ -617,6 +617,9 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | Parameter | Default | Description |
 |---|---|---|
 | `OTEL_SERVICE_NAME` | `sdr-agent` | OpenTelemetry service name. |
+| `WDM_LOG_LEVEL` | `INFO` | Root log level (`DEBUG`/`INFO`/`WARNING`/`ERROR`). Use `DEBUG` to restore poll/inventory detail. |
+| `WDM_LOG_FORMAT` | `text` | Log format: `text` (human-readable KV) or `json` (one JSON object per line). |
+| `WDM_LOG_TO_FILE` | `false` | Write rotating files under `logs/` when `1`/`true`; stdout-only by default. |
 | `WDM_DISABLE_WERKZEUG_LOGGING` | `False` | Disable Werkzeug HTTP request logging. |
 | `WDM_SDR_AGENT_PORT` | `4000` | SDR agent service port reported to an external controller. |
 | `CONTROLLER_SERVICE_URL` | `sdr-controller-service.default.svc.cluster.local:4001/report` | Controller report endpoint. |
@@ -933,7 +936,42 @@ SDRC supports OpenTelemetry tracing (see `lib/tracing.py`) and Prometheus metric
 
 Set `OTEL_SDK_DISABLED=true` to disable OpenTelemetry (useful in environments without a collector). Configure the collector with standard `OTEL_EXPORTER_OTLP_*` environment variables.
 
-Structured logging is configured at startup via `lib/logging/wdm_logging.py`. Set `WDM_DISABLE_WERKZEUG_LOGGING=true` to suppress Werkzeug HTTP request logs.
+Logging is configured at startup via `lib/logging/wdm_logging.py`:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WDM_LOG_LEVEL` | `INFO` | Root level. `INFO` keeps lifecycle/state changes; poll/inventory detail is at `DEBUG`. |
+| `WDM_LOG_FORMAT` | `text` | `text` for console skim; `json` for collectors (`jq`, Loki, Fluent Bit). |
+| `WDM_LOG_TO_FILE` | `false` | Opt-in rotating files under `logs/`; stdout-only by default. |
+| `WDM_DISABLE_WERKZEUG_LOGGING` | `false` | Suppress Werkzeug access logs when `true`. |
+
+Noisy third-party loggers (`redis_lock`, `urllib3`, `docker`, `kafka`) are raised to `WARNING` so they do not drown application events at `INFO`. Repeated identical Redis consumer errors are rate-limited (~30s) and report `suppressed_count` when they recur.
+
+Example (`text`):
+
+```text
+2026-08-14 13:07:30 INFO [workload:vss-rtvi-cv] __main__ - Committing message id 1786623678634-0 component=workload
+2026-08-14 13:07:30 INFO [router] run_workloads - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.05 component=router
+2026-08-14 13:07:30 INFO [envoy] [upstream] cds: added/updated 0 cluster(s), skipped 5 unmodified cluster(s)
+```
+
+Filter muxed `docker logs` by source:
+
+```bash
+docker logs sdr-controller 2>&1 | grep '\[envoy\]'
+docker logs sdr-controller 2>&1 | grep '\[router\]'
+docker logs sdr-controller 2>&1 | grep '\[controller\]'
+docker logs sdr-controller 2>&1 | grep '\[workload:'
+docker logs sdr-controller 2>&1 | grep '\[workload:vss-rtvi-cv\]'
+```
+
+In the combined `sdr-mw` process, router HTTP/xDS stays `[router]`; background controller watchers bind `component=controller` on their threads so their lines are `[controller]` without reinstalling root handlers.
+
+Example (`json`):
+
+```json
+{"timestamp":"2026-08-14T13:07:30.443Z","severity":"INFO","logger":"__main__","message":"Committing message id 1786623678634-0","component":"workload","workload":"vss-rtvi-cv","source":"workload:vss-rtvi-cv"}
+```
 
 ---
 

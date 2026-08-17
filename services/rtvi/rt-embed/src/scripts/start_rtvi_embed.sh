@@ -102,8 +102,12 @@ python3 src/utils.py 2>/dev/null
 
 FREE_GPU_MEM=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader -i 0 | awk '{print $1}')
 echo "Free GPU memory is $FREE_GPU_MEM MiB"
+GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader -i 0)
 
-if [ $FREE_GPU_MEM -lt 40000 ]; then
+if [[ "$GPU_NAME" == *"Orin"* ]]; then
+    # Disable decoder resue on Orin
+    export DISABLE_DECODER_REUSE=true
+elif [[ "$FREE_GPU_MEM" =~ ^[0-9]+$ && "$FREE_GPU_MEM" -lt 40000 ]]; then
     export DISABLE_DECODER_REUSE="${DISABLE_DECODER_REUSE:-true}"
 else
     export DISABLE_DECODER_REUSE="${DISABLE_DECODER_REUSE:-false}"
@@ -138,7 +142,9 @@ fi
 
 
 if [ -z $VLM_BATCH_SIZE ]; then
-    if [[ "$GPU_MEM" == *"N/A"* || $GPU_MEM -gt 80000 ]]; then
+    if [[ "$GPU_MEM" =~ ^[0-9]+$ && "$GPU_MEM" -lt 16000 ]]; then
+        VLM_BATCH_SIZE=2
+    elif [[ "$GPU_MEM" == *"N/A"* || $GPU_MEM -gt 80000 ]]; then
         VLM_BATCH_SIZE=64
     elif [[ $GPU_MEM -gt 46000 ]]; then
         VLM_BATCH_SIZE=16

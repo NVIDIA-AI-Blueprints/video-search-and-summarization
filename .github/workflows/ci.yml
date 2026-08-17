@@ -50,10 +50,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      build-behavior-analytics: ${{ steps.analytics-changes.outputs.behavior }}
-      build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
+      build-behavior-analytics: ${{ steps.managed-image-changes.outputs.behavior }}
+      build-video-analytics-api: ${{ steps.managed-image-changes.outputs.video }}
       current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
       current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
+      sdr-mw-l-changed: ${{ steps.managed-image-changes.outputs.sdr-mw-l }}
+      vss-configurator-changed: ${{ steps.managed-image-changes.outputs.vss-configurator }}
+      vss-rt-config-adaptor-changed: ${{ steps.managed-image-changes.outputs.vss-rt-config-adaptor }}
+      unit-test-workflow-changed: ${{ steps.changed-paths.outputs.unit-test-workflow-changed }}
       trigger-from-src-change: ${{ steps.changed-paths.outputs.trigger-from-src-change }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -106,19 +110,25 @@ jobs:
           if base and paths is None:
               reason += "; diff failed; running downstream acceptance"
 
+          unit_test_workflow_changed = paths is None or ".github/workflows/ci.yml" in paths
           trigger_from_src = any(
               paths_changed_under(paths, folder)
               for folder in DOWNSTREAM_TRIGGER_PATHS
           )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(
+                  "unit-test-workflow-changed="
+                  f"{str(unit_test_workflow_changed).lower()}\n"
+              )
+              output.write(
                   f"trigger-from-src-change={str(trigger_from_src).lower()}\n"
               )
+          print(f"Unit-test workflow changed: {unit_test_workflow_changed} ({reason})")
           print(f"Downstream trigger from source: {trigger_from_src} ({reason})")
           PY
 
-      - name: Detect analytics image changes
-        id: analytics-changes
+      - name: Detect managed image changes
+        id: managed-image-changes
         run: |
           python3 .github/scripts/detect_changed_images.py \
             --event-name "${{ github.event_name }}" \
@@ -127,11 +137,23 @@ jobs:
             --base-branch develop > analytics-detection.json
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
+          from pathlib import Path
 
           entries = json.load(open("analytics-detection.json"))["matrix"]["include"]
           names = {entry["name"] for entry in entries}
-          print(f"behavior={str('vss-behavior-analytics' in names).lower()}")
-          print(f"video={str('vss-video-analytics-api' in names).lower()}")
+          inventory = json.loads(Path("deploy/docker/container-inventory.json").read_text())
+          outputs = {
+              entry["name"]: entry["name"]
+              for entry in inventory["images"]
+              if entry.get("strategy") == "build" and entry.get("ghcr_build")
+          }
+          outputs.update({
+              # Backward-compatible aliases used by the existing analytics jobs.
+              "behavior": "vss-behavior-analytics",
+              "video": "vss-video-analytics-api",
+          })
+          for output, image in outputs.items():
+              print(f"{output}={str(image in names).lower()}")
           PY
 
       - name: Resolve current analytics images
@@ -641,7 +663,171 @@ jobs:
           path: services/analytics/video-analytics-api/test/coverage/
 
   # ---------------------------------------------------------------------------
-  # Job 5c: Behavior analytics Docker Compose integration test
+  # Job 5c: SDRC unit tests
+  # ---------------------------------------------------------------------------
+  sdr-mw-l-test:
+    name: Test (sdr-mw-l)
+    needs: prepare-source
+    if: needs.prepare-source.outputs.sdr-mw-l-changed == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/sdrc
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.24"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.10"
+
+      - name: Run unit tests
+        run: |
+          mkdir -p test/coverage
+          uv run --python 3.10 --with pytest --with pytest-cov pytest tests/ -v --tb=short \
+            --junitxml=test/coverage/test-results.xml
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: sdr-mw-l-test-reports
+          path: services/sdrc/test/coverage/
+
+  # ---------------------------------------------------------------------------
+  # Job 5d: VSS configurator unit tests
+  # ---------------------------------------------------------------------------
+  vss-configurator-test:
+    name: Test (vss-configurator)
+    needs: prepare-source
+    if: needs.prepare-source.outputs.vss-configurator-changed == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/configurators/vss-configurator
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.24"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Run unit tests
+        run: |
+          mkdir -p test/coverage
+          uv venv --python 3.13
+          uv pip install --python .venv/bin/python \
+            pytest \
+            pytest-cov \
+            Flask==3.1.0 \
+            requests==2.32.3 \
+            ruamel.yaml==0.18.15
+          .venv/bin/pytest tests/ -v --tb=short \
+            --junitxml=test/coverage/test-results.xml \
+            --cov=app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: vss-configurator-test-reports
+          path: |
+            services/configurators/vss-configurator/test/coverage/
+            services/configurators/vss-configurator/coverage.xml
+
+  # ---------------------------------------------------------------------------
+  # Job 5e: VSS RT config adaptor unit tests
+  # ---------------------------------------------------------------------------
+  vss-rt-config-adaptor-test:
+    name: Test (vss-rt-config-adaptor)
+    needs: prepare-source
+    if: needs.prepare-source.outputs.vss-rt-config-adaptor-changed == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/configurators/vss-rt-config-adaptor
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.24"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --python 3.13 --frozen --group dev
+
+      - name: Run unit tests
+        run: |
+          mkdir -p test/coverage
+          uv run --python 3.13 pytest tests/ -v --tb=short \
+            --junitxml=test/coverage/test-results.xml \
+            --cov=app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: vss-rt-config-adaptor-test-reports
+          path: |
+            services/configurators/vss-rt-config-adaptor/test/coverage/
+            services/configurators/vss-rt-config-adaptor/coverage.xml
+
+  # ---------------------------------------------------------------------------
+  # Job 5f: Behavior analytics Docker Compose integration test
   # ---------------------------------------------------------------------------
   behavior-analytics-integration-test:
     name: Integration (behavior analytics)
@@ -1256,17 +1442,12 @@ jobs:
         run: |
           python3 .github/scripts/test_update_pr_ghcr_candidates.py
           python3 .github/scripts/test_prepare_downstream_release_set.py
-          python3 .github/scripts/test_prepare_nightly_promotion.py
-          python3 .github/scripts/test_prepare_promotion_trigger.py
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
-
-      - name: Unit-test the last-green channel controller
-        run: python3 .github/scripts/test_last_green.py
 
       - name: Verify resolved image refs match the golden file
         run: python3 .github/scripts/compose_image_golden.py
