@@ -6,8 +6,8 @@
 A *release set* is one complete, immutable inventory of container images for a
 source commit: every first-party image resolves to an immutable reference, and
 unchanged components are explicitly carried forward instead of being silently
-absent. The manifest — not a moving tag — is what acceptance tests, the
-last-green channel, and the weekly promotion all point at
+absent. The manifest — not a moving tag — is what acceptance tests and the
+weekly promotion point at
 (deploy/docker/release-set.schema.json documents the contract).
 
 Subcommands
