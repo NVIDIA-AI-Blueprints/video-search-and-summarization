@@ -408,6 +408,7 @@ class HarnessScopeTests(unittest.TestCase):
         ):
             forwarded = self.env_module._forwarded_nemoclaw_env()
         self.assertIn("export NEMOCLAW_SANDBOX_NAME=skill-eval", forwarded)
+        self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.109", forwarded)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", forwarded)
         self.assertIn("export NEMOCLAW_DASHBOARD_PORT=20123", forwarded)
         self.assertIn("export HARDWARE_PROFILE=L40S", forwarded)
