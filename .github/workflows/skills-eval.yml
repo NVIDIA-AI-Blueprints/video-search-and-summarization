@@ -328,6 +328,7 @@ jobs:
 
           DIAGNOSTICS_DIR="${RUNNER_TEMP}/nemoclaw-diagnostics-${EVAL_SLUG}-${GITHUB_RUN_ID}"
           REMOTE_TARBALL="/tmp/nemoclaw-debug-${EVAL_SLUG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+          REMOTE_ONBOARD_TARBALL="/tmp/nemoclaw-onboard-failures-${EVAL_SLUG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
           mkdir -p "$DIAGNOSTICS_DIR"
 
           # Brev uses SSH under the hood. Reuse one agent for collection and
@@ -347,8 +348,22 @@ jobs:
             brev copy "$NEMOCLAW_INSTANCE:$REMOTE_TARBALL" "$DIAGNOSTICS_DIR/"
             collect_rc=$?
           fi
+
+          # Onboard saves the sandbox boot failure separately from `debug`.
+          # Use NemoClaw's own bounded, redacting exporter rather than copying
+          # the raw rootfs and gateway logs into the workflow artifact.
+          brev exec "$NEMOCLAW_INSTANCE" \
+            "bash -lc 'set -e; source_root=\$HOME/.nemoclaw/gateways/8990/source; failure_root=\$HOME/.nemoclaw/gateways/8990/onboard-failures; export_root=/tmp/nemoclaw-onboard-export-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}; rm -rf \"\$export_root\"; mkdir -p \"\$export_root\"; cd \"\$source_root\"; ./node_modules/.bin/tsx scripts/checks/export-managed-image-failure-diagnostics.ts --source \"\$failure_root\" --output \"\$export_root\"; tar czf ${REMOTE_ONBOARD_TARBALL} -C \"\$export_root\" .'" \
+            2>&1 | tee -a "$DIAGNOSTICS_DIR/collector.log"
+          onboard_rc=${PIPESTATUS[0]}
+          if [ "$onboard_rc" -eq 0 ]; then
+            brev copy "$NEMOCLAW_INSTANCE:$REMOTE_ONBOARD_TARBALL" "$DIAGNOSTICS_DIR/"
+            onboard_rc=$?
+          fi
           set -e
-          exit "$collect_rc"
+          if [ "$collect_rc" -ne 0 ] && [ "$onboard_rc" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Upload NemoClaw diagnostics
         if: >-
