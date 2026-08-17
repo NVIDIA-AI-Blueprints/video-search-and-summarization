@@ -10,10 +10,11 @@ ARG SBSA_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark@sha256
 ARG DS_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-multiarch@sha256:fd31f5b44ababdbdee8cd397a375e888191b49e402ac237254a4cdc239130f5b"
 ARG TRITON_CUDA_IMAGE="nvcr.io/nvidia/tritonserver:26.03-py3@sha256:72d1d796b49a17e6432d4908c95969be0dded2f4d06469fa0824a71ecf0b895b"
 ARG VLLM_IMAGE="nvcr.io/nvidia/vllm:26.03-py3@sha256:13e327dad79e6e417f6687fec2ba76b0386d597082ec0ee003c1e964ec6ad0e7"
+ARG PDM_EXPORT_IMAGE="python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a"
 ARG MEDIA_PLATFORM="ds"
 ARG DEEPSTREAM_X86_SHA256="fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
 ARG DEEPSTREAM_JETSON_SHA256="14813cb7da9eafdd01ceed52c1c8d85a3255612a9b1c2691f5ad3ad5c5d39c2e"
-FROM python:3.12-slim AS pdm-export
+FROM ${PDM_EXPORT_IMAGE} AS pdm-export
 ARG TARGETARCH
 RUN pip install --no-cache-dir pdm==2.26.1
 WORKDIR /tmp/pdm
