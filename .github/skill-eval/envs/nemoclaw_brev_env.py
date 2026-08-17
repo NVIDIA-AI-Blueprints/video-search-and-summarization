@@ -94,7 +94,7 @@ if command -v nemoclaw >/dev/null 2>&1 && \
    command -v openshell >/dev/null 2>&1 && \
    openshell sandbox get {quoted} >/dev/null 2>&1; then
   timeout --signal=TERM --kill-after=30 600s \
-    nemoclaw {quoted} destroy --yes
+    nemoclaw {quoted} destroy --yes --cleanup-gateway
 fi
 """.strip()
 
