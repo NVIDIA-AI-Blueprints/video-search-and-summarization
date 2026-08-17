@@ -89,6 +89,39 @@ env:
   SKILL_EVAL_PYTHON_VERSION: "3.12"
 
 jobs:
+  # Test-only canary path: inspect the active worker through the same Brev
+  # service account used by CI. This branch is not part of PR #1645.
+  inspect-worker:
+    name: Inspect NemoClaw worker
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.skills == '__inspect__'
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 10
+    steps:
+      - name: Report deployment mode and containers
+        env:
+          NEMOCLAW_INSTANCE: ${{ inputs.nemoclaw_instance }}
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          eval "$(ssh-agent -s)" > /dev/null
+          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+          brev exec "$NEMOCLAW_INSTANCE" "bash -lc '
+            echo EFFECTIVE_MODES
+            generated=\"\$HOME/video-search-and-summarization/deployments/developer-workflow/dev-profile-base/generated.env\"
+            if [ -f \"\$generated\" ]; then
+              grep -E \"^(LLM_MODE|VLM_MODE|LLM_NAME|VLM_NAME|LLM_NAME_SLUG|VLM_NAME_SLUG)=\" \"\$generated\" || true
+            else
+              echo generated.env-not-found
+            fi
+            echo CONTAINERS
+            docker ps -a --format \"{{.Names}}\\t{{.Image}}\\t{{.Status}}\"
+            echo NIM_IMAGES
+            docker images --format \"{{.Repository}}:{{.Tag}}\" | grep -Ei \"(nvcr.io/nim|nemotron|cosmos)\" || true
+          '"
+
   # ---------------------------------------------------------------------
   # plan — compute the shared dispatch matrix from the PR diff or manual input.
   # Lightweight: gh + python3, no GPU, no brev, no flock.
@@ -97,7 +130,7 @@ jobs:
     name: Plan eval matrix
     if: >-
       startsWith(github.ref, 'refs/heads/pull-request/') ||
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'workflow_dispatch' && inputs.skills != '__inspect__')
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
