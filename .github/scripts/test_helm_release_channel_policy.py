@@ -93,10 +93,6 @@ COMPOSE_FILES = {
     ],
 }
 
-# RT-VLM is published by the GHCR workflow but remains NGC-pinned until its
-# GitHub-built image is explicitly promoted for deployment consumption.
-STAGED_GHCR_IMAGES = {"vss-rt-vlm"}
-
 
 def image_coordinates(path: Path, image_name: str) -> tuple[str, str]:
     text = path.read_text()
@@ -125,7 +121,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             for image in inventory["images"]
             if image.get("ghcr_build") is True
         }
-        self.assertEqual(managed, set(HELM_VALUES) | STAGED_GHCR_IMAGES)
+        self.assertEqual(managed, set(HELM_VALUES))
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():
