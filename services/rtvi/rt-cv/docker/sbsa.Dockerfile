@@ -148,22 +148,22 @@ COPY --from=ds-devel /opt/mm/LICENSE.3rdparty /opt/mm/LICENSE.3rdparty
 # 1/3  apt runtime deps. NOTE both packages take --no-install-recommends on
 #      SBSA; the multiarch file installs the GStreamer loader WITH recommends.
 #      That asymmetry is inherited from ds9.1 and is preserved on purpose.
-RUN --mount=type=cache,target=/var/cache/apt/archives \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked,id=apt-archives-sbsa \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked,id=apt-lists-sbsa \
     apt-get clean && apt-get update && \
     apt-get install -y --no-install-recommends netcat-openbsd gstreamer1.0-python3-plugin-loader && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # 2/3  PyTorch. Own layer because it is large and changes rarely. SBSA takes
 #      the released cu130 build, same pin as Jetson arm64.
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked,id=pip-sbsa \
     pip3 install --default-timeout=100 --retries 20 \
       torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cu130
 
 # 3/3  Remaining pip deps (small, change most often -> last).
 #      open-clip-torch is installed WITH deps here, unlike Jetson arm64.
 #      onnxruntime is the CPU build: there is no onnxruntime-gpu arm64 wheel.
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked,id=pip-sbsa \
     set -eux; \
     pip3 install --default-timeout=100 --retries 20 kafka-python psutil transformers==4.57.6 setuptools==78.1.1 numpy==1.26.4; \
     pip3 install --default-timeout=100 --retries 20 open-clip-torch sentencepiece onnx onnxruntime pillow==12.2.0; \
@@ -175,7 +175,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # network at runtime. Only tokenizer/config JSON is fetched -- weights are
 # excluded, which is why this stays small.
 ENV HF_HOME=/opt/huggingface
-RUN --mount=type=cache,target=/tmp/hf_cache \
+RUN --mount=type=cache,target=/tmp/hf_cache,sharing=locked,id=hf-sbsa \
     mkdir -p /opt/huggingface && \
     HF_HOME=/tmp/hf_cache python3 -c "from huggingface_hub import snapshot_download; \
 snapshot_download('bert-base-uncased', \
@@ -207,8 +207,8 @@ RUN groupadd -r -f -g ${gid} nvidia && useradd -o -r -l -u ${uid} -g ${gid} -ms 
 
 # sparse4d system deps (~50 min). Runs late on SBSA -- see the ordering note in
 # the header. Do not hoist this above the pip layers without re-verifying.
-RUN --mount=type=cache,target=/var/cache/apt/archives \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked,id=apt-archives-sbsa \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked,id=apt-lists-sbsa \
     /opt/nvidia/deepstream/deepstream/sources/sparse4d/configs/install_dependencies.sh
 
 WORKDIR /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/
@@ -222,8 +222,8 @@ RUN pip uninstall -y nvidia-dali-cuda130
 # (56/56 packages), so TARGETARCH=arm64 is passed explicitly -- buildx does not
 # set it for a single-platform build driven by an -sbsa tag.
 COPY docker/strip-patented-codecs.sh /tmp/strip-patented-codecs.sh
-RUN --mount=type=cache,target=/var/cache/apt/archives \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked,id=apt-archives-sbsa \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked,id=apt-lists-sbsa \
     TARGETARCH=arm64 /tmp/strip-patented-codecs.sh && rm -f /tmp/strip-patented-codecs.sh
 
 # -- final runtime configuration ------------------------------------------

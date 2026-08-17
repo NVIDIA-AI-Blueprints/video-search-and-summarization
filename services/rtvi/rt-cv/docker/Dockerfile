@@ -39,6 +39,14 @@
 # Layer order follows the aarch64 file: install_dependencies.sh runs before the
 # pip layers so that ~50 min layer stays cached when only app or pip deps change.
 #
+# EVERY cache mount is scoped `id=...-${TARGETARCH}` and `sharing=locked`. Both
+# platforms build CONCURRENTLY in one buildx invocation, and a cache mount
+# defaults to sharing=shared -- so amd64 and arm64 would land in the same
+# /var/lib/apt/lists and fight over apt's lock ("Could not get lock ... held by
+# process 0", apt exit 100). Worse, that directory holds arch-specific package
+# indices (archive.ubuntu.com vs ports.ubuntu.com), so sharing it would mix
+# metadata between architectures. Same reasoning for the pip and HF caches.
+#
 # NOTE the prebuilts tree also ships an `sbsa` directory. SBSA is linux/arm64,
 # the SAME TARGETARCH as Jetson, so it cannot be selected by a branch here — it
 # needs its own image. See deploy/docker/container-inventory.json.
@@ -160,13 +168,13 @@ COPY --from=ds-devel /opt/mm/LICENSE.3rdparty /opt/mm/LICENSE.3rdparty
 # RUNs -- each split exists to keep a layer cached.
 #
 # 1/4  sparse4d system deps (~50 min). Slowest layer, changes almost never.
-RUN --mount=type=cache,target=/var/cache/apt/archives \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked,id=apt-archives-${TARGETARCH} \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked,id=apt-lists-${TARGETARCH} \
     /opt/nvidia/deepstream/deepstream/sources/sparse4d/configs/install_dependencies.sh
 
 # 2/4  apt runtime deps: GStreamer python plugin loader + netcat (healthchecks)
-RUN --mount=type=cache,target=/var/cache/apt/archives \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked,id=apt-archives-${TARGETARCH} \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked,id=apt-lists-${TARGETARCH} \
     apt-get clean && apt-get update && \
     apt-get install -y gstreamer1.0-python3-plugin-loader && \
     apt-get install -y --no-install-recommends netcat-openbsd && \
@@ -176,7 +184,7 @@ RUN --mount=type=cache,target=/var/cache/apt/archives \
 #      separate means a change to the small deps below does not refetch it.
 #      amd64 tracks the cu130 nightly and force-reinstalls over the base
 #      image's preinstalled torch; arm64 pins the released build.
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked,id=pip-${TARGETARCH} \
     set -eux; \
     if [ "$TARGETARCH" = "arm64" ]; then \
       pip3 install --default-timeout=100 --retries 20 \
@@ -190,7 +198,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 #      onnxruntime-gpu has no arm64 wheel, so arm64 gets the CPU build.
 #      open-clip-torch is --no-deps on arm64 so pip cannot pull a torch that
 #      conflicts with the pinned one above.
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked,id=pip-${TARGETARCH} \
     set -eux; \
     pip3 install --default-timeout=100 --retries 20 kafka-python psutil transformers==4.57.6 setuptools==78.1.1 numpy==1.26.4; \
     if [ "$TARGETARCH" = "arm64" ]; then \
@@ -207,7 +215,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # network at runtime. Only tokenizer/config JSON is fetched -- weights are
 # excluded, which is why this stays small.
 ENV HF_HOME=/opt/huggingface
-RUN --mount=type=cache,target=/tmp/hf_cache \
+RUN --mount=type=cache,target=/tmp/hf_cache,sharing=locked,id=hf-${TARGETARCH} \
     mkdir -p /opt/huggingface && \
     HF_HOME=/tmp/hf_cache python3 -c "from huggingface_hub import snapshot_download; \
 snapshot_download('bert-base-uncased', \
@@ -242,8 +250,8 @@ WORKDIR /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_pe
 # it was a 94-line RUN layer here (30% of this file). Still ONE layer, so the
 # removals actually shrink the image rather than masking files from a lower one.
 COPY docker/strip-patented-codecs.sh /tmp/strip-patented-codecs.sh
-RUN --mount=type=cache,target=/var/cache/apt/archives \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked,id=apt-archives-${TARGETARCH} \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked,id=apt-lists-${TARGETARCH} \
     /tmp/strip-patented-codecs.sh && rm -f /tmp/strip-patented-codecs.sh
 
 # -- final runtime configuration ------------------------------------------
