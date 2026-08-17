@@ -18,7 +18,7 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm}:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.08.1}
+    image: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm}:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.08.2}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
@@ -100,6 +100,11 @@ services:
       MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
       RTVI_ENABLE_CUDA_OOM_RECOVERY: "${RTVI_ENABLE_CUDA_OOM_RECOVERY:-true}"
+      # Live-stream GPU admission controls.
+      RTVI_LIVE_STREAM_GPU_MEMORY_GUARD: "${RTVI_LIVE_STREAM_GPU_MEMORY_GUARD:-true}"
+      RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB: "${RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB:-1024}"
+      # Media chat completions are not published to the message bus by default.
+      ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS: "${ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS:-false}"
       # Optional EVS++ session controls.
       VIA_EVS_SESSION: "${VIA_EVS_SESSION:-}"
       VLLM_EVS_SIMILARITY_THRESHOLD: "${VLLM_EVS_SIMILARITY_THRESHOLD:-}"

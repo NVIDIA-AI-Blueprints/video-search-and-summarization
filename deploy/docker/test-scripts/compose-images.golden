@@ -61,8 +61,8 @@ deploy/docker/services/rtvi/rtvi-cv/compose.yaml nvcr.io/nvstaging/vss-core/vss-
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
-deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
-deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1
+deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1
+deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
 deploy/docker/services/ui/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
 deploy/docker/services/video-summarization/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest
 deploy/docker/services/vios/foundational/docker-compose.yaml ${POSTGRES_IMAGE}

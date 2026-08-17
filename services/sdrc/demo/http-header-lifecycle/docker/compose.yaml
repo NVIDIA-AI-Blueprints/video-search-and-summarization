@@ -40,7 +40,7 @@ services:
       retries: 20
 
   nvstreamer:
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG:-2.1.0-26.07.1}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG:-1.4.0-26.08.1}
     container_name: vss-vios-nvstreamer
     user: "0:0"
     runtime: nvidia
