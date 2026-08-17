@@ -44,7 +44,7 @@ _SETUP_KEYS = (
 _NEMOCLAW_DEFAULTS = {
     "NEMOCLAW_INSTALL_REF": "v0.0.108",
     "NEMOCLAW_SANDBOX_NAME": "skill-eval",
-    "NEMOCLAW_GATEWAY_PORT": "8990",
+    "NEMOCLAW_GATEWAY_PORT": "8991",
     "NEMOCLAW_POLICY_MODE": "skip",
 }
 
@@ -83,13 +83,17 @@ def _forwarded_nemoclaw_env() -> str:
     return "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values)
 
 
-def _destroy_sandbox_command(sandbox: str) -> str:
+def _destroy_sandbox_command(sandbox: str, gateway_port: str) -> str:
     quoted = shlex.quote(sandbox)
+    quoted_port = shlex.quote(gateway_port)
     return f"""
 set -e
 set +u
 . "$HOME/.profile" 2>/dev/null || true
 set -u
+host_home=$HOME
+export HOME="$host_home/.skill-eval/nemoclaw-home"
+export NEMOCLAW_GATEWAY_PORT={quoted_port}
 if command -v nemoclaw >/dev/null 2>&1 && \
    command -v openshell >/dev/null 2>&1 && \
    openshell sandbox get {quoted} >/dev/null 2>&1; then
@@ -106,7 +110,11 @@ set +u
 . "$HOME/.profile" 2>/dev/null || true
 set -u
 . "$HOME/.eval_env"
-cd "$HOME/video-search-and-summarization"
+host_home=$HOME
+repo="$host_home/video-search-and-summarization"
+export HOME="$host_home/.skill-eval/nemoclaw-home"
+mkdir -p "$HOME"
+cd "$repo"
 scratch=/tmp/skill-eval/nemoclaw
 mkdir -p "$scratch"
 export NEMOCLAW_SETUP_CELL_TIMEOUT_SEC={timeout}
@@ -135,10 +143,11 @@ class NemoClawBrevEnvironment(BrevEnvironment):
         # lifecycle without teaching this harness how to repair host state.
         instance = self._resolve_instance_name()
         sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval")
+        gateway_port = os.environ.get("NEMOCLAW_GATEWAY_PORT", "8991")
         if instance:
             destroyed = await _run_brev_exec(
                 instance,
-                _destroy_sandbox_command(sandbox),
+                _destroy_sandbox_command(sandbox, gateway_port),
                 timeout=660,
             )
             if destroyed.return_code != 0:

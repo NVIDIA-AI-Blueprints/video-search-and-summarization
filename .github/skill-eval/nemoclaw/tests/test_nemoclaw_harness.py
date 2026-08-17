@@ -389,7 +389,7 @@ class HarnessScopeTests(unittest.TestCase):
         ):
             forwarded = self.env_module._forwarded_nemoclaw_env()
         self.assertIn("export NEMOCLAW_SANDBOX_NAME=skill-eval", forwarded)
-        self.assertIn("export NEMOCLAW_GATEWAY_PORT=8990", forwarded)
+        self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", forwarded)
         self.assertIn("export NEMOCLAW_DASHBOARD_PORT=20123", forwarded)
         self.assertIn("export HARDWARE_PROFILE=L40S", forwarded)
 
@@ -402,18 +402,20 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertNotIn("HARBOR_CLAUDE_CODE_INSTRUCTION_", source)
 
     def test_eval_harness_only_destroys_the_named_sandbox(self) -> None:
-        command = self.env_module._destroy_sandbox_command("skill-eval")
+        command = self.env_module._destroy_sandbox_command("skill-eval", "8991")
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
             encoding="utf-8"
         )
         start = source.split("    async def start", 1)[1]
         self.assertIn("openshell sandbox get skill-eval", command)
+        self.assertIn('export HOME="$host_home/.skill-eval/nemoclaw-home"', command)
+        self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", command)
         self.assertIn(
             "nemoclaw skill-eval destroy --yes --cleanup-gateway",
             command,
         )
         self.assertLess(
-            start.index("_destroy_sandbox_command(sandbox)"),
+            start.index("_destroy_sandbox_command(sandbox, gateway_port)"),
             start.index("await super().start(force_build)"),
         )
         self.assertNotIn("sudo", command)
