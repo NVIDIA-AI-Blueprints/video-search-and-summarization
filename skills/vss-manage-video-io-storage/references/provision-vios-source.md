@@ -92,8 +92,8 @@ each endpoint by the vantage that uses it:
   live proxy handed to the consumers — are host-reachable `$HOST_IP` URLs produced
   by those services: **read** them, don't build them. VIOS assigns the RTSP port
   from its pool (`30554–30564`) at registration, so only VIOS knows the exact value
-  (Step 1). The upload equivalent is the VIOS `/storage/file/<streamId>` URL —
-  likewise consumer-reachable via `vst-ingress` / `$HOST_IP:<vst-ingress-port>`,
+(Step 1). The upload equivalent is the uploaded stream's VIOS clip URL —
+likewise consumer-reachable via `vst-ingress` / `$HOST_IP:<vst-ingress-port>`,
   **not** loopback.
 
 ## Step 1 — register the source, then resolve its consumer URL
@@ -111,9 +111,9 @@ PUT http://localhost:<vios-port>/vst/api/v1/storage/file/<filename>?timestamp=20
 
 `timestamp` anchors the storage timeline (see the date rule). A bare upload stores
 bytes only — no detections or embeddings. All three consumers (RT-CV, RT-Embed,
-RT-VLM) take the timeline-resolved VIOS clip URL: `GET /storage/<streamId>/timelines` for
+RT-VLM) take the timeline-resolved VIOS clip URL: `GET /vst/api/v1/storage/<streamId>/timelines` for
 `{startTime, endTime}`, then the self-contained
-`/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4` **HTTP** URL
+`/vst/api/v1/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4` **HTTP** URL
 (binary-direct — the same clip the `/url` envelope wraps, minus its upstream
 double-`http://` bug; see `integrate-vios-service.md`). RT-Embed and RT-VLM accept
 `http`/`https`/`file` but gate `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by
