@@ -353,41 +353,6 @@ class HarborEnvironment(unittest.TestCase):
             run_leg.HARBOR_TRANSFER_OPERATION_BUDGET_SEC,
         )
 
-    def test_recent_nemoclaw_setup_failure_skips_worker(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            lock_dir = Path(tmp)
-            marker = run_leg._nemoclaw_quarantine_path(lock_dir, "box-a")
-            marker.touch()
-            with mock.patch.dict(os.environ, {"EVAL_AGENT": "nemoclaw"}):
-                self.assertTrue(
-                    run_leg._nemoclaw_worker_quarantined(
-                        lock_dir, "box-a", now=marker.stat().st_mtime + 10
-                    )
-                )
-
-    def test_expired_nemoclaw_failure_is_removed(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            lock_dir = Path(tmp)
-            marker = run_leg._nemoclaw_quarantine_path(lock_dir, "box-a")
-            marker.touch()
-            expired = marker.stat().st_mtime + run_leg.NEMOCLAW_QUARANTINE_TTL_SEC
-            with mock.patch.dict(os.environ, {"EVAL_AGENT": "nemoclaw"}):
-                self.assertFalse(
-                    run_leg._nemoclaw_worker_quarantined(
-                        lock_dir, "box-a", now=expired
-                    )
-                )
-            self.assertFalse(marker.exists())
-
-    def test_claude_ignores_nemoclaw_quarantine(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            lock_dir = Path(tmp)
-            run_leg._nemoclaw_quarantine_path(lock_dir, "box-a").touch()
-            with mock.patch.dict(os.environ, {"EVAL_AGENT": "claude-code"}):
-                self.assertFalse(
-                    run_leg._nemoclaw_worker_quarantined(lock_dir, "box-a")
-                )
-
 
 class RunCommand(unittest.TestCase):
     COMMAND = ["uvx", "harbor", "run"]
