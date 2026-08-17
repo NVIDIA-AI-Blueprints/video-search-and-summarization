@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 import shlex
 
 from envs.brev_env import BrevEnvironment, _run_brev_exec
@@ -47,6 +48,24 @@ _NEMOCLAW_DEFAULTS = {
     "NEMOCLAW_GATEWAY_PORT": "8991",
     "NEMOCLAW_POLICY_MODE": "skip",
 }
+
+_QUARANTINE_FILE_ENV = "NEMOCLAW_WORKER_QUARANTINE_FILE"
+
+
+def _set_worker_quarantine(quarantined: bool) -> None:
+    """Publish only the health signal needed by sibling matrix legs."""
+    raw_path = os.environ.get(_QUARANTINE_FILE_ENV)
+    if not raw_path:
+        return
+    marker = Path(raw_path)
+    try:
+        if quarantined:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
+        else:
+            marker.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Could not update NemoClaw worker quarantine: %s", exc)
 
 
 def _bounded_setup_timeout() -> int:
@@ -183,9 +202,11 @@ class NemoClawBrevEnvironment(BrevEnvironment):
             timeout=timeout + 60,
         )
         if result.return_code != 0:
+            _set_worker_quarantine(True)
             detail = (result.stderr or result.stdout or "")[-12000:]
             raise RuntimeError(
                 f"NemoClaw notebook setup failed (exit {result.return_code}):\n{detail}"
             )
+        _set_worker_quarantine(False)
         self._nemoclaw_ready = True
         logger.info("NemoClaw is ready on %s", self._instance_name)
