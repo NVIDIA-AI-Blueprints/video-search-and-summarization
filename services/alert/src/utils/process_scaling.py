@@ -43,12 +43,26 @@ def available_cpus() -> int:
 
 
 def source_topics(config: Optional[Dict[str, Any]]) -> List[str]:
-    """Non-heartbeat Kafka source topics, empty when the source is not Kafka."""
-    bridge = (config or {}).get("event_bridge", {}) or {}
-    if str(bridge.get("sourceType", "")).lower() != "kafka":
+    """Non-heartbeat Kafka source topics, empty when the source is not Kafka.
+
+    Both lookups mirror the event-bridge factory and SourceKafka rather than
+    only reading the modern spelling. A config that omits ``sourceType`` still
+    gets a Kafka source, and one without ``kafka_source.topics`` still reads
+    the legacy ``kafka.anomalyTopic``; reporting no topics for either would
+    leave ``processes: "auto"`` unclamped and spawn a consumer per core
+    against a topic that may have one partition.
+    """
+    config = config or {}
+    bridge = config.get("event_bridge", {}) or {}
+    if str(bridge.get("sourceType", "kafka")).lower() != "kafka":
         return []
+
     topics = (bridge.get("kafka_source", {}) or {}).get("topics") or {}
-    return [topic for name, topic in topics.items() if name != "heartbeat" and topic]
+    if topics:
+        return [topic for name, topic in topics.items() if name != "heartbeat" and topic]
+
+    legacy_topic = (config.get("kafka", {}) or {}).get("anomalyTopic")
+    return [legacy_topic] if legacy_topic else []
 
 
 def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10.0) -> Optional[int]:

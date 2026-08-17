@@ -153,3 +153,71 @@ class TestInstanceReadiness:
         with caplog.at_level(logging.ERROR):
             threading.Event().wait(0.5)
         assert any("not ready within" in r.getMessage() for r in caplog.records)
+
+
+class TestSeedingGatesConsumption:
+    """Only child 0 seeds the prompt store, and it seeds while building.
+
+    A follower builds faster because it skips that write, so left alone it can
+    consume its partitions against a store the leader has not filled yet and
+    fail every lookup as having no prompt.
+    """
+
+    def test_the_leader_signals_once_its_pipeline_is_built(self, enhancer):
+        enhancer.source.await_ready.return_value = True
+        seeded = MagicMock()
+        seeded.is_set.return_value = False
+
+        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 2, None, seeded)
+
+        seeded.set.assert_called_once()
+
+    def test_a_follower_never_signals(self, enhancer):
+        enhancer.source.await_ready.return_value = True
+        seeded = MagicMock()
+        seeded.is_set.return_value = True
+
+        entry._run_pipeline_process("config.yaml", 1, os.getpid(), 2, None, seeded)
+
+        seeded.set.assert_not_called()
+
+    def test_a_follower_waits_before_consuming(self, enhancer):
+        enhancer.source.await_ready.return_value = True
+        order = MagicMock()
+        seeded = MagicMock()
+        seeded.is_set.return_value = False
+        seeded.wait = order.wait
+        order.wait.return_value = True
+        enhancer.process_anomalies = order.process_anomalies
+
+        entry._run_pipeline_process("config.yaml", 1, os.getpid(), 2, None, seeded)
+
+        assert [c[0] for c in order.mock_calls] == ["wait", "process_anomalies"]
+
+    def test_an_already_seeded_store_is_not_waited_on(self, enhancer):
+        enhancer.source.await_ready.return_value = True
+        seeded = MagicMock()
+        seeded.is_set.return_value = True
+
+        entry._run_pipeline_process("config.yaml", 2, os.getpid(), 3, None, seeded)
+
+        seeded.wait.assert_not_called()
+
+    def test_a_follower_consumes_anyway_once_the_wait_expires(self, enhancer, caplog):
+        import logging
+        enhancer.source.await_ready.return_value = True
+        seeded = MagicMock()
+        seeded.is_set.return_value = False
+        seeded.wait.return_value = False        # never seeded
+
+        with caplog.at_level(logging.ERROR):
+            entry._run_pipeline_process("config.yaml", 1, os.getpid(), 2, None, seeded)
+
+        # A stalled partition is worse than a stale prompt, so it proceeds.
+        enhancer.process_anomalies.assert_called_once()
+        assert any("gave up waiting" in r.getMessage() for r in caplog.records)
+
+    def test_a_single_process_run_has_nothing_to_wait_for(self, enhancer):
+        enhancer.source.await_ready.return_value = True
+        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, None, None)
+        enhancer.process_anomalies.assert_called_once()

@@ -80,6 +80,30 @@ class TestSourceTopics:
             "incident": "mdx-incidents", "alert": "mdx-alerts", "heartbeat": "hb"}}}}
         assert sorted(process_scaling.source_topics(cfg)) == ["mdx-alerts", "mdx-incidents"]
 
+    def test_an_absent_source_type_is_kafka(self):
+        # The event-bridge factory defaults to kafka, so reading the key
+        # strictly here reported no topics for a supported configuration and
+        # left "auto" unclamped.
+        cfg = {"event_bridge": {"kafka_source": {"topics": {"incident": "mdx-incidents"}}}}
+        assert process_scaling.source_topics(cfg) == ["mdx-incidents"]
+
+    def test_the_legacy_anomaly_topic_is_read(self):
+        cfg = {"event_bridge": {"sourceType": "kafka"},
+               "kafka": {"anomalyTopic": "mdx-raw"}}
+        assert process_scaling.source_topics(cfg) == ["mdx-raw"]
+
+    def test_the_modern_topics_win_over_the_legacy_key(self):
+        cfg = {"event_bridge": {"sourceType": "kafka", "kafka_source": {"topics": {
+                   "incident": "mdx-incidents"}}},
+               "kafka": {"anomalyTopic": "mdx-raw"}}
+        assert process_scaling.source_topics(cfg) == ["mdx-incidents"]
+
+    def test_a_legacy_config_clamps_auto(self, monkeypatch):
+        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 64)
+        cfg = {"kafka": {"anomalyTopic": "mdx-raw"}}
+        assert process_scaling.source_topics(cfg) == ["mdx-raw"]
+        assert resolve_process_count({"alert_agent": {"processes": "auto"}}, 2) == 2
+
     def test_non_kafka_source_has_no_topics(self):
         cfg = {"event_bridge": {"sourceType": "elasticsearch", "kafka_source": {"topics": {"incident": "x"}}}}
         assert process_scaling.source_topics(cfg) == []

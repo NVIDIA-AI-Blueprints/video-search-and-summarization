@@ -91,6 +91,10 @@ _PLUGGABLE_PARSER_ERROR_STATUS = PLUGGABLE_PARSER_ERROR_STATUS
 # of them contend on Elasticsearch. Only bounds how long readiness is awaited;
 # a child that arrives later still runs and still serves its partitions.
 READINESS_TIMEOUT_SECONDS = 600.0
+
+# How long a follower waits for the seeding process before consuming anyway.
+# Bounded because stale prompts beat a partition nobody is draining.
+SEED_TIMEOUT_SECONDS = 300.0
 from handlers.enrichment import EnrichmentProcessor
 from handlers.direct_media import DirectMediaHandler
 from handlers.async_dispatch_mixin import (
@@ -2528,8 +2532,28 @@ def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -
     )
 
 
+def _await_seeded_prompts(index: int, seeded_event: Optional[Any]) -> None:
+    """Hold a follower until the seeding process has written the prompt store.
+
+    Only child 0 seeds, and it seeds while building its pipeline. A follower
+    builds faster because it skips that write, so without this it can consume
+    its partitions against a store the leader has not filled yet and fail
+    every lookup as having no prompt.
+    """
+    if seeded_event is None or seeded_event.is_set():
+        return
+    logger.info("Pipeline process %d waiting for the prompt store to be seeded", index)
+    if not seeded_event.wait(SEED_TIMEOUT_SECONDS):
+        logger.error(
+            "Pipeline process %d gave up waiting %.0fs for seeded prompts and is "
+            "consuming anyway; lookups may fail until the store is written",
+            index, SEED_TIMEOUT_SECONDS,
+        )
+
+
 def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process_count: int = 1,
-                          ready_event: Optional[Any] = None) -> None:
+                          ready_event: Optional[Any] = None,
+                          seeded_event: Optional[Any] = None) -> None:
     """Child entry point: one independent consume + dispatch stack."""
     _exit_when_parent_dies(parent_pid)
 
@@ -2545,6 +2569,11 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         # pipeline. If it dies the supervisor replaces it and the jobs resume
         # with it; the others never start them.
         enhancer = AnomalyEnhancer(config_path, instance_leader=(index == 0))
+        if index == 0 and seeded_event is not None:
+            # Construction is where seeding happens, so reaching here means the
+            # store is written. Set before the group join so the followers are
+            # not held behind it.
+            seeded_event.set()
         # Construction is where children contend on Elasticsearch, and it can
         # take tens of seconds with several of them; the group join then adds
         # its own. Both have to finish before this child counts as ready, or
@@ -2562,6 +2591,7 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
             ready_event.set()
         if index == 0:
             _log_instance_concurrency(enhancer, process_count)
+        _await_seeded_prompts(index, seeded_event)
         enhancer.process_anomalies()
     except SystemExit:
         pass
@@ -2572,10 +2602,11 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
 
 
 def _start_pipeline_process(config_path: str, index: int, process_count: int,
-                            ready_event: Optional[Any] = None) -> Process:
+                            ready_event: Optional[Any] = None,
+                            seeded_event: Optional[Any] = None) -> Process:
     process = Process(
         target=_run_pipeline_process,
-        args=(config_path, index, os.getpid(), process_count, ready_event),
+        args=(config_path, index, os.getpid(), process_count, ready_event, seeded_event),
         name=f"ab-pipeline-{index}",
     )
     process.start()
@@ -2616,10 +2647,14 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
     if on_ready is not None:
         _announce_when_all_ready(ready_events, on_ready)
 
+    # Latched, not per slot: once the store is seeded it stays seeded, so a
+    # child 0 replaced later must not make the followers wait again.
+    seeded_event = ProcessEvent()
+
     _pipeline_supervisor = ProcessSupervisor(
         count=process_count,
         spawn=lambda index: _start_pipeline_process(
-            config_path, index, process_count, ready_events[index]
+            config_path, index, process_count, ready_events[index], seeded_event
         ),
         on_exit=_mark_prometheus_process_dead,
     )
