@@ -124,6 +124,7 @@
       "source_path": "services/rtvi/rt-cv",
       "context": "services/rtvi/rt-cv",
       "dockerfile": "services/rtvi/rt-cv/docker/Dockerfile",
+      "lfs_include": "services/rtvi/rt-cv/**/*.so",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-cv"],
       "tag_variables": ["VSS_RT_CV_TAG"],
