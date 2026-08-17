@@ -56,7 +56,9 @@ The operate set is the read-path subset of what `vss configure` probes to resolv
 a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
 headless build **must** carry it — post-#1469 `vss search run` takes no endpoints,
 so a build missing these routes is **unqueryable from the host CLI** (no
-ingress-less read path). `vss configure` also probes `/rtvi-vlm`, but RT-VLM is
+ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
+make it queryable — an ingestion/indexing-only build that requests no read surface
+prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`, but RT-VLM is
 host-port resolved and deliberately **not** fronted here — it records `absent`,
 which is expected and harmless because no read path consumes it. Do not add the
 route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
