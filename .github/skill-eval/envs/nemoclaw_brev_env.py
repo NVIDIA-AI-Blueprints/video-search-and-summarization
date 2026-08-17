@@ -33,6 +33,7 @@ _SETUP_KEYS = (
     "NEMOCLAW_GATEWAY_PORT",
     "NEMOCLAW_DASHBOARD_PORT",
     "NEMOCLAW_POLICY_MODE",
+    "NEMOCLAW_SANDBOX_GPU",
     "HARDWARE_PROFILE",
     "HOST_INTERNAL_ALIAS",
     "VSS_ORCHESTRATOR_MCP_PORT",
@@ -46,6 +47,9 @@ _NEMOCLAW_DEFAULTS = {
     "NEMOCLAW_SANDBOX_NAME": "skill-eval",
     "NEMOCLAW_GATEWAY_PORT": "8991",
     "NEMOCLAW_POLICY_MODE": "skip",
+    # The eval agent uses a remote model. VSS workloads use the host GPUs
+    # through the orchestrator MCP, so the OpenShell sandbox needs no GPU.
+    "NEMOCLAW_SANDBOX_GPU": "0",
 }
 
 
