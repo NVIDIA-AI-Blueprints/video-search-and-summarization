@@ -38,8 +38,10 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -79,6 +81,19 @@ def inventory_by_compose_name(inventory: dict) -> dict[str, dict]:
         for compose_name in entry.get("compose_image_names", [entry["name"]]):
             mapping[compose_name] = entry
     return mapping
+
+
+def git_tree_sha(repo_root: Path, source_path: str) -> str | None:
+    """Return the current commit's tree SHA for ``source_path``."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", f"HEAD:{source_path}"],
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value if TREE_RE.fullmatch(value) else None
 
 
 def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
@@ -297,7 +312,10 @@ def _split_ref(resolved_ref: str) -> tuple[str, str]:
 
 
 def reuse_entries(
-    repo_root: Path, inventory: dict, built_names: set[str]
+    repo_root: Path,
+    inventory: dict,
+    built_names: set[str],
+    tree_reader: Callable[[Path, str], str | None] = git_tree_sha,
 ) -> tuple[list[dict], list[str]]:
     """Explicit ``reuse-pinned`` entries for every in-scope inventory image
     that has no fragment, at its current committed coordinate. Returns
@@ -320,20 +338,22 @@ def reuse_entries(
         # A tagged variant can intentionally have no dedicated Compose
         # reference: it shares the base image repository and is selected by
         # an environment/profile tag override (for example, ``-sbsa``).
-        # Carry it forward from its own moving alias so a no-change commit
-        # still produces a complete release set.
+        # Carry it forward from its immutable content tag so a no-change
+        # commit still produces a complete release set. This is branch-neutral:
+        # a PR must never fall back to develop-latest for unchanged content.
         if not coordinates and entry.get("tag_suffix"):
             ghcr_roots = [
                 root.rstrip("/")
                 for root in inventory.get("first_party_registry_roots", [])
                 if root.startswith("ghcr.io/")
             ]
-            if len(ghcr_roots) == 1:
+            tree_sha = tree_reader(repo_root, str(entry.get("source_path") or ""))
+            if len(ghcr_roots) == 1 and tree_sha:
                 repository = entry.get("repository", name)
                 coordinates = [
                     (
                         f"{ghcr_roots[0]}/{repository}",
-                        f"develop-latest{entry['tag_suffix']}",
+                        f"tree-{tree_sha}{entry['tag_suffix']}",
                     )
                 ]
         if not coordinates:

@@ -289,7 +289,7 @@ class ReuseEntriesTest(unittest.TestCase):
         self.assertEqual(entry["image"], "nvcr.io/nvidia/vss-core/vss-configurator")
         self.assertEqual(entry["tag"], "3.2.1")
 
-    def test_unbuilt_variant_without_compose_ref_uses_its_moving_alias(self):
+    def test_unbuilt_variant_without_compose_ref_uses_immutable_content_tag(self):
         variant = {
             **AGENT_ENTRY,
             "name": "vss-agent-sbsa",
@@ -309,7 +309,12 @@ class ReuseEntriesTest(unittest.TestCase):
                 ],
             )
             inventory = rs.load_inventory(root)
-            entries, problems = rs.reuse_entries(root, inventory, {"vss-agent"})
+            entries, problems = rs.reuse_entries(
+                root,
+                inventory,
+                {"vss-agent"},
+                tree_reader=lambda _root, _path: TREE_SHA,
+            )
         self.assertEqual(problems, [])
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["name"], "vss-agent-sbsa")
@@ -317,7 +322,7 @@ class ReuseEntriesTest(unittest.TestCase):
             entries[0]["image"],
             "ghcr.io/nvidia-ai-blueprints/vss/vss-agent",
         )
-        self.assertEqual(entries[0]["tag"], "develop-latest-sbsa")
+        self.assertEqual(entries[0]["tag"], f"tree-{TREE_SHA}-sbsa")
         self.assertEqual(entries[0]["tag_suffix"], "-sbsa")
 
     def test_profile_env_resolves_required_pinned_tag(self):
