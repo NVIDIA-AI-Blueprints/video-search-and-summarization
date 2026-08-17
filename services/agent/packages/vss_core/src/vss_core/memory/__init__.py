@@ -24,6 +24,8 @@ __all__ = [
     "MemoryQuery",
     "MemoryService",
     "MemoryStore",
+    "PersistResult",
+    "RecordBundle",
     "SearchAdapter",
     "SummaryAdapter",
     "UnifiedMemoryRecord",
@@ -44,9 +46,11 @@ _LAZY_EXPORTS = {
     "InMemoryStore": ".backends.in_memory",
     "MemoryService": ".service",
     "MemoryNotFoundError": ".service",
+    "PersistResult": ".service",
     "build_memory_service": ".service",
     "SummaryAdapter": ".adapters",
     "SearchAdapter": ".adapters",
+    "RecordBundle": ".adapters",
     "register_adapter": ".adapters",
     "get_adapter": ".adapters",
     "MemoryAdapter": ".adapters",
@@ -54,6 +58,7 @@ _LAZY_EXPORTS = {
 
 if TYPE_CHECKING:
     from .adapters import MemoryAdapter
+    from .adapters import RecordBundle
     from .adapters import SearchAdapter
     from .adapters import SummaryAdapter
     from .adapters import get_adapter
@@ -66,6 +71,7 @@ if TYPE_CHECKING:
     from .models import UnifiedMemoryRecord
     from .service import MemoryNotFoundError
     from .service import MemoryService
+    from .service import PersistResult
     from .service import build_memory_service
     from .store import JobFilters
     from .store import MemoryQuery
