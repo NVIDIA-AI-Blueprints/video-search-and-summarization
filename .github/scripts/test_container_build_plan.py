@@ -47,6 +47,33 @@ class CandidateCoordinatesTest(unittest.TestCase):
         )
         self.assertEqual(result.tag, "develop-" + "a" * 12)
 
+    def test_variant_uses_shared_repository_and_suffixes_all_tags(self):
+        result = candidate_coordinates(
+            ref_name="develop",
+            commit_sha=COMMIT,
+            owner="NVIDIA-AI-Blueprints",
+            image_name="vss-rt-cv",
+            tree_sha=TREE,
+            tag_suffix="-sbsa",
+        )
+        self.assertEqual(
+            result.image,
+            "ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv",
+        )
+        self.assertEqual(result.tag, "develop-" + "a" * 12 + "-sbsa")
+        self.assertEqual(result.content_tag, "tree-" + TREE + "-sbsa")
+
+    def test_variant_suffix_must_be_tag_safe_and_explicit(self):
+        with self.assertRaisesRegex(ValueError, "tag suffix"):
+            candidate_coordinates(
+                ref_name="develop",
+                commit_sha=COMMIT,
+                owner="NVIDIA-AI-Blueprints",
+                image_name="vss-rt-cv",
+                tree_sha=TREE,
+                tag_suffix="sbsa",
+            )
+
 
 class ManifestValidationTest(unittest.TestCase):
     def test_exact_platforms_ignore_attestations(self):
