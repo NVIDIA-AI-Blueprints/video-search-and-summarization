@@ -113,7 +113,7 @@ PUT http://localhost:<vios-port>/vst/api/v1/storage/file/<filename>?timestamp=20
 bytes only — no detections or embeddings. All three consumers (RT-CV, RT-Embed,
 RT-VLM) take the timeline-resolved VIOS clip URL: `GET /vst/api/v1/storage/<streamId>/timelines` for
 `{startTime, endTime}`, then the self-contained
-`/vst/api/v1/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4` **HTTP** URL
+`/vst/api/v1/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4&disableAudio=true` **HTTP** URL
 (binary-direct — the same clip the `/url` envelope wraps, minus its upstream
 double-`http://` bug; see `integrate-vios-service.md`). RT-Embed and RT-VLM accept
 `http`/`https`/`file` but gate `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by
