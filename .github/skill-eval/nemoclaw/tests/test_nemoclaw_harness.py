@@ -459,6 +459,10 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertIn("Collect results for workflow artifact", workflow)
         self.assertIn("--exclude='agent'", workflow)
         self.assertIn(
+            'export HOME=\\"\\$host_home/.skill-eval/nemoclaw-home\\"', workflow
+        )
+        self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", workflow)
+        self.assertIn(
             "format('skills-eval-nemoclaw-{0}', inputs.nemoclaw_instance)",
             workflow,
         )
