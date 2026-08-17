@@ -29,7 +29,7 @@ class NemoClaw(OpenClaw):
         return "nemoclaw"
 
     def version(self) -> str | None:
-        return os.environ.get("NEMOCLAW_INSTALL_REF", "v0.0.108")
+        return os.environ.get("NEMOCLAW_INSTALL_REF", "v0.0.109")
 
     async def setup(self, environment: BaseEnvironment) -> None:
         # NemoClaw and OpenClaw are installed and configured by the notebooks
