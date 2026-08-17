@@ -9,6 +9,8 @@ ARG TARGETARCH
 ARG SBSA_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark"
 ARG DS_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-multiarch"
 ARG MEDIA_PLATFORM="ds"
+ARG DEEPSTREAM_X86_SHA256="fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
+ARG DEEPSTREAM_JETSON_SHA256="14813cb7da9eafdd01ceed52c1c8d85a3255612a9b1c2691f5ad3ad5c5d39c2e"
 FROM python:3.12-slim AS pdm-export
 ARG TARGETARCH
 RUN pip install --no-cache-dir pdm==2.26.1
@@ -33,6 +35,8 @@ FROM nvcr.io/nvidia/vllm:26.03-py3 AS rtvi-media
 
 ARG TARGETARCH
 ARG ARM_PLATFORM="sbsa"
+ARG DEEPSTREAM_X86_SHA256
+ARG DEEPSTREAM_JETSON_SHA256
 
 LABEL com.nvidia.rtvi.base="vlm"
 
@@ -62,12 +66,14 @@ RUN --mount=type=bind,source=docker/base/requirements_apt.txt,target=/tmp/requir
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         curl -fL --retry 3 -o /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 \
             https://github.com/NVIDIA/DeepStream/releases/download/v9.1.0/deepstream_sdk_v9.1.0_x86_64.tbz2 \
+        && echo "${DEEPSTREAM_X86_SHA256}  /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2" | sha256sum -c - \
         && tar xf /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 -C / \
         && /opt/nvidia/deepstream/deepstream-9.1/install.sh \
         && rm /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2; \
     elif [ "$ARM_PLATFORM" = "igpu" ]; then \
         curl -fL --retry 3 -o /tmp/deepstream_sdk_v9.1.0_jetson.tbz2 \
             https://github.com/NVIDIA/DeepStream/releases/download/v9.1.0/deepstream_sdk_v9.1.0_jetson.tbz2 \
+        && echo "${DEEPSTREAM_JETSON_SHA256}  /tmp/deepstream_sdk_v9.1.0_jetson.tbz2" | sha256sum -c - \
         && tar xf /tmp/deepstream_sdk_v9.1.0_jetson.tbz2 -C / \
         && /opt/nvidia/deepstream/deepstream-9.1/install.sh \
         && rm /tmp/deepstream_sdk_v9.1.0_jetson.tbz2; \
@@ -177,7 +183,7 @@ RUN set -e; if [ "$TARGETARCH" = "amd64" ]; then \
 FROM rtvi-media AS pyds-builder
 ARG TARGETARCH
 ARG ARM_PLATFORM
-ARG PYDS_REF=master
+ARG PYDS_SOURCE_COMMIT="6fdeefb7128435873f7794d2242ed48a1471ad7e"
 COPY docker/base/pyds.patch /tmp/pyds.patch
 RUN apt update \
     && apt install -y --no-install-recommends \
@@ -186,8 +192,12 @@ RUN apt update \
         python3-gi python3-gst-1.0 python-gi-dev python3-venv python3.12-dev \
         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev pkg-config pybind11-dev \
     && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --branch "${PYDS_REF}" https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git /tmp/deepstream_python_apps \
+RUN git init /tmp/deepstream_python_apps \
     && cd /tmp/deepstream_python_apps \
+    && git remote add origin https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git \
+    && git fetch --depth 1 origin "${PYDS_SOURCE_COMMIT}" \
+    && git checkout --detach --force FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${PYDS_SOURCE_COMMIT}" \
     && git submodule update --init \
     && python3 bindings/3rdparty/git-partial-submodule/git-partial-submodule.py restore-sparse \
     && git apply /tmp/pyds.patch
