@@ -137,7 +137,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -305,7 +305,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Compute platform staging tag
@@ -430,7 +430,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
