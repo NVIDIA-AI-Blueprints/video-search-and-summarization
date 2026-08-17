@@ -61,11 +61,18 @@ logger = logging.getLogger(__name__)
 file_write_lock = Lock()
 
 
-def _run_as_controller(fn):
-    """Thread entry wrapper: tag logs as [controller] without touching root handlers."""
+def _run_as_controller(fn, *, start_message=None):
+    """Thread entry wrapper: tag logs as [controller] without touching root handlers.
+
+    Optional ``start_message`` is logged *after* binding so watcher lifecycle
+    lines (\"thread started\") are tagged ``[controller]`` rather than inheriting
+    the router thread's ``[router]`` context (Greptile P1).
+    """
 
     def _wrapped(*args, **kwargs):
         bind_context(component="controller")
+        if start_message:
+            app.logger.info(start_message)
         return fn(*args, **kwargs)
 
     _wrapped.__name__ = getattr(fn, "__name__", "controller_worker")
@@ -315,8 +322,11 @@ def podWatch():
         app.logger.exception(f"Exception in podWatch Redis listener: {repr(e)}")
 
 def PodErrorWatcher():
-    app.logger.info("pod watcher thread started")
-    tr = Thread(target=_run_as_controller(podWatch))
+    tr = Thread(
+        target=_run_as_controller(
+            podWatch, start_message="pod watcher thread started"
+        )
+    )
     tr.start()
     return True
 
@@ -393,8 +403,11 @@ def agentReportUpdate():
 
 
 def AgentWatcher():
-    app.logger.info("pod watcher thread started")
-    tr = Thread(target=_run_as_controller(agentReportUpdate))
+    tr = Thread(
+        target=_run_as_controller(
+            agentReportUpdate, start_message="agent watcher thread started"
+        )
+    )
     tr.start()
     return True
 
@@ -459,8 +472,11 @@ def Autoscale():
         time.sleep(app.config["AUTOSCALE_CHECK_INTERVAL"])
 
 def Autoscaler():
-    app.logger.info("autoscaler thread started")
-    tr = Thread(target=_run_as_controller(Autoscale))
+    tr = Thread(
+        target=_run_as_controller(
+            Autoscale, start_message="autoscaler thread started"
+        )
+    )
     tr.start()
     return True
 
