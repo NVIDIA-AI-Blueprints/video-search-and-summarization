@@ -42,6 +42,11 @@
           },
           "image": { "type": "string", "description": "registry/name, no tag" },
           "tag": { "type": "string", "description": "Immutable tag for this set" },
+          "tag_suffix": {
+            "type": "string",
+            "pattern": "^(|-[A-Za-z0-9_.-]+)$",
+            "description": "Variant suffix applied to immutable, content-addressed, and moving tags. Empty for the default image variant."
+          },
           "digest": {
             "type": ["string", "null"],
             "pattern": "^sha256:[0-9a-f]{64}$",
