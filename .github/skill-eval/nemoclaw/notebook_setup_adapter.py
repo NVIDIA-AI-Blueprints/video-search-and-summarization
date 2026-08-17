@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import shlex
+import shutil
 import signal
 import socket
 import sys
@@ -362,6 +363,16 @@ def run_notebooks(*, root: Path, env_out: Path, timeout: int) -> None:
         f"NEMOCLAW_MODEL: {os.environ['NEMOCLAW_MODEL']}",
         notebook_name=paths[0].name,
     )
+
+    # The orchestrator notebook creates this venv when the directory is absent.
+    # A cancelled prior run can leave the directory without a Python executable,
+    # which otherwise makes the notebook skip creation and fail at `uv sync`.
+    orchestrator_venv = root / "services" / "agent" / ".venv"
+    if (
+        orchestrator_venv.is_dir()
+        and not (orchestrator_venv / "bin" / "python").is_file()
+    ):
+        shutil.rmtree(orchestrator_venv)
 
     orchestrator = execute_notebook(paths[1], cwd=root, timeout=timeout)
     _require_output(

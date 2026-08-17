@@ -335,6 +335,16 @@ class HeadlessRunnerTests(unittest.TestCase):
         self.assertNotIn("trajectory.json", source)
         self.assertNotIn("sandbox recover", source)
 
+    def test_notebook_adapter_only_repairs_an_incomplete_orchestrator_venv(
+        self,
+    ) -> None:
+        source = (NEMOCLAW_DIR / "notebook_setup_adapter.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('root / "services" / "agent" / ".venv"', source)
+        self.assertIn('orchestrator_venv / "bin" / "python"', source)
+        self.assertIn("shutil.rmtree(orchestrator_venv)", source)
+
 
 class HarnessScopeTests(unittest.TestCase):
     @classmethod
