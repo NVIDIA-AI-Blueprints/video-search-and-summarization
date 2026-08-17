@@ -223,7 +223,7 @@ COPY src/cpp/nvdec_get_count /build/nvdec_get_count
 COPY src/gst-plugins /build/gst-plugins
 COPY src/cpp/video_sei_metadata /build/video_sei_metadata
 COPY docker/base/binaries/igpu/libgstnvdsseimeta.so /tmp/libgstnvdsseimeta.so
-RUN pip install --no-cache-dir pybind11 \
+RUN pip install --no-cache-dir pybind11==3.1.0 \
     && if [ ! -f /usr/bin/python3-config ] && [ -f /usr/bin/python3.12-config ]; then ln -sf /usr/bin/python3.12-config /usr/bin/python3-config; fi \
     && if [ "$TARGETARCH" = "arm64" ]; then \
         for deepstream_path in /opt/nvidia/deepstream/deepstream /opt/nvidia/deepstream/deepstream-9.1; do \
