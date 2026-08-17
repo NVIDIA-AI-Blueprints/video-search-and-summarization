@@ -37,6 +37,12 @@ def require_env(name: str) -> str:
     return value
 
 
+def downstream_commit_sha() -> str:
+    """Return an explicit downstream SHA, falling back to the event SHA."""
+    explicit_sha = os.environ.get("DOWNSTREAM_COMMIT_SHA", "").strip()
+    return explicit_sha or require_env("GITHUB_SHA")
+
+
 def configured_extra_variables() -> dict[str, str]:
     """Parse optional generic GitLab variables without logging their values."""
     raw = os.environ.get("DOWNSTREAM_EXTRA_VARIABLES_JSON", "").strip()
@@ -370,7 +376,7 @@ def main() -> int:
         base_url = api_base_url(raw_url)
         token = require_env("DOWNSTREAM_CI_TOKEN")
         project_path = require_env("DOWNSTREAM_PROJECT_PATH")
-        commit_sha = require_env("GITHUB_SHA")
+        commit_sha = downstream_commit_sha()
         ref = os.environ.get("DOWNSTREAM_REF", "main")
         variable_name = os.environ.get("DOWNSTREAM_SUBMODULE_HASH_VARIABLE", "VSS_SUBMODULE_HASH")
 

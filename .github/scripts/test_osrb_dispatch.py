@@ -33,6 +33,26 @@ check = load_python("osrb_check", DIRECTORY / "osrb_check.py")
 
 
 class DispatchTests(unittest.TestCase):
+    def test_explicit_downstream_commit_takes_precedence(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DOWNSTREAM_COMMIT_SHA": "reviewed-head",
+                "GITHUB_SHA": "workflow-sha",
+            },
+            clear=False,
+        ):
+            self.assertEqual(trigger.downstream_commit_sha(), "reviewed-head")
+
+    def test_downstream_commit_falls_back_to_event_sha(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"GITHUB_SHA": "event-sha"},
+            clear=False,
+        ):
+            os.environ.pop("DOWNSTREAM_COMMIT_SHA", None)
+            self.assertEqual(trigger.downstream_commit_sha(), "event-sha")
+
     def test_extra_variables_are_string_map(self) -> None:
         with mock.patch.dict(
             os.environ,
