@@ -408,7 +408,10 @@ class HarnessScopeTests(unittest.TestCase):
         )
         start = source.split("    async def start", 1)[1]
         self.assertIn("openshell sandbox get skill-eval", command)
-        self.assertIn("nemoclaw skill-eval destroy --yes", command)
+        self.assertIn(
+            "nemoclaw skill-eval destroy --yes --cleanup-gateway",
+            command,
+        )
         self.assertLess(
             start.index("_destroy_sandbox_command(sandbox)"),
             start.index("await super().start(force_build)"),
