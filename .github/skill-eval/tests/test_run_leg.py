@@ -1443,5 +1443,99 @@ run_leg.main(sys.argv[2:])
         )
 
 
+class RemoteVssModeTest(unittest.TestCase):
+    """`--remote-vss` evaluates an already-deployed VSS from Harbor's sandbox."""
+
+    def _invocation(self):
+        return run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/ask_video"),
+            include_task_name="rtxpro6000bw",
+            chain_key="ask_video_rtxpro6000bw",
+        )
+
+    def test_remote_env_derives_host_and_rejects_non_http(self):
+        env = run_leg.remote_vss_env("http://10.0.0.5:8000/")
+        self.assertEqual(env["VSS_BASE_URL"], "http://10.0.0.5:8000")
+        # HOST_IP is what the runtime skills' existing port conventions key on.
+        self.assertEqual(env["HOST_IP"], "10.0.0.5")
+        self.assertEqual(env["VSS_AGENT_PORT"], "8000")
+        for bad in ("not-a-url", "ftp://box/path", "http://"):
+            with self.assertRaises(ValueError):
+                run_leg.remote_vss_env(bad)
+
+    def test_deploy_centric_skills_are_rejected(self):
+        for skill in ("vss-deploy-profile", "vss-build-vision-agent", None):
+            with self.assertRaises(ValueError) as ctx:
+                run_leg.validate_remote_vss_skill(skill)
+            self.assertIn("--remote-vss", str(ctx.exception))
+        for skill in sorted(run_leg.REMOTE_VSS_SUPPORTED_SKILLS):
+            run_leg.validate_remote_vss_skill(skill)
+
+    def test_remote_command_uses_default_sandbox_and_forwards_endpoint(self):
+        cmd = run_leg.build_harbor_command(
+            self._invocation(),
+            Path("/tmp/results"),
+            "aws/anthropic/bedrock-claude-opus-4-6",
+            "https://inference-api.nvidia.com/v1",
+            "claude-code",
+            environment_import_path=None,
+            agent_env=run_leg.remote_vss_env("http://10.0.0.5:8000"),
+        )
+        # No BrevEnvironment: Harbor falls back to its own default sandbox.
+        self.assertNotIn("--environment-import-path", cmd)
+        forwarded = {cmd[i + 1] for i, flag in enumerate(cmd) if flag == "--ae"}
+        self.assertIn("VSS_BASE_URL=http://10.0.0.5:8000", forwarded)
+        self.assertIn("HOST_IP=10.0.0.5", forwarded)
+        self.assertIn("CLAUDE_CODE_DISABLE_THINKING=1", forwarded)
+
+    def test_default_path_still_pins_brev_environment(self):
+        """The Brev path is the CI default and must be untouched by this flag."""
+        cmd = run_leg.build_harbor_command(
+            self._invocation(),
+            Path("/tmp/results"),
+            "model",
+            "https://inference-api.nvidia.com/v1",
+        )
+        self.assertEqual(
+            cmd[cmd.index("--environment-import-path") + 1],
+            run_leg.BREV_ENVIRONMENT_IMPORT_PATH,
+        )
+        forwarded = [cmd[i + 1] for i, flag in enumerate(cmd) if flag == "--ae"]
+        self.assertEqual(forwarded, ["CLAUDE_CODE_DISABLE_THINKING=1"])
+
+    def test_remote_env_drops_brev_transport_and_keeps_default_intact(self):
+        with mock.patch.dict(
+            os.environ,
+            {"BREV_INSTANCE": "vss-eval-rtx-2g-x", "BREV_EXEC_TIMEOUT": "0"},
+            clear=False,
+        ):
+            remote = run_leg.harbor_env("unused", "http://10.0.0.5:8000")
+            # An inherited BREV_INSTANCE would aim BrevEnvironment at a box
+            # this leg never locked.
+            self.assertNotIn("BREV_INSTANCE", remote)
+            self.assertNotIn("BREV_EXEC_TIMEOUT", remote)
+            self.assertEqual(remote["VSS_BASE_URL"], "http://10.0.0.5:8000")
+
+            default = run_leg.harbor_env("vss-eval-rtx-2g-x")
+            self.assertEqual(default["BREV_INSTANCE"], "vss-eval-rtx-2g-x")
+            self.assertIn("BREV_EXEC_TIMEOUT", default)
+            self.assertNotIn("VSS_BASE_URL", default)
+
+    def test_parse_args_exposes_flag_and_env_default(self):
+        base = [
+            "--dataset-root", "/tmp/ds",
+            "--results-root", "/tmp/res",
+        ]
+        self.assertIsNone(run_leg.parse_args(base).remote_vss)
+        parsed = run_leg.parse_args([*base, "--remote-vss", "http://10.0.0.5:8000"])
+        self.assertEqual(parsed.remote_vss, "http://10.0.0.5:8000")
+        with mock.patch.dict(
+            os.environ, {"REMOTE_VSS_BASE_URL": "http://10.0.0.6:8000"}, clear=False
+        ):
+            self.assertEqual(
+                run_leg.parse_args(base).remote_vss, "http://10.0.0.6:8000"
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

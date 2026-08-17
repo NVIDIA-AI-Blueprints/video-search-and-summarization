@@ -54,6 +54,24 @@ HARBOR_REQUIREMENT = "harbor==0.20.0"
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
+
+# Harbor's own default environment. `--remote-vss` runs the trial in this
+# sandbox instead of `envs.brev_env:BrevEnvironment`, because a disaggregated
+# leg drives an already-deployed VSS over HTTP and so needs no GPU, no Brev
+# box, and no pool lock.
+BREV_ENVIRONMENT_IMPORT_PATH = "envs.brev_env:BrevEnvironment"
+
+# Skills whose trials exercise an already-running VSS over its APIs, and so
+# can run disaggregated. Deploy-centric skills (vss-deploy-profile,
+# vss-build-vision-agent, ...) build or bring up a stack on the box itself and
+# are rejected rather than silently measuring something else.
+REMOTE_VSS_SUPPORTED_SKILLS = frozenset({
+    "vss-ask-video",
+    "vss-generate-video-report",
+    "vss-query-analytics",
+    "vss-search-archive",
+    "vss-summarize-video",
+})
 # RTX 4090 capability-routing is opt-in at the spec level via gpu_type.
 # These tables are intentionally empty: a test runs on RTX 4090 only when
 # its spec metadata declares gpu_type that matches GEFORCE RTX 4090.
@@ -299,6 +317,8 @@ def build_harbor_command(
     model: str,
     anthropic_base_url: str,
     agent: str = "claude-code",
+    environment_import_path: str | None = BREV_ENVIRONMENT_IMPORT_PATH,
+    agent_env: dict[str, str] | None = None,
 ) -> list[str]:
     if agent == "codex":
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
@@ -320,6 +340,16 @@ def build_harbor_command(
         ]
     else:
         raise ValueError(f"unsupported agent {agent!r} (expected claude-code | codex)")
+    for key, value in sorted((agent_env or {}).items()):
+        agent_flags += ["--ae", f"{key}={value}"]
+    # Omitting the flag leaves Harbor on its own default environment (docker).
+    # That is what a disaggregated leg wants: a sandbox that only needs to
+    # reach the remote VSS over HTTP.
+    environment_flags = (
+        ["--environment-import-path", environment_import_path]
+        if environment_import_path
+        else []
+    )
     return [
         "uvx",
         "--python",
@@ -328,8 +358,7 @@ def build_harbor_command(
         HARBOR_REQUIREMENT,
         "harbor",
         "run",
-        "--environment-import-path",
-        "envs.brev_env:BrevEnvironment",
+        *environment_flags,
         "-p",
         str(invocation.harbor_root),
         "--include-task-name",
@@ -351,7 +380,46 @@ def build_harbor_command(
     ]
 
 
-def harbor_env(instance: str) -> dict[str, str]:
+def remote_vss_env(remote_vss: str) -> dict[str, str]:
+    """Endpoint vars a disaggregated trial needs to reach the remote VSS.
+
+    ``HOST_IP`` is included because the runtime skills' gold solutions and
+    checks already resolve endpoints from it (with a ``localhost`` default),
+    so pointing that one variable at the remote box redirects the existing
+    port conventions without teaching every check a new URL.
+    """
+    parsed = urllib.parse.urlparse(remote_vss)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(
+            f"--remote-vss must be an http(s) URL with a host, got {remote_vss!r}"
+        )
+    env = {
+        "VSS_BASE_URL": remote_vss.rstrip("/"),
+        "HOST_IP": parsed.hostname,
+    }
+    if parsed.port:
+        env["VSS_AGENT_PORT"] = str(parsed.port)
+    return env
+
+
+def validate_remote_vss_skill(skill: str | None) -> None:
+    """Reject deploy-centric skills instead of silently mis-measuring them.
+
+    A disaggregated leg has no box to deploy onto, so a spec whose first turn
+    runs ``/vss-deploy-profile`` would either fail deep inside the trial or
+    quietly score something other than what its name says.
+    """
+    if skill in REMOTE_VSS_SUPPORTED_SKILLS:
+        return
+    supported = ", ".join(sorted(REMOTE_VSS_SUPPORTED_SKILLS))
+    raise ValueError(
+        f"--remote-vss does not support skill {skill!r}: a disaggregated leg "
+        f"drives an already-deployed VSS and cannot run deploy-centric specs. "
+        f"Supported skills: {supported}"
+    )
+
+
+def harbor_env(instance: str, remote_vss: str | None = None) -> dict[str, str]:
     env = os.environ.copy()
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
@@ -360,8 +428,20 @@ def harbor_env(instance: str) -> dict[str, str]:
         pythonpath = f"{skill_eval_path}:{pythonpath}" if pythonpath else skill_eval_path
     env["PYTHONPATH"] = pythonpath
     env["PATH"] = f"{Path.home() / '.local' / 'bin'}:{env.get('PATH', '')}"
-    env["BREV_INSTANCE"] = instance
     env["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+    if remote_vss:
+        # No Brev box is involved, so leaving BREV_INSTANCE set (it defaults
+        # from the environment) would point BrevEnvironment at a machine this
+        # leg never locked. Drop the whole Brev transport surface instead.
+        for key in (
+            "BREV_INSTANCE",
+            "BREV_EXEC_TIMEOUT",
+            "BREV_TRANSFER_TOTAL_TIMEOUT_SEC",
+        ):
+            env.pop(key, None)
+        env.update(remote_vss_env(remote_vss))
+        return env
+    env["BREV_INSTANCE"] = instance
     try:
         configured_brev_timeout = int(env.get("BREV_EXEC_TIMEOUT", "0"))
     except ValueError as exc:
@@ -1253,8 +1333,9 @@ def run_invocations(
     platform: str,
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
+    remote_vss: str | None = None,
 ) -> int:
-    env = harbor_env(instance)
+    env = harbor_env(instance, remote_vss)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
     # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
     # silently fall through to the claude-code path and be indistinguishable
@@ -1330,7 +1411,17 @@ def run_invocations(
                     )
                 return 124
 
-        cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
+        cmd = build_harbor_command(
+            invocation,
+            results_root,
+            model,
+            base_url,
+            agent,
+            environment_import_path=(
+                None if remote_vss else BREV_ENVIRONMENT_IMPORT_PATH
+            ),
+            agent_env=remote_vss_env(remote_vss) if remote_vss else None,
+        )
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
             rc = run_command(cmd, env, harbor_timeout_sec)
@@ -1383,6 +1474,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=os.environ.get("BREV_INSTANCE") or None,
         help="Operator override: pin the leg to this Brev instance instead "
              "of pool selection (still lock-guarded; waits if held)",
+    )
+    parser.add_argument(
+        "--remote-vss",
+        default=os.environ.get("REMOTE_VSS_BASE_URL") or None,
+        metavar="BASE_URL",
+        help="Disaggregated run: evaluate an already-deployed VSS reachable at "
+             "BASE_URL (e.g. http://10.0.0.5:8000). Runs the trial in Harbor's "
+             "default sandbox instead of BrevEnvironment, and skips pool "
+             "selection, the box lock, and every brev call. Runtime skills "
+             "only -- deploy-centric specs are rejected.",
     )
     parser.add_argument("--dataset-root", required=True, type=Path, help="Per-leg generated dataset root")
     parser.add_argument("--results-root", required=True, type=Path, help="Per-leg Harbor results root")
@@ -1466,6 +1567,30 @@ def main(argv: list[str] | None = None) -> int:
                 "whole-leg deadline cannot fit one complete Harbor invocation"
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
+        if args.remote_vss:
+            # Nothing to select and nothing to lock: the system under test is
+            # already deployed elsewhere and the sandbox is local to this
+            # process, so two disaggregated legs never contend for a box.
+            validate_remote_vss_skill(
+                metadata.get("skill") or os.environ.get("EVAL_SKILL") or None
+            )
+            print(
+                f"[run-leg] disaggregated run against {args.remote_vss} "
+                "(harbor default sandbox; no pool selection, no box lock, "
+                "no brev)",
+                flush=True,
+            )
+            return run_invocations(
+                invocations,
+                "remote-vss",
+                args.results_root,
+                args.scratch,
+                args.spec_stem,
+                args.platform,
+                args.harbor_timeout_sec,
+                work_deadline,
+                remote_vss=args.remote_vss,
+            )
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
         pinned = args.instance or metadata.get("brev_instance") or None
