@@ -401,8 +401,8 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertNotIn("claude --verbose", source)
         self.assertNotIn("HARBOR_CLAUDE_CODE_INSTRUCTION_", source)
 
-    def test_eval_harness_resets_nemoclaw_through_its_cli(self) -> None:
-        command = self.env_module._reset_nemoclaw_command("skill-eval")
+    def test_eval_harness_only_destroys_the_named_sandbox(self) -> None:
+        command = self.env_module._destroy_sandbox_command("skill-eval")
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
             encoding="utf-8"
         )
@@ -412,10 +412,8 @@ class HarnessScopeTests(unittest.TestCase):
             "nemoclaw skill-eval destroy --yes --cleanup-gateway",
             command,
         )
-        self.assertIn("openshell server status", command)
-        self.assertIn("nemoclaw stop", command)
         self.assertLess(
-            start.index("_reset_nemoclaw_command(sandbox)"),
+            start.index("_destroy_sandbox_command(sandbox)"),
             start.index("await super().start(force_build)"),
         )
         self.assertNotIn("sudo", command)
