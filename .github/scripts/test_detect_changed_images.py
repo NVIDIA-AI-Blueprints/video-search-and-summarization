@@ -418,7 +418,12 @@ class SelectImagesTest(unittest.TestCase):
                 for name, entry in by_name.items()
                 if entry.get("native_platform_build") is True
             },
-            {"sdr-mw-l", "vss-configurator", "vss-rt-config-adaptor"},
+            {
+                "sdr-mw-l",
+                "vss-configurator",
+                "vss-rt-config-adaptor",
+                "vss-rt-vlm",
+            },
         )
         self.assertNotIn(
             "native_platform_build", dci.matrix_entry(by_name["sdr-mw-l"])
