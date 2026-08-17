@@ -57,6 +57,11 @@ HELM_VALUES = {
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/values.yaml",
+        "deploy/helm/services/rtvi/charts/rtvi-embed/overrides_rtvi_embed.yaml",
+        "deploy/helm/developer-profiles/dev-profile-search/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -148,8 +153,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             for image in inventory["images"]
             if image.get("ghcr_build") is True
         }
-        self.assertEqual(managed - set(HELM_VALUES), {"vss-rt-embed"})
-        self.assertTrue(set(HELM_VALUES).issubset(managed))
+        self.assertEqual(managed, set(HELM_VALUES))
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():

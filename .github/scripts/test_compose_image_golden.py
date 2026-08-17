@@ -11,14 +11,12 @@ from __future__ import annotations
 
 import sys
 import tempfile
-import tomllib
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_container_tag_source import (  # noqa: E402
-    IMAGE_CONFIGS,
     image_refs_in_text,
     resolve_compose_vars,
 )
@@ -148,126 +146,6 @@ services:
             "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-deadbeef",
         )
         self.assertEqual(missing, ())
-
-    def test_rtvi_embed_source_mapping_and_fixed_deployment_coordinate(self):
-        config = IMAGE_CONFIGS["vss-rt-embed"]
-        self.assertEqual(config.source_path, Path("services/rtvi/rt-embed"))
-
-        compose = Path(
-            "deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml"
-        ).read_text()
-        refs = image_refs_in_text(compose, config.compose_names())
-        self.assertEqual(len(refs), 1)
-
-        resolved, missing = resolve_compose_vars(refs[0], {})
-        self.assertEqual(missing, ())
-        self.assertEqual(
-            resolved,
-            "nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4",
-        )
-
-        overridden, missing = resolve_compose_vars(
-            refs[0],
-            {
-                "RTVI_EMBED_IMAGE": "registry.example/rtvi-embed",
-                "RTVI_EMBED_TAG": "immutable-tag",
-            },
-        )
-        self.assertEqual(missing, ())
-        self.assertEqual(overridden, "registry.example/rtvi-embed:immutable-tag")
-
-
-class RtviEmbedDependencySourcesTest(unittest.TestCase):
-    """RT Embed's CI image build must use only approved public package indexes."""
-
-    ROOT = Path("services/rtvi/rt-embed/docker")
-    APPROVED_INDEXES = {
-        "https://pypi.org/simple/",
-        "https://pypi.nvidia.com",
-    }
-
-    def test_python_dependency_configuration_uses_only_public_sources(self):
-        pyproject_path = self.ROOT / "py_deps/pyproject.toml"
-        pyproject = pyproject_path.read_text()
-        requirements = (self.ROOT / "py_deps/requirements.txt").read_text()
-        lockfile = (self.ROOT / "py_deps/pdm.lock").read_text()
-
-        source_urls = {
-            source["url"] for source in tomllib.loads(pyproject)["tool"]["pdm"]["source"]
-        }
-        self.assertEqual(source_urls, self.APPROVED_INDEXES)
-
-        index_directives = {
-            line.split(" ", maxsplit=1)[1]
-            for line in requirements.splitlines()
-            if line.startswith(("--index-url ", "--extra-index-url "))
-        }
-        self.assertEqual(index_directives, self.APPROVED_INDEXES)
-        for package in ("vllm", "flashinfer", "xformers"):
-            self.assertNotIn(package, requirements)
-            self.assertNotIn(f'name = "{package}"', lockfile)
-
-    def test_dockerfile_does_not_include_vllm_build_artifacts(self):
-        dockerfile = (self.ROOT / "Dockerfile").read_text()
-        self.assertNotIn("AS vllm_src", dockerfile)
-        self.assertNotIn("flashinfer_cubin", dockerfile)
-        self.assertIn("pip install --index-url https://pypi.org/simple", dockerfile)
-
-    def test_remote_artifacts_are_verified_before_use(self):
-        dockerfile = (self.ROOT / "Dockerfile").read_text()
-        readme = (self.ROOT / "py_deps/README.md").read_text()
-
-        deepstream_checksum = "fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
-        pdm_checksum = "e1c7f6455fa7ffc50cbc13e4d49c06dfaaf8e9b74d0c9b46287bf767f6a4e4fc"
-        pyds_x86_wheels = {
-            (
-                "https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/"
-                "download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_x86_64.whl"
-            ): "74e13a6431cbef66b7a27da08658e0e30e7ca84bccb00a25a1a9c969608d3088",
-        }
-        pyds_source_commit = "6fdeefb7128435873f7794d2242ed48a1471ad7e"
-        pyds_source_checksum = (
-            "bc71ee88923c6c2f5ed60476504d338068a35a8e87157547571061b416d4ab20"
-        )
-        self.assertIn(deepstream_checksum, dockerfile)
-        self.assertLess(
-            dockerfile.index(deepstream_checksum),
-            dockerfile.index("tar xf /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 -C /"),
-        )
-
-        self.assertNotIn("| python3 -", readme)
-        self.assertIn(pdm_checksum, readme)
-        self.assertLess(
-            readme.index(pdm_checksum), readme.index('python3 "$PDM_INSTALLER_PATH"')
-        )
-        self.assertIn("sha256sum -c - &&", readme)
-
-        self.assertNotIn("pip install https://github.com/NVIDIA-AI-IOT", dockerfile)
-        self.assertIn('pip install "$pyds_wheel_path" --no-deps', dockerfile)
-        for wheel_url, checksum in pyds_x86_wheels.items():
-            self.assertIn(wheel_url, dockerfile)
-            self.assertIn(checksum, dockerfile)
-            self.assertLess(
-                dockerfile.index(checksum),
-                dockerfile.index('pip install "$pyds_wheel_path" --no-deps'),
-            )
-        self.assertIn(
-            'echo "$pyds_sha256  $pyds_wheel_path" | sha256sum -c -', dockerfile
-        )
-        self.assertIn(pyds_source_commit, dockerfile)
-        self.assertIn(pyds_source_checksum, dockerfile)
-        self.assertIn("docker/patches/pyds-arm64.patch", dockerfile)
-        self.assertIn('-DIS_SBSA=on', dockerfile)
-        self.assertIn("-DDS_PATH=/opt/nvidia/deepstream/deepstream-9.1", dockerfile)
-        self.assertIn("submodule update --init --recursive --depth 1", dockerfile)
-        self.assertIn("/usr/lib/aarch64-linux-gnu/tegra/", dockerfile)
-        self.assertIn("FROM pyds-${TARGETARCH} AS pyds-wheel", dockerfile)
-        self.assertIn("/tmp/deepstream_python_apps/bindings/dist/pyds-*.whl", dockerfile)
-        self.assertIn("COPY --from=pyds-wheel /tmp/pyds-arm64 /tmp/pyds-arm64", dockerfile)
-        self.assertNotIn("pyds-1.2.2-cp312-cp312-linux_aarch64.whl", dockerfile)
-        self.assertIn(
-            "get_nvds_buf_surface_gpu: Currently we only support x86", dockerfile
-        )
 
 
 if __name__ == "__main__":

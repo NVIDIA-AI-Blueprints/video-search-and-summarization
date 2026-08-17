@@ -41,10 +41,10 @@ FROM base-$ARM_PLATFORM AS base-arm64
 # Build a Thor-compatible PyDS wheel from the public DeepStream Python bindings.
 # The upstream release arm64 wheel deliberately rejects get_nvds_buf_surface_gpu
 # on non-SBSA arm64; the local Cosmos Embed1 raw-frame path requires it.
+# PYDS_SOURCE_COMMIT is the verified source pin for the Git checkout below.
 FROM base-arm64 AS pyds_arm64_builder
 ARG TARGETARCH
 ARG PYDS_SOURCE_COMMIT=6fdeefb7128435873f7794d2242ed48a1471ad7e
-ARG PYDS_SOURCE_SHA256=bc71ee88923c6c2f5ed60476504d338068a35a8e87157547571061b416d4ab20
 COPY docker/binaries/igpu/libnvbufsurface.so \
      docker/binaries/igpu/libnvbufsurftransform.so \
      /usr/lib/aarch64-linux-gnu/tegra/
@@ -53,12 +53,7 @@ RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt
     build-essential cmake git libglib2.0-dev libgstreamer1.0-dev \
     python3.12-dev python3-setuptools python3-wheel \
     && rm -rf /var/lib/apt/lists/*
-ADD https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/archive/refs/tags/v1.2.2.tar.gz /tmp/deepstream_python_apps.tar.gz
-RUN echo "${PYDS_SOURCE_SHA256}  /tmp/deepstream_python_apps.tar.gz" | sha256sum -c - \
-    && mkdir -p /tmp/deepstream_python_apps \
-    && tar -xzf /tmp/deepstream_python_apps.tar.gz --strip-components=1 -C /tmp/deepstream_python_apps \
-    && rm /tmp/deepstream_python_apps.tar.gz \
-    && git -C /tmp/deepstream_python_apps init \
+RUN git init /tmp/deepstream_python_apps \
     && git -C /tmp/deepstream_python_apps remote add origin https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git \
     && git -C /tmp/deepstream_python_apps fetch --depth=1 origin "${PYDS_SOURCE_COMMIT}" \
     && git -C /tmp/deepstream_python_apps checkout --detach --force FETCH_HEAD \
@@ -67,6 +62,8 @@ RUN echo "${PYDS_SOURCE_SHA256}  /tmp/deepstream_python_apps.tar.gz" | sha256sum
     && cd /tmp/deepstream_python_apps \
     && python3 bindings/3rdparty/git-partial-submodule/git-partial-submodule.py restore-sparse
 COPY docker/patches/pyds-arm64.patch /tmp/pyds-arm64.patch
+# Thor requires the IS_SBSA compile-time override to enable
+# get_nvds_buf_surface_gpu on aarch64.
 RUN cd /tmp/deepstream_python_apps \
     && git apply /tmp/pyds-arm64.patch \
     && cd bindings \

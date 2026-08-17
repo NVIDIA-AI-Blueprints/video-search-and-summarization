@@ -128,6 +128,21 @@ jobs:
           git lfs install --local
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
 
+      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed'
+        run: |
+          mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \
+            -type f -name '*.so' -print)
+          test "${#lfs_assets[@]}" -gt 0
+          invalid=0
+          for asset in "${lfs_assets[@]}"; do
+            if ! file --brief "$asset" | grep -q '^ELF '; then
+              echo "::error file=$asset::LFS assets not materialized"
+              invalid=1
+            fi
+          done
+          test "$invalid" -eq 0
+
       - name: Compute immutable candidate coordinates
         id: meta
         run: |
@@ -296,6 +311,21 @@ jobs:
         run: |
           git lfs install --local
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
+
+      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed'
+        run: |
+          mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \
+            -type f -name '*.so' -print)
+          test "${#lfs_assets[@]}" -gt 0
+          invalid=0
+          for asset in "${lfs_assets[@]}"; do
+            if ! file --brief "$asset" | grep -q '^ELF '; then
+              echo "::error file=$asset::LFS assets not materialized"
+              invalid=1
+            fi
+          done
+          test "$invalid" -eq 0
 
       - name: Compute immutable candidate coordinates
         id: meta

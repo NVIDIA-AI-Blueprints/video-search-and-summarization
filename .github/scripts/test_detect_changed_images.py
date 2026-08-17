@@ -314,6 +314,20 @@ class SelectImagesTest(unittest.TestCase):
         )
         self.assertEqual([item["name"] for item in entries], ["vss-rt-embed"])
 
+    def test_rtvi_embed_lfs_assets_are_verified_in_both_build_paths(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        workflow = (
+            repo_root / ".github/workflows/build-dev-images.yml"
+        ).read_text()
+        verifier = """      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed'
+        run: |
+          mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \\
+            -type f -name '*.so' -print)"""
+
+        self.assertEqual(workflow.count(verifier), 2)
+        self.assertEqual(workflow.count("LFS assets not materialized"), 2)
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
