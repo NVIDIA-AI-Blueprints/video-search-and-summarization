@@ -132,6 +132,6 @@ private:
     std::vector<WebhookConfig> m_webhooks;  // immutable after construction
     std::unique_ptr<AsyncHttpClient> m_httpClient;
 
-    static WebhookNotifier* _instance;
+    static std::unique_ptr<WebhookNotifier> _instance;
     static std::mutex _instanceMutex;
 };

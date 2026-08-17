@@ -32,7 +32,7 @@ Use this skill when you need to:
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
 - **Image:** `nvcr.io/nvstaging/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
-- **Default tag:** `3.3.0-26.07.4` (override with `RTVI_EMBED_TAG`).
+- **Default tag:** `3.3.0-26.08.1` (override with `RTVI_EMBED_TAG`).
 - **Profile:** `rtvi-embed`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.

@@ -44,6 +44,7 @@ from vss_core._foundation.time import iso8601_to_datetime
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_SECONDS = 30
+_FILE_TIMELINE_EPOCH = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
 
 # Only transient connection/timeout failures are worth retrying. Deterministic
 # failures (4xx, JSON/parse/validation errors, VSTError) must fail fast rather
@@ -105,8 +106,10 @@ def map_timestamp_to_timeline(timestamp: str, timeline_start: str, timeline_end:
 
     Rules:
       - timestamp within [start, end]: returned unchanged (live sources)
-      - otherwise: the time-of-day offset from the timestamp's own midnight is
-        re-based onto ``timeline_start``, clamped to ``timeline_end``.
+      - otherwise: the elapsed offset from the fixed uploaded-file epoch
+        (2025-01-01T00:00:00Z) is re-based onto ``timeline_start``, clamped to
+        the real timeline. Keeping the date component preserves offsets in
+        files longer than 24 hours.
 
     Any parse failure returns the original timestamp (best-effort — a raw URL
     that may 404 beats dropping the hit).
@@ -119,13 +122,51 @@ def map_timestamp_to_timeline(timestamp: str, timeline_start: str, timeline_end:
         return timestamp
     if start <= ts <= end:
         return timestamp
-    offset = ts - ts.replace(hour=0, minute=0, second=0, microsecond=0)
+    offset = ts - _FILE_TIMELINE_EPOCH
     mapped = start + offset
     if mapped > end:
         mapped = end
     elif mapped < start:
         mapped = start
     return mapped.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def map_interval_to_timeline(
+    start_timestamp: str,
+    end_timestamp: str,
+    timeline_start: str,
+    timeline_end: str,
+) -> tuple[str, str]:
+    """Rebase a synthetic file interval while preserving its duration.
+
+    Mapping the two bounds independently loses the date component used to
+    express elapsed time. In particular, an interval crossing synthetic
+    midnight can map its end before its start. Anchor the start once and add
+    the original duration, clamping only at the real recording end.
+
+    Parse failures or non-positive input ranges are returned unchanged so this
+    helper retains :func:`map_timestamp_to_timeline`'s best-effort contract.
+    """
+    try:
+        source_start = iso8601_to_datetime(start_timestamp)
+        source_end = iso8601_to_datetime(end_timestamp)
+        real_end = iso8601_to_datetime(timeline_end)
+    except (TypeError, ValueError):
+        return start_timestamp, end_timestamp
+    duration = source_end - source_start
+    if duration.total_seconds() <= 0:
+        return start_timestamp, end_timestamp
+
+    mapped_start_text = map_timestamp_to_timeline(start_timestamp, timeline_start, timeline_end)
+    try:
+        mapped_start = iso8601_to_datetime(mapped_start_text)
+    except (TypeError, ValueError):
+        return start_timestamp, end_timestamp
+    mapped_end = min(mapped_start + duration, real_end)
+    return (
+        mapped_start_text,
+        mapped_end.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+    )
 
 
 async def get_timelines_map(

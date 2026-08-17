@@ -152,6 +152,18 @@
 		{
 			"name": "numWorkersForSpaceEstimation",
 			"value": "1"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "confinedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "proximityViolationIncidentEnable",
+			"value": "true"
 		}
 	]
 }

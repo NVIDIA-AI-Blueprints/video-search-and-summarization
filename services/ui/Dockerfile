@@ -5,7 +5,7 @@ ARG BUILD_TYPE=prod
 
 # Builder phase. This remains target-platform-specific because the dependency
 # graph includes native SWC/Sharp/Turbo packages.
-FROM node:22.22.3 AS builder
+FROM node:22.23.2 AS builder
 ARG USER_ID
 ARG GROUP_ID
 
@@ -35,10 +35,10 @@ RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
 
 
 # Conditional runner phase
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.7 AS runner-prod
+FROM nvcr.io/nvidia/distroless/node:22-v4.0.11 AS runner-prod
 ARG BUILD_TYPE
 
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.7-dev AS runner-dev
+FROM nvcr.io/nvidia/distroless/node:22-v4.0.11-dev AS runner-dev
 ARG BUILD_TYPE
 
 
@@ -71,9 +71,18 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 # Copy custom server (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/custom-server.js ./custom-server.js
 
-# Copy license files (read-only)
+# Copy license files (read-only): LICENSE (MIT) and LICENSE-3rd-party.txt.
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE* ./
-COPY --from=builder --chown=root:root --chmod=0444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
+
+# The NVIDIA Software License Agreement is not vendored in this source tree.
+# BuildKit performs this download itself, so no HTTP client is needed in any
+# stage, and --checksum verifies the bytes before the layer is created: a
+# CDN error page or a silently replaced document fails the build. Owned by
+# root so the non-root runtime process cannot modify it.
+ADD --chown=root:root --chmod=444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    ./NVIDIA-Software-License-Agreement.pdf
 
 # Set environment variables
 ENV NODE_ENV=production

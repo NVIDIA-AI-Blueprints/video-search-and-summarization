@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -239,14 +239,14 @@ void StreamMonitor::addCurlRequest(const std::string& url)
         retM = curl_multi_add_handle(m_curlMultiHandle, curl);
         CURL_CHECK_ERROR2(curl_multi_add_handle, retM)
 
-        m_curlList.push_back(std::make_tuple(curl, url, isResponsePending));
+        m_curlList.push_back(std::make_tuple(static_cast<CurlEasyHandle*>(curl), url, isResponsePending));
     }
 }
 
-void StreamMonitor::removeCurlRequest(CURL *curl)
+void StreamMonitor::removeCurlRequest(CurlEasyHandle *curl)
 {
     CURLMcode retM = CURLM_OK;
-    std::vector<std::tuple<CURL*, std::string, bool>>::iterator it;
+    std::vector<std::tuple<CurlEasyHandle*, std::string, bool>>::iterator it;
     for(it = m_curlList.begin(); it != m_curlList.end(); ++it)
     {
         if(get<0>(*it) == curl)
@@ -275,18 +275,18 @@ bool StreamMonitor::isCurlResponsePendingForUri(const std::string& url)
     return false;
 }
 
-void StreamMonitor::setCurlResponsePendingStatus(CURL *curl, bool isResponsePending)
+void StreamMonitor::setCurlResponsePendingStatus(const std::string& url, bool isResponsePending)
 {
     for(auto &i : m_curlList)
     {
-        if(get<0>(i) == curl)
+        if(get<1>(i) == url)
         {
             get<2>(i) = isResponsePending;
         }
     }
 }
 
-std::string StreamMonitor::getUriByUsingCurlHandle(const CURL *curl)
+std::string StreamMonitor::getUriByUsingCurlHandle(const CurlEasyHandle *curl)
 {
     std::string url;
     for(const auto &i : m_curlList)
@@ -302,7 +302,7 @@ std::string StreamMonitor::getUriByUsingCurlHandle(const CURL *curl)
 
 void StreamMonitor::livenessMonitorTask()
 {
-    CURL *curl = nullptr;
+    CurlEasyHandle *curl = nullptr;
     CURLMsg *msg = nullptr;
     CURLcode return_code = CURLE_OK;
     int still_running = 0, msgs_left = 0, repeats = 0;
@@ -359,7 +359,7 @@ void StreamMonitor::livenessMonitorTask()
                 {
                         if (msg->msg == CURLMSG_DONE)
                         {
-                            curl = msg->easy_handle;
+                            curl = static_cast<CurlEasyHandle*>(msg->easy_handle);
                             return_code = msg->data.result;
                             // Ignore few curl errors
                             if (return_code == CURLE_RTSP_CSEQ_ERROR || return_code == CURLE_RECV_ERROR)
@@ -369,14 +369,14 @@ void StreamMonitor::livenessMonitorTask()
                             if(return_code != CURLE_OK)
                             {
                                 LOG(error) << "CURL error:" << curl_easy_strerror(return_code) << " [" << return_code << "] for url:" << secureUrlForLogging(getUriByUsingCurlHandle(curl)) << endl;
-                                setCurlResponsePendingStatus(curl, false);
+                                setCurlResponsePendingStatus(getUriByUsingCurlHandle(curl), false);
                                 updateUriStatus(getUriByUsingCurlHandle(curl), STREAM_STATUS_OFFLINE, return_code);
 
                             }
                             else
                             {
                                 //LOG(info) << "Response[" << return_code << "] " << curl_easy_strerror(return_code) << " for url:" << getUriByUsingCurlHandle(curl) << endl;
-                                setCurlResponsePendingStatus(curl, false);
+                                setCurlResponsePendingStatus(getUriByUsingCurlHandle(curl), false);
                                 updateUriStatus(getUriByUsingCurlHandle(curl), STREAM_STATUS_ONLINE, return_code);
                             }
                             removeCurlRequest(curl);
@@ -435,7 +435,7 @@ void printQoSData();
 void printBackendQoSData();
 
 std::map<string, shared_ptr<QosMeasurementRecord>, std::less<>> g_records;
-std::map<string, QosRtspClient *, std::less<>> g_rtspSources;
+std::map<string, std::unique_ptr<QosRtspClient>, std::less<>> g_rtspSources;
 std::map<string, struct timeval, std::less<>> g_blackList;
 std::multimap<string, pair<string, string>, std::less<>> g_streamFailureCount;
 std::mutex g_streamFailureMapMutex, g_qosDumpMutex, g_rtspSourceMutex;
@@ -625,9 +625,9 @@ public:
         struct timeval m_latencyStartTime;
     };
 
-    static QosRtspClient *Create(const std::string &url, const std::string& name, const std::map<std::string, std::string, std::less<>> &opts)
+    static std::unique_ptr<QosRtspClient> Create(const std::string &url, const std::string& name, const std::map<std::string, std::string, std::less<>> &opts)
     {
-        return new QosRtspClient(url, name, opts);
+        return std::make_unique<QosRtspClient>(url, name, opts);
     }
 
     void restartConnection(bool no_delay = false)
@@ -1368,26 +1368,24 @@ QosRtspClient *startRtspClient(string uri, string devName = "")
 
     std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
     // Check if rtsp client for given url is present, remove it.
-    std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(uri);
+    auto it = g_rtspSources.find(uri);
     if (it != g_rtspSources.end())
     {
-        QosRtspClient *oldRtspSrc = it->second;
-        if (oldRtspSrc)
+        if (it->second)
         {
-            old_retryCount = oldRtspSrc->m_retryCount;
-            tryTcpTransport = oldRtspSrc->m_tryTcpStreaming;
+            old_retryCount = it->second->m_retryCount;
+            tryTcpTransport = it->second->m_tryTcpStreaming;
             removeRecord(uri);
-            delete oldRtspSrc;
             g_rtspSources.erase(uri);
         }
     }
 
-    rtspSrc = QosRtspClient::Create(uri, devName, opts);
+    rtspSrc = QosRtspClient::Create(uri, devName, opts).release();
     if (rtspSrc)
     {
         rtspSrc->m_retryCount = old_retryCount;
         rtspSrc->m_tryTcpStreaming = tryTcpTransport;
-        g_rtspSources[uri] = rtspSrc;
+        g_rtspSources[uri] = std::unique_ptr<QosRtspClient>(rtspSrc);
     }
     LOG(verbose) << "[streamMonitor] Created rtspClient for " << devName << ", uri:" << uri << endl;
     return rtspSrc;
@@ -1395,21 +1393,17 @@ QosRtspClient *startRtspClient(string uri, string devName = "")
 
 void removeRtspClient(string uri)
 {
-    QosRtspClient *rtspSrc = nullptr;
+    std::unique_ptr<QosRtspClient> rtspSrc;
     {
         std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
-        std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(uri);
+        auto it = g_rtspSources.find(uri);
         if (it != g_rtspSources.end())
         {
             LOG(verbose) << "[streamMonitor] Removing rtspClient for "
                     << it->second->getDevName() << ", uri:" << uri << endl;
-            rtspSrc = it->second;
+            rtspSrc = std::move(it->second);
             g_rtspSources.erase(uri);
         }
-    }
-    if (rtspSrc)
-    {
-        delete rtspSrc;
     }
 }
 
@@ -1417,10 +1411,10 @@ QosRtspClient *getRtspClient(string uri)
 {
     QosRtspClient *rtspSrc = nullptr;
     std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
-    std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(uri);
+    auto it = g_rtspSources.find(uri);
     if (it != g_rtspSources.end())
     {
-        rtspSrc = it->second;
+        rtspSrc = it->second.get();
     }
     return rtspSrc;
 }
@@ -1943,7 +1937,7 @@ void StreamMonitor::qosMeasurementTask()
                 -> 3. If stream is not blacklisted due to multiple failures.
                 */
                 bool createRecord = false;
-                std::map<std::string, QosRtspClient*, std::less<>>::iterator it = g_rtspSources.find(stream.m_url);
+                auto it = g_rtspSources.find(stream.m_url);
                 if (it == g_rtspSources.end() && stream.m_isMainStream)
                 {
                     QosRtspClient *rtspSource = startRtspClient(stream.m_url, stream.m_devName);
@@ -2033,7 +2027,7 @@ void StreamMonitor::qosMeasurementTask()
             }
 
             // Check if any url to be removed from monitoring.
-            std::map<std::string, QosRtspClient *, std::less<>>::iterator it_record = g_rtspSources.begin();
+            auto it_record = g_rtspSources.begin();
             while (it_record != g_rtspSources.end())
             {
                 bool found = false;
@@ -2048,12 +2042,17 @@ void StreamMonitor::qosMeasurementTask()
                 if (found == false)
                 {
                     LOG(info) << "Proxy url not present in streamList, removing " << it_record->second->getDevName() << endl;
-                    removeRecord(it_record->first);
-                    delete it_record->second;
+                    // Capture the key BEFORE erasing. erase() returns the
+                    // NEXT iterator -- or end() when the erased entry was last
+                    // -- so using it_record->first afterwards either
+                    // dereferences end() or removes the following camera's
+                    // blacklist entry instead of this one's.
+                    const std::string removedUri = it_record->first;
+                    removeRecord(removedUri);
                     it_record = g_rtspSources.erase(it_record);
                     if (g_blackList.size() > 0)
                     {
-                        std::map<string, struct timeval, std::less<>>::iterator it = g_blackList.find(it_record->first);
+                        std::map<string, struct timeval, std::less<>>::iterator it = g_blackList.find(removedUri);
                         if (it != g_blackList.end())
                         {
                             it = g_blackList.erase(it);
@@ -2102,10 +2101,6 @@ void StreamMonitor::cleanupQoSThread()
     g_streamFailureCount.clear();
 
     // Delete the rtsp sources
-    for (const auto& source : g_rtspSources)
-    {
-        delete source.second;
-    }
     g_rtspSources.clear();
 }
 
@@ -2410,7 +2405,7 @@ void StreamMonitor::waitForCompleteRemoval(const string& url)
 bool StreamMonitor::isRtspSourceDestroyed(const string& url)
 {
     std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
-    std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(url);
+    auto it = g_rtspSources.find(url);
     if (it == g_rtspSources.end())
     {
        return true;

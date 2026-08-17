@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.enabled .Values.grafana.enabled }}
+{{- $name := include "monitoring.componentName" (dict "ctx" . "component" "grafana") }}
+{{- $g := .Values.grafana }}
+{{- $secretName := $g.admin.existingSecret | default (printf "%s-admin" $name) }}
+{{- if not $g.admin.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "monitoring.labels" (dict "ctx" . "component" "grafana") | nindent 4 }}
+type: Opaque
+stringData:
+  admin-user: {{ $g.admin.user | quote }}
+  admin-password: {{ required "grafana.admin.password or grafana.admin.existingSecret is required" $g.admin.password | quote }}
+---
+{{- end }}
+{{- if $g.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-storage
+  labels:
+    {{- include "monitoring.labels" (dict "ctx" . "component" "grafana") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- $sc := $g.persistence.storageClass | default (.Values.global).storageClass }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $g.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "monitoring.labels" (dict "ctx" . "component" "grafana") | nindent 4 }}
+spec:
+  replicas: {{ $g.replicas | default 1 }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" (dict "ctx" . "component" "grafana") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "monitoring.selectorLabels" (dict "ctx" . "component" "grafana") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/grafana-config.yaml") . | sha256sum }}
+        {{- include "monitoring.scrapeAnnotations" (dict "port" $g.port) | nindent 8 }}
+    spec:
+      {{- with (.Values.global).imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: "{{ $g.image.repository }}:{{ $g.image.tag }}"
+          imagePullPolicy: {{ $g.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ $g.port }}
+              protocol: TCP
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: admin-password
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+            {{- with $g.rootUrl }}
+            - name: GF_SERVER_ROOT_URL
+              value: {{ . | quote }}
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            {{- end }}
+            {{- with $g.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 120
+            failureThreshold: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /var/lib/grafana
+            - name: provisioning-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: provisioning-dashboards
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            {{- if $g.dashboards.enabled }}
+            {{- range $path, $_ := .Files.Glob "files/grafana-dashboards/*.json" }}
+            {{- $key := trimSuffix ".json" (base $path) }}
+            - name: dashboard-{{ $key }}
+              mountPath: /etc/grafana/dashboards/{{ $key }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+      volumes:
+        - name: storage
+        {{- if $g.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $name }}-storage
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+        - name: provisioning-datasources
+          configMap:
+            name: {{ $name }}-provisioning
+            items:
+              - key: datasource.yml
+                path: datasource.yml
+        - name: provisioning-dashboards
+          configMap:
+            name: {{ $name }}-provisioning
+            items:
+              - key: dashboard.yml
+                path: dashboard.yml
+        {{- if $g.dashboards.enabled }}
+        {{- range $path, $_ := .Files.Glob "files/grafana-dashboards/*.json" }}
+        {{- $key := trimSuffix ".json" (base $path) }}
+        - name: dashboard-{{ $key }}
+          configMap:
+            name: {{ $name }}-dashboard-{{ $key }}
+        {{- end }}
+        {{- end }}
+      {{- with $g.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $g.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "monitoring.labels" (dict "ctx" . "component" "grafana") | nindent 4 }}
+spec:
+  type: {{ $g.service.type | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ $g.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if and (eq ($g.service.type | default "ClusterIP") "NodePort") $g.service.nodePort }}
+      nodePort: {{ $g.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "monitoring.selectorLabels" (dict "ctx" . "component" "grafana") | nindent 4 }}
+{{- end }}

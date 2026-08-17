@@ -2,11 +2,11 @@
 	"message_broker":
 	{
 		"enable_notification": true,
-		"enable_notification_consumer": false,
+		"enable_notification_consumer": true,
 		"use_message_broker" : "redis",
-		"use_message_broker_consumer" : "kafka",
+		"use_message_broker_consumer" : "redis",
 		"message_broker_topic": "vst_events",
-		"message_broker_topic_consumer": "",
+		"message_broker_topic_consumer": "test",
 		"message_broker_payload_key": "sensor.id",
 		"message_broker_metadata_topic": "test",
 		"redis_server_env_var": "localhost:6379",

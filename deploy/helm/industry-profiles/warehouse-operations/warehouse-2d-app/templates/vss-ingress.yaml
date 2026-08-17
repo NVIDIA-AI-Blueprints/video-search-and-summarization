@@ -1,0 +1,133 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Path routing equivalent to the vss-haproxy-ingress service in the warehouse
+# compose profiles. Needs a cluster-wide HAProxy ingress controller providing
+# the ingressClassName below. Leave host empty to match any hostname, so the
+# node IP works with no DNS.
+{{- $vi := .Values.vssIngress | default dict }}
+{{- $globalVi := index (.Values.global | default dict) "vssIngress" | default dict }}
+{{- if default false (index $globalVi "enabled") }}
+{{- $host := coalesce (index $vi "host") (index (.Values.global | default dict) "externalHost") "" }}
+{{- $vios := .Values.vios | default dict }}
+{{- $nvstreamerEnabled := default false (dig "vss-vios-nvstreamer" "enabled" false $vios) }}
+{{- $kibanaEnabled := default false (dig "kibana" "enabled" false (.Values.infra | default dict)) }}
+{{- $analytics := .Values.analytics | default dict }}
+{{- $analyticsEnabled := default false (index $analytics "enabled") }}
+{{- $behaviorEnabled := default false (dig "vss-behavior-analytics" "enabled" false $analytics) }}
+{{- $monitoringEnabled := default false (index (.Values.monitoring | default dict) "enabled") }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ index $vi "resourceName" | default "vss-ingress" }}
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    # Strip the prefix for backends that serve from root. Kibana, Grafana and
+    # Prometheus build absolute links, so they are told their prefix instead
+    # (see the basePath / rootUrl / routePrefix values) and are not rewritten.
+    haproxy.org/path-rewrite: |
+{{- if $analyticsEnabled }}
+      /video-analytics-api/(.*) /\1
+{{- end }}
+{{- if $behaviorEnabled }}
+      /behavior-analytics/(.*) /\1
+{{- end }}
+{{- if $nvstreamerEnabled }}
+      /streamer/(.*) /\1
+{{- end }}
+      ^/storage/(.*) /vst/storage/\1
+    haproxy.org/frontend-config-snippet: |
+      http-request replace-path ^//vst(/.*)?$ /vst\1
+      http-request set-var(txn.path) path
+      http-request set-var(txn.path_match) var(txn.host_match),concat(,txn.path,),map_beg(/etc/haproxy/maps/path-prefix.map) if !{ var(txn.path_match) -m found }
+spec:
+  ingressClassName: {{ index $vi "ingressClassName" | default "haproxy" | quote }}
+  rules:
+    -
+      {{- if $host }}
+      host: {{ $host | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: /vst/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "vstServiceName" | default "vss-vios-ingress" }}
+                port:
+                  number: {{ index $vi "vstPort" | default 30888 }}
+          - path: /storage/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "vstServiceName" | default "vss-vios-ingress" }}
+                port:
+                  number: {{ index $vi "vstPort" | default 30888 }}
+{{- if $nvstreamerEnabled }}
+          - path: /streamer/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "nvstreamerServiceName" | default "vss-vios-nvstreamer" }}
+                port:
+                  number: {{ index $vi "nvstreamerPort" | default 31000 }}
+{{- end }}
+{{- if $analyticsEnabled }}
+          - path: /video-analytics-api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "videoAnalyticsApiServiceName" | default "vss-video-analytics-api" }}
+                port:
+                  number: {{ index $vi "videoAnalyticsApiPort" | default 8081 }}
+{{- end }}
+{{- if $behaviorEnabled }}
+          - path: /behavior-analytics/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "behaviorAnalyticsServiceName" | default "vss-behavior-analytics" }}
+                port:
+                  number: {{ index $vi "behaviorAnalyticsPort" | default 8080 }}
+{{- end }}
+{{- if $kibanaEnabled }}
+          - path: /kibana/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "kibanaServiceName" | default "kibana" }}
+                port:
+                  number: {{ index $vi "kibanaPort" | default 5601 }}
+{{- end }}
+{{- if $monitoringEnabled }}
+          - path: /grafana/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "grafanaServiceName" | default "grafana" }}
+                port:
+                  number: {{ index $vi "grafanaPort" | default 3000 }}
+          - path: /prometheus/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "prometheusServiceName" | default "prometheus" }}
+                port:
+                  number: {{ index $vi "prometheusPort" | default 9090 }}
+{{- end }}
+{{- end }}

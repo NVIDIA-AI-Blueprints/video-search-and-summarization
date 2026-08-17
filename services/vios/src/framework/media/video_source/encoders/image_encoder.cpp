@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +20,7 @@
 #include <gst/app/gstappsrc.h>
 #include <gst/app/gstappsink.h>
 #include "nvjpegenc_loader.h"
+#include <limits>
 
 using namespace std;
 using namespace std::chrono_literals;
@@ -160,7 +161,7 @@ void ImageEnc::onFrame(std::shared_ptr<RawFrameParams> frameData)
         return;
     }
     uint64_t fd = 0;
-    bool sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
     if (frameData->m_sample)
     {
@@ -321,42 +322,37 @@ void ImageEnc::pushBuffer(std::shared_ptr<RawFrameParams> frameData)
 
 void ImageEnc::hwEncode(uint64_t fd, std::shared_ptr<RawFrameParams> frameData)
 {
-    if (fd < 0)
+    if (fd > static_cast<uint64_t>(std::numeric_limits<int>::max()))
     {
         LOG(error) << "fd error " << fd << endl;
         return;
     }
 
     unsigned long out_buf_size = 0;
-    unsigned char *out_buf = nullptr;
 
     // Extra 512 Kbytes are required for some case encoded bitstream exceeds input buffer size
     out_buf_size = (frameData->m_targetWidth * frameData->m_targetHeight * 3/2) + (512 << 10) ;
-    out_buf = (unsigned char *)malloc(out_buf_size);
-    if (NvJpegEncLoader::getInstance()->nvjpegEncodeFromFd(fd, &out_buf, out_buf_size) == 0)
+    std::vector<unsigned char> out_buf(out_buf_size);
+    unsigned char *out_buf_ptr = out_buf.data();
+    if (NvJpegEncLoader::getInstance()->nvjpegEncodeFromFd(fd, &out_buf_ptr, out_buf_size) == 0)
     {
         LOG(info) << "HW jpeg conversion success" << endl;
     }
     else
     {
         LOG(error) << "HW jpeg conversion failed" << endl;
-        free(out_buf);
-        out_buf = nullptr;
         m_stop = true;
         return;
     }
 
     std::string image_buf(out_buf_size, 1);
-    memmove (&image_buf[0], out_buf, out_buf_size);
+    memmove (&image_buf[0], out_buf_ptr, out_buf_size);
 
     std::lock_guard<std::mutex> lock(m_imgBufferLock);
     m_imgBuffer = image_buf;
     std::string().swap(image_buf);
     m_stop = true;
     m_imgBufferWait.notify_all();
-
-    free(out_buf);
-    out_buf = nullptr;
 }
 
 int ImageEnc::create(string sourceWidth, string sourceHeight, string resizeWidth, string resizeHeight)

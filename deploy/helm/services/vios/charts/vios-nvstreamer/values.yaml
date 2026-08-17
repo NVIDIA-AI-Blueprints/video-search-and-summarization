@@ -18,7 +18,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer
-  tag: "2.1.0-26.07.1"
+  tag: "1.4.0-26.08.1"
   pullPolicy: IfNotPresent
 replicas: 1
 
@@ -27,23 +27,61 @@ kafkaServerAddress: ""   # default: kafka-kafka:9092 (<release>-kafka-kafka:9092
 redisServerAddress: ""   # default: <release>-redis:6379 (host:port for redis_server_env_var or direct address)
 videoMetadataServerUrl: ""   # default: http://<release>-elasticsearch:9200/mdx-raw*
 
+# nv_streamer_sync_file_count. Compose gets this from the blueprint configurator
+# (final_stream_count); set it to the stream count or nvstreamer serves no media.
+syncFileCount: 0
+
 env:
   ADAPTOR: "streamer"
   HTTP_PORT: "31000"
   # Public UI/API path. A non-empty value requires the upstream proxy to strip it.
   NVSTREAMER_UI_BASE_PATH: ""
   NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES: "true"
+  # Point APT at an internal/nearby mirror. Empty uses the public archive.
+  VST_APT_MIRROR: ""
 
 service:
   port: 31000
   type: ClusterIP
+  # Set when type is NodePort (e.g. 31000) for installs without an ingress controller.
+  nodePort: null
 
 # Run as root (0:0) to match Compose user
 securityContext:
   runAsUser: 0
   runAsGroup: 0
 
-# Use emptyDir for streamer_videos and vst_data (no host path)
+# streamer_videos backing store. Same shape as vios-streamprocessing.persistence.
+# hostPath is the path for customer videos already staged on the node; it wins
+# over the PVC when set, and pins the pod to that node.
+persistence:
+  streamerVideos:
+    enabled: false
+    existingClaim: ""
+    hostPath: ""
+    hostPathType: DirectoryOrCreate
+
+# Sample videos from the NGC warehouse app-data bundle. Skipped if videos exist.
+# fromExistingClaim reuses the bundle the rtvi-cv job pulled, so no second
+# download. RWO claims pin both to one node, so that path is single-node only.
+# Multi-node: use RWX storage, or clear fromExistingClaim and set resourceVersion.
+ngcVideoSeed:
+  enabled: false
+  # Dataset directory under vss-warehouse-app-data/videos. Empty copies them all.
+  dataset: ""
+  fromExistingClaim: ""
+  # How long to wait for fromExistingClaim to be populated by the NGC job.
+  waitSeconds: 3600
+  resourceVersion: ""
+  org: nvidia
+  apiKeySecretName: ngc-api
+  apiKeySecretKey: NGC_CLI_API_KEY
+  image:
+    repository: docker.io/library/ubuntu
+    tag: "22.04"
+    pullPolicy: IfNotPresent
+
+# vst_data stays on emptyDir
 resources: {}
 nodeSelector: {}
 tolerations: []

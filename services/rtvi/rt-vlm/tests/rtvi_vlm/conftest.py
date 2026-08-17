@@ -36,9 +36,9 @@ def mock_args(tmp_path):
     """
     args = argparse.Namespace()
     args.asset_dir = str(tmp_path)
-    args.kafka_enabled = False
-    args.kafka_topic = "mdx-vlm-captions"
     args.kafka_bootstrap_servers = ""
+    args.message_bus = ""
+    args.message_bus_topic = ""
     args.enable_dev_dc_gen = False
     args.max_file_duration = 0
     args.max_live_streams = 10
@@ -68,8 +68,8 @@ def stream_handler(mock_args):
     with TempEnv(
         {
             "SKIP_PIPELINE_WARMUP": "1",
-            "KAFKA_ENABLED": "false",
-            "KAFKA_TOPIC": "mdx-vlm-captions",
+            "MESSAGE_BUS": "",
+            "MESSAGE_BUS_TOPIC": "mdx-vlm-captions",
             "KAFKA_INCIDENT_TOPIC": "mdx-vlm-incidents",
             "ERROR_MESSAGE_TOPIC": "mdx-vlm-errors",
         }

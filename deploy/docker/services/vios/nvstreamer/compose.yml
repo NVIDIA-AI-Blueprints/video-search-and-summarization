@@ -26,6 +26,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}

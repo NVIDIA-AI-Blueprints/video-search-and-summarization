@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 #include "rtspserver.h"
 #include "network_utils.h"
 #include "logger.h"
+#include <memory>
 #include <regex>
 
 inline constexpr int MAX_RTSP_SERVER_COUNT = 512;
@@ -28,8 +29,8 @@ namespace nv_vms
 class RtspLoadBalancer
 {
 public:
-    RtspLoadBalancer() {}
-    ~RtspLoadBalancer() {}
+    RtspLoadBalancer() = default;
+    ~RtspLoadBalancer() = default;
 
     int start(uint16_t serversCount, uint16_t startPort)
     {
@@ -45,10 +46,10 @@ public:
         {
             if (serversCount == 1)
             {
-                RtspServer *rtspserver = new RtspServer(startPort);
+                auto rtspserver = std::make_unique<RtspServer>(startPort);
                 if (rtspserver && !rtspserver->isError())
                 {
-                    m_servers.push_back(rtspserver);
+                    m_servers.push_back(std::move(rtspserver));
                     portArray[0] = startPort;
                     break;
                 }
@@ -72,10 +73,10 @@ public:
             /* Launch the rtsp-server instances */
             for (int i = 0; i < m_serversCount; i++)
             {
-                RtspServer *rtspserver = new RtspServer(portArray[i]);
+                auto rtspserver = std::make_unique<RtspServer>(portArray[i]);
                 if (rtspserver && !rtspserver->isError())
                 {
-                    m_servers.push_back(rtspserver);
+                    m_servers.push_back(std::move(rtspserver));
                 }
             }
         } while (0);
@@ -118,14 +119,8 @@ public:
     void stop()
     {
         /* Stop all the rtsp-server instances */
-        for (int i = 0; i < m_serversCount; i++)
-        {
-            delete m_servers[i];
-        }
-        if (m_vodServer)
-        {
-            delete m_vodServer;
-        }
+        m_servers.clear();
+        m_vodServer.reset();
     }
 
     int startVodServer(uint16_t startPort)
@@ -141,16 +136,16 @@ public:
             }
         }
 
-        RtspServer *rtspserver = new RtspServer(server_port);
+        auto rtspserver = std::make_unique<RtspServer>(server_port);
         if (rtspserver == nullptr)
         {
             LOG(error) << "Failed to create VoD server on port:" << server_port << endl;
             return -1;
         }
         LOG(info) << "Created Vod rtsp-server on port:" << server_port << endl;
-        m_vodServer = rtspserver;
         m_vodServerPort = server_port;
         rtspserver->setVodServer(true);
+        m_vodServer = std::move(rtspserver);
         return 0;
     }
 
@@ -159,10 +154,11 @@ public:
         int ret = 0;
         int maxRetries = 3; // Total attempts including the first try
         int attempt = 0;
+        RtspServer* rtspserver = nullptr;
 
         if (!url.empty())
         {
-            RtspServer* rtspserver = getRtspServerFromDbList(streamId);
+            rtspserver = getRtspServerFromDbList(streamId);
             if (rtspserver == nullptr)
             {
                 rtspserver = rtspServer();
@@ -188,10 +184,18 @@ public:
 
         if (ret == 0)
         {
-            /* A round-robin fashion */
+            /* Round-robin, but publish the index of the instance the proxy was
+             * actually created on (rtspserver) instead of the free-running
+             * m_currentServerIndex, which a concurrent addProxyStream() may have
+             * advanced between selection and here. Otherwise the client URL
+             * derived from m_serverIndexMap can point at a different instance
+             * than the one hosting the session -> persistent 404 Stream Not
+             * Found and a stream that never starts. */
             std::lock_guard<std::mutex> guard(m_serverMapLock);
-            m_serverIndexMap[streamId] = m_currentServerIndex;
-            m_currentServerIndex = (m_currentServerIndex + 1) % m_serversCount;
+            int usedIndex = (rtspserver != nullptr) ? serverIndexOf(rtspserver)
+                                                    : static_cast<int>(m_currentServerIndex.load());
+            m_serverIndexMap[streamId] = usedIndex;
+            m_currentServerIndex = (usedIndex + 1) % m_serversCount;
         }
         return ret;
     }
@@ -209,10 +213,13 @@ public:
         {
             rtspserver->addStream(streamId, url);
 
-            /* A round-robin fashion */
+            /* Publish the index of the instance actually used (see
+             * addProxyStream()), so the map never diverges from where the
+             * session lives under concurrent registration. */
             std::lock_guard<std::mutex> guard(m_serverMapLock);
-            m_serverIndexMap[streamId] = m_currentServerIndex;
-            m_currentServerIndex = (m_currentServerIndex + 1) % m_serversCount;
+            int usedIndex = serverIndexOf(rtspserver);
+            m_serverIndexMap[streamId] = usedIndex;
+            m_currentServerIndex = (usedIndex + 1) % m_serversCount;
         }
         return ret;
     }
@@ -224,7 +231,7 @@ public:
         auto it = m_serverIndexMap.find(streamId);
         if (it != m_serverIndexMap.end())
         {
-            RtspServer *rtspserver = m_servers[it->second];
+            RtspServer *rtspserver = m_servers[it->second].get();
             if (rtspserver)
             {
                 try
@@ -250,13 +257,13 @@ public:
     {
         std::lock_guard<std::mutex> guard(m_serverMapLock);
         if (m_servers[m_currentServerIndex])
-            return m_servers[m_currentServerIndex];
+            return m_servers[m_currentServerIndex].get();
         else
-            return m_servers[0];
+            return m_servers[0].get();
     }
     RtspServer* rtspServer(uint16_t index)
     {
-        return m_servers[index];
+        return m_servers[index].get();
     }
 
     RtspServer* rtspServer(const string& id)
@@ -268,7 +275,7 @@ public:
         {
             serverIndex = it->second;
         }
-        return m_servers[serverIndex];
+        return m_servers[serverIndex].get();
     }
 
     RtspServer* getRtspServerFromDbList(const std::string& streamId)
@@ -284,7 +291,7 @@ public:
                 if (server->getPort() == port)
                 {
                     m_currentServerIndex = portIndex;
-                    return server;
+                    return server.get();
                 }
                 portIndex++;
             }
@@ -294,7 +301,7 @@ public:
 
     RtspServer* getVodServer()
     {
-        return m_vodServer;
+        return m_vodServer.get();
     }
 
     string getVodUrl(const string& url)
@@ -315,12 +322,31 @@ public:
     }
 
 private:
-    std::vector<RtspServer*> m_servers;
+    /* Index of `server` within m_servers, or the current round-robin index as a
+     * fallback. Lets addProxyStream()/addStream() publish the index of the
+     * instance the session was actually created on, so a concurrent restore
+     * cannot leave m_serverIndexMap pointing at a different instance than the
+     * one hosting the session (which surfaced as a persistent "404 Stream Not
+     * Found" on the client and a stream that never started). m_servers is
+     * immutable between start() and stop(); callers hold m_serverMapLock. */
+    int serverIndexOf(const RtspServer* server) const
+    {
+        for (int i = 0; i < static_cast<int>(m_servers.size()); ++i)
+        {
+            if (m_servers[i].get() == server)
+            {
+                return i;
+            }
+        }
+        return static_cast<int>(m_currentServerIndex.load());
+    }
+
+    std::vector<std::unique_ptr<RtspServer>> m_servers;
     uint16_t m_serversCount = 0;
     std::atomic<unsigned int> m_currentServerIndex{0};
     std::map<std::string, int, std::less<>> m_serverIndexMap;
     std::mutex m_serverMapLock;
-    RtspServer* m_vodServer = nullptr;
+    std::unique_ptr<RtspServer> m_vodServer;
     int32_t m_vodServerPort = 0;
     std::map<std::string, int, std::less<>> m_streamListDb;
     std::mutex m_streamListDbLock;

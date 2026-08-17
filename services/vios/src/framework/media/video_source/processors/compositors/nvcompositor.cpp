@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -220,22 +220,19 @@ void NvCompositor::doCompositeTask()
             {
                 // Create layout rectangles array for custom layout
                 size_t buffer_count = nv_buffer_list.size();
-                NvBufSurfTransformRect* dstCompRect = nullptr;
-                
+
                 // Check if we should use custom layout
                 if (m_gridLayout.isCustom && !m_gridLayout.tiles.empty()) {
-                    dstCompRect = new NvBufSurfTransformRect[buffer_count];
-                    calculateCustomLayout(dstCompRect, buffer_count, target_width, target_height);
-                    
+                    std::vector<NvBufSurfTransformRect> dstCompRect(buffer_count);
+                    calculateCustomLayout(dstCompRect.data(), buffer_count, target_width, target_height);
+
                     NvBufWrapper::getInstance()->doComposition(
-                        &fd_index_pair.first, 
-                        nv_buffer_list, 
-                        m_sourceFrameSize.m_width, 
-                        m_sourceFrameSize.m_height, 
-                        dstCompRect, 
+                        &fd_index_pair.first,
+                        nv_buffer_list,
+                        m_sourceFrameSize.m_width,
+                        m_sourceFrameSize.m_height,
+                        dstCompRect.data(),
                         buffer_count);
-                        
-                    delete[] dstCompRect;
                 } else {
                     // Use default layout
                     NvBufWrapper::getInstance()->doComposition(
@@ -254,7 +251,7 @@ void NvCompositor::doCompositeTask()
                     frame_data->m_targetWidth = target_width;
                     frame_data->m_targetHeight = target_height;
                     frame_data->m_isTransformed = false;
-                    frame_data->m_fdWrapperObj = new std::shared_ptr<fdWrapper>(
+                    frame_data->m_fdWrapperObj = std::make_unique<std::shared_ptr<fdWrapper>>(
                         std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, -1));
                     
                     m_consumer->onFrame(frame_data);

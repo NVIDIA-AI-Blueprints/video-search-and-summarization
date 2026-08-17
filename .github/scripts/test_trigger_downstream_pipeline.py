@@ -86,6 +86,27 @@ class ExtraPipelineVariablesTest(unittest.TestCase):
             self.assertEqual(module.main(), 0)
             fetch.assert_not_called()
 
+    def test_explicit_downstream_branches_support_recovery_workflows(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_REF_NAME": "main",
+                "DOWNSTREAM_TARGET_BRANCH": "develop",
+                "DOWNSTREAM_COMPARE_BRANCH": "develop",
+            },
+            clear=True,
+        ):
+            self.assertEqual(module.resolve_branches(), ("develop", "develop"))
+
+    def test_explicit_downstream_branches_must_be_a_pair(self):
+        with mock.patch.dict(
+            os.environ,
+            {"DOWNSTREAM_TARGET_BRANCH": "develop"},
+            clear=True,
+        ):
+            with self.assertRaises(SystemExit):
+                module.resolve_branches()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -61,12 +61,19 @@ class FrameStateMgmt:
         self.completed_states: dict[str, list[IncidentState]] = dict()  # sensor_id -> completed states
 
     def _merge_object_ids(self, existing_ids: list[str], new_ids: list[str]) -> list[str]:
-        """Combine IDs while preserving the first ID (primary object) at position 0."""
+        """
+        Combine IDs while preserving the first ID (primary object) at position 0.
+
+        The tail is sorted rather than taken in set order: set iteration follows
+        per-process string hashing, so the same violation emitted by two processes
+        would carry the same IDs in a different order. That reaches consumers and
+        makes any recorded incident output impossible to compare.
+        """
         primary_id = existing_ids[0]
         merged = set(existing_ids)
         merged.update(new_ids)
         merged.remove(primary_id)  # Remove primary from set to avoid duplication
-        return [primary_id] + list(merged)
+        return [primary_id] + sorted(merged)
 
     def _update_object_state(
         self,

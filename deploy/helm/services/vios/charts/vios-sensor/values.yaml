@@ -17,7 +17,7 @@ enabled: false
 global: {}
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-vios-sensor
-  tag: "2.1.0-26.07.1"
+  tag: "1.4.0-26.08.1"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -108,3 +108,13 @@ securityContext:
 #     nvidia.com/gpu: 1
 nodeSelector: {}
 tolerations: []
+
+# Compose parity with the wait-for-redis service in the warehouse profiles.
+waitForRedis:
+  enabled: true
+  host: ""
+  port: 6379
+  timeoutSeconds: 120
+  image:
+    repository: busybox
+    tag: "1.37.0"

@@ -26,13 +26,14 @@
   **not** part of the Agent/UI tier, so a headless build (no agent/UI) still
   retains them; do not drop them as "UI". Do not add `kibana` to a Foundation
   that does not ship it.
-- The mounted initializer must seed one data view per Elasticsearch index family
-  this build writes; decide from the build's active ES write paths, not the
-  Foundation name, before picking one:
-  - Families of a **single** capability → the single-profile initializer covering them.
-  - Families spanning **more than one** → keep the Foundation's one initializer and
-    patch it to mount the bundle whose data views are their **union** (the shipped
-    merged bundle in Sources), replacing the single-capability bundle it imports.
+- The initializer **key** is always the selected Foundation's `kibana-init-container-*`
+  — never swap to another Foundation's key. Only the mounted **bundle** varies, chosen
+  from the build's active ES write paths (not the Foundation name), to seed one data view
+  per Elasticsearch index family this build writes:
+  - Families of a **single** capability → mount that capability's bundle.
+  - Families spanning **more than one** → patch the Foundation's initializer to mount the
+    **union** bundle (the shipped merged bundle in Sources), replacing the single-capability
+    bundle it imports.
   Never add a second initializer or mount two bundles: the shared `mdx-raw-*`/
   `mdx-behavior-*` views would duplicate and collide on the default-view singleton.
 - `redis` may be used without the full ELK/Kafka set when it is only a cache.

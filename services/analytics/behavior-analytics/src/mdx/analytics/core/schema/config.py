@@ -119,26 +119,32 @@ SENSOR_MIN_FRAMES = "5"
 # Default values for incident state management (applies to all violation types)
 INCIDENT_OBJECT_TTL = "3600"  # 1 hour in seconds
 
+# ``...THRESHOLD`` is the minimum violation duration (sec) to report an incident;
+# ``...EXPIRATION_WINDOW`` is the largest detection gap (sec) tolerated before the
+# run is closed. The window is kept below the threshold on purpose: at
+# window >= threshold a single tolerated gap can span the whole threshold, so two
+# isolated observations are enough to raise a full-duration incident.
+
 # Default values for proximity violation detection
 PROXIMITY_VIOLATION_INCIDENT_ENABLE = "false"
 PROXIMITY_VIOLATION_INCIDENT_THRESHOLD = "1"
-PROXIMITY_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+PROXIMITY_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 
 # Default values for restricted area violation detection
 RESTRICTED_AREA_VIOLATION_INCIDENT_ENABLE = "false"
 RESTRICTED_AREA_VIOLATION_INCIDENT_THRESHOLD = "1"
-RESTRICTED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+RESTRICTED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 
 # Default values for confined area violation detection
 CONFINED_AREA_VIOLATION_INCIDENT_ENABLE = "false"
 CONFINED_AREA_VIOLATION_INCIDENT_THRESHOLD = "1"
-CONFINED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+CONFINED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 
 # Default values for FOV count violation detection
 FOV_COUNT_VIOLATION_INCIDENT_ENABLE = "false"
 FOV_COUNT_VIOLATION_INCIDENT_OBJECT_THRESHOLD = "1"
 FOV_COUNT_VIOLATION_INCIDENT_THRESHOLD = "1"
-FOV_COUNT_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+FOV_COUNT_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 FOV_COUNT_VIOLATION_INCIDENT_OBJECT_TYPE = "Person"
 
 # Default values for playback config
@@ -1161,12 +1167,6 @@ class AppConfig(BaseModel):
         if in_3d_mode.startswith("$") and (env_var_value := os.getenv(in_3d_mode[1:])):
             in_3d_mode = env_var_value
         return str_to_bool(in_3d_mode)
-
-    @computed_field
-    @cached_property
-    def in_simulation_mode(self) -> bool:
-        """Get the in simulation mode flag."""
-        return self.get_bool_app_config("inSimulationMode", IN_SIMULATION_MODE)
 
     @computed_field
     @cached_property

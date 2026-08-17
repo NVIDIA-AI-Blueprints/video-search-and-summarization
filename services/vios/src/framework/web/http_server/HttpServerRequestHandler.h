@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,7 +41,7 @@ class HttpServerRequestHandler
     public:
         typedef std::function<VmsErrorCode(const Json::Value &, const Json::Value &, Json::Value &, struct mg_connection *conn)> httpFunction;
 
-        HttpServerRequestHandler(std::shared_ptr<CivetServer> m_civetServer);
+        explicit HttpServerRequestHandler(std::shared_ptr<CivetServer> m_civetServer);
 
         void addRequestHandler(std::map<std::string,httpFunction, std::less<>>& func);
         

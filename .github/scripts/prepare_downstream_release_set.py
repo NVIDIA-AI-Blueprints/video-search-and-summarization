@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import re
@@ -14,7 +13,7 @@ from pathlib import Path
 
 from detect_changed_images import (
     changed_paths,
-    paths_changed_under,
+    commit_exists,
     resolve_diff_base,
 )
 from release_set import load_inventory, validate_release_set
@@ -26,10 +25,29 @@ DEPLOY_PREFIX = "deploy/"
 # downstream coverage when its source changes -- mirrored and externally pinned
 # components are deployed by the same profiles and break the same evals.
 TRIGGER_FLAG = "trigger_downstream_from_source"
-SPATIALAI_DATA_UTILS_PATH = "libs/analytics/spatialai-data-utils"
-SPATIALAI_VERSION_SUFFIX_PATTERN = re.compile(
-    r"\.dev[1-9][0-9]*\+g[0-9a-f]{12}\.r[1-9][0-9]*"
-)
+PR_REF_PATTERN = re.compile(r"pull-request/(\d+)")
+
+
+def pr_merge_base_sha(api: GitHubApi, repository: str, ref_name: str) -> str | None:
+    """Return the merge base for a mirrored PR branch.
+
+    A pull request API response exposes the target branch tip as ``base.sha``.
+    The compare API supplies the actual common ancestor, which is the only
+    correct starting point for a complete PR diff.
+    """
+    match = PR_REF_PATTERN.fullmatch(ref_name)
+    if not match:
+        return None
+    pull = api.request("GET", f"/repos/{repository}/pulls/{match.group(1)}")
+    target = str(pull.get("base", {}).get("sha", ""))
+    head = str(pull.get("head", {}).get("sha", ""))
+    if not all(re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (target, head)):
+        raise RuntimeError("PR metadata did not contain valid base and head SHAs")
+    compare = api.request("GET", f"/repos/{repository}/compare/{target}...{head}")
+    merge_base = str(compare.get("merge_base_commit", {}).get("sha", ""))
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
+        raise RuntimeError("PR comparison did not contain a valid merge-base SHA")
+    return merge_base
 
 
 def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[bool, str]:
@@ -106,48 +124,17 @@ def candidate_container_tag(release_set: dict) -> str:
 
 
 def downstream_variables(release_set: dict) -> dict[str, str]:
-    encoded = base64.b64encode(
-        (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
-    ).decode()
+    """Variables the downstream GitLab pipeline actually reads.
+
+    The release set itself is no longer sent. ci-vss-oss retired every
+    consumer of VSS_RELEASE_SET_B64/_ID (its validate/apply/promote scripts
+    and the validate-ghcr-release-set job), so the payload was being
+    base64-encoded and shipped on every trigger for nothing. BUILD_TYPE is
+    now the only signal selecting acceptance mode there.
+    """
     return {
         "BUILD_TYPE": "ghcr-acceptance",
         "VSS_CONTAINER_TAG": candidate_container_tag(release_set),
-        "VSS_RELEASE_SET_ID": release_set["release_set_id"],
-        "VSS_RELEASE_SET_B64": encoded,
-    }
-
-
-def spatialai_publish_variables(
-    changed: list[str] | None,
-    ref_name: str,
-    version_suffix: str,
-    requested: str = "",
-) -> dict[str, str]:
-    """Return the internal-publish handoff for a merged SDU change.
-
-    PRs validate and build the package in GitHub but never request publication.
-    An unavailable diff fails open on develop, matching the GitHub test gate.
-    """
-    if requested not in {"", "true", "false"}:
-        raise ValueError("Spatial AI publish handoff must be true or false")
-    publish = (
-        requested == "true"
-        if requested
-        else ref_name == "develop"
-        and paths_changed_under(changed, SPATIALAI_DATA_UTILS_PATH)
-    )
-    if not publish:
-        return {}
-    if ref_name != "develop":
-        raise ValueError("Spatial AI publish handoff is valid only for develop")
-    if not SPATIALAI_VERSION_SUFFIX_PATTERN.fullmatch(version_suffix):
-        raise ValueError(
-            "Spatial AI publish requires a GitHub-generated version suffix "
-            "like .dev123+g0123456789ab.r1"
-        )
-    return {
-        "SPATIALAI_DATA_UTILS_PUBLISH": "true",
-        "SPATIALAI_PACKAGE_VERSION_SUFFIX": version_suffix,
     }
 
 
@@ -162,14 +149,6 @@ def main() -> int:
     parser.add_argument("--interval-seconds", type=int, default=15)
     parser.add_argument("--release-set", type=Path)
     parser.add_argument("--release-set-output", type=Path)
-    parser.add_argument(
-        "--spatialai-package-version-suffix",
-        default=os.environ.get("SPATIALAI_PACKAGE_VERSION_SUFFIX", ""),
-    )
-    parser.add_argument(
-        "--publish-spatialai-data-utils",
-        default=os.environ.get("SPATIALAI_DATA_UTILS_PUBLISH", ""),
-    )
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -211,23 +190,26 @@ def main() -> int:
 
     has_builds = has_ghcr_build_entries(release_set)
 
-    base, base_reason = resolve_diff_base(
-        args.repo_root, "push", args.ref_name, args.before, "develop"
-    )
+    if PR_REF_PATTERN.fullmatch(args.ref_name):
+        try:
+            base = pr_merge_base_sha(GitHubApi(token), args.repository, args.ref_name)
+            if not base or not commit_exists(args.repo_root, base):
+                raise RuntimeError("PR base commit is unavailable in this checkout")
+            base_reason = f"PR merge base from GitHub metadata: {base[:12]}"
+        except Exception as exc:
+            base = None
+            base_reason = f"PR base unavailable ({exc}); running downstream"
+    else:
+        base, base_reason = resolve_diff_base(
+            args.repo_root, "push", args.ref_name, args.before, "develop"
+        )
     changed = changed_paths(args.repo_root, base) if base else None
     relevant, gate_reason = downstream_relevant(
         changed, load_inventory(args.repo_root)
     )
-    publish_variables = spatialai_publish_variables(
-        changed,
-        args.ref_name,
-        args.spatialai_package_version_suffix,
-        args.publish_spatialai_data_utils,
-    )
-    run_downstream = relevant or bool(publish_variables)
+    run_downstream = relevant
 
     variables = downstream_variables(release_set)
-    variables.update(publish_variables)
     with Path(github_env).open("a") as output:
         output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
         output.write(json.dumps(variables, separators=(",", ":")) + "\n")
@@ -239,16 +221,6 @@ def main() -> int:
                 f"has_ghcr_build_entries={'true' if has_builds else 'false'}\n"
             )
             output.write(f"run_downstream={'true' if run_downstream else 'false'}\n")
-            output.write(
-                "publish_spatialai_data_utils="
-                f"{'true' if publish_variables else 'false'}\n"
-            )
-            output.write(
-                "spatialai_package_version_suffix="
-                f"{args.spatialai_package_version_suffix if publish_variables else ''}\n"
-            )
-    if publish_variables:
-        gate_reason += "; merged Spatial AI Data Utils change requests URM publish"
     print(
         f"Prepared release set {release_set['release_set_id']} "
         f"for downstream acceptance ({len(release_set['images'])} images, "

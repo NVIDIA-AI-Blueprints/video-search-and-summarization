@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +22,7 @@
 #include <condition_variable>
 #include <queue>
 #include <cstdint>
+#include <cstddef>
 #include <atomic>
 #include "logger.h"
 #include "stats.h"
@@ -30,7 +31,8 @@
 #define STREAM_MSG_EOS "_stream_msg_eos_"
 #define STREAM_MSG_ERROR "_stream_msg_error_"
 #define STREAM_DEFAULT_BUFFER_SIZE 2*1000*1000
-#define DISCRETE_FRAME_QUEUE_MAX_SIZE 500
+
+constexpr std::size_t DISCRETE_FRAME_QUEUE_MAX_SIZE = 500;
 
 using namespace std;
 

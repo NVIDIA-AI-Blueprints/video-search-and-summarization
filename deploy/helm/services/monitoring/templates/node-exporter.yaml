@@ -1,0 +1,104 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.enabled .Values.nodeExporter.enabled }}
+{{- $name := include "monitoring.componentName" (dict "ctx" . "component" "node-exporter") }}
+{{- $ne := .Values.nodeExporter }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "monitoring.labels" (dict "ctx" . "component" "node-exporter") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" (dict "ctx" . "component" "node-exporter") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "monitoring.selectorLabels" (dict "ctx" . "component" "node-exporter") | nindent 8 }}
+      annotations:
+        {{- include "monitoring.scrapeAnnotations" (dict "port" $ne.port) | nindent 8 }}
+    spec:
+      {{- with (.Values.global).imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      hostPID: true
+      hostNetwork: false
+      containers:
+        - name: node-exporter
+          image: "{{ $ne.image.repository }}:{{ $ne.image.tag }}"
+          imagePullPolicy: {{ $ne.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/rootfs
+            - --web.listen-address=:{{ $ne.port }}
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+          ports:
+            - name: metrics
+              containerPort: {{ $ne.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml $ne.resources | nindent 12 }}
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: rootfs
+              mountPath: /rootfs
+              readOnly: true
+              mountPropagation: HostToContainer
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: rootfs
+          hostPath:
+            path: /
+      {{- with $ne.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $ne.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "monitoring.labels" (dict "ctx" . "component" "node-exporter") | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: {{ $ne.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "monitoring.selectorLabels" (dict "ctx" . "component" "node-exporter") | nindent 4 }}
+{{- end }}

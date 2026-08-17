@@ -53,12 +53,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS_DIR = Path(__file__).resolve().parent / "adapters"
 
-# A spec lives at skills/<skill>/evals/<stem>.json. `eval/` (singular) is
-# the legacy location still accepted until every skill migrates.
-SPEC_RE = re.compile(r"^skills/([^/]+)/(evals|eval)/([^/]+)\.json$")
-# Any other tracked file under a skill dir -> the whole skill is in scope.
-SKILL_FILE_RE = re.compile(r"^skills/([^/]+)/")
-# An adapter edit re-scopes its whole skill (the adapter feeds every spec).
+# A changed file is attributed to its owning skill by discover_skills() +
+# skill_for_file() below (which handle both flat skills/<name>/ and nested
+# skills/<category>/<name>/); `eval/` (singular) specs stay accepted via _spec_info.
+# An adapter edit re-scopes its whole skill (the adapter feeds every spec); the
+# adapters/ tree stays flat, keyed by the skill's leaf name.
 ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
 # scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
@@ -66,6 +65,63 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # name with a space/slash/colon fails the plan loudly instead of silently
 # corrupting an artifact name or escaping a path.
 SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def discover_skills() -> dict[str, Path]:
+    """Map leaf skill-name -> skill dir for every dir under skills/ holding a
+    SKILL.md — flat (skills/<name>/) or one category level down
+    (skills/<category>/<name>/). Leaf names are the identity and must be unique.
+    Adapters stay keyed by this leaf name (the adapters/ tree is flat)."""
+    out: dict[str, Path] = {}
+    skills_root = REPO_ROOT / "skills"
+    if not skills_root.is_dir():
+        return out
+    for md in sorted(skills_root.rglob("SKILL.md")):
+        d = md.parent
+        rel = d.relative_to(skills_root)
+        if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
+            continue
+        if d.name in out and out[d.name] != d:
+            raise ValueError(
+                f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
+                f"skill leaf names must be unique across categories"
+            )
+        out[d.name] = d
+    return out
+
+
+def skill_for_file(path: str, skills: dict[str, Path]) -> str | None:
+    """Leaf name of the skill that owns a repo-relative file (its longest-ancestor
+    skill dir), or None if the file is outside every live skill."""
+    if not path.startswith("skills/"):
+        return None
+    abs_file = REPO_ROOT / path
+    best: str | None = None
+    best_depth = -1
+    for name, d in skills.items():
+        try:
+            abs_file.relative_to(d)
+        except ValueError:
+            continue
+        if len(d.parts) > best_depth:
+            best, best_depth = name, len(d.parts)
+    if best is not None:
+        return best
+    # Not under any discovered skill dir (e.g. a new skill dir not yet on disk):
+    # fall back to the first path segment under skills/ (the flat layout).
+    parts = path.split("/")
+    return parts[1] if len(parts) >= 3 and parts[1] else None
+
+
+def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
+    """(eval_dir, stem) if `path` is skill_reldir/(evals|eval)/<stem>.json directly."""
+    for eval_dir in ("evals", "eval"):
+        prefix = f"{skill_reldir}/{eval_dir}/"
+        if path.startswith(prefix):
+            rest = path[len(prefix):]
+            if "/" not in rest and rest.endswith(".json"):
+                return eval_dir, rest[:-5]
+    return None
 
 # `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
 # scenarios, not a dispatchable spec object. It has no `resources.platforms`,
@@ -196,15 +252,13 @@ def list_changed_files() -> list[str]:
         # Fail loud on a typo'd / renamed skill rather than emitting an empty
         # matrix that the eval job silently skips (the removed manual-sweep
         # job errored here too).
-        if manual != "*" and not (REPO_ROOT / "skills" / manual).is_dir():
+        skills_map = discover_skills()
+        if manual != "*" and manual not in skills_map:
             raise ValueError(
-                f"MANUAL_SKILLS_FILTER {manual!r}: skills/{manual}/ does not "
-                f"exist on this ref — check the skill name"
+                f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
+                f"on this ref — check the skill name"
             )
-        skills = (
-            sorted(p.name for p in (REPO_ROOT / "skills").iterdir() if p.is_dir())
-            if manual == "*" else [manual]
-        )
+        skills = sorted(skills_map) if manual == "*" else [manual]
         return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
@@ -220,11 +274,17 @@ def list_changed_files() -> list[str]:
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
 
-def specs_for_skill(skill: str) -> list[tuple[str, str, str]]:
-    """All (spec_path, eval_dir, stem) for a skill, sorted, existing only."""
+def specs_for_skill(skill: str, skills_map: dict[str, Path] | None = None) -> list[tuple[str, str, str]]:
+    """All (spec_path, eval_dir, stem) for a skill, sorted, existing only.
+
+    Resolves the skill's dir via discovery so a nested skills/<category>/<skill>/
+    is found; falls back to the flat path for an unknown name."""
+    if skills_map is None:
+        skills_map = discover_skills()
+    base = skills_map.get(skill, REPO_ROOT / "skills" / skill)
     found: list[tuple[str, str, str]] = []
     for eval_dir in ("evals", "eval"):
-        d = REPO_ROOT / "skills" / skill / eval_dir
+        d = base / eval_dir
         if not d.is_dir():
             continue
         for p in sorted(d.glob("*.json")):
@@ -290,20 +350,23 @@ def spec_platforms(spec_path: str) -> list[str]:
 def build_matrix(changed: list[str]) -> list[dict]:
     # Explicitly-changed specs vs. skills pulled in wholesale by a non-spec
     # (or adapter) change. A spec reached by both paths appears once.
-    changed_specs: set[str] = set()      # spec_path
-    whole_skills: set[str] = set()       # skill name
+    skills_map = discover_skills()
+    reldir = {name: d.relative_to(REPO_ROOT).as_posix() for name, d in skills_map.items()}
+    changed_specs: dict[str, dict] = {}  # spec_path -> {skill, eval_dir, stem}
+    whole_skills: set[str] = set()       # skill leaf name
 
     for f in changed:
-        m = SPEC_RE.match(f)
-        # A changed `evals.json` is not a spec; let it fall through to the
-        # whole-skill rule below (and specs_for_skill keeps it out of that
-        # expansion too) rather than dispatching it as its own leg.
-        if m and Path(f).name not in EXCLUDED_SPEC_NAMES:
-            changed_specs.add(f)
-            continue
-        m = SKILL_FILE_RE.match(f)
-        if m:
-            whole_skills.add(m.group(1))
+        # A file inside a skill (flat or nested) belongs to that skill. Its
+        # owner is the longest-ancestor skill dir, so a category dir with no
+        # SKILL.md is never treated as a skill.
+        owner = skill_for_file(f, skills_map)
+        if owner is not None:
+            si = _spec_info(f, reldir.get(owner) or f"skills/{owner}")
+            # A changed `evals.json` is not a spec; fall through to whole-skill.
+            if si and Path(f).name not in EXCLUDED_SPEC_NAMES:
+                changed_specs[f] = {"skill": owner, "eval_dir": si[0], "stem": si[1]}
+            else:
+                whole_skills.add(owner)
             continue
         m = ADAPTER_RE.match(f)
         if m:
@@ -324,11 +387,10 @@ def build_matrix(changed: list[str]) -> list[dict]:
         }
 
     for spec_path in sorted(changed_specs):
-        m = SPEC_RE.match(spec_path)
-        skill, eval_dir, stem = m.group(1), m.group(2), m.group(3)
+        info = changed_specs[spec_path]
         # A deleted spec still shows in the diff; only dispatch live files.
         if (REPO_ROOT / spec_path).is_file():
-            add_spec(skill, spec_path, eval_dir, stem)
+            add_spec(info["skill"], spec_path, info["eval_dir"], info["stem"])
 
     for skill in sorted(whole_skills):
         for spec_path, eval_dir, stem in specs_for_skill(skill):

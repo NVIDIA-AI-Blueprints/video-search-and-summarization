@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -48,7 +48,8 @@ namespace nv_vms
                       , m_bus(nullptr)
                       , m_busWatchId(0)
                       , m_freq (8000)
-                      , m_eventLoop("udp_audio_event_loop", process_eventloop_message)
+                      , m_eventLoop("udp_audio_event_loop",
+                                    [this](std::shared_ptr<EventLoopData> data) { process_eventloop_message(data); })
                       , m_is_error(false)
                       {
                           LOG(info) << "GstUDPAudioClient::GstUDPAudioClient port:" << id << endl;
@@ -56,11 +57,12 @@ namespace nv_vms
             ~GstUDPAudioClient () { LOG(info) << "~GstUDPAudioClient" << endl; }
 
             // UdpClient interfaces
-            int create (int freq);
-            void destroy (bool expect_result);
-            void start ();
+            using UdpClient::create;
+            int create (int freq) override;
+            void destroy (bool expect_result) override;
+            void start () override;
 
-            void pause ();
+            void pause () override;
             void resume ();
             bool isCreated() { return m_pipeline != nullptr; }
             int create_internal();
@@ -69,7 +71,7 @@ namespace nv_vms
             bool pause_internal();
             void resume_internal();
             void destroy_internal();
-            static void process_eventloop_message(std::shared_ptr<EventLoopData> data, void* parent);
+            void process_eventloop_message(std::shared_ptr<EventLoopData> data);
             friend gboolean busWatchFunc (GstBus *bus, GstMessage *message, gpointer data);
             GstFlowReturn processNewSampleFromSink(GstElement * appsink);
 

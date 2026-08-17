@@ -72,14 +72,15 @@ source .venv/bin/activate
 ```
 
 The project ships three install profiles, smallest to largest: `nvidia-vss`
-(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `vss` console
-script name; the script itself ships with the base wheel), and
-`nvidia-vss[agent]` (the full NAT-based agent application). `uv sync` without
-`--extra agent` gives the
-NAT-free base environment used by the host CLI:
+(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `nvidia-vss-cli`
+distribution, which declares the `vss` console script), and
+`nvidia-vss[agent]` (the full NAT-based agent application). The `cli` extra
+gives the NAT-free environment used by the host CLI; it is required, because
+the base distribution depends only on `nvidia-vss-core` and so provides no
+`vss` executable:
 
 ```bash
-uv run --no-dev vss --help
+uv run --no-dev --extra cli vss --help
 ```
 
 ### Docker
@@ -300,13 +301,15 @@ This module is governed by **two separate licenses**, depending on what you use:
 
 - **The pre-built VSS Agent container images distributed by NVIDIA via NGC**
   (`nvcr.io/nvidia/blueprint/vss-agent` and related tags) **are licensed under the NVIDIA Software
-  License Agreement.** The full agreement is included in this directory as
-  [`NVIDIA-Software-License-Agreement.pdf`](./NVIDIA-Software-License-Agreement.pdf). If you pull and
-  use NVIDIA's pre-built container images, the NVIDIA Software License Agreement governs your use.
+  License Agreement.** If you pull and use NVIDIA's pre-built container
+  images, the NVIDIA Software License Agreement governs your use; the agreement is conveyed by the
+  distribution channel those images ship through.
 
 Third-party open-source components bundled in the container image are attributed in
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
-The presence of `NVIDIA-Software-License-Agreement.pdf` in this directory does **not** modify the
-Apache 2.0 license that governs the source code in this repository. It is included here so that the
-pre-built container images carry the license they ship under.
+The container image carries `LICENSE-3rd-party.txt` and `NVIDIA-Software-License-Agreement.pdf`
+under `/vss-agent`. The agreement is **not** vendored in this source tree — the Dockerfile's `ADD` instruction
+fetches it from `nvidia.com` at build time with a pinned SHA-256, which keeps the repository free
+of a proprietary EULA and needs no HTTP client in any build stage. Note that `LICENSE.md` is source-only and is not copied
+into the image.

@@ -22,36 +22,46 @@ interface IceServerConfig {
     iceServers: IceServer[];
 }
 
+interface TrickleICEParams {
+    url: string | null;
+    credential?: string;
+    username?: string;
+}
+
+const getTrickleICEParams = (server: IceServer): TrickleICEParams => {
+    let url: string | null = null;
+    let credential: string | undefined;
+    let username: string | undefined;
+
+    if (server.urls && server.urls.length > 0) {
+        logger.info('[TRICKLE_ICE]', 'URL:', server.urls[0]);
+        url = server.urls[0];
+    }
+    if (server.credential) {
+        logger.info('[TRICKLE_ICE]', 'Credential:', server.credential);
+        credential = server.credential;
+    }
+    if (server.username) {
+        logger.info('[TRICKLE_ICE]', 'Username:', server.username);
+        username = server.username;
+    }
+
+    return { url, credential, username };
+};
+
 export const getPublicIPAddress = async (iceServerList: IceServerConfig): Promise<string | null> => {
-    if (iceServerList) {
-        const iceServerObj = iceServerList;
-        const { iceServers } = iceServerObj;
-
-        for (const server of iceServers) {
-            let url: string | null = null;
-            let credential: string | undefined;
-            let username: string | undefined;
-
-            if (server.urls && server.urls.length > 0) {
-                logger.info('[TRICKLE_ICE]', 'URL:', server.urls[0]);
-                url = server.urls[0];
-            }
-            if (server.credential) {
-                logger.info('[TRICKLE_ICE]', 'Credential:', server.credential);
-                credential = server.credential;
-            }
-            if (server.username) {
-                logger.info('[TRICKLE_ICE]', 'Username:', server.username);
-                username = server.username;
-            }
-
-            const ipAddress = await trickleICE(url, credential, username);
-            if (ipAddress !== null) {
-                return ipAddress;
-            }
-        }
-    } else {
+    if (!iceServerList) {
         throw new Error('No data received from the server');
+    }
+    const { iceServers } = iceServerList;
+
+    for (const server of iceServers) {
+        const { url, credential, username } = getTrickleICEParams(server);
+
+        const ipAddress = await trickleICE(url, credential, username);
+        if (ipAddress !== null) {
+            return ipAddress;
+        }
     }
     return null;
 };

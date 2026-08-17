@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -111,8 +111,8 @@ static bool isDeprecatedApi(const string &api)
 
 int VmsServer::initialize()
 {
-    g_hostIp = getHostIP();
-    LOG(info) << "Host Ip = " << g_hostIp << endl;
+    setHostIpAddress(getHostIP());
+    LOG(info) << "Host Ip = " << getHostIpAddress() << endl;
 
     m_moduleLoader = ModuleLoader::getInstance();
     if (m_moduleLoader == nullptr)
@@ -361,7 +361,7 @@ Json::Value VmsServer::getAPIInfo()
 
 void VmsServer::checkLibsSanity ()
 {
-#if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
+#if !defined(SENSOR_MODULE)
     NvBufWrapper::getInstance();
     if (isJetsonPlatform())
     {
@@ -374,6 +374,8 @@ void VmsServer::checkLibsSanity ()
     {
         CudaLoader::getInstance();
     }
+    // Overlay assets download at startup for all non-sensor modules (Jetson + x86).
+    nv_vms::VmsConfigManager::getInstance()->downloadOverlayAssets();
 #endif
 }
 

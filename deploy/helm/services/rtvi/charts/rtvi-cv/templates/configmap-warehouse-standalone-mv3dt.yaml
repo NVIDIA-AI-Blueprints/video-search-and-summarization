@@ -31,6 +31,8 @@
 {{- $redisHost := include "vss-rtvi-cv.mv3dtRedisHost" . }}
 {{- $redisPort := $mv3dt.redisPort | default "6379" }}
 {{- $mqttEndpoint := printf "%s:%s" (include "vss-rtvi-cv.mv3dtMqttHost" .) ($mv3dt.mqttPort | default "1883") }}
+{{- $dynamicCam := ($mv3dt.dynamicCameraConfig | default dict).enabled }}
+{{- $trackerCfg := ternary "/tmp/generated/ds-mv3dt-tracker-config.yml" (printf "%s/ds-mv3dt-tracker-config.yml" $bundle) (default false $dynamicCam) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -48,7 +50,7 @@ data:
 {{- $c = replace "topic=mdx-raw" (printf "topic=%s" $rawTopic) $c }}
 {{- $c = replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) $c }}
 {{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
-{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s/ds-mv3dt-tracker-config.yml" $bundle) $c }}
+{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s" $trackerCfg) $c }}
 {{- $c = replace "http-port=9000" (printf "http-port=%v" $.Values.httpPort) $c }}
 {{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mv3dt.maxBatchSize | default "4")) }}
 {{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mv3dt.batchSize | default "4")) }}
@@ -59,7 +61,7 @@ data:
 {{- $c = replace "topic=mdx-raw" (printf "topic=%s" $rawTopic) $c }}
 {{- $c = replace "msg-broker-config=ds-redis-config.txt" (printf "msg-broker-config=%s/ds-redis-config.txt" $bundle) $c }}
 {{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
-{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s/ds-mv3dt-tracker-config.yml" $bundle) $c }}
+{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s" $trackerCfg) $c }}
 {{- $c = replace "http-port=9000" (printf "http-port=%v" $.Values.httpPort) $c }}
 {{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mv3dt.maxBatchSize | default "4")) }}
 {{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mv3dt.batchSize | default "4")) }}

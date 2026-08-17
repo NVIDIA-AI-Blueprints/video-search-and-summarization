@@ -69,7 +69,7 @@ spec:
             {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
             {{- $eh := index $g "externalHost" | default "" | trim }}
             {{- $es := index $g "externalScheme" | default "http" }}
-            {{- $ep := index $g "externalPort" | default "" | trim }}
+            {{- $ep := index $g "externalPort" | default "" | toString | trim }}
             {{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}
             {{- $wsSch := ternary "wss" "ws" (eq $es "https") }}
             {{- $globalWs := ternary (ternary (printf "%s://%s:%s" $wsSch $eh $ep) (printf "%s://%s" $wsSch $eh) (ne $ep "")) "" (ne $eh "") }}

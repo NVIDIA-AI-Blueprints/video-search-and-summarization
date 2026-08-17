@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import base64
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -19,7 +19,7 @@ from prepare_downstream_release_set import (  # noqa: E402
     candidate_container_tag,
     downstream_relevant,
     downstream_variables,
-    spatialai_publish_variables,
+    pr_merge_base_sha,
 )
 
 
@@ -63,6 +63,35 @@ class GhcrBuildEntriesTest(unittest.TestCase):
         )
 
 
+class PrMergeBaseShaTest(unittest.TestCase):
+    def test_uses_compare_merge_base_not_target_tip(self):
+        target = "b" * 40
+        head = "c" * 40
+        merge_base = "a" * 40
+        api = mock.Mock()
+        api.request.side_effect = [
+            {"base": {"sha": target}, "head": {"sha": head}},
+            {"merge_base_commit": {"sha": merge_base}},
+        ]
+        self.assertEqual(
+            pr_merge_base_sha(api, "NVIDIA-AI-Blueprints/vss", "pull-request/1601"),
+            merge_base,
+        )
+        self.assertEqual(
+            api.request.call_args_list,
+            [
+                mock.call("GET", "/repos/NVIDIA-AI-Blueprints/vss/pulls/1601"),
+                mock.call("GET", f"/repos/NVIDIA-AI-Blueprints/vss/compare/{target}...{head}"),
+            ],
+        )
+
+    def test_invalid_pr_metadata_fails_open_at_the_caller(self):
+        api = mock.Mock()
+        api.request.return_value = {"base": {"sha": "invalid"}}
+        with self.assertRaisesRegex(RuntimeError, "valid base and head SHAs"):
+            pr_merge_base_sha(api, "owner/repo", "pull-request/1")
+
+
 class DownstreamVariablesTest(unittest.TestCase):
     def test_derives_candidate_tag_from_release_set_source(self):
         commit = "a" * 40
@@ -96,11 +125,10 @@ class DownstreamVariablesTest(unittest.TestCase):
         self.assertEqual(
             variables["VSS_CONTAINER_TAG"], "pr-1396-" + "a" * 12
         )
-        self.assertEqual(
-            variables["VSS_RELEASE_SET_ID"], release_set["release_set_id"]
-        )
-        decoded = json.loads(base64.b64decode(variables["VSS_RELEASE_SET_B64"]))
-        self.assertEqual(decoded, release_set)
+        # The release set itself is deliberately not sent: ci-vss-oss has no
+        # consumer for it. Assert its absence so a reintroduction is caught.
+        self.assertNotIn("VSS_RELEASE_SET_ID", variables)
+        self.assertNotIn("VSS_RELEASE_SET_B64", variables)
 
     def test_main_with_release_set_file_performs_no_network(self):
         sha = "a" * 40
@@ -148,9 +176,7 @@ class DownstreamVariablesTest(unittest.TestCase):
             self.assertEqual(
                 output_path.read_text(),
                 "has_ghcr_build_entries=false\n"
-                "run_downstream=false\n"
-                "publish_spatialai_data_utils=false\n"
-                "spatialai_package_version_suffix=\n",
+                "run_downstream=false\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
 
@@ -161,7 +187,7 @@ INVENTORY = {
         {"name": "vss-agent", "source_path": "services/agent", "ghcr_build": True},
         {"name": "vss-rt-cv", "source_path": "services/rt-cv",
          "trigger_downstream_from_source": True},
-        {"name": "vss-configurator", "source_path": "services/configurator"},
+        {"name": "vss-configurator", "source_path": "services/configurators"},
     ]
 }
 
@@ -180,7 +206,7 @@ class DownstreamGateTest(unittest.TestCase):
         self.assertIn("vss-rt-cv", why)
 
     def test_unflagged_source_change_does_not_run(self):
-        run, _ = downstream_relevant(["services/configurator/a.py"], INVENTORY)
+        run, _ = downstream_relevant(["services/configurators/a.py"], INVENTORY)
         self.assertFalse(run)
 
     def test_deploy_change_runs_without_any_source_change(self):
@@ -202,83 +228,45 @@ class DownstreamGateTest(unittest.TestCase):
         self.assertFalse(run)
 
 
-class SpatialAiPublishGateTest(unittest.TestCase):
-    SUFFIX = ".dev123+g0123456789ab.r1"
+class WorkflowSeparationTest(unittest.TestCase):
+    def test_sdu_has_an_independent_workflow_and_handoff(self):
+        workflows = Path(__file__).resolve().parents[1] / "workflows"
+        main = (workflows / "ci.yml").read_text()
+        sdu = (workflows / "spatialai-data-utils.yml").read_text()
 
-    def test_develop_change_requests_internal_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"],
-                "develop",
-                self.SUFFIX,
-            ),
-            {
-                "SPATIALAI_DATA_UTILS_PUBLISH": "true",
-                "SPATIALAI_PACKAGE_VERSION_SUFFIX": self.SUFFIX,
-            },
+        self.assertNotIn("spatialai-data-utils-test", main)
+        self.assertNotIn("SPATIALAI_PACKAGE_VERSION_SUFFIX", main)
+        self.assertIn("name: Spatial AI Data Utils", sdu)
+        self.assertIn("name: Gate", sdu)
+        self.assertIn('suffix = f".dev0+g{tree_sha[:12]}"', sdu)
+        self.assertIn("DOWNSTREAM_REF: main", sdu)
+        self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
+        sonar = (workflows / "sonarqube.yml").read_text()
+        match = re.search(
+            r"^          - name: spatialai-data-utils\n(?P<entry>(?:            .*\n)+)",
+            sonar,
+            flags=re.MULTILINE,
         )
-
-    def test_pr_change_never_requests_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"],
-                "pull-request/1562",
-                self.SUFFIX,
-            ),
-            {},
+        self.assertIsNotNone(match, "SDU SonarQube matrix entry is missing")
+        assert match is not None
+        entry = match.group("entry")
+        self.assertIn(
+            "TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization",
+            entry,
         )
-
-    def test_unrelated_develop_change_does_not_request_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["docs/readme.md"],
-                "develop",
-                "",
-            ),
-            {},
+        self.assertIn(
+            "sources: libs/analytics/spatialai-data-utils/spatialai_data_utils",
+            entry,
         )
-
-    def test_unavailable_develop_diff_fails_open(self):
-        self.assertEqual(
-            spatialai_publish_variables(None, "develop", self.SUFFIX)[
-                "SPATIALAI_DATA_UTILS_PUBLISH"
-            ],
-            "true",
+        self.assertIn(
+            "tests: libs/analytics/spatialai-data-utils/tests",
+            entry,
         )
+        self.assertIn('python_version: "3.13"', entry)
 
-    def test_publish_rejects_missing_or_malformed_suffix(self):
-        changed = ["libs/analytics/spatialai-data-utils/README.md"]
-        for suffix in ("", "dev123", ".dev0+g0123456789ab.r1"):
-            with self.subTest(suffix=suffix), self.assertRaisesRegex(
-                ValueError, "version suffix"
-            ):
-                spatialai_publish_variables(changed, "develop", suffix)
-
-    def test_explicit_false_survives_missing_git_diff_in_handoff_job(self):
-        self.assertEqual(
-            spatialai_publish_variables(None, "develop", "", "false"),
-            {},
-        )
-
-    def test_explicit_true_preserves_first_job_decision(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["docs/readme.md"],
-                "develop",
-                self.SUFFIX,
-                "true",
-            )["SPATIALAI_DATA_UTILS_PUBLISH"],
-            "true",
-        )
-
-    def test_explicit_true_is_rejected_outside_develop(self):
-        with self.assertRaisesRegex(ValueError, "only for develop"):
-            spatialai_publish_variables(
-                None,
-                "pull-request/1562",
-                self.SUFFIX,
-                "true",
-            )
+    def test_release_set_preparation_has_no_sdu_transport(self):
+        script = Path(module.__file__).read_text()
+        self.assertNotIn("SPATIALAI_", script)
 
 
 if __name__ == "__main__":

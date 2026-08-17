@@ -154,15 +154,32 @@ standaloneWarehouse:
     fusion:
       enabled: true
       image:
-        repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
-        tag: "3.2.0"
+        repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion
+        tag: develop-latest
         pullPolicy: IfNotPresent
       rawTopic: mdx-raw
       fusedTopic: mdx-bev
       sensorTimeoutMs: "100"
+      # Static, like docker-compose (NUM_STREAMS). Defaults to maxBatchSize.
+      # Truly-dynamic sensor count would be an image-side feature, not a Helm wrapper.
       maxExpectedSensors: "4"
       bufferDurationS: "2.0"
       resources: {}
+    # Generate camInfo + pub/sub + tracker cameraModelFilepath map from
+    # calibration.json at pod start (sensor ids/count come from calibration).
+    # DS batch size and fusion MAX_EXPECTED_SENSORS stay value-driven. Off by
+    # default in this reusable subchart (adds a runtime dependency on the
+    # calibration API); enable it in the MV3DT profile. Disabled falls back to
+    # the static caminfo ConfigMap.
+    dynamicCameraConfig:
+      enabled: false
+      calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
+      waitTimeoutSeconds: 3600
+      configInit:
+        image:
+          repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init
+          tag: develop-latest
+          pullPolicy: IfNotPresent
 
 modelsPvc:
   create: false
@@ -175,6 +192,13 @@ persistence:
   storageClass: ""
   models:
     size: 50Gi
+  # /opt/storage holds the models copied out of the models PVC plus the TRT
+  # engines built on first run. On emptyDir every restart rebuilds them.
+  runtimeStorage:
+    enabled: false
+    existingClaim: ""
+    size: 50Gi
+    storageClass: ""
 
 resources:
   limits:

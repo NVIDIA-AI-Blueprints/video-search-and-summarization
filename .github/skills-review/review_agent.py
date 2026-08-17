@@ -102,6 +102,24 @@ def extract_findings(text: str) -> list[dict]:
     return []
 
 
+def _skill_dir(skill: str) -> pathlib.Path:
+    """Resolve a skill leaf-name to its dir, supporting nested
+    skills/<category>/<skill>/. Falls back to the flat skills/<skill> path (whose
+    is_dir() check then fails with a clear message) when no SKILL.md-bearing dir
+    matches the name."""
+    root = REPO_ROOT / "skills"
+    if root.is_dir():
+        for md in sorted(root.rglob("SKILL.md")):
+            if md.parent.name == skill:
+                return md.parent
+    return root / skill
+
+
+def _skill_reldir(skill: str) -> str:
+    """Repo-relative posix dir for a skill, e.g. skills/benchmarking/benchmark-video-summarization."""
+    return _skill_dir(skill).relative_to(REPO_ROOT).as_posix()
+
+
 def _git_diff(skill: str, base_ref: str) -> str:
     """The PR diff for one skill, computed in Python (NOT via the agent's shell).
 
@@ -112,7 +130,7 @@ def _git_diff(skill: str, base_ref: str) -> str:
     try:
         out = subprocess.run(
             ["git", "-C", str(REPO_ROOT), "diff", f"{base_ref}...HEAD",
-             "--", f"skills/{skill}/"],
+             "--", f"{_skill_reldir(skill)}/"],
             capture_output=True, text=True, timeout=60,
         ).stdout
     except Exception:
@@ -212,7 +230,7 @@ def _engine_codex(paradigm: str, skill: str, skill_dir: pathlib.Path,
     # The prompt MUST name the skill + dir (codex runs read-only with no stdin,
     # so it can't ask). Pass the precomputed diff too for the diff-based lens.
     diff = _git_diff(skill, base_ref)
-    ctx = [f"\n\nSkill to review: {skill}", f"Skill dir (relative to cwd): skills/{skill}/"]
+    ctx = [f"\n\nSkill to review: {skill}", f"Skill dir (relative to cwd): {_skill_reldir(skill)}/"]
     if diff:
         ctx.append(f"Change under review (diff vs {base_ref}):\n```diff\n{diff}\n```")
     else:
@@ -233,11 +251,11 @@ ENGINE_FN = {"claude": _engine_claude, "ce_skill": _engine_ce_skill, "codex": _e
 
 def run_leg(skill: str, paradigm: str, *, base_ref: str = "origin/develop") -> dict:
     """Run one leg; always return a schema-valid artifact dict."""
-    skill_dir = REPO_ROOT / "skills" / skill
+    skill_dir = _skill_dir(skill)
     status, findings = "ok", []
     try:
         if not skill_dir.is_dir():
-            raise SkippedLeg(f"skills/{skill}/ not found on this ref")
+            raise SkippedLeg(f"skill {skill!r} not found under skills/ on this ref")
         raw = ENGINE_FN[ENGINE[paradigm]](paradigm, skill, skill_dir, base_ref)
         findings = rf.normalize(paradigm, raw, skill=skill)
     except SkippedLeg as exc:

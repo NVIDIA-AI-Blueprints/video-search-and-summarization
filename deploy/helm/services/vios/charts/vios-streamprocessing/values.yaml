@@ -17,7 +17,7 @@ enabled: false
 global: {}
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing
-  tag: "2.1.0-26.07.1"
+  tag: "1.4.0-26.08.1"
   pullPolicy: IfNotPresent
 replicas: 1
 # When true: create StatefulSet named vss-vios-streamprocessing (required for SDR). When false: create Deployment (vss-alerts-vss-vios-streamprocessing).
@@ -58,6 +58,17 @@ kafkaServerAddress: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
+# Absolute HTTP URLs for overlay assets (video-analytics-api). Empty = skip download.
+# When either is set, configs are seeded into a writable emptyDir so downloads can
+# write calibration.json / Top.png under /home/vst/vst_release/configs/.
+calibrationFileEndpoint: ""
+floormapImageEndpoint: ""
+# Init container image used to copy ConfigMap configs into the writable emptyDir.
+configSeed:
+  image:
+    repository: docker.io/library/busybox
+    tag: "1.36"
+    pullPolicy: IfNotPresent
 # Centralized DB: host/port from template (Release-vss-vios-postgres:5432). Password from postgres-cm unless overridden.
 # Override for external DB: centralizedDbHost, centralizedDbPort, centralizedDbPassword.
 centralizedDbHost: ""
@@ -69,6 +80,9 @@ env:
   # Set to "true" to run user_additional_install.sh at startup (installs e.g. libav/ffmpeg for upload media info). Script must exist in image at /home/vst/vst_release/tools/user_additional_install.sh.
   - name: VST_INSTALL_ADDITIONAL_PACKAGES
     value: "true"
+  # Point APT at an internal/nearby mirror. Empty uses the public archive.
+  - name: VST_APT_MIRROR
+    value: ""
   - name: CONTAINER_NAME
     value: vss-vios-streamprocessing
   - name: ADAPTOR
@@ -121,7 +135,11 @@ securityContext:
   runAsGroup: 0
   fsGroup: 0
 
-# Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Set to {} to run without GPU (software mode). Requires NVIDIA device plugin on nodes.
+# Set true to use FFmpeg software encode/decode instead of GPU hardware path.
+# Must be paired with resources: null so the pod is not scheduled requiring a GPU.
+useSoftwarePath: false
+
+# Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Requires NVIDIA device plugin on nodes.
 resources:
   limits:
     nvidia.com/gpu: 1
@@ -129,3 +147,13 @@ resources:
     nvidia.com/gpu: 1
 nodeSelector: {}
 tolerations: []
+
+# Compose parity with the wait-for-redis service in the warehouse profiles.
+waitForRedis:
+  enabled: true
+  host: ""
+  port: 6379
+  timeoutSeconds: 120
+  image:
+    repository: busybox
+    tag: "1.37.0"

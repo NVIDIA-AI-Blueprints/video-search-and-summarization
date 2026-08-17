@@ -54,7 +54,6 @@ When the user asks to build, deploy, stop, or redeploy -- run the commands immed
 - `./build.sh container tag=mytag module=sensor` -- custom image tag
 - `./build.sh container nvstreamer` -- build NVStreamer container
 - `./build.sh container ingress` -- build ingress container
-- `./build.sh container mcp` -- build MCP gateway container
 - `./build.sh toolchain` -- build the compile toolchain only (auto-invoked otherwise); `arch=arm64` for aarch64
 - `./build.sh toolchain push=1 toolchain-image=<registry>/vios-build:<tag>` -- build + push toolchain (ask the user for the registry if not given; default tag would push to Docker Hub)
 - `./build.sh base-container [push=1 image-registry=<registry>]` -- build (and optionally push) the runtime base image only
@@ -80,7 +79,6 @@ python3 deployment/stream-processing/oneclick_dc_deployment.py stop vst         
 python3 deployment/stream-processing/oneclick_dc_deployment.py stop nvstreamer                       # stop only NVStreamer
 python3 deployment/stream-processing/oneclick_dc_deployment.py stop --clean                         # stop and remove persistent data
 python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --fresh-start --force          # clean start
-python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --with-monitoring --force      # deploy with Grafana/Prometheus
 python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --pull-always --force          # pull latest images
 python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --interactive                  # opt in to prompts
 ```
@@ -96,7 +94,6 @@ python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --interact
 
 **Access URLs (after deploy):**
 - VIOS UI: `http://<HOST_IP>:30888/vst/#/dashboard`
-- Grafana: `http://<HOST_IP>:3000` (with `--with-monitoring`)
 
 **VIOS containers (direct mode):** `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms-1`
 

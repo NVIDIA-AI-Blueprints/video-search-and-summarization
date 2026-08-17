@@ -54,6 +54,12 @@ converges on a single detector, align those consumer configs to the resolved
 model family's label set and casing, not to whatever a source profile's config
 happened to ship.
 
+## Placement and sizing
+
+RT-CV has a fixed footprint determined primarily by its model family and stream
+count. Prefer a dedicated device; share only when the measured combined budget
+fits. See `../sizing.md` for placement resolution and starting stream counts.
+
 ## Sources
 
 - `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`

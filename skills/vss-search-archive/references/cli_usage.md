@@ -13,7 +13,7 @@ test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
   exit 1
 }
 cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
   vss search run <path> [options]
 ```
 
@@ -21,9 +21,12 @@ The executable is provided by that project and need not exist globally. Do not
 use `which vss`; verify the supported entry point directly:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
   vss search run --help
 ```
+
+Keep `--extra cli` on every project-local invocation; the base meta package
+does not install the `nvidia-vss-cli` distribution that declares `vss`.
 
 If preflight fails, report its error and stop. Do not manually call
 Elasticsearch, embedding, or search endpoints.
@@ -98,9 +101,18 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 | 4 | configuration — not configured, foreign config, or a required service absent |
 | 5 | not found — a searched index does not exist (nothing ingested yet) |
 
-Search is retrieval-only. The CLI has no critic or VLM flags. When visual
-verification is requested or authorized, inspect the returned screenshots as a
-separate, explicit workflow.
+Search automatically attempts bounded visual verification through
+`vss_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
+When those services are available, the critic attempts every returned hit.
+Every hit contains `verification.result`: `confirmed`, `rejected`, or
+`unverified`. Verification is fail-open: a missing VLM, inaccessible clip, or
+critic failure does not fail retrieval and leaves the affected hit
+`unverified`. There are no critic or VLM flags; deployment discovery remains
+the single source of endpoints and model ids.
+
+Only when every displayed hit is `unverified` may the host ask whether the user
+wants them checked through the separate `vss-ask-video` workflow. If even one
+hit is `confirmed` or `rejected`, do not offer or invoke that fallback.
 
 Index names and model ids come from `vss configure show`. Never pass or infer an
 index and never read `ELASTIC_SEARCH_INDEX`; it names only the embedding index

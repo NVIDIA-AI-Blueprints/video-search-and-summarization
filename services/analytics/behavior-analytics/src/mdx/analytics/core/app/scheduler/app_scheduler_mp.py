@@ -17,6 +17,7 @@ import functools
 import logging
 import multiprocessing as mp
 import signal
+import time
 import traceback
 
 from multiprocessing.connection import Connection
@@ -154,8 +155,10 @@ class MultiprocessingScheduler(Scheduler):
     def shutdown(self) -> None:
         """Shutdown all active processes and close any open connections.
 
-        Terminates all running processes gracefully, and kills any processes
-        that don't terminate within the timeout period.
+        Terminates every worker, then waits on one shared deadline of
+        ``SHUTDOWN_TIMEOUT_SECONDS`` for all of them, killing whatever is still alive when it
+        expires. The budget is for the shutdown as a whole, not per worker, so it does not grow
+        with the number of workers.
         """
 
         logger.info(f"Shutting down {len(self._processes)} processes...")
@@ -165,20 +168,35 @@ class MultiprocessingScheduler(Scheduler):
         for shutdown_event in self._shutdown_events:
             shutdown_event.set()
 
+        # Terminate everything before joining anything. Terminating and joining one worker at a time
+        # charged the timeout per worker, so the budget scaled with worker count -- five workers gave
+        # a 50s worst case against the 10s stop grace docker allows by default, and the container was
+        # SIGKILLed partway through. Nothing after that point runs, so no worker reaches its shutdown
+        # hook (``app.close()`` -> ``state_mgmt.flush_behaviors()``) and every behavior held back by
+        # ``behaviorEmitOnce`` is lost. Terminating first also lets the workers wind down in parallel.
         for pid, process in self._processes.items():
             try:
                 if process.is_alive():
                     logger.info(f"Terminating process {process.name}({pid})")
                     process.terminate()
-                    process.join(timeout=self.SHUTDOWN_TIMEOUT_SECONDS)
-
-                    if process.is_alive():
-                        logger.warning(f"Process {process.name}({pid}) did not terminate gracefully, forcing kill")
-                        process.kill()
-                        process.join()
-
             except Exception as e:
-                logger.error(f"Error shutting down process {pid}: {e}")
+                logger.error(f"Error terminating process {pid}: {e}")
+
+        deadline = time.monotonic() + self.SHUTDOWN_TIMEOUT_SECONDS
+        for pid, process in self._processes.items():
+            try:
+                process.join(timeout=max(0.0, deadline - time.monotonic()))
+            except Exception as e:
+                logger.error(f"Error waiting for process {pid}: {e}")
+
+        for pid, process in self._processes.items():
+            try:
+                if process.is_alive():
+                    logger.warning(f"Process {process.name}({pid}) did not terminate gracefully, forcing kill")
+                    process.kill()
+                    process.join()
+            except Exception as e:
+                logger.error(f"Error killing process {pid}: {e}")
 
         # Clear the dictionaries
         self._processes.clear()

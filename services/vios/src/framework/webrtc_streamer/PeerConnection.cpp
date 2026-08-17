@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -261,11 +261,10 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
     return dependencies;
 }
 
-void process_pc_message(std::shared_ptr<EventLoopData> data, void* parent)
+void process_pc_message(std::shared_ptr<EventLoopData> data, PeerConnection* peer)
 {
     shared_ptr<PeerData> in_data = std::static_pointer_cast<PeerData>(data);
     shared_ptr<PeerOutData> out_data = std::static_pointer_cast<PeerOutData>(data->m_outResult);
-    PeerConnection* peer = static_cast <PeerConnection*>(parent);
     if (in_data == nullptr || peer == nullptr)
     {
         LOG(error) << "Received null in data" << endl;
@@ -430,7 +429,8 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
             , m_deleting(false)
             , m_publishFilter(std::string(".*"))
             , m_audioDecoderfactory(webrtc::CreateBuiltinAudioDecoderFactory())
-            , m_eventLoop("peerconnection_event_loop", process_pc_message)
+            , m_eventLoop("peerconnection_event_loop",
+                          [this](std::shared_ptr<EventLoopData> data) { process_pc_message(data, this); })
             , m_deviceManager(m_peerConnectionManager->getDeviceManager())
             , m_prevTimestamp(0)
             , m_prevBytesReceived(0)
@@ -491,7 +491,6 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
     }
 
     m_statsCallback = webrtc::make_ref_counted<PeerConnectionStatsCollectorCallback>();
-    m_eventLoop.setParent(this);
 }
 
 PeerConnection::~PeerConnection()
@@ -516,9 +515,9 @@ PeerConnection::~PeerConnection()
     m_pc = nullptr;
     m_peer_connection_factory = nullptr;
     m_workerThread->BlockingCall([this] {
-        auto* fakeAdm = static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get());
+        std::unique_ptr<webrtc::FakeAudioDeviceModule> fakeAdm(
+            static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get()));
         m_audioDeviceModule = nullptr;
-        delete fakeAdm;
     });
 }
 
@@ -787,7 +786,7 @@ VmsErrorCode PeerConnection::setAnswer(const Json::Value &jmessage, Json::Value&
                 std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
                 std::string out_sdp;
                 webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
-                    SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp));
+                    SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
                 m_pc->SetRemoteDescription(std::move(session_description),
                     RemoteSetObserverAdapter::Create(remoteSessionObserver));
                 // waiting for remote description
@@ -1278,7 +1277,7 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
             std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
             std::string out_sdp;
             webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
-                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp));
+                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
             m_pc->SetRemoteDescription(std::move(session_description),
                 RemoteSetObserverAdapter::Create(remoteSessionObserver));
             // waiting for remote description
@@ -1332,19 +1331,20 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
         rtcoptions.offer_to_receive_audio = 1;
         std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
         std::string sdp;
-        m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+        m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
         // waiting for answer
         std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
         if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
         {
             // answer with the created answer
-            webrtc::SessionDescriptionInterface *descInterface = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+            const webrtc::SessionDescriptionInterface *descInterface = localfuture.get();
             if (descInterface)
             {
                 if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
                 {
-                    string sdpLite = m_observer->getSdpWithIceLite(descInterface, m_peerid, m_clientPublicIpAddr);
+                    std::unique_ptr<webrtc::SessionDescriptionInterface> liteDesc = descInterface->Clone();
+                    string sdpLite = m_observer->getSdpWithIceLite(liteDesc.get(), m_peerid, m_clientPublicIpAddr);
                     if (sdpLite.empty() == false)
                     {
                         sdp = sdpLite;
@@ -2136,6 +2136,20 @@ VmsErrorCode PeerConnection::AddCompositorStreams(
             opts["overlaySensorPosY"] = urlParameters["overlaySensorPosY"];
         }
     }
+    // Live video wall with overlay needs the same fallback as a normal live
+    // stream.  Guarded on start/end time like AddStreams(): a replay compositor
+    // request must not block setup on a network fetch.
+    if (startTime.empty() && endTime.empty())
+    {
+        const bool requireCalibration = opts.find("overlay") != opts.end() && opts.at("overlay") == "true";
+        const bool requireFloorMap = opts.find("gods_eye_view") != opts.end() && opts.at("gods_eye_view") == "true";
+        if ((requireCalibration || requireFloorMap) &&
+            !VmsConfigManager::getInstance()->ensureOverlayAssetsForLiveRequest(requireCalibration, requireFloorMap))
+        {
+            LOG(warning) << "WebRTC live overlay assets are still unavailable after fallback download attempt" << endl;
+        }
+    }
+
     if (CreateAndAddTrack(video, opts, is_audio_required, streamLabel, nullptr, response) == -1)
     {
         return VmsErrorCode::VMSInternalError;
@@ -2460,6 +2474,22 @@ PeerConnection::AddStreams(unordered_map<string, string> urlParameters,
     {
         opts["peerid"] = peerid;
     }
+
+    // A live overlay request may arrive after the analytics service becomes
+    // available, even if the startup asset download failed.  Retry only the
+    // assets this request needs and keep stream setup bounded by the
+    // config-manager fallback timeout.
+    if (startTime.empty() && endTime.empty())
+    {
+        const bool requireCalibration = opts.find("overlay") != opts.end() && opts.at("overlay") == "true";
+        const bool requireFloorMap = opts.find("gods_eye_view") != opts.end() && opts.at("gods_eye_view") == "true";
+        if ((requireCalibration || requireFloorMap) &&
+            !VmsConfigManager::getInstance()->ensureOverlayAssetsForLiveRequest(requireCalibration, requireFloorMap))
+        {
+            LOG(warning) << "WebRTC live overlay assets are still unavailable after fallback download attempt" << endl;
+        }
+    }
+
     if (CreateAndAddTrack(video, opts, is_audio_required, streamLabel, stream_info, response) == -1)
     {
         return VmsErrorCode::VMSInternalError;
@@ -2486,18 +2516,19 @@ VmsErrorCode PeerConnection::createOffer(const Json::Value& in, Json::Value &off
     std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
     std::string sdp;
 
-    m_pc->CreateOffer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+    m_pc->CreateOffer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
     std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
     if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
     {
         // answer with the created offer
-        webrtc::SessionDescriptionInterface *desc = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+        const webrtc::SessionDescriptionInterface *desc = localfuture.get();
         if (desc)
         {
             if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
             {
-                string sdpLite = m_observer->getSdpWithIceLite(desc, m_peerid, m_clientPublicIpAddr);
+                std::unique_ptr<webrtc::SessionDescriptionInterface> mutableDesc = desc->Clone();
+                string sdpLite = m_observer->getSdpWithIceLite(mutableDesc.get(), m_peerid, m_clientPublicIpAddr);
                 if (sdpLite.empty() == false)
                 {
                     sdp = sdpLite;
@@ -2925,7 +2956,7 @@ VmsErrorCode PeerConnection::setOffer(const Json::Value& in, Json::Value& answer
             std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
             std::string out_sdp;
             webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
-                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp));
+                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
             m_pc->SetRemoteDescription(std::move(session_description),
                 RemoteSetObserverAdapter::Create(remoteSessionObserver));
             // waiting for remote description
@@ -2955,19 +2986,20 @@ VmsErrorCode PeerConnection::getAnswer(const Json::Value& in, Json::Value& answe
     rtcoptions.offer_to_receive_audio = 1;
     std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
     std::string sdp;
-    m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+    m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
     // waiting for answer
     std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
     if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
     {
         // answer with the created answer
-        webrtc::SessionDescriptionInterface *descInterface = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+        const webrtc::SessionDescriptionInterface *localDesc = localfuture.get();
+        std::unique_ptr<webrtc::SessionDescriptionInterface> descInterface = localDesc ? localDesc->Clone() : nullptr;
         if (descInterface)
         {
             if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
             {
-                string sdpLite = m_observer->getSdpWithIceLite(descInterface, m_peerid, m_clientPublicIpAddr);
+                string sdpLite = m_observer->getSdpWithIceLite(descInterface.get(), m_peerid, m_clientPublicIpAddr);
                 if (sdpLite.empty() == false)
                 {
                     sdp = sdpLite;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,7 +51,7 @@ static const std::vector<std::string> g_deprecatedApis = {
 class VmsServer
 {
 public:
-    VmsServer(ModuleId module_id = ModuleAll);
+    explicit VmsServer(ModuleId module_id = ModuleAll);
     ~VmsServer();
     int start();
     void start_webrtc();
