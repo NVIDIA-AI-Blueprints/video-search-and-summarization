@@ -48,16 +48,6 @@ services:
       elasticsearch-init-container:
         condition: service_completed_successfully
 
-  nvstreamer-2d-fusion:
-    extends:
-      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
-      service: nvstreamer-base
-    profiles: ["nvstreamer-2d-fusion"]
-    volumes:
-      - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
 
 
   perception-2d-fusion:
