@@ -108,6 +108,7 @@
       "name": "vss-rt-vlm",
       "strategy": "build",
       "ghcr_build": true,
+      "native_platform_build": true,
       "source_path": "services/rtvi/rt-vlm",
       "context": "services/rtvi/rt-vlm",
       "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
