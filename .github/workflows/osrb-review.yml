@@ -108,7 +108,9 @@ jobs:
           # there, so this dispatcher must never send a code-ref override.
           DOWNSTREAM_REF: osrb-review-trigger
           DOWNSTREAM_SUBMODULE_HASH_VARIABLE: GITHUB_MIRROR_SHA
-          GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
+          # GITHUB_SHA is runner-owned and cannot be overridden. Pass the
+          # completed License Diff head explicitly to the shared trigger.
+          DOWNSTREAM_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
           GITHUB_REF_NAME: ${{ github.event.workflow_run.head_branch }}
           GITHUB_TOKEN: ${{ github.token }}
           DOWNSTREAM_EXTRA_VARIABLES_JSON: >-

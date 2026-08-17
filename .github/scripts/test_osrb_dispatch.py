@@ -143,6 +143,16 @@ class DispatchTests(unittest.TestCase):
         for variable in ("OSRB_CODE_REF", "OSRB_ALLOW_UNREVIEWED_CODE"):
             self.assertNotIn(variable, workflow)
 
+    def test_dispatch_passes_the_reviewed_pr_head_explicitly(self) -> None:
+        workflow = WORKFLOW.read_text()
+        trigger_block = workflow.split("- name: Trigger private OSRB pipeline", 1)[1]
+        trigger_block = trigger_block.split("- name:", 1)[0]
+        self.assertIn(
+            "DOWNSTREAM_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}",
+            trigger_block,
+        )
+        self.assertNotIn("GITHUB_SHA:", trigger_block)
+
     def test_github_output_explains_developer_actions(self) -> None:
         guide = DEVELOPER_GUIDE.read_text()
         license_workflow = LICENSE_WORKFLOW.read_text()
