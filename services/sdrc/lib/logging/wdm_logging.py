@@ -347,11 +347,16 @@ class RateLimitedLogger:
     def should_log(self, key: str) -> tuple[bool, int]:
         now = time.monotonic()
         with self._lock:
-            last, count = self._state.get(key, (0.0, 0))
-            if now - last >= self.interval_s:
-                suppressed = count
+            entry = self._state.get(key)
+            # Absent entry means never logged; monotonic() is boot-relative and can
+            # be smaller than interval_s, so it cannot be compared against a sentinel.
+            if entry is None:
                 self._state[key] = (now, 0)
-                return True, suppressed
+                return True, 0
+            last, count = entry
+            if now - last >= self.interval_s:
+                self._state[key] = (now, 0)
+                return True, count
             self._state[key] = (last, count + 1)
             return False, 0
 
