@@ -215,6 +215,14 @@ Then go straight to Step 2 — **skip the Sensor check**.
 > the same video exists**. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
 > Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `videoUrl`.
 > Applies even to temporal questions ("at what timestamp…").
+>
+> **A follow-up that names no video stays on the sensor already in play.** "At what timestamp did
+> the worker climb the ladder?" asked after a question about `warehouse_safety_0001` is another
+> Path B question about *that* sensor — re-resolve its clip URL. Never switch to a different video
+> because its filename echoes the question ("ladder", "safety"): a matching name is not the subject,
+> a sample file lying on disk is no substitute for the sensor's clip, and serving one over your own
+> HTTP server does not make it one. Only a file or URL the user gives you **in the request** (Path A)
+> outranks the sensor.
 
 When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage`: confirm the
 named `<sensor-id>` exists (the *Sensor check* above — required on this path), then run the block
@@ -501,16 +509,28 @@ Your reasoning.
 Write your final answer immediately after the </think> tag."
 fi
 
-# Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly).
-[ -z "${VLM_BACKEND:-}" ] && {
-  # Prefix-agnostic (matches the *cosmos* family used by the MM_KWARGS block below), so a
-  # self-hosted NIM advertising a bare id (e.g. cosmos-reason2-8b, no nvidia/ prefix) still
-  # resolves to nim_cosmos and gets the required frame-sampling kwargs.
+# Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly). The
+# endpoint decides, never the model name: RT-VLM serves cosmos-named ids
+# (nim_nvidia_cosmos-reason2-8b_hf-…), so matching *cosmos* first labels RT-VLM as NIM Cosmos and
+# drops the sampling fields it needs — the exact defect this ordering exists to prevent.
+if [ -z "${VLM_BACKEND:-}" ]; then
+  # The RT-VLM port, when the agent resolved the endpoint itself instead of running Step 2.
+  case "${VLM_ENDPOINT:-}" in
+    *":${RTVI_VLM_PORT:-8018}"|*":${RTVI_VLM_PORT:-8018}/"*) VLM_BACKEND="rtvlm" ;;
+  esac
+fi
+# Otherwise ask the server: RT-VLM reports an audio_support flag on /v1/models, a NIM does not.
+# Use /v1/models, not /openapi.json — that spec is ~110 kB and slow to build on a cold container.
+if [ -z "${VLM_BACKEND:-}" ] && curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | grep -q '"audio_support"'; then
+  VLM_BACKEND="rtvlm"
+fi
+# Last resort, the model id: a *cosmos* NIM (even a bare cosmos-reason2-8b) needs the Cosmos kwargs.
+if [ -z "${VLM_BACKEND:-}" ]; then
   case "${VLM_MODEL:-}" in
     *cosmos*) VLM_BACKEND="nim_cosmos" ;;
     *)        VLM_BACKEND="rtvlm" ;;
   esac
-}
+fi
 
 # Path B guard: a VST-sourced clip is ALWAYS the VST videoUrl, never a stray local copy.
 # If this run came from VST (VST_SOURCED=1) but VIDEO_URL is empty, the VST /url GET was skipped —
@@ -587,7 +607,13 @@ fi
 # rtvi_vlm.model_kwargs.extra_body in the profile agent config; override via env if yours differs.
 RTVI_SAMPLING=""
 if [ "${VLM_BACKEND}" = "rtvlm" ]; then
-  RTVI_SAMPLING=", \"num_frames_per_second_or_fixed_frames_chunk\": ${RTVI_NUM_FRAMES:-20}, \"use_fps_for_chunking\": ${RTVI_USE_FPS:-false}, \"vlm_input_width\": ${RTVI_INPUT_WIDTH:-1280}, \"vlm_input_height\": ${RTVI_INPUT_HEIGHT:-720}"
+  # Keep these numeric/boolean so a malformed env value cannot inject JSON into the body. -1 is
+  # RT-VLM's documented "every decoded frame in the chunk"; anything else non-numeric is ignored.
+  _nf="${RTVI_NUM_FRAMES:-20}";    case "$_nf" in -1) : ;; ''|*[!0-9]*) _nf=20 ;; esac
+  _w="${RTVI_INPUT_WIDTH:-1280}";  case "$_w"  in ''|*[!0-9]*) _w=1280 ;; esac
+  _h="${RTVI_INPUT_HEIGHT:-720}";  case "$_h"  in ''|*[!0-9]*) _h=720 ;; esac
+  case "${RTVI_USE_FPS:-false}" in true) _fps=true ;; *) _fps=false ;; esac
+  RTVI_SAMPLING=", \"num_frames_per_second_or_fixed_frames_chunk\": ${_nf}, \"use_fps_for_chunking\": ${_fps}, \"vlm_input_width\": ${_w}, \"vlm_input_height\": ${_h}"
 fi
 
 # Send THIS body for both formats. Do not write a separate minimal video_url curl — hand-built
