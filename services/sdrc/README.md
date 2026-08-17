@@ -992,6 +992,13 @@ docker build -f envoy/Dockerfile.wdm-router -t wdm-router .
 4. Installs Envoy from the official Envoy apt repository
 5. Installs Lua 5.2 / LuaJIT with `luasocket`, `redis-lua`, `lua-cjson` (used by Envoy Lua filter for Redis lookups at routing time)
 
+**Legal artifacts in the container:**
+
+| Path | Notes |
+|---|---|
+| `/wdm/3rdParty_Licenses.md` | Third-party license text copied from `services/sdrc/3rdParty_Licenses.md` |
+| `/wdm/NVIDIA-Software-License-Agreement.pdf` | NVIDIA Software License Agreement downloaded from `nvidia.com` at build time with a pinned SHA-256 checksum |
+
 **Exposed ports:**
 
 | Port | Purpose |
