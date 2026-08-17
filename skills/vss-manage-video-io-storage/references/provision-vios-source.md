@@ -3,7 +3,7 @@
 Registering a source brings **no** perception with it: a bare VIOS add stores or
 publishes the media, but nothing detects, embeds, or captions it until the
 source is fanned into the consumers a build deployed. A stock full-stack profile
-does this through the agent (`video_ingest` / `rtsp_ingest`, one transaction). When
+does this through the agent in one transaction. When
 **no agent tier is present** — e.g. a `vss-build-vision-agent` headless
 `_builds/<name>` deployment — the operator or a runtime eval must do it by
 **direct REST**. This file is that recipe: register one source, then fan it out to
@@ -32,8 +32,8 @@ esac
 
 Defer full-stack provisioning to the agent-mediated path for the build's
 capability — search ingestion to `vss-search-archive` (`/api/v1/videos` +
-`/complete`), alert rules to `vss-manage-alerts`, or the agent's
-`video_ingest` / `rtsp_ingest` routes. The probe is a coarse public-route
+`/complete`), alert rules to `vss-manage-alerts`, or the agent's ingest
+routes. The probe is a coarse public-route
 capability check, not internal discovery.
 
 ## One mechanism, off one VIOS sensor
@@ -114,13 +114,12 @@ bytes only — no detections or embeddings. All three consumers (RT-CV, RT-Embed
 RT-VLM) take the timeline-resolved VIOS clip URL: `GET /storage/<streamId>/timelines` for
 `{startTime, endTime}`, then the self-contained
 `/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4` **HTTP** URL
-(binary-direct; prefer it over the `/url` envelope, which carries an upstream
-double-`http://` bug — see `integrate-vios-service.md`). RT-Embed and RT-VLM accept
+(binary-direct — the same clip the `/url` envelope wraps, minus its upstream
+double-`http://` bug; see `integrate-vios-service.md`). RT-Embed and RT-VLM accept
 `http`/`https`/`file` but gate `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by
 default); RT-CV's `camera_url` accepts `http(s)://`, `rtsp://`, and `file://`, but a
 `file://` resolves *inside the RT-CV container*, where the stored bytes are not mounted.
-So the VIOS **HTTP** URL is the reliable path for every consumer — the same storage URL
-the agent's `video_ingest` hands both RT-CV and RT-Embed. RT-CV consumes it as
+So the VIOS **HTTP** URL is the reliable path for every consumer — RT-CV consumes it as
 `camera_url` (Step 2); RT-VLM takes it directly — no pre-upload — or registers it via
 `/v1/files`. There is no live proxy on this path.
 
@@ -196,8 +195,8 @@ them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
 
 ## The shared-id rule
 
-Every consumer must key on the **one VST `sensorId` returned at Step 1** — exactly as
-the agent's `video_ingest`/`rtsp_ingest` do (VOD and RTSP alike). Thread that `sensorId`
+Every consumer must key on the **one VST `sensorId` returned at Step 1**, VOD and RTSP
+alike. Thread that `sensorId`
 verbatim as RT-CV `camera_id`, RT-Embed `id`, and the `x-stream-id` header on **both**
 calls (`x-stream-id` pins the stream to a worker under an SDR-fronted RTVI deployment).
 Set RT-CV `camera_name` to the canonical **source name** (distinct from the id): embed
@@ -208,8 +207,7 @@ or sensor-scoped query can reach.
 
 ## The upload-date rule
 
-`creation_time`/`timestamp` is **upload-only**; upload mirrors the agent's
-`video_ingest`, RTSP mirrors `rtsp_ingest`:
+`creation_time`/`timestamp` is **upload-only**:
 - VIOS anchors an untimed upload at `2025-01-01T00:00:00.000Z`; pin
   `timestamp=2025-01-01T00:00:00.000Z` to state that anchor;
 - pass that anchor as `creation_time` on **every** upload consumer — RT-CV
