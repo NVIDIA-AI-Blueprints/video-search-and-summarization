@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -75,7 +75,7 @@ export const StreamAutomation: React.FC = () => {
         successCallbackFailed: 0,
     });
 
-    const automationIntervalRef = useRef<number>();
+    const automationIntervalRef = useRef<number>(undefined);
     const streamManagerRef = useRef<StreamManager | null>(null);
 
     const handleStreamTest = useCallback(
@@ -231,15 +231,15 @@ export const StreamAutomation: React.FC = () => {
         const totalTests = selectedSensors.length * streamTypes.length;
         const testPromises: Promise<StreamResult>[] = [];
 
+        const advanceProgress = (result: StreamResult) => {
+            setProgress(prev => Math.min(prev + 100 / totalTests, 100));
+            return result;
+        };
+
         // Create all test promises
         selectedSensors.forEach(sensor => {
             streamTypes.forEach(streamType => {
-                testPromises.push(
-                    handleStreamTest(sensor, streamType).then(result => {
-                        setProgress(prev => Math.min(prev + 100 / totalTests, 100));
-                        return result;
-                    })
-                );
+                testPromises.push(handleStreamTest(sensor, streamType).then(advanceProgress));
             });
         });
 

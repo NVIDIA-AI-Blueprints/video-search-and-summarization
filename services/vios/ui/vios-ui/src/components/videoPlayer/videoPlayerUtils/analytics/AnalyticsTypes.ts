@@ -71,7 +71,7 @@ export interface AnalyticsState {
 export interface AnalyticsProps {
     sensor?: { sensorId: string; name?: string };
     streamType: StreamType;
-    videoRef: React.RefObject<HTMLVideoElement>;
-    drawingCanvasRef: React.RefObject<HTMLCanvasElement>;
+    videoRef: React.RefObject<HTMLVideoElement | null>;
+    drawingCanvasRef: React.RefObject<HTMLCanvasElement | null>;
     theme: Theme;
 }

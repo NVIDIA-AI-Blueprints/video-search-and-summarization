@@ -1,0 +1,9 @@
+# Python virtualenv created by run_benchmark.sh
+vss-bench-env/
+
+# Benchmark output directories (reports + per-run JSON/XLSX)
+vss-perf-report*/
+
+# Python bytecode caches
+__pycache__/
+*.pyc

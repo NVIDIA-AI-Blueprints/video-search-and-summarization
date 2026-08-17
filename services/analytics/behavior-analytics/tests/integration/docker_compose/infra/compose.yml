@@ -114,7 +114,7 @@ services:
     command: "bash /usr/bin/create-kafka-topics.sh"
 
   redis:
-    image: redis:8.6.2-alpine
+    image: redis:8.10.0-alpine
     profiles: ["redis"]
     restart: always
     command: redis-server /config/redis.conf

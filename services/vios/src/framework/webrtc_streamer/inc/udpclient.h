@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -86,7 +86,7 @@ namespace nv_vms
             unsigned int getAudioPort() { return m_udpStream.m_audioPort; }
             int getAudioFreq() { return m_udpStream.m_audioFreq; }
             string getVideoCodec() { return m_udpStream.m_videoCodec; }
-        protected:
+        private:
             string m_id;
             UdpStream m_udpStream;
             mediaConsumerMap m_consumerMap;

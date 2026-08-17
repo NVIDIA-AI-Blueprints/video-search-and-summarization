@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -93,6 +93,11 @@ public:
 
     CommonVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts);
     virtual ~CommonVideoSource(); // Custom destructor for pimpl-like pattern
+
+    CommonVideoSource(const CommonVideoSource &) = delete;
+    CommonVideoSource &operator=(const CommonVideoSource &) = delete;
+    CommonVideoSource(CommonVideoSource &&) = delete;
+    CommonVideoSource &operator=(CommonVideoSource &&) = delete;
 
     // Public interface methods
     VmsErrorCode controlStreamFileVideoSource(const std::string& action, const std::string& seek_value);

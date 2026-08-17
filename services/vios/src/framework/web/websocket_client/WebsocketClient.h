@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,19 +35,8 @@ class WebsocketClient
 public:
     static WebsocketClient *getInstance()
     {
-        if (m_instance == nullptr)
-        {
-            m_instance = new WebsocketClient;
-        }
-        return m_instance;
-    }
-    static void destroy()
-    {
-        if (m_instance)
-        {
-            delete m_instance;
-            m_instance = nullptr;
-        }
+        static WebsocketClient instance;
+        return &instance;
     }
     typedef std::function<void(const Json::Value &, Json::Value &, struct mg_connection *conn)> httpFunction;
     void addRequestHandler(std::map<std::string, httpFunction, std::less<>> &func);
@@ -71,7 +60,6 @@ private:
 
     WebsocketClient(const WebsocketClient &) = delete;
     WebsocketClient &operator=(const WebsocketClient &) = delete;
-    static WebsocketClient *m_instance;
     // Websocket connection and its mutex
     struct mg_connection *m_connection;
     std::mutex m_connectionMutex;

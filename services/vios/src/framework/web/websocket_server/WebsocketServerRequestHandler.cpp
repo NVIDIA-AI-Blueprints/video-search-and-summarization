@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,8 +34,9 @@ bool WebsocketServerRequestHandler::handleConnection(CivetServer *server, const 
     std::string queryParamName = "connectionId";
     std::string connectionId = EMPTY_STRING;
     const char* queryParam = queryParamName.c_str();
-    struct mg_connection *connection = const_cast<struct mg_connection *>(conn);
-    if(!CivetServer::getParam(connection, queryParam, connectionId))
+    const struct mg_request_info *requestInfo = mg_get_request_info(conn);
+    const char *queryString = (requestInfo != nullptr) ? requestInfo->query_string : nullptr;
+    if(queryString == nullptr || !CivetServer::getParam(queryString, strlen(queryString), queryParam, connectionId))
     {
         LOG(error) << "Query param not found" << endl;
         return false;
@@ -117,7 +118,7 @@ bool WebsocketServerRequestHandler::handleData(CivetServer *server, struct mg_co
 void WebsocketServerRequestHandler::handleClose(CivetServer *server, const struct mg_connection *conn)
 {
     Json::Value temp_json;
-    m_callbackMap["/event/disconnect"](temp_json, temp_json, (struct mg_connection *)conn);
+    m_callbackMap["/event/disconnect"](temp_json, temp_json, const_cast<struct mg_connection *>(conn));
     return GET_WEBSOCKET_INSTANCE()->removeConnection(conn);
 }
 

@@ -795,7 +795,18 @@ def is_skill_dir(path: Path) -> bool:
 
 
 def discover_skills(root: Path) -> List[Path]:
-    return sorted(p for p in root.iterdir() if is_skill_dir(p))
+    """Every skill dir under root — any dir containing SKILL.md, whether flat
+    (skills/<name>/) or one category level down (skills/<category>/<name>/).
+    Category dirs (no SKILL.md of their own) are not skills and are not returned,
+    so they are never mistaken for a malformed skill."""
+    out: List[Path] = []
+    for md in sorted(root.rglob("SKILL.md")):
+        d = md.parent
+        rel = d.relative_to(root)
+        if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
+            continue
+        out.append(d)
+    return sorted(set(out))
 
 
 # ── Checker orchestrator ──────────────────────────────────────────────────────
@@ -953,11 +964,18 @@ def main() -> None:
         sys.exit(1)
 
     if args.skill:
-        candidates = [skills_root / args.skill]
-        for p in candidates:
-            if not p.is_dir():
-                print(f"ERROR: skill folder not found: {p}", file=sys.stderr)
-                sys.exit(1)
+        # Accept a leaf skill-name (resolved to its dir, including a nested
+        # skills/<category>/<name>/) or an explicit relative path under skills/.
+        # A category dir (no SKILL.md) resolves to nothing and errors cleanly
+        # rather than being checked as a malformed skill.
+        direct = skills_root / args.skill
+        if is_skill_dir(direct):
+            candidates = [direct]
+        else:
+            candidates = [d for d in discover_skills(skills_root) if d.name == args.skill]
+        if not candidates:
+            print(f"ERROR: skill folder not found: {args.skill}", file=sys.stderr)
+            sys.exit(1)
     else:
         candidates = discover_skills(skills_root)
 

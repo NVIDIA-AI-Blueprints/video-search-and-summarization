@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,18 +46,18 @@ CloudStorageWriter::~CloudStorageWriter()
     }
 }
 
-bool CloudStorageWriter::writeData(const std::string& session_id, const void* data, size_t size, int64_t pts,
+bool CloudStorageWriter::writeData(const std::string& session_id, const uint8_t* data, size_t size, int64_t pts,
                                             const std::string& media_type)
 {
     if (m_buffer && m_config.buffering.enabled)
     {
         // Use buffered upload
-        return handleBufferedWrite(session_id, data, size, pts, media_type);
+        return handleBufferedWrite(session_id, static_cast<const unsigned char*>(data), size, pts, media_type);
     }
     else
     {
         // Direct upload
-        return doWriteData(session_id, data, size, pts, media_type);
+        return doWriteData(session_id, static_cast<const uint8_t*>(data), size, pts, media_type);
     }
 }
 
@@ -265,8 +265,8 @@ void CloudStorageWriter::stopBuffering()
     }
 }
 
-bool CloudStorageWriter::handleBufferedWrite(const std::string& session_id, const void* data, size_t size, int64_t pts,
-                                             const std::string& media_type)
+bool CloudStorageWriter::handleBufferedWrite(const std::string& session_id, const unsigned char* data, size_t size,
+                                             int64_t pts, const std::string& media_type)
 {
     if (!m_buffer)
     {
@@ -294,7 +294,7 @@ bool CloudStorageWriter::handleBufferedWrite(const std::string& session_id, cons
                  << " for session: " << session_id 
                  << ", stream: " << stream_id << std::endl;
 
-    return m_buffer->bufferFrame(data, size, timestamp, media_type, session_id, stream_id);
+    return m_buffer->bufferFrame(static_cast<const uint8_t*>(data), size, timestamp, media_type, session_id, stream_id);
 }
 
 void CloudStorageWriter::updateBufferingStats()

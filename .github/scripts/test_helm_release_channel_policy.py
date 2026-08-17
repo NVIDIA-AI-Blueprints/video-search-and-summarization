@@ -32,6 +32,22 @@ HELM_VALUES = {
     "vss-rt-cv": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "sdr-mw-l": ["deploy/helm/services/infra/charts/sdrc/values.yaml"],
+    "vss-configurator": [
+        "deploy/helm/services/bp-configurator/values.yaml",
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values.yaml",
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/values.yaml",
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml",
+    ],
+    "vss-rt-config-adaptor": [
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/values.yaml",
+    ],
+    "vss-rt-cv-mv3dt-bev-fusion": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
+    "vss-rt-cv-mv3dt-config-init": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -55,28 +71,53 @@ HELM_HELPERS = {
     "vss-rt-cv": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
     ],
+    "sdr-mw-l": ["deploy/helm/services/infra/charts/sdrc/templates/_helpers.tpl"],
+    "vss-configurator": [
+        "deploy/helm/services/bp-configurator/templates/_helpers.tpl",
+    ],
+    "vss-rt-config-adaptor": [
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/templates/warehouse-extra-services.yaml",
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/templates/warehouse-extra-services.yaml",
+    ],
+    "vss-rt-cv-mv3dt-bev-fusion": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "vss-rt-cv-mv3dt-config-init": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
 }
 COMPOSE_FILES = {
-    "vss-agent": "deploy/docker/services/agent/compose.yml",
-    "vss-agent-ui": "deploy/docker/services/ui/compose.yml",
-    "vss-alert-ms": "deploy/docker/services/alert/compose.yml",
-    "vss-video-summarization": (
+    "vss-agent": ["deploy/docker/services/agent/compose.yml"],
+    "vss-agent-ui": ["deploy/docker/services/ui/compose.yml"],
+    "vss-alert-ms": ["deploy/docker/services/alert/compose.yml"],
+    "vss-video-summarization": [
         "deploy/docker/services/video-summarization/compose.yml"
-    ),
+    ],
+    "sdr-mw-l": ["deploy/docker/services/infra/sdrc/docker-compose.yaml"],
+    "vss-configurator": [
+        "deploy/docker/services/configurators/vss-configurator/docker-compose.yaml",
+    ],
+    "vss-rt-config-adaptor": [
+        "deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml",
+    ],
 }
 
 
-def image_coordinates(path: Path) -> tuple[str, str]:
+def image_coordinates(path: Path, image_name: str) -> tuple[str, str]:
     text = path.read_text()
-    match = re.search(
+    matches = re.finditer(
         r"image:\s*\n"
         r"\s+repository:\s*(\S+)\s*\n"
         r'\s+tag:\s*"?([^"\s]+)"?',
         text,
     )
-    if match is None:
-        raise AssertionError(f"{path} lacks an image block")
-    return match.group(1), match.group(2)
+    for match in matches:
+        repository = match.group(1)
+        if repository == f"{GHCR_ROOT}/{image_name}" or repository.endswith(
+            f"/{image_name}"
+        ):
+            return repository, match.group(2)
+    raise AssertionError(f"{path} lacks an image block for {image_name}")
 
 
 class HelmReleaseChannelPolicyTest(unittest.TestCase):
@@ -94,7 +135,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():
             for relative_path in relative_paths:
-                repository, tag = image_coordinates(REPO_ROOT / relative_path)
+                repository, tag = image_coordinates(REPO_ROOT / relative_path, name)
                 self.assertEqual(repository, f"{GHCR_ROOT}/{name}")
                 self.assertEqual(tag, "develop-latest")
 
@@ -115,12 +156,13 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         self.assertNotIn(f"{NGC_STAGING_ROOT}/vss-agent-ui", text)
 
     def test_compose_keeps_the_managed_developer_channel(self):
-        for name, relative_path in COMPOSE_FILES.items():
-            text = (REPO_ROOT / relative_path).read_text()
-            self.assertIn(GHCR_ROOT, text)
-            self.assertIn(f"/{name}", text)
-            self.assertIn("VSS_CONTAINER_TAG", text)
-            self.assertIn("develop-latest", text)
+        for name, relative_paths in COMPOSE_FILES.items():
+            for relative_path in relative_paths:
+                text = (REPO_ROOT / relative_path).read_text()
+                self.assertIn(GHCR_ROOT, text)
+                self.assertIn(f"/{name}", text)
+                self.assertIn("VSS_CONTAINER_TAG", text)
+                self.assertIn("develop-latest", text)
 
     def test_helm_sync_prompt_enforces_shared_channel(self):
         prompt = (REPO_ROOT / ".github/helm-sync/AGENTS.md").read_text()

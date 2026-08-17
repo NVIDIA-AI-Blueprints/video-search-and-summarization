@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +42,7 @@ NvMediaSource
         , m_frameId(0)
         , m_url_params(url_params)
         , m_sessionId(session_id)
-        , m_eventLoop("source_event_loop", process_source_message)
+        , m_eventLoop("source_event_loop", [this](std::shared_ptr<EventLoopData> data) { process_source_message(std::move(data)); })
         , m_streamBuf(filename, STREAM_DEFAULT_BUFFER_SIZE)
         , m_is_error (false)
 {
@@ -63,7 +63,10 @@ NvMediaSource
             m_demux->setUrlParams(url_params);
             m_demux->setSessionId(m_sessionId);
         }
-        if (GET_CONFIG().nv_streamer_sync_playback == true)
+        /* Legacy sync_playback engine only. The sync_file_count quorum engine
+         * takes precedence and manages sources itself, so skip the legacy
+         * demuxer registration when it is active. */
+        if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
         {
             RtspSyncPlayback::getInstance()->insertDemuxer(m_demux);
         }
@@ -109,7 +112,6 @@ NvMediaSource::~NvMediaSource ()
 
 int NvMediaSource::create()
 {
-    m_eventLoop.setParent(this);
     std::shared_ptr<EventLoopData> data(new EventLoopData);
     data->m_taskName = "create";
     m_eventLoop.postMsg(data);
@@ -125,7 +127,7 @@ bool NvMediaSource::isError()
     return false;
 }
 
-void NvMediaSource::registerCallback(cb_frameSourceEvent_t callback, void *owner)
+void NvMediaSource::registerCallback(cb_frameSourceEvent_t callback, NvFileServerMediaSubsession *owner)
 {
     m_callback[owner] = callback;
 }
@@ -151,7 +153,6 @@ void NvMediaSource::setClock(GstClock* global_clock, GstClockTime base_time)
 
 void NvMediaSource::play()
 {
-    m_eventLoop.setParent(this);
     std::shared_ptr<EventLoopData> data(new EventLoopData);
     data->m_taskName = "play";
 
@@ -270,7 +271,7 @@ void NvMediaSource::onFrame(FrameParams& params)
                     if (m_sourceState.find("play") != string::npos)
                     {
                         int randomTimeInMilliSeconds = 0;
-                        if (GET_CONFIG().nv_streamer_sync_playback == true)
+                        if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
                         {
                             randomTimeInMilliSeconds = RtspSyncPlayback::getInstance()->getSimulationWaitTime();
                         }
@@ -743,7 +744,6 @@ void NvMediaSource::seek (int64_t seek_pos , uint64_t end_time, float rate /*1*/
 
 void NvMediaSource::seekToStart ()
 {
-    m_eventLoop.setParent(this);
     if (GET_CONFIG().enable_mega_simulation && GET_CONFIG().nv_streamer_sync_playback == true)
     {
         m_frameId = RtspSyncPlayback::getInstance()->getGlobalFrameId();
@@ -807,7 +807,8 @@ void NvMediaSource::destroy()
     if (m_sourceType == SourceTypeFile && m_demux)
     {
         m_demux->deregisterDataCallback(getself(), m_filename);
-        if (GET_CONFIG().nv_streamer_sync_playback == true)
+        /* Mirror the insert gate: only the legacy engine registered this demux. */
+        if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
         {
             RtspSyncPlayback::getInstance()->removeDemuxer(m_demux);
         }
@@ -828,56 +829,55 @@ void NvMediaSource::destroy()
     return;
 }
 
-void NvMediaSource::process_source_message(std::shared_ptr<EventLoopData> data, void* parent)
+void NvMediaSource::process_source_message(std::shared_ptr<EventLoopData> data)
 {
-    shared_ptr<EventLoopData> source_data = std::static_pointer_cast<EventLoopData>(data);
-    NvMediaSource* source = static_cast <NvMediaSource*>(parent);
-    if (source == nullptr || source_data == nullptr)
+    shared_ptr<EventLoopData> source_data = std::move(data);
+    if (source_data == nullptr)
     {
         LOG(error) << "Received null data" << endl;
         return;
     }
     LOG(verbose) << source_data->m_taskName << endl;
-    if (source->getSourceType() == SourceTypeFile && source->m_demux)
+    if (getSourceType() == SourceTypeFile && m_demux)
     {
         if (source_data->m_taskName == "create")
         {
-            source->m_demux->create_internal();
+            m_demux->create_internal();
         }
         else if (source_data->m_taskName == "play")
         {
-            source->m_demux->play_internal();
+            m_demux->play_internal();
         }
         else if (source_data->m_taskName == "pause")
         {
-            source->m_demux->pause_internal();
+            m_demux->pause_internal();
         }
         else if (source_data->m_taskName == "seekToStart")
         {
-            source->m_demux->seekToStart();
+            m_demux->seekToStart();
         }
         else if (source_data->m_taskName == "seek")
         {
             int64_t seek_pos = source_data->m_inData["seek_value"].asInt64();
             uint64_t end_time = source_data->m_inData["end_time"].asUInt64();
             float rate = source_data->m_inData["rate"].asFloat();
-            source->m_demux->seek(seek_pos, end_time, rate);
+            m_demux->seek(seek_pos, end_time, rate);
         }
         else if (source_data->m_taskName == "resume")
         {
-            source->m_demux->resume_internal();
+            m_demux->resume_internal();
         }
         else if (source_data->m_taskName == "destroy")
         {
-            source->m_demux->destroy_internal();
+            m_demux->destroy_internal();
         }
         else if (source_data->m_taskName == "startOverlayPipeline")
         {
-            source->startOverlayPipeline_internal();
+            startOverlayPipeline_internal();
         }
         else if (source_data->m_taskName == "stopOverlayPipeline")
         {
-            source->stopOverlayPipeline_internal();
+            stopOverlayPipeline_internal();
         }
         else
         {

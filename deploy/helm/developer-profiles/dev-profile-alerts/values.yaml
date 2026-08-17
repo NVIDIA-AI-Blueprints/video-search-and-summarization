@@ -60,7 +60,7 @@ global:
 # External access: set global.externalScheme / externalHost / externalPort in your values file (no separate externalAccess.baseUrl).
 
 # Verification stack enabled by default. Image repository/tag/replicas: charts/<name>/values.yaml (override when needed).
-# Redis is the shared StatefulSet from helm/services/infra (vanilla redis:8.2.2-alpine),
+# Redis is the shared StatefulSet from helm/services/infra (vanilla redis:8.10.0-alpine),
 # used by the CV / streamprocessing (sdrc) pipeline. Alert MS no longer uses Redis
 # (dedup/filter state is in-process; verdict protection + alert configs are in Elasticsearch).
 infra:

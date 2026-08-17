@@ -18,7 +18,7 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm}:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.07.4}
+    image: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm}:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.08.2}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
@@ -100,23 +100,17 @@ services:
       MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
       RTVI_ENABLE_CUDA_OOM_RECOVERY: "${RTVI_ENABLE_CUDA_OOM_RECOVERY:-true}"
+      # Live-stream GPU admission controls.
+      RTVI_LIVE_STREAM_GPU_MEMORY_GUARD: "${RTVI_LIVE_STREAM_GPU_MEMORY_GUARD:-true}"
+      RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB: "${RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB:-1024}"
+      # Media chat completions are not published to the message bus by default.
+      ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS: "${ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS:-false}"
       # Optional EVS++ session controls.
-      VIA_EVS_DECISION_LAG: "${VIA_EVS_DECISION_LAG:-}"
       VIA_EVS_SESSION: "${VIA_EVS_SESSION:-}"
       VLLM_EVS_SIMILARITY_THRESHOLD: "${VLLM_EVS_SIMILARITY_THRESHOLD:-}"
       VLLM_NUM_PREPROCESS_WORKERS: "${VLLM_NUM_PREPROCESS_WORKERS:-16}"
       VIA_EVS_TOKEN_BUDGET: "${VIA_EVS_TOKEN_BUDGET:-}"
       VIA_EVS_MAX_SESSIONS: "${VIA_EVS_MAX_SESSIONS:-}"
-      VIA_EVS_MIN_CLIPS: "${VIA_EVS_MIN_CLIPS:-}"
-      VIA_EVS_EVENT_ONLY: "${VIA_EVS_EVENT_ONLY:-}"
-      VIA_EVS_EMA_MEMORY_S: "${VIA_EVS_EMA_MEMORY_S:-}"
-      VIA_EVS_SPIKE_STD_K: "${VIA_EVS_SPIKE_STD_K:-}"
-      VIA_EVS_SETTLING_STD_K: "${VIA_EVS_SETTLING_STD_K:-}"
-      VIA_EVS_STD_FLOOR_RATIO: "${VIA_EVS_STD_FLOOR_RATIO:-}"
-      VIA_EVS_DOWNWARD_BASELINE_MIN: "${VIA_EVS_DOWNWARD_BASELINE_MIN:-}"
-      VIA_EVS_STREAMING_PREFILL: "${VIA_EVS_STREAMING_PREFILL:-}"
-      VIA_PD_SERVER_URL: "${VIA_PD_SERVER_URL:-}"
-      VIA_PD_SERVER_TIMEOUT_S: "${VIA_PD_SERVER_TIMEOUT_S:-}"
       VLLM_USE_AOT_COMPILE: "${VLLM_USE_AOT_COMPILE:-0}"
       VLLM_DISABLE_COMPILE_CACHE: "${VLLM_DISABLE_COMPILE_CACHE:-1}"
       VLLM_LOGGING_LEVEL: "${VLLM_LOGGING_LEVEL:-INFO}"

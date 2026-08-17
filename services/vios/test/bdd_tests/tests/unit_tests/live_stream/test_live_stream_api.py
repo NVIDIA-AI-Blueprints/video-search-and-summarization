@@ -21,10 +21,13 @@ Tests non-WebRTC endpoints: streams list, version, help, configuration, picture 
 import logging
 import time
 import uuid
+from pathlib import Path
 
 import pytest
+import requests
 from pytest_bdd import scenarios, given, when, then
 
+from scripts.stream_prerequisite import nvstreamer_endpoints, upload_video
 from ..unit_test_utils import (
     UnitTestContext,
     api_get,
@@ -40,6 +43,10 @@ from ..unit_test_utils import (
 logger = logging.getLogger(__name__)
 
 scenarios("../../../features/unit_tests/live_stream/live_stream_api.feature")
+
+TEST_VIDEO = Path(__file__).resolve().parents[3] / "data" / "test_video.mp4"
+STREAMS_PATH = "/vst/api/v1/live/streams"
+TEST_SENSOR_NAME_PREFIX = "bdd-tags-6167266-"
 
 
 # ---------------------------------------------------------------------------
@@ -177,23 +184,66 @@ def check_picture_url(context: UnitTestContext) -> None:
 
 # ---------------------------------------------------------------------------
 # Regression for NVBug 6167266 ("Live Streams tag filter does not show/select
-# tags created on VST sensors"). Tags persisted on a sensor record must be
-# echoed back in the GET /api/v1/live/streams response so the Live Streams UI
-# can populate and filter by those tags. Folded in from the standalone
-# live_stream_sensor_tags feature/test.
+# tags created on VST sensors").
+#
+# Tags must be set at sensor/add time: POST /sensor/{id}/info updates the
+# sensor-management copy, but /live/streams is served by the live MS from its
+# own in-memory SensorInfo and does not pick up mid-session tag edits.
+#
+# Reuses stream_prerequisite helpers to seed a unique NVStreamer clip, then
+# adds that RTSP URL to VIOS with a unique tag.
 # ---------------------------------------------------------------------------
 
-TEST_SENSOR_NAME_PREFIX = "bdd-tags-6167266-"
-TEST_RTSP_URL = "rtsp://192.0.2.33:554/tagged"
-STREAMS_PATH = "/vst/api/v1/live/streams"
+
+def _discover_nvstreamer_rtsp_urls(endpoints, timeout: int = 10):
+    urls = []
+    for endpoint in endpoints:
+        try:
+            resp = requests.get(f"{endpoint}/api/v1/sensor/streams", timeout=timeout)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("NVStreamer unreachable at %s: %s", endpoint, exc)
+            continue
+        if resp.status_code != 200:
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            continue
+        if not isinstance(data, list):
+            continue
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            for streams in entry.values():
+                if not isinstance(streams, list):
+                    continue
+                for stream in streams:
+                    if isinstance(stream, dict) and stream.get("type") == "Rtsp":
+                        url = stream.get("url")
+                        if url:
+                            urls.append(url)
+    # unique, preserve order
+    seen = set()
+    out = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _wait_for_nvstreamer_url(endpoints, needle: str, timeout_s: float = 60.0):
+    """Wait until an NVStreamer RTSP URL containing ``needle`` appears."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        for url in _discover_nvstreamer_rtsp_urls(endpoints):
+            if needle in url:
+                return url
+        time.sleep(2)
+    return None
 
 
 def _wipe_leftover_test_sensors(api_config: dict, unit_test_params: dict) -> None:
-    """Delete any sensor created by this regression module.
-
-    Keyed on the TEST_SENSOR_NAME_PREFIX so reruns are self-healing and the
-    main sensor inventory is never touched.
-    """
     base_url = api_config["base_url"]
     timeout = unit_test_params.get("timeout", 30)
     verify_ssl = api_config.get("verify_ssl", False)
@@ -202,11 +252,10 @@ def _wipe_leftover_test_sensors(api_config: dict, unit_test_params: dict) -> Non
             base_url, "/vst/api/v1/sensor/list",
             verify_ssl=verify_ssl, timeout=timeout,
         )
-    except Exception as exc:  # noqa: BLE001 - cleanup must never raise
-        logger.warning("tags cleanup: sensor/list call failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tags cleanup: sensor/list failed: %s", exc)
         return
     if resp.status_code != 200:
-        logger.warning("tags cleanup: sensor/list returned %d", resp.status_code)
         return
     try:
         sensors = resp.json()
@@ -228,25 +277,19 @@ def _wipe_leftover_test_sensors(api_config: dict, unit_test_params: dict) -> Non
                 base_url, f"/vst/api/v1/sensor/{sid}",
                 verify_ssl=verify_ssl, timeout=timeout,
             )
-            logger.info("tags cleanup: deleted stale sensor %s (name=%s)", sid, name)
+            logger.info("tags cleanup: deleted sensor %s (name=%s)", sid, name)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("tags cleanup: failed to delete sensor %s: %s", sid, exc)
+            logger.warning("tags cleanup: delete %s failed: %s", sid, exc)
 
 
 @pytest.fixture(autouse=True)
 def _tagged_sensor_cleanup(api_config, unit_test_params):
-    """Wipe the regression sensor before and after the scenario."""
     _wipe_leftover_test_sensors(api_config, unit_test_params)
     yield
     _wipe_leftover_test_sensors(api_config, unit_test_params)
 
 
 def _streams_for_sensor(streams_response, sensor_id):
-    """Return the list of stream objects keyed under sensor_id.
-
-    The /live/streams payload is a list of single-key objects:
-    [ { "<sensorId>": [ {stream}, ... ] }, ... ].
-    """
     result = []
     if not isinstance(streams_response, list):
         return result
@@ -263,34 +306,75 @@ def _streams_for_sensor(streams_response, sensor_id):
 
 @given("an RTSP sensor tagged with a unique tag has been added")
 def add_tagged_sensor(
-    context: UnitTestContext, api_config: dict, unit_test_params: dict
+    context: UnitTestContext, api_config: dict, unit_test_params: dict, config: dict
 ) -> None:
+    """Seed a unique NVStreamer clip and add it to VIOS with tags at add-time."""
     timeout = unit_test_params.get("timeout", 30)
-    name = f"{TEST_SENSOR_NAME_PREFIX}{uuid.uuid4().hex[:12]}"
-    tag = f"view-{uuid.uuid4().hex[:8]}"
-    body = {
-        "name": name,
-        "sensorUrl": TEST_RTSP_URL,
-        "location": "bdd-test",
-        "tags": tag,
-    }
-    resp = api_post(
-        api_config["base_url"],
-        "/vst/api/v1/sensor/add",
-        json_body=body,
-        verify_ssl=api_config.get("verify_ssl", False),
-        timeout=timeout,
-    )
-    assert resp.status_code == 200, (
-        f"Setup add-sensor failed: status={resp.status_code}, body={resp.text[:300]}"
-    )
-    payload = resp.json()
-    sensor_id = payload.get("sensorId") if isinstance(payload, dict) else None
-    assert sensor_id, f"add-sensor response missing sensorId: {payload!r}"
-    context.first_sensor_id = sensor_id
-    context.expected_tag = tag
-    context.added_sensor_name = name
-    logger.info("Added tagged sensor %s (name=%s, tag=%s)", sensor_id, name, tag)
+    verify_ssl = api_config.get("verify_ssl", False)
+    endpoints = nvstreamer_endpoints(config)
+    if not endpoints:
+        pytest.skip("No NVStreamer endpoints configured")
+    if not TEST_VIDEO.exists():
+        pytest.skip(f"Missing BDD fixture video: {TEST_VIDEO}")
+
+    # Unique filename so we do not collide with warehouse_sample / others.
+    run_id = uuid.uuid4().hex[:10]
+    filename = f"{TEST_SENSOR_NAME_PREFIX}{run_id}.mp4"
+    staged = TEST_VIDEO.with_name(filename)
+    staged.write_bytes(TEST_VIDEO.read_bytes())
+    try:
+        timestamp = (
+            config.get("nvstreamer", {}).get("upload_timestamp")
+            or "2025-01-01T00:00:00.000Z"
+        )
+        uploaded = False
+        for endpoint in endpoints:
+            if upload_video(endpoint, staged, timestamp, timeout=max(timeout, 120)):
+                uploaded = True
+                break
+        if not uploaded:
+            pytest.skip(f"Could not upload fixture clip to NVStreamer {endpoints}")
+
+        rtsp_url = _wait_for_nvstreamer_url(endpoints, filename, timeout_s=90.0)
+        if not rtsp_url:
+            pytest.skip(
+                f"NVStreamer did not expose RTSP URL for {filename} "
+                f"(endpoints={endpoints})"
+            )
+
+        name = f"{TEST_SENSOR_NAME_PREFIX}{run_id}"
+        tag = f"view-{uuid.uuid4().hex[:8]}"
+        body = {
+            "name": name,
+            "sensorUrl": rtsp_url,
+            "location": "bdd-test",
+            "tags": tag,
+        }
+        resp = api_post(
+            api_config["base_url"],
+            "/vst/api/v1/sensor/add",
+            json_body=body,
+            verify_ssl=verify_ssl,
+            timeout=timeout,
+        )
+        assert resp.status_code == 200, (
+            f"Setup add-sensor failed: status={resp.status_code}, body={resp.text[:300]}"
+        )
+        payload = resp.json()
+        sensor_id = payload.get("sensorId") if isinstance(payload, dict) else None
+        assert sensor_id, f"add-sensor response missing sensorId: {payload!r}"
+        context.first_sensor_id = sensor_id
+        context.expected_tag = tag
+        context.added_sensor_name = name
+        logger.info(
+            "Added tagged sensor %s (name=%s, tag=%s, url=%s)",
+            sensor_id, name, tag, rtsp_url,
+        )
+    finally:
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @when("I request the list of live streams and wait for the tagged sensor")
@@ -299,7 +383,7 @@ def request_live_streams_until_present(
 ) -> None:
     timeout = unit_test_params.get("timeout", 30)
     sensor_id = context.first_sensor_id
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + 90
     last_resp = None
     while time.monotonic() < deadline:
         last_resp = api_get(
@@ -313,7 +397,8 @@ def request_live_streams_until_present(
                 data = last_resp.json()
             except ValueError:
                 data = None
-            if data is not None and _streams_for_sensor(data, sensor_id):
+            streams = _streams_for_sensor(data, sensor_id) if data is not None else []
+            if streams and all(s.get("tags") == context.expected_tag for s in streams):
                 break
         time.sleep(2)
     context.response = last_resp

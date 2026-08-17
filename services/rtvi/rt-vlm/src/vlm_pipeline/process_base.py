@@ -36,6 +36,31 @@ from vlm_pipeline.errors import (
 
 mp_ctx = multiprocessing.get_context("spawn")
 
+# Read once in every spawned pipeline process. When vLLM's torch_shm tensor
+# queue is active, DecoderProcess can send its CUDA frame tensor directly to
+# VlmProcess through the existing torch-aware multiprocessing queue.
+_USE_CUDA_MM_TENSOR_IPC = os.environ.get("VLLM_MM_TENSOR_IPC", "").strip() == "torch_shm"
+if _USE_CUDA_MM_TENSOR_IPC:
+    # PyTorch shares expandable CUDA segments by duplicating allocator file
+    # descriptors with pidfd_getfd. The RTVI container's default security
+    # policy blocks that syscall. Classic CUDA allocations use portable CUDA
+    # IPC handles and need no extra container capabilities.
+    _alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+    _alloc_options = [option for option in _alloc_conf.split(",") if option]
+    _alloc_options = [
+        (
+            "expandable_segments:False"
+            if option.strip().lower().startswith("expandable_segments:")
+            else option
+        )
+        for option in _alloc_options
+    ]
+    if not any(
+        option.strip().lower().startswith("expandable_segments:") for option in _alloc_options
+    ):
+        _alloc_options.append("expandable_segments:False")
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = ",".join(_alloc_options)
+
 
 _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 _FALSE_ENV_VALUES = {"0", "false", "no", "off", ""}
@@ -58,7 +83,7 @@ def _parse_bool_env(name: str, default: bool = False) -> bool:
 
 def _move_cuda_frames_to_cpu(value):
     if isinstance(value, torch.Tensor):
-        if value.is_cuda:
+        if value.is_cuda and not _USE_CUDA_MM_TENSOR_IPC:
             return value.detach().cpu()
         return value
     if isinstance(value, list):
@@ -66,6 +91,27 @@ def _move_cuda_frames_to_cpu(value):
     if isinstance(value, tuple):
         return tuple(_move_cuda_frames_to_cpu(item) for item in value)
     return value
+
+
+def _spill_cuda_frames_to_cpu(value):
+    """Move decoded CUDA frames to CPU when the raw transport is backpressured."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu() if value.is_cuda else value
+    if isinstance(value, list):
+        return [_spill_cuda_frames_to_cpu(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_spill_cuda_frames_to_cpu(item) for item in value)
+    return value
+
+
+def _contains_cuda_tensor(value):
+    if isinstance(value, torch.Tensor):
+        return value.is_cuda
+    if isinstance(value, (list, tuple)):
+        return any(_contains_cuda_tensor(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_cuda_tensor(item) for item in value.values())
+    return False
 
 
 def _safe_cuda_empty_cache(force=False):
@@ -247,6 +293,9 @@ class ProcessBase(mp_ctx.Process):
                     else error_status_code
                 ),
             }
+            for key in ("is_live_stream", "request_id"):
+                if key in kwargs:
+                    result[key] = kwargs[key]
 
         if result:
             # Handle return from the process method, un-batch the returned items
@@ -284,6 +333,37 @@ class ProcessBase(mp_ctx.Process):
                     if "error" in ret_item and ret_item["error"]:
                         self._final_output_queue.put(ret_item)
                     else:
+                        if _USE_CUDA_MM_TENSOR_IPC and _contains_cuda_tensor(
+                            ret_item.get("frames")
+                        ):
+                            # The multiprocessing queue is logically sized for
+                            # 128 inference requests, but CUDA IPC makes every
+                            # queued raw frame buffer device-resident. Keep only
+                            # one decoded buffer per configured decoder waiting
+                            # at this transport boundary; VlmProcess continues
+                            # submitting processed requests to EngineCore up to
+                            # its independent 128-request capacity.
+                            raw_transport_slots = max(
+                                1, int(getattr(self, "_num_decoders_per_gpu", 8))
+                            )
+                            if self._output_queue.qsize() >= raw_transport_slots:
+                                # A blocked live decoder otherwise retains one
+                                # full GPU chunk per stream while waiting for a
+                                # transport slot. At high stream counts that
+                                # backpressure storage, rather than inference,
+                                # exhausts device memory. Preserve direct CUDA
+                                # IPC when a slot is available; spill only the
+                                # overloaded tail to host memory.
+                                ret_item["frames"] = _spill_cuda_frames_to_cpu(ret_item["frames"])
+                                logger.debug(
+                                    "Spilled decoded CUDA frames to CPU while the "
+                                    "%d-slot decoder-to-VLM queue was full",
+                                    raw_transport_slots,
+                                )
+                            # The multiprocessing transport retains the Python
+                            # baseline's global 128-request capacity. Only its
+                            # on-device window is bounded above; host-spilled
+                            # chunks can continue filling that global queue.
                         self._output_queue.put(ret_item)
         elif isinstance(result, dict):
             # Empty dict returned by process method, send the chunk to final output queue
@@ -315,7 +395,18 @@ class ProcessBase(mp_ctx.Process):
             result = ex
 
         if isinstance(result, concurrent.futures.Future):
-            result.add_done_callback(lambda future_: self._handle_result(future_, **kwargs))
+            # The async result handler only needs identifiers for its error and
+            # empty-result paths. Capturing the full kwargs dictionary here kept
+            # decoded CUDA frames alive until token generation completed, which
+            # prevented the producing process from recycling IPC allocations.
+            result_context = {
+                "chunk": kwargs["chunk"],
+                "chunk_id": kwargs["chunk_id"],
+            }
+            for key in ("is_live_stream", "request_id"):
+                if key in kwargs:
+                    result_context[key] = kwargs[key]
+            result.add_done_callback(lambda future_: self._handle_result(future_, **result_context))
         else:
             self._handle_result(result, **kwargs)
 

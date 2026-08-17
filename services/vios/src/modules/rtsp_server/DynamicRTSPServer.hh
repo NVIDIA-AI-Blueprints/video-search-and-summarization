@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,12 +29,13 @@ public:
   static DynamicRTSPServer* createNew(UsageEnvironment& env, Port ourPort,
 				      UserAuthenticationDatabase* authDatabase,
 				      unsigned reclamationTestSeconds = 65);
-  void cleanup();
+  void cleanupAndDestroy();
   ServerMediaSession* getServerMediaSessionForStream(char const* streamName);
   void deleteServerMediaSessionForStream(char const* streamName);
   std::vector<std::string> getActiveStreams();
   void setVodServer(bool isVodServer) { m_isVodServer = isVodServer; }
   bool isVodServer() { return m_isVodServer; }
+  using GenericMediaServer::lookupServerMediaSession;
 
 protected:
   DynamicRTSPServer(UsageEnvironment& env, int ourSocketIPv4, int ourSocketIPv6, Port ourPort,

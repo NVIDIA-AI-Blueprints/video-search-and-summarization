@@ -512,9 +512,13 @@ rtvi:
         value: "kafka"
       - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
         value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
+        value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
+        value: "1024"
+      - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
+        value: "false"
       # Optional EVS++ session controls.
-      - name: VIA_EVS_DECISION_LAG
-        value: ""
       - name: VIA_EVS_SESSION
         value: ""
       - name: VLLM_EVS_SIMILARITY_THRESHOLD
@@ -524,26 +528,6 @@ rtvi:
       - name: VIA_EVS_TOKEN_BUDGET
         value: ""
       - name: VIA_EVS_MAX_SESSIONS
-        value: ""
-      - name: VIA_EVS_MIN_CLIPS
-        value: ""
-      - name: VIA_EVS_EVENT_ONLY
-        value: ""
-      - name: VIA_EVS_EMA_MEMORY_S
-        value: ""
-      - name: VIA_EVS_SPIKE_STD_K
-        value: ""
-      - name: VIA_EVS_SETTLING_STD_K
-        value: ""
-      - name: VIA_EVS_STD_FLOOR_RATIO
-        value: ""
-      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
-        value: ""
-      - name: VIA_EVS_STREAMING_PREFILL
-        value: ""
-      - name: VIA_PD_SERVER_URL
-        value: ""
-      - name: VIA_PD_SERVER_TIMEOUT_S
         value: ""
       - name: VLLM_USE_AOT_COMPILE
         value: "0"
@@ -635,3 +619,18 @@ nims:
         nvidia.com/gpu: "1"
       requests:
         nvidia.com/gpu: "1"
+
+# Optional monitoring subchart (Kubernetes port of services/monitoring compose).
+# Off by default here so bare `helm install` (no -f values-lvs.yaml) doesn't add
+# a monitoring DaemonSet. values-lvs.yaml turns dcgm-exporter on to match the
+# LVS compose profile's dcgm-exporter opt-in.
+monitoring:
+  enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  dcgmExporter:
+    enabled: false

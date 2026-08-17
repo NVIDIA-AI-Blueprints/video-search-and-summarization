@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,13 +32,13 @@ extern "C" void* createPeerConnectionReplayManagerObject()
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
     std::shared_ptr<PeerConnectionManager> pcm = std::make_shared<PeerConnectionManager>("replay", audioLayer, publishFilter, deviceManager);
 
-    return static_cast<void*>(static_cast<IVstModule*>(new ReplayPeerConnection(pcm, deviceManager)));
+    auto replayPeerConnection = std::make_unique<ReplayPeerConnection>(pcm, deviceManager);
+    return static_cast<void*>(static_cast<IVstModule*>(replayPeerConnection.release()));
 }
 
 extern "C" void deletePeerConnectionReplayManagerObject(IVstModule* object)
 {
-    ReplayPeerConnection* pcm_live = static_cast<ReplayPeerConnection*>(object);
-    delete pcm_live;
+    std::unique_ptr<ReplayPeerConnection> pcm_live(static_cast<ReplayPeerConnection*>(object));
 }
 
 ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager> peerConnectionManager,
@@ -663,7 +663,7 @@ VmsErrorCode ReplayPeerConnection::handleReplayConfiguration(const Json::Value &
         response["enableGstDebugProbes"] = config.enable_gst_debug_probes;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
         response["enableDecLowLatencyMode"] = config.enable_dec_low_latency_mode;
         response["webrtc_video_quality_tunning"] = config.webrtc_video_quality_tunning;

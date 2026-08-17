@@ -15,7 +15,9 @@
 
 import asyncio
 import concurrent.futures
+import contextlib
 import copy
+import hashlib
 import json
 import math
 import os
@@ -35,11 +37,17 @@ from PIL import Image, ImageDraw, ImageFont
 
 from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
+from common.service_exception import ServiceException
 from models.base_vlm_model import (
     BaseVlmModel,
     InputConfig,
     VlmGenerationConfig,
     VlmModelOutput,
+)
+from models.vllm_compatible.adaptive_preprocess_limiter import (
+    AdaptivePreprocessConfig,
+    AdaptivePreprocessLimiter,
+    PreprocessAdmissionTimeout,
 )
 
 _RTVI_VLLM_ENV_ALIASES = {
@@ -61,14 +69,30 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_MAX_NUM_SEQS": "RTVI_VLLM_MAX_NUM_SEQS",
     "VLLM_NUM_SCHEDULER_STEPS": "RTVI_VLLM_NUM_SCHEDULER_STEPS",
     "VLLM_NUM_PREPROCESS_WORKERS": "RTVI_VLLM_NUM_PREPROCESS_WORKERS",
+    "VLLM_EVS_SIMILARITY_THRESHOLD": "RTVI_VLLM_EVS_SIMILARITY_THRESHOLD",
     "VLLM_ROOT": "RTVI_VLLM_ROOT",
 }
 
 _DEFAULT_VLLM_NUM_PREPROCESS_WORKERS = 16
+# Legacy admission serializes frontend preprocessing so transient allocations do not overlap.
+_LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS = 1
+# Keep at most one c128 2K-equivalent wave of CUDA-IPC multimodal inputs resident
+# until EngineCore produces the first output (which proves encoder consumption).
+# A 4K request consumes two units and an 8K request four, so the residency limits
+# become 64 and 32 respectively without changing the logical 128-request queue.
+_MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS = 128
+_CUDA_MM_2K_REFERENCE_FRAMES = 10
 _BLANK_DEFAULT_VLLM_IMPORT_ENV_VARS = (
     "VLLM_CONFIGURE_LOGGING",
     "VLLM_LOGGING_LEVEL",
 )
+
+
+def _is_cuda_oom_error(error: object) -> bool:
+    oom_error_type = getattr(torch, "OutOfMemoryError", None)
+    return (
+        oom_error_type is not None and isinstance(error, oom_error_type)
+    ) or "CUDA out of memory" in str(error)
 
 
 def _get_rtvi_vllm_env(name: str, default: str | None = None) -> str | None:
@@ -143,6 +167,75 @@ def _get_num_preprocess_workers() -> int:
     return num_workers
 
 
+def _get_adaptive_preprocess_config() -> AdaptivePreprocessConfig:
+    env_name = "RTVI_VLLM_ADAPTIVE_PREPROCESS"
+    raw_config = (os.environ.get(env_name) or "disabled").strip()
+    executor_max_workers = _get_num_preprocess_workers()
+    mode = raw_config.lower()
+    overrides = {}
+
+    if raw_config.startswith("{"):
+        try:
+            parsed = json.loads(raw_config)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid value for {env_name}: malformed JSON: {exc.msg}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(f"Invalid value for {env_name}: JSON value must be an object")
+        mode = parsed.pop("mode", "shadow")
+        if not isinstance(mode, str):
+            raise ValueError(f"Invalid value for {env_name}: 'mode' must be a string")
+        mode = mode.strip().lower()
+
+        integer_fields = {
+            "min_workers",
+            "max_workers",
+            "gpu_headroom_mb",
+            "initial_estimated_request_mb",
+            "healthy_completions_for_increase",
+            "calibration_samples_required",
+        }
+        number_fields = {
+            "estimate_safety_factor",
+            "admission_timeout_seconds",
+            "estimate_ewma_alpha",
+            "poll_interval_seconds",
+            "scale_up_cooldown_seconds",
+            "scale_up_gpu_utilization_threshold_percent",
+        }
+        unknown_fields = set(parsed) - integer_fields - number_fields
+        if unknown_fields:
+            unknown = ", ".join(sorted(unknown_fields))
+            raise ValueError(f"Invalid value for {env_name}: unknown field(s): {unknown}")
+        for field in integer_fields & set(parsed):
+            value = parsed[field]
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"Invalid value for {env_name}: '{field}' must be an integer")
+        for field in number_fields & set(parsed):
+            value = parsed[field]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"Invalid value for {env_name}: '{field}' must be a number")
+        overrides = parsed
+
+    if mode not in {"disabled", "shadow", "enforced"}:
+        raise ValueError(
+            f"Invalid value for {env_name}: mode must be disabled, shadow, or enforced"
+        )
+
+    overrides["max_workers"] = min(
+        overrides.get("max_workers", executor_max_workers),
+        executor_max_workers,
+    )
+    return AdaptivePreprocessConfig(
+        enabled=mode != "disabled",
+        shadow_mode=mode != "enforced",
+        **overrides,
+    )
+
+
 def _apply_kv_cache_dtype_override(
     engine_args_kwargs: dict[str, object],
     supported_params: set[str],
@@ -202,6 +295,27 @@ def _parse_float_env(name: str, default: float) -> float:
     return parsed
 
 
+def _get_evs_token_budget() -> int:
+    """Visual-token budget an EVS session accumulates before forcing generation.
+
+    Defaults to 1: generate on every clip rather than packing tokens across
+    clips, which keeps caption counts aligned with the non-EVS path.
+    """
+    value = (os.environ.get("VIA_EVS_TOKEN_BUDGET") or "").strip()
+    return int(value or "1")
+
+
+def _get_evs_similarity_threshold() -> float:
+    """Server default for EVS session-mode cosine-dissimilarity pruning.
+
+    Read through the alias: _sanitize_rtvi_vllm_env() renames the variable out
+    of the VLLM_ namespace before vLLM is imported, so a raw os.environ lookup
+    here would silently fall back to the default.
+    """
+    value = (_get_rtvi_vllm_env("VLLM_EVS_SIMILARITY_THRESHOLD", "") or "").strip()
+    return float(value or "0.4")
+
+
 def _get_mm_processor_cache_gb() -> float:
     if (_get_rtvi_vllm_env("VLLM_MM_PROCESSOR_CACHE_GB", "") or "").strip():
         return _parse_float_env("VLLM_MM_PROCESSOR_CACHE_GB", 1.0)
@@ -230,6 +344,11 @@ _NIM_DEFAULT_SHORTEST_EDGE = 3136
 _EVS_MM_PROCESSOR_DEFAULTS = {
     "do_sample_frames": False,
 }
+
+# Qwen3-VL's video processor rejects a clip shorter than its temporal factor
+# ("t:1 must be larger than temporal_factor:2" from smart_resize), so an EVS
+# clip is padded up to this many frames before it is handed to the session.
+_EVS_MIN_CLIP_FRAMES = 2
 
 
 _DEFAULT_MAX_VIDEO_FRAMES = "256"
@@ -376,6 +495,23 @@ def _build_evs_sampling_kwargs(max_tokens, generation_config):
     if min_tokens is not None:
         kwargs["min_tokens"] = int(min_tokens)
 
+    return kwargs
+
+
+def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
+    """Build regular vLLM sampling kwargs without dropping greedy decoding."""
+    kwargs = {
+        "temperature": config.temperature,
+        "top_p": config.top_p,
+        "top_k": int(config.top_k),
+        "max_tokens": config.max_new_tokens,
+        "repetition_penalty": config.repetition_penalty,
+    }
+    if config.min_tokens is not None:
+        kwargs["min_tokens"] = config.min_tokens
+    env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
+    if env_ignore_eos or config.ignore_eos is not None:
+        kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
     return kwargs
 
 
@@ -676,7 +812,20 @@ class VllmCompatible(BaseVlmModel):
         """Initialize the VllmCompatible model"""
         # Initialize model-specific attributes
         self._vlm_model_type = vlm_model_type
+        self._use_cuda_mm_tensor_ipc = False
+        self._cuda_mm_legacy_preprocess_semaphore = None
+        self._multimodal_preprocess_limiter = None
+        self._adaptive_preprocess_pending_submission_ids = set()
+        self._cuda_mm_pending_submission_ids = set()
+        self._cuda_mm_resident_units_by_request = {}
+        self._cuda_mm_residency_lock = threading.Lock()
+        self._cuda_ipc_collect_event = threading.Event()
+        self._cuda_ipc_collect_thread = None
         self.model_dir_name = os.path.basename(os.path.normpath(self.model_path))
+        self._live_request_ids: dict[str, set[str]] = {}
+        self._live_request_futures: dict[str, concurrent.futures.Future] = {}
+        self._live_stream_abort_requested: set[str] = set()
+        self._live_request_ids_lock = threading.Lock()
 
         # Set resize parameters
         self._max_pixels = MAX_PIXELS
@@ -844,6 +993,12 @@ class VllmCompatible(BaseVlmModel):
                     if "mm_tensor_ipc" in _engine_supported_params:
                         engine_args_kwargs["mm_tensor_ipc"] = mm_tensor_ipc
                         logger.info("VLLM MM tensor IPC mode: %s", mm_tensor_ipc)
+                        self._use_cuda_mm_tensor_ipc = (
+                            mm_tensor_ipc == "torch_shm"
+                            and self._model_architecture in _QWEN3VL_ARCHS
+                        )
+                        if self._use_cuda_mm_tensor_ipc:
+                            logger.info("Passing raw Qwen3-VL video tensors to vLLM on CUDA")
                     else:
                         logger.warning(
                             "VLLM_MM_TENSOR_IPC=%s ignored; installed vLLM does not support "
@@ -951,7 +1106,7 @@ class VllmCompatible(BaseVlmModel):
                 # Similarity-based (content-dependent) pruning only applies on
                 # the EVS session/encode path, so gate it on VIA_EVS_SESSION.
                 # When session mode is on: use VLLM_EVS_SIMILARITY_THRESHOLD if
-                # provided, else default 0.2. When session mode is off: leave
+                # provided, else default 0.4. When session mode is off: leave
                 # evs_similarity_threshold=None so the engine uses deterministic
                 # fixed-rate pruning (video_pruning_rate) instead.
                 _evs_session_on = os.environ.get("VIA_EVS_SESSION", "").lower() in (
@@ -966,9 +1121,7 @@ class VllmCompatible(BaseVlmModel):
                         "EVS session mode is not supported for NemotronH_Nano_Omni_Reasoning_V3"
                     )
                 if "evs_similarity_threshold" in _engine_supported_params and _evs_session_on:
-                    engine_args_kwargs["evs_similarity_threshold"] = float(
-                        os.environ.get("VLLM_EVS_SIMILARITY_THRESHOLD") or "0.2"
-                    )
+                    engine_args_kwargs["evs_similarity_threshold"] = _get_evs_similarity_threshold()
                 if "enable_mm_embeds" in _engine_supported_params:
                     engine_args_kwargs["enable_mm_embeds"] = True
                 if "num_preprocess_workers" in _engine_supported_params:
@@ -1004,6 +1157,39 @@ class VllmCompatible(BaseVlmModel):
             self._output_tpool = concurrent.futures.ThreadPoolExecutor(
                 max_workers=self._max_batch_size
             )
+            adaptive_config = _get_adaptive_preprocess_config()
+            if adaptive_config.enabled:
+                self._multimodal_preprocess_limiter = AdaptivePreprocessLimiter(
+                    adaptive_config,
+                    self._get_cuda_free_memory_mb,
+                    self._get_cuda_utilization_percent,
+                )
+                self._multimodal_preprocess_limiter.register_otel_metrics()
+                logger.info(
+                    "Adaptive multimodal preprocessing enabled: "
+                    "shadow_mode=%s, workers=%d..%d, headroom=%d MiB, "
+                    "initial_estimate=%d MiB/request, safety_factor=%.2f, timeout=%.1fs, "
+                    "scale_up_cooldown=%.1fs, scale_up_gpu_threshold=%.1f%%, "
+                    "calibration_samples=%d, tensor_ipc=%s",
+                    adaptive_config.shadow_mode,
+                    adaptive_config.min_workers,
+                    adaptive_config.max_workers,
+                    adaptive_config.gpu_headroom_mb,
+                    adaptive_config.initial_estimated_request_mb,
+                    adaptive_config.estimate_safety_factor,
+                    adaptive_config.admission_timeout_seconds,
+                    adaptive_config.scale_up_cooldown_seconds,
+                    adaptive_config.scale_up_gpu_utilization_threshold_percent,
+                    adaptive_config.calibration_samples_required,
+                    self._use_cuda_mm_tensor_ipc,
+                )
+            if self._use_cuda_mm_tensor_ipc:
+                self._cuda_ipc_collect_thread = threading.Thread(
+                    target=self._collect_released_cuda_ipc_allocations,
+                    name="rtvi-cuda-ipc-collect",
+                    daemon=True,
+                )
+                self._cuda_ipc_collect_thread.start()
 
     @property
     def model_name(self):
@@ -1159,6 +1345,400 @@ class VllmCompatible(BaseVlmModel):
         )
         return updated_text
 
+    @staticmethod
+    def _get_cuda_free_memory_mb() -> int:
+        device_count = torch.cuda.device_count()
+        if device_count < 1:
+            raise RuntimeError("No CUDA devices are visible")
+        return min(
+            int(torch.cuda.mem_get_info(device)[0] / (1024 * 1024))
+            for device in range(device_count)
+        )
+
+    @staticmethod
+    def _get_cuda_utilization_percent() -> float:
+        device_count = torch.cuda.device_count()
+        if device_count < 1:
+            raise RuntimeError("No CUDA devices are visible")
+        return max(float(torch.cuda.utilization(device)) for device in range(device_count))
+
+    @staticmethod
+    def _multimodal_preprocess_workload(
+        llm_inputs,
+        sampling_params=None,
+    ) -> tuple[str, int]:
+        """Describe raw multimodal work without assuming a model processor.
+
+        The model process owns the resulting calibration table, so changing the
+        model starts with an empty table. Shape, dtype, modality, processor
+        options, and raw payload size distinguish workloads within that model.
+        """
+
+        descriptors = []
+        payload_bytes = 0
+        multi_modal_data = llm_inputs.get("multi_modal_data", {})
+        if not isinstance(multi_modal_data, dict):
+            multi_modal_data = {}
+
+        for modality in sorted(multi_modal_data):
+            value = multi_modal_data[modality]
+            items = value if isinstance(value, list) else [value]
+            for item in items:
+                media = item[0] if isinstance(item, tuple) and item else item
+                shape = tuple(int(dimension) for dimension in getattr(media, "shape", ()))
+                dtype = str(getattr(media, "dtype", type(media).__name__))
+                nbytes = getattr(media, "nbytes", None)
+                if callable(nbytes):
+                    nbytes = nbytes()
+                if nbytes is None and isinstance(media, torch.Tensor):
+                    nbytes = media.numel() * media.element_size()
+                if nbytes is None and isinstance(media, Image.Image):
+                    channels = len(media.getbands())
+                    nbytes = media.width * media.height * channels
+                    shape = (media.height, media.width, channels)
+                    dtype = f"PIL.{media.mode}"
+                if nbytes is None and isinstance(media, (bytes, bytearray, memoryview)):
+                    nbytes = len(media)
+                    shape = (nbytes,)
+                nbytes = max(0, int(nbytes or 0))
+                payload_bytes += nbytes
+                descriptors.append((modality, shape, dtype, nbytes))
+
+        processor_kwargs = llm_inputs.get("mm_processor_kwargs", {})
+        try:
+            processor_signature = json.dumps(
+                processor_kwargs,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        except (TypeError, ValueError):
+            processor_signature = repr(processor_kwargs)
+        prompt_tokens = len(llm_inputs.get("prompt_token_ids", ()))
+        max_tokens = int(getattr(sampling_params, "max_tokens", 0) or 0)
+
+        def power_of_two_bucket(value: int) -> int:
+            return 0 if value < 1 else 1 << (value - 1).bit_length()
+
+        signature = json.dumps(
+            {
+                "media": descriptors,
+                "processor": processor_signature,
+                "prompt_token_bucket": power_of_two_bucket(prompt_tokens),
+                "output_token_bucket": power_of_two_bucket(max_tokens),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        workload_key = hashlib.sha256(signature.encode("utf-8")).hexdigest()[:16]
+        return workload_key, max(1, math.ceil(payload_bytes / (1024 * 1024)))
+
+    def _ensure_legacy_preprocess_semaphore(self):
+        if self._cuda_mm_legacy_preprocess_semaphore is None:
+            self._cuda_mm_legacy_preprocess_semaphore = asyncio.Semaphore(
+                _LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS
+            )
+            logger.info(
+                "Limiting concurrent CUDA multimodal prompt preprocessing "
+                "to %d while retaining %d configured vLLM preprocess workers",
+                _LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS,
+                _get_num_preprocess_workers(),
+            )
+        return self._cuda_mm_legacy_preprocess_semaphore
+
+    async def _add_multimodal_request(self, request_id, llm_inputs, vllm_sampling_params):
+        # Decoder backpressure may spill raw video frames to CPU. Promote only
+        # after admission so concurrent copies cannot recreate a residency burst.
+        multi_modal_data = llm_inputs.get("multi_modal_data")
+        if isinstance(multi_modal_data, dict):
+            video_items = multi_modal_data.get("video")
+            if isinstance(video_items, list) and video_items:
+                video_item = video_items[0]
+                if isinstance(video_item, tuple):
+                    video_tensor, video_metadata = video_item
+                else:
+                    video_tensor, video_metadata = video_item, None
+                if (
+                    self._use_cuda_mm_tensor_ipc
+                    and isinstance(video_tensor, torch.Tensor)
+                    and not video_tensor.is_cuda
+                ):
+                    video_tensor = video_tensor.to(
+                        device=torch.device("cuda", torch.cuda.current_device())
+                    )
+                    video_items[0] = (
+                        (video_tensor, video_metadata)
+                        if isinstance(video_item, tuple)
+                        else video_tensor
+                    )
+        return await self._llm.add_request(
+            request_id,
+            llm_inputs,
+            vllm_sampling_params,
+        )
+
+    async def _generate_with_preprocess_admission(
+        self,
+        llm_inputs,
+        vllm_sampling_params,
+        request_id,
+    ):
+        """Submit a multimodal prompt with bounded frontend preprocessing.
+
+        AsyncLLM.add_request() returns after its threaded InputProcessor finishes.
+        The default RPC path retains admission until the first EngineCore output,
+        which proves the visual encoder has consumed the processed request.
+        """
+        from vllm.v1.engine.async_llm import STREAM_FINISHED
+
+        output_queue = None
+        admission = None
+        preprocess_success = False
+        preprocess_memory_pressure = False
+        memory_sampler_task = None
+
+        async def sample_memory_until_release():
+            while admission is not None:
+                limiter.sample_active_memory(request_id)
+                await asyncio.sleep(limiter.config.poll_interval_seconds)
+
+        async def release_admission():
+            nonlocal admission, memory_sampler_task
+            if admission is None:
+                return
+            workload_key = admission.workload_key
+            limiter.sample_active_memory(request_id)
+            if memory_sampler_task is not None:
+                memory_sampler_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await memory_sampler_task
+                memory_sampler_task = None
+            previous_snapshot = limiter.snapshot()
+            await limiter.release(
+                admission,
+                success=preprocess_success,
+                memory_pressure=preprocess_memory_pressure,
+            )
+            admission = None
+            snapshot = limiter.snapshot()
+            if snapshot.effective_limit != previous_snapshot.effective_limit:
+                logger.info(
+                    "Adaptive multimodal preprocessing limit changed: "
+                    "previous=%d, current=%d, memory_pressure_events=%d, "
+                    "pressure_active=%s, backpressure=%s, cooldown_remaining=%.1fs, "
+                    "gpu_utilization=%s%%, free=%s MiB, reserved=%d MiB",
+                    previous_snapshot.effective_limit,
+                    snapshot.effective_limit,
+                    snapshot.memory_pressure_events,
+                    snapshot.memory_pressure_active,
+                    snapshot.backpressure_observed,
+                    snapshot.scale_up_cooldown_remaining_seconds,
+                    snapshot.last_gpu_utilization_percent,
+                    snapshot.last_free_memory_mb,
+                    snapshot.pending_reserved_mb,
+                )
+            logger.debug(
+                "Multimodal preprocessing release: request=%s, observed=%s MiB, "
+                "active=%d, queued=%d, limit=%d, reserved=%d MiB",
+                request_id,
+                snapshot.estimated_mb_by_workload.get(workload_key),
+                snapshot.active,
+                snapshot.queued,
+                snapshot.effective_limit,
+                snapshot.pending_reserved_mb,
+            )
+
+        try:
+            workload_key, payload_mb = self._multimodal_preprocess_workload(
+                llm_inputs,
+                vllm_sampling_params,
+            )
+            limiter = self._multimodal_preprocess_limiter
+            if limiter is not None:
+                try:
+                    admission = await limiter.acquire(
+                        request_id,
+                        workload_key,
+                        payload_mb,
+                    )
+                    memory_sampler_task = asyncio.create_task(sample_memory_until_release())
+                except PreprocessAdmissionTimeout as exc:
+                    snapshot = limiter.snapshot()
+                    logger.warning(
+                        "Adaptive multimodal preprocessing admission timed out: "
+                        "request=%s, workload=%s, payload=%d MiB, active=%d, queued=%d, "
+                        "limit=%d, free=%s MiB, reserved=%d MiB",
+                        request_id,
+                        workload_key,
+                        payload_mb,
+                        snapshot.active,
+                        snapshot.queued,
+                        snapshot.effective_limit,
+                        snapshot.last_free_memory_mb,
+                        snapshot.pending_reserved_mb,
+                    )
+                    raise ServiceException(
+                        "Insufficient GPU memory for multimodal preprocessing. "
+                        "Retry after active requests complete or reduce video frames/resolution.",
+                        "ServerBusy",
+                        503,
+                    ) from exc
+                logger.debug(
+                    "Multimodal preprocessing admission: request=%s, workload=%s, "
+                    "payload=%d MiB, estimate=%d MiB, wait=%.3fs, enforced=%s, "
+                    "would_admit=%s",
+                    request_id,
+                    workload_key,
+                    payload_mb,
+                    admission.estimated_mb,
+                    admission.wait_seconds,
+                    admission.enforced,
+                    admission.policy_would_admit,
+                )
+
+            use_legacy_gate = self._use_cuda_mm_tensor_ipc and (
+                limiter is None or limiter.config.shadow_mode
+            )
+            try:
+                if use_legacy_gate:
+                    async with self._ensure_legacy_preprocess_semaphore():
+                        output_queue = await self._add_multimodal_request(
+                            request_id,
+                            llm_inputs,
+                            vllm_sampling_params,
+                        )
+                else:
+                    output_queue = await self._add_multimodal_request(
+                        request_id,
+                        llm_inputs,
+                        vllm_sampling_params,
+                    )
+                preprocess_success = True
+            except Exception as exc:
+                preprocess_memory_pressure = _is_cuda_oom_error(exc)
+                raise
+            finally:
+                if self._use_cuda_mm_tensor_ipc:
+                    await release_admission()
+            if self._use_cuda_mm_tensor_ipc:
+                self._finish_cuda_mm_submission(request_id)
+
+            # add_request has completed frontend preprocessing and submitted the
+            # EngineCore request.  EngineCore owns the processed IPC tensors now;
+            # the raw input frames are no longer needed by this process.
+            multi_modal_data = llm_inputs.get("multi_modal_data")
+            if isinstance(multi_modal_data, dict):
+                multi_modal_data.clear()
+            llm_inputs.clear()
+
+            finished = False
+            while not finished:
+                output = output_queue.get_nowait() or await output_queue.get()
+                finished = output.finished
+                if output is not STREAM_FINISHED:
+                    await release_admission()
+                    self._finish_preprocess_submission(request_id)
+                    if self._use_cuda_mm_tensor_ipc:
+                        self._release_cuda_mm_residency(request_id)
+                    yield output
+        except (asyncio.CancelledError, GeneratorExit):
+            preprocess_success = False
+            if output_queue is not None:
+                await self._llm.abort(output_queue.request_id, internal=True)
+            raise
+        except Exception as exc:
+            preprocess_success = False
+            preprocess_memory_pressure = _is_cuda_oom_error(exc)
+            if output_queue is not None:
+                await self._llm.abort(output_queue.request_id, internal=True)
+            raise
+        finally:
+            await release_admission()
+            self._finish_preprocess_submission(request_id)
+            if self._use_cuda_mm_tensor_ipc:
+                self._finish_cuda_mm_submission(request_id)
+                self._release_cuda_mm_residency(request_id)
+            # Also release an input rejected during preprocessing. In the
+            # successful path these mappings are already empty.
+            multi_modal_data = llm_inputs.get("multi_modal_data")
+            if isinstance(multi_modal_data, dict):
+                multi_modal_data.clear()
+            llm_inputs.clear()
+            if output_queue is not None:
+                output_queue.close()
+
+    @staticmethod
+    def _should_use_preprocess_admission(use_tensor_ipc, limiter) -> bool:
+        return use_tensor_ipc or limiter is not None
+
+    def _register_live_request(self, stream_id: str, request_id: str) -> None:
+        lock = getattr(self, "_live_request_ids_lock", None)
+        if lock is None:
+            self._live_request_ids_lock = threading.Lock()
+            self._live_request_ids = {}
+            self._live_request_futures = {}
+            self._live_stream_abort_requested = set()
+            lock = self._live_request_ids_lock
+        with lock:
+            self._live_request_ids.setdefault(stream_id, set()).add(request_id)
+
+    def _attach_live_request_future(
+        self,
+        stream_id: str,
+        request_id: str,
+        request_future: concurrent.futures.Future,
+    ) -> None:
+        with self._live_request_ids_lock:
+            self._live_request_futures[request_id] = request_future
+            abort_requested = stream_id in self._live_stream_abort_requested
+        if abort_requested:
+            request_future.cancel()
+
+    def _release_live_request(self, stream_id: Optional[str], request_id: str) -> None:
+        if request_id in self._inflight_req_ids:
+            self._inflight_req_ids.remove(request_id)
+        if not stream_id:
+            return
+        lock = getattr(self, "_live_request_ids_lock", None)
+        if lock is None:
+            return
+        with lock:
+            self._live_request_futures.pop(request_id, None)
+            request_ids = self._live_request_ids.get(stream_id)
+            if request_ids is None:
+                return
+            request_ids.discard(request_id)
+            if not request_ids:
+                self._live_request_ids.pop(stream_id, None)
+                self._live_stream_abort_requested.discard(stream_id)
+
+    def abort_live_stream_requests(self, stream_id: str, timeout_sec: float = 30.0) -> int:
+        """Abort vLLM requests currently owned by one live stream."""
+        lock = getattr(self, "_live_request_ids_lock", None)
+        if lock is None:
+            return 0
+        with lock:
+            request_ids = tuple(self._live_request_ids.get(stream_id, ()))
+            self._live_stream_abort_requested.add(stream_id)
+            request_futures = tuple(
+                future
+                for request_id in request_ids
+                if (future := self._live_request_futures.get(request_id)) is not None
+            )
+        if not request_ids:
+            return 0
+
+        abort_future = asyncio.run_coroutine_threadsafe(
+            self._llm.abort(request_ids),
+            self._event_loop,
+        )
+        try:
+            abort_future.result(timeout=timeout_sec)
+        finally:
+            for request_future in request_futures:
+                request_future.cancel()
+        return len(request_ids)
+
     async def process_async_vllm(
         self,
         llm_inputs,
@@ -1167,22 +1747,58 @@ class VllmCompatible(BaseVlmModel):
         request_id,
         chunk=None,
         preserve_reasoning_tags=False,
+        stream_id: Optional[str] = None,
     ):
+        try:
+            return await self._process_async_vllm(
+                llm_inputs,
+                vllm_sampling_params,
+                video_frames_times,
+                request_id,
+                chunk,
+                preserve_reasoning_tags,
+            )
+        finally:
+            self._release_live_request(stream_id, request_id)
+
+    async def _process_async_vllm(
+        self,
+        llm_inputs,
+        vllm_sampling_params,
+        video_frames_times,
+        request_id,
+        chunk=None,
+        preserve_reasoning_tags=False,
+    ):
+        use_tensor_ipc = getattr(self, "_use_cuda_mm_tensor_ipc", False)
         if CPU_COPY_OTHER_THREAD:
             if "video" in llm_inputs["multi_modal_data"]:
                 video_tensor = llm_inputs["multi_modal_data"]["video"][0][0]
                 video_metadata = llm_inputs["multi_modal_data"]["video"][0][1]
 
-                # Run CPU copy in thread pool to avoid blocking event loop. Even
-                # with vLLM mm_tensor_ipc=torch_shm, raw RTVI video frames must
-                # enter vLLM as numpy so the model processor handles layout and
-                # resizing normally. Tensor IPC is for vLLM's processed tensors.
-                video_tensor_cpu = await asyncio.to_thread(lambda: video_tensor.cpu().numpy())
-
-                llm_inputs["multi_modal_data"]["video"][0] = (
-                    video_tensor_cpu,
-                    video_metadata,
-                )
+                if use_tensor_ipc:
+                    # The HF torch video path expects TCHW. Its numpy path used
+                    # by the baseline detects and converts RTVI's native THWC
+                    # layout automatically.
+                    if video_tensor.ndim == 4 and video_tensor.shape[-1] in (1, 3, 4):
+                        video_tensor = video_tensor.permute(0, 3, 1, 2)
+                    llm_inputs["multi_modal_data"]["video"][0] = (
+                        video_tensor,
+                        video_metadata,
+                    )
+                    # Keep only the reference in llm_inputs so the CUDA prompt
+                    # can be released immediately after add_request returns.
+                    del video_tensor
+                else:
+                    # The direct-RPC path serializes raw frames as numpy. With
+                    # torch_shm, keep Qwen3-VL frames on CUDA: its fast HF
+                    # processor is torch-native and the processed CUDA tensor is
+                    # transferred to EngineCore by vLLM's tensor IPC queue.
+                    video_tensor_cpu = await asyncio.to_thread(lambda: video_tensor.cpu().numpy())
+                    llm_inputs["multi_modal_data"]["video"][0] = (
+                        video_tensor_cpu,
+                        video_metadata,
+                    )
             else:
                 # Single image: extract tensor, convert to CPU for vLLM.
                 # NemotronH_Nano_VL_V2/Omni_Reasoning_V3 use NanoNemotronVLProcessor whose image path
@@ -1206,11 +1822,23 @@ class VllmCompatible(BaseVlmModel):
         final_output = None
         with TimeMeasure("vLLM generate"):
             try:
-                async for output_item in self._llm.generate(
-                    llm_inputs,
-                    sampling_params=vllm_sampling_params,
-                    request_id=request_id,
+                preprocess_limiter = getattr(self, "_multimodal_preprocess_limiter", None)
+                if self._should_use_preprocess_admission(
+                    use_tensor_ipc,
+                    preprocess_limiter,
                 ):
+                    output_stream = self._generate_with_preprocess_admission(
+                        llm_inputs,
+                        vllm_sampling_params,
+                        request_id,
+                    )
+                else:
+                    output_stream = self._llm.generate(
+                        llm_inputs,
+                        sampling_params=vllm_sampling_params,
+                        request_id=request_id,
+                    )
+                async for output_item in output_stream:
                     final_output = output_item
             except ValueError as e:
                 # vLLM raises ValueError for input-validation failures: decoder
@@ -1234,8 +1862,6 @@ class VllmCompatible(BaseVlmModel):
                         "cover the prompt length.",
                         err_msg,
                     )
-                    from common.service_exception import ServiceException
-
                     raise ServiceException(
                         f"Input exceeds model limits: {err_msg} Reduce frames "
                         f"per chunk or raise VLM_MAX_MODEL_LEN.",
@@ -1273,8 +1899,96 @@ class VllmCompatible(BaseVlmModel):
             preserve_reasoning_tags,
         )
 
+    @staticmethod
+    def _cuda_mm_residency_units(llm_inputs) -> int:
+        """Return weighted CUDA residency units for one multimodal request.
+
+        Up to 20 frames, processed-prompt residency scales closely enough with
+        frame count to use one unit per 10 frames.  Above 20 frames, the actual
+        Qwen3-VL processed prompt grows much faster: allowing 21 resident
+        40-frame prompts raised frontend CUDA memory to 17.49 GiB and still
+        OOMed.  Weight those requests at four units per 10 frames, limiting the
+        8K processed-prompt buffer to eight requests.  That matches the eight
+        raw decoder buffers, keeps the encoder fed, and leaves the established
+        2K and 4K limits unchanged.
+        """
+        try:
+            video = llm_inputs["multi_modal_data"]["video"][0]
+            video_tensor = video[0] if isinstance(video, tuple) else video
+            num_frames = int(video_tensor.shape[0])
+        except (KeyError, IndexError, TypeError, AttributeError):
+            return 1
+        linear_units = max(1, math.ceil(num_frames / _CUDA_MM_2K_REFERENCE_FRAMES))
+        if num_frames > (2 * _CUDA_MM_2K_REFERENCE_FRAMES):
+            return linear_units * 4
+        return linear_units
+
+    def _reserve_cuda_mm_residency(self, request_id, llm_inputs) -> None:
+        units = self._cuda_mm_residency_units(llm_inputs)
+        with self._cuda_mm_residency_lock:
+            self._cuda_mm_resident_units_by_request[request_id] = units
+            self._cuda_mm_pending_submission_ids.add(request_id)
+
+    def _release_cuda_mm_residency(self, request_id) -> None:
+        with self._cuda_mm_residency_lock:
+            released_units = self._cuda_mm_resident_units_by_request.pop(request_id, None)
+        if released_units is not None:
+            # EngineCore has dropped its imported torch_shm tensors after the
+            # vision encoder consumed them.  Wake one coalescing collector so
+            # PyTorch can retire the producer-side CUDA IPC refcounter leases.
+            # Do not run ipc_collect() on the model event loop or empty the
+            # allocator cache; both would add synchronization to inference.
+            self._cuda_ipc_collect_event.set()
+
+    def _collect_released_cuda_ipc_allocations(self) -> None:
+        while True:
+            self._cuda_ipc_collect_event.wait()
+            self._cuda_ipc_collect_event.clear()
+            try:
+                torch.cuda.ipc_collect()
+            except Exception:
+                logger.exception("Failed to collect released CUDA IPC allocations")
+
+    def _finish_cuda_mm_submission(self, request_id) -> None:
+        with self._cuda_mm_residency_lock:
+            self._cuda_mm_pending_submission_ids.discard(request_id)
+
+    def _reserve_preprocess_submission(self, request_id) -> None:
+        with self._cuda_mm_residency_lock:
+            self._adaptive_preprocess_pending_submission_ids.add(request_id)
+
+    def _finish_preprocess_submission(self, request_id) -> None:
+        with self._cuda_mm_residency_lock:
+            self._adaptive_preprocess_pending_submission_ids.discard(request_id)
+
     def can_enqueue_requests(self):
         """Check if the model can accept new requests."""
+        limiter = self._multimodal_preprocess_limiter
+        if limiter is not None and not limiter.config.shadow_mode:
+            with self._cuda_mm_residency_lock:
+                if (
+                    len(self._adaptive_preprocess_pending_submission_ids)
+                    >= limiter.queue_capacity()
+                ):
+                    limiter.note_backpressure()
+                    return False
+            if not limiter.can_accept():
+                limiter.note_backpressure()
+                return False
+        if self._use_cuda_mm_tensor_ipc:
+            preprocess_capacity = _LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS
+            if self._multimodal_preprocess_limiter is not None:
+                preprocess_capacity = self._multimodal_preprocess_limiter.queue_capacity()
+            with self._cuda_mm_residency_lock:
+                if len(self._cuda_mm_pending_submission_ids) >= preprocess_capacity:
+                    return False
+                if (
+                    self._multimodal_preprocess_limiter is None
+                    or self._multimodal_preprocess_limiter.config.shadow_mode
+                ) and sum(
+                    self._cuda_mm_resident_units_by_request.values()
+                ) >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS:
+                    return False
         return len(self._inflight_req_ids) < self._max_batch_size
 
     def warmup(self):
@@ -1338,11 +2052,9 @@ class VllmCompatible(BaseVlmModel):
 
             self._evs_handler = OpenAIServingVideoSessions(
                 engine_client=self._llm,
-                max_sessions=int(os.environ.get("VIA_EVS_MAX_SESSIONS") or "100"),
+                max_sessions=int(os.environ.get("VIA_EVS_MAX_SESSIONS") or "256"),
                 pruning_rate=float(os.environ.get("VLM_VIDEO_PRUNING_RATE") or "0.5"),
-                similarity_threshold=float(
-                    os.environ.get("VLLM_EVS_SIMILARITY_THRESHOLD") or "0.2"
-                ),
+                similarity_threshold=_get_evs_similarity_threshold(),
                 pd_server_url=os.environ.get("VIA_PD_SERVER_URL") or None,
                 pd_server_timeout_s=float(os.environ.get("VIA_PD_SERVER_TIMEOUT_S") or "120.0"),
             )
@@ -1363,7 +2075,7 @@ class VllmCompatible(BaseVlmModel):
         """Return (or create) the EVS session for *stream_id*."""
         handler = self._ensure_evs_handler()
 
-        token_budget = int(os.environ.get("VIA_EVS_TOKEN_BUDGET") or "20000")
+        token_budget = _get_evs_token_budget()
         model_name = self._vlm_model_type or self.model_dir_name
 
         event_only = os.environ.get("VIA_EVS_EVENT_ONLY", "false").lower() in (
@@ -1407,23 +2119,33 @@ class VllmCompatible(BaseVlmModel):
         #   - ignore_eos / min_tokens are forwarded (see _build_evs_sampling_kwargs)
         #     so VLLM_IGNORE_EOS reaches event-gated generations for OSL/perf runs.
         session_sampling_kwargs = _build_evs_sampling_kwargs(max_tokens, generation_config)
+        # The key holds only what can actually differ between two requests on the
+        # same stream. A session bakes these in at creation and keeps them for
+        # its life, so reusing a session across a change here would answer with
+        # the wrong prompt or sampling policy.
+        #
+        # Everything else in the create request below is deliberately excluded:
+        #   - The event_* tunables, token_budget and event_only are read from
+        #     os.environ on every call, so they are process constants.
+        #   - timestamp_prompt_template derives from those env vars plus whether
+        #     the source is RTSP, which is a property of the stream.
+        #   - event_chunk_duration_s is measured per chunk as
+        #     (end_pts - start_pts) / 1e9, and live chunks are finalized with
+        #     end_pts rewritten to the real last-frame PTS (see
+        #     video_file_frame_getter.py), so it lands on a different float every
+        #     chunk. Keying on it minted a new session per chunk until the engine
+        #     hit its max-sessions cap. It cannot discriminate anyway: a live
+        #     stream rejects a subscriber whose decode signature (chunk_duration
+        #     included) differs, and each file request gets its own stream id.
+        #
+        # Adding a request-overridable knob to the create request means adding it
+        # here too; adding a process- or stream-scoped one does not.
         session_config_key = _freeze_evs_session_config(
             {
                 "model": model_name,
-                "token_budget": token_budget,
-                "event_only": event_only,
                 "prompt": prompt,
                 "system_prompt": system_prompt or None,
-                "timestamp_prompt_template": timestamp_prompt_template,
                 "sampling_params": session_sampling_kwargs,
-                "event_chunk_duration_s": event_chunk_duration_s_config,
-                "event_ema_memory_s": event_ema_memory_s_config,
-                "event_spike_std_k": event_spike_std_k,
-                "event_settling_std_k": event_settling_std_k,
-                "event_std_floor_ratio": event_std_floor_ratio,
-                "event_min_clips": event_min_clips,
-                "event_downward_baseline_min": event_downward_baseline_min,
-                "event_decision_lag": event_decision_lag,
             }
         )
         session_cache_key = (stream_id, session_config_key)
@@ -1462,7 +2184,37 @@ class VllmCompatible(BaseVlmModel):
         async def _create():
             return await handler.create_session(request)
 
-        resp = asyncio.run_coroutine_threadsafe(_create(), self._event_loop).result()
+        try:
+            resp = asyncio.run_coroutine_threadsafe(_create(), self._event_loop).result()
+        except ServiceException:
+            # Already classified (code + status_code) by the layer that raised
+            # it; re-wrapping would flatten a 400 into a 500.
+            logger.error(
+                "EVS session creation failed for stream %s:\n%s",
+                stream_id,
+                traceback.format_exc(),
+            )
+            raise
+        except Exception as e:
+            # The session manager raises bare RuntimeErrors, so without this the
+            # caller only sees "An unknown error occurred" -- ProcessBase's
+            # _handle_result forwards a message and status code only for a
+            # ServiceException. The most common one is operator-fixable:
+            # "Cannot create session: max sessions (N) reached", which is a
+            # capacity condition (503) rather than an internal fault (500).
+            is_at_capacity = "max sessions" in str(e).lower()
+            logger.error(
+                "EVS session creation failed for stream %s: %r\n%s",
+                stream_id,
+                e,
+                traceback.format_exc(),
+            )
+            hint = " Raise VIA_EVS_MAX_SESSIONS, Default value is 256." if is_at_capacity else ""
+            raise ServiceException(
+                f"EVS session creation failed for stream {stream_id}: {e}.{hint}",
+                "EVSSessionCreateError",
+                503 if is_at_capacity else 500,
+            ) from e
         duplicate_session_id = None
         with self._evs_sessions_lock:
             existing_session_id = self._evs_sessions.get(session_cache_key)
@@ -1486,13 +2238,15 @@ class VllmCompatible(BaseVlmModel):
             return session_id
         logger.info(
             "EVS session created: %s for stream %s (budget=%d, "
-            "event_only=%s, chunk_dur=%.2fs, ema_memory=%.2fs, "
-            "spike_k=%.2f, settling_k=%.2f, std_floor_ratio=%.4f, "
-            "min_clips=%d, downward_baseline_min=%.4f, decision_lag=%d)",
+            "event_only=%s, similarity_threshold=%.2f, chunk_dur=%.2fs, "
+            "ema_memory=%.2fs, spike_k=%.2f, settling_k=%.2f, "
+            "std_floor_ratio=%.4f, min_clips=%d, "
+            "downward_baseline_min=%.4f, decision_lag=%d)",
             session_id,
             stream_id,
             token_budget,
             event_only,
+            _get_evs_similarity_threshold(),
             event_chunk_duration_s,
             event_ema_memory_s,
             event_spike_std_k,
@@ -1664,29 +2418,71 @@ class VllmCompatible(BaseVlmModel):
                 max_frames,
             )
 
+        # Pad a clip that falls below the video processor's temporal factor.
+        # Qwen3-VL's smart_resize rejects a lone frame outright ("t:1 must be
+        # larger than temporal_factor:2"). The regular path never gets there --
+        # a one-frame chunk goes down the image branch (is_single_image), which
+        # has no temporal dimension -- but EVS has no image branch, so every
+        # clip travels as a video. This is reachable from ordinary input: fps
+        # chunking computes int(fps * chunk_seconds), so 4 fps over a 0.167s
+        # clip asks for 0 frames and video_file_frame_getter clamps that to 1.
+        # Repeat the last frame (with its timestamp) so the request still gets
+        # an answer; the duplicate is exactly what EVS similarity pruning
+        # collapses.
+        if 0 < len(images) < _EVS_MIN_CLIP_FRAMES:
+            has_aligned_times = bool(video_frames_times) and len(video_frames_times) == len(images)
+            repeat_index = list(range(len(images)))
+            repeat_index += [len(images) - 1] * (_EVS_MIN_CLIP_FRAMES - len(images))
+            logger.debug(
+                "EVS clip: padded %d frame(s) to %d to satisfy the video "
+                "processor's temporal factor",
+                len(images),
+                _EVS_MIN_CLIP_FRAMES,
+            )
+            images = images[repeat_index]
+            if has_aligned_times:
+                video_frames_times = [video_frames_times[i] for i in repeat_index]
+
         # Build video metadata. Qwen3-VL's HF processor expects
         # frames_indices/fps for video inputs; keep absolute timestamps
         # operator-controlled, but still provide relative metadata by default.
-        video_metadata = {}
-        if len(images) > 1 and video_frames_times and len(video_frames_times) > 1:
+        # It is never optional here: EVS has no single-image branch, so a
+        # degenerate clip (one frame, or timestamps the decoder could not
+        # supply) still goes over as a video. Handing the session an empty dict
+        # leaves frames_indices unset, and Qwen3-VL only recomputes it when
+        # do_sample_frames is on -- which EVS pins off -- so the clip dies in
+        # the processor with "'NoneType' object has no attribute 'tolist'".
+        has_frame_times = bool(video_frames_times) and len(video_frames_times) == len(images)
+        duration = 0.0
+        if has_frame_times and len(video_frames_times) > 1:
             duration = video_frames_times[-1] - video_frames_times[0]
-            if self._uses_absolute_timestamp_metadata():
-                video_metadata = self._build_absolute_timestamp_video_metadata(
-                    images, video_frames_times, duration
-                )
-            else:
-                fps = 1
-                if duration > 0:
-                    fps = (len(video_frames_times) - 1) / duration
-                video_metadata = {
-                    "total_num_frames": len(images),
-                    "frames_indices": list(range(len(images))),
-                    "fps": fps,
-                    "duration": duration,
-                }
+
+        if has_frame_times and self._uses_absolute_timestamp_metadata():
+            video_metadata = self._build_absolute_timestamp_video_metadata(
+                images, video_frames_times, duration
+            )
+        else:
+            # Without usable frame times the clip loses its real timestamps,
+            # not its caption: fall back to relative indices at a nominal fps.
+            fps = 1
+            if duration > 0:
+                fps = (len(video_frames_times) - 1) / duration
+            video_metadata = {
+                "total_num_frames": len(images),
+                "frames_indices": list(range(len(images))),
+                "fps": fps,
+                "duration": duration,
+            }
 
         is_last = getattr(chunk, "is_last", False) if chunk else False
-        client_timestamps = [float(t) for t in video_frames_times] if video_frames_times else []
+        # Same decision as the metadata above: a list that does not describe the
+        # frames being sent must not reach the session, which uses it for the
+        # kept-frame timestamps and the {timestamps} prompt placeholder. The
+        # fallback mirrors the relative metadata (indices at fps=1).
+        if has_frame_times:
+            client_timestamps = [float(t) for t in video_frames_times]
+        else:
+            client_timestamps = [float(i) for i in range(len(images))]
 
         ooo_chunk_id = getattr(chunk, "chunkIdx", None) if chunk is not None else None
 
@@ -1746,9 +2542,38 @@ class VllmCompatible(BaseVlmModel):
 
             try:
                 clip_resp = asyncio.run_coroutine_threadsafe(_add(), self._event_loop).result()
+            except ServiceException:
+                # Already classified (code + status_code) by the layer that
+                # raised it; re-wrapping would flatten a 400 into a 500.
+                logger.error(
+                    "EVS add_clip_tensors failed for stream %s chunk %s:\n%s",
+                    stream_id,
+                    ooo_chunk_id,
+                    traceback.format_exc(),
+                )
+                raise
             except Exception as e:
-                logger.error("EVS add_clip_tensors failed: %r\n%s", e, traceback.format_exc())
-                return placeholder
+                # Surface as a chunk error rather than an empty caption. A
+                # placeholder here made a failed clip indistinguishable from a
+                # successful one with nothing to say, so neither the ERROR_BUS
+                # nor the request's FAILED status ever saw the failure. As a
+                # ServiceException the message survives ProcessBase's
+                # _handle_result verbatim instead of becoming "An unknown error
+                # occurred"; keeping the original text inline also preserves the
+                # CUDA-OOM match that maps the chunk to 503.
+                logger.error(
+                    "EVS add_clip_tensors failed for stream %s chunk %s: %r\n%s",
+                    stream_id,
+                    ooo_chunk_id,
+                    e,
+                    traceback.format_exc(),
+                )
+                raise ServiceException(
+                    f"EVS clip processing failed for stream {stream_id} "
+                    f"(chunk {ooo_chunk_id}): {e}",
+                    "EVSClipProcessingError",
+                    500,
+                ) from e
             finally:
                 _release_inflight()
 
@@ -2080,11 +2905,8 @@ class VllmCompatible(BaseVlmModel):
             "top_p": config.top_p,
             "top_k": int(config.top_k),
             "repetition_penalty": config.repetition_penalty,
+            "temperature": config.temperature,
         }
-
-        # Only include temperature if it's not 0
-        if config.temperature != 0:
-            generation_params["temperature"] = config.temperature
 
         # Set the seed
         seed = config.seed
@@ -2346,28 +3168,36 @@ class VllmCompatible(BaseVlmModel):
         # Generate response using generation parameters
         from vllm import SamplingParams
 
-        sp_kwargs = {
-            "top_p": generation_params["top_p"],
-            "top_k": generation_params["top_k"],
-            "max_tokens": generation_params["max_new_tokens"],
-            "repetition_penalty": generation_params["repetition_penalty"],
-        }
-        if config.min_tokens is not None:
-            sp_kwargs["min_tokens"] = config.min_tokens
-        env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-        if env_ignore_eos or config.ignore_eos is not None:
-            sp_kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+        sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if "temperature" in generation_params:
-            vllm_sampling_params.temperature = generation_params["temperature"]
         if self._vlm_model_type in ("cosmos-reason2", "cosmos-reason3"):
             vllm_sampling_params.no_repeat_ngram_size = 3
 
         try:
             request_id = str(uuid.uuid4())
             self._inflight_req_ids.append(request_id)
+            if self._use_cuda_mm_tensor_ipc:
+                # Account synchronously before handing work to the model event
+                # loop. VlmProcess consults can_enqueue_requests() between queue
+                # reads, so this keeps additional raw CUDA tensors in the
+                # bounded decoder-to-VLM transport queue until add_request has
+                # finished preprocessing this prompt.
+                self._reserve_cuda_mm_residency(request_id, llm_inputs)
+            if (
+                self._multimodal_preprocess_limiter is not None
+                and not self._multimodal_preprocess_limiter.config.shadow_mode
+            ):
+                self._reserve_preprocess_submission(request_id)
 
-            return asyncio.run_coroutine_threadsafe(
+            stream_id = (
+                str(chunks[0].streamId)
+                if kwargs.get("is_live_stream") and getattr(chunks[0], "streamId", None)
+                else None
+            )
+            if stream_id:
+                self._register_live_request(stream_id, request_id)
+
+            generation_future = asyncio.run_coroutine_threadsafe(
                 self.process_async_vllm(
                     llm_inputs,
                     vllm_sampling_params,
@@ -2375,11 +3205,37 @@ class VllmCompatible(BaseVlmModel):
                     request_id,
                     chunks[0],
                     config.preserve_reasoning_tags,
+                    stream_id,
                 ),
                 self._event_loop,
             )
+            if stream_id:
+                self._attach_live_request_future(stream_id, request_id, generation_future)
+
+            # A live-stream teardown can cancel the concurrent future before
+            # process_async_vllm starts (or while cancellation is propagating).
+            # In that case neither the coroutine body nor the async generator's
+            # finally block is guaranteed to run, leaving the logical inflight
+            # count or weighted CUDA-IPC residency permanently full.  Subsequent
+            # streams then remain queued while EngineCore and the GPU are idle.
+            # Normal completions release residency at first encoder output; this
+            # callback is therefore a no-op on the hot path and a final safety
+            # net for cancellation and submission failures.
+            def _cleanup_request_tracking(_future):
+                self._finish_preprocess_submission(request_id)
+                self._finish_cuda_mm_submission(request_id)
+                self._release_cuda_mm_residency(request_id)
+                self._release_live_request(stream_id, request_id)
+
+            generation_future.add_done_callback(_cleanup_request_tracking)
+            return generation_future
 
         except Exception as e:
+            if "request_id" in locals():
+                self._finish_preprocess_submission(request_id)
+                self._finish_cuda_mm_submission(request_id)
+                self._release_cuda_mm_residency(request_id)
+                self._release_live_request(locals().get("stream_id"), request_id)
             logger.error("Error during VLLM async generation: %s", e)
             return [
                 VlmModelOutput(output="Error: Generation failed", input_tokens=0, output_tokens=0)
@@ -2393,15 +3249,6 @@ class VllmCompatible(BaseVlmModel):
         """Text-only generation using the vLLM engine (no multimodal data)."""
         config = generation_config or VlmGenerationConfig()
 
-        generation_params = {
-            "max_new_tokens": config.max_new_tokens,
-            "top_p": config.top_p,
-            "top_k": int(config.top_k),
-            "repetition_penalty": config.repetition_penalty,
-        }
-        if config.temperature != 0:
-            generation_params["temperature"] = config.temperature
-
         prompt = self._processor.apply_chat_template(
             messages,
             tokenize=False,
@@ -2414,20 +3261,8 @@ class VllmCompatible(BaseVlmModel):
 
         from vllm import SamplingParams
 
-        sp_kwargs = {
-            "top_p": generation_params["top_p"],
-            "top_k": generation_params["top_k"],
-            "max_tokens": generation_params["max_new_tokens"],
-            "repetition_penalty": generation_params["repetition_penalty"],
-        }
-        if config.min_tokens is not None:
-            sp_kwargs["min_tokens"] = config.min_tokens
-        env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-        if env_ignore_eos or config.ignore_eos is not None:
-            sp_kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+        sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if "temperature" in generation_params:
-            vllm_sampling_params.temperature = generation_params["temperature"]
 
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
@@ -2522,15 +3357,6 @@ class VllmCompatible(BaseVlmModel):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
 
-        generation_params = {
-            "max_new_tokens": config.max_new_tokens,
-            "top_p": config.top_p,
-            "top_k": int(config.top_k),
-            "repetition_penalty": config.repetition_penalty,
-        }
-        if config.temperature != 0:
-            generation_params["temperature"] = config.temperature
-
         prompt = self._processor.apply_chat_template(
             messages,
             tokenize=False,
@@ -2543,20 +3369,8 @@ class VllmCompatible(BaseVlmModel):
 
         from vllm import SamplingParams
 
-        sp_kwargs = {
-            "top_p": generation_params["top_p"],
-            "top_k": generation_params["top_k"],
-            "max_tokens": generation_params["max_new_tokens"],
-            "repetition_penalty": generation_params["repetition_penalty"],
-        }
-        if config.min_tokens is not None:
-            sp_kwargs["min_tokens"] = config.min_tokens
-        env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-        if env_ignore_eos or config.ignore_eos is not None:
-            sp_kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+        sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if "temperature" in generation_params:
-            vllm_sampling_params.temperature = generation_params["temperature"]
 
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)

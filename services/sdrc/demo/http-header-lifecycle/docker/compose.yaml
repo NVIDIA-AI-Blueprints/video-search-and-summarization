@@ -40,7 +40,7 @@ services:
       retries: 20
 
   nvstreamer:
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG:-2.1.0-26.07.1}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG:-1.4.0-26.08.1}
     container_name: vss-vios-nvstreamer
     user: "0:0"
     runtime: nvidia
@@ -72,7 +72,7 @@ services:
         required: false
 
   sdr-controller:
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.4.0-2026.08.3-1}
     container_name: sdr-controller
     ports:
       # SDRC router API for workload-scoped lifecycle calls.

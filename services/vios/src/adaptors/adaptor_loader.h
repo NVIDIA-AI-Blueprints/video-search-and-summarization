@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,8 +37,9 @@ public:
     ~AdaptorLoader();
     std::shared_ptr<DeviceManager> loadAdaptor(ModuleId module_id = ModuleAll);
 private:
-    int loadControlAdaptorLibrary(const string& path, ISensorControlInterface** object, void** delObject);
-    int loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscoveryInterface** object, void** delObject);
+    int loadControlAdaptorLibrary(const string& path, ISensorControlInterface** object, destroyControlObject_t* delObject);
+    int loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscoveryInterface** object,
+                                    destroyDiscoveryObject_t* delObject);
     int loadSensorControlAdaptorLibrary(const string& path, ISensorControlInterface** object, void** delObject);
 private:
     vector <destroyControlObject_t> m_adaptorDistructorList;

@@ -23,8 +23,13 @@ name: CI
       - "pull-request/[0-9]+"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve every delivery run on develop/main. Synthetic PR mirror branches
+  # still cancel stale runs after a newer PR revision arrives.
+  group: >-
+    ${{ github.workflow }}-${{
+      startsWith(github.ref_name, 'pull-request/') && github.ref || github.run_id
+    }}
+  cancel-in-progress: ${{ startsWith(github.ref_name, 'pull-request/') }}
 
 defaults:
   run:
@@ -45,11 +50,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      build-behavior-analytics: ${{ steps.analytics-changes.outputs.behavior }}
-      build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
+      build-behavior-analytics: ${{ steps.managed-image-changes.outputs.behavior }}
+      build-video-analytics-api: ${{ steps.managed-image-changes.outputs.video }}
       current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
       current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
-      spatialai-data-utils-changed: ${{ steps.changed-paths.outputs.spatialai-data-utils-changed }}
+      sdr-mw-l-changed: ${{ steps.managed-image-changes.outputs.sdr-mw-l }}
+      vss-configurator-changed: ${{ steps.managed-image-changes.outputs.vss-configurator }}
+      vss-rt-config-adaptor-changed: ${{ steps.managed-image-changes.outputs.vss-rt-config-adaptor }}
+      unit-test-workflow-changed: ${{ steps.changed-paths.outputs.unit-test-workflow-changed }}
       trigger-from-src-change: ${{ steps.changed-paths.outputs.trigger-from-src-change }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -100,29 +108,27 @@ jobs:
           )
           paths = changed_paths(repo, base) if base else None
           if base and paths is None:
-              reason += "; diff failed; running Spatial AI Data Utils CI and downstream"
+              reason += "; diff failed; running downstream acceptance"
 
-          changed = paths_changed_under(
-              paths,
-              "libs/analytics/spatialai-data-utils",
-          )
+          unit_test_workflow_changed = paths is None or ".github/workflows/ci.yml" in paths
           trigger_from_src = any(
               paths_changed_under(paths, folder)
               for folder in DOWNSTREAM_TRIGGER_PATHS
           )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(
-                  f"spatialai-data-utils-changed={str(changed).lower()}\n"
+                  "unit-test-workflow-changed="
+                  f"{str(unit_test_workflow_changed).lower()}\n"
               )
               output.write(
                   f"trigger-from-src-change={str(trigger_from_src).lower()}\n"
               )
-          print(f"Spatial AI Data Utils changed: {changed} ({reason})")
+          print(f"Unit-test workflow changed: {unit_test_workflow_changed} ({reason})")
           print(f"Downstream trigger from source: {trigger_from_src} ({reason})")
           PY
 
-      - name: Detect analytics image changes
-        id: analytics-changes
+      - name: Detect managed image changes
+        id: managed-image-changes
         run: |
           python3 .github/scripts/detect_changed_images.py \
             --event-name "${{ github.event_name }}" \
@@ -131,11 +137,23 @@ jobs:
             --base-branch develop > analytics-detection.json
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
+          from pathlib import Path
 
           entries = json.load(open("analytics-detection.json"))["matrix"]["include"]
           names = {entry["name"] for entry in entries}
-          print(f"behavior={str('vss-behavior-analytics' in names).lower()}")
-          print(f"video={str('vss-video-analytics-api' in names).lower()}")
+          inventory = json.loads(Path("deploy/docker/container-inventory.json").read_text())
+          outputs = {
+              entry["name"]: entry["name"]
+              for entry in inventory["images"]
+              if entry.get("strategy") == "build" and entry.get("ghcr_build")
+          }
+          outputs.update({
+              # Backward-compatible aliases used by the existing analytics jobs.
+              "behavior": "vss-behavior-analytics",
+              "video": "vss-video-analytics-api",
+          })
+          for output, image in outputs.items():
+              print(f"{output}={str(image in names).lower()}")
           PY
 
       - name: Resolve current analytics images
@@ -429,6 +447,7 @@ jobs:
         run: |
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
+            .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
@@ -438,6 +457,8 @@ jobs:
             .github/skill-eval/tests/test_run_leg.py::RunCommand \
             .github/skill-eval/tests/test_run_leg.py::ProcessGroupShutdown \
             .github/skill-eval/tests/test_run_leg.py::RunInvocations \
+            .github/skill-eval/tests/test_run_leg.py::TheHeartbeatNamesTheRightPhase \
+            .github/skill-eval/tests/test_run_leg.py::InstrumentationNeverChangesTheVerdict \
             -q
 
       - name: Upload coverage report
@@ -642,17 +663,17 @@ jobs:
           path: services/analytics/video-analytics-api/test/coverage/
 
   # ---------------------------------------------------------------------------
-  # Job 5c: Spatial AI Data Utils tests and package build
+  # Job 5c: SDRC unit tests
   # ---------------------------------------------------------------------------
-  spatialai-data-utils-test:
-    name: Test (Spatial AI Data Utils)
+  sdr-mw-l-test:
+    name: Test (sdr-mw-l)
     needs: prepare-source
-    if: needs.prepare-source.outputs.spatialai-data-utils-changed == 'true'
+    if: needs.prepare-source.outputs.sdr-mw-l-changed == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     defaults:
       run:
-        working-directory: libs/analytics/spatialai-data-utils
+        working-directory: services/sdrc
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -666,149 +687,147 @@ jobs:
           tar -xzf .source-artifact/source.tar.gz --strip-components=1
           rm -rf .source-artifact
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.24"
+
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
-          python-version: "3.13"
+          python-version: "3.10"
 
-      - name: Install system build dependencies
+      - name: Run unit tests
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends g++ git
+          mkdir -p test/coverage
+          uv run --python 3.10 --with pytest --with pytest-cov pytest tests/ -v --tb=short \
+            --junitxml=test/coverage/test-results.xml
 
-      - name: Install hash-locked Python dependencies
-        run: |
-          python -m pip install --upgrade \
-            "pip==26.1.2" \
-            "pipenv==2026.6.2" \
-            "setuptools==82.0.1" \
-            "wheel==0.47.0"
-          python -m pip install \
-            "meson-python==0.20.0" \
-            "ninja==1.11.1.1" \
-            "Cython==3.0.12"
-          pipenv requirements --dev --hash > .ci-requirements.txt
-          python -m pip install \
-            --require-hashes \
-            --no-deps \
-            --no-cache-dir \
-            -r .ci-requirements.txt
-          python -m pip install "pytest==9.0.3" "pytest-cov==7.1.0"
-
-      - name: Install CPU-only PyTorch and PyTorch3D
-        run: |
-          python -m pip install \
-            --no-cache-dir \
-            "torch==2.10.0+cpu" \
-            --extra-index-url https://download.pytorch.org/whl/cpu
-          git clone --filter=blob:none https://github.com/facebookresearch/pytorch3d.git /tmp/vss-spatialai-pytorch3d
-          git -C /tmp/vss-spatialai-pytorch3d checkout 33824be
-          MAX_JOBS=4 FORCE_CUDA=0 python -m pip install \
-            --no-build-isolation \
-            /tmp/vss-spatialai-pytorch3d
-
-      - name: Install Spatial AI Data Utils test extras
-        run: python -m pip install --no-build-isolation -e './release[eval,viz]'
-
-      - name: Run tests with coverage
-        run: |
-          mkdir -p tests/coverage
-          pytest tests/ -v \
-            --junitxml=tests/coverage/test-results.xml \
-            --cov=spatialai_data_utils \
-            --cov-report=html:tests/coverage \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
-
-      - name: Compute development package version
-        id: package-version
-        run: |
-          short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
-          suffix=".dev${GITHUB_RUN_NUMBER}+g${short_sha}.r${GITHUB_RUN_ATTEMPT}"
-          echo "suffix=${suffix}" >> "$GITHUB_OUTPUT"
-          echo "Spatial AI Data Utils version suffix: ${suffix}"
-
-      - name: Build and validate development package
-        env:
-          VERSION_SUFFIX: ${{ steps.package-version.outputs.suffix }}
-        run: |
-          python -m pip install "twine==6.2.0"
-          cd release
-          python setup.py sdist bdist_wheel
-          python -m twine check dist/*
-
-      - name: Upload test and coverage reports
+      - name: Upload test reports
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
-          name: spatialai-data-utils-test-reports
-          path: |
-            libs/analytics/spatialai-data-utils/tests/coverage/
-            libs/analytics/spatialai-data-utils/coverage.xml
-
-      - name: Upload Python package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: spatialai-data-utils-python-package
-          path: libs/analytics/spatialai-data-utils/release/dist/
+          name: sdr-mw-l-test-reports
+          path: services/sdrc/test/coverage/
 
   # ---------------------------------------------------------------------------
-  # Job 5d: Publish the validated Spatial AI Data Utils package to URM
+  # Job 5d: VSS configurator unit tests
   # ---------------------------------------------------------------------------
-  spatialai-data-utils-publish:
-    name: Publish Spatial AI Data Utils (URM)
-    needs: spatialai-data-utils-test
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/develop' &&
-      needs.spatialai-data-utils-test.result == 'success'
+  vss-configurator-test:
+    name: Test (vss-configurator)
+    needs: prepare-source
+    if: needs.prepare-source.outputs.vss-configurator-changed == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/configurators/vss-configurator
     steps:
-      - name: Download validated Python package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          name: spatialai-data-utils-python-package
-          path: dist
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.24"
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.13"
 
-      - name: Validate URM credentials
-        env:
-          URM_PYPI_TOKEN: ${{ secrets.SW_MDX_PYPI_LOCAL_DEPLOY_TOKEN }}
+      - name: Run unit tests
         run: |
-          if [ -z "$URM_PYPI_TOKEN" ]; then
-            echo "::error::SW_MDX_PYPI_LOCAL_DEPLOY_TOKEN is required to publish Spatial AI Data Utils to URM."
-            exit 1
-          fi
+          mkdir -p test/coverage
+          uv venv --python 3.13
+          uv pip install --python .venv/bin/python \
+            pytest \
+            pytest-cov \
+            Flask==3.1.0 \
+            requests==2.32.3 \
+            ruamel.yaml==0.18.15
+          .venv/bin/pytest tests/ -v --tb=short \
+            --junitxml=test/coverage/test-results.xml \
+            --cov=app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
 
-      - name: Upload development package to URM Artifactory
-        env:
-          TWINE_REPOSITORY_URL: https://urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi-local
-          TWINE_USERNAME: svc-mdx-rw
-          TWINE_PASSWORD: ${{ secrets.SW_MDX_PYPI_LOCAL_DEPLOY_TOKEN }}
-        run: |
-          python -m pip install "twine==6.2.0"
-          python -m twine upload --non-interactive dist/*
-
-      - name: Publish URM package coordinates
-        run: |
-          {
-            echo "### Spatial AI Data Utils package"
-            echo "- **Repository:** \`sw-metropolis-pypi-local\`"
-            echo "- **Package:** \`spatialai-data-utils\`"
-            echo "- **Artifacts:**"
-            find dist -maxdepth 1 -type f -printf '  - `%f`\n' | sort
-            echo "- **URL:** https://urm.nvidia.com/artifactory/sw-metropolis-pypi-local/spatialai-data-utils/"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: vss-configurator-test-reports
+          path: |
+            services/configurators/vss-configurator/test/coverage/
+            services/configurators/vss-configurator/coverage.xml
 
   # ---------------------------------------------------------------------------
-  # Job 5e: Behavior analytics Docker Compose integration test
+  # Job 5e: VSS RT config adaptor unit tests
+  # ---------------------------------------------------------------------------
+  vss-rt-config-adaptor-test:
+    name: Test (vss-rt-config-adaptor)
+    needs: prepare-source
+    if: needs.prepare-source.outputs.vss-rt-config-adaptor-changed == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/configurators/vss-rt-config-adaptor
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.24"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --python 3.13 --frozen --group dev
+
+      - name: Run unit tests
+        run: |
+          mkdir -p test/coverage
+          uv run --python 3.13 pytest tests/ -v --tb=short \
+            --junitxml=test/coverage/test-results.xml \
+            --cov=app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: vss-rt-config-adaptor-test-reports
+          path: |
+            services/configurators/vss-rt-config-adaptor/test/coverage/
+            services/configurators/vss-rt-config-adaptor/coverage.xml
+
+  # ---------------------------------------------------------------------------
+  # Job 5f: Behavior analytics Docker Compose integration test
   # ---------------------------------------------------------------------------
   behavior-analytics-integration-test:
     name: Integration (behavior analytics)
@@ -856,7 +875,7 @@ jobs:
           ./test.sh warehouse_2d kafka prod
 
   # ---------------------------------------------------------------------------
-  # Job 5f: Video analytics API Docker Compose integration test
+  # Job 5d: Video analytics API Docker Compose integration test
   # ---------------------------------------------------------------------------
   video-analytics-api-integration-test:
     name: Integration (video analytics API)
@@ -1423,17 +1442,12 @@ jobs:
         run: |
           python3 .github/scripts/test_update_pr_ghcr_candidates.py
           python3 .github/scripts/test_prepare_downstream_release_set.py
-          python3 .github/scripts/test_prepare_nightly_promotion.py
-          python3 .github/scripts/test_prepare_promotion_trigger.py
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
-
-      - name: Unit-test the last-green channel controller
-        run: python3 .github/scripts/test_last_green.py
 
       - name: Verify resolved image refs match the golden file
         run: python3 .github/scripts/compose_image_golden.py
@@ -1450,10 +1464,13 @@ jobs:
   wait-for-build-dev-images:
     name: Wait for Build Dev Images
     needs: prepare-source
+    if: needs.prepare-source.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 140
     outputs:
       trigger-from-new-image: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
+      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
+      run-downstream: ${{ steps.release-set.outputs.run_downstream }}
     permissions:
       actions: read
       contents: read
@@ -1488,6 +1505,28 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
+  # Job 12: OSRB dispatch wiring
+  # ---------------------------------------------------------------------------
+  # The OSRB Review workflow itself runs on `workflow_run` from the default
+  # branch, so a pull request never executes its own copy. These tests are the
+  # only pre-merge signal on that wiring: they assert the workflow supplies
+  # every variable the downstream helpers require, keeps the private code-ref
+  # choice out of the public repo, and creates the check before anything that
+  # can fail.
+  osrb-dispatch:
+    name: OSRB Dispatch Wiring
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the OSRB dispatch boundary
+        run: python3 .github/scripts/test_osrb_dispatch.py
+
+  # ---------------------------------------------------------------------------
   # Job 13: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
@@ -1510,22 +1549,12 @@ jobs:
       - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
-    # Explicit result checks rather than success(): a bare success() also
-    # inherits a skip from anywhere upstream of a direct need, so one skipped
-    # job two hops away silently disables this one.
-    #
-    # The contains() guards require every DIRECT need to have succeeded.
-    # needs.* holds direct dependencies only, so this is narrower than
-    # success() was: if a future direct need rescues itself past a failed
-    # ancestor with always(), that failure no longer blocks here. Nothing
-    # does that today -- add !failure() if one ever should.
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled') &&
       !contains(needs.*.result, 'skipped') &&
-      (needs.prepare-source.outputs.trigger-from-src-change == 'true' ||
-       needs.wait-for-build-dev-images.outputs.trigger-from-new-image == 'true')
+      needs.wait-for-build-dev-images.outputs.run-downstream == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
@@ -1569,9 +1598,9 @@ jobs:
       - name: Prepare GHCR release-set handoff
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          python3 .github/scripts/prepare_downstream_release_set.py
-          --release-set .downstream-release-set/downstream-release-set.json
+        run: |
+          python3 .github/scripts/prepare_downstream_release_set.py \
+            --release-set .downstream-release-set/downstream-release-set.json
 
       - name: Trigger pipeline
         id: trigger

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -102,7 +102,8 @@ class GstNvAudioDecoder : public IMediaDataConsumer, public GstNvDecoder
         void updateAudioDataIfRequired();
         std::list<webrtc::AudioTrackSinkInterface *> getWebrtcBroacasterList() { return m_sinks; }
 
-        virtual void onFrame(FrameParams& params);
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override;
         
         vector<uint16_t>                             m_audioBuffer;
         std::mutex                                   m_sinkLock;

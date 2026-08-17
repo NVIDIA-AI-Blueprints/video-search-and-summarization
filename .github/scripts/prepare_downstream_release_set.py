@@ -5,14 +5,17 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import re
 import sys
 from pathlib import Path
 
-from detect_changed_images import changed_paths, commit_exists, resolve_diff_base
+from detect_changed_images import (
+    changed_paths,
+    commit_exists,
+    resolve_diff_base,
+)
 from release_set import load_inventory, validate_release_set
 from update_pr_ghcr_candidates import GitHubApi, download_release_set
 
@@ -22,8 +25,6 @@ DEPLOY_PREFIX = "deploy/"
 # downstream coverage when its source changes -- mirrored and externally pinned
 # components are deployed by the same profiles and break the same evals.
 TRIGGER_FLAG = "trigger_downstream_from_source"
-
-
 PR_REF_PATTERN = re.compile(r"pull-request/(\d+)")
 
 
@@ -123,14 +124,17 @@ def candidate_container_tag(release_set: dict) -> str:
 
 
 def downstream_variables(release_set: dict) -> dict[str, str]:
-    encoded = base64.b64encode(
-        (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
-    ).decode()
+    """Variables the downstream GitLab pipeline actually reads.
+
+    The release set itself is no longer sent. ci-vss-oss retired every
+    consumer of VSS_RELEASE_SET_B64/_ID (its validate/apply/promote scripts
+    and the validate-ghcr-release-set job), so the payload was being
+    base64-encoded and shipped on every trigger for nothing. BUILD_TYPE is
+    now the only signal selecting acceptance mode there.
+    """
     return {
         "BUILD_TYPE": "ghcr-acceptance",
         "VSS_CONTAINER_TAG": candidate_container_tag(release_set),
-        "VSS_RELEASE_SET_ID": release_set["release_set_id"],
-        "VSS_RELEASE_SET_B64": encoded,
     }
 
 
@@ -184,11 +188,6 @@ def main() -> int:
             json.dumps(release_set, indent=2, sort_keys=True) + "\n"
         )
 
-    variables = downstream_variables(release_set)
-    with Path(github_env).open("a") as output:
-        output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
-        output.write(json.dumps(variables, separators=(",", ":")) + "\n")
-        output.write("EOF\n")
     has_builds = has_ghcr_build_entries(release_set)
 
     if PR_REF_PATTERN.fullmatch(args.ref_name):
@@ -208,18 +207,25 @@ def main() -> int:
     relevant, gate_reason = downstream_relevant(
         changed, load_inventory(args.repo_root)
     )
+    run_downstream = relevant
+
+    variables = downstream_variables(release_set)
+    with Path(github_env).open("a") as output:
+        output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
+        output.write(json.dumps(variables, separators=(",", ":")) + "\n")
+        output.write("EOF\n")
 
     if github_output:
         with Path(github_output).open("a") as output:
             output.write(
                 f"has_ghcr_build_entries={'true' if has_builds else 'false'}\n"
             )
-            output.write(f"run_downstream={'true' if relevant else 'false'}\n")
+            output.write(f"run_downstream={'true' if run_downstream else 'false'}\n")
     print(
         f"Prepared release set {release_set['release_set_id']} "
         f"for downstream acceptance ({len(release_set['images'])} images, "
         f"GHCR builds: {'yes' if has_builds else 'no'}).\n"
-        f"Downstream gate: {'run' if relevant else 'skip'} "
+        f"Downstream gate: {'run' if run_downstream else 'skip'} "
         f"-- {gate_reason} (base: {base_reason})."
     )
     return 0

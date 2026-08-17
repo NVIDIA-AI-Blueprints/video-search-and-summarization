@@ -62,7 +62,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         make \
         cmake \
         pkg-config \
-        npm \
         binutils \
         crossbuild-essential-arm64 \
         protobuf-compiler-grpc \
@@ -122,6 +121,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cuda-crt-13-2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js for the vios-ui build. The multiarch transaction above can remove
+# amd64 APT packages, while installing NodeSource's amd64 nodejs afterwards
+# can remove arm64 development packages. Use the official amd64 binary archive
+# instead so Node does not participate in either APT dependency transaction.
+ARG NODE_VERSION=22.23.2
+RUN wget -q "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -O /tmp/node-shasums.txt && \
+    wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -O "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" && \
+    (cd /tmp && grep " node-v${NODE_VERSION}-linux-x64.tar.gz$" node-shasums.txt | sha256sum -c -) && \
+    tar -xzf "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" -C /opt && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/node" /usr/local/bin/node && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/npm" /usr/local/bin/npm && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/npx" /usr/local/bin/npx && \
+    rm -f /tmp/node-shasums.txt "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" && \
+    node -v && npm -v
 
 # ---------------------------------------------------------------------------
 # 5. Build environment for the cross toolchain.

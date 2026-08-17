@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +22,7 @@
 #include <signal.h>
 #include <cstdlib>
 #include <cxxabi.h>
+#include <memory>
 #include "logger.h"
 
 // Initialize the static member variable
@@ -29,8 +30,8 @@ struct sigaction sigact;
 class SignalHandler
 {
 public:
-    SignalHandler() {}
-    SignalHandler(void (*handler)(int))
+    SignalHandler() = default;
+    explicit SignalHandler(void (*handler)(int))
     {
         signal(SIGINT, handler);
         signal(SIGTERM, handler);
@@ -72,7 +73,7 @@ private:
         void* addrlist[max_frames+1];
 
         // retrieve current stack addresses
-        int addrlen = backtrace(addrlist, sizeof(addrlist) / sizeof(void*));
+        int addrlen = backtrace(addrlist, static_cast<int>(max_frames + 1));
         if (addrlen == 0)
         {
             LOG(error) << " <empty, possibly corrupt>" << endl;
@@ -80,12 +81,9 @@ private:
         }
 
         // resolve addresses into strings containing "filename(function+address)",
-        // this array must be free()-ed
-        char** symbollist = backtrace_symbols(addrlist, addrlen);
-
-        // allocate string which will be filled with the demangled function name
-        size_t funcnamesize = 256;
-        char* funcname = (char*)malloc(funcnamesize);
+        // this array is heap-allocated and owned by the unique_ptr below
+        std::unique_ptr<char*, decltype(&std::free)> symbollist(
+            backtrace_symbols(addrlist, addrlen), &std::free);
 
         // iterate over the returned symbol lines. skip the first, it is the
         // address of this function.
@@ -94,7 +92,7 @@ private:
             char *begin_name = nullptr, *begin_offset = nullptr, *end_offset = nullptr;
             // find parentheses and +address offset surrounding the mangled name:
             // ./module(function+0x15c) [0x8048a6d]
-            for (char *p = symbollist[i]; *p; ++p)
+            for (char *p = symbollist.get()[i]; *p; ++p)
             {
                 if (*p == '(')
                     begin_name = p;
@@ -116,28 +114,27 @@ private:
 
                 // mangled name is now in [begin_name, begin_offset) and caller
                 // offset in [begin_offset, end_offset). now apply
-                // __cxa_demangle():
+                // __cxa_demangle(). Passing a null buffer makes it allocate one
+                // with malloc, which the unique_ptr releases with free.
                 int status;
-                char* ret = abi::__cxa_demangle(begin_name, funcname, &funcnamesize, &status);
+                std::unique_ptr<char, decltype(&std::free)> funcname(
+                    abi::__cxa_demangle(begin_name, nullptr, nullptr, &status), &std::free);
                 if (status == 0)
                 {
-                    funcname = ret;
-                    LOG(error) << symbollist[i] << " : " << funcname << "+" << begin_offset << endl;
+                    LOG(error) << symbollist.get()[i] << " : " << funcname.get() << "+" << begin_offset << endl;
                 }
                 else
                 {
                     // demangling failed. Output function name as a C function with no arguments.
-                    LOG(error) << symbollist[i] << " : " << begin_name << "+" << begin_offset << endl;
+                    LOG(error) << symbollist.get()[i] << " : " << begin_name << "+" << begin_offset << endl;
                 }
             }
             else
             {
                 // couldn't parse the line? print the whole line.
-                LOG(error) << " " << symbollist[i] << endl;
+                LOG(error) << " " << symbollist.get()[i] << endl;
             }
         }
-        free(funcname);
-        free(symbollist);
         return;
     }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,6 +36,11 @@ void MKVClient::onMatroskaFileCreation(MatroskaFile* newFile) {
 	
 	m_mkvfile = newFile;
 	m_demux = m_mkvfile->newDemux();
+
+	// live555 requires a plain C callback, so the untyped client data is unpacked here
+	MediaSink::afterPlayingFunc* const afterPlaying = [](void* clientData) {
+		static_cast<MKVClient*>(clientData)->onEndOfFile();
+	};
 
 	unsigned trackNumber = 0;
 	FramedSource* trackSource = nullptr;
@@ -75,7 +80,7 @@ void MKVClient::onMatroskaFileCreation(MatroskaFile* newFile) {
 			else if (m_callback->onNewSession(sink->name(), media.c_str(), codec.c_str(), sdp.c_str())) 
 			{
 				LOG(info) << "Start playing sink for \"" << track->mimeType << "\" sdp:" << sdp.c_str() << "\n";
-				sink->startPlaying(*trackSource, onEndOfFile, this);	  
+				sink->startPlaying(*trackSource, afterPlaying, this);
 			} 
 			else 
 			{
@@ -84,7 +89,7 @@ void MKVClient::onMatroskaFileCreation(MatroskaFile* newFile) {
 				sink = SessionSink::createNew(m_env, nullptr);
 				if (sink != nullptr)
 				{
-					sink->startPlaying(*trackSource, onEndOfFile, this);
+					sink->startPlaying(*trackSource, afterPlaying, this);
 				}
 			}		
 		}
@@ -109,7 +114,9 @@ MKVClient::MKVClient(Environment& env, Callback* callback, const char* url, cons
 		fileurl = fileurl.erase(0,strlen(prefix));
 	}
 
-	MatroskaFile::createNew(env, fileurl.c_str(), onMatroskaFileCreation, this);	
+	MatroskaFile::createNew(env, fileurl.c_str(), [](MatroskaFile* newFile, void* clientData) {
+		static_cast<MKVClient*>(clientData)->onMatroskaFileCreation(newFile);
+	}, this);
 }
 
 MKVClient::~MKVClient() noexcept

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +31,6 @@
 #define DEFAULT_UDP_PORT_RANGE "31000-31200"
 
 using namespace std;
-using namespace nv_vms;
 
 typedef std::map<string, shared_ptr<nv_vms::UdpClient>> udpClientMap;
 class UdpClientPool
@@ -83,36 +82,36 @@ class UdpClientPool
             return m_clientList;
         }
 
-        shared_ptr<nv_vms::UdpClient> addClient(const string& id, UdpStream& stream)
+        shared_ptr<nv_vms::UdpClient> addClient(const string& id, nv_vms::UdpStream& stream)
         {
             std::lock_guard<std::mutex> guard(m_clientLock);
             shared_ptr<nv_vms::UdpClient> client = nullptr;
             udpClientMap::iterator it = m_clientList.find(id);
             if (it == m_clientList.end())
             {
-                if(stream.m_type == UdpClient::UDP_VIDEO_TYPE ||
-                   stream.m_type == UdpClient::UDP_VIDEO_AUDIO_TYPE)
+                if(stream.m_type == nv_vms::UdpClient::UDP_VIDEO_TYPE ||
+                   stream.m_type == nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE)
                 {
                     if (stream.m_videoPort == 0)
                     {
                         LOG(warning) << "Video port is not provided, using available udp port" << endl;
                         stream.m_videoPort = getUdpPort();
                     }
-                    if (stream.m_type == UdpClient::UDP_VIDEO_AUDIO_TYPE && stream.m_audioPort == 0)
+                    if (stream.m_type == nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE && stream.m_audioPort == 0)
                     {
                         LOG(warning) << "Audio port is not provided, using available udp port" << endl;
                         stream.m_audioPort = getUdpPort();
                     }
-                    client.reset(new GstUDPVideoClient(id, stream));
+                    client.reset(new nv_vms::GstUDPVideoClient(id, stream));
                 }
-                else if(stream.m_type == UdpClient::UDP_AUDIO_TYPE)
+                else if(stream.m_type == nv_vms::UdpClient::UDP_AUDIO_TYPE)
                 {
                     if (stream.m_audioPort == 0)
                     {
                         LOG(warning) << "Audio port is not provided, using available udp port" << endl;
                         stream.m_audioPort = getUdpPort();
                     }
-                    client.reset(new GstUDPAudioClient(id, stream));
+                    client.reset(new nv_vms::GstUDPAudioClient(id, stream));
                 }
                 else
                 {
@@ -155,8 +154,8 @@ class UdpClientPool
             if (it != m_clientList.end())
             {
                 shared_ptr<nv_vms::UdpClient> client = it->second;
-                if (client->getType() == media || 
-                   (client->getType() == UdpClient::UDP_VIDEO_AUDIO_TYPE))
+                if (client->getType() == media ||
+                   (client->getType() == nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE))
                 {
                     return client;
                 }
@@ -172,7 +171,7 @@ class UdpClientPool
             {
                 shared_ptr<nv_vms::UdpClient> client = it->second;
                 if (client->getType() == media || 
-                   (client->getType() == UdpClient::UDP_VIDEO_AUDIO_TYPE))
+                   (client->getType() == nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE))
                 {
                     return true;
                 }

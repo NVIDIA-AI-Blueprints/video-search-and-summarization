@@ -92,6 +92,17 @@ IMAGE_CONFIGS = {
         image_name="vss-rt-cv",
         source_path=Path("services/rtvi/rt-cv"),
     ),
+    "sdr-mw-l": ImageConfig(
+        image_name="sdr-mw-l", source_path=Path("services/sdrc")
+    ),
+    "vss-configurator": ImageConfig(
+        image_name="vss-configurator",
+        source_path=Path("services/configurators/vss-configurator"),
+    ),
+    "vss-rt-config-adaptor": ImageConfig(
+        image_name="vss-rt-config-adaptor",
+        source_path=Path("services/configurators/vss-rt-config-adaptor"),
+    ),
 }
 
 DEPLOY_DIR = Path("deploy/docker")
@@ -719,6 +730,24 @@ def read_image_manifest_labels(
 
 
 def discover_compose_files(repo_root: Path) -> list[Path]:
+    # Validate committed deploy state; generated or untracked compose files in
+    # the workspace should not affect the container-source gate.
+    tracked = run_git(
+        repo_root,
+        "ls-files",
+        "--",
+        DEPLOY_DIR.as_posix(),
+        check=False,
+    )
+    if tracked.returncode == 0:
+        files = [
+            repo_root / line
+            for line in tracked.stdout.splitlines()
+            if line.endswith((".yml", ".yaml"))
+        ]
+        if files:
+            return sorted(path for path in files if path.is_file())
+
     deploy = repo_root / DEPLOY_DIR
     files: set[Path] = set()
     for pattern in ("**/*.yml", "**/*.yaml"):

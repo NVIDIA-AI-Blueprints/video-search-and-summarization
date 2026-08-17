@@ -334,6 +334,17 @@ def resolve_branches() -> tuple[str, str]:
     to ``GITHUB_REF_NAME`` so downstream consumers always see something
     meaningful.
     """
+    target_override = os.environ.get("DOWNSTREAM_TARGET_BRANCH", "").strip()
+    compare_override = os.environ.get("DOWNSTREAM_COMPARE_BRANCH", "").strip()
+    if target_override or compare_override:
+        if not target_override or not compare_override:
+            emit_error(
+                "DOWNSTREAM_TARGET_BRANCH and DOWNSTREAM_COMPARE_BRANCH must "
+                "be provided together"
+            )
+            raise SystemExit(1)
+        return target_override, compare_override
+
     ref_name = os.environ.get("GITHUB_REF_NAME", "").strip()
     pr_match = re.fullmatch(r"pull-request/(\d+)", ref_name)
     if not pr_match:

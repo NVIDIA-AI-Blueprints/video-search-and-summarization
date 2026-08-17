@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,6 +38,14 @@ export interface EventImagesState {
     eventImagesRef: React.MutableRefObject<Record<string, string>>;
 }
 
+interface TimeChunk {
+    start: string;
+    end: string;
+    segmentIndex: number;
+}
+
+type EnqueueSnackbar = ReturnType<typeof useSnackbar>['enqueueSnackbar'];
+
 // Utility function to break a single time range into chunks
 const createTimeChunks = (startTime: string, endTime: string, chunkMinutes: number = 5): Array<{ start: string; end: string }> => {
     const chunks = [];
@@ -70,11 +78,8 @@ const createTimeChunks = (startTime: string, endTime: string, chunkMinutes: numb
 
 // Utility function to create chunks from multiple timeline segments
 // Only creates chunks for the last 4 hours
-const createChunksFromTimelines = (
-    timelines: Timeline[],
-    chunkMinutes: number = 2
-): Array<{ start: string; end: string; segmentIndex: number }> => {
-    const allChunks: Array<{ start: string; end: string; segmentIndex: number }> = [];
+const createChunksFromTimelines = (timelines: Timeline[], chunkMinutes: number = 2): TimeChunk[] => {
+    const allChunks: TimeChunk[] = [];
 
     // Calculate 4-hour cutoff time from current time
     // This ensures we only fetch events from the last 4 hours (events API limitation)
@@ -233,6 +238,157 @@ const fetchEventsForChunk = async (
     return processEventsToMarkers(tripwireEvents, roiEvents, chunkStartMs, chunkEndMs);
 };
 
+const isCancellation = (error: unknown): boolean => error instanceof Error && error.message === 'Operation cancelled';
+
+// Keep only the timelines overlapping the calendar range, trimmed to that range
+const filterTimelinesToRange = (timelines: Timeline[], calenderStartTime: string, calenderEndTime: string): Timeline[] => {
+    const calStartMs = new Date(calenderStartTime).getTime();
+    const calEndMs = new Date(calenderEndTime).getTime();
+
+    return timelines
+        .filter(timeline => {
+            const timelineStartMs = new Date(timeline.startTime).getTime();
+            const timelineEndMs = new Date(timeline.endTime).getTime();
+
+            // Include timeline if it overlaps with calendar range
+            return timelineStartMs < calEndMs && timelineEndMs > calStartMs;
+        })
+        .map(timeline => ({
+            ...timeline,
+            // Trim timeline to calendar range if needed
+            startTime: new Date(Math.max(new Date(timeline.startTime).getTime(), calStartMs)).toISOString(),
+            endTime: new Date(Math.min(new Date(timeline.endTime).getTime(), calEndMs)).toISOString(),
+        }));
+};
+
+// Fetch one chunk and merge its markers into the accumulated list, plotting them immediately
+const plotChunkEvents = async (
+    chunk: TimeChunk,
+    chunkLabel: number,
+    sensorName: string,
+    abortController: AbortController,
+    accumulatedEvents: EventMarker[],
+    onEventsUpdate: (events: EventMarker[]) => void
+): Promise<number> => {
+    const chunkMarkers = await fetchEventsForChunk(chunk.start, chunk.end, sensorName, abortController);
+
+    if (chunkMarkers.length === 0) {
+        LOG.info(`Chunk ${chunkLabel} completed: No events found in this time segment`);
+        return 0;
+    }
+
+    accumulatedEvents.push(...chunkMarkers);
+    // Sort by timestamp to maintain chronological order
+    accumulatedEvents.sort((a, b) => a.value - b.value);
+    onEventsUpdate([...accumulatedEvents]);
+
+    LOG.info(`Chunk ${chunkLabel} plotted: ${chunkMarkers.length} events added to timeline`);
+
+    // Force a brief pause to ensure the UI updates immediately
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    return chunkMarkers.length;
+};
+
+// Show progress update for every few chunks or at segment boundaries
+const reportChunkProgress = (
+    timeChunks: TimeChunk[],
+    chunkIndex: number,
+    chunksProcessed: number,
+    totalEventsLoaded: number,
+    enqueueSnackbar: EnqueueSnackbar
+) => {
+    const chunk = timeChunks[chunkIndex];
+    const isLastChunkInSegment = chunkIndex === 0 || timeChunks[chunkIndex - 1].segmentIndex !== chunk.segmentIndex;
+
+    if (chunksProcessed % 3 !== 0 && !isLastChunkInSegment) {
+        return;
+    }
+
+    const segmentText = isLastChunkInSegment ? ` (Segment ${chunk.segmentIndex + 1} complete)` : '';
+    enqueueSnackbar(`Progress: ${chunksProcessed}/${timeChunks.length} chunks processed (${totalEventsLoaded} events)${segmentText}`, {
+        variant: 'info',
+        autoHideDuration: 2000,
+    });
+};
+
+// Process chunks from newest to oldest (reverse order)
+const runChunkedFetch = async (
+    timeChunks: TimeChunk[],
+    sensorName: string,
+    abortController: AbortController,
+    onEventsUpdate: (events: EventMarker[]) => void,
+    enqueueSnackbar: EnqueueSnackbar
+): Promise<{ totalEventsLoaded: number; failedChunks: number; cancelled: boolean }> => {
+    let totalEventsLoaded = 0;
+    let failedChunks = 0;
+    const accumulatedEvents: EventMarker[] = [];
+
+    for (let chunkIndex = timeChunks.length - 1; chunkIndex >= 0; chunkIndex--) {
+        // Check if operation was cancelled
+        if (abortController.signal.aborted) {
+            LOG.info('Events fetch was cancelled');
+            return { totalEventsLoaded, failedChunks, cancelled: true };
+        }
+
+        const chunk = timeChunks[chunkIndex];
+        const chunksProcessed = timeChunks.length - chunkIndex;
+        const chunkDuration = (new Date(chunk.end).getTime() - new Date(chunk.start).getTime()) / (1000 * 60);
+
+        LOG.info(
+            `Processing chunk ${chunksProcessed}/${timeChunks.length} (Segment ${chunk.segmentIndex + 1}): ${chunk.start} to ${chunk.end} (${chunkDuration.toFixed(1)}min)`
+        );
+
+        try {
+            totalEventsLoaded += await plotChunkEvents(
+                chunk,
+                chunksProcessed,
+                sensorName,
+                abortController,
+                accumulatedEvents,
+                onEventsUpdate
+            );
+        } catch (error) {
+            failedChunks++;
+
+            // Don't show error if operation was cancelled
+            if (isCancellation(error)) {
+                LOG.info('Events fetch was cancelled');
+                return { totalEventsLoaded, failedChunks, cancelled: true };
+            }
+
+            LOG.error(`Failed to fetch events for chunk ${chunksProcessed}:`, error);
+            continue;
+        }
+
+        reportChunkProgress(timeChunks, chunkIndex, chunksProcessed, totalEventsLoaded, enqueueSnackbar);
+    }
+
+    return { totalEventsLoaded, failedChunks, cancelled: false };
+};
+
+// Show final summary
+const showFetchSummary = (
+    totalEventsLoaded: number,
+    failedChunks: number,
+    segmentCount: number,
+    chunkCount: number,
+    enqueueSnackbar: EnqueueSnackbar
+) => {
+    if (failedChunks === 0) {
+        enqueueSnackbar(`Successfully loaded ${totalEventsLoaded} events from ${segmentCount} recording segments (${chunkCount} chunks)`, {
+            variant: 'success',
+            autoHideDuration: 4000,
+        });
+        return;
+    }
+
+    enqueueSnackbar(`Loaded ${totalEventsLoaded} events from ${segmentCount} segments (${failedChunks}/${chunkCount} chunks failed)`, {
+        variant: 'warning',
+        autoHideDuration: 4000,
+    });
+};
+
 // Custom hook for managing events
 export const useShowEvents = (props: ShowEventsProps) => {
     const { sensorName, timelines, calenderStartTime, calenderEndTime, onEventsUpdate, onFetchingStateChange } = props;
@@ -255,26 +411,8 @@ export const useShowEvents = (props: ShowEventsProps) => {
         }
 
         // If calendar range is set, filter timelines to only those within the range
-        let activeTimelines = timelines;
-        if (calenderStartTime && calenderEndTime) {
-            const calStartMs = new Date(calenderStartTime).getTime();
-            const calEndMs = new Date(calenderEndTime).getTime();
-
-            activeTimelines = timelines
-                .filter(timeline => {
-                    const timelineStartMs = new Date(timeline.startTime).getTime();
-                    const timelineEndMs = new Date(timeline.endTime).getTime();
-
-                    // Include timeline if it overlaps with calendar range
-                    return timelineStartMs < calEndMs && timelineEndMs > calStartMs;
-                })
-                .map(timeline => ({
-                    ...timeline,
-                    // Trim timeline to calendar range if needed
-                    startTime: new Date(Math.max(new Date(timeline.startTime).getTime(), calStartMs)).toISOString(),
-                    endTime: new Date(Math.min(new Date(timeline.endTime).getTime(), calEndMs)).toISOString(),
-                }));
-        }
+        const activeTimelines =
+            calenderStartTime && calenderEndTime ? filterTimelinesToRange(timelines, calenderStartTime, calenderEndTime) : timelines;
 
         if (activeTimelines.length === 0) {
             LOG.info('No timeline segments in the specified range');
@@ -286,9 +424,7 @@ export const useShowEvents = (props: ShowEventsProps) => {
             onFetchingStateChange(true);
 
             // Cancel any existing fetch operation
-            if (eventFetchAbortControllerRef.current) {
-                eventFetchAbortControllerRef.current.abort();
-            }
+            eventFetchAbortControllerRef.current?.abort();
 
             // Create new abort controller for this fetch operation
             const abortController = new AbortController();
@@ -318,96 +454,22 @@ export const useShowEvents = (props: ShowEventsProps) => {
                 return;
             }
 
-            // Track progress
-            let totalEventsLoaded = 0;
-            let failedChunks = 0;
-            let accumulatedEvents: EventMarker[] = [];
+            const { totalEventsLoaded, failedChunks, cancelled } = await runChunkedFetch(
+                timeChunks,
+                sensorName,
+                abortController,
+                onEventsUpdate,
+                enqueueSnackbar
+            );
 
-            // Process chunks from newest to oldest (reverse order)
-            for (let chunkIndex = timeChunks.length - 1; chunkIndex >= 0; chunkIndex--) {
-                try {
-                    // Check if operation was cancelled
-                    if (abortController.signal.aborted) {
-                        LOG.info('Events fetch was cancelled');
-                        return;
-                    }
-
-                    const chunk = timeChunks[chunkIndex];
-                    const chunkDuration = (new Date(chunk.end).getTime() - new Date(chunk.start).getTime()) / (1000 * 60);
-
-                    LOG.info(
-                        `Processing chunk ${timeChunks.length - chunkIndex}/${timeChunks.length} (Segment ${chunk.segmentIndex + 1}): ${chunk.start} to ${chunk.end} (${chunkDuration.toFixed(1)}min)`
-                    );
-
-                    // Fetch events for this chunk
-                    const chunkMarkers = await fetchEventsForChunk(chunk.start, chunk.end, sensorName, abortController);
-
-                    // Immediately plot the events from this chunk
-                    if (chunkMarkers.length > 0) {
-                        accumulatedEvents = [...accumulatedEvents, ...chunkMarkers];
-                        // Sort by timestamp to maintain chronological order
-                        accumulatedEvents.sort((a, b) => a.value - b.value);
-                        onEventsUpdate([...accumulatedEvents]);
-
-                        LOG.info(`Chunk ${timeChunks.length - chunkIndex} plotted: ${chunkMarkers.length} events added to timeline`);
-
-                        // Force a brief pause to ensure the UI updates immediately
-                        await new Promise(resolve => setTimeout(resolve, 10));
-                    } else {
-                        LOG.info(`Chunk ${timeChunks.length - chunkIndex} completed: No events found in this time segment`);
-                    }
-
-                    totalEventsLoaded += chunkMarkers.length;
-
-                    // Show progress update for every few chunks or at segment boundaries
-                    const isLastChunkInSegment =
-                        chunkIndex === 0 || (chunkIndex > 0 && timeChunks[chunkIndex - 1].segmentIndex !== chunk.segmentIndex);
-
-                    const chunksProcessed = timeChunks.length - chunkIndex;
-                    if (chunksProcessed % 3 === 0 || chunkIndex === 0 || isLastChunkInSegment) {
-                        const segmentText = isLastChunkInSegment ? ` (Segment ${chunk.segmentIndex + 1} complete)` : '';
-                        enqueueSnackbar(
-                            `Progress: ${chunksProcessed}/${timeChunks.length} chunks processed (${totalEventsLoaded} events)${segmentText}`,
-                            {
-                                variant: 'info',
-                                autoHideDuration: 2000,
-                            }
-                        );
-                    }
-                } catch (error) {
-                    failedChunks++;
-
-                    // Don't show error if operation was cancelled
-                    if (error instanceof Error && error.message === 'Operation cancelled') {
-                        LOG.info('Events fetch was cancelled');
-                        return;
-                    }
-
-                    LOG.error(`Failed to fetch events for chunk ${timeChunks.length - chunkIndex}:`, error);
-                }
+            if (cancelled) {
+                return;
             }
 
-            // Show final summary
-            if (failedChunks === 0) {
-                enqueueSnackbar(
-                    `Successfully loaded ${totalEventsLoaded} events from ${activeTimelines.length} recording segments (${timeChunks.length} chunks)`,
-                    {
-                        variant: 'success',
-                        autoHideDuration: 4000,
-                    }
-                );
-            } else {
-                enqueueSnackbar(
-                    `Loaded ${totalEventsLoaded} events from ${activeTimelines.length} segments (${failedChunks}/${timeChunks.length} chunks failed)`,
-                    {
-                        variant: 'warning',
-                        autoHideDuration: 4000,
-                    }
-                );
-            }
+            showFetchSummary(totalEventsLoaded, failedChunks, activeTimelines.length, timeChunks.length, enqueueSnackbar);
         } catch (error) {
             // Don't show error if operation was cancelled
-            if (error instanceof Error && error.message === 'Operation cancelled') {
+            if (isCancellation(error)) {
                 LOG.info('Events fetch was cancelled');
                 return;
             }
@@ -416,9 +478,7 @@ export const useShowEvents = (props: ShowEventsProps) => {
         } finally {
             onFetchingStateChange(false);
             // Clear the abort controller reference
-            if (eventFetchAbortControllerRef.current) {
-                eventFetchAbortControllerRef.current = null;
-            }
+            eventFetchAbortControllerRef.current = null;
         }
     }, [sensorName, timelines, calenderStartTime, calenderEndTime, onEventsUpdate, onFetchingStateChange, enqueueSnackbar]);
 

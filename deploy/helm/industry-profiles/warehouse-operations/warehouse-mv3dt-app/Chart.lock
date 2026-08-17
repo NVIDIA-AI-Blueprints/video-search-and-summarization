@@ -10,7 +10,7 @@ dependencies:
   version: 3.2.0
 - name: calibration-import
   repository: file://../../../services/calibration-import
-  version: 3.2.0
+  version: 3.3.0
 - name: rtvi
   repository: file://../../../services/rtvi
   version: 3.2.1
@@ -20,5 +20,5 @@ dependencies:
 - name: monitoring
   repository: file://../../../services/monitoring
   version: 3.2.0
-digest: sha256:b062ed1b5f2fd116ae0a9954b95539ac8166f7c5139168a3b8b511d4c7a6caa1
-generated: "2026-07-29T12:22:17.122019134-07:00"
+digest: sha256:040f87f109ef04744f1c95631f0fd321ee70a23206a911af206857f48b765256
+generated: "2026-08-14T12:34:26.679049-07:00"

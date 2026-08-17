@@ -9,7 +9,7 @@ Long-video summarization. The LLM stack is identical to `base` (`base.md`) — s
 - **No SDR, Envoy, or SDRC router.** VST sensor and ingress talk to **vss-vios-streamprocessing** on **:30001** directly (`STREAM_PROCESSOR_MODULE_ENDPOINT`, `VST_NGINX_MODE=vst-direct`). Alerts/search use **SDRC** on **:10000** instead.
 - **No standalone VLM NIM service.** The `vlm_local_*_<slug>` compose profile is *not* enabled for LVS. The VLM lives inside the `rtvi-vlm` container.
 - **`rtvi-vlm` (port 8018) is the VLM serving layer.** It can load a VLM checkpoint directly (integrated mode) or proxy to a remote OpenAI-compatible endpoint.
-- **RT-VLM image tags:** x86 / Jetson Thor uses `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4`; SBSA / DGX Spark / Grace uses `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4-sbsa`.
+- **RT-VLM image tags:** x86 / Jetson Thor uses `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`; SBSA / DGX Spark / Grace uses `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2-sbsa`.
 - **LVS (video-summarization) image tags:** x86 / Jetson Thor uses `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2` (`LVS_TAG=3.3.0-rc2`); SBSA / DGX Spark / Grace uses `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2-sbsa` (`LVS_TAG=3.3.0-rc2-sbsa`).
 - **Default integrated checkpoint:** `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`.
 - **`VLM_NAME` is the model basename, NOT the friendly NIM name.** For the default integrated path: `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` (production-confirmed; using `nvidia/cosmos3-nano-reasoner` causes vss-lvs to return 400). Same caveat as alerts. Detail in [Default models](#default-models) and [Hard rules](#hard-rules).
@@ -32,8 +32,15 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | Kafka | `kafka` | 9092 | Message broker (VLM captions topic: `mdx-vlm-captions`) |
 | Redis | `redis` | 6379 | Cache |
 | Phoenix | `phoenix` | 6006 | Observability |
+| NVIDIA DCGM Exporter | `dcgm-exporter` | 9400 | Prometheus-format GPU utilization, memory, power, temperature, and decoder metrics |
 
 Post-deploy readiness probe: `curl -sf http://${HOST_IP}:38111/v1/ready` should return exit 0 once `vss-lvs` is serving. The VSS Agent at `http://${HOST_IP}:8000/health` is the cross-profile readiness signal; this one confirms the LVS-specific microservice.
+
+GPU telemetry is available at `http://${HOST_IP}:${DCGM_EXPORTER_HOST_PORT:-9400}/metrics`.
+Use `DCGM_EXPORTER_HOST_PORT` in `dev-profile-lvs/overrides.env` when the default
+host port conflicts with another exporter. DCGM reports host-level GPU metrics,
+so use the `gpu` or `UUID` labels to select the devices assigned to the LVS
+deployment.
 
 For LVS with `LLM_MODE=local` or `LLM_MODE=local_shared`, also require:
 
@@ -187,7 +194,7 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 
 - **`VLM_NAME` must equal RT-VLM's `/v1/models` basename.** This is the single most important field for LVS to function. For the default integrated Cosmos3 Nano BF16: `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final`. Using the friendly NIM name `nvidia/cosmos3-nano-reasoner` causes vss-lvs to return `400 BadParameters: No such model …` and summarization fails. Transformation rule for NGC NIM paths: `ngc:nim/<org>/<model>:<tag>` → `nim_<org>_<model>_<tag>`. For HF git paths or any custom MODEL_PATH, verify by `curl http://${HOST_IP}:8018/v1/models | jq` after RT-VLM boots and copy the `id` field.
 - **L40S (48 GB) cannot host the LLM + RT-VLM shared.** 23.4 + 20.8 = 44.2 GB > 40.8 GB usable. Use a 2-GPU L40S host (LLM on device 0, RT-VLM on device 1) or escalate to the user about a remote VLM (Path B).
-- **RT-VLM AND LVS image tags must match the CPU platform.** x86 and Jetson Thor platforms, including AGX/IGX Thor, use the non-sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.07.4` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4`) and `LVS_TAG=3.3.0-rc2` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2`). SBSA server-ARM platforms, including DGX Spark and Grace, use the sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.07.4-sbsa` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4-sbsa`) and `LVS_TAG=3.3.0-rc2-sbsa` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2-sbsa`). LLM-side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
+- **RT-VLM AND LVS image tags must match the CPU platform.** x86 and Jetson Thor platforms, including AGX/IGX Thor, use the non-sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.08.2` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) and `LVS_TAG=3.3.0-rc2` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2`). SBSA server-ARM platforms, including DGX Spark and Grace, use the sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.08.2-sbsa` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2-sbsa`) and `LVS_TAG=3.3.0-rc2-sbsa` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2-sbsa`). LLM-side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
 - **Don't co-deploy a standalone Cosmos NIM with RT-VLM.** Standalone `vlm_local_*_cosmos3-reasoner` or any other `vlm_local_*_<slug>` profile must NOT be active for LVS. Verify by checking that `resolved.yml` doesn't have the default standalone `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu` services, or any other standalone VLM NIM service, alongside `rtvi-vlm`.
 - **`VLM_MODE=remote` ⇒ `RTVI_VLM_MODEL_PATH=none`.** Forgetting this leaves RT-VLM trying to load weights AND proxy at the same time → startup hang or OOM.
 - **Remote openai-compat frame sampling defaults to five fixed frames per chunk in Docker.** The Docker deployment writes `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=5` for remote LVS unless that environment variable has an explicit value. Override the deployment default for endpoints with a different image prompt limit. Leave the Docker variable empty for integrated/local models unless their documented capability requires an override. LVS summarize requests should omit request-level frame sampling fields so they cannot override the deployment policy.

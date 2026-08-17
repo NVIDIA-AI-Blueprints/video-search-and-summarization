@@ -42,7 +42,7 @@ RUN uv sync --frozen --no-dev
 # Google distroless does not ship Python 3.13; Chainguard does.
 # Runtime is distroless, so startup must use a Python entrypoint instead of a shell script.
 # FROM cgr.dev/chainguard/python:3.13 AS runtime
-FROM nvcr.io/nvidian/distroless/python:3.13-v4.0.5 AS runtime
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.5 AS runtime
 
 WORKDIR /usr/src/app
 

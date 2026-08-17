@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,7 @@
 #pragma once
 
 #include "api/peer_connection_interface.h"
+#include "api/make_ref_counted.h"
 #include "Scheduler.h"
 #include "webrtcstreamproducer.h"
 #include "fps_display.h"
@@ -46,7 +47,7 @@ public:
 
     std::atomic<bool>   m_webrtcVideoInDataFlow{false};
     std::string         m_fpsValues;
-protected:
+private:
     webrtc::scoped_refptr<webrtc::VideoTrackInterface> m_track;
     std::shared_ptr<WebrtcStream>                   m_producer;
     bool                                            m_notify {true};
@@ -66,14 +67,16 @@ public:
 
     virtual ~AudioSink();
 
-    virtual void OnData(const void* audio_data,
+    using webrtc::AudioTrackSinkInterface::OnData;
+
+    void OnData(const void* audio_data,
         int bits_per_sample,
         int sample_rate,
         size_t number_of_channels,
-        size_t number_of_frames);
+        size_t number_of_frames) override;
 
     std::atomic<bool>   m_webrtcAudioInDataFlow{false};
-protected:
+private:
     webrtc::scoped_refptr<webrtc::AudioTrackInterface> m_track;
     std::shared_ptr<WebrtcStream>                   m_producer;
     bool                                            m_notify {true};
@@ -84,9 +87,9 @@ protected:
 class SetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserver
 {
     public:
-        static SetSessionDescriptionObserver* Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
+        static webrtc::scoped_refptr<SetSessionDescriptionObserver> Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
         {
-            return new webrtc::RefCountedObject<SetSessionDescriptionObserver>(pc, promise, sdp);
+            return webrtc::make_ref_counted<SetSessionDescriptionObserver>(pc, promise, sdp);
         }
         virtual void OnSuccess();
         virtual void OnFailure(webrtc::RTCError error);
@@ -102,9 +105,9 @@ class SetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserv
 class CreateSessionDescriptionObserver : public webrtc::CreateSessionDescriptionObserver
 {
     public:
-        static CreateSessionDescriptionObserver* Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
+        static webrtc::scoped_refptr<CreateSessionDescriptionObserver> Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
         {
-            return new webrtc::RefCountedObject<CreateSessionDescriptionObserver>(pc,promise, sdp);
+            return webrtc::make_ref_counted<CreateSessionDescriptionObserver>(pc, promise, sdp);
         }
         virtual void OnSuccess(webrtc::SessionDescriptionInterface* desc);
         virtual void OnFailure(webrtc::RTCError error);
@@ -128,6 +131,7 @@ class PeerConnectionStatsCollectorCallback : public webrtc::RTCStatsCollectorCal
     protected:
         virtual void OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
 
+    private:
         Json::Value m_report;
         std::string m_transportId;
 };
@@ -163,6 +167,8 @@ public:
     virtual void OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState new_state);
     virtual void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState state);
     virtual void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState) {
+        // Intentionally blank: ICE candidates are handled as they arrive in
+        // OnIceCandidate(), so gathering state transitions need no action.
     }
 
     void setDeviceId(std::string deviceId)

@@ -25,7 +25,7 @@ GitLab side.** Onboarding is entirely a change in this repo.
 
 ---
 
-## The five steps
+## The seven steps
 
 ### 1. Flip `ghcr_build` in the inventory
 
@@ -131,10 +131,46 @@ The golden diff is the point of review: it shows the resolved coordinate moving
 from NGC to GHCR in one line, which is exactly the change a reviewer should be
 asked to approve.
 
-### 5. Land it, then check the first build
+### 5. Make the GHCR package public
 
-Nothing else is required. On merge, `build-dev-images.yml` picks the image up
-from the inventory and publishes:
+A newly published GHCR package is **private by default**. The nightly deploys the
+mirrored images from `nvstaging`, and the mirror cannot read a private package —
+so a private image fails the nightly, not your PR.
+
+Check before merging:
+
+```bash
+IMG=nvidia-ai-blueprints/vss/<image-name>
+TOK=$(curl -s "https://ghcr.io/token?scope=repository:$IMG:pull" | jq -r .token)
+curl -s -H "Authorization: Bearer $TOK" "https://ghcr.io/v2/$IMG/tags/list?n=1"
+```
+
+A JSON body with `"tags"` means public. `{"errors":[{"code":"DENIED"}]}` means it
+is still private — ask **Sarath** to flip it. Visibility is per package
+name and sticky, so this is a one-time action per image.
+
+### 6. Register the image for mirror + promotion
+
+`deploy/docker/container-inventory.json` says *how the image is built*. It does
+**not** say where it is mirrored or promoted. That is a second inventory, in the
+devops repo:
+
+[`ci/vss-ghcr-images.yml`](https://gitlab-master.nvidia.com/metromind/ci-vss-oss/-/blob/main/ci/vss-ghcr-images.yml)
+
+Copy an existing `images:` block and edit it. Ask the agent what the entry should
+contain if you are unsure — the fields route the mirror and pick the
+artifacts-promotion config, and a wrong `promotion_config` promotes into the
+wrong team.
+
+Nothing fails if you skip this. The image builds and publishes to GHCR
+perfectly; it is simply invisible to the mirror, so `nvstaging` never receives
+it and the nightly deploy of that profile fails looking for an image that was
+never promoted. **An absent entry is not an error — it is silence.**
+
+### 7. Land it, then check the first build
+
+With steps 5 and 6 done, merging is all that remains. On merge,
+`build-dev-images.yml` picks the image up from the inventory and publishes:
 
 - `develop-<sha12>` — immutable per-commit candidate
 - `tree-<tree_sha>` — content-addressed, drives reuse and the post-merge retag
@@ -249,7 +285,8 @@ coordinate breaks the invariant for everyone.
 
 | | |
 |---|---|
-| Inventory | `deploy/docker/container-inventory.json` |
+| Build inventory | `deploy/docker/container-inventory.json` — how the image is built |
+| Mirror inventory | `ci-vss-oss` → `ci/vss-ghcr-images.yml` — where it is mirrored and promoted |
 | Shared coordinate | `deploy/docker/containers.env` |
 | Golden | `deploy/docker/test-scripts/compose-images.golden` |
 | Build | `.github/workflows/build-dev-images.yml` |

@@ -35,7 +35,7 @@ Configuration is JSON, loaded at startup by `src/app/index.js` via the `--config
 
 ### Dependencies
 
-1. [Node.js](https://nodejs.org/) version 22.23.1
+1. [Node.js](https://nodejs.org/) version 22.23.2
 2. Elasticsearch version 9.4.3
 3. Kafka (optional) - required for notification, dynamic-config, dynamic-calibration, RTLS, and AMR workflows
 

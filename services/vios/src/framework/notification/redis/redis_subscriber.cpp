@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -58,29 +58,25 @@ static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *top
         RedisSubscriber* subscriber = (RedisSubscriber*) user_ptr;
         if (subscriber)
         {
-            subscriber->deliverMessage(msg, len);
+            subscriber->deliverMessage(static_cast<const unsigned char*>(msg), len);
         }
     }
 }
 
-RedisSubscriber* RedisSubscriber::_instance = nullptr;
+std::unique_ptr<RedisSubscriber> RedisSubscriber::_instance = nullptr;
 
 RedisSubscriber* RedisSubscriber::getInstance()
 {
     if (_instance == nullptr)
     {
-        _instance = new RedisSubscriber();
+        _instance.reset(new RedisSubscriber());
     }
-    return _instance;
+    return _instance.get();
 }
 
 void RedisSubscriber::deleteInstance()
 {
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    _instance.reset();
 }
 
 RedisSubscriber::RedisSubscriber()
@@ -94,14 +90,14 @@ RedisSubscriber::RedisSubscriber()
         , m_error(false)
 {
     // Temporary solution to load libnvds_logger in memory
-    m_handleRedis = openLibrary("libnvds_logger.so");
+    m_handleRedis = static_cast<DynamicLibrary*>(openLibrary("libnvds_logger.so"));
     if (!m_handleRedis)
     {
         LOG(error) << "Cannot open nvds_logger library: " << dlerror() << endl;
         goto error;
     }
 
-    m_handleRedisProto = openLibrary("libnvds_redis_proto.so");
+    m_handleRedisProto = static_cast<DynamicLibrary*>(openLibrary("libnvds_redis_proto.so"));
     if (!m_handleRedisProto)
     {
         LOG(error) << "Cannot open nvds_redis library: " << dlerror() << endl;
@@ -160,12 +156,13 @@ RedisSubscriber::~RedisSubscriber()
 void RedisSubscriber::redisInit()
 {
     m_subscribeTopic = GET_CONFIG().message_broker_topic_consumer;
-    const char *topic[] = {m_subscribeTopic.c_str()};
+    char *topic[] = {m_subscribeTopic.data()};
+    char connectConfig[] = "";
 
     m_redisEndpoint = getRedisServerEndpoint();
     // Connect to Redis server
-    m_connHandle = nvds_msgapi_connect((char*)m_redisEndpoint.c_str(),
-                                        nullptr, (char*)"");
+    m_connHandle = nvds_msgapi_connect(m_redisEndpoint.data(),
+                                        nullptr, connectConfig);
     if (!m_connHandle)
     {
         LOG(error) << "Redis Subscriber Connect failed. Exiting" << endl;
@@ -174,7 +171,7 @@ void RedisSubscriber::redisInit()
     LOG(info) << "Redis Subscriber connect success." << endl;
 
     //Subscribe to topic
-    if(nvds_msgapi_subscribe(m_connHandle, (char **)topic, 1, subscribe_cb, (void*)this) != NVDS_MSGAPI_OK)
+    if(nvds_msgapi_subscribe(m_connHandle, topic, 1, subscribe_cb, static_cast<void*>(this)) != NVDS_MSGAPI_OK)
     {
         LOG(error) << "Redis subscription to topic[s] failed. Exiting" << endl;
         goto error;
@@ -198,7 +195,7 @@ void RedisSubscriber::deregisterMessageListener(nv_vms::INotificationListener* l
     m_listeners.erase(listener);
 }
 
-void RedisSubscriber::deliverMessage(void *msg, int len)
+void RedisSubscriber::deliverMessage(const unsigned char *msg, int len)
 {
     if (!m_listeners.size())
     {

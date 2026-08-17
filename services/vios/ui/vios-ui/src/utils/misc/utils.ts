@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { CameraSettings, EnumField, RangeField, Resolution, Timeline, WebRTCStats } from '../../interfaces/interfaces';
+import {
+    CameraSettings,
+    EncodeSettings,
+    EncodingOptions,
+    EnumField,
+    ImageSettings,
+    RangeField,
+    Resolution,
+    Timeline,
+    WebRTCStats,
+} from '../../interfaces/interfaces';
 import nvAxios from '../../services/Axios';
 import LOG from './Logger';
 
@@ -36,67 +46,78 @@ export function adjustCameraSettings(input: CameraSettings): string {
 
         // Adjust Encode settings
         if ('Encode' in profile) {
-            if ('Encoding' in profile.Encode) {
-                adjustEnumField(profile.Encode.Encoding);
-            }
-            if ('Options' in profile.Encode) {
-                profile.Encode.Options.forEach(option => {
-                    const encodingOption = option[Object.keys(option)[0]];
-                    if ('Bitrate' in encodingOption) {
-                        adjustRangeField(encodingOption.Bitrate);
-                    }
-                    if ('FrameRate' in encodingOption) {
-                        adjustEnumField(encodingOption.FrameRate);
-                    }
-                    if ('GovLength' in encodingOption) {
-                        adjustRangeField(encodingOption.GovLength);
-                    }
-                    if ('Profiles' in encodingOption) {
-                        adjustEnumField(encodingOption.Profiles);
-                    }
-                    if ('Quality' in encodingOption) {
-                        adjustRangeField(encodingOption.Quality);
-                    }
-                    if ('Resolution' in encodingOption) {
-                        adjustResolution(encodingOption.Resolution);
-                    }
-                });
-            }
+            adjustEncodeSettings(profile.Encode);
         }
 
         // Adjust Image settings
         if ('Image' in profile) {
-            if ('BacklightCompensationMode' in profile.Image) {
-                adjustEnumField(profile.Image.BacklightCompensationMode);
-            }
-            if ('Brightness' in profile.Image) {
-                adjustRangeField(profile.Image.Brightness);
-            }
-            if ('ColorSaturation' in profile.Image) {
-                adjustRangeField(profile.Image.ColorSaturation);
-            }
-            if ('Contrast' in profile.Image) {
-                adjustRangeField(profile.Image.Contrast);
-            }
-            if ('ExposureMode' in profile.Image) {
-                adjustEnumField(profile.Image.ExposureMode);
-            }
-            if ('IrCutFilterMode' in profile.Image) {
-                adjustEnumField(profile.Image.IrCutFilterMode);
-            }
-            if ('Sharpness' in profile.Image) {
-                adjustRangeField(profile.Image.Sharpness);
-            }
-            if ('WhiteBalanceMode' in profile.Image) {
-                adjustEnumField(profile.Image.WhiteBalanceMode);
-            }
-            if ('WideDynamicRangeMode' in profile.Image) {
-                adjustEnumField(profile.Image.WideDynamicRangeMode);
-            }
+            adjustImageSettings(profile.Image);
         }
     }
 
     return JSON.stringify(adjustedSettings);
+}
+
+function adjustEncodeSettings(encode: EncodeSettings): void {
+    if ('Encoding' in encode) {
+        adjustEnumField(encode.Encoding);
+    }
+    if ('Options' in encode) {
+        encode.Options.forEach(option => {
+            adjustEncodingOptions(option[Object.keys(option)[0]]);
+        });
+    }
+}
+
+function adjustEncodingOptions(encodingOption: EncodingOptions): void {
+    if ('Bitrate' in encodingOption) {
+        adjustRangeField(encodingOption.Bitrate);
+    }
+    if ('FrameRate' in encodingOption) {
+        adjustEnumField(encodingOption.FrameRate);
+    }
+    if ('GovLength' in encodingOption) {
+        adjustRangeField(encodingOption.GovLength);
+    }
+    if ('Profiles' in encodingOption) {
+        adjustEnumField(encodingOption.Profiles);
+    }
+    if ('Quality' in encodingOption) {
+        adjustRangeField(encodingOption.Quality);
+    }
+    if ('Resolution' in encodingOption) {
+        adjustResolution(encodingOption.Resolution);
+    }
+}
+
+function adjustImageSettings(image: ImageSettings): void {
+    if ('BacklightCompensationMode' in image) {
+        adjustEnumField(image.BacklightCompensationMode);
+    }
+    if ('Brightness' in image) {
+        adjustRangeField(image.Brightness);
+    }
+    if ('ColorSaturation' in image) {
+        adjustRangeField(image.ColorSaturation);
+    }
+    if ('Contrast' in image) {
+        adjustRangeField(image.Contrast);
+    }
+    if ('ExposureMode' in image) {
+        adjustEnumField(image.ExposureMode);
+    }
+    if ('IrCutFilterMode' in image) {
+        adjustEnumField(image.IrCutFilterMode);
+    }
+    if ('Sharpness' in image) {
+        adjustRangeField(image.Sharpness);
+    }
+    if ('WhiteBalanceMode' in image) {
+        adjustEnumField(image.WhiteBalanceMode);
+    }
+    if ('WideDynamicRangeMode' in image) {
+        adjustEnumField(image.WideDynamicRangeMode);
+    }
 }
 
 function adjustEnumField(field: EnumField): void {

@@ -166,8 +166,8 @@ standaloneWarehouse:
     fusion:
       enabled: true
       image:
-        repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
-        tag: "3.2.0"
+        repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion
+        tag: develop-latest
         pullPolicy: IfNotPresent
       rawTopic: mdx-raw
       fusedTopic: mdx-bev
@@ -189,8 +189,8 @@ standaloneWarehouse:
       waitTimeoutSeconds: 3600
       configInit:
         image:
-          repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-config-init
-          tag: "3.2.0"
+          repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init
+          tag: develop-latest
           pullPolicy: IfNotPresent
 
 modelsPvc:

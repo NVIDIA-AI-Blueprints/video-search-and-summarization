@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,8 +40,8 @@ class IVstModule
         nv_vms::IMediaInterface* m_mediaInterface = nullptr;
 
         virtual const std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>> getHttpApi() { return m_func; };
-        virtual void postInit() {}
-        virtual ~IVstModule() {}
+        virtual void postInit() { /* Optional hook: modules that need no post-initialization work keep this no-op. */ }
+        virtual ~IVstModule() = default;
 };
 
 class ModuleLoader
@@ -54,6 +54,11 @@ class ModuleLoader
         }
         ModuleLoader();
         ~ModuleLoader();
+
+        ModuleLoader(const ModuleLoader&) = delete;
+        ModuleLoader& operator=(const ModuleLoader&) = delete;
+        ModuleLoader(ModuleLoader&&) = delete;
+        ModuleLoader& operator=(ModuleLoader&&) = delete;
 
         int initialize(ModuleId module_id = ModuleAll);
         void deInitialize();
@@ -130,14 +135,14 @@ class ModuleLoader
         int loadMediaAdaptor();
         void unloadMediaAdaptor();
 
-        void* m_handleRtspServer = nullptr;
-        void* m_handleStreamRecorder = nullptr;
-        void* m_handleStorageManagement = nullptr;
-        void* m_handleSensorManagement = nullptr;
-        void* m_handlePeerConnectionManager = nullptr;
-        void* m_handlePeerConnectionLiveManager = nullptr;
-        void* m_handlePeerConnectionReplayManager = nullptr;
-        void* m_handleStreamBridge = nullptr;
+        nv_vms::SharedLibrary* m_handleRtspServer = nullptr;
+        nv_vms::SharedLibrary* m_handleStreamRecorder = nullptr;
+        nv_vms::SharedLibrary* m_handleStorageManagement = nullptr;
+        nv_vms::SharedLibrary* m_handleSensorManagement = nullptr;
+        nv_vms::SharedLibrary* m_handlePeerConnectionManager = nullptr;
+        nv_vms::SharedLibrary* m_handlePeerConnectionLiveManager = nullptr;
+        nv_vms::SharedLibrary* m_handlePeerConnectionReplayManager = nullptr;
+        nv_vms::SharedLibrary* m_handleStreamBridge = nullptr;
         AdaptorLoader m_loader;
         std::shared_ptr<DeviceManager> m_deviceManager;
         nv_vms::MediaAdaptorLoader::MediaAdaptorHandle m_mediaAdaptorHandle{};

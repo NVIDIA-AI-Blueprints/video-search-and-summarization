@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useTheme, alpha } from '@mui/material/styles';
+import { useTheme, alpha, Theme } from '@mui/material/styles';
 import { DrawingMode, CoordinatePoint, TripwireCoordinates } from './AnalyticsTypes';
 
 interface AnalyticsDrawingCanvasProps {
-    canvasRef: React.RefObject<HTMLCanvasElement>;
-    videoRef: React.RefObject<HTMLVideoElement>;
+    canvasRef: React.RefObject<HTMLCanvasElement | null>;
+    videoRef: React.RefObject<HTMLVideoElement | null>;
     videoWidth: number;
     videoHeight: number;
     drawingMode: DrawingMode;
@@ -29,7 +29,7 @@ interface AnalyticsDrawingCanvasProps {
     directionPoints: TripwireCoordinates | null;
     tempTripwireStart: CoordinatePoint | null;
     tempDirectionStart: CoordinatePoint | null;
-    onCanvasClick: (event: React.MouseEvent<HTMLCanvasElement>, videoRef: React.RefObject<HTMLVideoElement>) => void;
+    onCanvasClick: (event: React.MouseEvent<HTMLCanvasElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => void;
     existingROIsForDisplay?: Array<{ id: string; imageCoords: CoordinatePoint[] }>;
     existingTripwiresForDisplay?: Array<{
         id: string;
@@ -70,6 +70,178 @@ const getVideoContentArea = (video: HTMLVideoElement) => {
     };
 };
 
+// Draw the in-progress ROI polygon and its numbered points
+const drawROIElements = (ctx: CanvasRenderingContext2D, theme: Theme, scaleX: number, scaleY: number, roiPoints: CoordinatePoint[]) => {
+    ctx.strokeStyle = theme.palette.primary.main;
+    ctx.fillStyle = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.25 : 0.15);
+    ctx.lineWidth = 3;
+
+    // Draw ROI polygon if more than 2 points
+    if (roiPoints.length > 2) {
+        ctx.beginPath();
+        const firstPoint = roiPoints[0];
+        ctx.moveTo(firstPoint.x / scaleX, firstPoint.y / scaleY);
+
+        for (let i = 1; i < roiPoints.length; i++) {
+            const point = roiPoints[i];
+            ctx.lineTo(point.x / scaleX, point.y / scaleY);
+        }
+
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    } else if (roiPoints.length === 2) {
+        // Draw line for first two points
+        ctx.beginPath();
+        ctx.moveTo(roiPoints[0].x / scaleX, roiPoints[0].y / scaleY);
+        ctx.lineTo(roiPoints[1].x / scaleX, roiPoints[1].y / scaleY);
+        ctx.stroke();
+    }
+
+    // Draw ROI points
+    ctx.fillStyle = theme.palette.primary.main;
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
+    ctx.lineWidth = 2;
+
+    roiPoints.forEach((point, index) => {
+        ctx.beginPath();
+        ctx.arc(point.x / scaleX, point.y / scaleY, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw point labels
+        ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
+        ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3;
+
+        ctx.strokeText(`${index + 1}`, point.x / scaleX, point.y / scaleY - 10);
+        ctx.fillText(`${index + 1}`, point.x / scaleX, point.y / scaleY - 10);
+    });
+};
+
+// Draw the in-progress tripwire line, its endpoints and labels
+const drawTripwireElements = (
+    ctx: CanvasRenderingContext2D,
+    theme: Theme,
+    scaleX: number,
+    scaleY: number,
+    tripwirePoints: TripwireCoordinates
+) => {
+    ctx.strokeStyle = theme.palette.secondary.main;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY);
+    ctx.lineTo(tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY);
+    ctx.stroke();
+
+    // Draw tripwire endpoints
+    ctx.fillStyle = theme.palette.secondary.main;
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.arc(tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY, 8, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY, 8, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw labels
+    ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+
+    ctx.strokeText('W1', tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY - 12);
+    ctx.fillText('W1', tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY - 12);
+    ctx.strokeText('W2', tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY - 12);
+    ctx.fillText('W2', tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY - 12);
+};
+
+// Draw a temporary start point (first click of a tripwire or direction line)
+const drawTempStartPoint = (
+    ctx: CanvasRenderingContext2D,
+    theme: Theme,
+    scaleX: number,
+    scaleY: number,
+    point: CoordinatePoint,
+    color: string,
+    label: string
+) => {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(point.x / scaleX, point.y / scaleY, 8, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+
+    ctx.strokeText(label, point.x / scaleX, point.y / scaleY - 12);
+    ctx.fillText(label, point.x / scaleX, point.y / scaleY - 12);
+};
+
+// Draw the in-progress direction line, its arrowhead and labels
+const drawDirectionElements = (
+    ctx: CanvasRenderingContext2D,
+    theme: Theme,
+    scaleX: number,
+    scaleY: number,
+    directionPoints: TripwireCoordinates
+) => {
+    ctx.strokeStyle = theme.palette.warning.main;
+    ctx.fillStyle = theme.palette.warning.main;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]);
+
+    ctx.beginPath();
+    ctx.moveTo(directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY);
+    ctx.lineTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw arrowhead
+    const arrowLength = 15;
+    const angle = Math.atan2(directionPoints.p2.y - directionPoints.p1.y, directionPoints.p2.x - directionPoints.p1.x);
+    const arrowAngle = Math.PI / 6;
+
+    ctx.beginPath();
+    ctx.moveTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
+    ctx.lineTo(
+        directionPoints.p2.x / scaleX - arrowLength * Math.cos(angle - arrowAngle),
+        directionPoints.p2.y / scaleY - arrowLength * Math.sin(angle - arrowAngle)
+    );
+    ctx.moveTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
+    ctx.lineTo(
+        directionPoints.p2.x / scaleX - arrowLength * Math.cos(angle + arrowAngle),
+        directionPoints.p2.y / scaleY - arrowLength * Math.sin(angle + arrowAngle)
+    );
+    ctx.stroke();
+
+    // Draw direction point labels
+    ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+
+    ctx.strokeText('D1', directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY - 12);
+    ctx.fillText('D1', directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY - 12);
+    ctx.strokeText('D2', directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY - 12);
+    ctx.fillText('D2', directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY - 12);
+};
+
 const AnalyticsDrawingCanvas: React.FC<AnalyticsDrawingCanvasProps> = ({
     canvasRef,
     videoRef,
@@ -92,7 +264,7 @@ const AnalyticsDrawingCanvas: React.FC<AnalyticsDrawingCanvasProps> = ({
     const stableExistingTripwires = useMemo(() => existingTripwiresForDisplay, [existingTripwiresForDisplay]);
 
     // Use requestAnimationFrame to batch canvas updates and reduce flashing
-    const animationFrameRef = useRef<number>();
+    const animationFrameRef = useRef<number>(undefined);
 
     // Separate function to draw existing items (only redraws when existing items change)
     const drawExistingItems = useCallback(
@@ -229,174 +401,27 @@ const AnalyticsDrawingCanvas: React.FC<AnalyticsDrawingCanvasProps> = ({
         (ctx: CanvasRenderingContext2D, scaleX: number, scaleY: number) => {
             // Draw ROI points and lines
             if (roiPoints.length > 0) {
-                ctx.strokeStyle = theme.palette.primary.main;
-                ctx.fillStyle = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.25 : 0.15);
-                ctx.lineWidth = 3;
-
-                // Draw ROI polygon if more than 2 points
-                if (roiPoints.length > 2) {
-                    ctx.beginPath();
-                    const firstPoint = roiPoints[0];
-                    ctx.moveTo(firstPoint.x / scaleX, firstPoint.y / scaleY);
-
-                    for (let i = 1; i < roiPoints.length; i++) {
-                        const point = roiPoints[i];
-                        ctx.lineTo(point.x / scaleX, point.y / scaleY);
-                    }
-
-                    ctx.closePath();
-                    ctx.fill();
-                    ctx.stroke();
-                } else if (roiPoints.length === 2) {
-                    // Draw line for first two points
-                    ctx.beginPath();
-                    ctx.moveTo(roiPoints[0].x / scaleX, roiPoints[0].y / scaleY);
-                    ctx.lineTo(roiPoints[1].x / scaleX, roiPoints[1].y / scaleY);
-                    ctx.stroke();
-                }
-
-                // Draw ROI points
-                ctx.fillStyle = theme.palette.primary.main;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.lineWidth = 2;
-
-                roiPoints.forEach((point, index) => {
-                    ctx.beginPath();
-                    ctx.arc(point.x / scaleX, point.y / scaleY, 6, 0, 2 * Math.PI);
-                    ctx.fill();
-                    ctx.stroke();
-
-                    // Draw point labels
-                    ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-                    ctx.font = 'bold 12px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.lineWidth = 3;
-
-                    ctx.strokeText(`${index + 1}`, point.x / scaleX, point.y / scaleY - 10);
-                    ctx.fillText(`${index + 1}`, point.x / scaleX, point.y / scaleY - 10);
-                });
+                drawROIElements(ctx, theme, scaleX, scaleY, roiPoints);
             }
 
             // Draw tripwire line
             if (tripwirePoints) {
-                ctx.strokeStyle = theme.palette.secondary.main;
-                ctx.lineWidth = 4;
-                ctx.beginPath();
-                ctx.moveTo(tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY);
-                ctx.lineTo(tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY);
-                ctx.stroke();
-
-                // Draw tripwire endpoints
-                ctx.fillStyle = theme.palette.secondary.main;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.lineWidth = 2;
-
-                ctx.beginPath();
-                ctx.arc(tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY, 8, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.beginPath();
-                ctx.arc(tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY, 8, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-
-                // Draw labels
-                ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-                ctx.font = 'bold 14px Arial';
-                ctx.textAlign = 'center';
-                ctx.lineWidth = 3;
-
-                ctx.strokeText('W1', tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY - 12);
-                ctx.fillText('W1', tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY - 12);
-                ctx.strokeText('W2', tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY - 12);
-                ctx.fillText('W2', tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY - 12);
+                drawTripwireElements(ctx, theme, scaleX, scaleY, tripwirePoints);
             }
 
             // Draw temporary tripwire start point
             if (tempTripwireStart && drawingMode === 'tripwire-line') {
-                ctx.fillStyle = theme.palette.secondary.main;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(tempTripwireStart.x / scaleX, tempTripwireStart.y / scaleY, 8, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-                ctx.font = 'bold 12px Arial';
-                ctx.textAlign = 'center';
-                ctx.lineWidth = 3;
-
-                ctx.strokeText('W1', tempTripwireStart.x / scaleX, tempTripwireStart.y / scaleY - 12);
-                ctx.fillText('W1', tempTripwireStart.x / scaleX, tempTripwireStart.y / scaleY - 12);
+                drawTempStartPoint(ctx, theme, scaleX, scaleY, tempTripwireStart, theme.palette.secondary.main, 'W1');
             }
 
             // Draw temporary direction start point
             if (tempDirectionStart && drawingMode === 'tripwire-direction') {
-                ctx.fillStyle = theme.palette.warning.main;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(tempDirectionStart.x / scaleX, tempDirectionStart.y / scaleY, 8, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-                ctx.font = 'bold 12px Arial';
-                ctx.textAlign = 'center';
-                ctx.lineWidth = 3;
-
-                ctx.strokeText('D1', tempDirectionStart.x / scaleX, tempDirectionStart.y / scaleY - 12);
-                ctx.fillText('D1', tempDirectionStart.x / scaleX, tempDirectionStart.y / scaleY - 12);
+                drawTempStartPoint(ctx, theme, scaleX, scaleY, tempDirectionStart, theme.palette.warning.main, 'D1');
             }
 
             // Draw direction line
             if (directionPoints) {
-                ctx.strokeStyle = theme.palette.warning.main;
-                ctx.fillStyle = theme.palette.warning.main;
-                ctx.lineWidth = 3;
-                ctx.setLineDash([8, 4]);
-
-                ctx.beginPath();
-                ctx.moveTo(directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY);
-                ctx.lineTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                // Draw arrowhead
-                const arrowLength = 15;
-                const angle = Math.atan2(directionPoints.p2.y - directionPoints.p1.y, directionPoints.p2.x - directionPoints.p1.x);
-                const arrowAngle = Math.PI / 6;
-
-                ctx.beginPath();
-                ctx.moveTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
-                ctx.lineTo(
-                    directionPoints.p2.x / scaleX - arrowLength * Math.cos(angle - arrowAngle),
-                    directionPoints.p2.y / scaleY - arrowLength * Math.sin(angle - arrowAngle)
-                );
-                ctx.moveTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
-                ctx.lineTo(
-                    directionPoints.p2.x / scaleX - arrowLength * Math.cos(angle + arrowAngle),
-                    directionPoints.p2.y / scaleY - arrowLength * Math.sin(angle + arrowAngle)
-                );
-                ctx.stroke();
-
-                // Draw direction point labels
-                ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-                ctx.font = 'bold 12px Arial';
-                ctx.textAlign = 'center';
-                ctx.lineWidth = 3;
-
-                ctx.strokeText('D1', directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY - 12);
-                ctx.fillText('D1', directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY - 12);
-                ctx.strokeText('D2', directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY - 12);
-                ctx.fillText('D2', directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY - 12);
+                drawDirectionElements(ctx, theme, scaleX, scaleY, directionPoints);
             }
         },
         [drawingMode, roiPoints, tripwirePoints, directionPoints, tempTripwireStart, tempDirectionStart, theme]

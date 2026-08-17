@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,7 +43,6 @@ public:
     int64_t getSeekOffset() { return m_seekOffset; }
     string getUrlParams() { return m_url_params; }
 
-protected:
     H264ByteStreamSource(UsageEnvironment& env, std::string streamName, shared_ptr<NvMediaSource> mediasource,
             string url_params, string sourceState, string sessionId,
             unsigned preferredFrameSize, unsigned playTimePerFrame);
@@ -56,9 +55,9 @@ private:
     virtual void doGetNextFrame();
 
 private:
-    static void onSourceClosure(void* clientData);
+    static void onSourceClosure(H264ByteStreamSource* source);
     void onSourceClosure1();
-    static void afterGettingFrame(void* clientData,
+    static void afterGettingFrame(H264ByteStreamSource* source,
           unsigned frameSize, unsigned numTruncatedBytes,
                                   struct timeval presentationTime,
           unsigned durationInMicroseconds);
