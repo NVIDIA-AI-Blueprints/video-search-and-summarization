@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/deploy/docker/release-set.schema.json",
   "title": "VSS container release set",
-  "description": "One complete, immutable set of container images for a VSS source commit. The manifest — not a moving tag — is the source of truth: acceptance tests run against exactly these digests, the last-green channel records the set that passed, and the weekly NGC promotion copies the same digests without rebuilding. Produced by .github/scripts/release_set.py assemble.",
+  "description": "One complete, immutable set of container images for a VSS source commit. The manifest — not a moving tag — is the source of truth: acceptance tests run against exactly these digests, and the weekly NGC promotion copies the same digests without rebuilding. Produced by .github/scripts/release_set.py assemble.",
   "type": "object",
   "required": ["schema_version", "release_set_id", "source", "images"],
   "additionalProperties": false,
@@ -11,7 +11,7 @@
     "release_set_id": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$",
-      "description": "SHA-256 over the canonical JSON of this document with release_set_id set to the empty string. Immutable identity for the acceptance handoff and the last-green lock."
+      "description": "SHA-256 over the canonical JSON of this document with release_set_id set to the empty string. Immutable identity for the acceptance handoff."
     },
     "source": {
       "type": "object",
