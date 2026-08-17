@@ -81,9 +81,12 @@ class ProcessSupervisor:
 
     def run(self) -> None:
         """Block supervising the children until shutdown is requested."""
-        if not self._processes:
-            self.start()
         try:
+            if not self._processes:
+                # Inside the try: a spawn that fails partway through startup
+                # would otherwise leave the children already started running,
+                # each holding a consumer-group slot.
+                self.start()
             while not self._shutdown.is_set():
                 self._reap_and_restart()
                 self._shutdown.wait(self._poll_interval)
@@ -95,11 +98,12 @@ class ProcessSupervisor:
 
     def _reap_and_restart(self) -> None:
         for index, process in enumerate(self._processes):
-            if self._shutdown.is_set() or process.is_alive():
+            if process is None or self._shutdown.is_set() or process.is_alive():
                 continue
 
             exitcode = process.exitcode
             process.join()
+            self._processes[index] = None
             self._notify_exit(process)
 
             uptime = time.monotonic() - self._started_at[index]
@@ -132,11 +136,13 @@ class ProcessSupervisor:
         self._shutdown.set()
         processes, self._processes = self._processes, []
         for process in processes:
-            if process.is_alive():
+            if process is not None and process.is_alive():
                 process.terminate()
 
         deadline = time.monotonic() + self._stop_timeout
         for process in processes:
+            if process is None:
+                continue        # already reaped and reported by the poll loop
             process.join(timeout=max(0.0, deadline - time.monotonic()))
             if process.is_alive():
                 logger.warning("Pipeline process %s did not stop gracefully, killing", process.pid)

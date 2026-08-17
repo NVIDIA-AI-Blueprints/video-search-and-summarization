@@ -171,13 +171,33 @@ _VLM_API_ERROR_CLASSIFICATION = (
 )
 
 
+def _alert_config_store_is_shared(config: dict) -> bool:
+    """Whether every process sees the same alert-config store.
+
+    Elasticsearch-backed means shared; ``persistence.enabled: false`` falls
+    back to a store private to each process (see the alert_config factory).
+    """
+    return bool((config.get("persistence") or {}).get("enabled", True))
+
+
 class AnomalyEnhancer(
     AsyncDispatchMixin,
     AsyncExternalIOMixin,
     AsyncVLMModeMixin,
     EventLoopPipelineMixin,
 ):
-    def __init__(self, config_file="config.yaml"):
+    def __init__(self, config_file="config.yaml", instance_leader: bool = True):
+        """Build one complete pipeline.
+
+        ``instance_leader`` marks the single process responsible for work that
+        belongs to the instance rather than to a pipeline: writing the seeded
+        prompts and running the verdict-retention reaper. Every concurrency
+        knob is per process by design, but these are not knobs — running them
+        in each child would multiply writes against a shared Elasticsearch and
+        defeat the retention job's own request-rate throttle. Defaults to True
+        so a single-process deployment is unchanged.
+        """
+        self.instance_leader = instance_leader
         self.config = self.load_config(config_file)
         logger.debug("Configuration loaded: %s", list(self.config.keys()))
 
@@ -203,7 +223,14 @@ class AnomalyEnhancer(
         # sink would have no live source for output_category and would
         # silently use the startup file mapping instead.
         from handlers.prompt_handler.prompt_manager import PromptManager
-        self.prompt_manager = PromptManager(config_file)
+        # Seeding once per instance only works when the store is shared. With
+        # persistence disabled every process owns a private in-memory store, so
+        # a child that skipped seeding would raise on every prompt lookup for
+        # its partitions -- there is no file fallback behind the store.
+        self.prompt_manager = PromptManager(
+            config_file,
+            seed_prompts=instance_leader or not _alert_config_store_is_shared(self.config),
+        )
         logger.info("PromptManager initialized successfully")
 
         # Build a single VLM enhanced sink (handles both incident and alert)
@@ -235,7 +262,7 @@ class AnomalyEnhancer(
         # confirmed-verdict markers so ``ab-confirmed-verdicts`` does not grow
         # unbounded. Only runs when verdict protection is enabled.
         try:
-            if getattr(self.redis_handler, "_protect_confirmed_enabled", False):
+            if instance_leader and getattr(self.redis_handler, "_protect_confirmed_enabled", False):
                 from clients.verdict_retention import (
                     DEFAULT_INTERVAL_SECONDS,
                     DEFAULT_REQUESTS_PER_SECOND,
@@ -804,33 +831,44 @@ class AnomalyEnhancer(
             lambda _f, released_id=worker_id: self.worker_queue.put(released_id)
         )
 
+    def _needs_worker_pool(self) -> bool:
+        """Whether the batch pool between the consume loop and processing is useful.
+
+        It belongs to sync mode, where per-message processing blocks and thread
+        count is the only source of parallelism. Both async modes hand each
+        message to their own dispatcher and return immediately, so the pool
+        would cost a thread hop and a second queue without raising any
+        concurrency limit.
+
+        Pass-through is the exception in every mode: process_batch_vlm returns
+        through _process_media_passthrough before reaching a dispatcher and
+        makes its VLM calls inline, so without a pool that work runs one
+        message at a time on the consume thread and stalls polling behind it.
+        """
+        return self.pipeline_mode == PIPELINE_MODE_SYNC or self.vst_pass_through_mode
+
     def _run_consume_loop(self, worker_pool: Optional[ThreadPoolExecutor]) -> None:
         """Poll the source and schedule every message until interrupted."""
         while True:
-            try:
-                raw_messages = self.source.read_data()
+            raw_messages = self.source.read_data()
 
-                if self._webhook_forwarder is not None:
-                    self._webhook_forwarder.poll_and_forward()
+            if self._webhook_forwarder is not None:
+                self._webhook_forwarder.poll_and_forward()
 
-                if not raw_messages:
+            if not raw_messages:
+                continue
+
+            # Batches already normalized by source: [{'kind','messages'}, ...]
+            for batch in raw_messages:
+                batch_messages = batch.get("messages")
+                if not batch_messages:
                     continue
 
-                # Batches already normalized by source: [{'kind','messages'}, ...]
-                for batch in raw_messages:
-                    batch_messages = batch.get("messages")
-                    if not batch_messages:
-                        continue
+                batch_kind = (batch.get("kind") or "").lower()
+                message_type = "Incident" if batch_kind == "incident" else "Behavior"
 
-                    batch_kind = (batch.get("kind") or "").lower()
-                    message_type = "Incident" if batch_kind == "incident" else "Behavior"
-
-                    for message in batch_messages:
-                        self._schedule_message(worker_pool, message, message_type, batch)
-
-            except Empty:
-                logger.debug("All workers busy, waiting for availability")
-                time.sleep(1)
+                for message in batch_messages:
+                    self._schedule_message(worker_pool, message, message_type, batch)
 
     def process_anomalies(self):
         dispatch_executor: Optional[ThreadPoolExecutor] = None
@@ -855,13 +893,7 @@ class AnomalyEnhancer(
                     self.max_vst_concurrent,
                 )
 
-            # The batch worker pool belongs to sync mode alone, where
-            # per-message processing blocks and thread count is the only
-            # source of parallelism. Both async modes hand each message to
-            # their own dispatcher and return immediately, so passing them
-            # through this pool first cost a thread hop and a second queue
-            # without raising any concurrency limit.
-            if self.pipeline_mode == PIPELINE_MODE_SYNC:
+            if self._needs_worker_pool():
                 worker_pool = ThreadPoolExecutor(
                     max_workers=self.num_workers,
                     thread_name_prefix="ab-vlm-worker",
@@ -2453,9 +2485,14 @@ def _exit_when_parent_dies(parent_pid: int) -> None:
         import ctypes
 
         PR_SET_PDEATHSIG = 1
-        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+        result = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
     except Exception:
         logger.debug("PR_SET_PDEATHSIG unavailable on this platform", exc_info=True)
+        return
+    if result != 0:
+        # Blocked by seccomp rather than absent. Worth a line: without it an
+        # orphaned child keeps its consumer-group slot until it is killed.
+        logger.debug("PR_SET_PDEATHSIG rejected (errno=%s)", ctypes.get_errno())
         return
 
     # The parent may already have exited between fork and prctl.
@@ -2498,7 +2535,10 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
 
     logger.info("Pipeline process %d starting (pid=%d)", index, os.getpid())
     try:
-        enhancer = AnomalyEnhancer(config_path)
+        # Child 0 owns the work that belongs to the instance rather than to a
+        # pipeline. If it dies the supervisor replaces it and the jobs resume
+        # with it; the others never start them.
+        enhancer = AnomalyEnhancer(config_path, instance_leader=(index == 0))
         # Construction is where children contend on Elasticsearch, and it can
         # take tens of seconds with several of them. The parent's readiness
         # line is printed before the fork, so anything gating on readiness has
@@ -2719,7 +2759,7 @@ if __name__ == "__main__":
                     process_count,
                     source_partitions,
                 )
-            run_multi_process_pipeline(os.environ["CONFIG_PATH"], process_count)
+            run_multi_process_pipeline(os.path.abspath(args.config), process_count)
         else:
             enhancer.process_anomalies()
 

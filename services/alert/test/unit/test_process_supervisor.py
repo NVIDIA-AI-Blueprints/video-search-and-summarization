@@ -151,6 +151,53 @@ class TestRestart:
 
         assert seen == [original]
 
+    def test_each_exit_is_reported_exactly_once(self):
+        """Metrics keyed off the hook double-count otherwise.
+
+        The reaper reports a dead child and then hands the slot back for a
+        restart; if the restart is abandoned, stop() must not report the same
+        corpse a second time on its way out.
+        """
+        seen = []
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=2, on_exit=seen.append,
+                                 max_rapid_restarts=0)
+        supervisor.start()
+        dead = supervisor.processes[1]
+        dead.die(exitcode=1)
+
+        with pytest.raises(SupervisedProcessError):
+            supervisor._reap_and_restart()
+        supervisor.stop()
+
+        assert seen.count(dead) == 1
+        assert len(seen) == 2      # the dead slot plus the live one stop() ends
+
+    def test_a_slot_abandoned_mid_backoff_is_not_reported_again(self):
+        seen = []
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=1, on_exit=seen.append)
+        supervisor.start()
+        dead = supervisor.processes[0]
+        dead.die(exitcode=0)
+
+        # Shutdown lands while the reaper waits out its restart backoff, so it
+        # abandons the restart. Driven off the wait rather than a timer to keep
+        # the interleaving fixed.
+        original_wait = supervisor._shutdown.wait
+
+        def shutdown_during_backoff(timeout=None):
+            supervisor._shutdown.set()
+            return original_wait(timeout)
+
+        supervisor._shutdown.wait = shutdown_during_backoff
+
+        supervisor._reap_and_restart()
+        supervisor.stop()
+
+        assert len(spawn.spawned) == 1     # no replacement was started
+        assert seen == [dead]
+
     def test_no_restart_once_shutdown_requested(self):
         spawn = Spawner()
         supervisor = _supervisor(spawn, count=1)

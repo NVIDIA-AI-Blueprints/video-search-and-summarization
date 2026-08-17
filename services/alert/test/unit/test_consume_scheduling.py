@@ -70,11 +70,12 @@ class TestInlineScheduling:
         stub._schedule_message(None, {"id": "a"}, "Incident", BATCH)
         assert stub.calls[0]["worker_assigned_at"]
 
-    def test_batch_failure_does_not_propagate_to_the_consume_loop(self):
+    def test_scheduling_adds_no_error_handling_of_its_own(self):
         stub = SchedulerStub()
         stub.process_batch_vlm = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
-        # process_batch_vlm swallows its own errors in production; if that ever
-        # regresses, an inline schedule would take the consume loop down.
+        # The consume loop is protected by process_batch_vlm swallowing its own
+        # errors, not by anything here. This pins that: if that ever regresses,
+        # an inline schedule takes the consume loop down with it.
         with pytest.raises(RuntimeError):
             stub._schedule_message(None, {"id": "a"}, "Incident", BATCH)
 
@@ -108,6 +109,65 @@ class TestPooledScheduling:
 
         assert len(stub.calls) == 4
         assert stub.worker_queue.qsize() == 2
+
+
+class TestSeedingFollowsStoreSharing:
+    """Seeding once per instance only works when the store is shared.
+
+    With persistence disabled every process owns a private in-memory store, so
+    a child that skipped seeding would raise on every prompt lookup for its
+    partitions -- nothing falls back to the file behind the store.
+    """
+
+    @staticmethod
+    def _shared(config):
+        from enhance_alert_with_vlm import _alert_config_store_is_shared
+        return _alert_config_store_is_shared(config)
+
+    def test_elasticsearch_backed_is_shared(self):
+        assert self._shared({"persistence": {"enabled": True}}) is True
+
+    def test_persistence_disabled_is_per_process(self):
+        assert self._shared({"persistence": {"enabled": False}}) is False
+
+    @pytest.mark.parametrize("config", [{}, {"persistence": None}, {"persistence": {}}])
+    def test_absent_configuration_is_treated_as_shared(self, config):
+        # Matches the factory default, which is Elasticsearch-backed.
+        assert self._shared(config) is True
+
+    @pytest.mark.parametrize("leader,shared,expected", [
+        (True, True, True),      # the one seeder for a shared store
+        (False, True, False),    # peers leave the shared store alone
+        (True, False, True),
+        (False, False, True),    # its own store, so it must seed it itself
+    ])
+    def test_who_seeds(self, leader, shared, expected):
+        config = {"persistence": {"enabled": shared}}
+        assert (leader or not self._shared(config)) is expected
+
+
+class TestWorkerPoolIsNeeded:
+    """Sync mode needs the pool; so does pass-through, in every mode."""
+
+    @staticmethod
+    def _needs(mode, pass_through):
+        stub = type("S", (), {})()
+        stub.pipeline_mode = mode
+        stub.vst_pass_through_mode = pass_through
+        return AnomalyEnhancer._needs_worker_pool(stub)
+
+    def test_sync_mode_needs_it(self):
+        assert self._needs("sync", False) is True
+
+    @pytest.mark.parametrize("mode", ["thread_bridge", "event_loop"])
+    def test_async_modes_do_not(self, mode):
+        assert self._needs(mode, False) is False
+
+    @pytest.mark.parametrize("mode", ["sync", "thread_bridge", "event_loop"])
+    def test_pass_through_needs_it_in_every_mode(self, mode):
+        # Pass-through makes its VLM calls inline, so with no pool the async
+        # modes would process one message at a time on the consume thread.
+        assert self._needs(mode, True) is True
 
 
 class TestRetiredConfigWarnings:
