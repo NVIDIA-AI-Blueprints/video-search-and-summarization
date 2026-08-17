@@ -169,6 +169,28 @@ def test_rate_limited_logger_suppresses_bursts():
     log_rate_limited(logger, logging.ERROR, "burst-key", "boom %s", "x", interval_s=60.0)
 
 
+def test_rate_limited_logger_logs_first_event_when_uptime_below_interval(monkeypatch):
+    """time.monotonic() is boot-relative, so a fresh host must not suppress the first line."""
+    from lib.logging import wdm_logging
+
+    class _FakeClock:
+        def __init__(self, value: float):
+            self.value = value
+
+        def monotonic(self) -> float:
+            return self.value
+
+    clock = _FakeClock(3.0)
+    monkeypatch.setattr(wdm_logging, "time", clock)
+
+    limiter = RateLimitedLogger(interval_s=60.0)
+    assert limiter.should_log("boot-key") == (True, 0)
+    assert limiter.should_log("boot-key") == (False, 0)
+
+    clock.value += 61.0
+    assert limiter.should_log("boot-key") == (True, 1)
+
+
 def test_log_rate_limited_custom_interval_retains_state():
     """Custom interval_s must reuse the same limiter (Greptile P2)."""
     logger = logging.getLogger("sdrc.test.rate.custom")
