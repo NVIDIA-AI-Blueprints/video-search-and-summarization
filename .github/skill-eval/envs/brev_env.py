@@ -115,8 +115,6 @@ class BrevEnvironment(BaseEnvironment):
         stop()     → no-op (instance stays running for reuse)
     """
 
-    _preserved_docker_networks: tuple[str, ...] = ()
-
     def __init__(self, **kwargs):  # noqa: ANN003
         super().__init__(**kwargs)
         self._instance_name: str | None = DEFAULT_INSTANCE
@@ -536,10 +534,9 @@ class BrevEnvironment(BaseEnvironment):
         """Wipe the warm-pool box's docker runtime before the trial.
 
         Removes **all** containers (running + stopped), **all** volumes
-        (named + anonymous), and all unreserved user-defined networks, while
+        (named + anonymous), and **all** user-defined networks, while
         **preserving images** — re-pulling the multi-GB VSS/NIM image set on
-        every trial would dominate wall-clock. Environment variants may reserve
-        a control-plane network through ``_preserved_docker_networks``.
+        every trial would dominate wall-clock.
 
         Why blanket, not VSS-project-scoped: trials reach a deploy through
         heterogeneous paths — direct `docker compose --profile …`, the
@@ -566,29 +563,18 @@ class BrevEnvironment(BaseEnvironment):
         timeout already budgets for a cold deploy.
 
         Runs as the normal (docker-group) user — the same identity the
-        trial's deploy uses; no sudo. Fails loud (`set -u`, explicit `exit 1`)
-        if the daemon is unreachable or dies mid-reset, or if any container,
-        volume, or unreserved user-defined network survives, so a half-reset
-        box surfaces as a trial error rather than silent cross-trial
+        trial's deploy uses; no sudo. `network prune` leaves the built-in
+        bridge/host/none networks, which is correct. Fails loud (`set -u`,
+        explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
+        if any container, volume, or user-defined network survives, so a
+        half-reset box surfaces as a trial error rather than silent cross-trial
         contamination.
         """
-        preserved_cases = "\n".join(
-            f"    {shlex.quote(network)}) return 0 ;;"
-            for network in self._preserved_docker_networks
-        )
         cmd = r"""set -uo pipefail
-is_preserved_network() {
-  case "$1" in
-__PRESERVED_NETWORK_CASES__
-    *) return 1 ;;
-  esac
-}
 docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
 cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
 vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
-for network in $(docker network ls --filter type=custom --format '{{.Name}}'); do
-  is_preserved_network "$network" || docker network rm "$network" >/dev/null 2>&1 || true
-done
+docker network prune -f >/dev/null 2>&1 || true
 # Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
 # died mid-script would make the count commands below print nothing and the
 # guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
@@ -600,19 +586,15 @@ rv=$(docker volume ls -q | wc -l | tr -d ' ')
 # are never removable, so filter to type=custom. A surviving user network
 # would collide ("network already exists" / address-range clash) on the next
 # `compose up`, so it must fail the reset like a surviving container/volume.
-rn=0
-for network in $(docker network ls --filter type=custom --format '{{.Name}}'); do
-  is_preserved_network "$network" || rn=$((rn + 1))
-done
+rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
 if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
   echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
   exit 1
 fi
 echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
-""".replace("__PRESERVED_NETWORK_CASES__", preserved_cases)
+"""
         logger.info(
-            "Resetting docker runtime (all containers/volumes and unreserved "
-            "networks; images kept) on %s",
+            "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
             self._instance_name,
         )
         result = await _run_brev_exec(self._instance_name, cmd, timeout=300)

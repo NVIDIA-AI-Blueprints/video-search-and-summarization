@@ -124,22 +124,5 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         calls = await self._run_start_for("step-10")
         self.assertEqual(calls, set(), "step-10 must skip all destructive prep")
 
-    async def test_reset_keeps_only_the_reserved_custom_network(self):
-        env = brev_env.BrevEnvironment()
-        env._instance_name = "vss-eval-test"
-        env._preserved_docker_networks = ("openshell-docker",)
-        run = mock.AsyncMock(
-            return_value=_ExecResult(stdout="docker runtime reset OK", return_code=0)
-        )
-
-        with mock.patch.object(brev_env, "_run_brev_exec", new=run):
-            await env._reset_docker_runtime()
-
-        command = run.call_args.args[1]
-        self.assertIn("openshell-docker) return 0", command)
-        self.assertIn('docker network rm "$network"', command)
-        self.assertNotIn("docker network prune", command)
-
-
 if __name__ == "__main__":
     unittest.main()

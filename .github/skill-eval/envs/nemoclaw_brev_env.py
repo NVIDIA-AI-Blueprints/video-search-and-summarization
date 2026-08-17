@@ -83,18 +83,20 @@ def _forwarded_nemoclaw_env() -> str:
     return "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values)
 
 
-def _destroy_sandbox_command(sandbox: str) -> str:
+def _reset_nemoclaw_command(sandbox: str) -> str:
     quoted = shlex.quote(sandbox)
     return f"""
 set -e
 set +u
 . "$HOME/.profile" 2>/dev/null || true
 set -u
-if command -v nemoclaw >/dev/null 2>&1 && \
-   command -v openshell >/dev/null 2>&1 && \
-   openshell sandbox get {quoted} >/dev/null 2>&1; then
-  timeout --signal=TERM --kill-after=30 600s \
-    nemoclaw {quoted} destroy --yes --cleanup-gateway
+if command -v nemoclaw >/dev/null 2>&1 && command -v openshell >/dev/null 2>&1; then
+  if openshell sandbox get {quoted} >/dev/null 2>&1; then
+    timeout --signal=TERM --kill-after=30 600s \
+      nemoclaw {quoted} destroy --yes --cleanup-gateway
+  elif openshell server status >/dev/null 2>&1; then
+    timeout --signal=TERM --kill-after=30 600s nemoclaw stop
+  fi
 fi
 """.strip()
 
@@ -122,8 +124,6 @@ timeout --signal=TERM --kill-after=120 {timeout}s \
 class NemoClawBrevEnvironment(BrevEnvironment):
     """Run normal Brev preparation, then the checked-in setup notebooks."""
 
-    _preserved_docker_networks = ("openshell-docker",)
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._nemoclaw_ready = False
@@ -138,15 +138,15 @@ class NemoClawBrevEnvironment(BrevEnvironment):
         instance = self._resolve_instance_name()
         sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval")
         if instance:
-            destroyed = await _run_brev_exec(
+            reset = await _run_brev_exec(
                 instance,
-                _destroy_sandbox_command(sandbox),
+                _reset_nemoclaw_command(sandbox),
                 timeout=660,
             )
-            if destroyed.return_code != 0:
-                detail = (destroyed.stderr or destroyed.stdout or "")[-2000:]
+            if reset.return_code != 0:
+                detail = (reset.stderr or reset.stdout or "")[-2000:]
                 raise RuntimeError(
-                    f"Could not destroy existing NemoClaw sandbox {sandbox!r}:\n"
+                    f"Could not reset existing NemoClaw runtime {sandbox!r}:\n"
                     f"{detail}"
                 )
 
