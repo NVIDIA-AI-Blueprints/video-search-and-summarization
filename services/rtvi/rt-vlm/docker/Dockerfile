@@ -203,7 +203,7 @@ RUN git init /tmp/deepstream_python_apps \
     && git submodule update --init \
     && python3 bindings/3rdparty/git-partial-submodule/git-partial-submodule.py restore-sparse \
     && git apply /tmp/pyds.patch
-RUN pip install --no-cache-dir build PyGObject cuda-python \
+RUN pip install --no-cache-dir build==1.5.0 PyGObject==3.48.2 cuda-python==13.2.0 \
     && cd /tmp/deepstream_python_apps/bindings/3rdparty/gstreamer/subprojects/gst-python \
     && meson setup build \
     && ninja -C build \
