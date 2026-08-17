@@ -152,6 +152,8 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          # Test-only branch: dispatch only the base-profile spec.
+          CHANGED_FILES: skills/vss-deploy-profile/evals/base.json
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
