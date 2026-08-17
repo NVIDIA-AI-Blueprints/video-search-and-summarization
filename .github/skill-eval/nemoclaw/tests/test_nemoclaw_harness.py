@@ -448,24 +448,18 @@ class HarnessScopeTests(unittest.TestCase):
         eval_job = workflow.split("\n  eval:\n", 1)[1]
         self.assertIn('default: "claude-code"', workflow)
         self.assertIn("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}", eval_job)
-        self.assertIn("inputs.runner == 'nemoclaw' && 1 || 8", eval_job)
+        self.assertIn("max-parallel: 8", eval_job)
         self.assertEqual(workflow.count("Run skills eval agent (single spec)"), 1)
         self.assertIn("EVAL_AGENT:", workflow)
-        self.assertIn('BREV_INSTANCE="$NEMOCLAW_INSTANCE"', workflow)
-        self.assertIn("nemoclaw_instance must name", workflow)
+        self.assertNotIn("nemoclaw_instance", workflow)
+        self.assertNotIn("NEMOCLAW_INSTANCE", workflow)
         self.assertNotIn("inputs.runner != 'nemoclaw'", workflow)
         self.assertNotIn("single_scenario.py", workflow)
         self.assertNotIn("Run selected skill through NemoClaw", workflow)
         self.assertIn("Collect results for workflow artifact", workflow)
         self.assertIn("--exclude='agent'", workflow)
-        self.assertIn(
-            'export HOME=\\"\\$host_home/.skill-eval/nemoclaw-home\\"', workflow
-        )
-        self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", workflow)
-        self.assertIn(
-            "format('skills-eval-nemoclaw-{0}', inputs.nemoclaw_instance)",
-            workflow,
-        )
+        self.assertNotIn("Collect NemoClaw diagnostics", workflow)
+        self.assertNotIn("skills-eval-nemoclaw-", workflow)
 
     def test_excluded_subsystems_are_not_in_scoped_sources(self) -> None:
         paths = [

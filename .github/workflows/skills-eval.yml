@@ -10,8 +10,7 @@
 #            run), posts its own PR comment per AGENTS.md.
 # workflow_dispatch:
 #   plan -> computes the same (skill, spec, platform) rows for both runtimes
-#   eval -> dispatches one matrix job per row for either runtime; NemoClaw
-#           limits the matrix to one active leg on its explicitly reserved worker
+#   eval -> dispatches one matrix job per row for either runtime
 
 name: Skills Eval
 
@@ -46,11 +45,6 @@ on:
         options:
           - claude-code
           - nemoclaw
-      nemoclaw_instance:
-        description: "Explicit operator-reserved Brev or registered-node name for NemoClaw."
-        required: false
-        default: ""
-        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -71,9 +65,7 @@ permissions:
 # timeout-minutes terminator) and host reboots.
 concurrency:
   group: >-
-    ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
-      && format('skills-eval-nemoclaw-{0}', inputs.nemoclaw_instance)
-      || github.event_name == 'workflow_dispatch'
+    ${{ github.event_name == 'workflow_dispatch'
       && format('skills-eval-manual-{0}', github.run_id)
       || format('skills-eval-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
@@ -165,9 +157,9 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Claude uses the worker pool in parallel. NemoClaw targets one explicit
-      # worker, so its rows use the same matrix but execute one at a time.
-      max-parallel: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw' && 1 || 8 }}
+      # Allow up to eight matrix legs. Unavailable runner slots queue in
+      # Actions; run_leg.py still caps execution at one leg per GPU box.
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
@@ -222,7 +214,6 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
-          NEMOCLAW_INSTANCE: ${{ inputs.nemoclaw_instance }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -261,15 +252,6 @@ jobs:
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
-          fi
-          if [ "$EVAL_AGENT" = "nemoclaw" ]; then
-            if [ -z "$NEMOCLAW_INSTANCE" ]; then
-              echo "::error::nemoclaw_instance must name an operator-reserved worker"
-              exit 1
-            fi
-            # Explicit infrastructure selection only; run_leg.py still holds
-            # the same process-scoped worker lock used by every other runtime.
-            export BREV_INSTANCE="$NEMOCLAW_INSTANCE"
           fi
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
@@ -310,61 +292,6 @@ jobs:
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
           python3 .github/skill-eval/skills_eval_agent.py
-
-      - name: Collect NemoClaw diagnostics
-        if: >-
-          always() &&
-          github.event_name == 'workflow_dispatch' &&
-          inputs.runner == 'nemoclaw' &&
-          steps.agent.outcome == 'failure'
-        continue-on-error: true
-        env:
-          NEMOCLAW_INSTANCE: ${{ inputs.nemoclaw_instance }}
-          EVAL_SLUG: ${{ matrix.slug }}
-        run: |
-          set -a
-          source /home/ubuntu/eval-coordinator/.env
-          set +a
-
-          DIAGNOSTICS_DIR="${RUNNER_TEMP}/nemoclaw-diagnostics-${EVAL_SLUG}-${GITHUB_RUN_ID}"
-          REMOTE_TARBALL="/tmp/nemoclaw-debug-${EVAL_SLUG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
-          mkdir -p "$DIAGNOSTICS_DIR"
-
-          # Brev uses SSH under the hood. Reuse one agent for collection and
-          # copy so the coordinator does not retain orphaned ssh-agent processes.
-          eval "$(ssh-agent -s)" > /dev/null
-          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
-
-          # NemoClaw's native collector redacts command output before writing
-          # the archive. Unset sandbox-name overrides so it can inspect a
-          # partially-created or stale sandbox after onboarding fails.
-          set +e
-          brev exec "$NEMOCLAW_INSTANCE" \
-            "bash -lc 'host_home=\$HOME; export HOME=\"\$host_home/.skill-eval/nemoclaw-home\"; export NEMOCLAW_GATEWAY_PORT=8991; env -u NEMOCLAW_SANDBOX_NAME -u NEMOCLAW_SANDBOX -u SANDBOX_NAME nemoclaw debug --quick --output ${REMOTE_TARBALL}'" \
-            2>&1 | tee "$DIAGNOSTICS_DIR/collector.log"
-          collect_rc=${PIPESTATUS[0]}
-          if [ "$collect_rc" -eq 0 ]; then
-            brev copy "$NEMOCLAW_INSTANCE:$REMOTE_TARBALL" "$DIAGNOSTICS_DIR/"
-            collect_rc=$?
-          fi
-
-          set -e
-          if [ "$collect_rc" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: Upload NemoClaw diagnostics
-        if: >-
-          always() &&
-          github.event_name == 'workflow_dispatch' &&
-          inputs.runner == 'nemoclaw' &&
-          steps.agent.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: nemoclaw-diagnostics-${{ matrix.slug }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/nemoclaw-diagnostics-${{ matrix.slug }}-${{ github.run_id }}
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: Collect results for workflow artifact
         if: always()
