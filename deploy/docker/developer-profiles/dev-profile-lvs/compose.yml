@@ -25,4 +25,3 @@ services:
     depends_on:
       kibana:
         condition: service_healthy
-
