@@ -32,6 +32,7 @@ models/dynamic_model_loader.py
 models/openai_compat/openai_compat_model.py
 models/openai_compat/internal/util.py
 models/vllm_compatible/__init__.py
+models/vllm_compatible/adaptive_preprocess_limiter.py
 models/vllm_compatible/vllm_compatible_model.py
 vllm_cosmos3/__init__.py
 vllm_cosmos3/model.py
