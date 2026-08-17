@@ -6,8 +6,10 @@
 # NVIDIA does not publish an installable DeepStream SDK artifact for SBSA.
 # Keep its official container only as a source stage; the final runtime below
 ARG TARGETARCH
-ARG SBSA_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark"
-ARG DS_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-multiarch"
+ARG SBSA_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark@sha256:6a25ce5964424a2fc18a67212b08fc3a844734e757e8cc2a989f033e3306b1af"
+ARG DS_MEDIA_IMAGE="nvcr.io/nvidia/deepstream:9.1-triton-multiarch@sha256:fd31f5b44ababdbdee8cd397a375e888191b49e402ac237254a4cdc239130f5b"
+ARG TRITON_CUDA_IMAGE="nvcr.io/nvidia/tritonserver:26.03-py3@sha256:72d1d796b49a17e6432d4908c95969be0dded2f4d06469fa0824a71ecf0b895b"
+ARG VLLM_IMAGE="nvcr.io/nvidia/vllm:26.03-py3@sha256:13e327dad79e6e417f6687fec2ba76b0386d597082ec0ee003c1e964ec6ad0e7"
 ARG MEDIA_PLATFORM="ds"
 ARG DEEPSTREAM_X86_SHA256="fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
 ARG DEEPSTREAM_JETSON_SHA256="14813cb7da9eafdd01ceed52c1c8d85a3255612a9b1c2691f5ad3ad5c5d39c2e"
@@ -27,11 +29,11 @@ FROM ${SBSA_MEDIA_IMAGE} AS sbsa-media-runtime
 
 # DeepStream 9.1's x86 plugins require CUDA 13 NPP/NVJPEG libraries. They are
 # present in Triton 26.03 but intentionally absent from the lean vLLM image.
-FROM nvcr.io/nvidia/tritonserver:26.03-py3 AS triton-cuda-runtime
+FROM ${TRITON_CUDA_IMAGE} AS triton-cuda-runtime
 
 # The final foundation for every VLM target. NGC resolves the matching amd64 or
 # arm64 manifest at build time.
-FROM nvcr.io/nvidia/vllm:26.03-py3 AS rtvi-media
+FROM ${VLLM_IMAGE} AS rtvi-media
 
 ARG TARGETARCH
 ARG ARM_PLATFORM="sbsa"
