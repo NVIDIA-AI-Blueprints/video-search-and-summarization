@@ -18,7 +18,7 @@
 Environment:
   WDM_LOG_LEVEL   - DEBUG|INFO|WARNING|ERROR|CRITICAL (default INFO)
   WDM_LOG_FORMAT  - text|json (default text; use json for log shippers)
-  WDM_LOG_TO_FILE - 1/true to write rotating files under logs/ (default true)
+  WDM_LOG_TO_FILE - 1/true to write rotating files under logs/ (default false)
 
 Hot-path poll detail stays available at DEBUG; production INFO is for state changes.
 """
@@ -454,7 +454,7 @@ def configure_root_logging(
     stdout_handler.addFilter(context_filter)
     root_logger.addHandler(stdout_handler)
 
-    if _env_truthy("WDM_LOG_TO_FILE", default=True):
+    if _env_truthy("WDM_LOG_TO_FILE", default=False):
         log_dir = os.path.join(repo_root, "logs")
         log_file = os.path.join(log_dir, f"{wl_log_prefix}-wdm-services.log")
         os.makedirs(log_dir, exist_ok=True)

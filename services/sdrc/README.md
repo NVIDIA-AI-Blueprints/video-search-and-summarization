@@ -619,7 +619,7 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `OTEL_SERVICE_NAME` | `sdr-agent` | OpenTelemetry service name. |
 | `WDM_LOG_LEVEL` | `INFO` | Root log level (`DEBUG`/`INFO`/`WARNING`/`ERROR`). Use `DEBUG` to restore poll/inventory detail. |
 | `WDM_LOG_FORMAT` | `text` | Log format: `text` (human-readable KV) or `json` (one JSON object per line). |
-| `WDM_LOG_TO_FILE` | `true` | Write rotating files under `logs/`; set `0`/`false` for stdout-only. |
+| `WDM_LOG_TO_FILE` | `false` | Write rotating files under `logs/` when `1`/`true`; stdout-only by default. |
 | `WDM_DISABLE_WERKZEUG_LOGGING` | `False` | Disable Werkzeug HTTP request logging. |
 | `WDM_SDR_AGENT_PORT` | `4000` | SDR agent service port reported to an external controller. |
 | `CONTROLLER_SERVICE_URL` | `sdr-controller-service.default.svc.cluster.local:4001/report` | Controller report endpoint. |
@@ -942,7 +942,7 @@ Logging is configured at startup via `lib/logging/wdm_logging.py`:
 |---|---|---|
 | `WDM_LOG_LEVEL` | `INFO` | Root level. `INFO` keeps lifecycle/state changes; poll/inventory detail is at `DEBUG`. |
 | `WDM_LOG_FORMAT` | `text` | `text` for console skim; `json` for collectors (`jq`, Loki, Fluent Bit). |
-| `WDM_LOG_TO_FILE` | `true` | Rotating files under `logs/`; disable for 12-factor stdout-only. |
+| `WDM_LOG_TO_FILE` | `false` | Opt-in rotating files under `logs/`; stdout-only by default. |
 | `WDM_DISABLE_WERKZEUG_LOGGING` | `false` | Suppress Werkzeug access logs when `true`. |
 
 Noisy third-party loggers (`redis_lock`, `urllib3`, `docker`, `kafka`) are raised to `WARNING` so they do not drown application events at `INFO`. Repeated identical Redis consumer errors are rate-limited (~30s) and report `suppressed_count` when they recur.
