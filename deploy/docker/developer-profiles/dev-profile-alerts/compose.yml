@@ -31,18 +31,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  nvstreamer-alerts:
-    extends:
-      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
-      service: nvstreamer-base
-    profiles: ["nvstreamer-alerts"]
-    volumes:
-      - ${NVSTREAMER_ALERTS_VIDEO_DIR:-${NVSTREAMER_VIDEO_DIR:-${VSS_DATA_DIR}}/videos/dev-profile-alerts}:/home/vst/vst_release/streamer_videos
-      - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
-      - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
 
   # perception-sdr-alerts:
   #   extends:

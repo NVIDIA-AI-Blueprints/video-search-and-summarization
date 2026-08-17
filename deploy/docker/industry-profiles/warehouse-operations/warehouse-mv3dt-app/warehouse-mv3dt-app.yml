@@ -45,30 +45,6 @@ services:
     container_name: vss-behavior-analytics-playback-mv3dt
     command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_20x20_playback.txt
 
-  nvstreamer-mv3dt:
-    extends:
-      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
-      service: nvstreamer-base
-    profiles: ["nvstreamer-mv3dt"]
-    container_name: vss-vios-nvstreamer-mv3dt
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities:
-                - gpu
-              device_ids:
-                - "${RT_CV_DEVICE_ID:-0}"
-    volumes:
-      - ${NVSTREAMER_MV3DT_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${NVSTREAMER_MV3DT_CONFIG_DIR}/notification-config.json:/home/vst/vst_release/configs/notification_config.json
-      - ${NVSTREAMER_MV3DT_CONFIG_DIR}/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
-      - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
-    depends_on:
-      bp-configurator-mv3dt:
-        condition: service_healthy
 
   bp-configurator-mv3dt-init:
     extends:
