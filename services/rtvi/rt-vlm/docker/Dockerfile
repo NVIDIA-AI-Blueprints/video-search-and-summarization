@@ -294,19 +294,6 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 RUN --mount=from=native-builder,source=/opt/native-artifacts,target=/tmp/native-artifacts,readonly \
     install -Dm755 /tmp/native-artifacts/gst_video_sei_meta*.so /usr/local/lib/python3.12/dist-packages/
 
-COPY docker/base/binaries/igpu/libgstnvdsseimeta.so /tmp/libgstnvdsseimeta.so
-COPY docker/base/binaries/ipc-frame/ /opt/nvidia/rtvi/ipc-frame/
-RUN mkdir -p /opt/nvidia/rtvi/gst-plugins /opt/nvidia/rtvi/lib /opt/nvidia/deepstream/deepstream/lib/gst-plugins \
-    && if [ "$TARGETARCH" = "arm64" ]; then cp /tmp/libgstnvdsseimeta.so /opt/nvidia/deepstream/deepstream/lib/; fi \
-    && IPC_FRAME_BIN_DIR="/opt/nvidia/rtvi/ipc-frame/${TARGETARCH}" \
-    && cp "${IPC_FRAME_BIN_DIR}/libgstnvunixfd.so" /opt/nvidia/rtvi/gst-plugins/ \
-    && cp /opt/nvidia/rtvi/gst-plugins/libgstnvunixfd.so /opt/nvidia/deepstream/deepstream/lib/gst-plugins/ \
-    && for lib in libnvbufsurface.so libnvbufsurftransform.so libnvbuf_fdmap.so libgstnvdsseimeta.so; do \
-        if [ -f "${IPC_FRAME_BIN_DIR}/${lib}" ]; then cp "${IPC_FRAME_BIN_DIR}/${lib}" /opt/nvidia/rtvi/lib/; fi; \
-    done \
-    && rm -rf /opt/nvidia/rtvi/ipc-frame /tmp/libgstnvdsseimeta.so \
-    && ldconfig
-
 COPY --from=media-runtime /opt/nvidia/deepstream/deepstream-9.1/samples/streams/sample_1080p_h264.mp4 /opt/nvidia/rtvi/warmup_streams/its_264.mp4
 COPY --from=media-runtime /opt/nvidia/deepstream/deepstream-9.1/samples/streams/sample_1080p_h265.mp4 /opt/nvidia/rtvi/warmup_streams/its_265.mp4
 
