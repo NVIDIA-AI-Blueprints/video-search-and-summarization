@@ -223,17 +223,8 @@ ARG TARGETARCH
 COPY src/cpp/nvdec_get_count /build/nvdec_get_count
 COPY src/gst-plugins /build/gst-plugins
 COPY src/cpp/video_sei_metadata /build/video_sei_metadata
-COPY docker/base/binaries/igpu/libgstnvdsseimeta.so /tmp/libgstnvdsseimeta.so
 RUN pip install --no-cache-dir pybind11==3.1.0 \
     && if [ ! -f /usr/bin/python3-config ] && [ -f /usr/bin/python3.12-config ]; then ln -sf /usr/bin/python3.12-config /usr/bin/python3-config; fi \
-    && if [ "$TARGETARCH" = "arm64" ]; then \
-        for deepstream_path in /opt/nvidia/deepstream/deepstream /opt/nvidia/deepstream/deepstream-9.1; do \
-            if [ -d "$deepstream_path" ]; then \
-                mkdir -p "$deepstream_path/lib"; \
-                install -Dm755 /tmp/libgstnvdsseimeta.so "$deepstream_path/lib/libgstnvdsseimeta.so"; \
-            fi; \
-        done; \
-    fi \
     && make -C /build/nvdec_get_count \
     && make -C /build/gst-plugins \
     && make -C /build/video_sei_metadata TARGETARCH=${TARGETARCH} \
@@ -279,17 +270,6 @@ RUN --mount=from=media-runtime,source=/tmp99,target=/tmp/ds-gst,readonly \
 COPY LICENSE.3rdparty /opt/nvidia/rtvi/
 RUN --mount=from=native-builder,source=/opt/native-artifacts/nvdec_get_count,target=/tmp/nvdec_get_count,readonly \
     install -Dm755 /tmp/nvdec_get_count /usr/bin/nvdec_get_count
-
-COPY docker/base/binaries/igpu/libgstnvdsseimeta.so /tmp/libgstnvdsseimeta.so
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        for deepstream_path in /opt/nvidia/deepstream/deepstream /opt/nvidia/deepstream/deepstream-9.1; do \
-            if [ -d "$deepstream_path" ]; then \
-                mkdir -p "$deepstream_path/lib"; \
-                cp /tmp/libgstnvdsseimeta.so "$deepstream_path/lib/libgstnvdsseimeta.so"; \
-                chmod 755 "$deepstream_path/lib/libgstnvdsseimeta.so"; \
-            fi; \
-        done; \
-    fi
 
 RUN --mount=from=native-builder,source=/opt/native-artifacts,target=/tmp/native-artifacts,readonly \
     install -Dm755 /tmp/native-artifacts/gst_video_sei_meta*.so /usr/local/lib/python3.12/dist-packages/
