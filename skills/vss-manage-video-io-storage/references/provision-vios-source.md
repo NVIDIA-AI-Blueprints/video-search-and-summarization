@@ -111,8 +111,11 @@ PUT http://localhost:<vios-port>/vst/api/v1/storage/file/<filename>?timestamp=20
 
 `timestamp` anchors the storage timeline (see the date rule). A bare upload stores
 bytes only — no detections or embeddings. All three consumers (RT-CV, RT-Embed,
-RT-VLM) take the VIOS `/storage/file/<streamId>` **HTTP** URL (read the timeline first
-per the date rule; params in `integrate-vios-service.md`). RT-Embed and RT-VLM accept
+RT-VLM) take the timeline-resolved VIOS clip URL: `GET /storage/<streamId>/timelines` for
+`{startTime, endTime}`, then the self-contained
+`/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4` **HTTP** URL
+(binary-direct; prefer it over the `/url` envelope, which carries an upstream
+double-`http://` bug — see `integrate-vios-service.md`). RT-Embed and RT-VLM accept
 `http`/`https`/`file` but gate `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by
 default); RT-CV's `camera_url` accepts `http(s)://`, `rtsp://`, and `file://`, but a
 `file://` resolves *inside the RT-CV container*, where the stored bytes are not mounted.
