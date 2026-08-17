@@ -318,6 +318,7 @@ The image uses a multi-stage build: **Python 3.13** dependencies, including the 
 |---|-------------|----------------|
 | 1 | NVIDIA application **source** in the image stays **Apache-2.0** (SPDX headers; no proprietary re-license) | All shipped `.py` under `app/` (excluding `tests/`) include `SPDX-License-Identifier: Apache-2.0` and the standard NVIDIA Apache header block |
 | 2 | **Third-party license text** is **in the shipped image** | `services/configurators/vss-configurator/3rdParty_Licenses.md` is copied into `/usr/src/app/3rdParty_Licenses.md` via `docker/Dockerfile` |
+| 3 | **NVIDIA Software License Agreement** is **in the shipped image** | The Dockerfile downloads `NVIDIA-Software-License-Agreement-2026.5.7.pdf` from `nvidia.com` at build time with a pinned SHA-256 checksum and places it at `/usr/src/app/NVIDIA-Software-License-Agreement.pdf` |
 
 Build before release:
 
@@ -331,6 +332,7 @@ docker build \
 |-----------|------|--------|
 | Yes | `/usr/src/app/**/*.py` (app code only) | Apache-2.0 SPDX headers |
 | Yes | `/usr/src/app/3rdParty_Licenses.md` | Full third-party license text |
+| Yes | `/usr/src/app/NVIDIA-Software-License-Agreement.pdf` | NVIDIA Software License Agreement downloaded at build time with a pinned SHA-256 checksum |
 
 ### Run: sensor API only
 
