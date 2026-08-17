@@ -1,35 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 services:
-  nemotron-3-nano-init:
+  nemotron-3.5-lightning-30b-a3b-init:
     image: alpine:3.24.1
     container_name: llm-nim-init
     profiles:
-    - llm_local_nemotron-3-nano
-    - llm_local_shared_nemotron-3-nano
+    - llm_local_nemotron-3.5-lightning-30b-a3b
+    - llm_local_shared_nemotron-3.5-lightning-30b-a3b
     user: root
     volumes:
-      - nemotron_3_nano_cache:/opt/nim/.cache
+      - nemotron_3_5_lightning_cache:/opt/nim/.cache
     command: sh -c "chmod -R 777 /opt/nim/.cache"
     restart: "no"
-  nemotron-3-nano:
-    image: nvcr.io/nim/nvidia/nemotron-3-nano:${NEMOTRON_3_NANO_IMAGE_TAG:-1}
-    container_name: nemotron-3-nano
+
+  nemotron-3.5-lightning-30b-a3b:
+    image: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+    container_name: nemotron-3.5-lightning-30b-a3b
     profiles:
-    - llm_local_nemotron-3-nano
+    - llm_local_nemotron-3.5-lightning-30b-a3b
     runtime: nvidia
     shm_size: 16GB
     ports:
@@ -40,11 +29,13 @@ services:
           - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      NIM_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
+      NIM_SERVED_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/nemotron-3-nano/hw-${HARDWARE_PROFILE}.env
+      - ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}.env
       - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
-      - nemotron_3_nano_cache:/opt/nim/.cache
+      - nemotron_3_5_lightning_cache:/opt/nim/.cache
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:
@@ -56,20 +47,21 @@ services:
               device_ids:
               - "${LLM_DEVICE_ID:-0}"
     restart: always
-    healthcheck:
+    healthcheck: &healthcheck
       test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
       timeout: 650s
       retries: 2
     depends_on:
-      nemotron-3-nano-init:
+      nemotron-3.5-lightning-30b-a3b-init:
         condition: service_completed_successfully
         required: true
-  nemotron-3-nano-shared-gpu:
-    image: nvcr.io/nim/nvidia/nemotron-3-nano:${NEMOTRON_3_NANO_IMAGE_TAG:-1}
-    container_name: nemotron-3-nano
+
+  nemotron-3.5-lightning-30b-a3b-shared-gpu:
+    image: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+    container_name: nemotron-3.5-lightning-30b-a3b
     profiles:
-    - llm_local_shared_nemotron-3-nano
+    - llm_local_shared_nemotron-3.5-lightning-30b-a3b
     runtime: nvidia
     shm_size: 16GB
     ports:
@@ -80,11 +72,13 @@ services:
           - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      NIM_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
+      NIM_SERVED_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/nemotron-3-nano/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}-shared.env
       - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
-      - nemotron_3_nano_cache:/opt/nim/.cache
+      - nemotron_3_5_lightning_cache:/opt/nim/.cache
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:
@@ -96,7 +90,7 @@ services:
               device_ids:
               - "${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"
     depends_on:
-      nemotron-3-nano-init:
+      nemotron-3.5-lightning-30b-a3b-init:
         condition: service_completed_successfully
         required: true
       cosmos-reason2-8b-shared-gpu:
@@ -118,10 +112,7 @@ services:
         condition: service_healthy
         required: false
     restart: always
-    healthcheck:
-      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
-      interval: 60s
-      timeout: 650s
-      retries: 2
+    healthcheck: *healthcheck
+
 volumes:
-  nemotron_3_nano_cache:
+  nemotron_3_5_lightning_cache:

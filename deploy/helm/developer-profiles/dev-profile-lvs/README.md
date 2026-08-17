@@ -83,10 +83,11 @@ The chart requests **one GPU per enabled NIM**, but the repo does **not** encode
 | `nims.gpuType` | `nemotron` tuning for `nvidia/nvidia-nemotron-nano-9b-v2` | Notes |
 |----------------|-----------------------------------------------------------|-------|
 | `H100` | `NIM_KVCACHE_PERCENT=0.8`, `NIM_GPU_MEM_FRACTION=0.8`, `NIM_MAX_MODEL_LEN=128000`, `NIM_MAX_NUM_SEQS=4`, `NIM_LOW_MEMORY_MODE=1` | Chart default in `values.yaml`. |
+| `GB300` | `NIM_KVCACHE_PERCENT=0.8`, `NIM_GPU_MEM_FRACTION=0.8`, `NIM_MAX_MODEL_LEN=128000`, `NIM_MAX_NUM_SEQS=4`, `NIM_LOW_MEMORY_MODE=1` | Supported with the same conservative full-GPU tuning as H100. |
 | `L40S` | `NIM_KVCACHE_PERCENT=0.8`, `NIM_GPU_MEM_FRACTION=0.8`, `NIM_MAX_MODEL_LEN=128000`, `NIM_MAX_NUM_SEQS=4`, `NIM_LOW_MEMORY_MODE=1` | Use only for L40S deployments you have capacity-tested. |
 | `RTXPRO6000BW` | `NIM_KVCACHE_PERCENT=0.4`, `NIM_GPU_MEM_FRACTION=0.4`, `NIM_MAX_MODEL_LEN=128000`, `NIM_MAX_NUM_SEQS=4`, `NIM_LOW_MEMORY_MODE=1` | More conservative memory fraction; sample `values-lvs.yaml` uses this profile. |
 
-For non-H100 GPUs, prefer the matching non-H100 profile if it exists. If your GPU is not **`L40S`** or **`RTXPRO6000BW`**, this chart has no generic, validated Helm NIM profile for it; use external LLM/VLM endpoints or add a new **`nims.gpuProfiles`** entry and validate it before treating it as supported. If `nvidia/nvidia-nemotron-nano-9b-v2` starts but fails with a KV-cache memory error, reduce the active profile's **`NIM_MAX_MODEL_LEN`** and/or **`NIM_MAX_NUM_SEQS`**; exact values are hardware and workload dependent.
+For non-H100 GPUs, prefer the matching non-H100 profile if it exists. If your GPU is not **`GB300`**, **`L40S`**, or **`RTXPRO6000BW`**, this chart has no generic, validated Helm NIM profile for it; use external LLM/VLM endpoints or add a new **`nims.gpuProfiles`** entry and validate it before treating it as supported. If `nvidia/nvidia-nemotron-nano-9b-v2` starts but fails with a KV-cache memory error, reduce the active profile's **`NIM_MAX_MODEL_LEN`** and/or **`NIM_MAX_NUM_SEQS`**; exact values are hardware and workload dependent.
 
 ## RTVI-VLM integration (always on)
 
@@ -307,7 +308,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vss-agent-ui.dashboardKibanaBaseUrl`** | **`""`** | Override Kibana base URL for the Dashboard tab when **`global.kibanaPublicUrl`** / **`infra.kibana.kibanaPublicUrl`** are not used. |
 | **`nims.enabled`** | **`true`** | Master switch for the **`nims`** umbrella subchart. When **`false`**, no **NIM** model workloads or **`NIMService`** / **`NIMCache`** objects are installed. Use **`false`** with **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** for remote-only LLM/VLM (**vss-agent** and **vss-summarization**). |
 | **`nims.<model>.enabled`** | per model in **`values.yaml`** | Enables or disables one bundled **NIM** model. Default LVS enables the LLM NIM and disables the Cosmos VLM NIM because RT-VLM loads the integrated checkpoint. |
-| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for the bundled **`nemotron`** and **`cosmos`** NIM ConfigMaps. Supported values include **`H100`**, **`L40S`**, and **`RTXPRO6000BW`**. |
+| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for the bundled **`nemotron`** and **`cosmos`** NIM ConfigMaps. Supported values include **`H100`**, **`GB300`**, **`L40S`**, and **`RTXPRO6000BW`**. |
 
 ### Remote LLM and VLM
 
