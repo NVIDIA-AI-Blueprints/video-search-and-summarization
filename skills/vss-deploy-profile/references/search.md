@@ -147,7 +147,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 
 ### RT-CV sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2` (SBSA: `3.3.0-sbsa-26.07.2`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
+Image: the managed GHCR coordinate `VSS_RT_CV_IMAGE`:`VSS_RT_CV_TAG` (SBSA: same image, tag `develop-latest-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
 
 RT-CV is a **DeepStream perception pipeline**, not a vLLM container. It has no `--gpu-memory-utilization`-style knob. Memory scales with stream count and the active model family.
 

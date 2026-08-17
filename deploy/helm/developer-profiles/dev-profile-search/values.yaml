@@ -251,10 +251,10 @@ rtvi:
     # profile on NGC, like the other managed images which are not pinned in
     # profile values.
     #
-    # DGX-SPARK (SBSA) has no GHCR equivalent -- different base image, same
-    # linux/arm64 platform -- so it still needs an explicit NGC pin:
-    #   repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-    #   tag: 3.3.0-sbsa-26.07.2
+    # DGX-SPARK (SBSA) is a separate build -- different base image, same
+    # linux/arm64 platform -- but it shares the GHCR repository under an
+    # -sbsa tag suffix, so it needs a tag override only:
+    #   tag: develop-latest-sbsa
     image:
       pullPolicy: IfNotPresent
     httpPort: 9000

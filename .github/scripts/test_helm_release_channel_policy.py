@@ -125,10 +125,17 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         inventory = json.loads(
             (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
         )
+        # Tagged variants (tag_suffix, e.g. -sbsa) share their base image's GHCR
+        # repository and are selected by overriding the tag on that same Helm
+        # image block, so they have no image block of their own for this policy
+        # to cover. Listing one here could not pass either: the check below
+        # asserts repository == "<root>/<name>", and a variant's repository is
+        # deliberately the base name. This mirrors the rule release_set.py
+        # already applies to Compose references for variants.
         managed = {
             image["name"]
             for image in inventory["images"]
-            if image.get("ghcr_build") is True
+            if image.get("ghcr_build") is True and not image.get("tag_suffix")
         }
         self.assertEqual(managed, set(HELM_VALUES))
 

@@ -1182,7 +1182,7 @@ echo "$COMPOSE_PROFILES"
 
 > **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Use the [resolve-env prelude](#resolve-env); it exports the resolved value before `docker compose up`.
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variant. Comment the default `VSS_RT_CV_TAG="3.3.0-26.07.2"` and uncomment `VSS_RT_CV_TAG="3.3.0-sbsa-26.07.2"`. `VSS_RT_CV_TAG` is the only key with a commented `-sbsa` line in the warehouse `overrides.env` — there is nothing to uncomment for `RTVI_VLM_IMAGE_TAG`, and no warehouse variant deployable on DGX-SPARK includes `rtvi-vlm`.
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variant, which lives in the same GHCR repository. Comment the default `VSS_RT_CV_TAG` line and uncomment `VSS_RT_CV_TAG="develop-latest-sbsa"`. `VSS_RT_CV_TAG` is the only key with a commented `-sbsa` line in the warehouse `overrides.env` — there is nothing to uncomment for `RTVI_VLM_IMAGE_TAG`, and no warehouse variant deployable on DGX-SPARK includes `rtvi-vlm`.
 
 ---
 
