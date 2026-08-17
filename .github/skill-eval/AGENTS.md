@@ -614,6 +614,15 @@ Notes that have burned prior runs:
   trial dispatches.
 - `-i` / `--include` is a different flag and will silently match
   nothing or everything.
+- `--remote-vss <base-url>` is a **developer path, not a CI path** — do not
+  use it in a matrix leg. It evaluates an already-deployed VSS from Harbor's
+  default sandbox, so it skips pool selection, the box lock and every `brev`
+  call, and it drops `BREV_INSTANCE` from the Harbor env. Nothing about the
+  fleet-selection contract in § 5a changes for the runs you dispatch; the flag
+  exists so a workstation or non-pool GPU box can run runtime specs without
+  being registered. Runtime skills only — `REMOTE_VSS_SUPPORTED_SKILLS` in
+  `run_leg.py` gates it and deploy-centric specs raise. See README
+  § "Disaggregated run against an already-deployed VSS".
 - **Multi-step specs MUST be dispatched one step at a time, in
   order, with skip-on-prior-fail.** Harbor's default scheduler treats every
   `step-*/` subdir as an independent task and runs them unordered

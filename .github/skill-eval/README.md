@@ -197,6 +197,52 @@ python3 .github/skill-eval/run_leg.py \
 
 `CLAUDE_CODE_DISABLE_THINKING=1` is required when routing through the NVIDIA Anthropic proxy — claude-code ≥ 2.1.x otherwise emits a `context_management` field the proxy rejects with HTTP 400.
 
+### Disaggregated run against an already-deployed VSS (`--remote-vss`)
+
+`--remote-vss <base-url>` separates the system under test from the trial
+sandbox: VSS stays deployed on whatever box you already have, and the trial
+runs in **Harbor's own default sandbox** on the machine you invoke
+`run_leg.py` from, reaching that deployment over HTTP.
+
+This needs no Brev at all — no `brev register`, no `BREV_REGISTERED_POOL`
+entry, no `vss-eval-*` naming, no pool selection and no box lock. It is the
+path to use on a workstation or any GPU box that is not a pool member.
+
+```bash
+# VSS already running elsewhere; nothing here deploys or resets it.
+python3 .github/skill-eval/adapters/vss-ask-video/generate.py \
+  --output-dir /tmp/skill-eval/datasets/vss-ask-video \
+  --skill-dir skills/vss-ask-video \
+  --platform RTXPRO6000BW
+
+export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
+
+python3 .github/skill-eval/run_leg.py \
+  --dataset-root /tmp/skill-eval/datasets/vss-ask-video \
+  --results-root /tmp/skill-eval/results/remote-$(date +%Y%m%d-%H%M%S) \
+  --scratch /tmp/skill-eval/manual \
+  --spec-stem base_profile_video_understanding \
+  --platform RTXPRO6000BW \
+  --remote-vss http://10.0.0.5:8000
+```
+
+The endpoint is forwarded into the trial as `VSS_BASE_URL`, `HOST_IP` and
+`VSS_AGENT_PORT` (via Harbor `--ae`); the runtime skills' existing port
+conventions resolve from `HOST_IP`, which defaults to `localhost` otherwise.
+`REMOTE_VSS_BASE_URL` works as an env-var default for the flag.
+
+Because the box is never touched, the warning above about wiping the docker
+runtime does **not** apply — a disaggregated leg only makes HTTP calls, so it
+is safe to point at a deployment you care about.
+
+**Runtime skills only.** Deploy-centric specs are rejected with a clear error
+rather than run against a stack they did not build: a disaggregated leg has no
+box to deploy onto, so `/vss-deploy-profile` in a first turn would either fail
+deep inside the trial or quietly score something other than what the spec name
+says. Supported today: `vss-ask-video`, `vss-generate-video-report`,
+`vss-query-analytics`, `vss-search-archive`, `vss-summarize-video`
+(`REMOTE_VSS_SUPPORTED_SKILLS` in `run_leg.py`).
+
 ### Inspect a result
 
 ```
