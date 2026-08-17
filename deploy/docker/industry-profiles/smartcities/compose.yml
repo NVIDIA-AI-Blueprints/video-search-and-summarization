@@ -29,18 +29,6 @@ services:
   # The Smart Cities launchable overlays this file onto dev-profile-alerts,
   # replacing that profile's Compose file. Keep this blueprint adapter here so
   # the resulting project still defines the nvstreamer-alerts service.
-  nvstreamer-alerts:
-    extends:
-      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
-      service: nvstreamer-base
-    profiles: ["nvstreamer-alerts"]
-    volumes:
-      - ${NVSTREAMER_VIDEO_DIR}/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
-      - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
-      - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
 
   # No longer needed! we are moving to sdrc
   # perception-sdr-alerts:
