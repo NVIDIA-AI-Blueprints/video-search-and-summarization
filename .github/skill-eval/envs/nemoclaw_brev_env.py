@@ -122,6 +122,8 @@ timeout --signal=TERM --kill-after=120 {timeout}s \
 class NemoClawBrevEnvironment(BrevEnvironment):
     """Run normal Brev preparation, then the checked-in setup notebooks."""
 
+    _preserved_docker_networks = ("openshell-docker",)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._nemoclaw_ready = False
