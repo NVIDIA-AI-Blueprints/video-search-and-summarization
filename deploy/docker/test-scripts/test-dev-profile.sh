@@ -447,7 +447,7 @@ chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
-# gym shares base's LLM/VLM topology but is NOT an edge profile: it exists to add
+# gym shares lvs's LLM/VLM topology but is NOT an edge profile: it exists to add
 # a large eval container, which has no place on an edge device. Without these,
 # excluding gym from the DGX-SPARK loop would be an untested assumption.
 run_negative_test "DGX-SPARK only valid for base or alerts (not gym)" 1 up -p gym -i 127.0.0.1 -H DGX-SPARK
@@ -1487,8 +1487,22 @@ run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "b
 # in both states: shipped-off today (lists identical) and enabled later (gym has
 # exactly one extra token).
 #
-# Compared as parsed key=value pairs rather than as a file diff, because the
-# descriptive headers deliberately name gym rather than lvs.
+# Compared as comment-stripped content IN ORDER, not as sorted `KEY=` lines.
+# Review found the sorted-key form blind to three real divergences: multi-line
+# quoted values (only the first line starts with KEY=), reordering (a dotenv
+# value may reference a key defined earlier in the same file, so order can change
+# expansion), and duplicate keys. Comparing the remaining lines verbatim catches
+# all three.
+#
+# Comments are stripped because the descriptive headers deliberately name gym.
+# Known and accepted gap: a divergence confined to a commented-out assignment is
+# invisible here. Such a line is inert until someone uncomments it, at which
+# point this test sees it.
+_rule_norm() {
+  # Drop comment-only and blank lines, then neutralise the single permitted
+  # difference so everything else can be compared verbatim.
+  grep -vE '^[[:space:]]*(#|$)' "${1}" | sed -E 's/^(COMPOSE_PROFILES=.*),gym-eval$/\1/'
+}
 _rule_failed=0
 for _rule_file in .env overrides.env; do
   _rule_lvs="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/${_rule_file}"
@@ -1496,11 +1510,7 @@ for _rule_file in .env overrides.env; do
   if [[ ! -f "${_rule_lvs}" ]] || [[ ! -f "${_rule_gym}" ]]; then
     continue
   fi
-  # Every key=value in lvs must appear identically in gym, and vice versa,
-  # except COMPOSE_PROFILES which is handled separately below.
-  _rule_diff="$(diff \
-    <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${_rule_lvs}" | grep -v '^COMPOSE_PROFILES=' | sort) \
-    <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${_rule_gym}" | grep -v '^COMPOSE_PROFILES=' | sort) || true)"
+  _rule_diff="$(diff <(_rule_norm "${_rule_lvs}") <(_rule_norm "${_rule_gym}") || true)"
   if [[ -n "${_rule_diff}" ]]; then
     echo "FAIL: dev-profile-gym/${_rule_file} diverges from dev-profile-lvs/${_rule_file} -- gym must mirror lvs exactly so the eval comparison stays valid:"
     echo "${_rule_diff}" | head -20
