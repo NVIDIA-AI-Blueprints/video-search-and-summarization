@@ -2,11 +2,11 @@
 
 ## Container Image
 
-- **Image name** — `nvcr.io/nvstaging/vss-core/vss-rt-embed`. The Compose service uses `${RTVI_EMBED_IMAGE}` and `${RTVI_EMBED_TAG}` so the image and tag are overridable per environment.
-- **Tag** — published VSS release tag (Compose default: `3.3.0-26.08.1`). Override `RTVI_EMBED_TAG` only when pinning a different published build.
-- **Registry** — `nvcr.io`. Pulls require an authenticated session with NGC.
-- **NGC pull requirements** — `docker login nvcr.io` with `$oauthtoken` and a valid `NGC_API_KEY`. The same `NGC_API_KEY` must also be present in the container environment for model and asset access.
-- **Architecture support** — x86_64. The image is built for `linux/amd64`; aarch64 variants are not specified in the Compose service.
+- **Image name** — `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed`. The Compose service uses `${VSS_RT_EMBED_IMAGE}` and `${VSS_RT_EMBED_TAG}` so the image and tag are overridable per environment.
+- **Tag** — `develop-latest` tracks the latest develop build. Override `VSS_RT_EMBED_TAG` only when pinning a promoted or immutable build.
+- **Registry** — `ghcr.io`. The default image is publicly pullable; no registry login is required.
+- **NGC model and asset access** — Set `NGC_API_KEY` in the container environment when the selected model or asset requires NGC access.
+- **Architecture support** — The GHCR image is a `linux/amd64` and `linux/arm64` multi-architecture manifest.
 
 ## GPU Requirements
 
@@ -115,11 +115,11 @@ For container-internal logs, check `/opt/nvidia/rtvi/log/rtvi/` when `RTVI_EMBED
 
 ## Upgrade & Rollback
 
-1. Update `RTVI_EMBED_IMAGE` and `RTVI_EMBED_TAG` to the target build.
+1. Update `VSS_RT_EMBED_IMAGE` and `VSS_RT_EMBED_TAG` to the target build.
 2. Pull the new image: `docker compose -f rtvi-embed-docker-compose.yml pull rtvi-embed`.
 3. Recreate the service: `docker compose -f rtvi-embed-docker-compose.yml --profile rtvi-embed up -d rtvi-embed`.
 4. Watch `/v1/ready` until it returns 200; keep the named caches warm to avoid a full re-download.
-5. Roll back by re-pinning `RTVI_EMBED_TAG` to the previous build and repeating the pull and recreate steps. Named volumes persist across the swap, so the previous model cache and Triton repo are reused on rollback.
+5. Roll back by re-pinning `VSS_RT_EMBED_TAG` to the previous build and repeating the pull and recreate steps. Named volumes persist across the swap, so the previous model cache and Triton repo are reused on rollback.
 
 ## Tear Down
 

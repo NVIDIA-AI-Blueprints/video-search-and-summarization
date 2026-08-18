@@ -31,8 +31,8 @@ Use this skill when you need to:
 - **Legacy 3.1 name:** RT-Embed.
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
-- **Image:** `nvcr.io/nvstaging/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
-- **Default tag:** `3.3.0-26.08.1` (override with `RTVI_EMBED_TAG`).
+- **Image:** `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` (override with `VSS_RT_EMBED_IMAGE`).
+- **Default tag:** `develop-latest` (override with `VSS_RT_EMBED_TAG`).
 - **Profile:** `rtvi-embed`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.
@@ -250,7 +250,7 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ## Upgrade And Rollback
 
-Pin `RTVI_EMBED_IMAGE` / `RTVI_EMBED_TAG`, pull, recreate with `--profile rtvi-embed`, and wait for `/v1/ready` before cutover. Named volumes persist across image swaps.
+Pin `VSS_RT_EMBED_IMAGE` / `VSS_RT_EMBED_TAG`, pull, recreate with `--profile rtvi-embed`, and wait for `/v1/ready` before cutover. Named volumes persist across image swaps.
 
 Full steps: [Upgrade & Rollback](references/deploy-vss-deploy-video-embedding.md#upgrade--rollback).
 
@@ -270,4 +270,3 @@ Full steps and cache warnings: [Tear Down](references/deploy-vss-deploy-video-em
 | [references/rest-api.md](references/rest-api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
 | [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
 | [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |
-
