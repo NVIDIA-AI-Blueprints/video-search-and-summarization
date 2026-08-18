@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM ubuntu:24.04
+FROM nvcr.io/nvidia/base/ubuntu:24.04
 
 # Install nginx and dependencies.
 # Enforce a minimum version (>= 1.24.0-2ubuntu7.8) rather than an exact pin so the
@@ -51,6 +51,10 @@ RUN mkdir -p /tmp/nginx/client-body \
 
 # Copy vst-ui directory to /vst-ui
 COPY vst-ui /vst-ui/
+
+# build.sh stages the current VIOS third-party license file with the UI build
+# context. Keep it at the same path used by the other VIOS runtime images.
+COPY vst-ui/LICENSE.3rdparty /home/vst/vst_release/LICENSE.3rdparty
 
 # Ensure nginx workers can traverse directories and read the UI files even when
 # the build host uses a restrictive umask.

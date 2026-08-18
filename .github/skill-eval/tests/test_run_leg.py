@@ -13,11 +13,18 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from unittest import mock
+
+# run_leg imports its sibling `leg_timing`, and spec_from_file_location does
+# not put the loaded file's directory on sys.path the way running it as a
+# script does.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 _SPEC = importlib.util.spec_from_file_location(
     "run_leg", Path(__file__).resolve().parents[1] / "run_leg.py"
@@ -25,6 +32,8 @@ _SPEC = importlib.util.spec_from_file_location(
 run_leg = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = run_leg
 _SPEC.loader.exec_module(run_leg)
+
+import leg_timing  # noqa: E402 - must follow the sys.path insert above
 
 
 class DiscoverInvocations(unittest.TestCase):
@@ -155,6 +164,33 @@ class HarborCommand(unittest.TestCase):
         self.assertFalse(any("OPENAI_API_KEY" in part for part in cmd))
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
+    def test_build_command_nemoclaw_reuses_standard_dispatch(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base"),
+            include_task_name="rtxpro6000bw",
+            chain_key="base_rtxpro6000bw",
+        )
+
+        cmd = run_leg.build_harbor_command(
+            invocation,
+            Path("/tmp/results"),
+            "aws/anthropic/bedrock-claude-opus-4-6",
+            "https://inference-api.nvidia.com/v1",
+            "nemoclaw",
+        )
+
+        self.assertEqual(cmd[cmd.index("-a") + 1], "agents.nemoclaw:NemoClaw")
+        self.assertEqual(
+            cmd[cmd.index("--environment-import-path") + 1],
+            "envs.nemoclaw_brev_env:NemoClawBrevEnvironment",
+        )
+        self.assertEqual(
+            cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
+            str(run_leg.NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
+        )
+        self.assertNotIn("--ak", cmd)
+        self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
+
     def test_build_command_rejects_unknown_agent(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
@@ -170,6 +206,10 @@ class HarborCommand(unittest.TestCase):
 class PhaseBudgets(unittest.TestCase):
     def test_default_backstop_exceeds_all_phases_and_recovery_headroom(self):
         self.assertEqual(run_leg.HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC, 1800)
+        self.assertEqual(
+            run_leg.NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER,
+            10.0,
+        )
         self.assertEqual(run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC, 360)
         self.assertEqual(run_leg.HARBOR_AGENT_BUDGET_SEC, 3600)
         self.assertEqual(run_leg.HARBOR_VERIFIER_BUDGET_SEC, 1800)
@@ -1182,6 +1222,256 @@ class HoldPoolLock(unittest.TestCase):
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             finally:
                 probe.close()
+
+
+class TheHeartbeatNamesTheRightPhase(unittest.TestCase):
+    """The lock wait is the longest gap a leg can have, and it was the one
+    phase the heartbeat could not name: `record_phase` was called directly, so
+    the recorded interval said `lock-wait` while every tick during it said
+    `startup`."""
+
+    def test_the_lock_wait_is_labelled_while_it_is_being_waited_on(self):
+        seen: list[str] = []
+
+        @contextlib.contextmanager
+        def fake_lock(*_args, **_kwargs):
+            seen.append(leg_timing._CURRENT_PHASE)
+            yield "vss-eval-box-1"
+
+        with mock.patch.object(run_leg, "hold_pool_lock", fake_lock):
+            with self.assertRaises(SystemExit):
+                self._run_main_far_enough()
+        self.assertEqual(
+            seen, ["lock-wait"],
+            "the heartbeat would report 'startup' for the whole wait",
+        )
+
+    def test_the_label_is_restored_when_the_lock_raises(self):
+        """A stuck `lock-wait` misreports every later tick for the rest of the
+        leg, which is worse than the missing label it replaced."""
+        @contextlib.contextmanager
+        def exploding_lock(*_args, **_kwargs):
+            raise OSError("bad lock dir")
+            yield  # pragma: no cover
+
+        before = leg_timing._CURRENT_PHASE
+        with mock.patch.object(run_leg, "hold_pool_lock", exploding_lock):
+            with contextlib.suppress(BaseException):
+                self._run_main_far_enough()
+        self.assertEqual(leg_timing._CURRENT_PHASE, before)
+
+    def _run_main_far_enough(self):
+        """Drive main() to the lock and no further."""
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = Path(tmp) / "dataset" / "platform" / "step-1"
+            dataset.mkdir(parents=True)
+            (dataset / "task.toml").write_text("step_count = 1\n", encoding="utf-8")
+            with mock.patch.object(
+                run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]
+            ), mock.patch.object(
+                run_leg, "run_invocations", side_effect=SystemExit(0)
+            ), mock.patch.object(leg_timing, "start_heartbeat",
+                                 return_value=(mock.Mock(), mock.Mock())):
+                run_leg.main([
+                    "--dataset-root", str(Path(tmp) / "dataset"),
+                    "--results-root", str(Path(tmp) / "results"),
+                    "--scratch", str(Path(tmp) / "scratch"),
+                    "--spec-stem", "spec",
+                    "--platform", "L40S",
+                ])
+
+
+class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
+    """The one property the whole feature rests on, pinned through main()."""
+
+    def _argv(self, tmp: str) -> list[str]:
+        return [
+            "--dataset-root", str(Path(tmp) / "dataset"),
+            "--results-root", str(Path(tmp) / "results"),
+            "--scratch", str(Path(tmp) / "scratch"),
+            "--spec-stem", "spec",
+            "--platform", "L40S",
+        ]
+
+    def setUp(self):
+        # main() gates on the interpreter; that gate is not what these pin, and
+        # the suite should pass under whichever python a reviewer has to hand.
+        patcher = mock.patch.object(
+            run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self._saved_phases = list(leg_timing._PHASES)
+        leg_timing._PHASES.clear()
+        self.addCleanup(lambda: leg_timing._PHASES.__setitem__(slice(None), self._saved_phases))
+
+    def _dataset(self, tmp: str) -> None:
+        task_dir = Path(tmp) / "dataset" / "chain" / "l40s"
+        task_dir.mkdir(parents=True)
+        (task_dir / "task.toml").write_text("step_count = 1\n")
+
+    @contextlib.contextmanager
+    def _held_lock(self):
+        with mock.patch.object(run_leg, "hold_pool_lock") as lock:
+            lock.return_value.__enter__.return_value = "box-a"
+            lock.return_value.__exit__.return_value = False
+            yield lock
+
+    def test_exit_code_survives_a_failing_phase_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with self._held_lock(), \
+                 mock.patch.object(run_leg, "run_invocations", return_value=42), \
+                 mock.patch.object(leg_timing, "write_phase_timings", side_effect=RuntimeError("boom")
+                 ):
+                self.assertEqual(run_leg.main(self._argv(tmp)), 42)
+
+    def test_instrumentation_logging_swallows_a_broken_pipe(self):
+        # BrokenPipeError on a closed stdout is the realistic version of this.
+        # Scoped to the instrumentation path on purpose: run_leg's pre-existing
+        # FATAL prints are unprotected too, but that predates this change and
+        # widening the assertion here would quietly claim otherwise.
+        with mock.patch("builtins.print", side_effect=BrokenPipeError("closed")):
+            leg_timing.leg_log("must not raise")
+            with leg_timing.phase("harbor:step-1"):
+                pass
+            leg_timing.write_phase_timings(Path("/nonexistent"))
+
+        self.assertEqual(leg_timing._PHASES[-1]["phase"], "harbor:step-1")
+
+    def test_a_lock_failure_that_is_not_a_timeout_still_records_the_wait(self):
+        # An invalid instance name raises ValueError inside hold_pool_lock.
+        # Without a phase, the artifact cannot distinguish "died selecting a
+        # box after 40 minutes" from "never waited at all".
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.object(
+                run_leg, "hold_pool_lock", side_effect=ValueError("invalid name")
+            ):
+                self.assertEqual(run_leg.main(self._argv(tmp)), 1)
+
+        self.assertEqual(
+            [e["phase"] for e in leg_timing._PHASES], ["lock-wait-failed"]
+        )
+
+    def test_a_dead_heartbeat_thread_does_not_fail_the_leg(self):
+        """The name used to contradict the body: it asserted RuntimeError
+        escaped, inside a class asserting the opposite invariant, so scanning
+        the names said the property held while the test proved it did not.
+
+        A runner at its thread limit is the case. Losing the heartbeat costs
+        visibility; raising costs the leg, and the leg is worth more."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with self._held_lock(), \
+                 mock.patch.object(run_leg, "run_invocations", return_value=0), \
+                 mock.patch.object(
+                     run_leg.threading.Thread,
+                     "start",
+                     side_effect=RuntimeError("no threads"),
+                 ):
+                self.assertEqual(run_leg.main(self._argv(tmp)), 0)
+
+    def test_sigterm_unwinds_so_a_cancelled_leg_still_writes_its_timings(self):
+        """Python turns only SIGINT into an exception. SIGTERM keeps SIG_DFL
+        and kills the interpreter without unwinding, so main()'s finally never
+        runs and a cancelled leg produced no artifact at all. `skills-eval.yml`
+        sets cancel-in-progress, so this is the normal way a leg ends.
+
+        In a subprocess on purpose. Delivering a real SIGTERM in-process means
+        that if the handler is ever removed, the signal takes the whole test
+        runner down instead of failing this one test, and a suite that dies is
+        harder to read than a suite that reports.
+        """
+        driver = """
+import importlib.util, os, signal, sys
+from contextlib import contextmanager
+# run_leg imports its sibling leg_timing, and loading by path does not put the
+# file's directory on sys.path the way running it as a script does.
+sys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[1])))
+spec = importlib.util.spec_from_file_location("run_leg", sys.argv[1])
+run_leg = importlib.util.module_from_spec(spec)
+sys.modules["run_leg"] = run_leg
+spec.loader.exec_module(run_leg)
+
+@contextmanager
+def lock_then_sigterm(*a, **k):
+    os.kill(os.getpid(), signal.SIGTERM)
+    yield "box"
+
+run_leg.hold_pool_lock = lock_then_sigterm
+run_leg.SKILL_EVAL_PYTHON_VERSION = sys.version_info[:2]
+run_leg.main(sys.argv[2:])
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            script = Path(tmp) / "driver.py"
+            script.write_text(driver, encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(script),
+                 str(Path(__file__).resolve().parents[1] / "run_leg.py"),
+                 *self._argv(tmp)],
+                capture_output=True, text=True, timeout=60,
+            )
+            written = Path(tmp) / "results" / leg_timing.PHASE_TIMINGS_NAME
+            self.assertTrue(
+                written.exists(),
+                f"SIGTERM killed the leg before it recorded anything "
+                f"(rc={completed.returncode}): {completed.stderr[-400:]}",
+            )
+            self.assertEqual(
+                [e["phase"] for e in json.loads(written.read_text())["phases"]],
+                ["lock-wait-failed"],
+            )
+        # 128+SIGTERM, the conventional code, reached by unwinding rather than
+        # by the default terminating action.
+        self.assertEqual(completed.returncode, 128 + signal.SIGTERM)
+
+    def test_the_artifact_is_replaced_atomically(self):
+        """This write runs in main()'s finally, which is where a second signal
+        during a cancellation lands. A partial write leaves truncated JSON at
+        the real path, and a reader cannot tell that from a leg that recorded
+        nothing, so it is worse than no file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp) / "results"
+            results.mkdir()
+            destination = results / leg_timing.PHASE_TIMINGS_NAME
+            destination.write_text('{"phases": ["previous"]}\n', encoding="utf-8")
+            with mock.patch.object(leg_timing, "_PHASES",
+                [{"phase": "lock-wait", "start_s": 0.0, "end_s": 1.0, "seconds": 1.0}],
+            ), mock.patch.object(
+                run_leg.os, "replace", side_effect=OSError("interrupted")
+            ):
+                leg_timing.write_phase_timings(results)
+            # The previous artifact survives intact rather than being truncated.
+            self.assertEqual(
+                json.loads(destination.read_text())["phases"], ["previous"]
+            )
+            self.assertEqual(
+                list(results.glob("*.partial")), [],
+                "a half-written sibling was left to be collected as an artifact",
+            )
+
+    def test_a_cancelled_lock_wait_is_still_recorded(self):
+        """`skills-eval.yml` sets cancel-in-progress, so a push cancels
+        in-flight legs and the cancellation lands as KeyboardInterrupt. Under
+        `except Exception` the wait was dropped from the artifact for exactly
+        the legs that had spent longest in it."""
+        @contextlib.contextmanager
+        def cancelled_lock(*_args, **_kwargs):
+            raise KeyboardInterrupt
+            yield  # pragma: no cover
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.object(run_leg, "hold_pool_lock", cancelled_lock), \
+                 mock.patch.object(leg_timing, "_PHASES", []) as phases:
+                with contextlib.suppress(KeyboardInterrupt):
+                    run_leg.main(self._argv(tmp))
+        self.assertEqual(
+            [entry["phase"] for entry in phases], ["lock-wait-failed"],
+            "a cancelled lock wait left no interval in the artifact",
+        )
 
 
 if __name__ == "__main__":

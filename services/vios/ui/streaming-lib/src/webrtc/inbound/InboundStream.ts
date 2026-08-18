@@ -131,8 +131,8 @@ export default class InboundStream {
 
     public addStreamDataListener(): void {
         const videoElement = document.getElementById(this.streamManager.getConfig().inboundStreamVideoElementId);
-        if (videoElement && !videoElement.hasAttribute('data-listener-added')) {
-            videoElement.setAttribute('data-listener-added', 'true');
+        if (videoElement && videoElement.dataset.listenerAdded === undefined) {
+            videoElement.dataset.listenerAdded = 'true';
             videoElement.addEventListener('loadeddata', () => {
                 logger.info('[INBOUND_STREAM] First frame loaded.');
                 // callback when first frame is received. To be used to show loading GIF
@@ -385,7 +385,7 @@ export default class InboundStream {
                 bitrate_max,
                 bitrate_start: settings.bitrate_start,
             };
-        } catch (error) {
+        } catch {
             logger.debug('[INBOUND_STREAM]', 'Failed to do get bitrates');
             return {
                 bitrate_min: null,
@@ -597,7 +597,7 @@ export default class InboundStream {
         if (videoElement) {
             videoElement.srcObject = null;
             // Remove the data-listener-added attribute so it can be re-added
-            videoElement.removeAttribute('data-listener-added');
+            delete videoElement.dataset.listenerAdded;
             videoElement.load();
             logger.debug('[INBOUND_STREAM] Video element cleared and reset');
         }

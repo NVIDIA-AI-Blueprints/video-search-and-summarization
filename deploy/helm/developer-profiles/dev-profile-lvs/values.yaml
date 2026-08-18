@@ -280,7 +280,7 @@ agent:
       - name: PHOENIX_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.llmServiceName | default "nvidia-nemotron-nano-9b-v2" }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-vlm:8000" .Release.Name) "http://vss-rtvi-vlm:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
       - name: VST_EXTERNAL_URL
@@ -294,7 +294,7 @@ agent:
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.llmServiceName | default "nvidia-nemotron-nano-9b-v2" }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
       - name: VSS_AGENT_REPORTS_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.reportsBaseUrl (ternary (printf "%s/static/" $globalBase) "" (ne $globalBase "")) (printf "%s/static/" $vssAgentHttp) }}'
       - name: VSS_AGENT_EXTERNAL_URL
@@ -454,6 +454,11 @@ vssIngress:
   # /v1/models and /v1/chat/completions route to RT-VLM.
   lvsBackendPort: 38111
   rtviVlmPort: 8000
+  # CLI edge routes for `vss configure` discovery. Off by default -- see the
+  # comment in templates/vss-ingress.yaml for what enabling it exposes.
+  cliRoutes:
+    enabled: false
+    elasticsearchPort: 9200
   # Optional; default kibana.<global.externalHost or vssIngress.host>.
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
@@ -512,9 +517,13 @@ rtvi:
         value: "kafka"
       - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
         value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
+        value: "true"
+      - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
+        value: "1024"
+      - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
+        value: "false"
       # Optional EVS++ session controls.
-      - name: VIA_EVS_DECISION_LAG
-        value: ""
       - name: VIA_EVS_SESSION
         value: ""
       - name: VLLM_EVS_SIMILARITY_THRESHOLD
@@ -524,26 +533,6 @@ rtvi:
       - name: VIA_EVS_TOKEN_BUDGET
         value: ""
       - name: VIA_EVS_MAX_SESSIONS
-        value: ""
-      - name: VIA_EVS_MIN_CLIPS
-        value: ""
-      - name: VIA_EVS_EVENT_ONLY
-        value: ""
-      - name: VIA_EVS_EMA_MEMORY_S
-        value: ""
-      - name: VIA_EVS_SPIKE_STD_K
-        value: ""
-      - name: VIA_EVS_SETTLING_STD_K
-        value: ""
-      - name: VIA_EVS_STD_FLOOR_RATIO
-        value: ""
-      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
-        value: ""
-      - name: VIA_EVS_STREAMING_PREFILL
-        value: ""
-      - name: VIA_PD_SERVER_URL
-        value: ""
-      - name: VIA_PD_SERVER_TIMEOUT_S
         value: ""
       - name: VLLM_USE_AOT_COMPILE
         value: "0"
@@ -635,3 +624,18 @@ nims:
         nvidia.com/gpu: "1"
       requests:
         nvidia.com/gpu: "1"
+
+# Optional monitoring subchart (Kubernetes port of services/monitoring compose).
+# Off by default here so bare `helm install` (no -f values-lvs.yaml) doesn't add
+# a monitoring DaemonSet. values-lvs.yaml turns dcgm-exporter on to match the
+# LVS compose profile's dcgm-exporter opt-in.
+monitoring:
+  enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  dcgmExporter:
+    enabled: false

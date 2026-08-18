@@ -18,7 +18,9 @@ import concurrent.futures
 import io
 import os
 import re
+import subprocess
 import sys
+import threading
 import time as _time
 import uuid
 from typing import List, Optional
@@ -41,10 +43,61 @@ from models.base_vlm_model import (
 OPENAI_RECONNECT_ATTEMPTS = 3
 DEFAULT_MAX_PARALLEL_REQUESTS = 10
 
+_nvenc_probe_lock = threading.Lock()
+_nvenc_encode_lock = threading.Lock()
+_nvenc_probe_results = {}
+
 
 def _remote_video_input_enabled() -> bool:
     raw_value = os.environ.get("REMOTE_VIDEO_INPUT", "true").strip().lower()
     return raw_value not in {"0", "false", "no", "off"}
+
+
+def _pynvcodec_nvenc_available(gpu_id):
+    """Probe PyNvVideoCodec NVENC support without risking this process's CUDA context.
+
+    Some GPUs expose CUDA/NVDEC but not NVENC. PyNvVideoCodec's capability query opens
+    an encoder session and can invalidate CUDA resources when that session-open fails.
+    Run the query once in an isolated child and cache the result per visible GPU.
+    """
+    with _nvenc_probe_lock:
+        if gpu_id in _nvenc_probe_results:
+            return _nvenc_probe_results[gpu_id]
+
+        probe = (
+            "import sys; import PyNvVideoCodec as nvc; "
+            "nvc.GetEncoderCaps(int(sys.argv[1]), 'h264')"
+        )
+        child_env = {
+            key: os.environ[key]
+            for key in ("PATH", "PYTHONPATH", "LD_LIBRARY_PATH", "CUDA_VISIBLE_DEVICES")
+            if key in os.environ
+        }
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", probe, str(gpu_id)],
+                env=child_env,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            available = result.returncode == 0
+            if available:
+                logger.info("MP4 encode: isolated NVENC probe succeeded for GPU %d.", gpu_id)
+            else:
+                detail = (result.stderr or result.stdout).strip().splitlines()
+                logger.info(
+                    "MP4 encode: NVENC unavailable on GPU %d; using software fallback%s.",
+                    gpu_id,
+                    f" ({detail[-1]})" if detail else "",
+                )
+        except (OSError, subprocess.SubprocessError) as exc:
+            available = False
+            logger.info("MP4 encode: NVENC probe failed (%s); using software fallback.", exc)
+
+        _nvenc_probe_results[gpu_id] = available
+        return available
 
 
 def strip_thinking_tags(content):
@@ -138,6 +191,29 @@ def _decode_jpegs_cpu(numpy_arrays):
     return frames
 
 
+def _decode_jpegs_pyav(numpy_arrays):
+    """Decode JPEG byte arrays to RGB numpy frames with PyAV."""
+    try:
+        import av
+    except ImportError:
+        logger.info("MP4 decode: PyAV not available for CPU JPEG decode.")
+        return []
+
+    frames = []
+    try:
+        with TimeMeasure(f"MP4 CPU: PyAV JPEG decode ({len(numpy_arrays)} frames)"):
+            for numpy_array in numpy_arrays:
+                encoded = io.BytesIO(numpy_array.tobytes())
+                with av.open(encoded, mode="r", format="mjpeg") as container:
+                    frame = next(container.decode(video=0), None)
+                    if frame is not None:
+                        frames.append(frame.to_ndarray(format="rgb24"))
+        return frames
+    except Exception as exc:
+        logger.warning("MP4 decode: PyAV JPEG decode failed (%s).", exc)
+        return []
+
+
 def _rgb_to_nv12(rgb_frame):
     """Convert (H, W, 3) uint8 RGB numpy array to NV12 (H*3//2, W) uint8 array.
 
@@ -202,11 +278,8 @@ def _rgb_to_nv12_tensor(rgb_tensor):
 def _encode_h264_nvenc(frames_rgb, fps, output_path):
     """Encode RGB frames to H.264 MP4 using NVENC via PyNvVideoCodec.
 
-    Frames are kept as CUDA tensors throughout:
-      (3, H, W) CUDA  →  _rgb_to_nv12_tensor  →  NV12 CUDA  →  EncodeSurface (zero-copy)
-
-    Falls back to EncodeFromCPU if EncodeSurface is not supported by the
-    installed PyNvVideoCodec version.
+    RGB frames are converted to NV12 on the GPU, then copied to host memory for
+    the PyNvVideoCodec 2.1 CPU-input API. Encoding itself still runs on NVENC.
 
     Args:
         frames_rgb: list of (3, H, W) uint8 CUDA tensors  (from _decode_jpegs_gpu)
@@ -238,16 +311,17 @@ def _encode_h264_nvenc(frames_rgb, fps, output_path):
         w = w - (w % 2)
         fps_int = max(1, round(fps))
         gpu_id = torch.cuda.current_device() if torch.cuda.is_available() else 0
+        if not _pynvcodec_nvenc_available(gpu_id):
+            return None
 
         enc_params = {
+            "gpu_id": gpu_id,
             "codec": "h264",
-            "preset": "P4",
-            "tuning_info": "hq",
-            "s": f"{w}x{h}",
-            "fps": str(fps_int),
-            "bitrate": "4M",
+            "preset": "p4",
+            "fps": fps_int,
+            "bitrate": 4_000_000,
             "profile": "high",
-            "gop": "30",
+            "gop": 30,
         }
 
         logger.info(
@@ -259,49 +333,31 @@ def _encode_h264_nvenc(frames_rgb, fps, output_path):
             len(frames_rgb),
         )
 
-        # PyNvVideoCodec 2.x: PyNvEncoder(params, PixelFormat, gpu_id)
-        encoder = nvc.PyNvEncoder(enc_params, nvc.PixelFormat.NV12, gpu_id)
+        # Complete CUDA conversion before entering PyNvVideoCodec. This keeps the
+        # software fallback usable even if the external encoder raises.
+        nv12_frames = [_rgb_to_nv12_tensor(frame).cpu().numpy().reshape(-1) for frame in frames_rgb]
 
-        all_packets = []
-        _use_surface = True  # prefer zero-copy EncodeSurface on first frame
-        _encode_method = "EncodeSurface (zero-copy)"  # updated if fallback occurs
-        with TimeMeasure(f"MP4 encode: NVENC H264 ({len(frames_rgb)} frames)"):
-            for rgb_tensor in frames_rgb:
-                # BT.601 RGB→NV12 on GPU — no CPU transfer
-                nv12_cuda = _rgb_to_nv12_tensor(rgb_tensor)  # (H*3//2, W) uint8 CUDA
+        # PyNvVideoCodec session creation/teardown is serialized. Multiple chunks
+        # may still perform NVJPEG and remote inference concurrently.
+        with _nvenc_encode_lock:
+            encoder = nvc.CreateEncoder(w, h, "NV12", True, **enc_params)
 
-                packets = []
-                if _use_surface:
-                    try:
-                        # EncodeSurface accepts objects with __cuda_array_interface__
-                        encoder.EncodeSurface(nv12_cuda, packets)
-                    except (AttributeError, TypeError):
-                        # This PyNvVideoCodec build doesn't expose EncodeSurface;
-                        # fall back to EncodeFromCPU for remaining frames
-                        logger.info(
-                            "MP4 encode: EncodeSurface not supported by this "
-                            "PyNvVideoCodec build; switching to EncodeFromCPU."
-                        )
-                        _use_surface = False
-                        _encode_method = "EncodeFromCPU (NV12 copy to CPU)"
-                        encoder.EncodeFromCPU(nv12_cuda.cpu().numpy().flatten(), packets)
-                else:
-                    encoder.EncodeFromCPU(nv12_cuda.cpu().numpy().flatten(), packets)
+            all_packets = []
+            with TimeMeasure(f"MP4 encode: NVENC H264 ({len(frames_rgb)} frames)"):
+                for nv12_frame in nv12_frames:
+                    bitstream = encoder.Encode(nv12_frame)
+                    if bitstream:
+                        all_packets.append(bytes(bitstream))
 
-                all_packets.extend(packets)
-
-            # Flush encoder pipeline
-            packets = []
-            encoder.Flush(packets)
-            all_packets.extend(packets)
+                bitstream = encoder.EndEncode()
+                if bitstream:
+                    all_packets.append(bytes(bitstream))
 
         if not all_packets:
             logger.warning("MP4 encode: NVENC produced empty bitstream.")
             return None
 
-        logger.info(
-            "MP4 encode: NVENC succeeded via %s (%d packets).", _encode_method, len(all_packets)
-        )
+        logger.info("MP4 encode: NVENC succeeded (%d packets).", len(all_packets))
 
         # Mux raw H.264 NAL packets into MP4 using PyAV
         with TimeMeasure("MP4 encode: PyAV mux"):
@@ -321,6 +377,55 @@ def _encode_h264_nvenc(frames_rgb, fps, output_path):
 
     except Exception as e:
         logger.warning("MP4 encode: NVENC failed (%s); will use CPU fallback.", e)
+        return None
+
+
+def _encode_h264_pyav(frames_rgb, fps, output_path):
+    """Encode RGB numpy frames to H.264 MP4 with PyAV/libx264."""
+    try:
+        import av
+    except ImportError:
+        logger.info("MP4 encode: PyAV not available for software H.264 encode.")
+        return None
+
+    if not frames_rgb:
+        return None
+
+    h, w = frames_rgb[0].shape[:2]
+    h = h - (h % 2)
+    w = w - (w % 2)
+    fps_int = max(1, round(fps))
+
+    try:
+        logger.info(
+            "MP4 encode: PyAV/libx264 starting — resolution=%dx%d fps=%d frames=%d",
+            w,
+            h,
+            fps_int,
+            len(frames_rgb),
+        )
+        with TimeMeasure(f"MP4 encode: PyAV/libx264 ({len(frames_rgb)} frames)"):
+            with av.open(output_path, mode="w", format="mp4") as container:
+                stream = container.add_stream("libx264", rate=fps_int)
+                stream.width = w
+                stream.height = h
+                stream.pix_fmt = "yuv420p"
+                stream.options = {"preset": "veryfast"}
+                for rgb_frame in frames_rgb:
+                    array = numpy.ascontiguousarray(rgb_frame[:h, :w], dtype=numpy.uint8)
+                    frame = av.VideoFrame.from_ndarray(array, format="rgb24")
+                    for packet in stream.encode(frame):
+                        container.mux(packet)
+                for packet in stream.encode():
+                    container.mux(packet)
+        output_size = os.path.getsize(output_path)
+        if output_size == 0:
+            logger.warning("MP4 encode: PyAV produced an empty file.")
+            return None
+        logger.info("MP4 encode: PyAV/libx264 succeeded (%d bytes).", output_size)
+        return True
+    except Exception as exc:
+        logger.warning("MP4 encode: PyAV software encode failed (%s).", exc)
         return None
 
 
@@ -386,9 +491,9 @@ def _encode_h264_cpu(frames_rgb, fps, output_path):
 def video_embeds_to_mp4_base64(tensor, frame_times=None, output_dir="/tmp/rtvi/openai_compat"):
     """Convert a tensor of JPEG-encoded frames to an H.264 MP4 and return as base64.
 
-    Pipeline (GPU first, CPU fallback):
-      GPU:  torchvision nvjpeg decode  →  PyNvVideoCodec NVENC H.264  →  PyAV MP4 mux
-      CPU:  OpenCV JPEG decode         →  OpenCV VideoWriter H.264 (avc1/H264/mp4v)
+    Pipeline (GPU first, software fallback):
+      GPU:  torchvision nvjpeg decode → PyNvVideoCodec NVENC H.264 → PyAV MP4 mux
+      CPU:  PyAV JPEG decode/encode   → OpenCV decode/encode       → JPEG images
     """
     # Handle both stacked tensor (1, N, bytes) and list of individual frame tensors
     if isinstance(tensor, (list, tuple)):
@@ -488,7 +593,10 @@ def video_embeds_to_mp4_base64(tensor, frame_times=None, output_dir="/tmp/rtvi/o
     try:
         if not is_jpeg:
             # Raw pixel frames — encode directly to MP4 (skip JPEG decode)
-            if not _encode_h264_cpu(rgb_frames, fps, output_path):
+            if not (
+                _encode_h264_pyav(rgb_frames, fps, output_path)
+                or _encode_h264_cpu(rgb_frames, fps, output_path)
+            ):
                 logger.warning("MP4 pipeline: CPU encode failed for raw pixel frames.")
                 return None, None
         else:
@@ -497,22 +605,30 @@ def video_embeds_to_mp4_base64(tensor, frame_times=None, output_dir="/tmp/rtvi/o
             # --- GPU path ---
             frames_rgb = _decode_jpegs_gpu(numpy_arrays)
             if frames_rgb is not None:
+                # Preserve a CPU copy before PyNvVideoCodec touches the encoder API.
+                numpy_frames = [t.permute(1, 2, 0).cpu().numpy() for t in frames_rgb]
                 if _encode_h264_nvenc(frames_rgb, fps, output_path):
                     logger.info("MP4 pipeline: nvjpeg decode + NVENC encode (full GPU).")
                     encoded = True
                 else:
-                    logger.info("MP4 pipeline: nvjpeg decode (GPU) + OpenCV encode (CPU).")
-                    numpy_frames = [t.permute(1, 2, 0).cpu().numpy() for t in frames_rgb]
-                    encoded = _encode_h264_cpu(numpy_frames, fps, output_path)
+                    logger.info("MP4 pipeline: nvjpeg decode (GPU) + software encode.")
+                    encoded = _encode_h264_pyav(numpy_frames, fps, output_path) or _encode_h264_cpu(
+                        numpy_frames, fps, output_path
+                    )
 
             # --- CPU fallback (decode + encode) ---
             if not encoded:
-                logger.info("MP4 pipeline: full CPU fallback (OpenCV decode + OpenCV encode).")
-                frames_rgb = _decode_jpegs_cpu(numpy_arrays)
+                logger.info("MP4 pipeline: full software decode/encode fallback.")
+                frames_rgb = _decode_jpegs_pyav(numpy_arrays)
+                if not frames_rgb:
+                    frames_rgb = _decode_jpegs_cpu(numpy_arrays)
                 if not frames_rgb:
                     logger.warning("MP4 pipeline: no frames decoded; mp4 conversion skipped.")
                     return None, None
-                if not _encode_h264_cpu(frames_rgb, fps, output_path):
+                if not (
+                    _encode_h264_pyav(frames_rgb, fps, output_path)
+                    or _encode_h264_cpu(frames_rgb, fps, output_path)
+                ):
                     return None, None
 
         with open(output_path, "rb") as f:

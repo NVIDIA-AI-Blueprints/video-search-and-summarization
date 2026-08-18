@@ -15,6 +15,7 @@
 """Unit tests for VST utils module."""
 
 import json
+import logging
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -23,9 +24,12 @@ import pytest
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import delete_sensor
+from vss_agents.tools.vst.utils import delete_storage
 from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
+from vss_agents.tools.vst.utils import get_storage_timeline
 from vss_agents.tools.vst.utils import validate_video_url
 
 # Sample mock data based on real VST server responses
@@ -396,6 +400,74 @@ class TestDeleteVSTResources:
         assert success is True
         assert message == "No storage to delete"
         mock_session.delete.assert_not_called()
+
+
+class TestLegacyDeleteResources:
+    """Legacy deletion helpers must encode request-derived path segments."""
+
+    @pytest.mark.asyncio
+    async def test_delete_sensor_quotes_sensor_id(self):
+        mock_delete_response = create_mock_response(204, "")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_sensor("../../camera 1", "http://localhost:30888/")
+
+        assert success is True
+        assert message == "OK"
+        assert mock_session.delete.call_args.args[0] == (
+            "http://localhost:30888/vst/api/v1/sensor/..%2F..%2Fcamera%201"
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_storage_quotes_sensor_id(self):
+        mock_delete_response = create_mock_response(204, "")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch(
+                "vss_agents.tools.vst.utils.get_storage_timeline",
+                new_callable=AsyncMock,
+                return_value=(True, "OK", "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+            ),
+        ):
+            success, message = await delete_storage("../../camera 1", "http://localhost:30888/")
+
+        assert success is True
+        assert message == "OK"
+        assert mock_session.delete.call_args.args[0] == (
+            "http://localhost:30888/vst/api/v1/storage/file/..%2F..%2Fcamera%201"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("delete_fn", [delete_sensor, delete_storage])
+    async def test_missing_sensor_id_is_rejected(self, delete_fn):
+        success, message = await delete_fn(None, "http://localhost:30888")
+
+        assert success is False
+        assert message == "sensor_id is required"
+
+    @pytest.mark.asyncio
+    async def test_missing_timeline_scrubs_sensor_id_from_log(self, caplog):
+        caplog.set_level(logging.INFO, logger="vss_agents.tools.vst.utils")
+        sensor_id = "camera\r\nforged log line"
+        mock_response = create_mock_response(200, "{}")
+        mock_response.json = AsyncMock(return_value={})
+        mock_session = create_mock_session(mock_response)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message, start_time, end_time = await get_storage_timeline(sensor_id, "http://localhost:30888")
+
+        assert (success, message, start_time, end_time) == (True, "No timeline", None, None)
+        assert "No timeline found for camera  forged log line" in caplog.messages
+        assert all("\r" not in message and "\n" not in message for message in caplog.messages)
 
 
 class TestValidateVideoUrl:

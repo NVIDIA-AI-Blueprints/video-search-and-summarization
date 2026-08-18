@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,6 +31,11 @@
 typedef struct rd_kafka_s rd_kafka_t;
 typedef struct rd_kafka_topic_s rd_kafka_topic_t;
 
+namespace nv_vms {
+// Opaque handle to a dynamically loaded shared library.
+struct SharedLibrary;
+}
+
 class KafkaConsumer : public nv_vms::INotificationInterface
 {
 public:
@@ -39,9 +44,14 @@ public:
     void registerMessageListener(nv_vms::INotificationListener* listener) override;
     void deregisterMessageListener(nv_vms::INotificationListener* listener) override;
     bool deliverMessage (Json::Value& message) override { return true; }
-    void retryConnection () override {}
+    void retryConnection () override
+    {
+        // Intentionally blank: librdkafka reconnects to the brokers on its own,
+        // and the poll thread started in kafkaInit() keeps consuming across
+        // broker outages, so no manual retry is needed here.
+    }
 
-    void deliverMessage(void* msg, int len);
+    void deliverMessage(const unsigned char* msg, int len);
 
     KafkaConsumer(const KafkaConsumer&) = delete;
     KafkaConsumer& operator=(const KafkaConsumer&) = delete;
@@ -58,7 +68,7 @@ private:
     std::thread     m_pollThread;
     bool            m_running{false};
     // Kafka library handles
-    void*           m_libHandle{nullptr};
+    nv_vms::SharedLibrary* m_libHandle{nullptr};
     rd_kafka_t*     m_consumer{nullptr};
     rd_kafka_topic_t* m_topic{nullptr};
 

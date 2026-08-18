@@ -81,6 +81,64 @@ Then decide:
 
 Do not add `--pull-always` — that pulls from the registry and discards the local build.
 
+### Step 1b-i — Also override the repository, not just the tag
+
+The tag flags change only the **tag**. Locally built images additionally live
+under a different **repository** than the registry paths pinned in
+`compose.env`, so a tag override alone points compose at a registry path that
+has no such tag and the deploy fails with `manifest unknown` before any
+container starts.
+
+The script exposes repository overrides for exactly this case — use them rather
+than retagging images by hand:
+
+| Flag | Effect |
+|---|---|
+| `--streamprocessor-image REF` / `--sensor-image REF` | Replace the reference **verbatim**; pair with the matching `*-tag` |
+| `--nvstreamer-image REPO` | Replace the NVStreamer repository verbatim; pair with `--nvstreamer-tag` |
+| `--image-registry REGISTRY` | Swap only the org **prefix**, keeping `compose.env`'s basename |
+
+**Prefer the `--*-image` flags for local builds.** `--image-registry` keeps the
+basename from `compose.env`, which generally differs from the basename
+`build.sh` produces, so a prefix swap alone yields a reference that does not
+exist locally.
+
+```bash
+python3 oneclick_dc_deployment.py deploy all --force \
+    --streamprocessor-image <REPO>/<BASENAME> --streamprocessor-tag <BUILD_TAG> \
+    --sensor-image <REPO>/<BASENAME>          --sensor-tag <BUILD_TAG> \
+    --nvstreamer-image <REPO>                 --nvstreamer-tag <BUILD_TAG>
+```
+
+Always read the actual names off the build before choosing values — do not
+assume either scheme:
+
+```bash
+docker images --format '{{.Repository}}:{{.Tag}} {{.CreatedSince}}' \
+  | grep -Ei 'vst-|nvstreamer|ingress'
+```
+
+Note the image overrides apply to the stream-processor and sensor services only;
+`NGINX_IMAGE` (ingress) keeps its `compose.env` value unless set there directly.
+
+### Step 1b-ii — Confirm the deployment is running YOUR images
+
+Tag names prove nothing; compare image **IDs**. Do this whenever the point of
+the deployment is to validate a local build:
+
+```bash
+for c in streamprocessing-ms-1 sensor-ms nvstreamer-1 vst-ingress; do
+  printf '%-24s %s  %s\n' "$c" \
+    "$(docker inspect -f '{{.Image}}' $c 2>/dev/null | cut -c8-19)" \
+    "$(docker inspect -f '{{.Config.Image}}' $c 2>/dev/null)"
+done
+docker images --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep -E 'vios/|nvstreamer:latest'
+```
+
+Each running ID must match the locally built image ID. Note `--all-tag` does
+**not** cover `NGINX_IMAGE`, so `vst-ingress` keeps its pinned registry tag
+unless you override it explicitly — usually fine, but state it in the report.
+
 ---
 
 ## Step 2 — Run the deployment script
@@ -173,6 +231,85 @@ STATUS=$(python3 oneclick_dc_deployment.py preflight-sysctl | grep -oE 'status=[
 
 ---
 
+## Step 2e — NVStreamer must be publishing BEFORE the stream-processor starts
+
+Applies to **every** deployment that includes NVStreamer — not just test runs.
+
+VIOS reads `configs/rtsp_streams.json`, which holds an `Nvstreamer` array with
+one entry per instance:
+
+```json
+"Nvstreamer": [
+  { "enabled": true, "endpoint": "localhost:31000",
+    "api": "/api/v1/sensor/streams", "max_stream_count": 100 },
+  { "enabled": true, "endpoint": "localhost:31001", "...": "..." }
+]
+```
+
+Inspect it before deploying — it determines whether sensors appear at all:
+
+```bash
+python3 -c "
+import json
+d = json.load(open('docker-compose/configs/rtsp_streams.json'))
+for i, e in enumerate(d.get('Nvstreamer', [])):
+    print(i, e['enabled'], e['endpoint'], e['api'])
+"
+```
+
+### `enabled: true` (default) — VIOS auto-imports, once, at start-up
+
+`sensor-ms` pulls every stream from each enabled endpoint via
+`/api/v1/sensor/streams` **when it starts**. If the stream-processor starts
+before NVStreamer has finished publishing, VIOS imports an incomplete set — or
+none — and **nothing re-imports them later**. The deployment looks healthy while
+having no sensors.
+
+Deploy NVStreamer first, wait until its stream list is non-empty and stable,
+then start the stream-processor:
+
+```bash
+prev=-1
+for i in $(seq 1 30); do
+  n=$(curl -s "http://<NVSTREAMER_HOST>:31000/api/v1/sensor/streams" \
+      | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+  echo "  nvstreamer streams=$n"
+  [ "$n" -gt 0 ] && [ "$n" = "$prev" ] && break
+  prev=$n; sleep 5
+done
+```
+
+`deploy --target all` sequences the two internally, but still verify afterwards
+(Step 4c) — a slow NVStreamer start can still lose the race.
+
+If the import already ran too early, re-trigger it without a full redeploy:
+
+```bash
+python3 oneclick_dc_deployment.py recreate streamprocessing
+```
+
+### `enabled: false` — no auto-import; add sensors manually
+
+VIOS pulls nothing. Read the stream list from NVStreamer and add each one to
+VIOS as a sensor using the RTSP URL in the response:
+
+```bash
+curl -s "http://<NVSTREAMER_HOST>:31000/api/v1/sensor/streams"
+# then add each stream to VIOS: <BASE_URL>/vst/api/v1/sensor/add
+```
+
+### Where NVStreamer's streams come from
+
+`--nvstreamer-video-path PATH` makes NVStreamer scan PATH and publish one RTSP
+URL per `.mp4` / `.mkv` file, so the directory contents alone define the stream
+list — no upload step is needed. Files whose codec NVStreamer rejects are
+skipped, so the stream count is legitimately lower than the file count.
+
+Without a video path, NVStreamer starts empty and streams must be uploaded to it
+before VIOS can import anything.
+
+---
+
 ## Step 3 — Resolve BASE_URL from deployment output
 
 The script prints the detected host IP. Capture it and set BASE_URL:
@@ -206,7 +343,7 @@ If health check returns non-200 or containers show `Restarting` status, go to `g
 
 ## Step 4b — Sync config.json with resolved BASE_URL
 
-Update `test/bdd_tests/config.json` so the MCP URL derivation uses the correct host. The file defaults to `localhost:30888` which causes all MCP gateway tests to fail.
+Update `test/bdd_tests/config.json` so tests target the correct host. The file defaults to `localhost:30888`, which causes tests to run against the wrong endpoint.
 
 ```bash
 python3 - <<EOF
@@ -224,6 +361,32 @@ EOF
 
 ---
 
+## Step 4c — Verify NVStreamer streams reached VIOS
+
+Run whenever NVStreamer is part of the deployment. A healthy container set does
+**not** imply the import succeeded (Step 2e).
+
+```bash
+# streams published by NVStreamer
+curl -s "http://<HOST>:31000/api/v1/sensor/streams" \
+  | python3 -c "import json,sys; print('nvstreamer streams:', len(json.load(sys.stdin)))"
+
+# sensors VIOS actually imported
+curl -s "<BASE_URL>/vst/api/v1/sensor/list" \
+  | python3 -c "import json,sys; print('vios sensors    :', len(json.load(sys.stdin)))"
+```
+
+| Result | Meaning / action |
+|---|---|
+| VIOS sensors ≥ NVStreamer streams | Import succeeded |
+| VIOS sensors = 0 while NVStreamer > 0 | Stream-processor started too early, or `enabled: false` — see Step 2e |
+| VIOS sensors < NVStreamer streams | Partial import; `recreate streamprocessing` and re-check |
+
+Report the two counts in the deployment summary so the next step (tests, demos)
+is not run against a stack with no sensors.
+
+---
+
 ## Step 5 — Report outcome
 
 Report to the user:
@@ -232,6 +395,21 @@ Report to the user:
 - For NVStreamer deploys / full stack: `NVStreamer UI: http://<HOST>:<NVSTREAMER_HTTP_PORT_N>/#/dashboard` — one line per active instance (ports `31000–31004`).
 - Active adaptor + deployment mode (SDRC vs direct)
 - Any warnings from the deployment script output
+
+**Always state the provenance — "deployed successfully" is not a result on its
+own.** A stack can be perfectly healthy while running last week's registry
+images, or while holding zero sensors. Include:
+
+| Report | Why |
+|---|---|
+| Source branch + commit that produced the images | Ties the deployment to the code under test |
+| Per service: image ID, and whether it is a local build or a registry image | `--*-image`/`--*-tag` cover the stream-processor, sensor and NVStreamer only; ingress and the rest keep their `compose.env` values |
+| NVStreamer stream count vs VIOS sensor count | Healthy containers do not imply a successful import (Step 4c) |
+| Whether persisted data survived (`stop` vs `stop --clean`) | Pre-existing recordings/sensors change how later results should be read |
+
+State plainly which services are **not** running your build rather than leaving
+it implied — someone reading the report should never have to guess whether a
+result reflects their change.
 
 ---
 

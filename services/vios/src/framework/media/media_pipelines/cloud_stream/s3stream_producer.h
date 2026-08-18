@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -102,6 +102,10 @@ public:
     // IMediaDataProducer Interface Implementation
     // ========================================================================
     
+    // Keep the base class registerConsumer overloads visible (e.g. the
+    // time-range variant) so they are not hidden by the overloads below.
+    using IMediaDataProducer::registerConsumer;
+
     /**
      * @brief Register a consumer to receive data from this producer
      * @param consumer The consumer to register
@@ -407,8 +411,8 @@ private:
         bool pausedStateReached;
     };
 
-    StreamInfo* m_streamInfo;
-    SeekData* m_seekData;
+    std::unique_ptr<StreamInfo> m_streamInfo;
+    std::unique_ptr<SeekData> m_seekData;
     
     // Completion and error callbacks
     std::function<void()> m_finishedCallback;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -75,7 +75,7 @@ public:
 
 protected:
     // CloudStorageWriter abstract methods
-    bool doWriteData(const std::string& session_id, const void* data, size_t size, int64_t pts,
+    bool doWriteData(const std::string& session_id, const uint8_t* data, size_t size, int64_t pts,
                      const std::string& media_type) override;
 
     StorageResult doCompleteSession(const std::string& session_id, const std::string& stream_id) override;

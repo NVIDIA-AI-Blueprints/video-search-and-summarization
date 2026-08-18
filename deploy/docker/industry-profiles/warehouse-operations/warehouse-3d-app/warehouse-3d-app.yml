@@ -46,37 +46,6 @@ services:
     container_name: vss-behavior-analytics-playback
     command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_20x20_playback.txt
 
-  nvstreamer-3d:
-    extends:
-      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
-      service: nvstreamer-base
-    container_name: vss-vios-nvstreamer
-    networks:
-      default:
-        aliases:
-          - vss-vios-nvstreamer
-    runtime: nvidia
-    profiles: ["nvstreamer-3d"]
-    ports:
-      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
-    deploy:
-      resources:
-        reservations:
-          devices:
-          - capabilities:
-            - gpu
-            device_ids:
-            - "${RT_CV_DEVICE_ID:-0}"
-    volumes:
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
-      - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
-    depends_on:
-      bp-configurator-3d:
-        condition: service_healthy
-
   # docker los:
   #   extends:
   #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
@@ -100,91 +69,26 @@ services:
   #       condition: service_completed_successfully
 
   bp-configurator-3d-init:
-    build:
-      context: $VSS_APPS_DIR/services/infra
-      dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
-      network: host
+    extends:
+      file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
+      service: bp-configurator-init-base
     profiles: ["bp-configurator-3d-init"]
     container_name: vss-configurator-3d-init
-    environment:
-      BP_PROFILE: $BP_PROFILE
-      STREAM_TYPE: $STREAM_TYPE
-      MAX_RETRIES: 60
-      RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: ${STREAM_TYPE}
-      KAFKA_PORT: 29092
-      REDIS_PORT: 6379
-      KAFKA_TOPICS: '[{"name": "mdx-raw"},
-        {"name": "mdx-bev"},
-        {"name": "mdx-space-utilization"},
-        {"name": "mdx-alerts"},
-        {"name": "mdx-behavior"},
-        {"name": "mdx-behavior-plus"},
-        {"name": "mdx-frames"},
-        {"name": "mdx-mtmc"},
-        {"name": "mdx-rtls"},
-        {"name": "mdx-rtls-region-1"},
-        {"name": "mdx-amr"},
-        {"name": "mdx-vlm-alerts"},
-        {"name": "mdx-notification"},
-        {"name": "mdx-events"},
-        {"name": "mdx-incidents"},
-        {"name": "mdx-vlm-incidents"},
-        {"name": "mdx-vlm"},
-        {"name": "mdx-vlm-captions"},
-        {"name": "mdx-structured-events-summary"},
-        {"name": "mdx-embed"},
-        {"name": "mdx-embed-filtered"}]'
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        if [ "$${BP_PROFILE}" = "bp_wh_auto_calib" ]; then
-          echo "BP_PROFILE is bp_wh_auto_calib. Broker health check is not required"
-        else
-          exec /scripts/check-$${STREAM_TYPE}-health.sh
-        fi
 
   bp-configurator-3d:
-    image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvstaging/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.3.0-2026.08.2-1}
+    extends:
+      file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
+      service: bp-configurator-base
     container_name: vss-configurator
     networks:
       default:
         aliases:
           - vss-configurator
     profiles: ["bp-configurator-3d"]
-    user: "0:0"
     environment:
-      SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
-      ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
-      ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
-      ENABLE_REDIS_DUPLICATOR_THREAD: false
-      CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
-      HARDWARE_PROFILE: $HARDWARE_PROFILE
-      NUM_STREAMS: ${NUM_STREAMS:-4}
-      MODE: $MODE
-      LOG_LEVEL: INFO
-      NVSTREAMER_STREAMS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/streams
-      NVSTREAMER_SENSOR_STATUS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/status
-      VST_CAMERA_ADD_ENDPOINT: http://${VST_IP}:${VST_PORT}/vst/api/v1/sensor/add
-      CALIBRATION_MODE: mount
-      CALIBRATION_DIR_MOUNT_PATH: /opt/data
-      CALIBRATION_FILE_NAME: calibration.json
-      PORT: 5001
-      VSS_DATA_DIR: $VSS_DATA_DIR
-      VSS_APPS_DIR: $VSS_APPS_DIR
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs
       NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs
-      MESSAGE_BROKER_TYPE: $STREAM_TYPE
-      WDM_REDIS_HOST: redis
-      WDM_REDIS_PORT: 6379
-      WDM_REDIS_STREAM_NAME: vst.event
-      WDM_REDIS_MSG_KEY: value
-      WDM_KFK_MSG_KEY: vst.event
-      WDM_KFK_BOOTSTRAP_URL: kafka:29092
-      WDM_KFK_TOPIC: mdx-notification
-      WDM_WL_ID_FIELD: camera_id
-      WDM_WL_EVENT_FIELD: event
       RECOMPUTE_BEV_CENTERS_ENABLED: true
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: true
@@ -206,28 +110,14 @@ services:
         )
         os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
-      - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
-      - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
       bp-configurator-3d-init:
         condition: service_completed_successfully
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:5001/readyz', timeout=3).getcode()==200 else sys.exit(1)"
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
 
   ds-configurator-3d:
-    image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-3.2.0}
+    image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["ds-configurator-3d"]
     container_name: vss-rtvi-cv-config-adaptor
     user: "0:0"
@@ -305,7 +195,7 @@ services:
         condition: service_started
       broker-health-check:
         condition: service_completed_successfully
-      # bp-configurator-3d:
+      # bp-configurator:
       #   condition: service_started
 
   kibana-init-container-3d:

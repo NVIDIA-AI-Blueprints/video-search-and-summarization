@@ -281,18 +281,15 @@ def pytest_collection_modifyitems(config, items):
     Environment-specific tests are skipped by default and can be included
     by explicitly selecting their marker, for example: pytest -m ui.
     """
-    # Skip mcp_gateway tests unless the user explicitly selected them via -m
     markexpr = config.getoption("-m", default="")
-    run_mcp = "mcp_gateway" in markexpr
     run_longrun = "longrun" in markexpr
     run_iptables = "needs_iptables" in markexpr
     run_bbox = "needs_bbox_metadata" in markexpr
     run_ui = "ui" in markexpr
 
-    skip_mcp = pytest.mark.skip(reason="MCP gateway tests skipped by default (use -m mcp_gateway)")
     skip_longrun = pytest.mark.skip(reason="Long-running test skipped by default (use -m longrun)")
     skip_iptables = pytest.mark.skip(reason="Test requires iptables/privileged runner (use -m needs_iptables)")
-    skip_bbox = pytest.mark.skip(reason="Test requires stored bbox metadata (use -m needs_bbox_metadata)")
+    skip_bbox = pytest.mark.skip(reason="Opt-in bbox overlay test (use -m needs_bbox_metadata; GAP-051 needs Redis consumer)")
     skip_ui = pytest.mark.skip(reason="Browser UI test skipped by default (use -m ui)")
 
     priority_order = [
@@ -304,8 +301,6 @@ def pytest_collection_modifyitems(config, items):
     rest = []
 
     for item in items:
-        if not run_mcp and item.get_closest_marker("mcp_gateway"):
-            item.add_marker(skip_mcp)
         if not run_longrun and item.get_closest_marker("longrun"):
             item.add_marker(skip_longrun)
         if not run_iptables and item.get_closest_marker("needs_iptables"):

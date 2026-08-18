@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,11 @@
 #include "gstnvvstmeta.h"
 
 using namespace std;
+
+namespace webrtc
+{
+    class VideoBroadcaster;
+}
 
 typedef enum
 {
@@ -104,11 +109,6 @@ struct _RawFrameParams
             gst_caps_unref (m_caps);
             m_caps = nullptr;
         }
-        if (m_fdWrapperObj)
-        {
-            delete (m_fdWrapperObj);
-            m_fdWrapperObj = nullptr;
-        }
     }
 
     string     m_streamId;
@@ -137,7 +137,7 @@ struct _RawFrameParams
     void *meta = nullptr;
     int64_t pts = 0;
 
-    std::shared_ptr<fdWrapper>*       m_fdWrapperObj = nullptr;
+    std::unique_ptr<std::shared_ptr<fdWrapper>> m_fdWrapperObj;
     EncoderMsgType m_encoderMsgType = Buffer;
     std::atomic<bool> m_eos;
 } typedef RawFrameParams;
@@ -186,7 +186,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         }
 
         // Constructor with consumer name - preferred way
-        IMediaDataConsumer(const std::string& consumerName) : m_consumerName(consumerName)
+        explicit IMediaDataConsumer(const std::string& consumerName) : m_consumerName(consumerName)
         {
             m_transcodeStats.setElementName(m_consumerName);
         }
@@ -221,7 +221,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         bool isPpsAvailable();
         bool isSpsPpsAvailable();
 
-        virtual void setWebrtcBroadcaster(void* broadcaster) { };
+        virtual void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) { };
         virtual void onLastFrame() { }
         virtual void reset() { }
         /* Update start time for overlay */
@@ -259,7 +259,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         virtual bool waitForCompletion(int64_t /*timeout_secs*/) { return true; }
         virtual bool hasError() const { return false; }
         virtual std::shared_ptr<IMediaDataConsumer> getAudioConsumer() { return nullptr; }
-        virtual void* getPipeline() const { return nullptr; }
+        virtual GstElement* getPipeline() const { return nullptr; }
 
         // Get actual first frame PTS in milliseconds (for remux mode filename correction)
         // Returns -1 if not available/not tracked

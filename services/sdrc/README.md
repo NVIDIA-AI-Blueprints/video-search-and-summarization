@@ -127,7 +127,7 @@ In Docker mode, SDRC uses a static worker inventory defined in `docker_cluster_c
 
 1. Workers are started as Docker containers with known `container_name` values.
 2. SDRC reads `docker_cluster_config.json` to learn each worker's provisioning and routing address.
-3. SDRC watches the Docker socket to detect container health.
+3. SDRC polls each worker's configurable HTTP health-check URL in a background thread and only assigns streams to healthy pods. The same health state drives `PodErrorWatcher` (replacing Docker socket container-status checks when `WDM_WL_HEALTH_CHECK_WAIT_ENABLED=true`).
 4. Stream events from Redis or Kafka trigger placement decisions against this static pool.
 
 ### `docker_cluster_config.json`
@@ -152,9 +152,11 @@ One file per workload group. The top-level key is the Docker `container_name`.
 | Field | Description |
 |---|---|
 | top-level key | Docker `container_name`. Must match entries in `WDM_CLUSTER_CONTAINER_NAMES`. |
-| `provisioning_address` | `host:port` SDRC uses to call `/add`, `/delete`, etc. |
+| `provisioning_address` | `host:port` SDRC uses to call `/add`, `/delete`, and HTTP health checks. |
 | `routing_address` | `host:port` used for Envoy upstream. May differ from `provisioning_address`. |
 | `process_type` | Must be `docker`. |
+
+Health probes are built as `http://<provisioning_address><WDM_WL_HEALTH_CHECK_URL>`. Only the path (`WDM_WL_HEALTH_CHECK_URL`) is configurable; host and port always come from this file.
 
 ### `config.yml` workload block (Docker)
 
@@ -551,7 +553,12 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `WDM_MIN_PODS` | `0` | Minimum number of pods to maintain. |
 | `WDM_STANDBY_POD_COUNT` | `2` | Number of standby pods expected by status reporting. |
 | `WDM_TIMEOUT` | `300` | Default operation timeout in seconds. |
-| `WDM_POD_WATCH_DOCKER_DELAY` | `0.05` | Docker container watch poll delay in seconds. |
+| `WDM_POD_WATCH_DOCKER_DELAY` | `0.05` | Legacy Docker socket watch poll delay (used only when no health watcher is attached). |
+| `WDM_WL_HEALTH_CHECK_WAIT_ENABLED` | `true` | Master switch for HTTP workload health checks. `true`: background polling, prefer healthy pods for placement, wait in `add()` before `/add` (see `WDM_ADD_HEALTH_CHECK_TIMEOUT`), and PodErrorWatcher uses HTTP health. `false`: legacy mode — no HTTP health wait; Docker PodErrorWatcher uses container state. |
+| `WDM_WL_HEALTH_CHECK_URL` | `/healthz` | HTTP path polled with GET for per-pod readiness. HTTP 200 means healthy. |
+| `WDM_HEALTH_CHECK_INTERVAL` | `2.0` | Background health poll interval in seconds. |
+| `WDM_HEALTH_CHECK_TIMEOUT` | `2.0` | Per-probe HTTP timeout in seconds. |
+| `WDM_ADD_HEALTH_CHECK_TIMEOUT` | `60` | Max seconds `add()` waits for the selected pod's health before `/add`. `-1` waits forever. On timeout, SDRC defers the event (bus RETRYABLE / HTTP 503) so the consumer is not blocked. |
 | `WDM_ENABLE_REGEX_MAPPING` | `False` | Enable regex-based stream allocation. |
 
 #### Event input and stream lifecycle
@@ -610,6 +617,9 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | Parameter | Default | Description |
 |---|---|---|
 | `OTEL_SERVICE_NAME` | `sdr-agent` | OpenTelemetry service name. |
+| `WDM_LOG_LEVEL` | `INFO` | Root log level (`DEBUG`/`INFO`/`WARNING`/`ERROR`). Use `DEBUG` to restore poll/inventory detail. |
+| `WDM_LOG_FORMAT` | `text` | Log format: `text` (human-readable KV) or `json` (one JSON object per line). |
+| `WDM_LOG_TO_FILE` | `false` | Write rotating files under `logs/` when `1`/`true`; stdout-only by default. |
 | `WDM_DISABLE_WERKZEUG_LOGGING` | `False` | Disable Werkzeug HTTP request logging. |
 | `WDM_SDR_AGENT_PORT` | `4000` | SDR agent service port reported to an external controller. |
 | `CONTROLLER_SERVICE_URL` | `sdr-controller-service.default.svc.cluster.local:4001/report` | Controller report endpoint. |
@@ -662,20 +672,22 @@ When an add event arrives, SDRC runs:
 
 1. **Parse** the message: read the inner event object and compare `change` to `WDM_WL_CHANGE_ID_ADD`.
 2. **Build candidate pool**: load workers from `docker_cluster_config.json` (Docker) or K8s API (k8s).
-3. **Select worker**: iterate pool in order, pick the first that is running and under `WDM_WL_THRESHOLD`.
-4. **POST to worker**: call `http://<provisioning_address><WDM_WL_ADD_URL>` with the full event envelope.
-5. **On HTTP 200**: update Redis mappings and workload spec cache.
-6. **Publish** an agent event on the configured bus.
+3. **Filter by health** (when `WDM_WL_HEALTH_CHECK_WAIT_ENABLED=true`): prefer pods whose latest `WDM_WL_HEALTH_CHECK_URL` probe passed. If none are healthy but capacity remains, still select a pod — `add()` waits for health. When disabled, placement uses legacy pod-down detection (e.g. Docker container Running state).
+4. **Select worker**: pick an eligible worker under `WDM_WL_THRESHOLD` (`WDM_WL_ASSIGNING_METHOD`).
+5. **Wait for health in `add()`** (when `WDM_WL_HEALTH_CHECK_WAIT_ENABLED=true`): block up to `WDM_ADD_HEALTH_CHECK_TIMEOUT` (`-1` = forever) until the selected pod passes health before the `/add` retry loop. Shared by bus and HTTP. On timeout, defer (bus keeps the message pending / HTTP 503). When disabled, `/add` starts immediately.
+6. **POST to worker**: call `http://<provisioning_address><WDM_WL_ADD_URL>` with the full event envelope.
+7. **On HTTP 200**: update Redis mappings and workload spec cache.
+8. **Publish** an agent event on the configured bus.
 
 Delete events reverse the flow: locate the assigned worker, POST `WDM_WL_DELETE_URL`, remove Redis mappings.
 
 **Worker selection rules:**
 
-- Container/pod must be running.
+- When HTTP health is enabled (`WDM_WL_HEALTH_CHECK_WAIT_ENABLED`): prefer pods that pass `WDM_WL_HEALTH_CHECK_URL`; otherwise use legacy pod-down detection.
 - Current stream count must be `< WDM_WL_THRESHOLD`.
-- Workers are iterated in file order (Docker) or API order (K8s); the first eligible worker wins.
+- Selection uses `WDM_WL_ASSIGNING_METHOD` (`lru_round_robin` or `sequential`).
 
-If no eligible worker is found, SDRC logs `Max streams reached` and does not provision. Increase `WDM_WL_THRESHOLD`, add workers, or scale the StatefulSet.
+If only unhealthy workers have capacity (health mode), SDRC still assigns and waits inside `add()` up to `WDM_ADD_HEALTH_CHECK_TIMEOUT` for health. If every worker is at capacity, it logs capacity exhaustion — increase `WDM_WL_THRESHOLD`, add workers, or scale the StatefulSet.
 
 ---
 
@@ -924,7 +936,42 @@ SDRC supports OpenTelemetry tracing (see `lib/tracing.py`) and Prometheus metric
 
 Set `OTEL_SDK_DISABLED=true` to disable OpenTelemetry (useful in environments without a collector). Configure the collector with standard `OTEL_EXPORTER_OTLP_*` environment variables.
 
-Structured logging is configured at startup via `lib/logging/wdm_logging.py`. Set `WDM_DISABLE_WERKZEUG_LOGGING=true` to suppress Werkzeug HTTP request logs.
+Logging is configured at startup via `lib/logging/wdm_logging.py`:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WDM_LOG_LEVEL` | `INFO` | Root level. `INFO` keeps lifecycle/state changes; poll/inventory detail is at `DEBUG`. |
+| `WDM_LOG_FORMAT` | `text` | `text` for console skim; `json` for collectors (`jq`, Loki, Fluent Bit). |
+| `WDM_LOG_TO_FILE` | `false` | Opt-in rotating files under `logs/`; stdout-only by default. |
+| `WDM_DISABLE_WERKZEUG_LOGGING` | `false` | Suppress Werkzeug access logs when `true`. |
+
+Noisy third-party loggers (`redis_lock`, `urllib3`, `docker`, `kafka`) are raised to `WARNING` so they do not drown application events at `INFO`. Repeated identical Redis consumer errors are rate-limited (~30s) and report `suppressed_count` when they recur.
+
+Example (`text`):
+
+```text
+2026-08-14 13:07:30 INFO [workload:vss-rtvi-cv] __main__ - Committing message id 1786623678634-0 component=workload
+2026-08-14 13:07:30 INFO [router] run_workloads - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.05 component=router
+2026-08-14 13:07:30 INFO [envoy] [upstream] cds: added/updated 0 cluster(s), skipped 5 unmodified cluster(s)
+```
+
+Filter muxed `docker logs` by source:
+
+```bash
+docker logs sdr-controller 2>&1 | grep '\[envoy\]'
+docker logs sdr-controller 2>&1 | grep '\[router\]'
+docker logs sdr-controller 2>&1 | grep '\[controller\]'
+docker logs sdr-controller 2>&1 | grep '\[workload:'
+docker logs sdr-controller 2>&1 | grep '\[workload:vss-rtvi-cv\]'
+```
+
+In the combined `sdr-mw` process, router HTTP/xDS stays `[router]`; background controller watchers bind `component=controller` on their threads so their lines are `[controller]` without reinstalling root handlers.
+
+Example (`json`):
+
+```json
+{"timestamp":"2026-08-14T13:07:30.443Z","severity":"INFO","logger":"__main__","message":"Committing message id 1786623678634-0","component":"workload","workload":"vss-rtvi-cv","source":"workload:vss-rtvi-cv"}
+```
 
 ---
 
@@ -944,6 +991,13 @@ docker build -f envoy/Dockerfile.wdm-router -t wdm-router .
 3. Builds `sdr` and `sdr-mw` PyInstaller binaries
 4. Installs Envoy from the official Envoy apt repository
 5. Installs Lua 5.2 / LuaJIT with `luasocket`, `redis-lua`, `lua-cjson` (used by Envoy Lua filter for Redis lookups at routing time)
+
+**Legal artifacts in the container:**
+
+| Path | Notes |
+|---|---|
+| `/wdm/3rdParty_Licenses.md` | Third-party license text copied from `services/sdrc/3rdParty_Licenses.md` |
+| `/wdm/NVIDIA-Software-License-Agreement.pdf` | NVIDIA Software License Agreement downloaded from `nvidia.com` at build time with a pinned SHA-256 checksum |
 
 **Exposed ports:**
 

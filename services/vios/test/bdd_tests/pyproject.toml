@@ -24,26 +24,39 @@ packages = [{include = "tests"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0.0"
-pytest = "^7.4.3"
-pytest-bdd = "^6.1.1"
-pytest-xdist = "^3.5.0"
+pytest = "^9.1.1"
+pytest-bdd = "^8.1.0"
+pytest-xdist = "^3.8.0"
 pytest-html = "^4.1.1"
 pytest-repeat = "^0.9.3"
 pytest-csv = "^3.0.0"
-requests = "^2.31.0"
-aiohttp = "^3.9.1"
+requests = "^2.34.2"
+aiohttp = "^3.14.3"
 aiortc = "^1.6.0"
 websockets = "^12.0"
-mcp = "^1.23.0"
 httpx = "^0.28.0"
 pydantic = "^2.0"
 minio = "^7.2"
 PyYAML = "^6.0"
 pynvml = "^12.0"
+# Live bbox overlay (GAP-051): Redis nv.Frame publisher + protobuf serialize.
+protobuf = "^5.28.0"
+redis = "^5.0.0"
 playwright = "^1.61.0"
 
+# Security floors for transitive packages identified by the VIOS NSPECT report.
+cryptography = "^50.0.0"
+idna = "^3.18"
+Mako = "^1.3.12"
+PyJWT = "^2.13.0"
+pyOpenSSL = "^26.3.0"
+python-dotenv = "^1.2.2"
+python-multipart = "^0.0.32"
+starlette = "^1.3.1"
+urllib3 = "^2.7.0"
+
 [tool.poetry.group.dev.dependencies]
-black = "^23.12.0"
+black = "^26.3.1"
 flake8 = "^6.1.0"
 mypy = "^1.7.1"
 
@@ -87,11 +100,10 @@ markers = [
     "sensor_management: marks tests for the sensor management service",
     "storage_management: marks tests for the storage management service",
     "stream_recorder: marks tests for the stream recorder service",
-    "mcp_gateway: marks tests for the MCP gateway service",
     "longrun: marks tests that run for an extended period (skipped by default unless -m longrun is passed)",
     "needs_iptables: marks tests that require iptables / privileged runner",
     "needs_h265: marks tests that require an H.265 source",
-    "needs_bbox_metadata: marks tests that require stored bbox/overlay metadata",
+    "needs_bbox_metadata: marks tests that require live Redis protobuf bbox metadata (or stored metadata for GAP-050/052)",
     "ui: marks browser UI tests (skipped by default unless -m ui is passed)"
 ]
 

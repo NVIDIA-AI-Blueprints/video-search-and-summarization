@@ -96,8 +96,8 @@ class k8sheadlessclient(k8sclient):
     def getPodIps(self, WLObject):
         podIps = []
         for i in WLObject:
-            logger.info(
-                "->>> %s\t%s\t%s\t%s\t%s\t%s\t%s"
+            logger.debug(
+                "pod inventory %s\t%s\t%s\t%s\t%s\t%s\t%s"
                 % (
                     i.status.pod_ip,
                     i.status.port,
@@ -122,7 +122,7 @@ class k8sheadlessclient(k8sclient):
                 else hostname,
             }
             podIps.append(ipobj)
-        logger.info("len(podsips): " + str(len(podIps)) + ", values: " + str(podIps))
+        logger.debug("len(podsips): %s, values: %s", len(podIps), podIps)
         return podIps if len(podIps) > 0 else None
 
     def _extractOwnerObject(self, wlObjName, selectPodIp):
@@ -161,6 +161,10 @@ class k8sheadlessclient(k8sclient):
         return None
 
     def ifPodDown (self, podname):
+        if self.health_watcher is not None:
+            if self.health_watcher.is_pod_known(podname):
+                return not self.health_watcher.is_pod_healthy(podname)
+            return True
         return None
 
     def watchAllPodState(self):

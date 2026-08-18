@@ -17,7 +17,9 @@ import requests
 import logging
 import json
 import time
-import datetime 
+import datetime
+
+from lib.podprovisioner.healthwatcher import WorkloadUnhealthyError
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,24 @@ class provisionconfig:
         self.app_config = app_config
         self.redisMsging = redisMsging
         self.cfg = cfg
+        self.health_watcher = None
+
+    def set_health_watcher(self, health_watcher):
+        self.health_watcher = health_watcher
+
+    def _health_check_wait_enabled(self):
+        value = self.app_config.get("WDM_WL_HEALTH_CHECK_WAIT_ENABLED", True)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _add_health_check_timeout(self):
+        """Return configured add() health wait; ``-1`` means wait forever."""
+        value = self.app_config.get("WDM_ADD_HEALTH_CHECK_TIMEOUT", 60.0)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 60.0
 
     def add(self, podInfo=None, configData=None, ctx_header=None):
         logger.info("Starting add call")
@@ -68,12 +88,43 @@ class provisionconfig:
             event_obj_key = remap[self.app_config["WDM_EVENT_OBJECT_FIELD"]]
         camera_id = configData.get(event_obj_key, {}).get(self.app_config["WDM_WL_ID_FIELD"], "?")
         logger.info("adding camera at {} (pod: {}, camera_id: {})".format(url, podInfo.get("podName", "?"), camera_id))
-        logger.info("payload: {}".format(json.dumps(configData, indent=2)))
+        logger.debug("payload: {}".format(json.dumps(configData, indent=2)))
         response = None
         failed_to_add = True
         logger.info (f"Max retry attempt {self.app_config['WDM_ADD_REMOVE_RETRY_ATTEMPTS']}")
         failed_to_add_amnt = self.app_config["WDM_ADD_REMOVE_RETRY_ATTEMPTS"]
-        
+
+        # When WDM_WL_HEALTH_CHECK_WAIT_ENABLED is true, wait up to
+        # WDM_ADD_HEALTH_CHECK_TIMEOUT (-1 = forever) for HTTP health before
+        # /add. Timeout raises WorkloadUnhealthyError so callers can defer.
+        if self._health_check_wait_enabled():
+            if self.health_watcher is None:
+                raise RuntimeError("Workload health watcher is not configured")
+            wait_sec = self._add_health_check_timeout()
+            wait_label = "forever" if wait_sec == -1 else f"{wait_sec}s"
+            logger.info(
+                "Waiting for pod %s health check %s before /add (%s)",
+                podInfo.get("podName"),
+                self.app_config.get("WDM_WL_HEALTH_CHECK_URL"),
+                wait_label,
+            )
+            if not self.health_watcher.wait_until_healthy(
+                podInfo, timeout_sec=wait_sec
+            ):
+                raise WorkloadUnhealthyError(
+                    "pod {} did not pass health check {} within {}s".format(
+                        podInfo.get("podName"),
+                        self.app_config.get("WDM_WL_HEALTH_CHECK_URL"),
+                        wait_sec,
+                    )
+                )
+        else:
+            logger.info(
+                "WDM_WL_HEALTH_CHECK_WAIT_ENABLED=false; skipping HTTP health "
+                "wait before /add (pod=%s)",
+                podInfo.get("podName"),
+            )
+
         if self.app_config["WDM_WL_ADD_URL"] is not None and self.app_config["WDM_WL_ADD_URL"] != "":
             while failed_to_add:
                 try:
@@ -103,7 +154,7 @@ class provisionconfig:
         )
 
         logger.info("deleting camera at {}".format(url))
-        logger.info("payload: {}".format(json.dumps(configData, indent=2)))
+        logger.debug("payload: {}".format(json.dumps(configData, indent=2)))
         response = None
         failed_to_delete = True
         logger.info (f"Max retry attempt {self.app_config['WDM_ADD_REMOVE_RETRY_ATTEMPTS']}")
@@ -143,7 +194,7 @@ class provisionconfig:
         )
 
         logger.info("configuring at {}".format(url))
-        logger.info("payload: {}".format(json.dumps(configData, indent=2)))
+        logger.debug("payload: {}".format(json.dumps(configData, indent=2)))
         retry_attempts = self.app_config.get("WDM_CONFIG_RETRY_ATTEMPTS")
         if retry_attempts is None:
             retry_attempts = min(

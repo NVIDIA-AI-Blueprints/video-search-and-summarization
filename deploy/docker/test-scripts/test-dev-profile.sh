@@ -517,9 +517,9 @@ run_negative_test "invalid VLM model name" 1 up -p base --vlm invalid-vlm
 run_negative_test "llm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 0 --vlm-device-id 1
 run_negative_test "vlm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 1 --vlm-device-id 0
 
-# L40S: neither LLM nor VLM may be local_shared (device ID cannot be shared with other services)
+# L40S forbids a local_shared LLM (no hw-L40S-shared.env). Search RT-VLM may share GPU 0 with RT-CV.
 run_negative_test "L40S rejects local_shared LLM" 1 up -p search -i 127.0.0.1 -H L40S -d
-run_negative_test "L40S rejects local_shared VLM" 1 up -p base -i 127.0.0.1 -H L40S --llm-device-id 0 --vlm-device-id 0 -d
+run_negative_test "L40S rejects LLM and VLM on the same GPU" 1 up -p base -i 127.0.0.1 -H L40S --llm-device-id 0 --vlm-device-id 0 -d
 
 # Edge hardware: device IDs fixed to 0; profile defaults used for mode when no base URL override
 run_dry_run_test "edge (DGX-SPARK) local_shared+local_shared uses device ID 0" up -p alerts -i 127.0.0.1 -m verification -H DGX-SPARK -d
@@ -704,8 +704,10 @@ run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "ba
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
-# L40S forbids local_shared for LLM/VLM; the search profile shares both GPUs (devices 0,1 in FIXED_SHARED), so LLM and VLM must both be remote for L40S to be allowed.
-LLM_ENDPOINT_URL=http://127.0.0.1:1 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x --use-remote-vlm --vlm my-remote-vlm -d
+# L40S search with a remote LLM is allowed; local RT-VLM shares GPU 0 with RT-CV.
+LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_up_and_check_generated_env "generated.env search L40S remote LLM keeps local RT-VLM on GPU 0" "search" \
+  -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d -- \
+  "LLM_MODE" "remote" "VLM_MODE" "local_shared" "VLM_DEVICE_ID" "0" "RT_VLM_DEVICE_ID" "0"
 
 _out_compose_env_order="$(mktemp)"
 _err_compose_env_order="$(mktemp)"
@@ -1218,19 +1220,19 @@ for _profile in base lvs search alerts; do
       _allowed_duplicate_keys=(RTVI_VLM_MAX_MODEL_LEN)
       ;;
     lvs)
-      _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
-      _expected_override_keys+=(NVSTREAMER_HTTP_HOST_PORT BACKEND_HOST_PORT LVS_MCP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
-      _expected_stable_keys=(MODE LVS_TAG RTVI_VLM_IMAGE_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
+      _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH NVSTREAMER_CONFIG_DIR RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(NVSTREAMER_HTTP_HOST_PORT BACKEND_HOST_PORT LVS_MCP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT DCGM_EXPORTER_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_stable_keys=(MODE LVS_TAG RTVI_VLM_IMAGE_TAG)
       ;;
     search)
-      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH NVSTREAMER_CONFIG_DIR RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
-      _expected_stable_keys=(MODE PERCEPTION_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
+      _expected_stable_keys=(MODE PERCEPTION_TAG)
       ;;
     alerts)
-      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
+      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
       _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
-      _expected_stable_keys=(NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
+      _expected_stable_keys=()
       ;;
   esac
   for _key in "${_expected_override_keys[@]}"; do
@@ -1306,6 +1308,16 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     echo "FAIL: warehouse overrides.env should define user-facing compose project name COMPOSE_PROJECT_NAME"
     ((_split_failed++)) || true
   fi
+  for _key in NVSTREAMER_2D_CONFIG_DIR NVSTREAMER_3D_CONFIG_DIR NVSTREAMER_MV3DT_CONFIG_DIR; do
+    if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
+      echo "FAIL: warehouse .env should not define blueprint path ${_key}"
+      ((_split_failed++)) || true
+    fi
+    if ! grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
+      echo "FAIL: warehouse overrides.env should define blueprint path ${_key}"
+      ((_split_failed++)) || true
+    fi
+  done
   for _key in "${_warehouse_compose_profile_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define user-facing compose profile value ${_key}"
@@ -1353,8 +1365,9 @@ _shared_service_env_specs=(
   "deploy/docker/services/ui/ui.env:NEXT_PUBLIC_APP_TITLE NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR NEXT_PUBLIC_ENABLE_CHAT_TAB NEXT_PUBLIC_ENABLE_MAP_TAB"
   "deploy/docker/services/infra/infra.env:ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS"
   "deploy/docker/services/nim/nim.env:LLM_PORT VLM_PORT VLM_NIM_KVCACHE_PERCENT"
+  "deploy/docker/services/nvstreamer/.env:NVSTREAMER_IMAGE_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES"
   "deploy/docker/services/rtvi/rtvi.env:RTVI_VLM_BASE_URL RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS RTVI_VLM_KAFKA_INCIDENT_TOPIC RTVI_VLM_KAFKA_ENABLED RTVI_EMBED_IMAGE RTVI_EMBED_TAG RTVI_EMBED_PORT PERCEPTION_IMAGE OTEL_SDK_DISABLED OTEL_EXPORTER_OTLP_ENDPOINT OTEL_METRICS_EXPORTER"
-  "deploy/docker/services/vios/vst.env:VST_PORT VST_INGRESS_HTTP_PORT RTSP_SERVER_PORT_END VST_INTERNAL_IP VST_INGRESS_ENDPOINT VST_INTERNAL_URL VST_STREAM_PROCESSOR_IMAGE_TAG VST_SENSOR_IMAGE_TAG NVSTREAMER_IMAGE_TAG VST_INGRESS_IMAGE_TAG"
+  "deploy/docker/services/vios/vst.env:VST_PORT VST_INGRESS_HTTP_PORT RTSP_SERVER_PORT_END VST_INTERNAL_IP VST_INGRESS_ENDPOINT VST_INTERNAL_URL VST_STREAM_PROCESSOR_IMAGE_TAG VST_SENSOR_IMAGE_TAG VST_INGRESS_IMAGE_TAG"
 )
 for _spec in "${_shared_service_env_specs[@]}"; do
   _file="${REPO_ROOT}/${_spec%%:*}"
@@ -1367,6 +1380,41 @@ for _spec in "${_shared_service_env_specs[@]}"; do
   for _key in ${_keys}; do
     if ! grep -Eq "^${_key}=" "${_file}"; then
       echo "FAIL: ${_file} should define shared service default ${_key}"
+      ((_split_failed++)) || true
+    fi
+  done
+done
+_nvstreamer_shared_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/compose.yml"
+if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_shared_compose}"; then
+  echo "FAIL: shared NVStreamer Compose should define nvstreamer-base"
+  ((_split_failed++)) || true
+fi
+if grep -Eq '(developer-profiles|industry-profiles)/' "${_nvstreamer_shared_compose}"; then
+  echo "FAIL: shared NVStreamer Compose should not reference blueprint directories"
+  ((_split_failed++)) || true
+fi
+_nvstreamer_service_definition_specs=(
+  "nvstreamer-alerts:deploy/docker/developer-profiles/dev-profile-alerts/compose.yml deploy/docker/industry-profiles/smartcities/compose.yml"
+  "nvstreamer-lvs:deploy/docker/developer-profiles/dev-profile-lvs/compose.yml"
+  "nvstreamer-2d-fusion:deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml"
+  "nvstreamer-2d:deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml"
+  "nvstreamer-3d:deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml"
+  "nvstreamer-mv3dt:deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"
+)
+for _spec in "${_nvstreamer_service_definition_specs[@]}"; do
+  _service="${_spec%%:*}"
+  _expected_definition_paths="${_spec#*:}"
+  _expected_definition_count="$(wc -w <<< "${_expected_definition_paths}")"
+  _definition_count="$(grep -R -E --include='*.yml' --include='*.yaml' "^  ${_service}:" \
+    "${REPO_ROOT}/deploy/docker/developer-profiles" \
+    "${REPO_ROOT}/deploy/docker/industry-profiles" | wc -l)"
+  if [[ "${_definition_count}" -ne "${_expected_definition_count}" ]]; then
+    echo "FAIL: ${_service} should have ${_expected_definition_count} blueprint-owned Compose definition(s) (found ${_definition_count})"
+    ((_split_failed++)) || true
+  fi
+  for _definition_path in ${_expected_definition_paths}; do
+    if ! grep -Eq "^  ${_service}:" "${REPO_ROOT}/${_definition_path}"; then
+      echo "FAIL: ${_service} definition missing from ${_definition_path}"
       ((_split_failed++)) || true
     fi
   done
@@ -1840,7 +1888,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
   "VLM_MODE" "remote" "VLM_PORT" "30082" "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
-_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,dcgm-exporter,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
 
 # LVS with local/local_shared VLM: route LVS through RT-VLM and let RT-VLM load the integrated Cosmos checkpoint.
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \

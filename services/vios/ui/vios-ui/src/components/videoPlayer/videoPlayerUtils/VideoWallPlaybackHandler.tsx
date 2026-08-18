@@ -18,7 +18,7 @@ import React, { useEffect } from 'react';
 import { StreamState } from 'vst-streaming-lib';
 
 interface VideoWallPlaybackHandlerProps {
-    videoRef: React.RefObject<HTMLVideoElement>;
+    videoRef: React.RefObject<HTMLVideoElement | null>;
     streamType: string;
     setPlaybackStatus: (status: StreamState) => void;
 }

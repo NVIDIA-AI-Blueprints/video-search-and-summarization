@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +21,6 @@
 #include <jsoncpp/json/json.h>
 #include "logger.h"
 #include "config.h"
-
-using namespace std;
 
 #define GET_CMDLINE_PARSER nv_vms::CmdLineParser::getInstance
 namespace nv_vms {

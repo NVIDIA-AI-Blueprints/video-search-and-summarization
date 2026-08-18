@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Rebuild bump: edit this block to re-trigger the CI image build.
+#   [1]: inventory platforms expanded to amd64+arm64
 
 ARG PYTHON_VERSION=3.13
 ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.5
@@ -37,11 +39,8 @@ RUN apt-get update \
 # Declare bundled OS-level binaries so the NGC/Anchore scanner can attribute
 # them in the distroless image (the scanner reads /var/lib/dpkg/status.d).
 COPY deps.json /build/deps.json
-RUN curl -fsSL -o generate_metadata.sh \
-        https://urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v0.3.sh \
- && echo "4fd5572ea44fd724842fd4a69aac79101be503e01a9a5d743e08a997e9f39899  generate_metadata.sh" \
-      | sha256sum -c - \
- && chmod +x generate_metadata.sh \
+COPY docker/generate_metadata.sh /build/generate_metadata.sh
+RUN chmod +x generate_metadata.sh \
  && ./generate_metadata.sh deps.json
 
 # GCC runtime libs (libgcc_s, libstdc++) are inherited by the distroless

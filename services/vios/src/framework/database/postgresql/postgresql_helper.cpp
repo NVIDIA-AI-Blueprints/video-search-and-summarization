@@ -3293,7 +3293,7 @@ std::vector<VideoFileInfo> Postgresql::getNextFileList(std::string streamId, int
             LOG(info) << "File FPS = " << rows[i].filefps_value << endl;
             LOG(info) << "File object name = " << object_id << endl;
             
-                next_file_list.push_back(rows[i]);
+                next_file_list.push_back(VideoFileInfo(rows[i]));
         }
         else
         {

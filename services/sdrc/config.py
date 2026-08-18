@@ -195,7 +195,37 @@ class Config(object):
     WDM_WL_HEALTH_CHECK_URL = (
         os.environ["WDM_WL_HEALTH_CHECK_URL"]
         if "WDM_WL_HEALTH_CHECK_URL" in os.environ and os.environ["WDM_WL_HEALTH_CHECK_URL"].strip() != ""
-        else "/api/v1/stream/add"
+        else "/healthz"
+    )
+    # Master switch for HTTP workload health checks. When true: background
+    # polling, placement health filtering, wait in add() before /add (see
+    # WDM_ADD_HEALTH_CHECK_TIMEOUT), and PodErrorWatcher transitions from HTTP
+    # health. When false: legacy behavior (Docker PodErrorWatcher uses
+    # container state; no add() health wait).
+    WDM_WL_HEALTH_CHECK_WAIT_ENABLED = _bool_env(
+        "WDM_WL_HEALTH_CHECK_WAIT_ENABLED", True
+    )
+    # Background HTTP health polling for workload pods (assignment + PodErrorWatcher).
+    WDM_HEALTH_CHECK_INTERVAL = (
+        float(os.environ["WDM_HEALTH_CHECK_INTERVAL"].strip())
+        if "WDM_HEALTH_CHECK_INTERVAL" in os.environ
+        and os.environ["WDM_HEALTH_CHECK_INTERVAL"].strip() != ""
+        else 2.0
+    )
+    WDM_HEALTH_CHECK_TIMEOUT = (
+        float(os.environ["WDM_HEALTH_CHECK_TIMEOUT"].strip())
+        if "WDM_HEALTH_CHECK_TIMEOUT" in os.environ
+        and os.environ["WDM_HEALTH_CHECK_TIMEOUT"].strip() != ""
+        else 2.0
+    )
+    # Max seconds add() waits for the selected pod's HTTP health before /add.
+    # -1 waits forever. On timeout, add() raises WorkloadUnhealthyError so bus
+    # handlers can defer (RETRYABLE) instead of blocking the consumer forever.
+    WDM_ADD_HEALTH_CHECK_TIMEOUT = (
+        float(os.environ["WDM_ADD_HEALTH_CHECK_TIMEOUT"].strip())
+        if "WDM_ADD_HEALTH_CHECK_TIMEOUT" in os.environ
+        and os.environ["WDM_ADD_HEALTH_CHECK_TIMEOUT"].strip() != ""
+        else 60.0
     )
     WDM_WL_DELETE_URL = (
         os.environ["WDM_WL_DELETE_URL"].strip()
@@ -670,6 +700,30 @@ class Config(object):
         if "WDM_DISABLE_WERKZEUG_LOGGING" in os.environ
         and os.environ["WDM_DISABLE_WERKZEUG_LOGGING"].strip() != ""
         and os.environ["WDM_DISABLE_WERKZEUG_LOGGING"].strip().lower() == "true"
+        else False
+    )
+
+    # Logging controls (see lib/logging/wdm_logging.py). Defaults keep text +
+    # stdout-only; set WDM_LOG_FORMAT=json for collectors, WDM_LOG_LEVEL=DEBUG
+    # for polls, and WDM_LOG_TO_FILE=true for rotating files under logs/.
+    WDM_LOG_LEVEL = (
+        os.environ["WDM_LOG_LEVEL"].strip()
+        if "WDM_LOG_LEVEL" in os.environ
+        and os.environ["WDM_LOG_LEVEL"].strip() != ""
+        else "INFO"
+    )
+    WDM_LOG_FORMAT = (
+        os.environ["WDM_LOG_FORMAT"].strip().lower()
+        if "WDM_LOG_FORMAT" in os.environ
+        and os.environ["WDM_LOG_FORMAT"].strip() != ""
+        else "text"
+    )
+    WDM_LOG_TO_FILE = (
+        True
+        if "WDM_LOG_TO_FILE" in os.environ
+        and os.environ["WDM_LOG_TO_FILE"].strip() != ""
+        and os.environ["WDM_LOG_TO_FILE"].strip().lower()
+        not in ("0", "false", "no", "off")
         else False
     )
 

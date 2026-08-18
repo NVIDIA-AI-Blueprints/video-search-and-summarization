@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +27,8 @@
 class VstPrefixRedirectHandler : public CivetHandler
 {
 public:
+    using CivetHandler::handleGet;
+
     bool handleGet(CivetServer *server, struct mg_connection *conn) override
     {
         const struct mg_request_info *req_info = mg_get_request_info(conn);
@@ -189,7 +191,7 @@ WebServer::WebServer()
         LOG(info) << "OpenTelemetry tracing disabled by configuration" << std::endl;
     }
 
-    LOG(info) << "HTTP Listen at " << g_hostIp << ":" << config.http_port << std::endl;
+    LOG(info) << "HTTP Listen at " << getHostIpAddress() << ":" << config.http_port << std::endl;
 }
 
 

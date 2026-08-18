@@ -37,8 +37,16 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
+
+# Self-contained instrumentation with its own module state. Split out because
+# this file is long enough that a reader looking for the lock or the Harbor
+# command should not have to scroll past it. Read the phase label through
+# leg_timing.current_phase(); importing the global copies it once.
+import leg_timing
+from leg_timing import HEARTBEAT_SEC, leg_log, phase
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -56,6 +64,7 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 # the host, not per leg, so every leg publishes its trials in here.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 
+
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
 # 600-second base used by Harbor for environment build and verification; these
 # multipliers are also passed on the command line below. Keep the outer process
@@ -64,6 +73,7 @@ VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 # environment before this wrapper intervenes.
 HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
+NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
@@ -291,6 +301,10 @@ def build_harbor_command(
     anthropic_base_url: str,
     agent: str = "claude-code",
 ) -> list[str]:
+    environment_import_path = "envs.brev_env:BrevEnvironment"
+    environment_build_timeout_multiplier = (
+        HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+    )
     if agent == "codex":
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
         # provider-prefixed model id — harbor's stock codex strips it to the
@@ -309,8 +323,22 @@ def build_harbor_command(
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
         ]
+    elif agent == "nemoclaw":
+        environment_import_path = (
+            "envs.nemoclaw_brev_env:NemoClawBrevEnvironment"
+        )
+        environment_build_timeout_multiplier = (
+            NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+        )
+        agent_flags = [
+            "-a", "agents.nemoclaw:NemoClaw",
+            "--model", model,
+        ]
     else:
-        raise ValueError(f"unsupported agent {agent!r} (expected claude-code | codex)")
+        raise ValueError(
+            f"unsupported agent {agent!r} "
+            "(expected claude-code | codex | nemoclaw)"
+        )
     return [
         "uvx",
         "--python",
@@ -320,14 +348,14 @@ def build_harbor_command(
         "harbor",
         "run",
         "--environment-import-path",
-        "envs.brev_env:BrevEnvironment",
+        environment_import_path,
         "-p",
         str(invocation.harbor_root),
         "--include-task-name",
         invocation.include_task_name,
         *agent_flags,
         "--environment-build-timeout-multiplier",
-        str(HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
+        str(environment_build_timeout_multiplier),
         "--agent-timeout-multiplier",
         str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
         "--verifier-timeout-multiplier",
@@ -1250,9 +1278,12 @@ def run_invocations(
     # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
     # silently fall through to the claude-code path and be indistinguishable
     # from a real claude-code run in the logs.
-    if agent not in ("claude-code", "codex"):
-        print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
-              file=sys.stderr)
+    if agent not in ("claude-code", "codex", "nemoclaw"):
+        print(
+            f"FATAL: unsupported EVAL_AGENT {agent!r} "
+            "(expected claude-code | codex | nemoclaw)",
+            file=sys.stderr,
+        )
         return 1
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
@@ -1323,7 +1354,8 @@ def run_invocations(
 
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
-        rc = run_command(cmd, env, harbor_timeout_sec)
+        with phase(f"harbor:{invocation.include_task_name}"):
+            rc = run_command(cmd, env, harbor_timeout_sec)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1399,6 +1431,21 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return args
 
 
+def _terminate(signum: int, _frame) -> None:
+    """Turn SIGTERM into an unwinding exit so cleanup actually runs.
+
+    Python converts only SIGINT into an exception; SIGTERM keeps SIG_DFL and
+    terminates the interpreter without unwinding, so no `finally` and no
+    context-manager exit fires. That matters here because `skills-eval.yml`
+    sets `cancel-in-progress: true`: every push to a pull request SIGTERMs the
+    in-flight legs, up to `max-parallel` of them at once. Without this, a
+    cancelled leg never reaches the phase-timing write in main()'s finally, so
+    it produces no artifact at all -- and a leg cancelled after an hour in the
+    lock queue is one of the most informative things this feature can record.
+    """
+    raise SystemExit(128 + signum)
+
+
 def main(argv: list[str] | None = None) -> int:
     actual_python = sys.version_info[:2]
     if actual_python != SKILL_EVAL_PYTHON_VERSION:
@@ -1409,7 +1456,20 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    with contextlib.suppress(ValueError, OSError):
+        # ValueError if not on the main thread; never fatal either way.
+        signal.signal(signal.SIGTERM, _terminate)
     args = parse_args(argv or sys.argv[1:])
+    # Instrumentation must not be able to fail the leg, and starting a thread
+    # can: a runner at its thread limit raises RuntimeError here. Losing the
+    # heartbeat costs visibility, while raising costs the whole leg, so this
+    # degrades to no heartbeat and says so.
+    heartbeat: threading.Thread | None = None
+    stop_heartbeat: threading.Event | None = None
+    try:
+        heartbeat, stop_heartbeat = leg_timing.start_heartbeat()
+    except Exception as exc:  # noqa: BLE001 - telemetry is never load-bearing
+        leg_log(f"heartbeat unavailable ({exc!r}); leg continues without it")
     try:
         invocations = discover_invocations(args.dataset_root)
         print(f"[run-leg] discovered {len(invocations)} harbor invocation(s)", flush=True)
@@ -1439,10 +1499,29 @@ def main(argv: list[str] | None = None) -> int:
             candidates_fn = (  # noqa: E731
                 lambda: pool_candidates(metadata, args.spec_stem)
             )
+        # Timed either side of the lock: the wait for a free box is the leg's
+        # least visible cost and the one the pickup analysis most needs split
+        # out from the Harbor run itself.
+        lock_wait_started = leg_timing.leg_elapsed()
+        lock_acquired = False
+        # The heartbeat's LABEL, not just the recorded interval. The lock wait
+        # is the longest gap a leg can have -- 16 minutes in the run that
+        # motivated this, and bounded only by lock_timeout_sec -- and it ran
+        # entirely under the label "startup", so every tick during the one
+        # phase the log most needed to name reported the wrong thing.
+        outer_phase = leg_timing.current_phase()
+        leg_timing.set_phase("lock-wait")
         try:
             with hold_pool_lock(
                 candidates_fn, args.lock_dir, effective_lock_timeout
             ) as instance:
+                lock_acquired = True
+                leg_timing.record_phase(
+                    "lock-wait", lock_wait_started, leg_timing.leg_elapsed()
+                )
+                # The wait is over the moment the lock is held; the Harbor
+                # phases below set their own labels.
+                leg_timing.set_phase(outer_phase)
                 return run_invocations(
                     invocations,
                     instance,
@@ -1454,11 +1533,37 @@ def main(argv: list[str] | None = None) -> int:
                     work_deadline,
                 )
         except LockTimeoutError:
+            leg_timing.record_phase(
+                "lock-wait-timeout", lock_wait_started, leg_timing.leg_elapsed()
+            )
             if effective_lock_timeout < args.lock_timeout_sec:
                 raise LegDeadlineError(
                     "whole-leg deadline expired while reserving room for Harbor"
                 )
             raise
+        except BaseException:
+            # Every exit from the lock gets a phase, including the ones nobody
+            # expects: an invalid instance name raises ValueError, a bad lock
+            # dir raises OSError. A leg that died selecting a box still spent
+            # that time, and an artifact with no lock interval is
+            # indistinguishable from one where the wait was zero.
+            #
+            # BaseException, not Exception, and the difference is the common
+            # case rather than an exotic one. `skills-eval.yml` sets
+            # cancel-in-progress, so a push cancels in-flight legs, and a
+            # cancellation arriving during the lock wait raises
+            # KeyboardInterrupt. Catching only Exception dropped the wait from
+            # the artifact for precisely the legs that spent longest in it.
+            if not lock_acquired:
+                leg_timing.record_phase(
+                    "lock-wait-failed", lock_wait_started, leg_timing.leg_elapsed()
+                )
+            raise
+        finally:
+            # Every exit restores the label, including the ones that raise past
+            # the resets above. A stuck "lock-wait" would misreport the rest of
+            # the leg for as long as it ran.
+            leg_timing.set_phase(outer_phase)
     except LockTimeoutError:
         target = args.instance or f"pool ({args.platform or 'platform'})"
         print(f"BLOCKED: lock timeout on {target}", flush=True)
@@ -1469,6 +1574,20 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"FATAL: run_leg failed: {exc!r}", file=sys.stderr)
         return 1
+    finally:
+        if stop_heartbeat is not None:
+            stop_heartbeat.set()
+        # Joined, not just signalled. A daemon still writing to stdout while
+        # the interpreter tears down its buffered streams is how a clean leg
+        # turns into a fatal abort at exit.
+        if heartbeat is not None:
+            heartbeat.join(timeout=HEARTBEAT_SEC + 5)
+        # This whole block runs on the return path of a leg that already has
+        # its outcome. Nothing here may replace it.
+        try:
+            leg_timing.write_phase_timings(args.results_root)
+        except Exception as exc:  # noqa: BLE001
+            leg_log(f"phase timing write failed: {exc!r}")
 
 
 if __name__ == "__main__":

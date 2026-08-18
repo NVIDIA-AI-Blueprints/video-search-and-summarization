@@ -1,0 +1,20 @@
+# Build context = services/vios (docker/Dockerfile). Keep source + prebuilts +
+# packaging + deployment + ui source; drop VCS, caches, host build junk, and the
+# heavy test/sanity trees that the image build never needs.
+.git
+.gitignore
+.config
+.cache
+**/.cache
+out
+**/node_modules
+vst_volume
+deployment/stream-processing/docker-compose/vst_volume
+deployment/stream-processing/docker-compose/nvstreamer/videos
+deployment/stream-processing/docker-compose/nvstreamer/vst_data
+deployment/stream-processing/docker-compose/sdrc/log
+sanity
+test/bdd_tests/reports
+.claude
+*.sanity-bak
+*.overlaytest.bak

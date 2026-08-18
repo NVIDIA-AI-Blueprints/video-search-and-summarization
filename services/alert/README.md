@@ -237,13 +237,14 @@ This module is governed by **two separate licenses**, depending on what you use:
 
 - **The pre-built VSS Alert container images distributed by NVIDIA via NGC**
   (`nvcr.io/nvidia/blueprint/vss-alert-verification` and related tags) **are licensed under the
-  NVIDIA Software License Agreement.** The full agreement is included in this directory as
-  [`NVIDIA-Software-License-Agreement.pdf`](./NVIDIA-Software-License-Agreement.pdf). If you pull and
-  use NVIDIA's pre-built container images, the NVIDIA Software License Agreement governs your use.
+  NVIDIA Software License Agreement.** If you pull and use NVIDIA's pre-built container
+  images, the NVIDIA Software License Agreement governs your use; the agreement is conveyed by the
+  distribution channel those images ship through.
 
 Third-party open-source components bundled in the container image are attributed in
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
-The presence of `NVIDIA-Software-License-Agreement.pdf` in this directory does **not** modify the
-Apache 2.0 license that governs the source code in this repository. It is included here so that the
-pre-built container images carry the license they ship under.
+The container image carries `LICENSE-3rd-party.txt` and `NVIDIA-Software-License-Agreement.pdf`
+under `/app`. The agreement is **not** vendored in this source tree — the Dockerfile's `ADD` instruction
+fetches it from `nvidia.com` at build time with a pinned SHA-256, which keeps the repository free
+of a proprietary EULA and needs no HTTP client in any build stage.

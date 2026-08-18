@@ -31,8 +31,6 @@ Which modules to build depends on the deployment target:
 
 > **`--target all` deploys NVStreamer + stream-processor** — the same containers as the default target plus NVStreamer. Use this flag when you want to be explicit about deploying both services together.
 
-`mcp` is never built — it takes too long and the pre-built image is used at deploy time.
-
 `streambridge` is unused and never built.
 
 ---
@@ -62,6 +60,65 @@ If the user asks to **build the toolchain itself** (e.g. "build the toolchain fo
 ```
 
 **Ask before pushing if no registry was given.** Pushing the default tag (`vios-build:x86-devel-ubuntu24.04-cuda13.2.0`) targets Docker Hub, which is almost never intended. If the user says "push to registry" without naming one, ask which registry / image path to use, then pass it via `toolchain-image=` (or `X86_BUILD_IMAGE`/`AARCH64_CC_IMAGE`). This is the one build case where you SHOULD ask a clarifying question. The same applies to `base-container push=1` (use `image-registry=<ref>`).
+
+---
+
+## Step 0 — Confirm WHAT you are building, and WHERE it lands
+
+Two minutes here prevents the most expensive failure mode in this workflow:
+building or deploying code that is not the code under test. Both checks are
+cheap and both have silent failure modes.
+
+### 0a. Confirm the checkout is on the intended code
+
+A working tree may have been left on another branch by earlier work. Building it
+succeeds and produces perfectly valid images — of the wrong code.
+
+```bash
+cd <PROJECT_ROOT>
+git branch --show-current && git log --oneline -1
+git status --porcelain | head            # uncommitted changes are part of what you build
+```
+
+If the goal is to validate a specific change, prove it is present rather than
+assuming — e.g. confirm the expected files differ from the base branch:
+
+```bash
+git diff --name-only $(git merge-base HEAD origin/<base>)..HEAD
+```
+
+Record the branch and commit; they belong in the final report alongside the
+image IDs.
+
+### 0b. Read the build environment overrides — they decide the deploy flags
+
+`build.sh` honours environment variables that change the image names it
+produces, notably `IMAGE_REGISTRY` and `NVSTREAMER_IMAGE_REGISTRY` (and
+`X86_BUILD_IMAGE` / `AARCH64_CC_IMAGE` for the toolchain). A shell that exports
+these produces different repositories than a shell that does not, so the deploy
+flags in `skills/deployment/deploy.md` Step 1b-i differ accordingly.
+
+```bash
+env | grep -E "IMAGE_REGISTRY|NVSTREAMER_IMAGE_REGISTRY|X86_BUILD_IMAGE|AARCH64_CC_IMAGE"
+```
+
+`build.sh` also echoes the effective values near the start of its output. Never
+predict the resulting image names — read them back in Step 5.
+
+### 0c. Rebuild only what the change touches
+
+Rebuilding everything wastes time and widens the blast radius. Map changed paths
+to modules:
+
+| Changed under | Rebuild |
+|---|---|
+| `src/framework/**`, `src/modules/**`, `src/app/**` | `module=streamprocessing,sensor` |
+| `ui/**` (NVStreamer/VIOS UI) | the container that packages that UI |
+| `packaging/**` | whichever container consumes the changed mapping |
+| deployment configs / compose only | nothing — redeploy is enough |
+
+When unsure, prefer the narrower set and verify at deploy time (deploy.md
+Step 1b-ii) that the services carrying your change run your images.
 
 ---
 
@@ -132,8 +189,17 @@ cd <PROJECT_ROOT>
 ./build.sh container ingress
 ```
 
-> **Do not build the MCP container** — `./build.sh container mcp` is intentionally skipped. It takes too long and the pre-built image is used instead.
+### UI build fails while installing npm dependencies
 
+The NVStreamer/VIOS UI build runs `npm` inside the toolchain container. On hosts
+with restricted outbound network access, a dependency whose post-install step
+fetches an artifact from outside the configured npm registry can time out. The
+install aborts, later build tools appear "not found", and the reported error
+names the missing tool rather than the network — do not chase the symptom.
+
+Check egress to the configured registry and to any host named in the timeout
+before working around it, and prefer an internal mirror. Report any local build
+patch you apply and keep it out of product commits.
 ---
 
 ## Other build variants
@@ -158,6 +224,42 @@ docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.CreatedAt}}" \
 ```
 
 All matching images should show a recent `CreatedAt` timestamp.
+
+### Read back the real image names — do not predict them
+
+The repository names depend on the build environment (Step 0b), so capture what
+was actually produced. These exact strings are what the deploy flags must use:
+
+```bash
+docker images --format '{{.ID}}  {{.Repository}}:{{.Tag}}  {{.CreatedSince}}' \
+  | grep -Ei 'vst-|nvstreamer|ingress' | head
+```
+
+Record the **image IDs**, not just the tags — a tag is a moving pointer, an ID
+is not.
+
+### A "successful" build that changed nothing
+
+`build.sh` is incremental. If the tree did not actually change, the build exits
+0 and the image keeps its previous ID — indistinguishable from success in the
+log. When the point of the build is to pick up a specific change, compare the
+image ID (or `CreatedAt`) before and after; an unchanged ID means the build did
+not include what you expected, usually because of Step 0a.
+
+### Tags are shared mutable state on a shared host
+
+`latest` is not unique to your build. Another user, agent or CI job on the same
+machine can overwrite `<image>:latest` between your build and your deploy, and
+the deploy will silently use theirs. Two defences:
+
+- For a validation build, use a distinctive tag: `./build.sh container … tag=<unique>`,
+  then pass that tag to the deploy flags.
+- Otherwise re-check the image ID immediately before deploying and confirm it
+  still matches what you built (deploy.md Step 1b-ii).
+
+If an image ID changed unexpectedly, say so in the report rather than assuming
+it is yours — image `CreatedAt` and differing file sizes inside the image are
+usually enough to tell two builds apart.
 
 ---
 

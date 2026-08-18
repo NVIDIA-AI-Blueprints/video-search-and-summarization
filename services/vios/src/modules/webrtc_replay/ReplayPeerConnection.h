@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +25,6 @@
 #include "TempFileScheduler.h"
 
 using namespace std;
-using namespace nv_vms;
 
 class ReplayPeerConnection : public IVstModule
 {
@@ -36,12 +35,12 @@ private:
     std::shared_ptr<PeerConnectionManager> m_peerConnectionManager;
     std::shared_ptr<nv_vms::DeviceManager> m_deviceManager;
 
-    VmsErrorCode handleReplayConfiguration(const Json::Value &req_info, const Json::Value &in, Json::Value &response);
-    VmsErrorCode getVersion(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-    VmsErrorCode getReplayHelp(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-    VmsErrorCode handleReplayAPIrequest(const Json::Value &, const Json::Value &in, Json::Value &out, struct mg_connection *conn);
+    nv_vms::VmsErrorCode handleReplayConfiguration(const Json::Value &req_info, const Json::Value &in, Json::Value &response);
+    nv_vms::VmsErrorCode getVersion(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+    nv_vms::VmsErrorCode getReplayHelp(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+    nv_vms::VmsErrorCode handleReplayAPIrequest(const Json::Value &, const Json::Value &in, Json::Value &out, struct mg_connection *conn);
 
-    std::shared_ptr<UnifiedStorageReader> m_unifiedStorageReader;
+    std::shared_ptr<nv_vms::UnifiedStorageReader> m_unifiedStorageReader;
     std::unique_ptr<TempFileScheduler> m_imageCleanupScheduler;
 
 public:
@@ -49,7 +48,7 @@ public:
     ~ReplayPeerConnection();
     const std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>> getHttpApi() override { return m_func; };
 
-    std::shared_ptr<UnifiedStorageReader> getUnifiedStorageReader() { return m_unifiedStorageReader; }
+    std::shared_ptr<nv_vms::UnifiedStorageReader> getUnifiedStorageReader() { return m_unifiedStorageReader; }
     bool initUnifiedStorageReader();
 };
 

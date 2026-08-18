@@ -40,7 +40,6 @@ WORKDIR /vss-agent
 # runtime user can read/execute but not own or modify the copied resources.
 COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
 COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
-COPY --chown=root:root --chmod=0444 agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
 # uv workspace: the meta pyproject (copied above) + each member's pyproject/src.
 # Tests are intentionally omitted from the image.
@@ -164,7 +163,15 @@ COPY --from=security-patches /patches/liblzma5.md5sums /var/lib/dpkg/status.d/li
 # Copy application without any dev needs
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
-COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
+
+# The NVIDIA Software License Agreement is not vendored in this source tree.
+# BuildKit performs this download itself, so no HTTP client is needed in any
+# stage, and --checksum verifies the bytes before the layer is created: a
+# CDN error page or a silently replaced document fails the build.
+ADD --chown=root:root --chmod=0444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    /vss-agent/NVIDIA-Software-License-Agreement.pdf
 
 # Entrypoint wrapper + opt-in proprietary-codec installer (read-only app resources).
 COPY --chown=root:root --chmod=0555 agent/docker/entrypoint.py /vss-agent/entrypoint.py

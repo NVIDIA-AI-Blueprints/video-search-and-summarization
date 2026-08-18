@@ -1,0 +1,15 @@
+# Test dependencies for the RTVI-CV-MV3DT config-init test suite.
+#
+# Runtime pins match the container (../Pipfile), so the generators behave
+# identically inside the image and in CI.
+#
+# NOTE: opencv is deliberately absent. It was removed from the container in
+# 3.3.0 (its wheel vendored FFmpeg and an end-of-life OpenSSL); the projection
+# math is now numpy-only in src/_linalg.py.
+pytest>=9.0.3                   # Fix GHSA-6w46-j5rx-g56g
+pytest-timeout>=2.4.0
+
+# --- Config generators (same pins as the container) ---
+numpy==2.2.6
+PyYAML==6.0.2
+tqdm==4.67.1

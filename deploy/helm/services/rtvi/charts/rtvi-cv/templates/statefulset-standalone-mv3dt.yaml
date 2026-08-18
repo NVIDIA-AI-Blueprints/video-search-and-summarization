@@ -136,7 +136,7 @@ spec:
         {{- end }}
         {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
         - name: mv3dt-config-init
-          image: "{{ $mv3dt.dynamicCameraConfig.configInit.image.repository }}:{{ $mv3dt.dynamicCameraConfig.configInit.image.tag }}"
+          image: {{ include "vss-rtvi-cv.configInitImage" . }}
           imagePullPolicy: {{ $mv3dt.dynamicCameraConfig.configInit.image.pullPolicy | default "IfNotPresent" }}
           env:
             - name: CALIBRATION_API_URL

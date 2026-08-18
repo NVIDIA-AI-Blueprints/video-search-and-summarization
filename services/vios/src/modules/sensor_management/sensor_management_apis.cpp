@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -179,7 +179,7 @@ VmsErrorCode SensorManagementApis::handleSensorConfiguration(const Json::Value& 
         response["nvOrgId"] = config.nv_org_id;
         response["nvNgcKey"] = config.nv_ngc_key;
         response["useMultiUser"] = config.use_multi_user;
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["remoteVstAddress"] = config.remote_vst_address;
         response["deviceName"] = config.device_name;
         response["deviceLocation"] = config.device_location;

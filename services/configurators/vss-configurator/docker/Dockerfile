@@ -42,7 +42,7 @@ RUN uv sync --frozen --no-dev
 # Google distroless does not ship Python 3.13; Chainguard does.
 # Runtime is distroless, so startup must use a Python entrypoint instead of a shell script.
 # FROM cgr.dev/chainguard/python:3.13 AS runtime
-FROM nvcr.io/nvidian/distroless/python:3.13-v4.0.5 AS runtime
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.5 AS runtime
 
 WORKDIR /usr/src/app
 
@@ -56,6 +56,15 @@ ENV PYTHONPATH=/usr/src/app/site-packages
 COPY services/configurators/vss-configurator/app/ .
 COPY services/configurators/vss-configurator/3rdParty_Licenses.md \
     /usr/src/app/3rdParty_Licenses.md
+
+# The NVIDIA Software License Agreement is not vendored in this source tree.
+# BuildKit performs this download itself, so no HTTP client is needed in any
+# stage, and --checksum verifies the bytes before the layer is created: a
+# CDN error page or a silently replaced document fails the build.
+ADD --chown=root:root --chmod=0444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    /usr/src/app/NVIDIA-Software-License-Agreement.pdf
 
 ENV PORT=5000
 EXPOSE 5000

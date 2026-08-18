@@ -17,7 +17,8 @@ container images, and how to build them.
   capture the **same scene moment**, and frames of that moment carry timestamps that
   **agree to within one frame's duration (33 ms at 30 FPS)**, so they bucket into the
   same frame interval. Larger skew degrades cross-camera alignment and BEV fusion
-  accuracy.
+  accuracy. For **live RTSP** that correspondence is carried in-band, as an SEI
+  frame ID embedded by the VST proxy — see [§4](#4-add-streams-dynamically-rtsp).
 
 You can feed that footage in one of two ways. The simplest is to point the pipeline at
 **recorded per-camera `.mp4` files**: this needs no streaming server, and
@@ -266,6 +267,30 @@ docker run -d --rm --name vss-rtvi-cv-mv3dt \
 *This is the input step for **live RTSP** (`INPUT_MODE=stream`). Skip it when
 testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
 
+> **Live RTSP requires SEI-carrying streams.** The staged DeepStream config sets
+> `extract-sei-sim-time=1` with `attach-sys-ts-as-ntp=0`, so each frame's
+> timestamp is read from `NVDS_CUSTOMMETA` SEI and is never replaced with host
+> time. **Every RTSP source must carry that SEI** — it is what lets MV3DT line
+> frames up across cameras. If it is missing, streams register successfully and
+> `ds-ready` reports `YES`, but no source ever activates and no `mdx-raw`
+> metadata is produced.
+>
+> In this deployment the VST proxy injects it (its upstream NVStreamer sources do
+> not: VST unifies their SEI). A source that does not go through VST must supply
+> `NVDS_CUSTOMMETA` SEI itself.
+>
+> `scripts/add-streams.sh` checks this before registering anything and refuses
+> with the remedy. To fix it, set `"enable_proxy_server_sei_metadata": true` in
+> both the VST and NVStreamer `vst_config.json` your deployment uses, redeploy,
+> then confirm inside the containers:
+>
+> ```bash
+> docker exec nvstreamer-1 sh -lc \
+>   'grep -n enable_proxy_server_sei_metadata /home/vst/vst_release/configs/vst_config.json'
+> docker exec streamprocessing-ms-1 sh -lc \
+>   'grep -n enable_proxy_server_sei_metadata /home/vst/vst_release/configs/vst_config.json'
+> ```
+
 Register your RTSP streams via the perception REST API — one
 `<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.
 **The key is the `camera_id` and must exactly match the sensor id in your
@@ -357,7 +382,7 @@ OSD) to an encoded video, useful on a headless machine with no display. Enable i
 `SAVE_VIDEO=1`, either set in [docker/.env](docker/.env) or passed inline to the staging
 command ([§2.3](#23-stage-the-deepstream-configs)), then launch. It writes
 `video-output/grid-view.mkv`: all cameras tiled into one video, with the 3D boxes and the
-class/ID labels overlaid. It works with either input:
+class/ID labels overlaid.
 
 - **Recorded files** ([§2.3](#23-stage-the-deepstream-configs)) — the clips play
   once and the file finalizes automatically at end-of-stream (the container then exits):
@@ -365,16 +390,15 @@ class/ID labels overlaid. It works with either input:
   # Add the SAVE_VIDEO=1 flag to the staging command in §2.3
   INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh
   ```
-- **Live RTSP** — recording runs until you stop the stack (`docker compose down`, or
-  `docker stop` on the perception container). A live stream has no natural end-of-stream,
-  so the `.mkv` is left **playable** but not finalized: it decodes fully, only without a
-  duration or seek index.
+- **Live RTSP** — the DeepStream file sink writes one continuous file and does not
+  configure segment rotation, size limits, or retention cleanup. Because a live stream
+  has no natural end-of-stream, `stage-configs.sh` refuses `INPUT_MODE=stream
+  SAVE_VIDEO=1` by default. To explicitly accept an unbounded live recording, opt in:
   ```bash
-  # Add the SAVE_VIDEO=1 flag to the staging command in §2.3
-  SAVE_VIDEO=1 ./scripts/stage-configs.sh
+  ALLOW_UNBOUNDED_RECORDING=1 SAVE_VIDEO=1 ./scripts/stage-configs.sh
   ```
 
-Both cases write `video-output/grid-view.mkv`. To convert it to `.mp4` (and, for live RTSP,
+Both supported modes write `video-output/grid-view.mkv`. To convert it to `.mp4` (and, for live RTSP,
 produce a finalized/seekable file), run a lossless conversion with no re-encode:
 
 ```bash
@@ -382,15 +406,16 @@ ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
 # For live RTSP input, a few "Non-monotonic DTS" warnings are expected and harmless.
 ```
 
-> **NVENC-less GPUs (e.g. A100, H100).** The video output from the perception container is encoded with the GPU's NVENC hardware
-> encoder (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). If your GPU has no
-> NVENC, switch to the software (CPU) encoder. First prepare the image once:
+> **NVENC-less GPUs (e.g. A100, H100, H200, GB200, GB300).** The video output from the perception container is encoded with the GPU's NVENC hardware
+> encoder by default (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). When `SAVE_VIDEO=1`,
+> `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder
+> (`enc-type=1`) instead. First prepare the image once:
 > ```bash
 > docker exec -it vss-rtvi-cv-mv3dt \
 >   bash -c 'cd /opt/nvidia/deepstream/deepstream/ && bash user_additional_install.sh'   # install the software encoder
 > docker commit vss-rtvi-cv-mv3dt <your-image>:<tag>    # then set this image in docker/.env
 > ```
-> Then set `enc-type=1` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`, stage, and launch.
+> Then stage and launch normally.
 
 ### 6.3 BEV visualizer — live window
 

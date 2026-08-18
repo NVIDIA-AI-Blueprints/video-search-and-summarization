@@ -51,7 +51,9 @@ int stopOnvifDiscovery();
 int getProbeMatch(nv_vms::SensorInfo& sensor);
 bool isCameraOnline(nv_vms::SensorInfo& sensor);
 bool curlGetRequest(const string& url, long& http_code);
-bool curlGetRequest(const string url, string& outData);
+// timeout_ms bounds both connection setup and the complete transfer.  The
+// default preserves the historical 10-second behaviour for existing callers.
+bool curlGetRequest(const string url, string& outData, long timeout_ms = 10000L);
 bool curlGetRequest(const string& url, const string& username,
                               const string& password, string& outData);
 bool curlPostRequest(const string& httpUrl, const string& username, const string& password,

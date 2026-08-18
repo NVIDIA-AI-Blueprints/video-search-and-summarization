@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,12 +31,18 @@ public:
     static void deleteInstance();
     void registerMessageListener(nv_vms::INotificationListener* listener) override;
     void deregisterMessageListener(nv_vms::INotificationListener* listener) override;
-    void retryConnection() override {}
+    void retryConnection() override
+    {
+        // Intentionally blank: the paho async client is configured with
+        // set_automatic_reconnect(true) in clientInit(), so it reconnects on
+        // its own and no manual retry is needed here.
+    }
     bool deliverMessage(Json::Value& message) override { return true; }
 
 private:
     MqttSubscriber();
     virtual ~MqttSubscriber();
+    friend struct std::default_delete<MqttSubscriber>;
     void clientInit();
 
     class MqttCallback : public virtual mqtt::callback
@@ -53,7 +59,7 @@ private:
         void delivery_complete(mqtt::delivery_token_ptr token) override;
     };
 
-    static MqttSubscriber*              _instance;
+    static std::unique_ptr<MqttSubscriber> _instance;
     static std::mutex                   m_instanceMutex;
     std::unique_ptr<mqtt::async_client> m_client = nullptr;
     std::unique_ptr<MqttCallback>       m_callback = nullptr;

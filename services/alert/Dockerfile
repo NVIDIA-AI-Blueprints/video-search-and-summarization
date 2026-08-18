@@ -82,7 +82,13 @@ COPY . /app
 
 # Ship the NVIDIA Software License inside the container (governs the distributed
 # image; must match the NGC catalog card). Source files remain Apache-2.0.
-COPY NVIDIA-Software-License-Agreement.pdf /app/NVIDIA-Software-License-Agreement.pdf
+# Not vendored in this source tree: BuildKit performs this download itself, so
+# no HTTP client is needed in any stage, and --checksum verifies the bytes
+# before the layer is created. Placed after `COPY . /app` so it is not clobbered.
+ADD --chown=root:root --chmod=444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    /app/NVIDIA-Software-License-Agreement.pdf
 
 # Minimal Python runtime settings and non-root execution
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

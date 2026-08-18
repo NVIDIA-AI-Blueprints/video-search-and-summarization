@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,8 +24,8 @@
 class IWebrtcConnection
 {
 public:
-    IWebrtcConnection() {}
-    virtual ~IWebrtcConnection() {}
+    IWebrtcConnection() = default;
+    virtual ~IWebrtcConnection() = default;
 
     virtual nv_vms::VmsErrorCode post(const std::string& task_name, const std::string& peerid,
                             Json::Value in, Json::Value req_info, Json::Value& response,

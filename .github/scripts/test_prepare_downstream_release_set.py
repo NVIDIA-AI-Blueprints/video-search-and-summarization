@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import base64
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -125,11 +125,10 @@ class DownstreamVariablesTest(unittest.TestCase):
         self.assertEqual(
             variables["VSS_CONTAINER_TAG"], "pr-1396-" + "a" * 12
         )
-        self.assertEqual(
-            variables["VSS_RELEASE_SET_ID"], release_set["release_set_id"]
-        )
-        decoded = json.loads(base64.b64decode(variables["VSS_RELEASE_SET_B64"]))
-        self.assertEqual(decoded, release_set)
+        # The release set itself is deliberately not sent: ci-vss-oss has no
+        # consumer for it. Assert its absence so a reintroduction is caught.
+        self.assertNotIn("VSS_RELEASE_SET_ID", variables)
+        self.assertNotIn("VSS_RELEASE_SET_B64", variables)
 
     def test_main_with_release_set_file_performs_no_network(self):
         sha = "a" * 40
@@ -239,9 +238,31 @@ class WorkflowSeparationTest(unittest.TestCase):
         self.assertNotIn("SPATIALAI_PACKAGE_VERSION_SUFFIX", main)
         self.assertIn("name: Spatial AI Data Utils", sdu)
         self.assertIn("name: Gate", sdu)
-        self.assertIn('suffix = f".dev0+g{commit[:12]}"', sdu)
+        self.assertIn('suffix = f".dev0+g{tree_sha[:12]}"', sdu)
         self.assertIn("DOWNSTREAM_REF: main", sdu)
         self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
+        sonar = (workflows / "sonarqube.yml").read_text()
+        match = re.search(
+            r"^          - name: spatialai-data-utils\n(?P<entry>(?:            .*\n)+)",
+            sonar,
+            flags=re.MULTILINE,
+        )
+        self.assertIsNotNone(match, "SDU SonarQube matrix entry is missing")
+        assert match is not None
+        entry = match.group("entry")
+        self.assertIn(
+            "TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization",
+            entry,
+        )
+        self.assertIn(
+            "sources: libs/analytics/spatialai-data-utils/spatialai_data_utils",
+            entry,
+        )
+        self.assertIn(
+            "tests: libs/analytics/spatialai-data-utils/tests",
+            entry,
+        )
+        self.assertIn('python_version: "3.13"', entry)
 
     def test_release_set_preparation_has_no_sdu_transport(self):
         script = Path(module.__file__).read_text()

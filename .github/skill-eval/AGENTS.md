@@ -589,6 +589,12 @@ single-step task or ordered `step-1..N` tasks; dispatches one Harbor
 task at a time with the fixed flags below; writes multi-step skip
 markers; and releases the lock when it exits.
 
+`EVAL_AGENT` selects the Harbor runtime (`claude-code` by default,
+`codex`, or `nemoclaw`). NemoClaw still uses this exact wrapper and task
+dispatch. The only runtime-specific pieces are its Harbor agent adapter and
+the Brev environment that executes the checked-in setup notebooks. Like every
+other runtime, NemoClaw leaves worker selection and locking to `run_leg.py`.
+
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
 path; concurrent legs share the host. `$RES` is the Harbor `-o` root

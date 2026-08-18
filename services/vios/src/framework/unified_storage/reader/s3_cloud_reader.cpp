@@ -89,40 +89,40 @@ void S3CloudReader::shutdownAwsSDK()
 bool S3CloudReader::isAvailable() const
 {
     std::lock_guard<std::mutex> lock(m_config_mutex);
-    return m_initialized && m_awsSdkInitialized && !m_config.accessKeyId.empty() && !m_config.secretAccessKey.empty();
+    return m_initialized && m_awsSdkInitialized && !getConfigInternal().accessKeyId.empty() && !getConfigInternal().secretAccessKey.empty();
 }
 
 bool S3CloudReader::configure(const CloudReaderConfig& config)
 {
     std::lock_guard<std::mutex> lock(m_config_mutex);
 
-    m_config = config;
-    m_config.storageType = CloudStorageType::AWS_S3;
+    getConfigInternal() = config;
+    getConfigInternal().storageType = CloudStorageType::AWS_S3;
 
     // Set default region if not specified
-    if (m_config.region.empty())
+    if (getConfigInternal().region.empty())
     {
-        m_config.region = "us-west-1";
+        getConfigInternal().region = "us-west-1";
     }
 
     // Set endpoint based on configuration
     // Priority: 1) Explicit config.endpoint (for MinIO/custom S3)
     //           2) Default AWS endpoints by region
-    if (!m_config.endpoint.empty())
+    if (!getConfigInternal().endpoint.empty())
     {
-        m_endpoint = m_config.endpoint;
+        m_endpoint = getConfigInternal().endpoint;
     }
     else
     {
-        auto it = DEFAULT_ENDPOINTS.find(m_config.region);
+        auto it = DEFAULT_ENDPOINTS.find(getConfigInternal().region);
         if (it != DEFAULT_ENDPOINTS.end())
         {
-            m_endpoint = std::string(m_config.useSSL ? "https://" : "http://") + it->second;
+            m_endpoint = std::string(getConfigInternal().useSSL ? "https://" : "http://") + it->second;
         }
         else
         {
             m_endpoint =
-                std::string(m_config.useSSL ? "https://" : "http://") + "s3." + m_config.region + ".amazonaws.com";
+                std::string(getConfigInternal().useSSL ? "https://" : "http://") + "s3." + getConfigInternal().region + ".amazonaws.com";
         }
     }
 
@@ -134,7 +134,7 @@ bool S3CloudReader::configure(const CloudReaderConfig& config)
 
     // Create credentials provider using thread-safe method
     m_credentialsProvider =
-        AwsSdkManager::getInstance().createCredentialsProvider(m_config.accessKeyId, m_config.secretAccessKey);
+        AwsSdkManager::getInstance().createCredentialsProvider(getConfigInternal().accessKeyId, getConfigInternal().secretAccessKey);
     if (!m_credentialsProvider)
     {
         setLastError("Failed to create AWS credentials provider");
@@ -145,7 +145,7 @@ bool S3CloudReader::configure(const CloudReaderConfig& config)
     m_signer = AwsSdkManager::getInstance().createV4Signer(
         m_credentialsProvider,
         "s3",
-        m_config.region,
+        getConfigInternal().region,
         Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent);
     if (!m_signer)
     {
@@ -155,8 +155,8 @@ bool S3CloudReader::configure(const CloudReaderConfig& config)
 
     // Create client configuration using thread-safe method
     // Pass endpoint for MinIO/custom S3 compatibility
-    m_clientConfig = AwsSdkManager::getInstance().createClientConfiguration(m_config.region, m_config.useSSL,
-                                                                            m_config.timeoutSeconds, m_endpoint);
+    m_clientConfig = AwsSdkManager::getInstance().createClientConfiguration(getConfigInternal().region, getConfigInternal().useSSL,
+                                                                            getConfigInternal().timeoutSeconds, m_endpoint);
     if (!m_clientConfig)
     {
         setLastError("Failed to create client configuration");
@@ -184,7 +184,7 @@ bool S3CloudReader::configure(const CloudReaderConfig& config)
 CloudReaderConfig S3CloudReader::getConfiguration() const
 {
     std::lock_guard<std::mutex> lock(m_config_mutex);
-    return m_config;
+    return getConfigInternal();
 }
 
 CloudListResult S3CloudReader::listObjects(const std::string& bucket, const std::string& prefix, uint32_t maxKeys)
@@ -334,8 +334,8 @@ CloudListResult S3CloudReader::listObjectsPaginated(const std::string& bucket, c
 
         // Update stats with objects listed
         {
-            std::lock_guard<std::mutex> lock(m_stats_mutex);
-            m_stats.objectsListed += result.count;
+            std::lock_guard<std::mutex> lock(getStatsMutexInternal());
+            getStatsInternal().objectsListed += result.count;
         }
     }
     catch (const std::exception& e)
@@ -426,9 +426,9 @@ CloudResult S3CloudReader::makeS3RequestWithParams(const std::string& method, co
         else
         {
             // Default to AWS S3 endpoint
-            host = "s3." + m_config.region + ".amazonaws.com";
+            host = "s3." + getConfigInternal().region + ".amazonaws.com";
         }
-        Aws::Http::Scheme awsScheme = m_config.useSSL ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
+        Aws::Http::Scheme awsScheme = getConfigInternal().useSSL ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
 
         // Build path
         std::string path = "/" + bucket;
@@ -527,9 +527,9 @@ CloudResult S3CloudReader::makeS3Request(const std::string& method, const std::s
         else
         {
             // Default to AWS S3 endpoint
-            host = "s3." + m_config.region + ".amazonaws.com";
+            host = "s3." + getConfigInternal().region + ".amazonaws.com";
         }
-        Aws::Http::Scheme awsScheme = m_config.useSSL ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
+        Aws::Http::Scheme awsScheme = getConfigInternal().useSSL ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
 
         // Build path
         std::string path = "/" + bucket;
@@ -765,7 +765,7 @@ std::string S3CloudReader::buildS3Endpoint(const std::string& bucket) const
         return bucket + "." + host;
     }
     // Default to AWS S3 endpoint
-    return bucket + ".s3." + m_config.region + ".amazonaws.com";
+    return bucket + ".s3." + getConfigInternal().region + ".amazonaws.com";
 }
 
 Aws::String S3CloudReader::convertToAwsString(const std::string& str) const
@@ -876,10 +876,10 @@ CloudResult S3CloudReader::generatePresignedUrl(const std::string& bucket, const
         else
         {
             // Default to AWS S3 endpoint
-            host = "s3." + m_config.region + ".amazonaws.com";
+            host = "s3." + getConfigInternal().region + ".amazonaws.com";
         }
         std::string uri = "/" + bucket + "/" + objectKey;
-        std::string fullUrl = (m_config.useSSL ? "https://" : "http://") + host + uri;
+        std::string fullUrl = (getConfigInternal().useSSL ? "https://" : "http://") + host + uri;
 
         // Create HTTP request for pre-signing
         auto request = Aws::Http::CreateHttpRequest(convertToAwsString(fullUrl), Aws::Http::HttpMethod::HTTP_GET,
@@ -916,14 +916,14 @@ CloudResult S3CloudReader::generatePresignedUrl(const std::string& bucket, const
 
 CloudReaderStats S3CloudReader::getStats() const
 {
-    std::lock_guard<std::mutex> lock(m_stats_mutex);
-    return m_stats;
+    std::lock_guard<std::mutex> lock(getStatsMutexInternal());
+    return getStatsInternal();
 }
 
 void S3CloudReader::resetStats()
 {
-    std::lock_guard<std::mutex> lock(m_stats_mutex);
-    m_stats = CloudReaderStats{};
+    std::lock_guard<std::mutex> lock(getStatsMutexInternal());
+    getStatsInternal() = CloudReaderStats{};
 }
 
 CloudResult S3CloudReader::performHealthCheck()
@@ -934,27 +934,27 @@ CloudResult S3CloudReader::performHealthCheck()
 
 std::string S3CloudReader::getLastError() const
 {
-    std::lock_guard<std::mutex> lock(m_stats_mutex);
-    return m_lastError;
+    std::lock_guard<std::mutex> lock(getStatsMutexInternal());
+    return getLastErrorInternal();
 }
 
 // Helper method implementations
 
 bool S3CloudReader::validateConfig() const
 {
-    return !m_config.accessKeyId.empty() && !m_config.secretAccessKey.empty() && !m_config.region.empty();
+    return !getConfigInternal().accessKeyId.empty() && !getConfigInternal().secretAccessKey.empty() && !getConfigInternal().region.empty();
 }
 
 std::string S3CloudReader::getRequiredConfigParameter(const std::string& key) const
 {
     if (key == "accessKeyId")
-        return m_config.accessKeyId;
+        return getConfigInternal().accessKeyId;
     if (key == "secretAccessKey")
-        return m_config.secretAccessKey;
+        return getConfigInternal().secretAccessKey;
     if (key == "region")
-        return m_config.region;
+        return getConfigInternal().region;
     if (key == "endpoint")
-        return m_config.endpoint;
+        return getConfigInternal().endpoint;
     return "";
 }
 

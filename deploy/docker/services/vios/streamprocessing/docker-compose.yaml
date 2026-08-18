@@ -15,7 +15,7 @@
 
 services:
   streamprocessing-ms:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -29,6 +29,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
@@ -71,7 +72,7 @@ services:
         condition: service_started
 
   streamprocessing-ms-2d:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms-2d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -85,6 +86,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
@@ -138,7 +140,7 @@ services:
         condition: service_started
 
   streamprocessing-ms-3d:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms-3d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -152,6 +154,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
@@ -207,7 +210,7 @@ services:
         condition: service_started
 
   streamprocessing-ms-mv3dt:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms-mv3dt"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -221,6 +224,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}

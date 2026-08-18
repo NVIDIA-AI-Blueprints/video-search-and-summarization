@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,6 +73,9 @@ const calibrationToKonva = (lat: number, lng: number, imageHeight: number) => ({
 });
 
 const convertPoint = (x: number, y: number, imageHeight: number): Point => konvaToCalibration(x, y, imageHeight);
+
+const hasEnoughPoints = (type: string, points: Point[]): boolean =>
+    (type === 'polygon' && points.length >= 3) || (type === 'polyline' && points.length >= 2);
 
 const checkIfDrawing = (unfinishedFigure: CalibrationFigure | null, figures: CalibrationFigure[], labels: CalibrationLabel[]): boolean => {
     if (!unfinishedFigure) {
@@ -385,21 +388,15 @@ const CalibrationCanvas: React.FC<CalibrationCanvasProps> = ({
             const drawing = checkIfDrawing(unfinishedFigure, figures, labels);
 
             if (drawing && unfinishedFigure) {
-                if (e.key === 'f' || e.key === 'F') {
-                    const { type, points } = unfinishedFigure;
-                    if (type === 'polygon' && points.length >= 3) {
-                        onChange('new', unfinishedFigure);
-                    } else if (type === 'polyline' && points.length >= 2) {
-                        onChange('new', unfinishedFigure);
-                    }
+                const { type, points } = unfinishedFigure;
+                if ((e.key === 'f' || e.key === 'F') && hasEnoughPoints(type, points)) {
+                    onChange('new', unfinishedFigure);
                 }
-            } else {
-                if ((e.key === 'Backspace' || e.key === 'Delete') && selectedFigureId) {
-                    const selectedFigure = figures.find(f => f.id === selectedFigureId);
-                    if (selectedFigure) {
-                        onChange('delete', selectedFigure);
-                        setSelectedFigureId(null);
-                    }
+            } else if ((e.key === 'Backspace' || e.key === 'Delete') && selectedFigureId) {
+                const selectedFigure = figures.find(f => f.id === selectedFigureId);
+                if (selectedFigure) {
+                    onChange('delete', selectedFigure);
+                    setSelectedFigureId(null);
                 }
             }
         },

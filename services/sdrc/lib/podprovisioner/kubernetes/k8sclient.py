@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 class k8sclient:
     def __init__(self, app_config, **kvargs):
         self.downpodsArray = []
+        self.health_watcher = None
         configuration = client.Configuration()
         logger.info(kvargs["kubernetes_url"])
         configuration.api_key["authorization"] = kvargs["bearer_token"]
@@ -136,8 +137,8 @@ class k8sclient:
     def getPodIps(self, WLObject):
         podIps = []
         for i in WLObject:
-            logger.info(
-                "->>> %s\t%s\t%s\t%s\t%s\t%s"
+            logger.debug(
+                "pod inventory %s\t%s\t%s\t%s\t%s\t%s"
                 % (
                     i.status.pod_ip,
                     i.status.phase,
@@ -319,7 +320,27 @@ class k8sclient:
                     print ("not running wait")
         return running
 
+    def set_health_watcher(self, health_watcher):
+        """Attach shared HTTP health watcher for readiness gating."""
+        self.health_watcher = health_watcher
+
+    def isPodHealthy(self, podname):
+        """True when HTTP health watcher reports the pod healthy.
+
+        Falls back to ``not ifPodDown`` (without recursion through health) when
+        no watcher is attached.
+        """
+        if self.health_watcher is not None:
+            return self.health_watcher.is_pod_healthy(podname)
+        return podname not in self.downpodsArray
+
     def ifPodDown (self, podname):
+        # Prefer HTTP health when available so placement only targets ready apps.
+        if self.health_watcher is not None:
+            if self.health_watcher.is_pod_known(podname):
+                return not self.health_watcher.is_pod_healthy(podname)
+            # Not yet probed — treat as down so we do not assign early.
+            return True
         return True if podname in self.downpodsArray \
                 else False
 
