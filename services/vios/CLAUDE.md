@@ -238,6 +238,10 @@ Adaptors are loaded dynamically via `adaptor_loader.cpp`. Use `/new-adaptor` ski
 
 Git conventions live in **`/vios-git`** (`.claude/commands/vios-git.md`). Consult it before any branch, commit, or MR.
 
+### Git LFS
+
+`services/vios/` tracks selected files with Git LFS; see `.gitattributes` for paths such as `LICENSE.3rdparty`, prebuilt `*.so` and `*.a` files, bundled UI `*.js` files, and `*.tar.gz` archives. When adding an LFS-tracked notice or another LFS file that CI source jobs must read, ensure `.gitattributes` tracks it and add its path to the `git lfs pull --include=` list in `.github/workflows/ci.yml` (the **Fetch required LFS source notices** step). CI intentionally leaves other `services/vios/**` LFS objects as pointer stubs in the source artifact.
+
 ---
 
 ## Key Dependencies

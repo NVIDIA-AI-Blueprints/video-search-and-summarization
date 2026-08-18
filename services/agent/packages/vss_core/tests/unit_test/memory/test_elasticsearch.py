@@ -119,6 +119,24 @@ def test_elasticsearch_get_missing_returns_none() -> None:
     assert store.get("missing") is None
 
 
+def test_elasticsearch_list_before_anything_is_ingested_is_empty() -> None:
+    """A missing index means nothing has been written, not that reading broke.
+
+    ES answers `index_not_found_exception` as an `ApiError`, which is not a
+    `TransportError`, so an unguarded search escapes the store untyped and
+    surfaces as a traceback in whatever called it.
+    """
+    from elasticsearch import NotFoundError as ESNotFoundError
+
+    class _NoIndex(_FakeES):
+        def search(self, *, index: str, body: dict[str, Any]) -> dict[str, Any]:
+            raise ESNotFoundError("index_not_found_exception", {}, {"index": index})
+
+    store = ElasticsearchMemoryStore(endpoint="http://unused", client=_NoIndex())
+    assert store.list_jobs(JobFilters()) == []
+    assert store.query(MemoryQuery(group="summary")) == []
+
+
 def test_build_search_body_filters() -> None:
     body = ElasticsearchMemoryStore._build_search_body(
         group="search",

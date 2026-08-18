@@ -124,12 +124,43 @@ def test_out_of_range_value_is_rejected() -> None:
     assert "9999" in result.output
 
 
-def test_read_verbs_fail_honestly_without_a_memory_tier() -> None:
-    """status/get/list are memory reads (SDD 6.2); vss_core ships no memory yet."""
+def test_read_verbs_fail_honestly_without_a_deployment(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """status/get/list are memory reads (SDD 6.2), so no deployment means no answer.
+
+    Exit 4 naming memory, not an empty result: three verbs that appear to work
+    and silently return nothing are worse than one that says why. An index that
+    does not exist yet is the opposite case and reads as empty -- see
+    `test_elasticsearch_list_before_anything_is_ingested_is_empty`.
+    """
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "absent"))
     for argv in (["status", "--job-id", "x"], ["get", "--job-id", "x"], ["list"]):
         result = CliRunner().invoke(_Group().cli(), argv)
         assert result.exit_code == int(Exit.CONFIGURATION), argv
         assert "memory" in result.output.lower()
+
+
+def test_since_only_advertises_what_it_accepts(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rejected `--since` is the caller's mistake, so it exits 2 with a sentence.
+
+    The help used to offer "ISO-8601 or duration" while the parser took only the
+    first, and the difference surfaced as a traceback from inside the time
+    helpers rather than as a usage error.
+    """
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "absent"))
+    since = next(param for param in _Group().cli().commands["list"].params if "--since" in param.opts)
+    assert "duration" not in (since.help or "")
+
+    result = CliRunner().invoke(_Group().cli(), ["list", "--since", "1h"])
+    assert result.exit_code == int(Exit.INVALID_INPUT), result.output
+    assert "ISO-8601" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_read_verbs_take_the_index_they_read_from() -> None:
+    """Reads and writes have to be able to name the same index."""
+    for verb in ("status", "get", "list"):
+        params = _Group().cli().commands[verb].params
+        assert "--memory-index" in {opt for param in params for opt in param.opts}, verb
 
 
 # --------------------------------------------------------------------------

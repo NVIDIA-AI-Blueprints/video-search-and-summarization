@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-vios-sensor
-  tag: "1.4.0-26.08.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 replicas: 1
 service:

@@ -310,6 +310,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
+                        "build_args": "",
                     },
                     {
                         "name": "vss-agent-ui",
@@ -320,6 +321,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/ui",
+                        "build_args": "",
                     },
                 ]
             },
@@ -347,6 +349,7 @@ class SelectImagesTest(unittest.TestCase):
                 "lfs_include": "",
                 "platforms": "linux/arm64",
                 "source_path": "services/rtvi/rt-cv",
+                "build_args": "",
             },
         )
 
@@ -418,7 +421,15 @@ class SelectImagesTest(unittest.TestCase):
                 for name, entry in by_name.items()
                 if entry.get("native_platform_build") is True
             },
-            {"sdr-mw-l", "vss-configurator", "vss-rt-config-adaptor"},
+            {
+                "sdr-mw-l",
+                "vss-configurator",
+                "vss-rt-config-adaptor",
+                "vss-vios-sensor",
+                "vss-vios-streamprocessing",
+                "vss-vios-nvstreamer",
+                "vss-vios-ingress",
+            },
         )
         self.assertNotIn(
             "native_platform_build", dci.matrix_entry(by_name["sdr-mw-l"])
