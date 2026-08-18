@@ -285,6 +285,55 @@ version = "1.0.0"
         )
 
 
+class ParsePoetryLockTest(unittest.TestCase):
+    def test_includes_main_group_and_excludes_dev_only(self) -> None:
+        lock = b'''
+[[package]]
+name = "requests"
+version = "2.32.0"
+groups = ["main"]
+
+[[package]]
+name = "black"
+version = "25.1.0"
+groups = ["dev"]
+
+[[package]]
+name = "shared"
+version = "1.0.0"
+groups = ["main", "dev"]
+
+[[package]]
+name = "legacy-dev"
+version = "0.1.0"
+category = "dev"
+'''
+
+        inventory = license_diff_csv.parse_poetry_lock(lock)
+
+        self.assertEqual(
+            {("requests", "2.32.0"), ("shared", "1.0.0")},
+            set(inventory),
+        )
+
+    def test_vios_bdd_lock_excludes_development_only_packages(self) -> None:
+        lock_path = (
+            Path(__file__).parents[2]
+            / "services"
+            / "vios"
+            / "test"
+            / "bdd_tests"
+            / "poetry.lock"
+        )
+
+        inventory = license_diff_csv.parse_poetry_lock(lock_path.read_bytes())
+        names = {name for name, _version in inventory}
+
+        self.assertTrue(lock_path.is_file())
+        self.assertIn("requests", names)
+        self.assertTrue(names.isdisjoint({"black", "flake8", "mypy"}))
+
+
 class DiffPyprojectTest(unittest.TestCase):
     @mock.patch.object(license_diff_csv, "pypi_metadata")
     def test_new_pyproject_dependency_uses_source_note(self, metadata: mock.Mock) -> None:
@@ -313,14 +362,11 @@ class UnscannedAddedManifestsTest(unittest.TestCase):
             ["services/keep/uv.lock"],
             [
                 "services/keep/uv.lock",
-                "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/poetry.lock",
+                "services/new/Cargo.lock",
             ],
         )
 
-        self.assertEqual(
-            ["services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/poetry.lock"],
-            skipped,
-        )
+        self.assertEqual(["services/new/Cargo.lock"], skipped)
 
     def test_does_not_warn_for_filenames_already_in_the_scan_set(self) -> None:
         skipped = license_diff_csv.unscanned_added_manifests(
@@ -328,6 +374,7 @@ class UnscannedAddedManifestsTest(unittest.TestCase):
             [
                 "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml",
                 "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock",
+                "services/vios/test/bdd_tests/poetry.lock",
                 "services/agent/uv.lock",
                 "libs/analytics/spatialai-data-utils/Pipfile.lock",
                 "services/foo/requirements.txt",
@@ -354,11 +401,11 @@ class UnscannedAddedManifestsTest(unittest.TestCase):
     def test_warning_message_names_the_skipped_path(self) -> None:
         with mock.patch.object(license_diff_csv, "_log") as log:
             license_diff_csv.warn_unscanned_added_manifests(
-                ["services/new/poetry.lock"]
+                ["services/new/Cargo.lock"]
             )
 
         log.assert_called_once_with(
-            "WARNING: Skipped path — not in scan set: services/new/poetry.lock"
+            "WARNING: Skipped path — not in scan set: services/new/Cargo.lock"
         )
 
 

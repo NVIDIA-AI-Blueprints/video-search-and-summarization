@@ -4,16 +4,17 @@
 
 """Generate a license-diff CSV between two git refs for OSRB review.
 
-Walks every Python lockfile (`uv.lock`, `Pipfile.lock`, `pdm.lock`) and Node
-lockfile (`package-lock.json`) tracked by the repo at the base and head refs —
+Walks every Python lockfile (`uv.lock`, `Pipfile.lock`, `pdm.lock`,
+`poetry.lock`) and Node lockfile (`package-lock.json`) tracked by the repo at
+the base and head refs —
 at any nesting depth (services/*, tools/*, repo root) — diffs the
 (package, version) sets, and writes one CSV row per change. Python rows are
 enriched with license + repository URL from PyPI; Node rows use the metadata
 embedded in the lockfile.
 
 For Pipfile.lock only the `default` (runtime) section is inventoried — dev-only
-deps never ship, so OSRB does not review them. PDM follows the same rule:
-only packages in the `default` / `main` groups are inventoried.
+deps never ship, so OSRB does not review them. PDM and Poetry follow the same
+rule: only packages in the `default` / `main` groups are inventoried.
 
 Services that ship a plain `requirements.txt` or `pyproject.toml` (no
 recognized lockfile) get a lighter, name-level pass: direct dependencies
@@ -95,6 +96,7 @@ _SCANNED_BASENAMES = {
     "uv.lock",
     "pipfile.lock",
     "pdm.lock",
+    "poetry.lock",
     "package-lock.json",
     "pyproject.toml",
 }
@@ -289,6 +291,30 @@ def parse_pdm_lock(data: bytes) -> Inventory:
     doc = tomllib.loads(data.decode("utf-8"))
     out: Inventory = {}
     for pkg in doc.get("package", []) or []:
+        groups = {str(group).lower() for group in (pkg.get("groups") or [])}
+        if groups and groups.isdisjoint(_RUNTIME_LOCK_GROUPS):
+            continue
+        name = (pkg.get("name") or "").lower()
+        version = str(pkg.get("version") or "")
+        if not name or not version:
+            continue
+        out[(name, version)] = {"repository_url": ""}
+    return out
+
+
+def parse_poetry_lock(data: bytes) -> Inventory:
+    """Return {(name, version): {repository_url}} parsed from poetry.lock.
+
+    Poetry 2 records ``groups``; Poetry 1 used ``category``. Only ``main`` /
+    ``default`` runtime membership is inventoried. A package present in both
+    ``main`` and ``dev`` is kept; a ``dev``-only package is omitted.
+    """
+    doc = tomllib.loads(data.decode("utf-8"))
+    out: Inventory = {}
+    for pkg in doc.get("package", []) or []:
+        category = str(pkg.get("category") or "").lower()
+        if category and category not in _RUNTIME_LOCK_GROUPS:
+            continue
         groups = {str(group).lower() for group in (pkg.get("groups") or [])}
         if groups and groups.isdisjoint(_RUNTIME_LOCK_GROUPS):
             continue
@@ -717,11 +743,12 @@ def main() -> int:
     # at the given ref (_list_lockfiles uses `git ls-tree -r`), so lockfiles at
     # any nesting depth — services/<svc>/..., tools/<tool>/..., or the repo
     # root — are all picked up. Python deps may be locked by uv (uv.lock),
-    # pipenv (Pipfile.lock), or PDM (pdm.lock); merge them into one inventory.
+    # pipenv (Pipfile.lock), PDM (pdm.lock), or Poetry (poetry.lock).
     PYTHON_LOCKS = [
         ("uv.lock", parse_uv_lock),
         ("Pipfile.lock", parse_pipfile_lock),
         ("pdm.lock", parse_pdm_lock),
+        ("poetry.lock", parse_poetry_lock),
     ]
 
     def python_inventory(ref: str) -> Inventory:
