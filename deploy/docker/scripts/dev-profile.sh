@@ -506,7 +506,7 @@ function usage() {
   echo "                                     - lvs"
   echo "                                     - search"
   echo "                                     - alerts"
-  echo "                                   • gym is base plus the NeMo Gym eval runner"
+  echo "                                   • gym mirrors lvs, plus the NeMo Gym eval runner"
   echo "                                   • Required for 'up'"
   echo "  -H, --hardware-profile           Hardware profile."
   echo "                                   • One of:"
