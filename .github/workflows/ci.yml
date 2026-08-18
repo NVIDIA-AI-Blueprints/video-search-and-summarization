@@ -185,14 +185,20 @@ jobs:
           ))
           PY
 
+      - name: Fetch required LFS source notices
+        run: |
+          git lfs pull \
+            --include='services/vios/LICENSE.3rdparty' \
+            --exclude=''
+
       - name: Package tracked source
         run: |
           # actions/checkout above runs with lfs:false, but `git archive` applies
           # checkout-side conversion (ident, then smudge/process), so it fetches
           # the repo's entire ~989 MB of LFS payload on every run. 414 MB of that
-          # is services/vios, which no current consumer of this artifact reads.
+          # is services/vios. The required third-party notices are fetched above.
           #
-          # lfs.fetchexclude makes git-lfs pass those paths through as pointer
+          # lfs.fetchexclude makes git-lfs pass unfetched paths through as pointer
           # text rather than fetching them. Scoped to this one command with -c,
           # so nothing under .git is mutated and the services/analytics fixtures
           # the integration jobs do read are still smudged normally.
@@ -201,9 +207,9 @@ jobs:
           git ls-files > tracked-files.txt
           ls -lh source.tar.gz
 
-      # Assert the exclusion did what we think, in both directions. Without this
-      # a silent change in git-lfs behaviour either stops saving anything, or
-      # starts stripping fixtures the analytics integration jobs depend on.
+      # Assert the notice and exclusion did what we think. Without this a silent
+      # change in git-lfs behaviour either stops saving anything, or starts
+      # stripping fixtures the analytics integration jobs depend on.
       - name: Verify LFS exclusion boundaries
         run: |
           # Must be a regular file, not a symlink: git archive stores a symlink's
@@ -212,16 +218,25 @@ jobs:
           # would fail this step for every run. All 126 vios LFS pointers are
           # regular files; this is the resolved target of that symlink.
           vios='repo/services/vios/prebuilts/aarch64/aws/libaws-c-auth.so.1.0.0'
+          license='repo/services/vios/LICENSE.3rdparty'
           keep='repo/services/analytics/behavior-analytics/tests/integration/expected_output/smart_city/mdx-behavior-data.json'
           if ! tar -xzOf source.tar.gz "$vios" | head -c 64 | grep -q '^version https://git-lfs'; then
             echo "::error::$vios is not an LFS pointer; lfs.fetchexclude is not taking effect"
+            exit 1
+          fi
+          if tar -xzOf source.tar.gz "$license" | head -c 64 | grep -q '^version https://git-lfs'; then
+            echo "::error::$license is an LFS pointer; the required license notices are missing"
+            exit 1
+          fi
+          if ! tar -xzOf source.tar.gz "$license" | cmp -s - services/vios/LICENSE.3rdparty; then
+            echo "::error::$license does not match the materialized license notices"
             exit 1
           fi
           if tar -xzOf source.tar.gz "$keep" | head -c 64 | grep -q '^version https://git-lfs'; then
             echo "::error::$keep is a pointer; the exclusion over-matched and analytics fixtures would break"
             exit 1
           fi
-          echo "vios excluded as pointers, analytics fixtures smudged"
+          echo "vios payloads excluded, required license and analytics fixtures smudged"
 
       - name: Upload source artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
