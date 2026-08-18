@@ -59,8 +59,8 @@
   one. Note the Docker edge is not a read-only baseline either -- its deny rules
   stop DELETE, cluster-admin paths and the two-segment mutating operations, but
   POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES there,
-  as does a PUT to a vss-* document path so the memory store can persist. Turn
-  this on only where a writable ES is acceptable.
+  as does a PUT to a vss-memory document path so the memory store can persist.
+  Turn this on only where a writable ES is acceptable.
 
   /rtvi-cv and /rtvi-embed are skipped when rtviInternalIngress is enabled,
   because that Ingress already publishes those two paths and renders no host

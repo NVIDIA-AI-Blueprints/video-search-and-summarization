@@ -980,6 +980,28 @@ def test_a_timeout_without_persistence_claims_no_record(
     assert json.loads(result.stdout)["record"] == "absent"
 
 
+@pytest.mark.parametrize(("argv", "worth"), [((), "closed"), (("--no-persist",), "absent")])
+def test_success_says_what_the_handle_is_worth_too(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+    argv: tuple[str, ...],
+    worth: str,
+) -> None:
+    """`record` is on every marker, so it is one field to switch on, not two.
+
+    Present only on the failures it would be a field whose absence means
+    success -- an implicit contract, and implicit on the one path a caller
+    reads most. Both values are known here without asking memory anything: the
+    terminal write returned, or nothing was asked of it.
+    """
+    _capture_post(monkeypatch)
+    result = _run("--id", "v1", *argv)
+
+    assert result.exit_code == int(Exit.SUCCESS), result.output
+    assert json.loads(result.stdout)["record"] == worth
+
+
 # --------------------------------------------------------------------------
 # the read verbs, against what run persisted
 # --------------------------------------------------------------------------
@@ -1121,11 +1143,25 @@ def test_job_ids_are_prefixed_and_sortable() -> None:
     assert first < second or first[:14] == second[:14]
 
 
+#: The one bound LVS states that this model deliberately does not: LVS pins
+#: `creation_time` to exactly 24 characters, which a validator produces from any
+#: ISO-8601 instant. Declared as a length it would refuse what it normalizes.
+_UNMIRRORED = frozenset({"creation_time"})
+
+#: What either side may say about a value. Ranges were the whole vocabulary
+#: until a per-element `max_length` -- the kind written inside a list's
+#: annotation rather than as a keyword on it -- went uncopied and unnoticed.
+_LIMITS = ("ge", "le", "max_length")
+
+
 def _lvs_query_bounds() -> dict[str, dict[str, float]]:
-    """`ge`/`le` per field of LVS's own SummarizationQuery.
+    """Every bound LVS puts on its own SummarizationQuery, by field.
 
     Read out of the service's source rather than imported: the summarization
     service is not a dependency of the CLI, and this only needs the numbers.
+    A list is read twice over -- the keywords bound how many items it takes,
+    the annotation bounds each item -- because only reading the keywords is
+    what let the element caps drift.
     """
     import ast
     from pathlib import Path
@@ -1137,58 +1173,88 @@ def _lvs_query_bounds() -> dict[str, dict[str, float]]:
     else:
         pytest.skip("summarization service is not in this checkout")
 
+    module = ast.parse(model.read_text())
+    # Module constants too: LVS spells one cap `max_length=MAX_PROMPT_LENGTH`,
+    # and a name is not a number to compare against.
+    constants = {
+        target.id: statement.value.value
+        for statement in module.body
+        if isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Constant)
+        for target in statement.targets
+        if isinstance(target, ast.Name)
+    }
     query = next(
-        node
-        for node in ast.walk(ast.parse(model.read_text()))
-        if isinstance(node, ast.ClassDef) and node.name == "SummarizationQuery"
+        node for node in ast.walk(module) if isinstance(node, ast.ClassDef) and node.name == "SummarizationQuery"
     )
+
+    def limits(call: ast.Call, prefix: str = "") -> dict[str, float]:
+        return {
+            prefix + str(keyword.arg): eval(ast.unparse(keyword.value), {"__builtins__": {}}, constants)
+            for keyword in call.keywords
+            if keyword.arg in _LIMITS
+        }
+
     bounds: dict[str, dict[str, float]] = {}
     for statement in query.body:
         if not isinstance(statement, ast.AnnAssign) or not isinstance(statement.value, ast.Call):
             continue
         if not isinstance(statement.target, ast.Name):
             continue
-        limits = {
-            keyword.arg: eval(ast.unparse(keyword.value), {"__builtins__": {}})
-            for keyword in statement.value.keywords
-            if keyword.arg in ("ge", "le")
-        }
-        if limits:
-            bounds[statement.target.id] = limits
+        found = limits(statement.value)
+        for node in ast.walk(statement.annotation):
+            if isinstance(node, ast.Call):
+                found |= limits(node, prefix="item_")
+        bounds[statement.target.id] = found
     return bounds
 
 
-@pytest.mark.parametrize(
-    "field",
-    [
-        "temperature",
-        "top_p",
-        "top_k",
-        "max_tokens",
-        "seed",
-        "chunk_duration",
-        "chunk_overlap_duration",
-        "num_frames_per_chunk",
-    ],
-)
+def _cli_bounds(field: str) -> dict[str, float]:
+    """The same vocabulary, read off this model's own field."""
+    from typing import Annotated
+    from typing import get_args
+    from typing import get_origin
+
+    from annotated_types import Ge
+    from annotated_types import Le
+    from annotated_types import MaxLen
+
+    def read(constraints: Any, prefix: str = "") -> dict[str, float]:
+        found: dict[str, float] = {}
+        for constraint in constraints:
+            if isinstance(constraint, Ge):
+                found[prefix + "ge"] = constraint.ge
+            elif isinstance(constraint, Le):
+                found[prefix + "le"] = constraint.le
+            elif isinstance(constraint, MaxLen):
+                found[prefix + "max_length"] = constraint.max_length
+            else:
+                # A Field() inside an Annotated arrives as a FieldInfo whose
+                # own metadata holds the constraint.
+                found |= read(getattr(constraint, "metadata", ()), prefix)
+        return found
+
+    info = SummarizeInput.model_fields[field]
+    ours = read(info.metadata)
+    for arg in get_args(info.annotation):
+        if get_origin(arg) is Annotated:
+            ours |= read(get_args(arg)[1:], prefix="item_")
+    return ours
+
+
+@pytest.mark.parametrize("field", sorted(set(SummarizeInput.model_fields) - _UNMIRRORED))
 def test_request_bounds_match_the_service_they_are_sent_to(field: str) -> None:
     """The CLI's validation is only authoritative if it agrees with LVS.
 
-    Looser here spends a round trip to be told 422; stricter refuses values LVS
-    documents. Both are silent until someone uses the value, so the two tables
-    are compared rather than maintained in parallel by hand.
+    Looser here spends a round trip to be told 422 -- as a 300-character
+    --object-of-interest did; stricter refuses values LVS documents, as
+    `--chunk-duration 0` once did. Both are silent until someone uses the
+    value, so the two tables are compared rather than maintained by hand.
+
+    Every field is compared, not a list of the interesting ones: a field with
+    no bound on either side passes trivially, and the next cap LVS adds is
+    caught by the field being here rather than by someone adding it.
     """
-    from annotated_types import Ge
-    from annotated_types import Le
-
-    ours: dict[str, float] = {}
-    for constraint in SummarizeInput.model_fields[field].metadata:
-        if isinstance(constraint, Ge):
-            ours["ge"] = constraint.ge
-        if isinstance(constraint, Le):
-            ours["le"] = constraint.le
-
-    assert ours == _lvs_query_bounds()[field], field
+    assert _cli_bounds(field) == _lvs_query_bounds().get(field, {}), field
 
 
 def test_options_reject_unknown_keys() -> None:

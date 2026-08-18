@@ -49,6 +49,7 @@ import json
 import secrets
 import time
 from typing import TYPE_CHECKING
+from typing import Annotated
 from typing import Any
 from typing import ClassVar
 
@@ -134,21 +135,34 @@ class SummarizeInput(BaseModel):
 
     id: str | None = Field(None, description="ID of an already-added file or live stream.")
     url: str | None = Field(None, description="Direct URL to a video to summarize (HTTP/HTTPS/S3).")
+    # Every bound below is copied from LVS's own SummarizationQuery
+    # (services/video-summarization/src/vss_api_models.py), lengths as well as
+    # ranges, so a value this model accepts is one the backend accepts. A
+    # second, looser set here would spend a round trip to be told 422; a
+    # stricter one would refuse values LVS documents, as `--chunk-duration 0`
+    # -- its "no chunking" -- once was.
     scenario: str = Field(
         max_length=1024,
         description="Use-case context for the summarization, e.g. 'warehouse monitoring'.",
     )
-    events: list[str] = Field(
+    # The list caps come in pairs: how many items LVS takes, and how long each
+    # item may be. Only the first is a keyword on the list -- the second has to
+    # be annotated onto the element, or a 300-character --object-of-interest
+    # spends the round trip to come back 422.
+    events: list[Annotated[str, Field(max_length=1024)]] = Field(
         max_length=1000,
         description="Event to detect or summarize. Repeat for several.",
         json_schema_extra={params_mod.FLAG_KEY: "--event"},
     )
-    objects_of_interest: list[str] = Field(
+    objects_of_interest: list[Annotated[str, Field(max_length=256)]] = Field(
         default=[],
         max_length=1000,
         description="Object to detect or extract. Repeat for several.",
         json_schema_extra={params_mod.FLAG_KEY: "--object-of-interest"},
     )
+    # The one bound not declared: LVS pins this to exactly 24 characters, which
+    # the validator below produces from any ISO-8601 instant. Declared as a
+    # length it would run first and refuse the spellings that normalize.
     creation_time: str | None = Field(
         None,
         description=(
@@ -159,15 +173,11 @@ class SummarizeInput(BaseModel):
     )
     model: str | None = Field(
         None,
+        max_length=1024,
         description="VLM to summarize with. Defaults to the model the deployment's RT-VLM reports serving.",
     )
-    prompt: str | None = Field(None, description="VLM prompt.")
-    system_prompt: str | None = Field(None, description="VLM system prompt.")
-    # Bounds are copied from LVS's own SummarizationQuery
-    # (services/video-summarization/src/vss_api_models.py), so a value this
-    # model accepts is one the backend accepts. A second, looser set here would
-    # spend a round trip to be told 422; a stricter one would refuse values LVS
-    # documents, as `--chunk-duration 0` -- its "no chunking" -- once was.
+    prompt: str | None = Field(None, max_length=512_000, description="VLM prompt.")
+    system_prompt: str | None = Field(None, max_length=5000, description="VLM system prompt.")
     chunk_duration: int | None = Field(
         None, ge=0, le=3600, description="Chunk duration in seconds. 0 disables chunking."
     )
@@ -536,6 +546,11 @@ class SummarizeGroup(CommandGroup):
             still reads as ``submitted``. Reported rather than swallowed: an
             exit that advertises "reconcile with status" must not point at a
             record that will answer with the wrong state.
+
+            The success paths answer in the same three words without coming
+            through here, since what they would say is already known. That is
+            what makes the marker's ``record`` total, so a caller keys off one
+            field instead of reading its absence as an outcome.
             """
             if memory is None:
                 return "absent"
@@ -618,6 +633,11 @@ class SummarizeGroup(CommandGroup):
         body: dict[str, Any] = {"job_id": job_id, "summary": completion}
         if memory is None:
             if persist_error is None:
+                # `record` is on every path, this one included: a caller that
+                # reconciles a handle against `status` should switch on one
+                # field, not on whether that field is there. Nothing was asked
+                # to be written here, so what the handle is worth is `absent`.
+                body["record"] = "absent"
                 return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
             # Retrieval succeeded and only the write did not: exit 6 tells the
             # harness to keep this answer instead of re-running the job.
@@ -658,6 +678,9 @@ class SummarizeGroup(CommandGroup):
             "group": memory_mod.group_token(self.name),
             "events": len(content["events"]),
         }
+        # `closed` without asking: the terminal upsert above is what closing
+        # means, and it either returned or we are in the except clause.
+        body["record"] = "closed"
         return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
 
 
