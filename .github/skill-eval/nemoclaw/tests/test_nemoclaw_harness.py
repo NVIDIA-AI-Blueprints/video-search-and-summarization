@@ -403,7 +403,11 @@ class HarnessScopeTests(unittest.TestCase):
     def test_environment_defaults_hold_nemoclaw_runtime_assumptions(self) -> None:
         with mock.patch.dict(
             os.environ,
-            {"GITHUB_RUN_ID": "123", "EVAL_PLATFORM": "L40S"},
+            {
+                "GITHUB_RUN_ID": "123",
+                "EVAL_PLATFORM": "L40S",
+                "NEMOCLAW_SANDBOX_GPU": "1",
+            },
             clear=True,
         ):
             forwarded = self.env_module._forwarded_nemoclaw_env()
@@ -411,6 +415,7 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.109", forwarded)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", forwarded)
         self.assertIn("export NEMOCLAW_SANDBOX_GPU=0", forwarded)
+        self.assertNotIn("export NEMOCLAW_SANDBOX_GPU=1", forwarded)
         self.assertIn("export NEMOCLAW_DASHBOARD_PORT=20123", forwarded)
         self.assertIn("export HARDWARE_PROFILE=L40S", forwarded)
 
