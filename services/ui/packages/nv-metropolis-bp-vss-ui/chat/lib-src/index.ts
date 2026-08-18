@@ -11,4 +11,33 @@
  * outgoing implementation so parity is verifiable rather than assumed.
  */
 
-export * from './utils/queryProcessing';
+// Query lifecycle
+export {
+  isQueryProcessing,
+  isActiveConversationProcessing,
+  isConversationQueryInFlight,
+  isFolderDeleteBlocked,
+} from './utils/queryProcessing';
+export type { ProcessingScopedConversation } from './utils/queryProcessing';
+
+// Upload auto-prompt gating
+export {
+  shouldSendUploadHiddenMessage,
+  shouldAllowChatMessageSend,
+  stripUploadConversationScope,
+  countAllowedUploadHiddenPrompts,
+} from './utils/uploadHiddenMessage';
+export type {
+  UploadScopedMessage,
+  ChatMessageSendCheck,
+  UploadBatchCompletion,
+} from './utils/uploadHiddenMessage';
+
+// Media
+export { isValidMediaURL } from './utils/media/validation';
+export { downloadImageFromUrl } from './utils/media/download';
+
+// Security
+export { isValidConsentPromptURL } from './utils/security/oauth-validation';
+export { validateProxyHttpPath } from './utils/security/url-validation';
+export type { PathValidationResult } from './utils/security/url-validation';
