@@ -71,6 +71,22 @@ rtvi:
     enabled: true
     useSharedNim: false
 
+# Mirrors dev-profile-lvs/overrides.env → COMPOSE_PROFILES=...,dcgm-exporter,...
+# Compose activates only dcgm-exporter (GPU hardware telemetry on port 9400);
+# prometheus / grafana / node-exporter stay off. If your cluster already runs
+# the NVIDIA GPU Operator (which bundles its own dcgm-exporter), leave
+# monitoring.dcgmExporter.enabled=false to avoid duplicate DaemonSets.
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  dcgmExporter:
+    enabled: true
+
 # Helm-managed Ingress (uses existing IngressClass). Set ingressClassName to match your controller (default haproxy).
 vssIngress:
   enabled: true

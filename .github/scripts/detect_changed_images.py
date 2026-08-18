@@ -255,7 +255,12 @@ def content_tag_missing(
     if result.returncode != 0:
         return True
     tree_sha = result.stdout.strip()
-    reference = f"ghcr.io/{owner.lower()}/vss/{entry['name']}:tree-{tree_sha}"
+    repository = entry.get("repository", entry["name"])
+    tag_suffix = entry.get("tag_suffix", "")
+    reference = (
+        f"ghcr.io/{owner.lower()}/vss/{repository}:"
+        f"tree-{tree_sha}{tag_suffix}"
+    )
     return probe(reference) is not True
 
 
@@ -271,6 +276,8 @@ def _format_build_args(build_args: dict | None) -> str:
 def matrix_entry(entry: dict) -> dict:
     return {
         "name": entry["name"],
+        "repository": entry.get("repository", entry["name"]),
+        "tag_suffix": entry.get("tag_suffix", ""),
         "context": entry["context"],
         "dockerfile": entry["dockerfile"],
         "lfs_include": entry.get("lfs_include", ""),

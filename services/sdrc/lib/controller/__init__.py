@@ -26,7 +26,7 @@ from threading import Thread
 from threading import Lock
 import logging
 import os
-from lib.logging import configure_root_logging
+from lib.logging import bind_context, configure_root_logging
 # from lib.podprovisioner.kubernetes.k8sclient import k8sclient
 from lib.messaging.redisMessaging import redisMessaging
 from lib.messaging.redis_subscriber import RedisSubscriber
@@ -51,11 +51,33 @@ app = Flask(
 s = settings.Config()
 app.config.from_object(s)
 app.template_folder = app.config["TEMPLATE_FOLDER"]
-# Logging is configured in run_workloads before import; standalone uses same formatting as app.py.
+# Logging is configured in run_workloads before import (component=router).
+# Standalone controller configures itself here. In-process watchers retag via
+# bind_context(component="controller") in their threads — do not clear/replace
+# root handlers or router lines would lose their [router] tag.
 if not logging.getLogger().handlers:
-    configure_root_logging("controller", _REPO_ROOT)
+    configure_root_logging("controller", _REPO_ROOT, component="controller")
 logger = logging.getLogger(__name__)
 file_write_lock = Lock()
+
+
+def _run_as_controller(fn, *, start_message=None):
+    """Thread entry wrapper: tag logs as [controller] without touching root handlers.
+
+    Optional ``start_message`` is logged *after* binding so watcher lifecycle
+    lines (\"thread started\") are tagged ``[controller]`` rather than inheriting
+    the router thread's ``[router]`` context (Greptile P1).
+    """
+
+    def _wrapped(*args, **kwargs):
+        bind_context(component="controller")
+        if start_message:
+            app.logger.info(start_message)
+        return fn(*args, **kwargs)
+
+    _wrapped.__name__ = getattr(fn, "__name__", "controller_worker")
+    _wrapped.__doc__ = getattr(fn, "__doc__", None)
+    return _wrapped
 
 redisMsging = redisMessaging(app.config)
 redis_connection = redisMsging.getRedisConnection()
@@ -300,8 +322,11 @@ def podWatch():
         app.logger.exception(f"Exception in podWatch Redis listener: {repr(e)}")
 
 def PodErrorWatcher():
-    app.logger.info("pod watcher thread started")
-    tr = Thread(target=podWatch)
+    tr = Thread(
+        target=_run_as_controller(
+            podWatch, start_message="pod watcher thread started"
+        )
+    )
     tr.start()
     return True
 
@@ -378,8 +403,11 @@ def agentReportUpdate():
 
 
 def AgentWatcher():
-    app.logger.info("pod watcher thread started")
-    tr = Thread(target=agentReportUpdate)
+    tr = Thread(
+        target=_run_as_controller(
+            agentReportUpdate, start_message="agent watcher thread started"
+        )
+    )
     tr.start()
     return True
 
@@ -444,8 +472,11 @@ def Autoscale():
         time.sleep(app.config["AUTOSCALE_CHECK_INTERVAL"])
 
 def Autoscaler():
-    app.logger.info("autoscaler thread started")
-    tr = Thread(target=Autoscale)
+    tr = Thread(
+        target=_run_as_controller(
+            Autoscale, start_message="autoscaler thread started"
+        )
+    )
     tr.start()
     return True
 

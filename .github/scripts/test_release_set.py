@@ -157,6 +157,57 @@ class FragmentTest(unittest.TestCase):
         self.assertEqual(fragment["name"], "vss-agent")
         self.assertEqual(fragment["source_path"], "services/agent")
         self.assertEqual(fragment["platforms"], ["linux/amd64", "linux/arm64"])
+        self.assertEqual(fragment["tag_suffix"], "")
+
+    def test_variant_fragment_uses_shared_repository_and_suffix(self):
+        variant = {
+            **AGENT_ENTRY,
+            "name": "vss-agent-sbsa",
+            "repository": "vss-agent",
+            "tag_suffix": "-sbsa",
+            "platforms": ["linux/arm64"],
+        }
+        inventory = {**self.INVENTORY, "images": [variant]}
+        fragment = rs.build_fragment(
+            inventory,
+            **{
+                **self.good_kwargs(),
+                "name": "vss-agent-sbsa",
+                "tag": "develop-abc123def456-sbsa",
+                "platforms": ["linux/arm64"],
+            },
+        )
+        self.assertEqual(fragment["image"], "ghcr.io/org/vss-agent")
+        self.assertEqual(fragment["tag_suffix"], "-sbsa")
+
+    def test_variant_fragment_rejects_wrong_repository_or_unsuffixed_tag(self):
+        variant = {
+            **AGENT_ENTRY,
+            "name": "vss-agent-sbsa",
+            "repository": "vss-agent",
+            "tag_suffix": "-sbsa",
+            "platforms": ["linux/arm64"],
+        }
+        inventory = {**self.INVENTORY, "images": [variant]}
+        with self.assertRaisesRegex(ValueError, "repository"):
+            rs.build_fragment(
+                inventory,
+                **{
+                    **self.good_kwargs(),
+                    "name": "vss-agent-sbsa",
+                    "image": "ghcr.io/org/vss-agent-sbsa",
+                    "platforms": ["linux/arm64"],
+                },
+            )
+        with self.assertRaisesRegex(ValueError, "tag .*suffix"):
+            rs.build_fragment(
+                inventory,
+                **{
+                    **self.good_kwargs(),
+                    "name": "vss-agent-sbsa",
+                    "platforms": ["linux/arm64"],
+                },
+            )
 
     def test_unknown_name_rejected(self):
         with self.assertRaisesRegex(ValueError, "unknown image name"):
@@ -200,6 +251,7 @@ class FragmentTest(unittest.TestCase):
         kwargs = {
             **self.good_kwargs(),
             "name": "vss-configurator",
+            "image": "ghcr.io/org/vss-configurator",
             "strategy": "mirror",
             "source_tree_sha": None,
             "platforms": ["linux/amd64"],
@@ -236,6 +288,42 @@ class ReuseEntriesTest(unittest.TestCase):
         self.assertEqual(entry["strategy"], "reuse-pinned")
         self.assertEqual(entry["image"], "nvcr.io/nvidia/vss-core/vss-configurator")
         self.assertEqual(entry["tag"], "3.2.1")
+
+    def test_unbuilt_variant_without_compose_ref_uses_immutable_content_tag(self):
+        variant = {
+            **AGENT_ENTRY,
+            "name": "vss-agent-sbsa",
+            "repository": "vss-agent",
+            "tag_suffix": "-sbsa",
+            "platforms": ["linux/arm64"],
+            "compose_image_names": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(
+                tmp,
+                {"a/compose.yml": AGENT_COMPOSE},
+                [AGENT_ENTRY, variant],
+                roots=[
+                    "nvcr.io/nvidia/vss-core",
+                    "ghcr.io/nvidia-ai-blueprints/vss",
+                ],
+            )
+            inventory = rs.load_inventory(root)
+            entries, problems = rs.reuse_entries(
+                root,
+                inventory,
+                {"vss-agent"},
+                tree_reader=lambda _root, _path: TREE_SHA,
+            )
+        self.assertEqual(problems, [])
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["name"], "vss-agent-sbsa")
+        self.assertEqual(
+            entries[0]["image"],
+            "ghcr.io/nvidia-ai-blueprints/vss/vss-agent",
+        )
+        self.assertEqual(entries[0]["tag"], f"tree-{TREE_SHA}-sbsa")
+        self.assertEqual(entries[0]["tag_suffix"], "-sbsa")
 
     def test_profile_env_resolves_required_pinned_tag(self):
         compose = """services:

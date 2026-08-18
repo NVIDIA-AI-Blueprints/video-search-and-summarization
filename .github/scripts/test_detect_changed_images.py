@@ -303,6 +303,8 @@ class SelectImagesTest(unittest.TestCase):
                 "include": [
                     {
                         "name": "vss-agent",
+                        "repository": "vss-agent",
+                        "tag_suffix": "",
                         "context": "services",
                         "dockerfile": "services/agent/docker/Dockerfile",
                         "lfs_include": "",
@@ -312,6 +314,8 @@ class SelectImagesTest(unittest.TestCase):
                     },
                     {
                         "name": "vss-agent-ui",
+                        "repository": "vss-agent-ui",
+                        "tag_suffix": "",
                         "context": ".",
                         "dockerfile": "services/ui/Dockerfile",
                         "lfs_include": "",
@@ -320,6 +324,32 @@ class SelectImagesTest(unittest.TestCase):
                         "build_args": "",
                     },
                 ]
+            },
+        )
+
+    def test_matrix_can_target_shared_repository_with_variant_suffix(self):
+        entry = {
+            "name": "vss-rt-cv-sbsa",
+            "repository": "vss-rt-cv",
+            "tag_suffix": "-sbsa",
+            "context": "services/rtvi/rt-cv",
+            "dockerfile": "services/rtvi/rt-cv/docker/Dockerfile.sbsa",
+            "platforms": ["linux/arm64"],
+            "source_path": "services/rtvi/rt-cv",
+        }
+        matrix = dci.to_matrix([entry])
+        self.assertEqual(
+            matrix["include"][0],
+            {
+                "name": "vss-rt-cv-sbsa",
+                "repository": "vss-rt-cv",
+                "tag_suffix": "-sbsa",
+                "context": "services/rtvi/rt-cv",
+                "dockerfile": "services/rtvi/rt-cv/docker/Dockerfile.sbsa",
+                "lfs_include": "",
+                "platforms": "linux/arm64",
+                "source_path": "services/rtvi/rt-cv",
+                "build_args": "",
             },
         )
 
@@ -506,6 +536,28 @@ class ContentTagGapTest(unittest.TestCase):
             lambda ref: seen.append(ref) or True, "Org")
         self.assertEqual(len(seen), 1)
         self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
+
+    def test_variant_probe_uses_shared_repository_and_suffixed_content_tag(self):
+        seen: list[str] = []
+        variant = {
+            **BUILDABLE[0],
+            "name": "vss-agent-sbsa",
+            "repository": "vss-agent",
+            "tag_suffix": "-sbsa",
+        }
+        dci.add_missing_content_tags(
+            [variant],
+            [],
+            _content_repo(),
+            "HEAD",
+            lambda ref: seen.append(ref) or True,
+            "Org",
+        )
+        self.assertEqual(len(seen), 1)
+        self.assertRegex(
+            seen[0],
+            r"^ghcr\.io/org/vss/vss-agent:tree-[0-9a-f]{40}-sbsa$",
+        )
 
 
 if __name__ == "__main__":

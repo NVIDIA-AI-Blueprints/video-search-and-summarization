@@ -1415,8 +1415,8 @@ def print_env_settings(env: Optional[dict] = None) -> None:
 
 
 def _configure_logging() -> None:
-    """Root logging for run_workloads, router, and controller (same setup as app.py)."""
-    configure_root_logging("run-workloads", _runtime_base_dir())
+    """Root logging for run_workloads / router (sdr-controller orchestrator)."""
+    configure_root_logging("run-workloads", _runtime_base_dir(), component="router")
 
 
 def main() -> int:

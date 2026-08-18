@@ -16,7 +16,15 @@
     "                   mirror program (requires distribution approval).",
     "  external-pin   - first-party ecosystem image pinned via its own",
     "                   override variables; out of GHCR release-set scope,",
-    "                   classified here so it is not silently omitted."
+    "                   classified here so it is not silently omitted.",
+    "",
+    "GHCR variants:",
+    "  repository     - optional GHCR repository basename; defaults to name.",
+    "                   Set the same value on multiple logical inventory entries",
+    "                   when variants share one GHCR package.",
+    "  tag_suffix     - optional tag suffix such as -sbsa. It is applied to",
+    "                   immutable, tree-SHA, and moving alias tags so variants",
+    "                   sharing a source tree and repository never collide."
   ],
   "schema_version": 1,
   "first_party_registry_roots": [

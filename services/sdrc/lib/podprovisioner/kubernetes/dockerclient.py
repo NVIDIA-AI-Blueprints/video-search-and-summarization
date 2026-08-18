@@ -104,13 +104,13 @@ class dockerclient(k8sclient):
         try:
             container = self.docker.containers.get(container_name)
         except docker.errors.NotFound:
-            logger.info(
+            logger.warning(
                 "Docker container %r not found; treating phase as Unknown",
                 container_name,
             )
             return "Unknown"
         except Exception as e:
-            logger.info(
+            logger.warning(
                 "Docker inspect failed for %r: %s; phase Unknown",
                 container_name,
                 e,
@@ -121,7 +121,8 @@ class dockerclient(k8sclient):
         except Exception as e:
             logger.debug("container.reload failed for %r: %s", container_name, e)
         st = (container.status or "").lower()
-        logger.info(f"container.status: {st}")
+        # Steady-state polls hit this path often; keep detail at DEBUG.
+        logger.debug("container.status: %s name=%r", st, container_name)
         if st == "running":
             return "Running"
         if st == "exited":
@@ -141,8 +142,8 @@ class dockerclient(k8sclient):
     def getPodIps(self, WLObject):
         podIps = []
         for i in WLObject:
-            logger.info(
-                "->>> %s\t%s\t%s\t%s\t%s\t%s\t%s"
+            logger.debug(
+                "pod inventory %s\t%s\t%s\t%s\t%s\t%s\t%s"
                 % (
                     i.status.pod_ip,
                     i.status.port,
@@ -175,7 +176,7 @@ class dockerclient(k8sclient):
                 "provisioning_address": provisioning_address,
             }
             podIps.append(ipobj)
-        logger.info("len(podsips): " + str(len(podIps)) + ", values: " + str(podIps))
+        logger.debug("len(podsips): %s, values: %s", len(podIps), podIps)
         return podIps if len(podIps) > 0 else None
 
     def _docker_service_address(self, pod_obj):

@@ -9,9 +9,8 @@
 #            in single-spec mode (foreground agent, one synchronous harbor
 #            run), posts its own PR comment per AGENTS.md.
 # workflow_dispatch:
-#   plan + eval -> manual full sweep, fanned per (spec, platform) just like
-#                  a push; each leg writes its result to its job summary
-#                  (no PR to comment on). Scoped by the `skills` input.
+#   plan -> computes the same (skill, spec, platform) rows for both runtimes
+#   eval -> dispatches one matrix job per row for either runtime
 
 name: Skills Eval
 
@@ -26,19 +25,26 @@ on:
     branches:
       - "pull-request/[0-9]+"
   # Manual full-sweep trigger. The `plan` job enumerates the picked skill's
-  # specs (or all skills) instead of diffing, and the `eval` matrix fans them
-  # per (spec, platform) like a push. No PR to comment on, so each leg writes
-  # its result to its own job summary.
+  # specs (or all skills) instead of diffing, then both runtimes use the same
+  # per-(spec, platform) matrix dispatch.
   workflow_dispatch:
     inputs:
       skills:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-deploy-profile`)."
+        description: "Which skill to eval: `*` or a bare skill-directory name."
         required: false
         default: "*"
         type: string
+      runner:
+        description: "Execution runtime. Both options use the same per-spec matrix dispatch."
+        required: false
+        default: "claude-code"
+        type: choice
+        options:
+          - claude-code
+          - nemoclaw
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -76,12 +82,14 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
-  # plan — compute the dispatch matrix from the PR diff (push only).
+  # plan — compute the shared dispatch matrix from the PR diff or manual input.
   # Lightweight: gh + python3, no GPU, no brev, no flock.
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
-    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
+    if: >-
+      startsWith(github.ref, 'refs/heads/pull-request/') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -205,6 +213,7 @@ jobs:
           # below, then this value is restored so it cannot overwrite the
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.

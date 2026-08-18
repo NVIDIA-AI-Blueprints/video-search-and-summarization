@@ -58,7 +58,7 @@ from lib.bus_outcomes import (
     log_terminal_failure,
     redis_message_key,
 )
-from lib.logging import configure_root_logging
+from lib.logging import configure_root_logging, log_rate_limited
 from lib.wdm_swagger_ui import openapi_public_server_root, register_wdm_swagger_ui
 from lib.lifecycle.http_header import (
     ACTION_ADD,
@@ -124,7 +124,17 @@ if str(os.environ.get("WDM_TRUST_PROXY_HEADERS", "1")).strip().lower() not in (
     )
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 wl_log_prefix = app.config.get("WDM_WL_OBJECT_NAME", "wdm")
-configure_root_logging(wl_log_prefix, REPO_ROOT)
+# Prefer process env; if unset, seed from Config so config.yml/defaults apply.
+for _log_key in ("WDM_LOG_LEVEL", "WDM_LOG_FORMAT", "WDM_LOG_TO_FILE"):
+    if _log_key not in os.environ or not str(os.environ.get(_log_key, "")).strip():
+        _val = app.config.get(_log_key)
+        if _val is None:
+            continue
+        if isinstance(_val, bool):
+            os.environ[_log_key] = "true" if _val else "false"
+        else:
+            os.environ[_log_key] = str(_val)
+configure_root_logging(wl_log_prefix, REPO_ROOT, component="workload")
 app.logger = logging.getLogger(__name__)
 
 
@@ -148,11 +158,32 @@ def _wdm_request_timer_log(response):
     t0 = getattr(g, "_wdm_request_t0", None)
     if t0 is not None:
         elapsed = time.perf_counter() - t0
-        app.logger.info(
+        path = request.path or ""
+        status = response.status_code
+        # Steady-state dashboard / health polls are DEBUG; keep interesting traffic visible.
+        quiet_prefixes = (
+            "/pod_list",
+            "/healthz",
+            "/health",
+            "/metrics",
+            "/get_wl_replica_data",
+            "/current_distributed_streams",
+        )
+        is_quiet = any(path == p or path.startswith(p + "/") for p in quiet_prefixes)
+        if status >= 500:
+            level = logging.ERROR
+        elif status >= 400:
+            level = logging.WARNING
+        elif is_quiet:
+            level = logging.DEBUG
+        else:
+            level = logging.INFO
+        app.logger.log(
+            level,
             "http_request %s %s status=%s elapsed_s=%.6f",
             request.method,
-            request.path,
-            response.status_code,
+            path,
+            status,
             elapsed,
         )
     return response
@@ -1742,33 +1773,33 @@ def pod_list():
     event_field = app.config["WDM_EVENT_OBJECT_FIELD"]
     id_field = app.config["WDM_WL_ID_FIELD"]
     _sts_t0 = time.perf_counter()
-    app.logger.info("pod_list start")
+    app.logger.debug("pod_list start")
     wlobj = curr_cluster.getStatefulSets()
     _req_elapsed = _wdm_http_request_elapsed_s()
-    app.logger.info(
+    app.logger.debug(
         "pod_list curr_cluster.getStatefulSets elapsed_s=%.6f wl=%s request_elapsed_s=%s",
         time.perf_counter() - _sts_t0,
         wl_object_name,
         "%.6f" % _req_elapsed if _req_elapsed is not None else "-",
     )
     if wlobj is not None:
-        app.logger.info("pod_list wlobj.status.replicas=%s", getattr(wlobj.status, "replicas", None))
+        app.logger.debug("pod_list wlobj.status.replicas=%s", getattr(wlobj.status, "replicas", None))
     if wlobj is not None and wlobj.status.replicas != 0:
-        app.logger.info("pod_list wlobj is not None and wlobj.status.replicas != 0")
+        app.logger.debug("pod_list wlobj is not None and wlobj.status.replicas != 0")
         WLObj = curr_cluster.getWorkloadObjects()
         app.logger.debug("pod_list WLObj: " + str(WLObj))
         if WLObj is not None:
-            app.logger.info("pod_list WLObj is not None")
+            app.logger.debug("pod_list WLObj is not None")
             pods_info = curr_cluster.getPodIps(WLObj)
             if pods_info is not None:
                 # One Redis read per request (not per pod) — avoids N× lock_try under write contention.
-                app.logger.info("pod_list cfg._loadWorkLoadSpec (once for all pods)")
+                app.logger.debug("pod_list cfg._loadWorkLoadSpec (once for all pods)")
                 cfg._loadWorkLoadSpec()
                 for p in pods_info:
                     pod_name = p.get("podName", "")
                     stream_ids = []
                     try:
-                        app.logger.info("pod_list try cfg.getworkLoadSpecs pod=%s", pod_name)
+                        app.logger.debug("pod_list try cfg.getworkLoadSpecs pod=%s", pod_name)
                         raw = cfg.getworkLoadSpecs(pod_name)
                         app.logger.debug("pod_list raw: " + str(raw))
                         if raw is not None and raw.strip():
@@ -1792,6 +1823,11 @@ def pod_list():
                         "phase": p.get("phase", "Unknown"),
                         "stream_ids": stream_ids,
                     })
+            app.logger.debug(
+                "pod_list completed pods=%s elapsed_s=%.6f",
+                len(result.get("pods") or []),
+                time.perf_counter() - _sts_t0,
+            )
     return jsonify(result)
 
 
@@ -3285,8 +3321,13 @@ def redisGetStreamData():
                 )
                 REDIS_IS_CONNECTED = True
             except Exception as e:
-                app.logger.exception(
-                    "unexpected exception caught while processing Redis stream - " + repr(e)
+                log_rate_limited(
+                    app.logger,
+                    logging.ERROR,
+                    f"redis-consumer-connect:{type(e).__name__}",
+                    "unexpected exception caught while processing Redis stream - %s",
+                    repr(e),
+                    interval_s=30.0,
                 )
                 REDIS_IS_CONNECTED = False
                 continue
@@ -3414,7 +3455,7 @@ def redisGetStreamData():
                         wl_d=wl_d,
                     )
                     if should_commit:
-                        app.logger.info("Commiting message id %s", item.msgid)
+                        app.logger.info("Committing message id %s", item.msgid)
                         try:
                             consumer.commit(item_id=item.msgid)
                         except Exception as commit_exc:
@@ -3434,9 +3475,14 @@ def redisGetStreamData():
 
                 time.sleep(0.05)
 
-        except Exception:
-            app.logger.exception(
-                "unexpected exception caught while processing Redis stream"
+        except Exception as e:
+            log_rate_limited(
+                app.logger,
+                logging.ERROR,
+                f"redis-consumer-loop:{type(e).__name__}",
+                "unexpected exception caught while processing Redis stream - %s",
+                repr(e),
+                interval_s=30.0,
             )
 
 
@@ -3642,7 +3688,10 @@ def fetch_all_streams_from_vst():
             resp = requests.get(vst_streams_endpoint)
             api_up = True
         except Exception as e:
-            print("Some error (this is expected) - " + repr(e))
+            app.logger.debug(
+                "VST streams endpoint not ready yet (expected during startup): %s",
+                repr(e),
+            )
             time.sleep(0.05)
 
         if int(time.time() - start_time)  > app.config["WDM_API_WAIT_MAX_RETRIES_IN_SEC"]:
@@ -3725,7 +3774,10 @@ def preLoad():
                     api_up = True
                 # TODO: what if we're using k8s?
             except Exception as e:
-                print("Some error (this is expected) - " + repr(e))
+                app.logger.debug(
+                    "workload health check endpoint not ready yet (expected during startup): %s",
+                    repr(e),
+                )
                 time.sleep(1)
                 
             if int(time.time() - start_time)  > app.config["WDM_API_WAIT_MAX_RETRIES_IN_SEC"]:
