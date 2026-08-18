@@ -16,7 +16,8 @@ ARG DEEPSTREAM_X86_SHA256="fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d
 ARG DEEPSTREAM_JETSON_SHA256="14813cb7da9eafdd01ceed52c1c8d85a3255612a9b1c2691f5ad3ad5c5d39c2e"
 FROM ${PDM_EXPORT_IMAGE} AS pdm-export
 ARG TARGETARCH
-RUN pip install --no-cache-dir pdm==2.26.1
+COPY docker/rtvi_vlm/py_deps/pdm-build-requirements.txt /tmp/pdm-build-requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/pdm-build-requirements.txt
 WORKDIR /tmp/pdm
 COPY docker/rtvi_vlm/py_deps/pyproject.toml docker/rtvi_vlm/py_deps/pdm.lock ./
 RUN pdm export -G ${TARGETARCH} --no-hashes -o /tmp/rtvi-requirements.txt
