@@ -329,7 +329,10 @@ RUN set -eu; \
     source_root="/tmp/evs-libs/$evs_arch/vllm"; \
     vllm_root=/usr/local/lib/python3.12/dist-packages/vllm; \
     test "$(find "$source_root" -type f -name "*.so" | wc -l)" -eq 11; \
+    case "$TARGETARCH" in amd64) elf_machine='Advanced Micro Devices X86-64' ;; arm64) elf_machine='AArch64' ;; esac; \
     find "$source_root" -type f -name "*.so" -print | while IFS= read -r library; do \
+        readelf -h "$library" | grep -Fq 'Class:                             ELF64'; \
+        readelf -h "$library" | grep -Fq "Machine:                           $elf_machine"; \
         relative="${library#$source_root/}"; \
         install -Dm755 "$library" "$vllm_root/$relative"; \
         rm -f "$vllm_root/${relative%%.cpython-312-*}.py"; \
