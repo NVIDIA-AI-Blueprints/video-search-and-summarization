@@ -32,6 +32,11 @@ services:
     network_mode: host
     profiles: ["nvstreamer-1", "nvstreamer-2", "nvstreamer-3", "nvstreamer-4", "nvstreamer-5"]
     environment:
+      # Inject the enable switch the entrypoint checks below; without it the
+      # variable is unset inside the init container, the check always takes the
+      # else branch, and the shared cache is never populated (each consumer then
+      # downloads packages on its own).
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - VST_APT_CACHE_POPULATE=true
       - VST_APT_CACHE_DIR=/opt/apt-cache
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
