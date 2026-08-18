@@ -66,7 +66,7 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 | Container is marked unhealthy within the first 20 minutes. | Health check `start_period` was shortened below the model warmup time. | Restore `start_period: 1200s` or longer for first boots; keep model and Triton volumes warm to shorten subsequent boots. |
 | `docker compose up` errors that `RTVI_EMBED_PORT` is required. | The `ports:` mapping uses `${RTVI_EMBED_PORT?}`, which fails fast when unset. | Set `RTVI_EMBED_PORT` in the environment or `.env` file before bringing the service up. |
 | Model download fails with HTTP 429 against Hugging Face. | Anonymous Hugging Face downloads are being rate-limited while pulling `nvidia/Cosmos-Embed1-448p`. | Set `HF_TOKEN` to a valid Hugging Face token to lift the rate limit, or pre-populate the `rtvi-hf-cache` volume so first boot does not need to re-fetch the weights. |
-| Model download fails with HTTP 401/403 against NGC. | `NGC_API_KEY` is missing or invalid. | Provide a valid `NGC_API_KEY` and confirm `docker login nvcr.io` succeeded on the host. |
+| Model download fails with HTTP 401/403 against NGC. | `NGC_API_KEY` is missing, invalid, or lacks access to the selected model or asset. | Provide a valid `NGC_API_KEY` and confirm the host can reach `prod.api.nvidia.com`. |
 | Service starts but `/v1/ready` keeps returning 503. | A peer such as Redis or Kafka was enabled but is not reachable. | Either disable the feature on the host (`ENABLE_REDIS_ERROR_MESSAGES=false`, `MESSAGE_BUS=`, `ERROR_BUS=`) or fix peer reachability (`REDIS_HOST`, `KAFKA_BOOTSTRAP_SERVERS`). |
 | Process exits with permission errors on `/opt/nvidia/rtvi/.rtvi/ngc_model_cache` or `/tmp/huggingface`. | Host-side bind mount is not writable by UID/GID `1001:1001`. | Run `sudo -n chown -R 1001:1001 <host-path>` or ask the host owner to run the same command; do not use `chmod 777`. Named volumes avoid this issue. |
 | GPU not visible inside the container. | NVIDIA Container Toolkit not installed or driver too old. | Install/upgrade NVIDIA Container Toolkit and matching driver, then re-pull the image and restart the service. |
@@ -79,7 +79,7 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 - API keys exposed to the runtime: `NGC_API_KEY` (required), `NVIDIA_API_KEY` (defaults to a sentinel; set to a real key if your downstream calls require it), and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
 - Host environment variables: `RTVI_EMBED_PORT` and `VSS_DATA_DIR`. Set `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` only when Kafka buses are enabled and the default `kafka:29092` broker address is not correct for your Compose network.
 - Disk space sufficient for the Hugging Face cache, NGC model cache, and Triton model repository volumes.
-- Network reachability to `nvcr.io`, `huggingface.co`, and any peer services (Redis, Kafka) that are enabled.
+- Network reachability to `ghcr.io` for the container image, `huggingface.co` for the default model, `prod.api.nvidia.com` when using NGC-hosted models or assets, and any enabled peer services (Redis, Kafka).
 
 ## Dry Run
 

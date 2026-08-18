@@ -45,9 +45,8 @@ Before bringing the service up:
 
 1. NVIDIA driver + NVIDIA Container Toolkit installed; default runtime set to `nvidia`.
 2. Docker Engine and Docker Compose plugin recent enough to support `${VAR:+value}` conditional volume substitution.
-3. `docker login nvcr.io` completed with `$oauthtoken` and a valid NGC API key.
-4. Host environment provides at minimum: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, `NGC_API_KEY`, and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
-5. Free disk space for persistent caches: `rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo` (multi-GB).
+3. Host environment provides at minimum: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, `NGC_API_KEY`, and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
+4. Free disk space for persistent caches: `rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo` (multi-GB).
 
 See `references/deploy-vss-deploy-video-embedding.md` for the full prerequisite list and `references/environment.md` for the variable matrix.
 

@@ -128,7 +128,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 
 - **Ports exposed** — `${RTVI_EMBED_PORT}:8000/tcp`.
 - **Inbound traffic** — REST clients (other VSS microservices or operator tooling) calling the `/v1/*` endpoints.
-- **Outbound traffic** — Hugging Face (`huggingface.co`) and NGC (`nvcr.io`) at first boot; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
+- **Outbound traffic** — GHCR (`ghcr.io`) for the container image, Hugging Face (`huggingface.co`) for the default model, and `prod.api.nvidia.com` when using NGC-hosted models or assets; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
 - **DNS / hostname assumptions** — Uses `KAFKA_BOOTSTRAP_SERVERS=${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
 - **`network_mode`** — Default bridge (no `network_mode` override in the Compose service).
 
