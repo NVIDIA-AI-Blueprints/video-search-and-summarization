@@ -705,6 +705,11 @@ def test_upsert_bundle_reports_partial_failures() -> None:
             {"event_id": "evt-bad", "timestamp": "2026-07-22T11:01:00Z", "description": "b"},
         ],
     )
+    assert bundle.parent.job.status == "completed"
+    assert bundle.parent.output is not None
+    assert bundle.parent.output.ext is not None
+    assert bundle.parent.output.ext["event_count"] == 2
+
     result = service.upsert_bundle(bundle)
     assert result.expected == 3
     assert result.written == 2
@@ -713,6 +718,16 @@ def test_upsert_bundle_reports_partial_failures() -> None:
     payload = result.to_dict()
     assert payload["expected"] == 3
     assert payload["written"] == 2
+
+    # Parent must not keep advertising a complete result set after a child miss.
+    parent = service.get("summarize-x", reconcile=False)
+    assert parent.job.status == "partial"
+    assert parent.output is not None
+    assert parent.output.ext is not None
+    assert parent.output.ext["event_count"] == 1
+    assert service.get_record("summarize-x", "event", "evt-ok").output is not None
+    with pytest.raises(MemoryNotFoundError):
+        service.get_record("summarize-x", "event", "evt-bad")
 
 
 def test_upsert_bundle_skips_children_when_parent_fails() -> None:

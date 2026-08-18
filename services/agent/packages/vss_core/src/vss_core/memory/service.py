@@ -84,6 +84,50 @@ class PersistResult:
 #: Max child records scanned per ``events()`` call for one asset.
 _EVENTS_RECORD_SCAN_CAP = 10_000
 
+#: Parent ``output.ext`` counters keyed by child ``record_type``.
+_CHILD_COUNT_EXT_KEYS: dict[str, str] = {
+    "event": "event_count",
+    "search_hit": "result_count",
+    "incident": "incident_count",
+}
+
+
+def _parent_after_partial_children(
+    parent: UnifiedMemoryRecord,
+    written_children: list[UnifiedMemoryRecord],
+) -> UnifiedMemoryRecord:
+    """Downgrade a completed parent and align advertised child counts.
+
+    When some children fail after the parent write succeeds, leaving
+    ``status=completed`` with the full ``event_count`` / ``result_count`` /
+    ``incident_count`` would advertise a complete result set that ``query`` /
+    ``get_record`` cannot return. Mark the job ``partial`` and rewrite any
+    known count keys to the number of children that actually persisted.
+    """
+    counts: dict[str, int] = dict.fromkeys(_CHILD_COUNT_EXT_KEYS.values(), 0)
+    for child in written_children:
+        count_key = _CHILD_COUNT_EXT_KEYS.get(child.job.record_type or "")
+        if count_key is not None:
+            counts[count_key] += 1
+
+    updates: dict[str, Any] = {}
+    if parent.job.status == "completed":
+        updates["job"] = parent.job.model_copy(update={"status": "partial"})
+
+    if parent.output is not None and parent.output.ext:
+        ext = dict(parent.output.ext)
+        changed = False
+        for count_key, value in counts.items():
+            if count_key in ext and ext[count_key] != value:
+                ext[count_key] = value
+                changed = True
+        if changed:
+            updates["output"] = parent.output.model_copy(update={"ext": ext})
+
+    if not updates:
+        return parent
+    return parent.model_copy(update=updates)
+
 
 class MemoryService:
     """Orchestrates memory writes and memory-first reads.
@@ -115,6 +159,11 @@ class MemoryService:
         stored — otherwise ``query`` / ``events`` / ``get_record`` could return
         orphans for a job that ``get`` / ``status`` / ``list_jobs`` cannot see.
 
+        If the parent succeeds but one or more children fail, the parent is
+        re-upserted as ``partial`` with child-count ext fields aligned to the
+        children that actually persisted, so job reads do not advertise a
+        complete result set that record queries cannot return.
+
         Callers must still return the paid-for operation result when persistence
         is incomplete. Use :attr:`PersistResult.ok` / :meth:`PersistResult.to_dict`
         for CLI exit-6 reporting.
@@ -122,6 +171,7 @@ class MemoryService:
         failed: list[PersistFailure] = []
         written = 0
         records = bundle.all_records
+        written_children: list[UnifiedMemoryRecord] = []
 
         try:
             self._store.upsert(bundle.parent)
@@ -153,6 +203,7 @@ class MemoryService:
             try:
                 self._store.upsert(child)
                 written += 1
+                written_children.append(child)
             except Exception as error:
                 failed.append(
                     PersistFailure(
@@ -163,6 +214,23 @@ class MemoryService:
                         is_parent=False,
                     )
                 )
+
+        if failed:
+            corrected = _parent_after_partial_children(bundle.parent, written_children)
+            if corrected != bundle.parent:
+                try:
+                    self._store.upsert(corrected)
+                except Exception as error:
+                    failed.append(
+                        PersistFailure(
+                            storage_id=storage_id_for(bundle.parent),
+                            error=f"partial parent correction failed ({error})",
+                            record_type=None,
+                            record_id=None,
+                            is_parent=True,
+                        )
+                    )
+
         return PersistResult(expected=len(records), written=written, failed=failed)
 
     def get(
