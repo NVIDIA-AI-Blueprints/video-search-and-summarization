@@ -33,6 +33,7 @@ package-lock.json       @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 yarn.lock               @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 pnpm-lock.yaml          @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 poetry.lock             @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+pdm.lock                @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 Pipfile.lock            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 Cargo.lock              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 go.sum                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers

@@ -18,7 +18,7 @@
 # Keep profile-specific names, networking aliases, warehouse paths, env_file,
 # mode commands, calibration mounts, and depends_on in the extending service.
 # Do not include this file directly; reference the *-base services with
-# Compose `extends` (same pattern as services/vios/nvstreamer/compose.yml).
+# Compose `extends`.
 
 services:
 
@@ -78,6 +78,10 @@ services:
       NUM_STREAMS: ${NUM_STREAMS:-4}
       MODE: $MODE
       LOG_LEVEL: INFO
+      # Preserve the legacy warehouse configurator environment while the
+      # defaults themselves remain owned by services/nvstreamer/.env.
+      NVSTREAMER_HTTP_PORT: ${NVSTREAMER_HTTP_PORT}
+      NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES: ${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       NVSTREAMER_STREAMS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/streams
       NVSTREAMER_SENSOR_STATUS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/status
       VST_CAMERA_ADD_ENDPOINT: http://${VST_IP}:${VST_PORT}/vst/api/v1/sensor/add

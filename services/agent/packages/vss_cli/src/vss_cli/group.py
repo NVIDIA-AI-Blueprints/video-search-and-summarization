@@ -42,10 +42,12 @@ import click
 from pydantic import ValidationError
 
 from . import config as config_mod
+from . import memory as memory_mod
 from . import params as params_mod
 from .exits import Exit
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from collections.abc import Sequence
 
     from pydantic import BaseModel
@@ -83,8 +85,9 @@ class Context:
     deployment: config_mod.Deployment | None = None
     pretty: bool | None = None
     log_level: str = "WARNING"
-    #: Memory tier, once it exists. Until then ``status``/``get``/``list``
-    #: have nothing to read and say so plainly (exit 4).
+    #: Memory tier (:class:`vss_cli.memory.Memory`). None until something asks
+    #: for it: :meth:`CommandGroup.memory` opens it on first use, so only the
+    #: commands that read or write memory pay for the connection.
     memory: Any = None
     #: Why the deployment failed to load, when it did. Carried so a verb can
     #: report the specific cause instead of a generic "nothing configured".
@@ -131,9 +134,15 @@ def _exit_for(exc: Exception) -> Exit | None:
     by_name = {
         "InvalidInputError": Exit.INVALID_INPUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
+        "MemoryNotFoundError": Exit.NOT_FOUND,
         "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,
         "ConfigurationError": Exit.CONFIGURATION,
         "NoFinalResultError": Exit.PARTIAL,
+        # The store translates connection and transport trouble, but a status
+        # rejection -- a read-only ingress answering 405, a 403, a 5xx -- comes
+        # back as the client's own ApiError, which is not a TransportError.
+        # `memory.write_failures()` says the same thing for the write path.
+        "ApiError": Exit.BACKEND_UNREACHABLE,
     }
     for klass in type(exc).__mro__:
         code = by_name.get(klass.__name__)
@@ -177,22 +186,21 @@ def _require_services(action: Action, ctx: Context) -> None:
         )
 
 
-class MemoryUnavailable(click.ClickException):
-    """Raised by the inherited read verbs until the memory tier lands.
+def _guarded(call: Callable[[], Result]) -> Result:
+    """Run a verb, turning a typed library failure into its exit code.
 
-    Deliberately explicit. ``status``/``get``/``list`` are memory reads by
-    definition (§6.2), and ``vss_core`` ships no memory module yet, so they
-    cannot work. Failing with a named cause beats three verbs that appear to
-    work and silently return nothing.
+    A typed failure is a diagnosis, not a crash. Without this a missing index
+    -- the ordinary "nothing ingested yet" case -- exits 1 with an
+    Elasticsearch traceback, which no harness can branch on.
     """
-
-    exit_code = int(Exit.CONFIGURATION)
-
-    def __init__(self, verb: str) -> None:
-        super().__init__(
-            f"`{verb}` reads the unified memory index, which this build does not ship yet "
-            f"(vss_core has no memory module). Only `run` is available on this deployment."
-        )
+    try:
+        return call()
+    except Exception as exc:
+        code = _exit_for(exc)
+        if code is None:
+            raise
+        click.echo(f"vss: {exc}", err=True)
+        raise SystemExit(int(code)) from exc
 
 
 class CommandGroup(ABC):
@@ -210,6 +218,15 @@ class CommandGroup(ABC):
     #: becomes the MCP tool input, and an instance becomes ``job.request``.
     #: Ignored when :attr:`actions` is non-empty.
     Input: ClassVar[type[BaseModel] | None] = None
+
+    #: Services ``run`` calls, for a group that declares :attr:`Input` rather
+    #: than :attr:`actions`. Such a group has one path, so there is nothing to
+    #: declare per action -- and without this the synthesized action carries no
+    #: requirements, leaving the only single-path groups without the uniform
+    #: missing-backend diagnostic every ``actions``-declaring group gets.
+    #: Ignored when :attr:`actions` is non-empty, where each action states its
+    #: own.
+    requires: ClassVar[frozenset[str]] = frozenset()
 
     #: Sub-actions of ``run``. When set, ``run`` becomes a group and each
     #: action contributes one command with its own input model.
@@ -244,20 +261,28 @@ class CommandGroup(ABC):
 
     # -- framework-provided reads (§6.2) --------------------------------
 
-    def status(self, job_id: str, ctx: Context) -> Result:
+    @final
+    def memory(self, ctx: Context) -> Any:
+        """The memory tier these verbs read, opened on first use.
+
+        Resolved here rather than in :func:`_context_from` so a command that
+        never touches memory -- ``run --no-persist``, ``configure`` -- does not
+        pay for the Elasticsearch import. An injected :attr:`Context.memory`
+        wins, which is what lets tests run the read verbs against a store in
+        the same process.
+        """
         if ctx.memory is None:
-            raise MemoryUnavailable("status")
-        return Result(body=ctx.memory.status(self.name, job_id))
+            ctx.memory = memory_mod.build(ctx.deployment, index=ctx.extra.get("memory_index"))
+        return ctx.memory
+
+    def status(self, job_id: str, ctx: Context) -> Result:
+        return Result(body=self.memory(ctx).status(self.name, job_id), job_id=job_id)
 
     def get(self, job_id: str, ctx: Context) -> Result:
-        if ctx.memory is None:
-            raise MemoryUnavailable("get")
-        return Result(body=ctx.memory.get(self.name, job_id))
+        return Result(body=self.memory(ctx).get(self.name, job_id), job_id=job_id)
 
     def list(self, filters: dict[str, Any], ctx: Context) -> Result:
-        if ctx.memory is None:
-            raise MemoryUnavailable("list")
-        return Result(body=ctx.memory.query(self.name, filters))
+        return Result(body=self.memory(ctx).query(self.name, filters))
 
     # -- CLI construction ------------------------------------------------
 
@@ -281,7 +306,9 @@ class CommandGroup(ABC):
             return group
         if self.Input is None:
             raise TypeError(f"{type(self).__name__} must declare Input or actions")
-        return self._action_command(Action(name="run", summary=f"Run a {self.name} job.", Input=self.Input))
+        return self._action_command(
+            Action(name="run", summary=f"Run a {self.name} job.", Input=self.Input, requires=self.requires)
+        )
 
     def _action_command(self, action: Action) -> click.Command:
         owner = self
@@ -301,25 +328,18 @@ class CommandGroup(ABC):
                 # than letting a pydantic traceback out as a generic exit 1.
                 raise InvalidInput(_format_validation(exc)) from exc
             _require_services(action, ctx)
-            try:
-                result = owner.run(action.name if owner.actions else "", inputs, ctx)
-            except ValidationError as exc:
-                # A group's input model is a CLI-shaped subset of whatever the
-                # library accepts, so the library can still reject a value that
-                # passed here (a timestamp typed as a string, say). That is
-                # equally the caller's error and gets the same exit 2.
-                raise InvalidInput(_format_validation(exc)) from exc
-            except Exception as exc:
-                # A typed library failure is a diagnosis, not a crash. Without
-                # this a missing index -- the ordinary "nothing ingested yet"
-                # case -- exits 1 with an Elasticsearch traceback, which no
-                # harness can branch on.
-                code = _exit_for(exc)
-                if code is None:
-                    raise
-                click.echo(f"vss: {exc}", err=True)
-                raise SystemExit(int(code)) from exc
-            _emit(result, ctx)
+
+            def dispatch() -> Result:
+                try:
+                    return owner.run(action.name if owner.actions else "", inputs, ctx)
+                except ValidationError as exc:
+                    # A group's input model is a CLI-shaped subset of whatever
+                    # the library accepts, so the library can still reject a
+                    # value that passed here (a timestamp typed as a string,
+                    # say). That is equally the caller's error, same exit 2.
+                    raise InvalidInput(_format_validation(exc)) from exc
+
+            _emit(_guarded(dispatch), ctx)
 
         return click.Command(
             name=action.name,
@@ -340,32 +360,57 @@ class CommandGroup(ABC):
         owner = self
 
         def callback(**values: Any) -> None:
-            ctx = _context_from(values)
-            _emit(fn(values["job_id"], ctx), ctx)
+            ctx = _memory_context(values)
+            _emit(_guarded(lambda: fn(values["job_id"], ctx)), ctx)
 
         return click.Command(
             name=verb,
-            params=[click.Option(["--job-id"], required=True), *params_mod.shared_options()],
+            params=[
+                click.Option(["--job-id"], required=True),
+                memory_mod.index_option(),
+                *params_mod.shared_options(),
+            ],
             callback=callback,
             short_help=f"{verb.capitalize()} a {owner.name} job by id.",
         )
 
     def _list_command(self) -> click.Command:
         owner = self
+
+        def _instant(_ctx: click.Context, _param: click.Parameter, value: str | None) -> str | None:
+            """Reject a malformed ``--since`` while it is still the caller's error.
+
+            Left alone it reaches the store's time helpers as a ``ValueError``,
+            which ``_exit_for`` does not map, so an ordinary typo exits 1 with a
+            traceback rather than 2 with a sentence. Validated with the same
+            function that will parse it, so the two cannot disagree.
+            """
+            if value is None:
+                return None
+            from vss_core._foundation.time import iso8601_to_datetime
+
+            try:
+                iso8601_to_datetime(value)
+            except ValueError as error:
+                raise click.BadParameter(f"{value!r} is not an ISO-8601 instant, e.g. 2026-08-13T20:00:00Z") from error
+            return value
+
         filters = (
-            click.Option(["--since"], help="Only jobs after this time (ISO-8601 or duration)."),
+            # Durations ("1h") read well but were never implemented; the help
+            # promised them and the parser rejected them.
+            click.Option(["--since"], callback=_instant, help="Only jobs at or after this ISO-8601 instant."),
             click.Option(["--sensor-id"], help="Restrict to one sensor."),
             click.Option(["--status"], help="Restrict to one job status."),
         )
 
         def callback(**values: Any) -> None:
-            ctx = _context_from(values)
+            ctx = _memory_context(values)
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
-            _emit(owner.list(selected, ctx), ctx)
+            _emit(_guarded(lambda: owner.list(selected, ctx)), ctx)
 
         return click.Command(
             name="list",
-            params=[*filters, *params_mod.shared_options()],
+            params=[*filters, memory_mod.index_option(), *params_mod.shared_options()],
             callback=callback,
             short_help=f"List recent {owner.name} jobs, including in-flight.",
         )
@@ -397,6 +442,14 @@ def _context_from(values: dict[str, Any]) -> Context:
         pretty=values.get("pretty"),
         log_level=values.get("log_level") or "WARNING",
     )
+
+
+def _memory_context(values: dict[str, Any]) -> Context:
+    """A Context for the read verbs, carrying the index they read from."""
+    ctx = _context_from(values)
+    if values.get("memory_index"):
+        ctx.extra["memory_index"] = values["memory_index"]
+    return ctx
 
 
 def _emit(result: Result, ctx: Context) -> None:

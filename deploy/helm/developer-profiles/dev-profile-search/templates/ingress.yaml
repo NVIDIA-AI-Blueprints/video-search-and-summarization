@@ -48,12 +48,19 @@
   /rtvi-cv/api/v1/... and /rtvi-vlm/v1/... -- the same convention /vst/api
   already follows.
 
+  The Docker edge also mounts /lvs, but that one is published by
+  dev-profile-lvs, the profile that runs lvs-server. Declaring it here would
+  point an Ingress path at a Service this profile does not deploy, which fails
+  validation rather than answering 503 the way an unavailable HAProxy backend
+  does.
+
   Off by default: enabling this publishes Elasticsearch on the public origin
   with no per-path guard at all, because an Ingress annotation cannot express
   one. Note the Docker edge is not a read-only baseline either -- its deny rules
-  stop PUT/DELETE, cluster-admin paths and the two-segment mutating operations,
-  but POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
-  there. Turn this on only where a writable ES is acceptable.
+  stop DELETE, cluster-admin paths and the two-segment mutating operations, but
+  POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES there,
+  as does a PUT to a vss-memory document path so the memory store can persist.
+  Turn this on only where a writable ES is acceptable.
 
   /rtvi-cv and /rtvi-embed are skipped when rtviInternalIngress is enabled,
   because that Ingress already publishes those two paths and renders no host

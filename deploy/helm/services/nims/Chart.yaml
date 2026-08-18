@@ -28,6 +28,12 @@ dependencies:
     alias: nemotron
     condition: nemotron.enabled
 
+  - name: nemotron-3-nano
+    version: 3.2.0
+    repository: "file://./charts/nemotron-3-nano"
+    alias: nemotron3
+    condition: nemotron3.enabled
+
   - name: cosmos-reason2-8b
     version: 3.2.0
     repository: "file://./charts/cosmos-reason2-8b"

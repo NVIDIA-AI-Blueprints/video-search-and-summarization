@@ -30,6 +30,38 @@ By default this profile is an **in-cluster** deployment:
 
 Switch to **external-service mode** only when the model endpoints already run outside this release. Setting **`global.llmBaseUrl`** or **`global.vlmBaseUrl`** (or the matching **`agent.vss-agent.*BaseUrl`** / **`vss-summarization.*BaseUrl`** overrides) makes those workloads call the supplied external service instead of the default in-cluster service. When both LLM and VLM are external, set **`nims.enabled=false`** and set **`rtvi.vss-rtvi-vlm.useSharedNim=true`** so RT-VLM proxies the external VLM instead of loading the integrated checkpoint.
 
+## Performance profile (`values-perf.yaml`, opt-in)
+
+`values-perf.yaml` runs the LVS profile with its highest-performance model configuration for dedicated-GPU deployments: the `nemotron-3-nano` (30B) LLM with reasoning disabled and the integrated Cosmos VLM quantized to the precision that matches the GPU (FP8 or NVFP4). Apply it explicitly on top of the base values:
+
+```bash
+helm upgrade --install vss . -f values-lvs.yaml -f values-perf.yaml -n vss --create-namespace
+```
+
+The overlay switches the LVS profile to:
+
+| Component | With `values-perf.yaml` |
+|-----------|--------------------------|
+| LLM | **`nemotron-3-nano`** (30B), reasoning disabled (`NIM_PASSTHROUGH_ARGS=--default-chat-template-kwargs {"enable_thinking":false}`); auto-sizes its own KV/concurrency per GPU. The NIMCache pins one profile — `nims.nemotron3.modelPrecision`, TP = the requested GPU count — so only that profile is cached, not every precision variant. |
+| VLM | integrated Cosmos Reason3 Nano, precision selected by `nims.gpuType`: **FP8** on `H100`/`L40S`, **NVFP4** on `RTXPRO6000BW` |
+
+The overlay defaults to `nims.gpuType: H100` with **FP8** for both the LLM (`nims.nemotron3.modelPrecision`) and VLM. For **Blackwell (`RTXPRO6000BW`)**, override the platform, the LLM precision, and the VLM precision strings to **NVFP4** — the render-time guard (`templates/validate-vlm-precision.yaml`) fails `helm template`/`install` if any of them disagree with `nims.gpuType`:
+
+```yaml
+# values-perf-blackwell.yaml — apply after values-perf.yaml
+nims:
+  gpuType: RTXPRO6000BW
+  nemotron3:
+    modelPrecision: "nvfp4"
+global:
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix"
+rtvi:
+  vss-rtvi-vlm:
+    modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix"
+```
+
+The guard is skipped for external-VLM deployments (`rtvi.vss-rtvi-vlm.useSharedNim=true`) and when the overlay is not applied.
+
 ## GPU requirements
 
 With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-summarization`**, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **4 GPUs** (`nvidia.com/gpu: 1` each). Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
