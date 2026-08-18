@@ -6,6 +6,9 @@
     "platforms": {
       "RTXPRO6000BW": {
         "gpu_count": 1
+      },
+      "DGX-SPARK": {
+        "gpu_count": 1
       }
     }
   },
