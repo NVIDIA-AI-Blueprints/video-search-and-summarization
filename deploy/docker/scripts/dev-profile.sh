@@ -405,7 +405,7 @@ function usage() {
   echo "                                     - IGX-THOR"
   echo "                                     - AGX-THOR"
   echo "                                     - OTHER"
-  echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
+  echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base, alerts, or search"
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: --llm-device-id, --vlm-device-id not accepted"
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
@@ -718,10 +718,10 @@ function process_args() {
         fi
       fi
 
-      # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base and alerts; device ID options not accepted
+      # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base, alerts, and search; device ID options not accepted
       if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
-        if [[ "${profile}" != "base" ]] && [[ "${profile}" != "alerts" ]]; then
-          echo "[ERROR] Hardware profile '${hardware_profile}' is only valid for profile base or alerts, not '${profile}'"
+        if [[ "${profile}" != "base" ]] && [[ "${profile}" != "alerts" ]] && [[ "${profile}" != "search" ]]; then
+          echo "[ERROR] Hardware profile '${hardware_profile}' is only valid for profile base, alerts, or search, not '${profile}'"
           ((_all_good++))
         fi
         if contains_element "llm-device-id" "${options_provided[@]}"; then
@@ -1356,6 +1356,12 @@ function state_up() {
   # Alerts profile: conditionally set vlm-as-verifier config prefix for IGX-THOR, AGX-THOR only; DGX-SPARK uses default config.yml
   if [[ "${profile}" == "alerts" ]] && ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${vlm_mode}" != "remote" ]]; then
     set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
+  fi
+
+  # Search profile on IGX-THOR or AGX-THOR: single GPU (device 0) shared by rtvi-cv and rtvi-embed
+  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "search" ]]; then
+    set_env_var "RT_CV_DEVICE_ID" "0"
+    set_env_var "RT_EMBED_DEVICE_ID" "0"
   fi
 
   # Alerts or base profile on IGX-THOR or AGX-THOR: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
