@@ -42,7 +42,7 @@ services:
       start_period: 2s
 
   vst-ingress:
-    image: ${NGINX_IMAGE}
+    image: ${VSS_VIOS_INGRESS_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-ingress}:${VSS_VIOS_INGRESS_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["vst-ingress"]
     user: "0:0"
     environment:
