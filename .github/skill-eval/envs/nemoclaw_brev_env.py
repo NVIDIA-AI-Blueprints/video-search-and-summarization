@@ -97,11 +97,7 @@ set -u
 host_home=$HOME
 export HOME="$host_home/.skill-eval/nemoclaw-home"
 export NEMOCLAW_GATEWAY_PORT={quoted_port}
-if command -v nemoclaw >/dev/null 2>&1 && \
-   inventory=$(nemoclaw list --json) && \
-   printf '%s' "$inventory" | python3 -c \
-     'import json, sys; name = sys.argv[1]; data = json.load(sys.stdin); sys.exit(not any(row.get("name") == name for row in data.get("sandboxes", [])))' \
-     {quoted}; then
+if command -v nemoclaw >/dev/null 2>&1; then
   timeout --signal=TERM --kill-after=30 600s \
     nemoclaw {quoted} destroy --yes --force --cleanup-gateway
 fi
