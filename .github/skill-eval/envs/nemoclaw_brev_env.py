@@ -130,25 +130,6 @@ timeout --signal=TERM --kill-after=120 {timeout}s \
 """.strip()
 
 
-def _onboarding_diagnostics_command(gateway_port: str) -> str:
-    """Collect NemoClaw's native, redacted debug bundle for Harbor."""
-    quoted_port = shlex.quote(gateway_port)
-    return f"""
-set -u
-set +e
-. "$HOME/.profile" 2>/dev/null || true
-host_home=$HOME
-export HOME="$host_home/.skill-eval/nemoclaw-home"
-export NEMOCLAW_GATEWAY_PORT={quoted_port}
-mkdir -p /logs/artifacts
-if command -v nemoclaw >/dev/null 2>&1; then
-  timeout --signal=TERM --kill-after=30 300s \
-    nemoclaw debug --quick \
-    --output /logs/artifacts/nemoclaw-debug.tar.gz
-fi
-""".strip()
-
-
 class NemoClawBrevEnvironment(BrevEnvironment):
     """Run normal Brev preparation, then the checked-in setup notebooks."""
 
@@ -205,20 +186,6 @@ class NemoClawBrevEnvironment(BrevEnvironment):
             timeout=timeout + 60,
         )
         if result.return_code != 0:
-            try:
-                diagnostics = await _run_brev_exec(
-                    self._instance_name,
-                    _onboarding_diagnostics_command(gateway_port),
-                    timeout=360,
-                )
-                if diagnostics.return_code != 0:
-                    raise RuntimeError(f"exit {diagnostics.return_code}")
-            except Exception as exc:  # noqa: BLE001 - preserve setup failure
-                logger.warning(
-                    "NemoClaw diagnostics failed on %s (%s)",
-                    self._instance_name,
-                    type(exc).__name__,
-                )
             detail = (result.stderr or result.stdout or "")[-12000:]
             raise RuntimeError(
                 f"NemoClaw notebook setup failed (exit {result.return_code}):\n{detail}"
