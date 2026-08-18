@@ -1027,6 +1027,72 @@ class PoolCandidates(unittest.TestCase):
             "GEFORCE RTX 4090",
         )
         self.assertEqual(run_leg._registered_gpu_hint("vss-eval-mystery"), "")
+        self.assertEqual(run_leg._registered_gpu_hint("SPARK"), "GB10")
+        self.assertEqual(
+            run_leg._registered_gpu_hint("Spark-ba-WiFi"), "GB10"
+        )
+        self.assertEqual(
+            run_leg._registered_gpu_hint("vss-eval-spark-1"), "GB10"
+        )
+        self.assertFalse(run_leg._is_eval_pool_name("Spark-ba-WiFi"))
+        self.assertTrue(
+            run_leg._is_eval_pool_name("Spark-ba-WiFi", registered=True)
+        )
+        self.assertFalse(
+            run_leg._is_eval_pool_name("H100-VLM", registered=True)
+        )
+
+    def test_spark_registered_node_is_eligible_for_gb10(self):
+        fleet = [
+            {"name": "Spark-ba-WiFi", "status": "RUNNING",
+             "gpu": "GB10", "_registered": True},
+            {"name": "SPARK", "status": "RUNNING",
+             "gpu": "GB10", "_registered": True},
+            {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
+             "gpu": "RTX PRO 6000", "_registered": True},
+        ]
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
+
+        spark = run_leg.pool_candidates(
+            {"gpu_type": "GB10", "gpu_count": 1}
+        )
+        rtx = run_leg.pool_candidates(
+            {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
+        )
+        two_gpu = run_leg.pool_candidates(
+            {"gpu_type": "GB10", "gpu_count": 2}
+        )
+
+        self.assertEqual(spark, ["SPARK", "Spark-ba-WiFi"])
+        self.assertEqual(rtx, ["vss-eval-rtx-2g-VM1b"])
+        self.assertEqual(two_gpu, [])
+
+    def test_pool_snapshot_includes_allowlisted_spark_node(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_brev_instances = lambda: []
+            run_leg._list_registered_nodes = lambda: [
+                {"name": "Spark-ba-WiFi", "status": "Connected"},
+                {"name": "H100-VLM", "status": "Connected"},
+            ]
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "Spark-ba-WiFi"},
+            ):
+                instances = self._orig()
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(
+            [instance["name"] for instance in instances],
+            ["Spark-ba-WiFi"],
+        )
+        self.assertEqual(instances[0]["gpu"], "GB10")
+        self.assertTrue(instances[0]["_registered"])
 
     def test_pool_snapshot_merges_and_normalizes_registered_nodes(self):
         orig_managed = run_leg._list_brev_instances

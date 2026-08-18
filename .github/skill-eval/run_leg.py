@@ -516,8 +516,19 @@ def _list_registered_nodes() -> list[dict]:
     return []
 
 
+def _is_spark_node_name(name: str) -> bool:
+    """Documented Spark BYOH aliases used by registered external nodes."""
+    normalized = name.lower()
+    return (
+        normalized == "spark"
+        or normalized.startswith("spark-")
+        or normalized.startswith("vss-eval-spark")
+        or normalized.startswith("dgx-spark")
+    )
+
+
 def _registered_gpu_hint(name: str) -> str:
-    """Infer hardware only for operator-controlled ``vss-eval-*`` names.
+    """Infer hardware only for operator-controlled pool names.
 
     ``brev ls nodes --json`` currently reports name/status but no GPU model.
     The pool's documented prefixes are therefore the only available hardware
@@ -534,7 +545,22 @@ def _registered_gpu_hint(name: str) -> str:
         return "L40S"
     if normalized.startswith("vss-eval-h100"):
         return "H100"
+    if _is_spark_node_name(name):
+        return "GB10"
     return ""
+
+
+def _is_eval_pool_name(name: str, registered: bool = False) -> bool:
+    """Anchored ``vss-eval-*`` names, plus allowlisted Spark BYOH aliases.
+
+    Managed cloud instances must keep the ``vss-eval-`` prefix. Registered
+    Spark nodes such as ``SPARK`` and ``Spark-ba-WiFi`` are the documented
+    exception: they only become candidates when they appear in
+    ``BREV_REGISTERED_POOL`` and carry a GB10 hardware hint.
+    """
+    if name.startswith("vss-eval-"):
+        return True
+    return registered and _registered_gpu_hint(name) == "GB10"
 
 
 def _parse_pool_names(raw: str) -> set[str]:
@@ -622,7 +648,7 @@ def _loose_gpu_match(want: str, have: str) -> bool:
 def _name_gpu_count_hint(name: str) -> int | None:
     """Fleet-naming gpu_count hint: `*-1g*` → 1, `*-2g*` → 2 (AGENTS.md
     pool convention). None when the name encodes nothing."""
-    if name.lower().startswith(RTX4090_PREFIX):
+    if name.lower().startswith(RTX4090_PREFIX) or _is_spark_node_name(name):
         return 1
     match = re.search(r"-(\d)g(?:-|$)", name)
     return int(match.group(1)) if match else None
@@ -654,11 +680,12 @@ def pool_candidates(
     candidates: list[tuple[str, bool]] = []
     for inst in _list_pool_instances(skill, spec_stem):
         name = inst.get("name") or ""
-        if not name.startswith("vss-eval-"):
+        registered = bool(inst.get("_registered"))
+        if not _is_eval_pool_name(name, registered):
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
             continue
-        if inst.get("_registered") and required_count > 0:
+        if registered and required_count > 0:
             count_hint = _name_gpu_count_hint(name)
             if count_hint is not None and count_hint < required_count:
                 continue
@@ -675,7 +702,7 @@ def pool_candidates(
                     or _loose_gpu_match(required_type, itype)
                     or capability_routed):
                 continue
-        candidates.append((name, bool(inst.get("_registered"))))
+        candidates.append((name, registered))
 
     def sort_key(candidate: tuple[str, bool]) -> tuple[int, int, str]:
         name, registered = candidate
