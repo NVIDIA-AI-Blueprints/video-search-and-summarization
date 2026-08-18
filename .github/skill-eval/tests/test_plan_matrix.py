@@ -488,5 +488,69 @@ class EmitSlugSafety(unittest.TestCase):
                 os.environ["GITHUB_OUTPUT"] = orig
 
 
+class OpenshellRtxpro6000Only(unittest.TestCase):
+    """OPENSHELL_RTXPRO6000_ONLY routes RTXPRO6000BW to the OpenShell cohort."""
+
+    def setUp(self):
+        self._orig_specs = plan_matrix.specs_for_skill
+        self._orig_adapter = plan_matrix.adapter_exists
+        self._orig_platforms = plan_matrix.spec_platform_config
+        self._orig_isfile = plan_matrix.Path.is_file
+        plan_matrix.specs_for_skill = lambda s: FAKE_SPECS.get(s, [])
+        plan_matrix.adapter_exists = lambda s: s in SKILLS_WITH_ADAPTERS
+        plan_matrix.spec_platform_config = lambda p: {"L40S": {"gpu_count": 1}}
+        plan_matrix.Path.is_file = lambda self: True  # type: ignore
+        os.environ["OPENSHELL_RTXPRO6000_ONLY"] = "1"
+
+    def tearDown(self):
+        plan_matrix.specs_for_skill = self._orig_specs
+        plan_matrix.adapter_exists = self._orig_adapter
+        plan_matrix.spec_platform_config = self._orig_platforms
+        plan_matrix.Path.is_file = self._orig_isfile
+        os.environ.pop("OPENSHELL_RTXPRO6000_ONLY", None)
+
+    def test_dedicated_labels_for_rtxpro6000(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("RTXPRO6000BW", {"gpu_count": 1}),
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "rtx-pro-6000",
+                "gpu-rtxpro6000bw",
+                "gpus-1",
+            ],
+        )
+
+    def test_other_platforms_are_omitted(self):
+        plan_matrix.spec_platform_config = lambda p: {
+            "L40S": {"gpu_count": 1},
+            "RTXPRO6000BW": {"gpu_count": 2},
+        }
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual([leg["platform"] for leg in inc], ["RTXPRO6000BW"])
+        self.assertEqual(
+            inc[0]["runs_on"],
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "rtx-pro-6000",
+                "gpu-rtxpro6000bw",
+                "gpus-2",
+            ],
+        )
+
+    def test_harness_only_diff_emits_smoke_leg(self):
+        inc = plan_matrix.build_matrix(
+            [".github/workflows/skills-eval.yml"]
+        )
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["skill"], "vss-deploy-profile")
+        self.assertEqual(inc[0]["spec_stem"], "base")
+        self.assertEqual(inc[0]["platform"], "RTXPRO6000BW")
+        self.assertEqual(inc[0]["kind"], "eval")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
