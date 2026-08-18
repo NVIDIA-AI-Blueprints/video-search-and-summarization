@@ -353,6 +353,20 @@ jobs:
             --ref "${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}" \
             --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
 
+        # Reclaim preinstalled hosted-runner tooling before BuildKit starts allocating
+        # its content store so the native build has sufficient working space.
+      - name: Reclaim disk space for native image build
+        if: >-
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo apt-get clean
+          sudo docker system prune --all --force --volumes
+          df -h /
+          docker system df
+
       - name: Set up Buildx
         if: >-
           steps.candidate-preflight.outputs.skip != 'true' &&
@@ -378,6 +392,17 @@ jobs:
             com.nvidia.vss.image_name=${{ matrix.name }}
             com.nvidia.vss.source_path=${{ matrix.source_path }}
             com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
+
+      - name: Remove local native build cache
+        if: >-
+          always() &&
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        run: |
+          docker buildx prune --all --force || true
+          sudo docker system prune --all --force --volumes || true
+          df -h /
 
       - name: Verify platform staging labels
         if: >-
