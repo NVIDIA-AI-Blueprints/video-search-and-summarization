@@ -38,6 +38,10 @@ include:
   - path: ./nim/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nim.env
+  - path: ./nvstreamer/base.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nvstreamer/.env
+  - path: ./configurators/vss-configurator/docker-compose.yaml
   - path: ./nvstreamer/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/nvstreamer/.env

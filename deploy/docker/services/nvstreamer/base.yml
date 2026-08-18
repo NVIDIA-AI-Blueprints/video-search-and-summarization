@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Template-only NVStreamer definition, referenced through `extends`. This file
-# is deliberately never listed in an `include:` block, so the service never
-# joins a compose project and needs no guard profile to stay stopped. Keeping
-# it separate also matters because `extends` copies `profiles`, so a guard here
-# would leak into every service that extends it.
+# Shared NVStreamer definition. It is both the `extends` template for the
+# variants in compose.yml and a service in its own right: blueprints that need
+# a plain NVStreamer with no configurator to wait for (auto-calibration) select
+# it directly through the nvstreamer-base profile.
+#
+# That guard profile is what keeps it stopped everywhere else, and it must stay
+# paired with `profiles: !override` on every service that extends it. `extends`
+# merges sequences rather than replacing them, so without the override each
+# variant would inherit nvstreamer-base alongside its own profile, and
+# selecting nvstreamer-base would start all of them at once.
 services:
   nvstreamer-base:
     image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
@@ -30,6 +35,7 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
+    profiles: ["nvstreamer-base"]
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -55,6 +61,7 @@ services:
     depends_on:
       vios-apt-cache-init:
         condition: service_completed_successfully
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/vst_data
     deploy:
       restart_policy:
         condition: on-failure
