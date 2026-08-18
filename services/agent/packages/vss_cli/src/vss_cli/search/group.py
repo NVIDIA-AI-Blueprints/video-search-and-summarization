@@ -40,14 +40,14 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
-from . import config as config_mod
-from . import memory as memory_mod
-from . import params as params_mod
-from .exits import Exit
-from .group import Action
-from .group import CommandGroup
-from .group import Context
-from .group import Result
+from vss_cli import config as config_mod
+from vss_cli import memory as memory_mod
+from vss_cli import params as params_mod
+from vss_cli.exits import Exit
+from vss_cli.group import Action
+from vss_cli.group import CommandGroup
+from vss_cli.group import Context
+from vss_cli.group import Result
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -467,7 +467,7 @@ class SearchGroup(CommandGroup):
         persist_error: str | None = None
 
         if memory is not None:
-            from vss_core.search_core import SearchAdapter
+            from .memory_adapter import SearchAdapter
 
             try:
                 memory.service.upsert(
@@ -548,7 +548,7 @@ class SearchGroup(CommandGroup):
 
 
 def _search_memory_input(*, action: str, payload: dict[str, Any], inputs: BaseModel) -> Any:
-    from vss_core.search_core import SearchAdapter
+    from .memory_adapter import SearchAdapter
 
     sensors = [{"id": name} for name in getattr(inputs, "video_sources", []) or []]
     window = None
@@ -580,7 +580,7 @@ def _search_terminal_bundle(
     output: Any,
     search_mode: str,
 ) -> Any:
-    from vss_core.search_core import SearchAdapter
+    from .memory_adapter import SearchAdapter
 
     rows = []
     results = getattr(output, "results", None) or getattr(output, "data", None) or []

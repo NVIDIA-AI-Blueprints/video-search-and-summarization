@@ -7,8 +7,7 @@ Heavy backends load lazily through :func:`build_memory_service`.
 
 This package owns the schema, store, service, and adapter *contract*
 (protocol / ``RecordBundle`` / helpers). Group-specific mappers live with
-their command groups: search in ``vss_core.search_core``, summarize in
-``vss_cli.summarize_memory_adapter``.
+their command groups under ``vss_cli.<group>.memory_adapter``.
 """
 
 from __future__ import annotations

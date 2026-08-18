@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Summary-group mapper from LVS payloads into ``nv.vss.memory/1.0`` records.
 
-Lives with the ``vss summarize`` group rather than in ``vss_core.memory``:
+Lives with the ``vss summarize`` command group rather than in ``vss_core.memory``:
 memory owns the contract (protocol, bundle, helpers) and each command group
 owns the translation from its own backend's shapes.
 

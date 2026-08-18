@@ -59,14 +59,14 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 
-from . import config as config_mod
-from . import memory as memory_mod
-from . import params as params_mod
-from .exits import Exit
-from .group import CommandGroup
-from .group import Context
-from .group import InvalidInput
-from .group import Result
+from vss_cli import config as config_mod
+from vss_cli import memory as memory_mod
+from vss_cli import params as params_mod
+from vss_cli.exits import Exit
+from vss_cli.group import CommandGroup
+from vss_cli.group import Context
+from vss_cli.group import InvalidInput
+from vss_cli.group import Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -78,7 +78,7 @@ if TYPE_CHECKING:
     from vss_core.memory import PersistResult
     from vss_core.memory.models import JobStatus
 
-    from .summarize_memory_adapter import SummaryAdapter
+    from .memory_adapter import SummaryAdapter
 
 #: Route the LVS service exposes under its recorded mount. ``vss configure``
 #: records the ``lvs`` service, so the full path resolves to that service's own
@@ -370,7 +370,7 @@ def _adapter() -> SummaryAdapter:
     ``MemoryAdapter`` protocol cannot type. The adapter holds no state, so an
     instance serves the static builders and the record builders alike.
     """
-    from .summarize_memory_adapter import SummaryAdapter
+    from .memory_adapter import SummaryAdapter
 
     return SummaryAdapter()
 
