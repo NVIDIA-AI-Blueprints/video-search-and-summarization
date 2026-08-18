@@ -16,7 +16,6 @@ from vss_core.memory.adapters import get_adapter
 from vss_core.memory.adapters import register_adapter
 from vss_core.memory.adapters import utc_now_iso
 from vss_core.memory.backends.in_memory import InMemoryStore
-from vss_core.memory.models import FORBIDDEN_EXT_COLLECTIONS
 from vss_core.memory.models import SCHEMA_ID
 from vss_core.memory.models import MemoryGroup
 from vss_core.memory.models import MemoryInput
@@ -265,18 +264,12 @@ def test_unknown_group_rejected() -> None:
 
 
 def test_nested_ext_collections_rejected() -> None:
-    """Parent/child writers must not nest complete collections in ``output.ext``.
-
-    Hard schema rejection is deferred until the command-group PR migrates
-    develop's summarize CLI off nested ``events`` and restores the validator.
-    Until then, adapters under test still prove the parent/child shape by
-    omitting those keys (see ``test_summary_bundle_three_events_no_nested_ext``).
-    """
-    # Soft check: constructing with nested keys is still accepted during the
-    # transitional window, but the documented forbid set names the contract.
-    assert frozenset({"events", "results", "incidents"}) == FORBIDDEN_EXT_COLLECTIONS
-    nested = MemoryOutput.model_validate({"ext": {"events": [{"id": "e1"}]}})
-    assert "events" in (nested.ext or {})
+    with pytest.raises(ValidationError):
+        MemoryOutput.model_validate({"ext": {"events": [{"id": "e1"}]}})
+    with pytest.raises(ValidationError):
+        MemoryOutput.model_validate({"ext": {"results": [{"id": "r1"}]}})
+    with pytest.raises(ValidationError):
+        MemoryOutput.model_validate({"ext": {"incidents": [{"id": "i1"}]}})
 
 
 def test_record_id_rejects_hash_delimiter() -> None:

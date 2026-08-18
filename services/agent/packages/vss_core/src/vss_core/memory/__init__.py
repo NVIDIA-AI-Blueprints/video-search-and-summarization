@@ -6,10 +6,9 @@ Bare ``import vss_core.memory`` must not pull elasticsearch, NAT, or torch.
 Heavy backends load lazily through :func:`build_memory_service`.
 
 This package owns the schema, store, service, and adapter *contract*
-(protocol / ``RecordBundle`` / helpers). Concrete group mappers move to
-their command groups in a follow-up PR; until then ``SummaryAdapter`` is
-still exported from here so develop's summarize CLI keeps importing, and
-``SearchAdapter`` is re-exported from ``vss_core.search_core``.
+(protocol / ``RecordBundle`` / helpers). Group-specific mappers live with
+their command groups: search in ``vss_core.search_core``, summarize in
+``vss_cli.summarize_memory_adapter``.
 """
 
 from __future__ import annotations
@@ -33,8 +32,6 @@ __all__ = [
     "MemoryStore",
     "PersistResult",
     "RecordBundle",
-    "SearchAdapter",
-    "SummaryAdapter",
     "UnifiedMemoryRecord",
     "build_memory_service",
     "get_adapter",
@@ -60,13 +57,9 @@ _LAZY_EXPORTS = {
     "register_adapter": ".adapters",
     "get_adapter": ".adapters",
     "MemoryAdapter": ".adapters",
-    "SummaryAdapter": ".summary_adapter",
-    "SearchAdapter": "vss_core.search_core.memory_adapter",
 }
 
 if TYPE_CHECKING:
-    from vss_core.search_core.memory_adapter import SearchAdapter
-
     from .adapters import LifecycleAdapter
     from .adapters import MemoryAdapter
     from .adapters import RecordBundle
@@ -85,17 +78,13 @@ if TYPE_CHECKING:
     from .store import JobFilters
     from .store import MemoryQuery
     from .store import MemoryStore
-    from .summary_adapter import SummaryAdapter
 
 
 def __getattr__(name: str) -> Any:
     module_name = _LAZY_EXPORTS.get(name)
     if module_name is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    if module_name.startswith("vss_core."):
-        module = import_module(module_name)
-    else:
-        module = import_module(module_name, __name__)
+    module = import_module(module_name, __name__)
     value = getattr(module, name)
     globals()[name] = value
     return value

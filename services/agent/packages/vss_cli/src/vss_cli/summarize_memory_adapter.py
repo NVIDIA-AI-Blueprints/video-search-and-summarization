@@ -1,14 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Transitional summary-group mapper for ``nv.vss.memory/1.0``.
+"""Summary-group mapper from LVS payloads into ``nv.vss.memory/1.0`` records.
 
-Still exported from ``vss_core.memory`` so develop's ``vss summarize`` keeps
-importing. The follow-up command-group PR moves this module next to the
-summarize CLI and deletes the re-export.
+Lives with the ``vss summarize`` group rather than in ``vss_core.memory``:
+memory owns the contract (protocol, bundle, helpers) and each command group
+owns the translation from its own backend's shapes.
 
-One summarize run that uses :meth:`SummaryAdapter.terminal_bundle` persists
-one parent plus one ``event`` child per LVS event. Nested ``output.ext.events``
-collections are rejected by the schema.
+One summarize run persists one parent job record plus one ``event`` child per
+LVS event. Complete event collections are never nested under ``output.ext``.
 """
 
 from __future__ import annotations
@@ -70,54 +69,14 @@ class SummaryAdapter(LifecycleAdapter):
     def build_output(
         *,
         answer: str | None,
-        events: list[dict[str, Any]] | None = None,
         ext: dict[str, Any] | None = None,
-        event_ids: list[str] | None = None,
         media_urls: list[str] | None = None,
         related_job_ids: list[str] | None = None,
         event_count: int | None = None,
     ) -> MemoryOutput:
-        """Build summary output.
-
-        Transitional: when ``events`` is passed (develop summarize CLI), nest
-        them under ``output.ext.events`` so existing callers keep working.
-        Prefer :meth:`terminal_bundle` for parent/child persistence; the
-        follow-up command-group PR switches summarize to that path and stops
-        nesting.
-        """
+        """Build parent summary output — no nested event collections."""
         payload_ext = dict(ext or {})
-        rows = [dict(event) for event in (events or [])]
-        if rows:
-            # Promote start_time → timestamp when missing (windowed recall).
-            normalized: list[dict[str, Any]] = []
-            for row in rows:
-                stamp = row_instant(row)
-                if stamp is None:
-                    raise ValueError(
-                        "event rows require an absolute timestamp "
-                        "(timestamp|start_time|start|ts) for time-windowed recall"
-                    )
-                event = dict(row)
-                if "timestamp" not in event:
-                    # Prefer the caller's absolute string over a re-serialized instant
-                    # so wire form stays identical to start_time when that was given.
-                    raw = event.get("start_time") or event.get("start") or event.get("ts")
-                    event["timestamp"] = str(raw) if raw is not None else stamp.isoformat().replace("+00:00", "Z")
-                normalized.append(event)
-            payload_ext.setdefault("events", normalized)
-            payload_ext.setdefault("event_count", event_count if event_count is not None else len(normalized))
-            if event_ids is None:
-                ids = []
-                for event in normalized:
-                    for key in ("event_id", "id", "uuid"):
-                        if event.get(key) is not None:
-                            ids.append(str(event[key]))
-                            break
-                if ids:
-                    payload_ext.setdefault("event_ids", ids)
-            else:
-                payload_ext.setdefault("event_ids", list(event_ids))
-        elif event_count is not None:
+        if event_count is not None:
             payload_ext.setdefault("event_count", event_count)
         handles = None
         if media_urls or related_job_ids:
