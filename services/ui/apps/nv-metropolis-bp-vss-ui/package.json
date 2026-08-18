@@ -16,10 +16,11 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "common": "*",
     "@nemo-agent-toolkit/ui": "0.1.1",
     "@nv-metropolis-bp-vss-ui/all": "*",
+    "@nv-metropolis-bp-vss-ui/chat": "*",
     "@tabler/icons-react": "^2.9.0",
+    "common": "*",
     "jsdom": "27.0.1",
     "next": "15.5.18",
     "next-i18next": "^13.2.2",

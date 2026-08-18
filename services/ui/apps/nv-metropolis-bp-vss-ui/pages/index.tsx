@@ -9,11 +9,11 @@ import { APPLICATION_TITLE } from '../constants/constants';
 export const getServerSideProps: GetServerSideProps = async (context) => {
   try {
     // Import server-side functions dynamically
-    const { getNemoAgentToolkitSSProps } = await import('@nemo-agent-toolkit/ui/server');
+    const { getChatServerSideProps } = await import('@nv-metropolis-bp-vss-ui/chat/server');
     const { fetchAlertsData, fetchSearchData, fetchDashboardData, fetchMapData, fetchVideoManagementData } = await import('@nv-metropolis-bp-vss-ui/all/server');
     
-    // Get base props from NemoAgentToolkit (includes i18n translations)
-    const nemoProps = await getNemoAgentToolkitSSProps(context);
+    // Base chat props (i18n translations, default model)
+    const chatProps = await getChatServerSideProps(context);
     
     // Fetch data for our new components in parallel for better performance
     const [alertsData, searchData, dashboardData, mapData, videoManagementData] = await Promise.all([
@@ -27,7 +27,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     // Chain/Merge all props
     return {
       props: {
-        ...nemoProps.props,        // Spread NemoAgentToolkit props (i18n, etc.)
+        ...('props' in chatProps ? chatProps.props : {}),  // i18n, default model
         alertsData,                // Add Alerts data from package
         searchData,                // Add Search data from package
         dashboardData,             // Add Dashboard data from package

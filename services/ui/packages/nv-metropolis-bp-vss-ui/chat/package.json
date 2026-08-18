@@ -13,6 +13,11 @@
       "import": "./lib/server.js",
       "require": "./lib/server.js",
       "types": "./lib/server.d.ts"
+    },
+    "./api": {
+      "import": "./lib/api.js",
+      "require": "./lib/api.js",
+      "types": "./lib/api.d.ts"
     }
   },
   "files": [
@@ -28,14 +33,16 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "common": "*",
     "@nvidia/foundations-react-core": "0.600.0",
     "@tabler/icons-react": "^2.9.0",
     "chart.js": "^4.4.1",
+    "common": "*",
     "eventsource-parser": "^0.1.0",
     "file-saver": "^2.0.5",
     "idb": "^8.0.3",
     "isomorphic-dompurify": "^2.26.0",
+    "next": "15.5.18",
+    "next-i18next": "^13.2.2",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",

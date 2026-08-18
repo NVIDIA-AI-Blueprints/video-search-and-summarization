@@ -1,87 +1,72 @@
 // SPDX-License-Identifier: MIT
 require('@testing-library/jest-dom');
-require('whatwg-fetch');
 
-// Mock IntersectionObserver
+// whatwg-fetch replaces Response with one that cannot accept a ReadableStream
+// body, so it is loaded only for DOM tests. Server tests declare
+// `@jest-environment node` and use Node's native fetch primitives instead.
+if (typeof globalThis.window !== 'undefined') {
+  require('whatwg-fetch');
+}
+
+// jsdom ships no web streams; the SSE decoding path needs them.
+const { ReadableStream, WritableStream, TransformStream } = require('node:stream/web');
+globalThis.ReadableStream = globalThis.ReadableStream || ReadableStream;
+globalThis.WritableStream = globalThis.WritableStream || WritableStream;
+globalThis.TransformStream = globalThis.TransformStream || TransformStream;
+
+// Node's own codecs: the decoder must honour { stream: true } so multi-byte
+// characters split across chunks survive reassembly.
+const { TextEncoder, TextDecoder } = require('node:util');
+globalThis.TextEncoder = globalThis.TextEncoder || TextEncoder;
+globalThis.TextDecoder = globalThis.TextDecoder || TextDecoder;
+
 globalThis.IntersectionObserver = jest.fn(() => ({
   disconnect: jest.fn(),
   observe: jest.fn(),
   unobserve: jest.fn(),
 }));
 
-// Mock ResizeObserver
 globalThis.ResizeObserver = jest.fn(() => ({
   disconnect: jest.fn(),
   observe: jest.fn(),
   unobserve: jest.fn(),
 }));
 
-// Mock window-specific globals (only in browser/jsdom environment)
-if (globalThis.window !== undefined) {
-  // Mock window.matchMedia
+if (typeof globalThis.window !== 'undefined') {
   Object.defineProperty(globalThis, 'matchMedia', {
     writable: true,
     value: jest.fn().mockImplementation((query) => ({
       matches: false,
       media: query,
       onchange: null,
-      addListener: jest.fn(), // deprecated
-      removeListener: jest.fn(), // deprecated
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
       addEventListener: jest.fn(),
       removeEventListener: jest.fn(),
       dispatchEvent: jest.fn(),
     })),
   });
 
-  // Mock window.scrollTo
-  Object.defineProperty(globalThis, 'scrollTo', {
-    writable: true,
-    value: jest.fn(),
-  });
+  Object.defineProperty(globalThis, 'scrollTo', { writable: true, value: jest.fn() });
 
-  // Mock sessionStorage
-  const localStorageMock = {
+  const storageMock = {
     getItem: jest.fn(),
     setItem: jest.fn(),
     removeItem: jest.fn(),
     clear: jest.fn(),
   };
+  Object.defineProperty(globalThis, 'sessionStorage', { value: storageMock });
+  Object.defineProperty(globalThis, 'localStorage', { value: storageMock });
 
-  Object.defineProperty(globalThis, 'sessionStorage', {
-    value: localStorageMock,
-  });
-
-  Object.defineProperty(globalThis, 'localStorage', {
-    value: localStorageMock,
-  });
-
-  // Mock window.open for OAuth testing
   Object.defineProperty(globalThis, 'open', {
     writable: true,
-    value: jest.fn(() => ({
-      close: jest.fn(),
-      closed: false,
-    })),
+    value: jest.fn(() => ({ close: jest.fn(), closed: false })),
   });
 }
 
-// Mock TextEncoder and TextDecoder for Edge runtime compatibility
-globalThis.TextEncoder = class TextEncoder {
-  encode(string) {
-    return new Uint8Array(Buffer.from(string, 'utf8'));
-  }
-};
-
-globalThis.TextDecoder = class TextDecoder {
-  decode(bytes) {
-    return Buffer.from(bytes).toString('utf8');
-  }
-};
-
-// Reset all mocks before each test
 beforeEach(() => {
   jest.clearAllMocks();
-  if (globalThis.window !== undefined && globalThis.localStorage) {
+  if (typeof globalThis.window !== 'undefined' && globalThis.localStorage) {
     globalThis.localStorage.getItem.mockClear();
     globalThis.localStorage.setItem.mockClear();
     globalThis.localStorage.removeItem.mockClear();

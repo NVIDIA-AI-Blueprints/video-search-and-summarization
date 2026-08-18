@@ -27,8 +27,10 @@ module.exports = {
       'fi',
     ],
   },
+  // Resolved from this app's own public/ rather than a dependency's node_modules,
+  // so the locale files ship with the app and survive removing any UI package.
   localePath:
     typeof window === 'undefined'
-      ? require('path').resolve('../../node_modules/@nemo-agent-toolkit/ui/lib/public/locales')
+      ? require('path').resolve('./public/locales')
       : '/public/locales',
 };
