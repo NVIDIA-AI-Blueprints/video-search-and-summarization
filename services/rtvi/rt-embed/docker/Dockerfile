@@ -51,7 +51,9 @@ COPY docker/binaries/igpu/libnvbufsurface.so \
      /tmp/igpu-tegra/
 RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
     if [ "$ARM_PLATFORM" = "igpu" ]; then \
-        mkdir -p /usr/lib/aarch64-linux-gnu/tegra && \
+        if [ ! -e /usr/lib/aarch64-linux-gnu/tegra ]; then \
+            mkdir -p /usr/lib/aarch64-linux-gnu/tegra; \
+        fi && \
         cp /tmp/igpu-tegra/libnvbufsurface.so /tmp/igpu-tegra/libnvbufsurftransform.so /usr/lib/aarch64-linux-gnu/tegra/; \
     fi && \
     rm -rf /tmp/igpu-tegra && \

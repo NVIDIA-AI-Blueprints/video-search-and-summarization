@@ -367,6 +367,17 @@ class SelectImagesTest(unittest.TestCase):
         self.assertEqual(workflow.count(verifier), 2)
         self.assertEqual(workflow.count("LFS assets not materialized"), 2)
 
+    def test_workflow_passes_dash_prefixed_variant_suffix_unambiguously(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        workflow = (
+            repo_root / ".github/workflows/build-dev-images.yml"
+        ).read_text()
+
+        self.assertEqual(
+            workflow.count('--tag-suffix="${{ matrix.tag_suffix }}"'), 3
+        )
+        self.assertNotIn('--tag-suffix "${{ matrix.tag_suffix }}"', workflow)
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
