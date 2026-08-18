@@ -98,6 +98,10 @@ services:
     volumes:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
       - vios_apt_cache:/opt/apt-cache:ro
+      # Run the cache-aware host script (same as the init container and the
+      # NVStreamer consumers already do) instead of the image's baked-in copy,
+      # so this consumer installs from the shared cache rather than downloading.
+      - ./scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
