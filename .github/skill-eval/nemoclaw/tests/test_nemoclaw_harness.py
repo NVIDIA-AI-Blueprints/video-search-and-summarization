@@ -427,6 +427,7 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertNotIn("nemoclaw list --json", command)
         self.assertNotIn("openshell sandbox get", command)
         self.assertIn('export HOME="$host_home/.skill-eval/nemoclaw-home"', command)
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', command)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", command)
         self.assertIn(
             "nemoclaw skill-eval destroy --yes --force --cleanup-gateway",
