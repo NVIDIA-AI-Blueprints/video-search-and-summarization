@@ -195,10 +195,23 @@ def _store(memory: memory_mod.Memory) -> _Store:
 
 
 def _persisted(memory: memory_mod.Memory) -> dict[str, Any]:
-    """The one record the run wrote, as it would come back from `get`."""
+    """The one parent record the run wrote, as it would come back from `get`."""
     records = memory.service.list_jobs()
     assert len(records) == 1, records
     return records[0].model_dump_memory()
+
+
+def _persisted_event_children(memory: memory_mod.Memory) -> list[dict[str, Any]]:
+    """The parent's ``event`` child records, oldest event first."""
+    from vss_core.memory.store import MemoryQuery
+
+    parent = _persisted(memory)
+    children = memory.service.query(MemoryQuery(job_id=parent["job"]["job_id"], record_type="event", limit=100))
+    ordered = sorted(
+        children,
+        key=lambda item: item.input.window.start.timestamp if item.input and item.input.window else item.job.created_at,
+    )
+    return [child.model_dump_memory() for child in ordered]
 
 
 #: LVS requires model, scenario and events on every request. The model is
@@ -515,7 +528,14 @@ def test_persist_writes_one_unified_memory_record(
     assert record["job"]["status"] == "completed"
     assert record["input"]["sensors"][0]["id"] == "v1"
     assert record["output"]["answer"] == "a forklift crosses the aisle"
-    assert body["persist"] == {"status": "complete", "index": memory.index, "group": "summary", "events": 0}
+    assert body["persist"] == {
+        "status": "complete",
+        "index": memory.index,
+        "group": "summary",
+        "events": 0,
+        "expected": 1,
+        "written": 1,
+    }
 
 
 def test_the_record_exists_before_the_summary_does(
@@ -565,10 +585,18 @@ def test_structured_output_becomes_answer_and_events(
 
     record = _persisted(memory)
     assert record["output"]["answer"] == "a forklift crosses"
-    # The adapter normalizes each row by promoting its time to `timestamp`,
-    # which is the field windowed recall filters on.
-    assert record["output"]["ext"]["events"] == [{**event, "timestamp": event["start_time"]}]
-    assert json.loads(result.output)["persist"]["events"] == 1
+    # Events are child records now, never a nested collection on the parent.
+    assert "events" not in record.get("output", {}).get("ext", {})
+    assert record["output"]["ext"]["event_count"] == 1
+    (child,) = _persisted_event_children(memory)
+    assert child["job"]["record_type"] == "event"
+    assert child["output"]["answer"] == "forklift enters"
+    assert child["output"]["ext"]["event_type"] == "forklift"
+    assert child["input"]["window"]["start"]["timestamp"] == "2025-01-01T00:00:00Z"
+    assert child["input"]["window"]["end"]["timestamp"] == "2025-01-01T00:00:10Z"
+    body = json.loads(result.output)
+    assert body["persist"]["events"] == 1
+    assert body["persist"]["written"] == 2  # parent + one child
 
 
 def test_epoch_event_times_become_instants(
@@ -587,10 +615,9 @@ def test_epoch_event_times_become_instants(
     result = _run("--id", "v1", "--creation-time", "2025-01-01T00:00:00Z")
     assert result.exit_code == 0, result.output
 
-    (event,) = _persisted(memory)["output"]["ext"]["events"]
-    assert event["start_time"] == "2025-01-01T00:00:00Z"
-    assert event["end_time"] == "2025-01-01T00:02:00Z"
-    assert event["timestamp"] == "2025-01-01T00:00:00Z"
+    (child,) = _persisted_event_children(memory)
+    assert child["input"]["window"]["start"]["timestamp"] == "2025-01-01T00:00:00Z"
+    assert child["input"]["window"]["end"]["timestamp"] == "2025-01-01T00:02:00Z"
 
 
 def test_offsets_are_anchored_to_the_creation_time(
@@ -606,9 +633,9 @@ def test_offsets_are_anchored_to_the_creation_time(
     result = _run("--id", "v1", "--creation-time", "2025-01-01T00:00:00Z")
     assert result.exit_code == 0, result.output
 
-    (event,) = _persisted(memory)["output"]["ext"]["events"]
-    assert event["start_time"] == "2025-01-01T00:00:00Z"
-    assert event["end_time"] == "2025-01-01T00:00:30.500000Z"
+    (child,) = _persisted_event_children(memory)
+    assert child["input"]["window"]["start"]["timestamp"] == "2025-01-01T00:00:00Z"
+    assert child["input"]["window"]["end"]["timestamp"] == "2025-01-01T00:00:30.500000Z"
 
 
 def test_offsets_without_a_creation_time_name_the_flag_that_fixes_it(
@@ -1060,7 +1087,7 @@ def test_another_groups_job_is_not_this_groups_to_return(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
     """`summarize get` must not hand back a search job that shares the index."""
-    from vss_core.memory import SearchAdapter
+    from vss_core.search_core import SearchAdapter
 
     foreign = SearchAdapter().submitted_record(
         job_id="search-01",

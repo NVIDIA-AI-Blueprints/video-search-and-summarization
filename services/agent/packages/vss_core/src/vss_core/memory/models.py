@@ -256,16 +256,14 @@ class MemoryOutput(BaseModel):
     @field_validator("ext", mode="after")
     @classmethod
     def _reject_nested_collections(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        """Placeholder for nested-collection rejection.
-
-        Parent/child writers already omit ``events`` / ``results`` /
-        ``incidents`` from ``output.ext``. A hard reject here would break
-        develop's summarize CLI, which still nests ``events`` via the
-        transitional :class:`~vss_core.memory.summary_adapter.SummaryAdapter`.
-        The follow-up command-group PR migrates summarize to
-        ``terminal_bundle`` and restores the hard reject against
-        :data:`FORBIDDEN_EXT_COLLECTIONS`.
-        """
+        if value is None:
+            return None
+        forbidden = FORBIDDEN_EXT_COLLECTIONS.intersection(value)
+        if forbidden:
+            raise ValueError(
+                "output.ext must not contain complete nested collections "
+                f"{sorted(forbidden)}; persist those as child records"
+            )
         return value
 
 
