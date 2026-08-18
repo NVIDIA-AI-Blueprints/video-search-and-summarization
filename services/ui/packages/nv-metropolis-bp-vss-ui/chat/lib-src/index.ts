@@ -41,3 +41,54 @@ export { downloadImageFromUrl } from './utils/media/download';
 export { isValidConsentPromptURL } from './utils/security/oauth-validation';
 export { validateProxyHttpPath } from './utils/security/url-validation';
 export type { PathValidationResult } from './utils/security/url-validation';
+
+// Conversation model
+export type {
+  CallerInfo,
+  ChatBody,
+  Conversation,
+  CustomAgentParams,
+  Message,
+  QueryDataContext,
+  Role,
+} from './types/chat';
+export { CONVERSATION_TITLE_MAX_LENGTH, NEW_CONVERSATION_NAME } from './types/chat';
+
+// Agent WebSocket protocol
+export {
+  extractOAuthUrl,
+  isErrorMessage,
+  isOAuthConsentMessage,
+  isSystemInteractionMessage,
+  isSystemIntermediateMessage,
+  isSystemResponseComplete,
+  isSystemResponseInProgress,
+  isSystemResponseMessage,
+  shouldAppendResponseContent,
+  validateConversationId,
+  validateWebSocketMessage,
+  validateWebSocketMessageWithConversationId,
+} from './types/websocket';
+export type {
+  ErrorMessage,
+  IntermediateStep,
+  SystemInteractionMessage,
+  SystemIntermediateMessage,
+  SystemResponseMessage,
+  SystemResponseStatus,
+  WebSocketInbound,
+  WebSocketMessageBase,
+} from './types/websocket';
+
+// Conversation transforms
+export {
+  appendAssistantText,
+  applyMessageUpdate,
+  createAssistantMessage,
+  extractConversationContent,
+  mergeIntermediateSteps,
+  shouldAppendResponse,
+  shouldRenderAssistantMessage,
+  updateAssistantMessage,
+} from './utils/chatTransform';
+export { processIntermediateMessage } from './utils/intermediateSteps';
