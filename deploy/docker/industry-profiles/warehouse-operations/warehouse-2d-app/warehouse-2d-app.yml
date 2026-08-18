@@ -46,18 +46,11 @@ services:
     container_name: vss-behavior-analytics-playback
     command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_loading_dock_playback.json
 
-  bp-configurator-2d-init:
-    extends:
-      file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
-      service: bp-configurator-init-base
-    profiles: ["bp-configurator-2d-init"]
-    container_name: vss-configurator-2d-init
-
   bp-configurator-2d:
     extends:
       file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
       service: bp-configurator-base
-    profiles: ["bp-configurator-2d"]
+    profiles: !override ["bp-configurator-2d"]
     container_name: vss-configurator
     networks:
       default:
@@ -72,6 +65,7 @@ services:
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false
       SEND_CONFIG_TO_SDR: false
+      CALL_SENSOR_ADD_API: true
     env_file:
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
@@ -79,7 +73,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      bp-configurator-2d-init:
+      broker-health-check:
         condition: service_completed_successfully
 
   perception-2d:
