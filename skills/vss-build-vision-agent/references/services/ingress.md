@@ -12,9 +12,10 @@ A bridge-network reverse proxy that fronts HTTP surfaces on one origin (default
 port `7777`) behind a host-header allowlist. It is infrastructure, not a
 capability producer — it only routes to owners the build already deploys. Two
 independent uses: (a) the interactive tier's public front door (UI + agent);
-(b) a single origin for a headless build, fronting its **browse** and host-CLI
-**operate** surfaces (detailed below). It is reached only when the request asks
-to expose surfaces through one origin; otherwise it is pruned. NvStreamer is
+(b) foundational single-origin access for headless bridge-network developer
+builds, fronting their **browse** and host-CLI **operate** surfaces (detailed
+below). Prune it only for explicitly internal/no-external-access builds that do
+not need a browser, host CLI, or external smoke-test entry point. NvStreamer is
 never fronted here (see below).
 
 ## Required peers
@@ -30,10 +31,11 @@ never fronted here (see below).
 
 ## Headless single-origin ingress
 
-This section applies only when the build includes `vss-haproxy-ingress`. A
-headless build that exposes no single origin prunes the proxy (see Access role)
-and produces no curated patch — do not reach for it when no service-definition
-change to the ingress is needed.
+This section applies when a headless build includes `vss-haproxy-ingress` for
+bridge-network external access. An explicitly internal/no-external-access build
+can prune the proxy (see Access role) and produces no curated patch; otherwise,
+the proxy needs the curated patch whenever pruned services would leave dead
+routes in the shipped full-stack template.
 
 The shipped `haproxy.cfg.template` is authored for the full stack: its catch-all
 plus the `/api/chat`, `/chat`, `/static`, `/websocket`, `/phoenix`, and `/va-mcp`
