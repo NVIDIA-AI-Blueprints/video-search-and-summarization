@@ -5,11 +5,11 @@ Use these implementations with the ordered stages in `SKILL.md`.
 - [Resolve endpoints](#resolve-endpoints)
 - [Probe readiness](#probe-readiness)
 - [Prepare the video through VIOS](#prepare-the-video-through-vios)
-- [Submit one LVS request](#submit-one-lvs-request)
+- [Submit one summarize job](#submit-one-summarize-job)
 - [Run an approved VLM fallback](#run-an-approved-vlm-fallback)
 
-Do not run a direct VLM fallback when LVS is ready, and do not rerun the LVS
-POST with broader events when the response is empty.
+Do not run a direct VLM fallback when LVS is ready, and do not rerun the
+summarize job with broader events when the result is empty.
 
 ### Resolve endpoints
 
@@ -38,9 +38,10 @@ else
   VLM="${VLM%/v1}"
 fi
 
-LVS_REQUEST=/tmp/vss-summarize-video-request.json
-LVS_RESPONSE=/tmp/vss-summarize-video-response.json
 ```
+
+Readiness and the VIOS preparation below use these. The summarize request
+itself takes no endpoint: `vss configure` recorded it (SKILL.md prerequisites).
 
 ### Probe readiness
 
@@ -101,7 +102,13 @@ else
     -H "Content-Type: application/octet-stream" \
     -H "Content-Length: $FILE_SIZE" \
     --upload-file "$SOURCE_FILE" > /tmp/vios-upload.json
+  # The upload answers with both ids. Read the sensor one rather than assuming
+  # the stream id equals it: it does for an uploaded file today, but the record
+  # is keyed by sensor, and a sensor carrying several streams breaks that.
   STREAM_ID=$(jq -er '.streamId' /tmp/vios-upload.json)
+  SENSOR_ID=$(jq -er '.sensorId' /tmp/vios-upload.json)
+  # VIOS anchors an uploaded file's timeline to this, so it is the media start.
+  UPLOADED_AT="$UPLOAD_TIMESTAMP"
 fi
 
 for _ in $(seq 1 20); do
@@ -151,86 +158,117 @@ if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
 fi
 ```
 
-### Submit one LVS request
+### Submit one summarize job
 
-Assume video preparation established `$CLIP` and `$DURATION`. Resolve the model,
-then issue exactly one summarize request.
+Assume video preparation established `$CLIP`, and the SKILL.md prerequisites
+resolved `${VSS[@]}` and ran `vss configure`. One `vss summarize run` is exactly
+one `POST /v1/summarize`; the CLI resolves the LVS endpoint and the default
+model from the recorded deployment, so no model discovery is needed here and no
+payload is built by hand.
 
 ```bash
-# HITL (required, before the curl): collect the Stage 3 scenario/events and
-# wait for the user's reply. Substitute their values (or the `defaults` opt-in)
-# into $SCENARIO, $EVENTS_JSON, and $OBJECTS_JSON below. Do not run the curl
-# without that reply.
+# HITL (required, before the run): collect the Stage 3 scenario/events and wait
+# for the user's reply. Substitute their values (or the `defaults` opt-in) into
+# $SCENARIO and the arrays below. Do not run the command without that reply.
 SCENARIO='warehouse monitoring'            # or whatever the user gave
-EVENTS_JSON='["notable activity"]'         # jq-compatible JSON array
-OBJECTS_JSON=''                            # '' to omit, else '["cars","trucks"]'
+EVENTS=("notable activity")                # one array element per event
+OBJECTS=()                                 # empty to omit
 
-# --- Model discovery ---
-# Docker: LVS GET /models (authoritative for summarize).
-# Kubernetes: LVS /models is not on Ingress — use Exact RT-VLM /v1/models
-# (or VLM_NAME when set).
-if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
-  LVS_MODEL=$(curl -fsS "$VLM/v1/models" | jq -er --arg preferred "${VLM_NAME:-}" '
-    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
-    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
-      elif ($ids | length) == 1 then $ids[0]
-      else empty end
-  ') || { echo "Set VLM_NAME to an advertised RT-VLM model id"; return 1 2>/dev/null || exit 1; }
+# The record's identity is the sensor, never the stream: `list --sensor-id` and
+# time-windowed recall key on the sensor, so a summary filed under a stream id
+# is one nothing can find again. Both preparation paths above resolved one.
+VIDEO_ID="$SENSOR_ID"
+[ -n "$VIDEO_ID" ] || {
+  echo "no VIOS sensor id resolved; do not persist under a stream id"
+  return 1 2>/dev/null || exit 1
+}
+# The media's absolute start: the timestamp this run anchored the upload to, or
+# for a recording that was already in VIOS, the start VIOS reports for it --
+# never a constant standing in for media someone else uploaded. Without
+# --creation-time the event times are clip offsets, which unified memory cannot
+# store as instants (exit 6, summary intact).
+CREATION_TIME="${UPLOADED_AT:-$START_TIME}"
+[ -n "$CREATION_TIME" ] || {
+  echo "no VIOS timeline start resolved; event times would not be instants"
+  return 1 2>/dev/null || exit 1
+}
+SUMMARIZE_OUT=/tmp/vss-summarize-video-run.json
+
+SUMMARIZE_COMMAND=(
+  "${VSS[@]}" summarize run
+  --url "$CLIP"
+  --video-id "$VIDEO_ID"
+  --scenario "$SCENARIO"
+  --creation-time "$CREATION_TIME"
+  --chunk-duration 10
+  --seed 1
+)
+for event in "${EVENTS[@]}"; do
+  SUMMARIZE_COMMAND+=(--event "$event")
+done
+for object in "${OBJECTS[@]}"; do
+  SUMMARIZE_COMMAND+=(--object-of-interest "$object")
+done
+
+# Exactly one run, ever. Keep stdout: its final line is the completion marker.
+if "${SUMMARIZE_COMMAND[@]}" > "$SUMMARIZE_OUT"; then
+  SUMMARIZE_EXIT=0
 else
-  LVS_OPENAPI=/tmp/vss-lvs-openapi.json
-  curl -fsS "$VIDEO_SUMMARIZATION_URL/openapi.json" > "$LVS_OPENAPI"
-  jq -e '.paths["/v1/summarize"].post.requestBody.content["application/json"].schema' \
-    "$LVS_OPENAPI" >/dev/null
-  LVS_MODEL=$(curl -fsS "$VIDEO_SUMMARIZATION_URL/models" | jq -er --arg preferred "${VLM_NAME:-}" '
-    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
-    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
-      elif ($ids | length) == 1 then $ids[0]
-      else empty end
-  ') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
+  SUMMARIZE_EXIT=$?
 fi
 
-jq -n --arg url "$CLIP" \
-      --arg model "$LVS_MODEL" \
-      --arg scenario "$SCENARIO" \
-      --argjson events "$EVENTS_JSON" \
-      --argjson objects "${OBJECTS_JSON:-null}" '{
-    url: $url,
-    model: $model,
-    scenario: $scenario,
-    events: $events,
-    chunk_duration: 10,
-    seed: 1
-  } + (if $objects == null then {} else {objects_of_interest: $objects} end)' \
-  > "$LVS_REQUEST"
-
-# Exactly one summarize POST. Save the raw body for parsing and diagnosis.
-# Keep a long timeout — LVS chunk→VLM→aggregate can exceed 50s; Ingress allows 600s.
-LVS_HTTP_CODE=$(curl -sS --max-time 300 -o "$LVS_RESPONSE" -w '%{http_code}' \
-  -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
-  -H "Content-Type: application/json" \
-  --data-binary "@$LVS_REQUEST")
-LVS_CURL_EXIT=$?
-
-if [ "$LVS_CURL_EXIT" -ne 0 ]; then
-  echo "video summarization request failed (curl exit $LVS_CURL_EXIT, HTTP $LVS_HTTP_CODE)"
-elif [[ "$LVS_HTTP_CODE" != 2* ]]; then
-  echo "video summarization request failed (HTTP $LVS_HTTP_CODE)"
-  jq . "$LVS_RESPONSE" 2>/dev/null || cat "$LVS_RESPONSE"
-elif ! jq -e '{
-         usage: (.usage // {}),
-         result: (.choices[0].message.content | fromjson | {video_summary, events})
-       }' "$LVS_RESPONSE"; then
-  echo "video summarization returned no parseable choices[0].message.content"
-  jq . "$LVS_RESPONSE" 2>/dev/null || cat "$LVS_RESPONSE"
+# A call refused before a job is minted -- a rejected flag, no recorded
+# deployment -- writes no marker, so the stderr diagnostic is the whole result
+# and parsing stdout would replace it with a jq error. Test emptiness, not the
+# exit code: an exit 2 from LVS rejecting the request does carry a marker, and
+# the failure branch below reports it.
+if [ ! -s "$SUMMARIZE_OUT" ]; then
+  echo "no job was created (exit $SUMMARIZE_EXIT): fix the call or run vss configure, then run once"
+  return 1 2>/dev/null || exit 1
 fi
+JOB_ID=$(tail -1 "$SUMMARIZE_OUT" | jq -er '.job_id')
+echo "exit=$SUMMARIZE_EXIT job=$JOB_ID"
+
+# Only exits 0 and 6 carry a summary. Every other marker reports status,
+# record, and error in its place, so it is the whole result: print it and stop
+# rather than parsing a summary that is not there.
+case "$SUMMARIZE_EXIT" in
+  0) ;;
+  6) echo "summary produced, persistence failed — present it as unpersisted" ;;
+  7)
+    tail -1 "$SUMMARIZE_OUT" | jq -e '{job_id, status, record}'
+    echo "timed out — reconcile once: ${VSS[*]} summarize get --job-id $JOB_ID"
+    return 1 2>/dev/null || exit 1
+    ;;
+  *)
+    tail -1 "$SUMMARIZE_OUT" | jq -e '{job_id, status, record, error}'
+    echo "summarize failed (exit $SUMMARIZE_EXIT, job $JOB_ID)"
+    echo "the marker means it was submitted: report this job, do not resubmit it"
+    return 1 2>/dev/null || exit 1
+    ;;
+esac
+
+# The LVS envelope is nested under .summary, otherwise unchanged.
+tail -1 "$SUMMARIZE_OUT" | jq -e '{
+  usage: (.summary.usage // {}),
+  result: (.summary.choices[0].message.content | fromjson | {video_summary, events})
+}'
 ```
 
-For any failure, inspect `$LVS_RESPONSE` and service logs. Never repeat the POST
-to obtain a different view of the response.
+The same marker reports the write, so nothing needs to be read back:
 
-If both result fields are empty, use `usage.total_chunks_processed` from the
-same parsed response to report whether LVS processed any media. Do not infer
-"no detections" when that value is zero or missing.
+```bash
+# status `complete`, the index it landed in, and how many events went with it.
+tail -1 "$SUMMARIZE_OUT" | jq -e '.persist'
+```
+
+For any failure, inspect `$SUMMARIZE_OUT`, the stderr diagnostic, and service
+logs. Never repeat the run to obtain a different view of the result — exits 6
+and 7 mean the summarization already happened.
+
+If both result fields are empty, use `summary.usage.total_chunks_processed` from
+the same payload to report whether LVS processed any media. Do not infer "no
+detections" when that value is zero or missing.
 
 ### Run an approved VLM fallback
 
