@@ -104,17 +104,6 @@ network_policies:
     binaries:
       - { path: /usr/local/bin/openclaw }
 
-  npm_registry:
-    name: npm_registry
-    endpoints:
-      - host: registry.npmjs.org
-        port: 443
-        access: full
-    binaries:
-      - { path: /usr/local/bin/openclaw }
-      - { path: /usr/local/bin/npm }
-      - { path: /usr/local/bin/node }
-
   telegram:
     name: telegram
     endpoints:
