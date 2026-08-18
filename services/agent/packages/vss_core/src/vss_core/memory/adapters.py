@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from hashlib import sha256
+import json
 from typing import Any
 from typing import Protocol
 
@@ -26,14 +27,90 @@ from .models import MemoryGroup
 from .models import MemoryInput
 from .models import MemoryOutput
 from .models import RecordType
+from .models import TimestampPoint
+from .models import TimeWindow
 from .models import UnifiedMemoryRecord
+from .store import coerce_utc_instant
 
 _ADAPTER_REGISTRY: dict[MemoryGroup, type[MemoryAdapter]] = {}
+
+#: Row keys that may carry a result row's start instant, in precedence order.
+START_INSTANT_KEYS: tuple[str, ...] = ("timestamp", "start_time", "start", "ts")
+
+#: Row keys that may carry a result row's end instant, in precedence order.
+END_INSTANT_KEYS: tuple[str, ...] = ("end_time", "end", "end_ts")
 
 
 def utc_now_iso() -> str:
     """Return the current UTC instant as an ISO-8601 ``Z`` string."""
     return datetime_to_iso8601(datetime.now(UTC))
+
+
+def utc_instant(value: str | datetime) -> datetime:
+    """Parse a required UTC instant, rejecting empty/naive/unparseable values."""
+    parsed = coerce_utc_instant(value)
+    if parsed is None:
+        raise ValueError("timestamp is required")
+    return parsed
+
+
+def row_instant(row: dict[str, Any], *, keys: tuple[str, ...] = START_INSTANT_KEYS) -> datetime | None:
+    """First parseable instant among ``keys``; ``None`` when the row carries none.
+
+    Group-agnostic: nested ``{"timestamp": ...}`` points and bare scalars both
+    resolve, so adapters do not each re-implement row time extraction.
+    """
+    for key in keys:
+        value = row.get(key)
+        if isinstance(value, dict):
+            value = value.get("timestamp")
+        if value is None:
+            continue
+        if isinstance(value, datetime):
+            return utc_instant(value)
+        if str(value).strip():
+            return utc_instant(str(value))
+    return None
+
+
+def window_from_row(
+    row: dict[str, Any],
+    *,
+    start_keys: tuple[str, ...] = START_INSTANT_KEYS,
+    end_keys: tuple[str, ...] = END_INSTANT_KEYS,
+) -> TimeWindow | None:
+    """Build a child ``input.window`` from a result row, or ``None`` if untimed."""
+    start = row_instant(row, keys=start_keys)
+    if start is None:
+        return None
+    end = row_instant(row, keys=end_keys)
+    return TimeWindow(
+        start=TimestampPoint(timestamp=start),
+        end=TimestampPoint(timestamp=end) if end is not None else None,
+    )
+
+
+def collect_values(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[str]:
+    """Ordered, de-duplicated string values pulled from ``keys`` (or ``metadata``)."""
+    found: list[str] = []
+    for row in rows:
+        for key in keys:
+            value = row.get(key)
+            if value is None and isinstance(row.get("metadata"), dict):
+                value = row["metadata"].get(key)
+            if value is None:
+                continue
+            if isinstance(value, list):
+                found.extend(str(item) for item in value)
+            else:
+                found.append(str(value))
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in found:
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
 
 
 @dataclass(frozen=True)
@@ -207,8 +284,6 @@ def child_record(
 
 def deterministic_record_id(*, prefix: str, payload: dict[str, Any]) -> str:
     """Stable digest-based child id when no upstream identifier exists."""
-    import json
-
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     digest = sha256(canonical.encode("utf-8")).hexdigest()[:16]
     return f"{prefix}-{digest}"
@@ -307,15 +382,21 @@ class LifecycleAdapter:
 
 
 __all__ = [
+    "END_INSTANT_KEYS",
+    "START_INSTANT_KEYS",
     "LifecycleAdapter",
     "MemoryAdapter",
     "RecordBundle",
     "build_record",
     "child_record",
     "clear_adapter_registry",
+    "collect_values",
     "deterministic_record_id",
     "get_adapter",
     "register_adapter",
     "resolve_child_record_id",
+    "row_instant",
+    "utc_instant",
     "utc_now_iso",
+    "window_from_row",
 ]

@@ -13,7 +13,11 @@ from typing import Any
 from vss_core.memory.adapters import LifecycleAdapter
 from vss_core.memory.adapters import RecordBundle
 from vss_core.memory.adapters import child_record
+from vss_core.memory.adapters import collect_values
 from vss_core.memory.adapters import resolve_child_record_id
+from vss_core.memory.adapters import row_instant
+from vss_core.memory.adapters import utc_instant
+from vss_core.memory.adapters import window_from_row
 from vss_core.memory.models import JobStatus
 from vss_core.memory.models import MemoryError
 from vss_core.memory.models import MemoryGroup
@@ -24,7 +28,9 @@ from vss_core.memory.models import SensorInfo
 from vss_core.memory.models import TimestampPoint
 from vss_core.memory.models import TimeWindow
 from vss_core.memory.models import UnifiedMemoryRecord
-from vss_core.memory.store import coerce_utc_instant
+
+#: Media-ish handle keys carried by a search hit.
+_MEDIA_KEYS: tuple[str, ...] = ("media_url", "screenshot_url", "url", "clip_url")
 
 
 class SearchAdapter(LifecycleAdapter):
@@ -70,11 +76,11 @@ class SearchAdapter(LifecycleAdapter):
             if has_start and has_end:
                 start = window["start"]
                 end = window["end"]
-                start_ts = start["timestamp"] if isinstance(start, dict) else str(start)
-                end_ts = end["timestamp"] if isinstance(end, dict) else str(end)
+                start_ts = start["timestamp"] if isinstance(start, dict) else start
+                end_ts = end["timestamp"] if isinstance(end, dict) else end
                 window_model = TimeWindow(
-                    start=TimestampPoint(timestamp=start_ts),
-                    end=TimestampPoint(timestamp=end_ts),
+                    start=TimestampPoint(timestamp=utc_instant(start_ts)),
+                    end=TimestampPoint(timestamp=utc_instant(end_ts)),
                 )
         return MemoryInput(
             query=query,
@@ -125,7 +131,7 @@ class SearchAdapter(LifecycleAdapter):
         default_sensor_id: str | None = None,
     ) -> RecordBundle:
         """Build one parent plus one ``search_hit`` child per result."""
-        rows = [_normalize_search_row(dict(row)) for row in (results or [])]
+        rows = [dict(row) for row in (results or [])]
         parent_ext = dict(ext or {})
         if input_data.params and "search_mode" in input_data.params:
             parent_ext.setdefault("search_mode", input_data.params["search_mode"])
@@ -178,16 +184,16 @@ class SearchAdapter(LifecycleAdapter):
         )
         child_input = MemoryInput(
             sensors=[SensorInfo(id=sensor_id)] if sensor_id else None,
-            window=_window_from_row(row),
+            window=window_from_row(row),
         )
         answer = row.get("description") or row.get("caption") or row.get("answer") or row.get("text")
-        media_urls = _collect_ids([row], ("media_url", "screenshot_url", "url", "clip_url"))
-        object_ids = _collect_ids([row], ("object_ids", "object_id"))
-        frame_ids = _collect_ids([row], ("frame_ids", "frame_id"))
+        media_urls = collect_values([row], _MEDIA_KEYS)
+        object_ids = collect_values([row], ("object_ids", "object_id"))
+        frame_ids = collect_values([row], ("frame_ids", "frame_id"))
         ext: dict[str, Any] = {"rank": rank}
-        if "score" in row and row["score"] is not None:
+        if row.get("score") is not None:
             ext["score"] = row["score"]
-        elif "similarity" in row and row["similarity"] is not None:
+        elif row.get("similarity") is not None:
             ext["score"] = row["similarity"]
         if object_ids:
             ext["object_ids"] = object_ids
@@ -209,56 +215,11 @@ class SearchAdapter(LifecycleAdapter):
         )
 
 
-def _event_stamp(event: dict[str, Any]) -> str | None:
-    for key in ("timestamp", "start_time", "start", "ts"):
-        value = event.get(key)
-        if value is not None and str(value).strip():
-            return str(value)
-    start = event.get("start")
-    if isinstance(start, dict) and start.get("timestamp"):
-        return str(start["timestamp"])
-    return None
-
-
-def _normalize_search_row(row: dict[str, Any]) -> dict[str, Any]:
-    stamp = _event_stamp(row)
-    if stamp is None:
-        # Search hits without timestamps are still persistable; window stays omitted.
-        return dict(row)
-    coerce_utc_instant(stamp)
-    if "timestamp" not in row:
-        row = dict(row)
-        row["timestamp"] = stamp
-    return row
-
-
-def _window_from_row(row: dict[str, Any]) -> TimeWindow | None:
-    start_stamp = _event_stamp(row)
-    if start_stamp is None:
-        return None
-    end_stamp = None
-    for key in ("end_time", "end", "end_ts"):
-        value = row.get(key)
-        if isinstance(value, dict) and value.get("timestamp"):
-            end_stamp = str(value["timestamp"])
-            break
-        if value is not None and str(value).strip() and key != "end":
-            end_stamp = str(value)
-            break
-        if key == "end" and value is not None and not isinstance(value, dict) and str(value).strip():
-            try:
-                coerce_utc_instant(str(value))
-                end_stamp = str(value)
-            except ValueError:
-                pass
-    start_point = TimestampPoint(timestamp=start_stamp)
-    end_point = TimestampPoint(timestamp=end_stamp) if end_stamp else None
-    return TimeWindow(start=start_point, end=end_point)
-
-
 def _search_digest_payload(row: dict[str, Any]) -> dict[str, Any]:
+    """Identity-bearing fields for a deterministic hit id (no upstream id)."""
+    stamp = row_instant(row)
     return {
-        "timestamp": _event_stamp(row),
+        "timestamp": stamp.isoformat() if stamp is not None else None,
         "end_time": row.get("end_time") or row.get("end"),
         "description": row.get("description") or row.get("caption") or row.get("answer"),
         "sensor_id": row.get("sensor_id") or row.get("camera_id") or row.get("stream_id"),
@@ -267,28 +228,6 @@ def _search_digest_payload(row: dict[str, Any]) -> dict[str, Any]:
         "frame_ids": row.get("frame_ids") or row.get("frame_id"),
         "media_url": row.get("media_url") or row.get("screenshot_url") or row.get("url"),
     }
-
-
-def _collect_ids(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[str]:
-    found: list[str] = []
-    for row in rows:
-        for key in keys:
-            value = row.get(key)
-            if value is None and isinstance(row.get("metadata"), dict):
-                value = row["metadata"].get(key)
-            if value is None:
-                continue
-            if isinstance(value, list):
-                found.extend(str(item) for item in value)
-            else:
-                found.append(str(value))
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for item in found:
-        if item not in seen:
-            seen.add(item)
-            ordered.append(item)
-    return ordered
 
 
 __all__ = ["SearchAdapter"]
