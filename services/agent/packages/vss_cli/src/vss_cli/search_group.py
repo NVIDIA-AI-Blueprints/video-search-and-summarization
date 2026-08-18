@@ -561,10 +561,14 @@ def _search_memory_input(*, action: str, payload: dict[str, Any], inputs: BaseMo
     }
     params["search_mode"] = action
     query = getattr(inputs, "query", None) or getattr(inputs, "description", None)
-    if query is None and getattr(inputs, "attributes", None):
-        query = ", ".join(inputs.attributes)
-    if query is None and getattr(inputs, "object_ids", None):
-        query = f"object_ids={list(inputs.object_ids)}"
+    # Each search mode has its own input model, so read the mode-specific
+    # fields off the base type rather than narrowing to every variant.
+    attributes = getattr(inputs, "attributes", None)
+    object_ids = getattr(inputs, "object_ids", None)
+    if query is None and attributes:
+        query = ", ".join(attributes)
+    if query is None and object_ids:
+        query = f"object_ids={list(object_ids)}"
     return SearchAdapter.build_input(query=query, sensors=sensors or None, window=window, params=params)
 
 
