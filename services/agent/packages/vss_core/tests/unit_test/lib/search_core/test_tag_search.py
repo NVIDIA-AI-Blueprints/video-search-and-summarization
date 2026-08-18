@@ -81,7 +81,7 @@ async def test_bm25_query_filters_source_identity_and_overlap() -> None:
     assert es.index == "default_stream_1"
     assert es.kwargs == {"ignore_unavailable": True, "allow_no_indices": True}
     assert es.body is not None
-    assert es.body["query"]["bool"]["must"][0]["match"]["text"]["operator"] == "and"
+    assert es.body["query"]["bool"]["must"][0]["match"]["text"]["operator"] == "or"
     filters = es.body["query"]["bool"]["filter"]
     assert any("stream-1" in str(item) for item in filters)
     assert any("start_ntp_float" in str(item) for item in filters)

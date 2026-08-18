@@ -113,7 +113,7 @@ def build_es_query(
         "size": size,
         "query": {
             "bool": {
-                "must": [{"match": {"text": {"query": inp.query.strip(), "operator": "and"}}}],
+                "must": [{"match": {"text": {"query": inp.query.strip(), "operator": "or"}}}],
                 "filter": filters,
             }
         },
