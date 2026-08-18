@@ -112,7 +112,7 @@
       "source_path": "services/rtvi/rt-vlm",
       "context": "services/rtvi/rt-vlm",
       "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
-      "lfs_include": "services/rtvi/rt-vlm/docker/base/binaries/**",
+      "lfs_include": "services/rtvi/rt-vlm/docker/base/binaries/**,services/rtvi/rt-vlm/artifacts/vss-rt-vlm-3.3.0-26.07.4-*-evs-cython/**",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-vlm"],
       "tag_variables": ["VSS_RT_VLM_TAG"]
