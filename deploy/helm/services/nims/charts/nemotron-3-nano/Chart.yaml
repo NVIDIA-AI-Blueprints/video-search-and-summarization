@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,15 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-services:
-  kibana-init-container-lvs:
-    build:
-      context: $VSS_APPS_DIR/developer-profiles/dev-profile-lvs
-      dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/Dockerfiles/kibana-dashboard.Dockerfile
-    profiles: ["kibana-init-container-lvs"]
-    container_name: vss-kibana-init
-    command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
-    restart: on-failure
-    depends_on:
-      kibana:
-        condition: service_healthy
+apiVersion: v2
+name: nemotron-3-nano
+description: >
+  NVIDIA Nemotron 3 Nano (30B) LLM NIM deployed via NIMCache + NIMService CRDs.
+  Requires NVIDIA NIM Operator (apps.nvidia.com/v1alpha1).
+type: application
+version: 3.2.0
+appVersion: "2.0.3"

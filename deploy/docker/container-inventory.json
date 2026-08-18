@@ -167,7 +167,7 @@
       "platforms": ["linux/amd64", "linux/arm64"],
       "lfs_include": "services/vios/prebuilts/**",
       "compose_image_names": ["vss-vios-nvstreamer"],
-      "tag_variables": ["VSS_VIOS_NVSTREAMER_TAG"],
+      "tag_variables": ["VSS_NVSTREAMER_TAG"],
       "notes": "Built from services/vios/docker/Dockerfile (MODULE=nvstreamer: empty make MODULE = full lib set, plus the vios-ui webroot). STAGED: flip ghcr_build=true after validation."
     },
     {
