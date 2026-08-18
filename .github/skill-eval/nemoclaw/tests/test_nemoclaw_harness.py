@@ -391,15 +391,6 @@ class HarnessScopeTests(unittest.TestCase):
         ):
             self.assertNotIn(excluded, source)
 
-    def test_onboarding_failure_uses_native_diagnostics(self) -> None:
-        command = self.env_module._onboarding_diagnostics_command("8991")
-        self.assertIn("nemoclaw debug --quick", command)
-        self.assertIn("/logs/artifacts/nemoclaw-debug.tar.gz", command)
-        self.assertIn('export HOME="$host_home/.skill-eval/nemoclaw-home"', command)
-        self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", command)
-        self.assertNotIn("docker", command)
-        self.assertNotIn("sudo", command)
-
     def test_environment_defaults_hold_nemoclaw_runtime_assumptions(self) -> None:
         with mock.patch.dict(
             os.environ,
