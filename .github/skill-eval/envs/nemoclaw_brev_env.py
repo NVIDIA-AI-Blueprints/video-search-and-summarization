@@ -96,6 +96,7 @@ set +u
 set -u
 host_home=$HOME
 export HOME="$host_home/.skill-eval/nemoclaw-home"
+export PATH="$HOME/.local/bin:$PATH"
 export NEMOCLAW_GATEWAY_PORT={quoted_port}
 if command -v nemoclaw >/dev/null 2>&1; then
   timeout --signal=TERM --kill-after=30 600s \
