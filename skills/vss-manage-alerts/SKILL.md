@@ -278,7 +278,7 @@ Resolve `$AB` / `$VST` once in *Deployment prerequisite* (Kubernetes forces
 **Sensor resolution — two different identities, do not mix them:**
 
 - **Rule create/replay (Workflow D)** resolves a sensor **name → `sensorId` (UUID) + RTSP `url`** via `GET $VST/vst/api/v1/sensor/list` — RT-VLM keys its stream registration on the VIOS UUID. See `references/alert-subscriptions.md`.
-- **Incident filtering (Workflow C)** takes the sensor **name** — `GET /api/v1/realtime/incidents?sensor_id=<name>` term-matches the `sensorId` field stored in the incident documents. Still use the same `GET $VST/vst/api/v1/sensor/list` call to turn the user's wording into an exact registered sensor, but carry its **`.name`** forward, not its `.sensorId`. A UUID there silently returns zero.
+- **Incident filtering (Workflow C)** takes the sensor **name** — `GET /api/v1/realtime/incidents?sensor_id=<name>` term-matches the `sensorId` field stored in the incident documents — which RT-VLM fills from `sensor_name` on the Workflow D path. Still use the same `GET $VST/vst/api/v1/sensor/list` call to turn the user's wording into an exact registered sensor, but carry its **`.name`** forward, not its `.sensorId`. A UUID matches only the legacy case where the rule was created without a `sensor_name`; normally it silently returns zero.
 
 Never fabricate a `sensor_id` or `live_stream_url`.
 
@@ -396,15 +396,21 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "end_time=<ISO>" | jq .
 ```
 
-> **`sensor_id` here is a name, not a UUID.** The filter is an exact term match on the
-> `sensorId` field the incident documents actually carry, and RT-VLM / Behavior Analytics
-> write the **sensor name** there (`warehouse_sample`, `sample-warehouse-ladder`, `ondemand`
-> …). A VIOS UUID matches nothing and returns `count: 0` — indistinguishable from "no
-> incidents". This is the opposite of Workflow D, where the rule-create payload's
-> `sensor_id` **must** be the VIOS UUID. When unsure which name a sensor writes, read it off
-> an unfiltered `/incidents` response instead of guessing.
+> **`sensor_id` here filters on a stored value, not on a VIOS UUID.** It is an exact
+> term match (case-sensitive) on whatever the incident document carries in `sensorId`, and
+> RT-VLM fills that field by precedence **`camera_id` → `sensor_name` → stream id**
+> (`rtvi_stream_handler.py`). Through the Workflow D path Alert Bridge sends `sensor_name`
+> and never `camera_id`, so a rule created the documented way yields the **sensor name**
+> (`warehouse_sample`, `sample-warehouse-ladder`; `ondemand` for Workflow F results). Two
+> cases legitimately hold something else: a rule created **without** `sensor_name` falls
+> back to the stream id — the VIOS UUID — and the CV/VIOS registration path sets
+> `camera_id`, which outranks any name. So **don't assume the shape** — read the value off
+> an unfiltered `/incidents` response and filter on that. Only the whitespace is stripped:
+> no lowercasing, and interior spaces survive, which is why the query parameter must be
+> URL-encoded. This is the opposite of Workflow D, where the rule-create payload's
+> `sensor_id` **must** be the VIOS UUID.
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (the `sensorId` field is already the name — no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer**: report "none found / count 0" and STOP; do not fall back to listing rules.
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer**: report "none found / count 0" and STOP; do not fall back to listing rules.
 
 **Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D). Incidents produced by **always-on** rules (Workflow G) appear here like any other realtime incident, and so do **on-demand verification results** (incident-kind, `sensorId: "ondemand"` — see Workflow F).
 
