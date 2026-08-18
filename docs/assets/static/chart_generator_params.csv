@@ -1,0 +1,4 @@
+Parameter,Default,Description
+object_store_name,None,Object store reference for storing images
+object_store_base_url,http://localhost:8000/static/,Base URL for serving chart images
+

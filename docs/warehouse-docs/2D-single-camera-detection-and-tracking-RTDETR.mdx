@@ -1,0 +1,323 @@
+---
+title: "2D Single Camera Detection and Tracking (RT-DETR)"
+description: ""
+position: 1
+---
+The **Real Time Video Intelligence CV Microservice** leverages [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk) to generate metadata for each stream that downstream microservices can use to generate spatial metrics and alerts.
+
+The microservice features `metropolis-perception-app`, a DeepStream pipeline that builds on the built-in [deepstream-test5 app](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) in the DeepStream SDK.
+This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema ](/Protobuf-Schema).
+
+The application features a modular architecture that integrates preprocessing plugins and RT-DETR (Real-Time Detection Transformer), specifically designed for 2D single-camera object detection and tracking in warehouse environments.
+
+RT-DETR is an advanced real-time detection transformer that generates precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment. The model features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments. Refer to the [TAO RT-DETR fine-tuning ](/models/rt-detr) page for more details on the model architecture and training process.
+
+The pipeline ingests single-camera video streams, performs real-time 2D object detection, and utilizes DeepStream's tracking capabilities to maintain object identity across frames.
+Detection results include 2D bounding boxes, class labels, confidence scores, and instance IDs, enabling sophisticated tracking and analytics capabilities.
+
+For detailed information on all components, APIs, and customization options, refer to the [../object-detection-tracking](/object-detection-tracking).
+
+The diagram below shows the perception pipeline used in the microservice:
+
+![Metropolis Perception App Architecture with RT-DETR](/assets/images/ds_fs_app_sparse4d.png)
+
+## Configurations
+
+The Perception microservice requires several configuration files that control various aspects of the 2D single-camera detection and tracking system. These files allow users to customize the system's behavior according to their specific requirements.
+
+### Docker Compose Volume Mounts
+
+For docker compose deployment, the `perception-2d` service in `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml` mounts host paths into the container as follows:
+
+```yaml
+volumes:
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
+  - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
+```
+
+The `$VSS_DATA_DIR/models/mtmc/` host directory is mounted at `/opt/storage/`, which persists ONNX models and TensorRT engine files across container restarts. DeepStream pipeline configs (`ds-main-config.txt`, `ds-pgie-config.yml`, and related files) live on the host under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/` and appear in the container under `metropolis_perception_app/configs/`.
+
+### Inference Configuration File
+
+The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles properties related to model inference and controls the core functionality of the 2D detection system. This YAML configuration file contains two main sections: `property` and `class-attrs-all`.
+
+#### Model and Inference Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `onnx-file` | Path to the ONNX model file | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx` |
+| `model-engine-file` | Path to the TensorRT engine file (stored under the `$VSS_DATA_DIR/models/mtmc/` mount at `/opt/storage/`) | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b4_gpu0_fp16.engine` |
+| `labelfile-path` | Path to the object class labels file | `ds-detector-labels.txt` |
+| `gpu-id` | GPU ID to use for inference | `0` |
+| `network-mode` | Precision mode (0=FP32, 1=INT8, 2=FP16) | `2` |
+| `num-detected-classes` | Number of object classes the model can detect | `7` |
+| `interval` | Inference interval (process every Nth frame) | `0` |
+| `gie-unique-id` | Unique ID for the inference engine | `1` |
+| `network-type` | Type of detection network (0=Detector) | `0` |
+| `cluster-mode` | Clustering algorithm (1=DBSCAN, 2=NMS, 3=DBSCAN+NMS, 4=None) | `4` |
+
+#### Input/Output Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `net-scale-factor` | Scaling factor for preprocessing (1/255) | `0.00392156862745098` |
+| `model-color-format` | Input color format (0=RGB, 1=BGR) | `0` |
+| `infer-dims` | Input dimensions (C;H;W) | `3;640;640` |
+| `maintain-aspect-ratio` | Maintain aspect ratio during preprocessing | `1` |
+| `offsets` | Mean subtraction offsets for preprocessing | `0;0;0` |
+| `output-tensor-meta` | Enable output tensor metadata | `1` |
+| `output-blob-names` | Names of output tensors from the model | `pred_boxes;pred_logits` |
+
+#### Detection and Filtering Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `pre-cluster-threshold` | Detection confidence threshold | `0.5` |
+| `topk` | Maximum number of top detections to keep per class | `20` |
+| `parse-bbox-func-name` | Custom bounding box parsing function | `NvDsInferParseCustomRTDETRTAO` |
+| `custom-lib-path` | Path to custom parsing library | `/opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so` |
+
+### DeepStream Configuration File
+
+The DeepStream main configuration file (`ds-main-config.txt`) builds on the DeepStream test5 application configuration and provides essential settings for the overall pipeline. This file controls various aspects of the application, including source configuration, stream multiplexing, message broker settings, and visualization parameters.
+
+#### Key Configuration Sections
+
+| Section | Purpose |
+| --- | --- |
+| `[application]` | Controls performance measurement settings and global application parameters |
+| `[source-list]` | Defines input sources (RTSP streams), sensor IDs, and source management settings |
+| `[source-attr-all]` | Configures source attributes like latency handling and reconnection parameters |
+| `[streammux]` | Sets stream multiplexer parameters for batch processing and timestamp handling |
+| `[sink0]` to `[sink3]` | Configures various output sinks (visualization, messaging, file output) |
+| `[primary-gie]` | Specifies the RT-DETR inference engine configuration |
+| `[tracker]` | Configures the object tracking component for maintaining object IDs across frames |
+
+For a complete understanding of all configuration options, refer to the [DeepStream SDK Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html).
+
+### Tracker Configuration File
+
+The **tracker configuration** files configure the object tracking component that maintains object identity across frames. The tracker configuration consists of two files:
+
+1. **Tracker plugin configuration** in `ds-main-config.txt` under the `[tracker]` section
+2. **Low-level tracker configuration** in `ds-nvdcf-accuracy-tracker-config.yml`
+
+RT-DETR performs detection, and the NvDCF (NVIDIA Discriminative Correlation Filter) tracker associates detections across time to generate consistent object IDs.
+
+For detailed information about the tracker configuration parameters and options, refer to the [DeepStream Tracker Plugin Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvtracker.html).
+
+**Tracker Plugin Configuration (in ds-main-config.txt)**
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `enable` | Enable or disable tracker | `1` |
+| `tracker-width` | Frame width at which tracking is performed (must be multiple of 32) | `960` |
+| `tracker-height` | Frame height at which tracking is performed (must be multiple of 32) | `544` |
+| `ll-lib-file` | Low-level tracker library | `/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so` |
+| `ll-config-file` | Low-level NvDCF tracker configuration file | `ds-nvdcf-accuracy-tracker-config.yml` |
+| `gpu-id` | GPU ID to use for tracking | `0` |
+| `enable-batch-process` | Enable batch processing for multiple streams | `1` |
+| `enable-past-frame` | Enable past frame tracking for better accuracy | `1` |
+| `display-tracking-id` | Display tracking ID in visualizations | `1` |
+
+**Low-Level Tracker Configuration (ds-nvdcf-accuracy-tracker-config.yml)**
+
+The NvDCF tracker configuration file contains advanced parameters for fine-tuning tracker behavior. Key configuration sections include:
+
+- `BaseConfig`: Basic tracker confidence thresholds
+- `TargetManagement`: Object lifecycle management (max targets, probation age, termination)
+- `TrajectoryManagement`: Track association and re-identification settings
+- `DataAssociator`: Data association algorithm parameters (IOU, visual similarity)
+- `StateEstimator`: Kalman filter parameters for motion prediction
+- `VisualTracker`: Visual feature extraction settings (HOG, color features)
+- `ReID`: Re-identification network configuration (optional)
+
+For most use cases, the default NvDCF accuracy configuration provides robust tracking without modification.
+
+### Kafka Configuration File
+
+The `ds-kafka-config.txt` file contains the Kafka configuration parameters for the Perception microservice. This file configures the Kafka producer and consumer settings for the Perception microservice.
+
+```text
+[message-broker]
+partition-key = sensorId
+```
+
+The partition key setting ensures that messages from the same sensor go to the same Kafka partition, maintaining message ordering per camera stream.
+
+### Labels File
+
+The `ds-detector-labels.txt` file contains the class labels that the RT-DETR model can detect. Each line in the file corresponds to a class that the model recognizes. Users can customize this file to match their specific detection requirements.
+
+The file format uses a newline-separated list of object class names:
+
+```text
+Person
+Agility_Digit_Humanoid
+Fourier_GR1_T2_Humanoid
+Nova_Carter
+Transporter
+Forklift
+Pallet
+```
+
+These class labels represent the 7 object categories that the RT-DETR warehouse model can detect:
+
+- **Person**: Human workers in warehouse environments
+- **Agility_Digit_Humanoid**: Agility Robotics Digit humanoid robot
+- **Fourier_GR1_T2_Humanoid**: Fourier Intelligence GR1_T2 humanoid robot
+- **Nova_Carter**: NVIDIA Nova Carter autonomous mobile robot
+- **Transporter**: Warehouse transport vehicles
+- **Forklift**: Industrial forklifts
+- **Pallet**: Warehouse pallets and cargo containers
+
+## Runtime Configuration Adjustments
+
+This section covers common configuration changes that users may need to make when adapting the RT-DETR pipeline for their specific deployment scenarios.
+
+### Modifying the Number of Input Streams
+
+When updating the number of input streams/cameras, you must update the batch size settings in the configuration files to ensure consistency. RT-DETR processes each camera stream independently, making it straightforward to scale to multiple cameras.
+
+The related deepstream configuration files can be found in the following directory for docker compose deployment: `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs`
+
+#### Update DeepStream Configuration
+
+Modify the `ds-main-config.txt` file to update source and batch size settings:
+
+```text
+[source-list]
+# Set max-batch-size to the maximum number of streams you plan to use
+max-batch-size=4
+# Update the source URLs, sensor IDs and names accordingly
+# Note: num-source-bins=0 enables dynamic source management via HTTP API
+num-source-bins=0
+use-nvmultiurisrcbin=1
+http-ip=localhost
+http-port=9000
+# Example static configuration (uncomment if not using dynamic sources):
+# num-source-bins=4
+# list=rtsp://server1:port/stream1;rtsp://server1:port/stream2;...
+# sensor-id-list=Camera1;Camera2;Camera3;Camera4
+# sensor-name-list=Camera1;Camera2;Camera3;Camera4
+
+[streammux]
+# Change batch-size to the number of streams
+batch-size=4
+
+[primary-gie]
+# Update batch-size to match streammux batch-size
+batch-size=4
+
+[tiled-display]
+# If tiled display is enabled, update the rows and columns
+enable=0    # Set to 1 to enable tiled display
+rows=2      # Adjust based on your streams count
+columns=2   # Adjust based on your streams count
+```
+
+<Note>
+The default configuration uses dynamic source management (`use-nvmultiurisrcbin=1`), which allows adding/removing camera streams at runtime via HTTP API without restarting the application. The `max-batch-size` parameter sets the upper limit for concurrent streams.
+</Note>
+
+### Integrating a New RT-DETR Model
+
+The RT-DETR pipeline supports model swapping, allowing you to use different RT-DETR models based on your specific use case, such as models fine-tuned on custom datasets via TAO Toolkit.
+
+#### Model Compatibility Requirements
+
+Ensure your new model meets these requirements:
+
+- Exported as ONNX format from TAO Toolkit with `serialize_nvdsinfer: true`
+- Uses the same input dimensions (640x640 or compatible resolution)
+- Has compatible output tensors (`pred_boxes` and `pred_logits`)
+- Follows the RT-DETR architecture pattern for 2D object detection
+
+#### Update RT-DETR Configuration
+
+1. Place your new model file and label file in the appropriate directories on the host. The container accesses them through the volume mounts shown in [Docker Compose Volume Mounts](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR#docker-compose-volume-mounts):
+
+- Place your new ONNX model (for example, `your_new_rtdetr_model.onnx`) in `$VSS_DATA_DIR/models/mtmc/` on the host.
+- Place your new labels file (for example, `your_new_labels.txt`) in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/` on the host.
+
+2. Update the `ds-pgie-config.yml` accordingly:
+
+```yaml
+property:
+  onnx-file: /opt/storage/your_new_rtdetr_model.onnx
+  model-engine-file: /opt/storage/your_new_rtdetr_model.onnx_b4_gpu0_fp16.engine
+  labelfile-path: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/your_new_labels.txt
+  num-detected-classes: 7  # Update this based on your model/classes
+```
+
+The Perception microservice automatically builds the TensorRT engine for the new model on first run. Engine files persist under `$VSS_DATA_DIR/models/mtmc/` (mounted at `/opt/storage/` in the container).
+
+Your labels file must list labels in the same order your model was trained with.
+
+```yaml
+# Update ds-pgie-config.yml
+property:
+  labelfile-path: your_new_labels.txt
+  num-detected-classes: 7  # Update based on your number of classes
+```
+
+```text
+# Update the class labels - Example ``your_new_labels.txt``
+Person
+Agility_Digit_Humanoid
+Fourier_GR1_T2_Humanoid
+Nova_Carter
+Transporter
+Forklift
+Pallet
+```
+
+3. Update input dimensions if your model uses different resolution:
+
+```yaml
+# Update ds-pgie-config.yml
+property:
+  infer-dims: 3;640;640  # Update C;H;W based on your model's input size
+```
+
+4. Adjust detection threshold if needed:
+
+```yaml
+# Update ds-pgie-config.yml
+class-attrs-all:
+  pre-cluster-threshold: 0.5  # Adjust based on your model's performance
+  topk: 20  # Maximum detections to keep per class
+
+# assign different thresholds for different classes for optimal performance
+class-attrs-0:
+  pre-cluster-threshold: 0.85
+  topk: 20
+class-attrs-1:
+  pre-cluster-threshold: 0.85
+  topk: 20
+class-attrs-2:
+  pre-cluster-threshold: 0.85
+  topk: 20
+class-attrs-3:
+  pre-cluster-threshold: 0.85
+  topk: 20
+class-attrs-4:
+  pre-cluster-threshold: 0.85
+  topk: 20
+class-attrs-5:
+  pre-cluster-threshold: 0.5
+  topk: 20
+class-attrs-6:
+  pre-cluster-threshold: 0.5
+  topk: 20
+```
+
+5. Update output blob names if your model uses different tensor names:
+
+```yaml
+# Update ds-pgie-config.yml
+property:
+  output-blob-names: pred_boxes;pred_logits  # TAO RT-DETR default output names
+```
+
+After making these changes, restart the Perception microservice for the changes to take effect. For detailed instructions on fine-tuning RT-DETR models via TAO Toolkit, refer to the [TAO RT-DETR fine-tuning ](/models/rt-detr) page.

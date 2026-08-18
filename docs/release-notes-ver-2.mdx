@@ -1,0 +1,87 @@
+---
+title: "VSS 2.X Release Notes"
+description: ""
+position: 1
+---
+## VSS 2.4.1
+
+These are the VSS 2.4.1 Release Notes.
+
+### Key Features and Enhancements
+
+- Support for [NVIDIA Cosmos-Reason2](https://huggingface.co/nvidia/Cosmos-Reason2-8B) VLM
+- Support for  Qwen3-VL models including [Qwen3-VL-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct) and [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) VLM
+- Support for GH200 and GB200 platforms.
+- Removed support for VILA-1.5 and NVILA models.
+
+## VSS 2.4.0
+
+These are the VSS 2.4.0 Release Notes.
+
+### Key Features and Enhancements
+
+- Support for [NVIDIA Cosmos-Reason1](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason1-7b) VLM
+- Two new APIs
+
+  - `/generate_vlm_captions` to generate VLM captions for a video without summarization.
+  - `/reviewAlert` to review an externally generated alert using VLM.
+
+- New reference deployment, Event Reviewer, to demonstrate review of an externally generated alert using a VLM.
+- VSS accuracy evaluation framework to evaluate accuracy on your own videos.
+- New parameters in the `/summarize` API:
+
+  - `system_prompt` - System prompt for the VLM.
+- New retrieval strategies for CA-RAG.
+
+## VSS 2.3.1
+
+These are the VSS 2.3.1 Release Notes.
+
+### Key Features and Enhancements
+
+- Support for NVIDIA Blackwell B200 GPU
+- OneClick script support for GCP deployments
+- Performance improvements for file burst mode
+
+## VSS 2.3.0
+
+These are the VSS 2.3.0 Release Notes.
+
+### Key Features and Enhancements
+
+- Support for Audio in Summarization and Q&A
+- Support for preprocessing a video to generate Set of Marks (SOM) prompting and additional CV metadata for better accuracy
+- Multi-stream support for Q&A
+- Gradio UI Improvements
+- Additional runtime parameters that can be configured through the `/summarize` API
+
+| Parameter | Description |
+|---|---|
+| `summarize_top_p`, `summarize_temperature`, `summarize_max_tokens` | LLM sampling parameters for summarization. |
+| `chat_top_p`, `chat_temperature`, `chat_max_tokens` | LLM sampling parameters for Q&A. |
+| `notification_top_p`, `notification_temperature`, `notification_max_tokens` | LLM sampling parameters for alerts and event detection. |
+
+- New API `/alerts/recent` to get recent alerts for all live streams.
+- Stability improvements
+- Single GPU Deployment
+
+## VSS 2.2.0
+
+These are the VSS 2.2.0 Release Notes.
+This release is an Engineering Release to introduce some of the new features.
+This release includes several fixes from the previous VSS releases and additional changes.
+
+### Key Features and Enhancements
+
+- Enhanced multi-stream / concurrent mode support
+- GraphRAG performance improvements.
+- Support for [NVILA research model](https://huggingface.co/Efficient-Large-Model/NVILA-15B).
+- Additional runtime parameters that can be configured through the `/summarize` API
+
+| Parameter | Description |
+|---|---|
+| `vlm_input_width`, `vlm_input_height` | Configure the input resolution of the frames to the VLM. |
+| `num_frames_per_chunk` | Configure the number of frames to sample from each chunk. |
+| `summarize_batch_size` | LLM batch size for summarization. |
+| `rag_top_k` | Number of top rerank results to use during Q&A. |
+| `rag_batch_size` | Number of VLM captions to be batched together for creating the graph. |

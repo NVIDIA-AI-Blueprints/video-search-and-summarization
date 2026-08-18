@@ -1,0 +1,13 @@
+Parameter,Default,Description
+vlm_name,(required),Reference to the VLM from llms section
+max_frames,60,Maximum number of frames to sample from the video
+num_frames,16,Number of frames to extract for VLM processing
+min_pixels,1568,Minimum pixel count per frame for VLM processing
+max_pixels,208544,Maximum pixel count per frame for VLM processing
+reasoning,false,Enable VLM reasoning mode (Cosmos Reason models only)
+filter_thinking,false,Filter out thinking traces from VLM response
+video_url_tool,vst_video_url,Tool to get video URL from sensor ID
+use_vst,true,Use VST service for video URLs (false uses MinIO)
+vlm_mode,local,"VLM mode: remote, local, or local_shared (from VLM_MODE)"
+enable_audio,false,"When true with an Omni VLM (omni in VLM_NAME): remote VLM gets inline data:video/mp4;base64; co-located Omni may use video_url. Set via ENABLE_AUDIO in profile .env"
+use_base64,false,Download video and send JPEG frames as base64; ignored when enable_audio=true for Omni

@@ -1,0 +1,9 @@
+Parameter,Default,Description
+video_url_tool,(required),Tool for getting video URLs
+picture_url_tool,(required),Tool for getting picture URLs
+incidents_tool,(required),Tool for fetching incidents
+chart_generator_tool,None,Tool for generating charts (optional)
+generate_chart,false,Auto-generate incident visualization charts
+chart_base_url,http://localhost:38000/reports/,Base URL for chart images
+display_limit,20,Max incidents to display with full details
+

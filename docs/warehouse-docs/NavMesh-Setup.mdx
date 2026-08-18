@@ -1,0 +1,38 @@
+---
+title: "NavMesh Setup"
+description: ""
+position: 1
+---
+Building NavMesh is a must-have step to enable subsequent tasks, such as **Camera Placement** and **Camera Calibration**. More details can be found in the [Navigation Mesh](https://docs.omniverse.nvidia.com/extensions/latest/ext_navigation-mesh.html).
+
+- NavMesh Volume Creation:
+
+  Check if there is a **NavMeshVolume** in your asset scene to cover the navigable area.
+
+  - If there is a **NavMeshVolume**, you can jump to the [Bake NavMesh](/warehouse-docs/NavMesh-Setup) section.
+
+    ![NavMesh Volume](/assets/images/simulation/NavMeshVolume.png)
+
+    ![Build NavMesh Volume](/assets/images/simulation/Build_NavMeshVolume.png)
+
+    ![Set NavMesh Volume](/assets/images/simulation/Set_NavMeshVolume.png)
+
+<Note>
+It is recommended to set the height of **NavMeshVolume** taller than agents (e.g., characters and humanoids) in your scene, but lower than the ceiling.
+</Note>
+
+- NavMesh Baking:
+
+  - Open **NavMesh** extension. Go to **Window** > **Navigation** > **NavMesh**.
+
+    ![Build NavMesh](/assets/images/simulation/Build_NavMesh.png)
+
+    ![NavMesh Panel](/assets/images/simulation/NavMesh_Panel.png)
+
+    ![Bake Settings](/assets/images/simulation/Bake_Settings.png)
+
+       The default settings are as follows: **Agent Height**: 180, **Agent Radius**: 25, **Agent Max Step Height**: 1, and **Agent Max Floor Slope**: 1.
+
+  - Click **Bake** button to build the NavMesh.
+
+    ![Baked Scene](/assets/images/simulation/Baked_Scene.png)

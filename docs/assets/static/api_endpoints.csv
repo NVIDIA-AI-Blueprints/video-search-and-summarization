@@ -1,0 +1,5 @@
+Method,Endpoint,Description
+POST,``/generate``,Execute workflow (non-streaming)
+POST,``/generate/stream``,Execute workflow (streaming)
+POST,``/chat``,OpenAI-compatible chat (non-streaming)
+POST,``/chat/stream``,OpenAI-compatible chat (streaming)

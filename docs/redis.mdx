@@ -1,0 +1,34 @@
+---
+title: "Redis"
+description: ""
+position: 2
+---
+Redis is an in-memory data store that can also be used as a lightweight messaging solution for streaming workloads.
+Redis leverages the [Streams](https://redis.io/docs/latest/develop/data-types/streams/) data type to enable low-latency message delivery for time-sensitive analytics and event processing. For customers who prefer a simpler deployment model without Kafka, Redis Streams provides an alternative that supports core streaming semantics with minimal operational overhead.
+
+Additional information regarding Redis can be found in the [Redis documentation](https://redis.io/docs/).
+
+**Redis streams** used by various microservices are as follows:
+
+| Name | Data Format | Class Name | Description |
+| --- | --- | --- | --- |
+| `mdx-raw` | Protobuf | `nv.Frame` | The stream where the Perception microservice sends frame metadata. |
+| `mdx-bev` | Protobuf | `nv.Frame` | The stream where the Perception microservice sends Bird's Eye View (BEV) based frame data. |
+| `mdx-behavior` | Protobuf | `nv.Behavior` | The stream used by the analytics pipeline to send behavior data. Refer to [Behavior Processing](/behavior-analytics#behavior-processing) for details. |
+| `mdx-behavior-plus` | Protobuf | `nv.Behavior` | Used by the analytics pipeline to send enhanced behavior data, like assigning cluster details to behaviors. |
+| `mdx-alerts` | Protobuf | `nv.Behavior` | For all anomaly data sent by the analytics pipeline. |
+| `mdx-events` | Protobuf | `nv.Behavior` | Used for sending various events such as IN/OUT tripwire events and ENTRY/EXIT ROI events. |
+| `mdx-frames` | Protobuf | `nv.Frame` | This stream is for enriched frame metadata, which may include additional metrics and analytics, such as FOV and ROI occupancy. |
+| `mdx-mtmc` | JSON | N/A | Used by the Multi-Camera Tracking (MTMC Analytics) microservice for sending MTMC-related data. |
+| `mdx-rtls` | Protobuf | `nv.Frame` | Used by the Real Time Location System (RTLS) microservice for sending RTLS-related data. |
+| `mdx-amr` | JSON | N/A | Used to send location and events data of Autonomous Mobile Robots (AMRs). |
+| `mdx-space-utilization` | Protobuf | `nv.SpaceUtilization` | Used for sending space utilization analytics data. |
+| `mdx-notification` | JSON | N/A | For sending various notifications such as calibration updates, configuration changes, and sensor management. |
+| `mdx-vlm-alerts` | Protobuf | `nv.Behavior` | Used for sending Vision Language Model (VLM) verified alerts. |
+| `mdx-incidents` | Protobuf | `nv.Incident` | Used for sending incident data from the analytics pipeline. |
+| `mdx-vlm-incidents` | Protobuf | `nv.Incident` | Used for sending Vision Language Model (VLM) verified incident data. |
+| `mdx-embed` | Protobuf | `nv.VisionLLM` | Used for sending embedding data for vector similarity searches. |
+
+<Note>
+* You can use the [redis-py](https://redis-py.readthedocs.io/en/stable/) library to produce and consume messages from Redis Streams.
+</Note>
