@@ -378,7 +378,7 @@ commons:
           msg-broker-proto-lib: "${msg-broker-proto-lib}"
 
       - operation_type: "json_update"
-        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-config.json"
+        target_file: "${VSS_APPS_DIR}/services/nvstreamer/configs/vst-config.json"
         backup: true 
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
@@ -470,7 +470,7 @@ commons:
 
       # Update VST Configs
       - operation_type: "json_update"
-        target_file: ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json
+        target_file: ${VSS_APPS_DIR}/services/nvstreamer/configs/vst-config.json
         backup: true 
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
@@ -541,7 +541,7 @@ commons:
 
       # Update NVStreamer configs
       - operation_type: "json_update"
-        target_file: ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-config.json
+        target_file: ${VSS_APPS_DIR}/services/nvstreamer/configs/vst-config.json
         backup: true
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
