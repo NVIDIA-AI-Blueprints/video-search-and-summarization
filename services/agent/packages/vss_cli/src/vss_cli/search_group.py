@@ -467,7 +467,7 @@ class SearchGroup(CommandGroup):
         persist_error: str | None = None
 
         if memory is not None:
-            from vss_core.memory import SearchAdapter
+            from vss_core.search_core import SearchAdapter
 
             try:
                 memory.service.upsert(
@@ -548,7 +548,7 @@ class SearchGroup(CommandGroup):
 
 
 def _search_memory_input(*, action: str, payload: dict[str, Any], inputs: BaseModel) -> Any:
-    from vss_core.memory import SearchAdapter
+    from vss_core.search_core import SearchAdapter
 
     sensors = [{"id": name} for name in getattr(inputs, "video_sources", []) or []]
     window = None
@@ -576,7 +576,7 @@ def _search_terminal_bundle(
     output: Any,
     search_mode: str,
 ) -> Any:
-    from vss_core.memory import SearchAdapter
+    from vss_core.search_core import SearchAdapter
 
     rows = []
     results = getattr(output, "results", None) or getattr(output, "data", None) or []
