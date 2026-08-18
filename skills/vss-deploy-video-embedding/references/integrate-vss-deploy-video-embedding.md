@@ -67,7 +67,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 |---|---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | (unset; `${RTVI_EMBED_PORT?}` fails fast) | Yes |
 | `VSS_RT_EMBED_IMAGE` | Container image. | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` | No |
-| `VSS_RT_EMBED_TAG` | Container image tag. | `develop-latest` | No |
+| `VSS_RT_EMBED_TAG` | Container image tag. | `develop-latest`; set `develop-latest-sbsa` on SBSA/DGX Spark. | No |
 | `RT_EMBED_DEVICE_ID` | GPU device id used by the Compose `device_ids` reservation. | `0` | No |
 | `RTVI_EMBED_NVIDIA_VISIBLE_DEVICES` | Maps to `NVIDIA_VISIBLE_DEVICES` inside the container. | `all` | No |
 | `RTVI_EMBED_NUM_GPUS` | Sets `NUM_GPUS` inside the container. | (unset) | No |

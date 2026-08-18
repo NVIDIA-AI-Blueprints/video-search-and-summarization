@@ -32,7 +32,8 @@ Use this skill when you need to:
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
 - **Image:** `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` (override with `VSS_RT_EMBED_IMAGE`).
-- **Default tag:** `develop-latest` (override with `VSS_RT_EMBED_TAG`).
+- **Default tag:** `develop-latest` (override with `VSS_RT_EMBED_TAG`; use
+  `develop-latest-sbsa` for an SBSA/DGX Spark host).
 - **Profile:** `rtvi-embed`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.

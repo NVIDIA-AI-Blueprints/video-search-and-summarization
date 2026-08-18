@@ -17,6 +17,10 @@ For chart internals (templates, values), see `charts/rtvi-embed/`.
 
 Default image: `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest` (see `Chart.yaml` / `values.yaml` for image `tag`).
 
+For SBSA/DGX-Spark, use the separate ARM64 build in the same repository by
+setting `image.tag=develop-latest-sbsa` (or `global.container_tag` when that
+global override is appropriate for every managed image in the release).
+
 ---
 
 ## 1. Variables (set once per shell)

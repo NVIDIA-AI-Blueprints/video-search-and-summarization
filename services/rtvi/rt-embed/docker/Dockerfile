@@ -44,11 +44,17 @@ FROM base-$ARM_PLATFORM AS base-arm64
 # PYDS_SOURCE_COMMIT is the verified source pin for the Git checkout below.
 FROM base-arm64 AS pyds_arm64_builder
 ARG TARGETARCH
+ARG ARM_PLATFORM
 ARG PYDS_SOURCE_COMMIT=6fdeefb7128435873f7794d2242ed48a1471ad7e
 COPY docker/binaries/igpu/libnvbufsurface.so \
      docker/binaries/igpu/libnvbufsurftransform.so \
-     /usr/lib/aarch64-linux-gnu/tegra/
+     /tmp/igpu-tegra/
 RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
+    if [ "$ARM_PLATFORM" = "igpu" ]; then \
+        mkdir -p /usr/lib/aarch64-linux-gnu/tegra && \
+        cp /tmp/igpu-tegra/libnvbufsurface.so /tmp/igpu-tegra/libnvbufsurftransform.so /usr/lib/aarch64-linux-gnu/tegra/; \
+    fi && \
+    rm -rf /tmp/igpu-tegra && \
     apt update && apt install -y --no-install-recommends \
     build-essential cmake git libglib2.0-dev libgstreamer1.0-dev \
     python3.12-dev python3-setuptools python3-wheel \

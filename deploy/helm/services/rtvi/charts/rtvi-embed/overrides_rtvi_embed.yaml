@@ -17,6 +17,8 @@ imagePullSecrets: []
 
 # Shared managed-image channel. Set global.container_prefix and
 # global.container_tag when installing a promoted or alternate build.
+# For SBSA/DGX-Spark, retain the repository and set image.tag to
+# develop-latest-sbsa (or set global.container_tag when appropriate).
 image:
   repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
   tag: develop-latest

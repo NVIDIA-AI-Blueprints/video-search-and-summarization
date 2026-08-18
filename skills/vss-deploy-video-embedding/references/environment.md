@@ -18,7 +18,7 @@ Several host-side variables map to differently named container variables. The Co
 | Host variable | Container variable | Default |
 |---|---|---|
 | `VSS_RT_EMBED_IMAGE` | image base | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` |
-| `VSS_RT_EMBED_TAG` | image tag | `develop-latest` |
+| `VSS_RT_EMBED_TAG` | image tag | `develop-latest`; set `develop-latest-sbsa` on SBSA/DGX Spark. |
 | `RT_EMBED_DEVICE_ID` | `device_ids[0]` reservation | `0` |
 | `RTVI_EMBED_NVIDIA_VISIBLE_DEVICES` | `NVIDIA_VISIBLE_DEVICES` | `all` |
 | `RTVI_EMBED_NUM_GPUS` | `NUM_GPUS` | (unset) |

@@ -129,6 +129,23 @@
       "tag_variables": ["VSS_RT_EMBED_TAG"]
     },
     {
+      "name": "vss-rt-embed-sbsa",
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "repository": "vss-rt-embed",
+      "tag_suffix": "-sbsa",
+      "source_path": "services/rtvi/rt-embed",
+      "context": "services/rtvi/rt-embed",
+      "dockerfile": "services/rtvi/rt-embed/docker/Dockerfile",
+      "build_args": {"ARM_PLATFORM": "sbsa"},
+      "lfs_include": "services/rtvi/rt-embed/docker/binaries/**",
+      "platforms": ["linux/arm64"],
+      "compose_image_names": [],
+      "tag_variables": [],
+      "notes": "SBSA (Grace/DGX-Spark) build of vss-rt-embed. It cannot be another platform in the normal multiarch manifest because SBSA and Jetson both report linux/arm64 but require different DeepStream bases. It shares the vss-rt-embed GHCR repository and uses the -sbsa tag suffix; Compose and Helm select it by overriding only the tag."
+    },
+    {
       "name": "vss-vios-sensor",
       "strategy": "build",
       "ghcr_build": true,

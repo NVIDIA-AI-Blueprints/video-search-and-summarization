@@ -309,10 +309,49 @@ class SelectImagesTest(unittest.TestCase):
         )
         self.assertEqual(entry["platforms"], ["linux/amd64", "linux/arm64"])
 
+        sbsa_entry = next(
+            item for item in inventory["images"] if item["name"] == "vss-rt-embed-sbsa"
+        )
+        self.assertTrue(sbsa_entry["ghcr_build"])
+        self.assertTrue(sbsa_entry["native_platform_build"])
+        self.assertEqual(sbsa_entry["repository"], "vss-rt-embed")
+        self.assertEqual(sbsa_entry["tag_suffix"], "-sbsa")
+        self.assertEqual(sbsa_entry["build_args"], "ARM_PLATFORM=sbsa")
+        self.assertEqual(sbsa_entry["platforms"], ["linux/arm64"])
+        self.assertEqual(sbsa_entry["compose_image_names"], [])
+        self.assertEqual(sbsa_entry["tag_variables"], [])
+
         entries, _ = dci.select_images(
             inventory, ["services/rtvi/rt-embed/src/main.py"]
         )
-        self.assertEqual([item["name"] for item in entries], ["vss-rt-embed"])
+        self.assertEqual(
+            [item["name"] for item in entries],
+            ["vss-rt-embed", "vss-rt-embed-sbsa"],
+        )
+
+        matrix = dci.to_matrix(entries)
+        self.assertEqual(matrix["include"][1]["build_args"], "ARM_PLATFORM=sbsa")
+
+        matrices = dci.split_build_matrices(entries)
+        self.assertIn(
+            {
+                "name": "vss-rt-embed-sbsa",
+                "repository": "vss-rt-embed",
+                "tag_suffix": "-sbsa",
+                "context": "services/rtvi/rt-embed",
+                "dockerfile": "services/rtvi/rt-embed/docker/Dockerfile",
+                "lfs_include": "services/rtvi/rt-embed/docker/binaries/**",
+                "platforms": "linux/arm64",
+                "source_path": "services/rtvi/rt-embed",
+                "build_args": "ARM_PLATFORM=sbsa",
+                "platform": "linux/arm64",
+                "arch": "arm64",
+                "runner": "ubuntu-24.04-arm",
+                "runner_arch": "ARM64",
+                "kernel_arch": "aarch64",
+            },
+            matrices["native_platform_matrix"]["include"],
+        )
 
     def test_rtvi_embed_lfs_assets_are_verified_in_both_build_paths(self):
         repo_root = Path(__file__).resolve().parents[2]
@@ -320,7 +359,7 @@ class SelectImagesTest(unittest.TestCase):
             repo_root / ".github/workflows/build-dev-images.yml"
         ).read_text()
         verifier = """      - name: Verify RT Embed LFS shared objects
-        if: matrix.name == 'vss-rt-embed'
+        if: matrix.repository == 'vss-rt-embed'
         run: |
           mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \\
             -type f -name '*.so' -print)"""
@@ -465,6 +504,7 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-vios-nvstreamer",
                 "vss-vios-ingress",
                 "vss-rt-embed",
+                "vss-rt-embed-sbsa",
             },
         )
         self.assertNotIn(

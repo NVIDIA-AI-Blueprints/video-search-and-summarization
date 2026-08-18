@@ -18,6 +18,10 @@ imagePullSecrets: []
 replicas: 1
 # Shared managed-image channel. QA can select a promoted image through
 # global.container_prefix and global.container_tag.
+# SBSA/DGX-Spark is a separate arm64 build because it uses a different
+# DeepStream base than Jetson, but it shares this repository. Override only
+# the tag to select it: image.tag=develop-latest-sbsa (or set the same value
+# through global.container_tag when every managed image uses that channel).
 image:
   repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
   tag: develop-latest

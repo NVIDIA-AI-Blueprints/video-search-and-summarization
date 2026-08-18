@@ -336,6 +336,9 @@ rtvi:
     replicas: 1
     # Shared managed-image channel. Global container_prefix/container_tag values
     # select a promoted image without changing this profile.
+    # SBSA/DGX-Spark shares the GHCR repository but needs its separate build
+    # tag: set image.tag to develop-latest-sbsa unless global.container_tag is
+    # already selecting that tag for the complete managed-image channel.
     image:
       repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
       tag: develop-latest
