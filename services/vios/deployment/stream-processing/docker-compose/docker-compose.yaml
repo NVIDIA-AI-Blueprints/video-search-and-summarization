@@ -208,6 +208,11 @@ services:
     user: "0:0"
     network_mode: host
     environment:
+      # Gate the populate step on the same switch the consumers use, and inject
+      # it here: without this line the variable is unset inside the init
+      # container, the entrypoint check below always takes the else branch, and
+      # the cache is never populated (consumers then each download on their own).
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - VST_APT_CACHE_POPULATE=true
       - VST_APT_CACHE_DIR=/opt/apt-cache
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
