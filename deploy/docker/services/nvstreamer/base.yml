@@ -58,10 +58,10 @@ services:
       - ${VSS_APPS_DIR}/services/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
       - vios_apt_cache:/opt/apt-cache:ro
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       vios-apt-cache-init:
         condition: service_completed_successfully
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/vst_data
     deploy:
       restart_policy:
         condition: on-failure
