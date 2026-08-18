@@ -407,7 +407,14 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
 > `camera_id`, which outranks any name. So **don't assume the shape** — read the value off
 > an unfiltered `/incidents` response and filter on that. Only the whitespace is stripped:
 > no lowercasing, and interior spaces survive, which is why the query parameter must be
-> URL-encoded. This is the opposite of Workflow D, where the rule-create payload's
+> URL-encoded.
+>
+> **Copy the value verbatim — never normalise it.** Paste the exact string the sensor list
+> or the incident document returned: do not swap `_` for `-` (or the reverse), do not change
+> case, do not strip a suffix. `warehouse_sample` and `warehouse-sample` are two different
+> values to a term match, and the wrong one returns `count: 0` rather than an error — so a
+> one-character slip reads back as "no incidents" and there is nothing in the response to
+> tell you it was a typo. This is the opposite of Workflow D, where the rule-create payload's
 > `sensor_id` **must** be the VIOS UUID.
 
 Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer**: report "none found / count 0" and STOP; do not fall back to listing rules.
