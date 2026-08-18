@@ -97,6 +97,12 @@ COMPOSE_FILES = {
     "vss-rt-config-adaptor": [
         "deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml",
     ],
+    "vss-rt-vlm": [
+        "deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml",
+    ],
+}
+COMPOSE_TAG_VARIABLES = {
+    "vss-rt-vlm": "VSS_RT_VLM_TAG",
 }
 
 
@@ -158,7 +164,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
                 text = (REPO_ROOT / relative_path).read_text()
                 self.assertIn(GHCR_ROOT, text)
                 self.assertIn(f"/{name}", text)
-                self.assertIn("VSS_CONTAINER_TAG", text)
+                self.assertIn(COMPOSE_TAG_VARIABLES.get(name, "VSS_CONTAINER_TAG"), text)
                 self.assertIn("develop-latest", text)
 
     def test_helm_sync_prompt_enforces_shared_channel(self):
