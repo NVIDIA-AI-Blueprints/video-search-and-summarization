@@ -111,6 +111,12 @@ class ElasticsearchMemoryStore:
     def _search(self, body: dict[str, Any]) -> list[UnifiedMemoryRecord]:
         try:
             response = self._client.search(index=self._index, body=body)
+        except ESNotFoundError:
+            # Nothing has been ingested yet, which is an empty result rather
+            # than a failure -- the same reading `get` gives a missing document.
+            # ES answers 404 as ApiError, not TransportError, so the clause
+            # below never sees it.
+            return []
         except (ESConnectionError, ESTransportError) as error:
             raise BackendUnreachableError("elasticsearch", "search failed", cause=error) from error
         hits = response.get("hits", {}).get("hits", [])
