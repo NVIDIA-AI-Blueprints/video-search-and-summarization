@@ -77,4 +77,9 @@ The container build expects this root-level file to be present:
 
 - `3rdParty_Licenses.md`
 
-The Dockerfile copies it into `/usr/src/app/ThirdPartyLicences.txt` in the runtime image.
+The runtime image contains:
+
+| Path | Notes |
+|---|---|
+| `/usr/src/app/ThirdPartyLicences.txt` | Third-party license text copied from `3rdParty_Licenses.md` |
+| `/usr/src/app/NVIDIA-Software-License-Agreement.pdf` | NVIDIA Software License Agreement downloaded from `nvidia.com` at build time with a pinned SHA-256 checksum |
