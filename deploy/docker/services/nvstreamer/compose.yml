@@ -31,7 +31,7 @@ services:
     profiles: !override ["nvstreamer-2d"]
     volumes:
       - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/vst_data
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       bp-configurator-2d:
         condition: service_healthy
@@ -43,7 +43,7 @@ services:
     profiles: !override ["nvstreamer-3d"]
     volumes:
       - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/vst_data
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       bp-configurator-3d:
         condition: service_healthy
@@ -56,7 +56,7 @@ services:
     container_name: vss-vios-nvstreamer-mv3dt
     volumes:
       - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/vst_data
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       bp-configurator-mv3dt:
         condition: service_healthy
