@@ -198,5 +198,114 @@ class DiffRequirementsTest(unittest.TestCase):
         self.assertIn("license changed", rows[0]["notes"])
 
 
+class ParsePyprojectTest(unittest.TestCase):
+    def test_reads_pep621_pins_and_skips_dev_extras(self) -> None:
+        manifest = b'''
+[project]
+name = "sample"
+dependencies = [
+    "pillow==12.2.0",
+    "requests>=2.32",
+    "ray[default]==2.54.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.1.1",
+]
+'''
+
+        inventory = license_diff_csv.parse_pyproject(manifest)
+
+        self.assertEqual(inventory["pillow"], "12.2.0")
+        self.assertEqual(inventory["ray"], "2.54.0")
+        self.assertEqual(inventory["requests"], "")
+        self.assertNotIn("pytest", inventory)
+
+    def test_reads_poetry_runtime_dependencies(self) -> None:
+        manifest = b'''
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0.0"
+requests = "^2.31.0"
+mcp = "1.23.0"
+local-tool = {path = "."}
+remote-tool = {git = "https://example.com/tool.git"}
+'''
+
+        inventory = license_diff_csv.parse_pyproject(manifest)
+
+        self.assertEqual(inventory["mcp"], "1.23.0")
+        self.assertEqual(inventory["requests"], "")
+        self.assertNotIn("python", inventory)
+        self.assertNotIn("local-tool", inventory)
+        self.assertNotIn("remote-tool", inventory)
+
+    def test_lvs_py_deps_manifest_is_inventoried(self) -> None:
+        path = (
+            Path(__file__).parents[2]
+            / "services"
+            / "video-summarization"
+            / "docker"
+            / "base"
+            / "py_deps"
+            / "pyproject.toml"
+        )
+
+        inventory = license_diff_csv.parse_pyproject(path.read_bytes())
+
+        self.assertTrue(path.is_file())
+        self.assertTrue(inventory["pillow"])
+        self.assertTrue(inventory["urllib3"])
+        self.assertIn("requests", inventory)
+
+
+class ParsePdmLockTest(unittest.TestCase):
+    def test_includes_default_group_and_excludes_dev(self) -> None:
+        lock = b'''
+[[package]]
+name = "aiohttp"
+version = "3.13.3"
+groups = ["default"]
+
+[[package]]
+name = "pytest"
+version = "8.1.1"
+groups = ["dev"]
+
+[[package]]
+name = "ungrouped"
+version = "1.0.0"
+'''
+
+        inventory = license_diff_csv.parse_pdm_lock(lock)
+
+        self.assertEqual(
+            {("aiohttp", "3.13.3"), ("ungrouped", "1.0.0")},
+            set(inventory),
+        )
+
+
+class DiffPyprojectTest(unittest.TestCase):
+    @mock.patch.object(license_diff_csv, "pypi_metadata")
+    def test_new_pyproject_dependency_uses_source_note(self, metadata: mock.Mock) -> None:
+        metadata.return_value = {
+            "license": "MIT",
+            "repository_url": "https://example.com/demo",
+            "version": "1.0.0",
+        }
+
+        rows = license_diff_csv.diff_requirements(
+            {},
+            {"demo": "1.0.0"},
+            set(),
+            source="pyproject.toml",
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["change"], "added")
+        self.assertEqual(rows[0]["package"], "demo")
+        self.assertIn("pyproject.toml", rows[0]["notes"])
+
+
 if __name__ == "__main__":
     unittest.main()
