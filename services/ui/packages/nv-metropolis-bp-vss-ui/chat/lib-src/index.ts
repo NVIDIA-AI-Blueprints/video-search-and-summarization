@@ -92,3 +92,53 @@ export {
   updateAssistantMessage,
 } from './utils/chatTransform';
 export { processIntermediateMessage } from './utils/intermediateSteps';
+
+// Per-instance runtime configuration
+export {
+  RuntimeConfigProvider,
+  getStorageKey,
+  getWorkflowNameFromEnv,
+  useRightMenuOpenDefault,
+  useRuntimeConfig,
+  useWorkflowName,
+} from './contexts/RuntimeConfigContext';
+export type { RuntimeConfig, RuntimeConfigProviderProps } from './contexts/RuntimeConfigContext';
+
+// Persistence
+export {
+  __resetConversationDbForTests,
+  clearAllConversationsFromDb,
+  initConversationSessionLifecycle,
+  loadConversationFromDb,
+  loadConversationsFromDb,
+  removeConversationFromDb,
+  saveConversationToDb,
+  saveConversationsToDb,
+} from './storage/conversationDb';
+export { cleanConversationHistory } from './storage/clean';
+
+// Import / export
+export {
+  ConversationPersistenceError,
+  cleanData,
+  exportData,
+  importData,
+  isExportFormatV1,
+  isExportFormatV2,
+  isExportFormatV3,
+  isExportFormatV4,
+  isLatestExportFormat,
+} from './storage/importExport';
+export { validateImportData } from './utils/security/import-validation';
+export { MAX_FILE_SIZE_BYTES } from './constants';
+export type {
+  ExportFormatV1,
+  ExportFormatV2,
+  ExportFormatV3,
+  ExportFormatV4,
+  FolderInterface,
+  FolderType,
+  LatestExportFormat,
+  Prompt,
+  SupportedExportFormats,
+} from './types/export';
