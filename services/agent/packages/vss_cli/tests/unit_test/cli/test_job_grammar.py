@@ -313,7 +313,7 @@ def test_rt_vlm_is_discovered_from_the_same_origin(tmp_path, monkeypatch) -> Non
 
 
 def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
-    from vss_cli.search_group import _critic_from
+    from vss_cli.search.group import _critic_from
 
     deployment = config_mod.Deployment(
         base_url="http://h:7777",
@@ -327,7 +327,7 @@ def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
 
 
 def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli import search_group
+    from vss_cli.search import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",
@@ -357,7 +357,7 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
 
 
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli import search_group
+    from vss_cli.search import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",
