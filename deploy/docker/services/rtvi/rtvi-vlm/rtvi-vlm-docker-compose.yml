@@ -17,8 +17,7 @@
 
 services:
   rtvi-vlm:
-    # for release, change this to the versioned image from the registry
-    image: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm}:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.08.2}
+    image: ${VSS_RT_VLM_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-vlm}:${VSS_RT_VLM_TAG:-develop-latest}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
