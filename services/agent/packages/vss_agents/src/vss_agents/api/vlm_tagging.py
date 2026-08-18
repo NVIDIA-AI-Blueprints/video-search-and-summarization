@@ -24,7 +24,6 @@ import logging
 import httpx
 
 from vss_core.search_core import TagIngestor
-from vss_core.search_core.clients import ElasticClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,6 @@ logger = logging.getLogger(__name__)
 class _LiveTagJob:
     task: asyncio.Task[None]
     ingestor: TagIngestor
-    es: ElasticClient
 
 
 _LIVE_TAG_JOBS: dict[str, _LiveTagJob] = {}
@@ -43,37 +41,28 @@ async def ingest_uploaded_video_tags(
     *,
     vlm_base_url: str,
     vlm_model: str,
-    elasticsearch_url: str,
     sensor_id: str,
-    source_name: str,
     video_url: str,
     creation_time: str,
     chunk_duration: int,
 ) -> int:
-    """Run the finite uploaded-video tagging job to completion."""
-    es = ElasticClient.from_endpoint(elasticsearch_url)
-    try:
-        ingestor = TagIngestor(
-            vlm_base_url=vlm_base_url,
-            vlm_model=vlm_model,
-            es=es,
-            chunk_duration=chunk_duration,
-        )
-        return await ingestor.ingest_video(
-            sensor_id=sensor_id,
-            source_name=source_name,
-            video_url=video_url,
-            creation_time=creation_time,
-        )
-    finally:
-        await es.aclose()
+    """Run the finite uploaded-video tagging job; Kafka owns persistence."""
+    ingestor = TagIngestor(
+        vlm_base_url=vlm_base_url,
+        vlm_model=vlm_model,
+        chunk_duration=chunk_duration,
+    )
+    return await ingestor.ingest_video(
+        sensor_id=sensor_id,
+        video_url=video_url,
+        creation_time=creation_time,
+    )
 
 
 async def start_live_tagging(
     *,
     vlm_base_url: str,
     vlm_model: str,
-    elasticsearch_url: str,
     sensor_id: str,
     source_name: str,
     stream_url: str,
@@ -81,11 +70,9 @@ async def start_live_tagging(
 ) -> None:
     """Register a live stream and retain its SSE consumer as an agent task."""
     await stop_live_tagging(sensor_id=sensor_id, ignore_missing=True)
-    es = ElasticClient.from_endpoint(elasticsearch_url)
     ingestor = TagIngestor(
         vlm_base_url=vlm_base_url,
         vlm_model=vlm_model,
-        es=es,
         chunk_duration=chunk_duration,
         request_timeout=60.0,
     )
@@ -102,7 +89,6 @@ async def start_live_tagging(
             await ingestor.stop_live(registration_client, sensor_id=sensor_id)
         except Exception:
             logger.warning("Could not roll back RT-VLM registration for sensor %s", sensor_id, exc_info=True)
-        await es.aclose()
         raise
     finally:
         await registration_client.aclose()
@@ -114,7 +100,6 @@ async def start_live_tagging(
                 async for _ in ingestor.iter_live_tags(
                     client,
                     sensor_id=sensor_id,
-                    source_name=source_name,
                     admitted=admitted,
                 ):
                     pass
@@ -138,11 +123,10 @@ async def start_live_tagging(
                         sensor_id,
                         exc_info=True,
                     )
-            await es.aclose()
 
     admitted: asyncio.Future[None] = asyncio.get_running_loop().create_future()
     task = asyncio.create_task(consume(), name=f"vlm-tagging-{sensor_id}")
-    _LIVE_TAG_JOBS[sensor_id] = _LiveTagJob(task=task, ingestor=ingestor, es=es)
+    _LIVE_TAG_JOBS[sensor_id] = _LiveTagJob(task=task, ingestor=ingestor)
     try:
         await asyncio.wait_for(asyncio.shield(admitted), timeout=60.0)
     except BaseException:
@@ -178,4 +162,3 @@ async def stop_live_tagging(
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         await job.ingestor.stop_live(client, sensor_id=sensor_id)
-    await job.es.aclose()

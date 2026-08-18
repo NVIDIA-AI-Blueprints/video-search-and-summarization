@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ValidationError
 import pytest
 
 from vss_core.search_core import TagSearch
@@ -20,10 +19,12 @@ class _Es:
         self.hits = hits
         self.index: str | None = None
         self.body: dict[str, Any] | None = None
+        self.kwargs: dict[str, Any] = {}
 
-    async def search(self, *, index: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def search(self, *, index: str, body: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         self.index = index
         self.body = body
+        self.kwargs = kwargs
         return {"hits": {"hits": self.hits}}
 
     async def aclose(self) -> None:
@@ -32,7 +33,7 @@ class _Es:
 
 class _Vst:
     async def get_name_to_stream_id_map(self) -> dict[str, str]:
-        return {"dock camera": "stream-1"}
+        return {"dock camera": "stream-1", "aisle camera": "stream/2"}
 
     async def get_timelines_map(self) -> dict[str, tuple[str, str]]:
         return {}
@@ -78,6 +79,7 @@ async def test_bm25_query_filters_source_identity_and_overlap() -> None:
     )
 
     assert es.index == "default_stream_1"
+    assert es.kwargs == {"ignore_unavailable": True, "allow_no_indices": True}
     assert es.body is not None
     assert es.body["query"]["bool"]["must"][0]["match"]["text"]["operator"] == "and"
     filters = es.body["query"]["bool"]["filter"]
@@ -91,11 +93,30 @@ async def test_bm25_query_filters_source_identity_and_overlap() -> None:
 
 
 @pytest.mark.asyncio
+async def test_multiple_sources_expand_to_exact_indexes_without_wildcard_search() -> None:
+    es = _Es([])
+    await TagSearch(es=es, vst=_Vst()).run(TagSearchInput(query="worker", video_sources=["dock camera", "stream/2"]))
+
+    assert es.index == "default_stream_1,default_stream_2"
+    assert "*" not in es.index
+    assert es.body is not None
+    assert "stream-1" in str(es.body)
+    assert "stream/2" in str(es.body)
+
+
+@pytest.mark.asyncio
 async def test_malformed_tag_document_is_skipped_per_hit() -> None:
     es = _Es([_hit(text='{"tags":["valid"]}'), _hit(text='{"tags":[],"prose":"bad"}')])
     out = await TagSearch(es=es, vst=_Vst()).run(TagSearchInput(query="valid", video_sources=["dock camera"]))
     assert len(out.results) == 1
     assert out.malformed_documents == 1
+
+
+@pytest.mark.asyncio
+async def test_kafka_document_with_markdown_fence_is_parsed() -> None:
+    es = _Es([_hit(text='```json\n{"tags":["valid"],"description":"Visible."}\n```')])
+    out = await TagSearch(es=es, vst=_Vst()).run(TagSearchInput(query="valid", video_sources=["dock camera"]))
+    assert out.results[0].tags == ["valid"]
 
 
 @pytest.mark.asyncio
@@ -109,9 +130,16 @@ async def test_missing_timestamp_is_malformed() -> None:
     assert out.malformed_documents == 1
 
 
-def test_video_sources_are_required() -> None:
-    with pytest.raises(ValidationError):
-        TagSearchInput(query="forklift")  # type: ignore[call-arg]
+@pytest.mark.asyncio
+async def test_no_video_sources_searches_the_configured_index_family() -> None:
+    es = _Es([])
+    out = await TagSearch(es=es, vst=_Vst()).run(TagSearchInput(query="forklift"))
+
+    assert es.index == "default_*"
+    assert out.results == []
+    assert es.body is not None
+    assert "metadata.content_metadata.sensorId" not in str(es.body)
+    assert "metadata.content_metadata.streamId" not in str(es.body)
 
 
 @pytest.mark.asyncio

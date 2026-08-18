@@ -44,8 +44,6 @@ async def test_unexpected_live_consumer_failure_stops_remote_stream() -> None:
 
     ingestor.iter_live_tags = failing_live_tags
     ingestor.stop_live = AsyncMock(side_effect=stop_live)
-    es = MagicMock()
-    es.aclose = AsyncMock()
     client = MagicMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=None)
@@ -54,13 +52,11 @@ async def test_unexpected_live_consumer_failure_stops_remote_stream() -> None:
     vlm_tagging._LIVE_TAG_JOBS.clear()
     with (
         patch("vss_agents.api.vlm_tagging.TagIngestor", return_value=ingestor),
-        patch("vss_agents.api.vlm_tagging.ElasticClient.from_endpoint", return_value=es),
         patch("vss_agents.api.vlm_tagging.httpx.AsyncClient", return_value=client),
     ):
         await vlm_tagging.start_live_tagging(
             vlm_base_url="http://rt-vlm",
             vlm_model="vlm-model",
-            elasticsearch_url="http://elasticsearch",
             sensor_id="sensor",
             source_name="camera",
             stream_url="rtsp://camera/live",
@@ -71,4 +67,3 @@ async def test_unexpected_live_consumer_failure_stops_remote_stream() -> None:
 
     assert "sensor" not in vlm_tagging._LIVE_TAG_JOBS
     ingestor.stop_live.assert_awaited_once_with(client, sensor_id="sensor")
-    es.aclose.assert_awaited_once_with()

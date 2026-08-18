@@ -703,15 +703,14 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                 )
 
             # Step 5: start the independently configured VLM tag stream. The
-            # agent owns the SSE consumer and writes only validated tag JSON
-            # to Elasticsearch; RT-VLM Kafka settings are not used.
-            if config.vlm_tagging_url and config.vlm_tagging_model and config.elasticsearch_url:
+            # The Agent owns the SSE consumer; RT-VLM publishes chunks through
+            # Kafka and Logstash owns Elasticsearch persistence.
+            if config.vlm_tagging_url and config.vlm_tagging_model:
                 try:
                     with TimeMeasure("rtsp_stream: start VLM tagging"):
                         await start_live_tagging(
                             vlm_base_url=config.vlm_tagging_url,
                             vlm_model=config.vlm_tagging_model,
-                            elasticsearch_url=config.elasticsearch_url,
                             sensor_id=sensor_id,
                             source_name=request.name,
                             stream_url=rtsp_url,

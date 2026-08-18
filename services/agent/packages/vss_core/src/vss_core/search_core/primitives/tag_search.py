@@ -65,7 +65,7 @@ class TagSearch:
     async def run(self, inp: TagSearchInput) -> TagSearchOutput:
         inp.validate_semantics()
         name_to_id = await self._name_to_id()
-        source_ids = self._resolve_source_ids(inp.video_sources, name_to_id)
+        source_ids = self._resolve_source_ids(inp.video_sources or [], name_to_id)
         search_index = self._resolve_search_index(source_ids)
         query = helpers.build_es_query(inp, source_ids=source_ids, default_max_results=self._default_k)
         logger.info(
@@ -74,7 +74,12 @@ class TagSearch:
             inp.source_type,
             scrub_log(inp.query),
         )
-        response = await self._es.search(index=search_index, body=query)
+        response = await self._es.search(
+            index=search_index,
+            body=query,
+            ignore_unavailable=True,
+            allow_no_indices=True,
+        )
         data = response.body if isinstance(getattr(response, "body", None), Mapping) else response
         response_hits = data.get("hits") if isinstance(data, Mapping) else None
         hits = response_hits.get("hits") if isinstance(response_hits, Mapping) else None
@@ -158,8 +163,8 @@ class TagSearch:
         return resolved
 
     def _resolve_search_index(self, source_ids: list[str]) -> str:
-        """Prefer exact per-stream indexes while retaining mandatory ID filters."""
-        if "*" not in self._index:
+        """Use all configured indexes, or exact source indexes when scoped."""
+        if "*" not in self._index or not source_ids:
             return self._index
         indexes = []
         for source_id in source_ids:

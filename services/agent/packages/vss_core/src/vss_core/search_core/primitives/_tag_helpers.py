@@ -141,7 +141,13 @@ def _iso_from_epoch(timestamp: float) -> str:
 def _parse_tag_payload(raw_text: Any) -> tuple[list[str], str]:
     if not isinstance(raw_text, str):
         raise ValueError("tag document text must be a JSON string")
-    payload = json.loads(raw_text)
+    normalized = raw_text.strip()
+    if normalized.startswith("```") and normalized.endswith("```"):
+        first_newline = normalized.find("\n")
+        if first_newline < 0:
+            raise ValueError("fenced tag document must contain JSON")
+        normalized = normalized[first_newline + 1 : -3].strip()
+    payload = json.loads(normalized)
     if not isinstance(payload, dict) or "tags" not in payload or set(payload) - {"tags", "description"}:
         raise ValueError("tag document must contain tags and may contain description")
     raw_tags = payload["tags"]

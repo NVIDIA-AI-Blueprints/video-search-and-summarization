@@ -915,7 +915,6 @@ class TestAddStreamEndpoint:
                 vst_internal_url="http://vst:30888",
                 vlm_tagging_base_url="http://rt-vlm:8018",
                 vlm_tagging_model="vlm-model",
-                elasticsearch_url="http://elasticsearch:9200",
             )
         )
         mock_add_vst.return_value = (True, "OK", "sensor-123", "rtsp://vst:554/sensor-123")
@@ -928,7 +927,6 @@ class TestAddStreamEndpoint:
         mock_start_tagging.assert_awaited_once_with(
             vlm_base_url="http://rt-vlm:8018",
             vlm_model="vlm-model",
-            elasticsearch_url="http://elasticsearch:9200",
             sensor_id="sensor-123",
             source_name="camera-1",
             stream_url="rtsp://vst:554/sensor-123",

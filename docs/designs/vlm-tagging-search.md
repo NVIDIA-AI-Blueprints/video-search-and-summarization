@@ -23,27 +23,30 @@ See the License for the specific language governing permissions and limitations 
 | Phase 2 | Semantic retrieval over real tag/caption embeddings |
 | Search boundary | Retrieval and fusion live in `vss_core.search_core` |
 | Ingestion boundary | Existing Agent uploaded-video and RTSP lifecycle routes orchestrate the existing RT-VLM |
-| Source baseline | `origin/develop@2b0a793f9`, 2026-08-12 |
+| Source baseline | `origin/develop@7829ab15c`, 2026-08-18 |
 
 ## Summary
 
 Phase 1 makes RT-VLM output searchable for both RTSP streams and uploaded videos. The existing Agent ingestion routes
-start and stop tagging on the existing RT-VLM deployment. The Agent consumes RT-VLM HTTP or SSE responses, validates
-the controlled JSON contract, and writes only valid tag documents to Elasticsearch. This keeps tagging isolated from
-Critic and `video_understanding` without changing RT-VLM or relying on its process-wide Kafka setting.
+start and stop tagging on the existing RT-VLM deployment. RT-VLM publishes generated chunks to its existing
+`mdx-vlm-captions` Kafka topic. Without changing RT-VLM or Logstash, the existing LVS pipeline writes each raw caption
+to `default_<streamId>`. The Agent consumes the HTTP or SSE response to supervise the job and validate completion; it
+does not write tag documents to Elasticsearch.
 
 Search adds BM25 retrieval over the indexed VLM text and fuses its ranked candidates with the existing video-embedding
-and optional attribute results. Every tag or fusion query must name its video sources. The `default_*` index family is
-never searched without a mandatory source-identity filter.
+and optional attribute results. Video sources are optional. When supplied, Search resolves them to canonical sensor
+IDs, derives their exact `default_<streamId>` indexes, and applies source-identity filters. Without sources, Search
+queries the configured `default_*` family across all sources of the requested type.
 
-Phase 1 tag documents contain no semantic vector. Real tag/caption embeddings are Phase 2.
+Phase 1 tag documents contain no meaningful semantic vector. The existing Logstash pipeline adds its deterministic
+placeholder vector for index compatibility; real tag/caption embeddings are Phase 2.
 
 ## Goals
 
 - Generate controlled, chunk-level tags for RTSP streams and uploaded videos.
 - Reuse the existing RT-VLM deployment for tagging and verification.
 - Reuse the existing Agent-managed upload-complete and RTSP add/delete lifecycle.
-- Keep tag indexing separate from Critic and `video_understanding` traffic.
+- Reuse RT-VLM's existing Kafka and Logstash persistence path.
 - Support source-scoped BM25 tag search in `vss_core.search_core`.
 - Fuse tag, video-embedding, and optional attribute candidate sets without dropping single-provider results.
 - Let operators select the fusion method and tune its weights without a code change.
@@ -77,12 +80,14 @@ flowchart LR
     UI --> Agent["Existing Agent ingestion routes"]
     Agent -->|"upload complete or RTSP add/delete"| VST
     Agent -->|"controlled generate_captions request"| VLM["Existing RT-VLM"]
-    VLM -->|"HTTP response or live SSE"| Validate["vss_core TagIngestor\nvalidate and normalize"]
-    Validate -->|"deterministic upsert"| TagIndex["Elasticsearch\ndefault_<sensorId>"]
+    VLM -->|"HTTP response or live SSE"| Validate["vss_core TagIngestor\nsupervise and validate"]
+    VLM -->|"mdx-vlm-captions"| Kafka["Kafka"]
+    Kafka --> Logstash["Existing LVS Logstash"]
+    Logstash --> TagIndex["Elasticsearch\ndefault_<streamId>"]
 
     Critic["Critic and video_understanding"] --> VLM
 
-    Query["Prepared search request\nwith explicit video_sources"] --> TagSearch["TagSearch\nBM25"]
+    Query["Prepared search request\nwith optional video_sources"] --> TagSearch["TagSearch\nBM25"]
     Query --> EmbedSearch["EmbedSearch\nreal RT-Embed vectors"]
     Query --> AttributeSearch["AttributeSearch\noptional"]
     TagIndex --> TagSearch
@@ -101,7 +106,7 @@ The Agent routes preserve the current ownership model:
 
 | Agent event | VLM tagging behavior |
 | --- | --- |
-| Uploaded video `/complete` | Resolve timeline and VST HTTP URL, run finite caption generation, validate every chunk, and index it |
+| Uploaded video `/complete` | Resolve timeline and VST HTTP URL, run finite caption generation, and validate completion while RT-VLM publishes chunks |
 | RTSP `/add` | Register the VST RTSP URL with RT-VLM, require caption-stream HTTP admission, and retain an Agent SSE consumer |
 | RTSP `/delete` | Cancel the Agent consumer and stop/delete the stream in RT-VLM before removing the VST source |
 
@@ -109,12 +114,12 @@ The Agent routes preserve the current ownership model:
 
 For RTSP, the Agent starts the existing RT-VLM stream path with:
 
-- `camera_id=<VST camera_id>`;
+- the RT-VLM stream ID and `sensor_name` set to the canonical VST sensor ID;
 - the VST-provided RTSP URL;
 - the controlled tag prompt;
 - five-second chunks;
 - `response_format_type=json_object` and `temperature=0`; and
-- Agent-side response validation and deterministic Elasticsearch indexing.
+- Agent-side response validation while Kafka and Logstash persist the chunks.
 
 The request is successful only after the Agent's RTSP `/add` flow receives the RT-VLM caption stream's HTTP response.
 The Agent's RTSP `/delete` flow stops caption generation and removes the registered RT-VLM stream using the same
@@ -128,17 +133,27 @@ For an uploaded video, the Agent:
 2. calls `POST /v1/generate_captions` with that URL, the VST sensor ID, the same synthetic
    `2025-01-01T00:00:00Z` search origin used by RT-Embed, the controlled prompt,
    five-second chunks, JSON response format, and temperature `0`; and
-3. validates and indexes the finite `chunk_responses` result; and
+3. validates the finite `chunk_responses` result while Kafka and Logstash persist the chunks; and
 4. removes the temporary RT-VLM file asset.
 
 RT-VLM fetches the VST URL server-side. Media bytes do not pass through the Agent or `vss_core`.
 
-## One RT-VLM deployment and indexing isolation
+## One RT-VLM deployment and default indexing
 
-Tagging and verification share the existing RT-VLM API deployment and model backend. RT-VLM remains unchanged and
-Kafka stays disabled for this path. Only the Agent tagging lifecycle owns a `TagIngestor`, and only `TagIngestor`
-writes to `default_<sensorId>`. Critic, `video_understanding`, and `vss-ask-video` consume RT-VLM independently and
-therefore cannot create tag-search documents.
+Tagging and verification share the existing RT-VLM API deployment and model backend. RT-VLM remains unchanged. Its
+output bus is deployment-wide: when configured for Kafka, non-chat caption requests publish to
+`mdx-vlm-captions`. The existing LVS Logstash pipeline derives the Elasticsearch index from each record's `streamId`
+and writes raw captions to `default_<sanitized-streamId>`. Existing routing for `mdx-structured-events-summary`
+remains unchanged. Phase 1 does not customize RT-VLM's Kafka payload or Logstash routing.
+
+Critic normally uses chat completions, whose message-bus publication is disabled by default through
+`ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS=false`, so Critic output does not normally enter these indexes. A `default_*`
+index can still contain non-tag RT-VLM captions for the same source. The tag reader
+still accepts only the exact tag JSON contract and skips other or malformed caption documents. Changing the RT-VLM
+chat-publication setting can add chat output, although it will not be returned as a valid tag hit.
+
+Phase 1 does not change Critic code, configuration, prompts, or request handling. Current UI testing can continue to
+send `enable_critic=false`; tag ingestion and retrieval do not depend on changing Critic behavior.
 
 ## Prompt and indexed document contract
 
@@ -151,11 +166,11 @@ The tag prompt is deployment configuration with a validated default. It asks for
 }
 ```
 
-Tags are normalized to trimmed lowercase strings, deduplicated, limited to 64 characters each, and capped at 32 per
-chunk. Descriptions are limited to 1,024 characters. Invalid model JSON is recorded as an ingestion failure and is not
-indexed as a valid tag document. A finite uploaded-video job with zero valid chunks fails.
+At read time, tags are normalized to trimmed lowercase strings, deduplicated, limited to 64 characters each, and
+capped at 32 per chunk. Descriptions are limited to 1,024 characters. Invalid model JSON may already have been indexed
+by Logstash, but it is rejected as a tag hit. A finite uploaded-video job with zero valid response chunks fails.
 
-`TagIngestor` stores the validated chunk directly:
+Kafka and Logstash store the RT-VLM chunk in the existing caption document shape:
 
 ```json
 {
@@ -179,15 +194,16 @@ indexed as a valid tag document. A finite uploaded-video job with zero valid chu
 }
 ```
 
-For uploaded video, `sensor.type=Video`. `streamId` and `sensorId` remain tied to the canonical VST identity. Uploaded
-documents use `vlm-tag:<sensorId>:<chunkId>`. Live documents use
-`vlm-tag:<sensorId>:<captionRequestId>:<chunkId>` because RT-VLM chunk numbers restart for each caption request. This
-makes repeated output within a request an upsert without allowing a restarted live session to overwrite earlier tags.
+For uploaded video, `sensor.type=Video`. `streamId` and `sensorId` remain tied to the canonical VST identity. Logstash
+replaces hyphens, slashes, backslashes, and spaces in `streamId` with underscores when constructing
+`default_<sanitized-streamId>`. It owns document IDs and upsert behavior. Phase 1 does not introduce a separate tag
+document-ID scheme.
 
-Phase 1 tag documents do not require a vector. By contrast, `mdx-embed-filtered-*` contains real video embeddings
+The existing Logstash pipeline adds a deterministic placeholder vector to these documents for index compatibility,
+but Phase 1 never uses it for semantic retrieval. By contrast, `mdx-embed-filtered-*` contains real video embeddings
 computed by RT-Embed; those vectors continue to power the embed provider in fusion.
 
-## Tag search API and source isolation
+## Tag search API and source selection
 
 The reusable API lives under `vss_core.search_core`:
 
@@ -195,7 +211,7 @@ The reusable API lives under `vss_core.search_core`:
 TagSearchInput
   query
   source_type: rtsp | video_file
-  video_sources: non-empty list
+  video_sources: optional list
   timestamp_start
   timestamp_end
   top_k
@@ -211,17 +227,19 @@ TagSearchResultItem
   lexical_score
 ```
 
-Search modes are `tag`, `embed`, `attribute`, `fusion`, and `object`. Tag mode and fusion mode require at least one
-explicit `video_source`. There is no implicit all-sources search in Phase 1. An unresolved source is an input error;
-the implementation must not silently broaden the query.
+Search modes are `tag`, `embed`, `attribute`, `fusion`, and `object`. Tag and fusion requests may omit
+`video_sources`; this searches the configured `default_*` family for the requested source type. When sources are
+provided, every source must resolve successfully. An unresolved source is an input error and must not silently broaden
+the query.
 
 For each request:
 
-1. Resolve every requested VST source name or ID to its canonical `sensorId`.
-2. Use exact `default_<streamId>` indexes when the source-to-index identity is known.
-3. If an exact index cannot be derived, use the configured `default_*` family only with mandatory `sensorId` terms.
-4. Filter by `sensor.type`, the resolved source IDs, and interval overlap.
-5. Run BM25 `match` against `text` and normalize the hit to the common `SearchResult` shape.
+1. If sources are supplied, resolve every VST source name or ID to its canonical `sensorId`.
+2. Sanitize each resolved ID using the existing Logstash rule and expand the configured `default_*` family into exact
+   per-source index names.
+3. Search those exact indexes when scoped; otherwise search the configured `default_*` family.
+4. Always filter by `sensor.type` and interval overlap; add the resolved source-identity filter when scoped.
+5. Run BM25 `match` against `text`, validate the tag JSON, and normalize valid hits to the common `SearchResult` shape.
 
 Interval overlap is:
 
@@ -275,10 +293,13 @@ Adding score-based fusion is deferred until every provider has a validated norma
 - Tag-only search returns a typed backend error when Elasticsearch is unavailable and an empty result for no match.
 - Fusion returns partial results plus degradation metadata when one provider fails; it fails when every provider fails.
 - Cancellation propagates and is never converted into provider degradation.
-- Malformed individual Elasticsearch documents are skipped and counted.
+- Malformed or non-tag Elasticsearch documents are skipped and counted. Agent response validation cannot prevent a
+  message already published by RT-VLM from being indexed by Logstash.
 - Uploaded media remains in VST if post-upload tagging fails. RTSP admission failure follows the existing add rollback.
-- Critic and `video_understanding` requests never create tag-search documents.
-- Unsupported URLs and malformed RT-VLM payloads are rejected without indexing a document.
+- With the default `ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS=false`, Critic and `video_understanding` responses are not
+  published to Kafka and therefore do not create tag-search documents.
+- Unsupported URLs are rejected before generation. Malformed generated tag JSON may already be persisted by
+  Kafka and Logstash, but response validation reports the bad chunk and tag search skips it.
 - Logs must not contain credentials or raw authenticated URLs.
 - Metrics cover admission, active tagging jobs, chunk latency, invalid model output, indexing failure, provider
   degradation, source-filter rejection, and fusion latency.
@@ -287,37 +308,37 @@ Adding score-based fusion is deferred until every provider has a validated norma
 
 | Workstream | Deliverables | Exit gate |
 | --- | --- | --- |
-| 1. Contracts | Freeze identity, timestamp, prompt, tag JSON, and deterministic document contracts | Representative RT-VLM responses and indexed documents are approved for both source types |
-| 2. Library ingestion | Add controlled RT-VLM response validation and deterministic Elasticsearch upserts to `vss_core.search_core` | Invalid chunks never enter the tag index; valid chunks match the retrieval schema |
+| 1. Contracts | Freeze identity, timestamp, prompt, and tag JSON contracts | Representative RT-VLM responses and indexed documents are approved for both source types |
+| 2. Library ingestion | Add controlled RT-VLM request and response validation to `vss_core.search_core` while leaving persistence to Kafka and Logstash | Uploaded and live tagging requests complete without an Agent Elasticsearch write |
 | 3. RTSP tagging | Extend existing Agent add/delete orchestration to register RT-VLM, require SSE admission, retain the consumer, and stop it on delete | Add starts tags and remove stops them while existing RT-CV/RT-Embed behavior remains intact |
 | 4. Uploaded-video tagging | Extend existing upload completion to call finite caption generation using its resolved VST URL and timeline | A completed upload produces full-timeline tags without proxying media bytes |
-| 5. Index validation | Use exact `default_<sensorId>` indexes and deterministic document IDs; verify retention and identity filters | Each chunk is queryable and repeated output overwrites rather than duplicates it |
-| 6. Library retrieval | Add tag models, BM25 query, mandatory source resolution, exact-index selection where possible, time filters, VST result enrichment, and public facade registration in `vss_core.search_core` | Tag search returns only selected-source intervals for RTSP and uploaded video |
+| 5. Index validation | Verify RT-VLM caption publication and existing `default_<streamId>` routing | Each valid tag chunk is queryable from its source-specific index through the existing Kafka/Logstash path |
+| 6. Library retrieval | Add tag models, BM25 query, optional source resolution, time filters, VST result enrichment, and public facade registration in `vss_core.search_core` | Scoped search returns only selected-source intervals; source-less search covers the configured index family |
 | 7. Fusion | Implement union alignment and method dispatch for `weighted_rrf` and `rrf`; expose all weights and `rrf_k` through runtime and CLI | Tests prove method selection, weight changes, multi-provider promotion, and single-provider survival |
-| 8. Verification and rollout | Add unit, contract, integration, and end-to-end tests; add metrics and dashboards; gate enablement behind configuration; document rollback | Search and verification regressions pass, indexing isolation is proven, and disabling tagging leaves existing search intact |
+| 8. Verification and rollout | Add unit, contract, integration, and end-to-end tests; add metrics and dashboards; gate enablement behind configuration; document rollback | Search and verification regressions pass, scoped and source-less index selection are proven, and disabling tagging leaves existing search intact |
 
 ## Acceptance criteria
 
 - Existing Agent ingestion routes invoke RT-VLM for both RTSP and uploaded videos.
 - The existing RT-VLM deployment handles both tagging and verification.
-- A validated tagging response produces one `raw_events` record per chunk.
+- A tagging request publishes `raw_events` chunks through RT-VLM's configured message bus and existing Logstash path.
 - Equivalent Critic, `video_understanding`, and `vss-ask-video` requests produce no tag records.
 - RTSP add starts inference and RTSP remove stops it idempotently.
 - Uploaded-video tagging covers the full VST timeline and removes its temporary RT-VLM asset.
-- A tag query without `video_sources` is rejected.
-- Selected source and time filters exclude every unrelated chunk, including documents in other `default_*` indexes.
+- A tag query without `video_sources` searches the configured `default_*` family.
+- Selected sources resolve to exact `default_<streamId>` indexes, and source/time filters exclude unrelated chunks.
 - BM25 retrieves controlled tags for both source types.
 - Phase 1 does not use a tag vector for semantic retrieval.
 - Operators can select `weighted_rrf` or `rrf` and change every fusion weight without modifying code.
 - Tag-only, embed-only, and attribute-only candidates survive fusion; multi-provider candidates are promoted.
 - One provider outage yields partial results with degradation metadata; cancellation propagates.
-- Reprocessing overwrites the deterministic document ID instead of creating a duplicate.
+- The Agent performs no direct Elasticsearch tag write.
 - Existing embed, attribute, object, Critic, and `video_understanding` behavior remains regression-free.
 
 ## Required validation before implementation completion
 
-1. Confirm the exact VST sensor ID used by RTSP add is stable and can be mapped to the corresponding
-   `default_<streamId>` index. Until confirmed, retain the mandatory `sensorId` filter even when an exact index is used.
+1. Confirm that the exact VST sensor ID used by RTSP add remains stable across RT-VLM `streamId`, the derived
+   `default_<streamId>` index, and source resolution. The `sensorId` filter remains required for scoped searches.
 2. Validate RT-VLM capacity and scheduling when continuous RTSP tagging shares the deployment with interactive Critic
    verification.
 3. Tune the default prompt, `w_tag`, `w_embed`, `w_attribute`, and `rrf_k` against a labeled RTSP and uploaded-video

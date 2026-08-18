@@ -153,7 +153,10 @@ class _MockSearchServices:
             # itself, so the mock has to answer it.
             self._send_json(
                 handler,
-                [{"index": "mdx-embed-filtered-2025-01-01"}, {"index": "mdx-behavior-2025-01-01"}],
+                [
+                    {"index": "mdx-embed-filtered-2025-01-01"},
+                    {"index": "mdx-behavior-2025-01-01"},
+                ],
             )
             return
         if method == "POST" and path.endswith("/_search"):

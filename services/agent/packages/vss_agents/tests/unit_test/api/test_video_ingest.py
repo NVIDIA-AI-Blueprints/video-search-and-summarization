@@ -392,15 +392,12 @@ class TestRunPostUploadProcessing:
                 rtvi_embed_base_url="",
                 vlm_tagging_base_url="http://rt-vlm:8018",
                 vlm_tagging_model="vlm-model",
-                elasticsearch_url="http://elasticsearch:9200",
             )
 
         tag_ingest.assert_awaited_once_with(
             vlm_base_url="http://rt-vlm:8018",
             vlm_model="vlm-model",
-            elasticsearch_url="http://elasticsearch:9200",
             sensor_id="sensor-abc",
-            source_name="clip",
             video_url="http://vst:8000/storage/clip.mp4",
             creation_time="2025-01-01T00:00:00.000Z",
             chunk_duration=5,

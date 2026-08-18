@@ -27,6 +27,7 @@ from . import report_gen
 from . import rtvi_vlm_alert
 from . import s3_picture_url
 from . import search
+from . import tag_search
 from . import template_report_gen
 from . import video_caption
 from . import video_report_gen
@@ -51,6 +52,7 @@ __all__ = [
     "rtvi_vlm_alert",
     "s3_picture_url",
     "search",
+    "tag_search",
     "template_report_gen",
     "video_caption",
     "video_report_gen",

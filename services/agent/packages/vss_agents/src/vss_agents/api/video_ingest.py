@@ -248,7 +248,6 @@ class _VideoUploadConfig(BaseModel):
     vlm_tagging_base_url: str = ""
     vlm_tagging_model: str = ""
     vlm_tagging_chunk_duration: int = 5
-    elasticsearch_url: str = ""
     disable_audio: bool = True
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS
@@ -274,13 +273,11 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         raw_vlm_tagging_base_url = getattr(streaming_config, "vlm_tagging_base_url", "")
         raw_vlm_tagging_model = getattr(streaming_config, "vlm_tagging_model", "")
         raw_vlm_tagging_chunk_duration = getattr(streaming_config, "vlm_tagging_chunk_duration", 5)
-        raw_elasticsearch_url = getattr(streaming_config, "elasticsearch_url", "")
         vlm_tagging_base_url = raw_vlm_tagging_base_url if isinstance(raw_vlm_tagging_base_url, str) else ""
         vlm_tagging_model = raw_vlm_tagging_model if isinstance(raw_vlm_tagging_model, str) else ""
         vlm_tagging_chunk_duration = (
             raw_vlm_tagging_chunk_duration if isinstance(raw_vlm_tagging_chunk_duration, int) else 5
         )
-        elasticsearch_url = raw_elasticsearch_url if isinstance(raw_elasticsearch_url, str) else ""
         disable_audio = not bool(getattr(streaming_config, "enable_audio", False))
     else:
         # NAT may strip unknown config sections — fall back to env vars set by
@@ -299,7 +296,6 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         vlm_tagging_base_url = os.getenv("RTVI_VLM_BASE_URL", "")
         vlm_tagging_model = os.getenv("VLM_NAME", "")
         vlm_tagging_chunk_duration = 5
-        elasticsearch_url = os.getenv("ELASTIC_SEARCH_ENDPOINT", "")
         disable_audio = os.getenv("ENABLE_AUDIO", "false").strip().lower() not in ("true", "1", "yes")
 
     if not vst_internal_url:
@@ -340,7 +336,6 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         vlm_tagging_base_url=vlm_tagging_base_url,
         vlm_tagging_model=vlm_tagging_model,
         vlm_tagging_chunk_duration=vlm_tagging_chunk_duration,
-        elasticsearch_url=elasticsearch_url,
         disable_audio=disable_audio,
         rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
         rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
@@ -479,7 +474,6 @@ async def _run_post_upload_processing(
     vlm_tagging_base_url: str = "",
     vlm_tagging_model: str = "",
     vlm_tagging_chunk_duration: int = 5,
-    elasticsearch_url: str = "",
     disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
@@ -562,7 +556,6 @@ async def _run_post_upload_processing(
     parsed_cv = _parse_optional_http_url(rtvi_cv_base_url)
     parsed_embed = _parse_optional_http_url(rtvi_embed_base_url)
     parsed_vlm_tagging = _parse_optional_http_url(vlm_tagging_base_url)
-    parsed_elasticsearch = _parse_optional_http_url(elasticsearch_url)
 
     rtvi_tasks: list[tuple[str, Any]] = []
 
@@ -603,7 +596,7 @@ async def _run_post_upload_processing(
     else:
         logger.info("RTVI Embed not configured, skipping embedding generation")
 
-    if parsed_vlm_tagging is not None and parsed_elasticsearch is not None and vlm_tagging_model:
+    if parsed_vlm_tagging is not None and vlm_tagging_model:
         parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
         if not parsed_vst.hostname:
             raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
@@ -614,9 +607,7 @@ async def _run_post_upload_processing(
                 ingest_uploaded_video_tags(
                     vlm_base_url=vlm_tagging_base_url,
                     vlm_model=vlm_tagging_model,
-                    elasticsearch_url=elasticsearch_url,
                     sensor_id=sensor_id,
-                    source_name=camera_name,
                     video_url=tag_video_url,
                     creation_time=start_timestamp,
                     chunk_duration=vlm_tagging_chunk_duration,
@@ -698,7 +689,6 @@ def create_video_upload_complete_router(
     vlm_tagging_base_url: str = "",
     vlm_tagging_model: str = "",
     vlm_tagging_chunk_duration: int = 5,
-    elasticsearch_url: str = "",
     disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
@@ -748,7 +738,6 @@ def create_video_upload_complete_router(
                 vlm_tagging_base_url=vlm_tagging_base_url,
                 vlm_tagging_model=vlm_tagging_model,
                 vlm_tagging_chunk_duration=vlm_tagging_chunk_duration,
-                elasticsearch_url=elasticsearch_url,
                 disable_audio=disable_audio,
                 rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
@@ -806,7 +795,6 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 vlm_tagging_base_url=cfg.vlm_tagging_base_url,
                 vlm_tagging_model=cfg.vlm_tagging_model,
                 vlm_tagging_chunk_duration=cfg.vlm_tagging_chunk_duration,
-                elasticsearch_url=cfg.elasticsearch_url,
                 disable_audio=cfg.disable_audio,
                 rtvi_cv_timeout_seconds=cfg.rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=cfg.rtvi_embed_timeout_seconds,

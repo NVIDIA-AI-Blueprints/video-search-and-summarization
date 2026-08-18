@@ -82,10 +82,8 @@ class SearchInput(BaseModel):
         if self.top_k is not None and self.top_k < 1:
             raise InvalidInputError(f"top_k must be >= 1 when provided (got {self.top_k})")
         has_attributes = any(attribute.strip() for attribute in self.attributes)
-        if self.search_mode in {"tag", "fusion"} and (
-            not self.video_sources or not all(source.strip() for source in self.video_sources)
-        ):
-            raise InvalidInputError(f"search_mode={self.search_mode!r} requires at least one non-empty video_source")
+        if self.video_sources and not all(source.strip() for source in self.video_sources):
+            raise InvalidInputError("video_sources must contain only non-empty source names or IDs")
         if self.search_mode == "attribute" and not has_attributes:
             raise InvalidInputError("search_mode='attribute' requires at least one attribute")
         if self.search_mode in {"embed", "tag"} and has_attributes:

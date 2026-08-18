@@ -33,7 +33,7 @@ class TagSearchInput(BaseModel):
 
     query: str
     source_type: SourceType = "video_file"
-    video_sources: list[str] = Field(min_length=1)
+    video_sources: list[str] | None = None
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
     top_k: int | None = Field(default=None, ge=1, le=1000)
@@ -41,7 +41,7 @@ class TagSearchInput(BaseModel):
     def validate_semantics(self) -> None:
         if not self.query.strip():
             raise InvalidInputError("TagSearchInput.query must be non-empty")
-        if not all(source.strip() for source in self.video_sources):
+        if self.video_sources and not all(source.strip() for source in self.video_sources):
             raise InvalidInputError("TagSearchInput.video_sources must contain only non-empty source names or IDs")
         if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
             raise InvalidInputError(

@@ -75,12 +75,12 @@ def test_search_input_top_k_within_bounds_accepted():
 
 
 def test_search_mode_requires_matching_explicit_inputs() -> None:
-    # Phase-1 fusion always combines tag + embedding retrieval; attributes are optional.
+    # Phase-1 fusion always combines tag + embedding retrieval; sources and attributes are optional.
     _valid_search_input(search_mode="fusion", video_sources=["cam1"]).validate_semantics()
-    with pytest.raises(InvalidInputError, match="video_source"):
-        _valid_search_input(search_mode="fusion").validate_semantics()
-    with pytest.raises(InvalidInputError, match="video_source"):
-        _valid_search_input(search_mode="tag").validate_semantics()
+    _valid_search_input(search_mode="fusion").validate_semantics()
+    _valid_search_input(search_mode="tag").validate_semantics()
+    with pytest.raises(InvalidInputError, match="video_sources"):
+        _valid_search_input(search_mode="tag", video_sources=[""]).validate_semantics()
     with pytest.raises(InvalidInputError, match="attributes require"):
         _valid_search_input(attributes=["red"]).validate_semantics()
     with pytest.raises(InvalidInputError, match="object_ids require"):

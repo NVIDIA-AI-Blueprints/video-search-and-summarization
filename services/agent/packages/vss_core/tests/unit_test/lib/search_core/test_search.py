@@ -231,13 +231,14 @@ class TestExecutionPaths:
             )
         )
         out = await _run(
-            SearchInput(query="red forklift", source_type="video_file", video_sources=["cam1"], search_mode="tag"),
+            SearchInput(query="red forklift", source_type="video_file", search_mode="tag"),
             embed_search=_FakeEmbed([_embed_output([])]),
             tag_search=tag,
             config=_config(),
         )
         assert [result.video_name for result in out.data] == ["tagged"]
         assert tag.calls[0]["query"] == "red forklift"
+        assert tag.calls[0]["video_sources"] is None
 
     @pytest.mark.asyncio
     async def test_fusion_unions_tag_only_and_embed_only_hits(self):
@@ -257,12 +258,13 @@ class TestExecutionPaths:
             )
         )
         out = await _run(
-            SearchInput(query="forklift", source_type="video_file", video_sources=["cam1"], search_mode="fusion"),
+            SearchInput(query="forklift", source_type="video_file", search_mode="fusion"),
             embed_search=embed,
             tag_search=tag,
             config=_config(),
         )
         assert {result.video_name for result in out.data} == {"embed-only", "tag-only"}
+        assert tag.calls[0]["video_sources"] is None
 
     @pytest.mark.asyncio
     async def test_fusion_respects_no_merge_adjacent(self):
