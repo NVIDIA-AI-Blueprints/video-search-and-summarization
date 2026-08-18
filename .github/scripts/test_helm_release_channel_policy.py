@@ -45,6 +45,9 @@ HELM_VALUES = {
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "vss-rt-vlm": [
+        "deploy/helm/services/rtvi/charts/rtvi-vlm/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -75,6 +78,9 @@ HELM_HELPERS = {
     ],
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "vss-rt-vlm": [
+        "deploy/helm/services/rtvi/charts/rtvi-vlm/templates/_helpers.tpl",
     ],
 }
 COMPOSE_FILES = {
