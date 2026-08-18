@@ -20,7 +20,7 @@ COPY docker/rtvi_vlm/py_deps/pdm-build-requirements.txt /tmp/pdm-build-requireme
 RUN pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/pdm-build-requirements.txt
 WORKDIR /tmp/pdm
 COPY docker/rtvi_vlm/py_deps/pyproject.toml docker/rtvi_vlm/py_deps/pdm.lock ./
-RUN pdm export -G ${TARGETARCH} --no-hashes -o /tmp/rtvi-requirements.txt
+RUN pdm export -G ${TARGETARCH} -o /tmp/rtvi-requirements.txt
 
 # Media source stages use the build arguments declared before the first FROM.
 FROM ${DS_MEDIA_IMAGE} AS media-runtime-ds
@@ -252,7 +252,7 @@ COPY --from=pdm-export /tmp/rtvi-requirements.txt /tmp/rtvi-requirements.txt
 # Remove the copies inherited from vLLM to prevent failed imports from polluting sys.path.
 RUN --mount=type=cache,target=/root/.cache/pip \
     env -u PIP_CONSTRAINT -u PIP_BUILD_CONSTRAINT \
-        pip install --no-deps -r /tmp/rtvi-requirements.txt \
+        pip install --no-deps --require-hashes -r /tmp/rtvi-requirements.txt \
     && pip uninstall -y opencv-python opencv-python-headless \
     && rm -f /usr/local/lib/python3.12/dist-packages/decord.libs/libx264* \
     && rm -f /tmp/rtvi-requirements.txt
