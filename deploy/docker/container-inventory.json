@@ -126,7 +126,7 @@
       "lfs_include": "services/rtvi/rt-embed/docker/binaries/**",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-embed"],
-      "tag_variables": ["VSS_RTVI_EMBED_TAG"]
+      "tag_variables": ["VSS_RT_EMBED_TAG"]
     },
     {
       "name": "vss-vios-sensor",
