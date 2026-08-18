@@ -219,7 +219,11 @@ services:
     entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; else echo 'additional packages disabled; nothing to cache'; fi"]
     volumes:
       - vios_apt_cache:/opt/apt-cache
-      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      # This compose file lives in docker-compose/, so the shared populate
+      # script is ./scripts/ (NOT ../scripts/ -- that resolves one level too
+      # high to stream-processing/scripts/, which does not exist, and Docker
+      # then bind-mounts an auto-created empty dir onto a file, failing the up).
+      - ./scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     restart: "no"
 
 volumes:
