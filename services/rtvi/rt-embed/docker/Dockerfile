@@ -155,9 +155,10 @@ ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
     CUDA_CACHE_DISABLE=0 \
     GST_PLUGIN_PATH=/opt/nvidia/rtvi/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins
 
-# Set LD_LIBRARY_PATH to include DeepStream libs (needed for gst_video_sei_meta module).
-# PyDS on ARM also dynamically loads DeepStream and Tegra runtime libraries.
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/lib/aarch64-linux-gnu/tegra:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+# Set LD_LIBRARY_PATH to include DeepStream and RT Embed runtime libraries.
+# Tegra libraries are added by the startup script only on Thor/Jetson; exposing
+# them globally makes SBSA nvidia-smi load an incompatible driver library.
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/opt/nvidia/rtvi/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
 
 RUN mkdir -p /tmp/huggingface
 
