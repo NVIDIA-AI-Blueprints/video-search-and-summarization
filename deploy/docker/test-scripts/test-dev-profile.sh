@@ -1222,12 +1222,12 @@ for _profile in base gym lvs search alerts; do
   # no arm silently inherits the previous iteration's expectations.
   _expected_stable_keys=()
   case "${_profile}" in
-    base|gym)
+    base)
       _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_stable_keys=(MODE RTVI_VLM_MAX_MODEL_LEN)
       _allowed_duplicate_keys=(RTVI_VLM_MAX_MODEL_LEN)
       ;;
-    lvs)
+    lvs|gym)
       _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_override_keys+=(NVSTREAMER_HTTP_HOST_PORT BACKEND_HOST_PORT LVS_MCP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=(MODE LVS_TAG RTVI_VLM_IMAGE_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
@@ -1479,6 +1479,54 @@ run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "b
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
 # DGX-SPARK (and IGX-THOR) are only valid for base and alerts
+# --- THE RULE: dev-profile-gym is dev-profile-lvs plus the gym-eval token ---
+# gym exists to run a side-by-side eval comparison against lvs: two eval
+# harnesses scoring one identical stack. Stack-identity is therefore the control
+# variable, and ANY divergence beyond gym-eval is a confound in every score
+# reported -- silently, because nothing else would notice. This asserts the rule
+# in both states: shipped-off today (lists identical) and enabled later (gym has
+# exactly one extra token).
+#
+# Compared as parsed key=value pairs rather than as a file diff, because the
+# descriptive headers deliberately name gym rather than lvs.
+_rule_failed=0
+for _rule_file in .env overrides.env; do
+  _rule_lvs="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/${_rule_file}"
+  _rule_gym="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-gym/${_rule_file}"
+  if [[ ! -f "${_rule_lvs}" ]] || [[ ! -f "${_rule_gym}" ]]; then
+    continue
+  fi
+  # Every key=value in lvs must appear identically in gym, and vice versa,
+  # except COMPOSE_PROFILES which is handled separately below.
+  _rule_diff="$(diff \
+    <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${_rule_lvs}" | grep -v '^COMPOSE_PROFILES=' | sort) \
+    <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${_rule_gym}" | grep -v '^COMPOSE_PROFILES=' | sort) || true)"
+  if [[ -n "${_rule_diff}" ]]; then
+    echo "FAIL: dev-profile-gym/${_rule_file} diverges from dev-profile-lvs/${_rule_file} -- gym must mirror lvs exactly so the eval comparison stays valid:"
+    echo "${_rule_diff}" | head -20
+    _rule_failed=1
+  fi
+done
+# COMPOSE_PROFILES: gym is lvs's token set, optionally plus gym-eval, nothing else.
+_rule_lvs_tokens="$(grep '^COMPOSE_PROFILES=' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/overrides.env" | cut -d= -f2- | tr ',' '\n' | sort -u)"
+_rule_gym_tokens="$(grep '^COMPOSE_PROFILES=' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-gym/overrides.env" | cut -d= -f2- | tr ',' '\n' | sort -u)"
+_rule_missing="$(comm -23 <(echo "${_rule_lvs_tokens}") <(echo "${_rule_gym_tokens}"))"
+_rule_extra="$(comm -13 <(echo "${_rule_lvs_tokens}") <(echo "${_rule_gym_tokens}"))"
+if [[ -n "${_rule_missing}" ]]; then
+  echo "FAIL: dev-profile-gym COMPOSE_PROFILES is missing lvs tokens: $(echo ${_rule_missing} | tr '\n' ' ')"
+  _rule_failed=1
+fi
+if [[ -n "${_rule_extra}" ]] && [[ "$(echo ${_rule_extra})" != "gym-eval" ]]; then
+  echo "FAIL: dev-profile-gym COMPOSE_PROFILES has tokens beyond lvs + gym-eval: $(echo ${_rule_extra} | tr '\n' ' ')"
+  _rule_failed=1
+fi
+if [[ ${_rule_failed} -eq 0 ]]; then
+  echo "PASS: dev-profile-gym mirrors dev-profile-lvs (only difference permitted is the gym-eval token)"
+  ((TESTS_PASSED++)) || true
+else
+  ((TESTS_FAILED++)) || true
+fi
+
 # --- gym-eval must stay switched off in EVERY profile ---
 # The service is declared in dev-profile-base/compose.yml but must not appear in
 # any profile's COMPOSE_PROFILES until VSS_GYM_EVAL_TAG points at a build after
@@ -1520,24 +1568,27 @@ run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM
   "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "RTVI_VLM_KAFKA_ENABLED" "false"
 
-# gym must derive byte-identical VLM wiring to base -- that equality is the whole
-# point of profile_has_base_topology in dev-profile.sh. Asserted with the same
-# values as the base case directly above, so if the predicate ever stops covering
-# gym this fails loudly instead of producing a generated.env with no VLM config.
-run_dry_run_up_and_check_generated_env "generated.env gym local VLM matches base exactly" "gym" \
+# gym must derive byte-identical VLM wiring to LVS -- that equality is the whole
+# point of profile_has_lvs_topology in dev-profile.sh, and it is what makes the
+# side-by-side eval comparison valid. Asserted with lvs's values, so if the
+# predicate ever stops covering gym this fails loudly instead of producing a
+# generated.env with no VLM config.
+run_dry_run_up_and_check_generated_env "generated.env gym local VLM matches lvs exactly" "gym" \
  -i 127.0.0.1 -H OTHER -d -- \
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
-  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
-  "RTVI_VLM_KAFKA_ENABLED" "false"
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
 
-# Same equality on the remote-VLM path, which is a different branch in state_up.
+# Same equality on the remote-VLM path, a different branch in state_up. The
+# frame-chunk default was previously lvs-only; gym must take it too, or the two
+# profiles sample frames differently and every compared score is invalid.
 # VLM_ENDPOINT_URL is required whenever --use-remote-vlm is passed.
 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
-run_dry_run_up_and_check_generated_env "generated.env gym remote VLM matches base exactly" "gym" \
+run_dry_run_up_and_check_generated_env "generated.env gym remote VLM matches lvs exactly" "gym" \
  -i 127.0.0.1 -H OTHER --use-remote-vlm --vlm nvidia/cosmos-reason1-7b -d -- \
-  "VLM_PORT" "30082" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
+  "VLM_PORT" "30082" "RTVI_VLM_MODEL_TO_USE" "openai-compat" \
+  "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "5"
 
 run_dry_run_up_and_check_generated_env "generated.env MODE for alerts" "alerts" \
  -i 127.0.0.1 -m verification -d -- \
