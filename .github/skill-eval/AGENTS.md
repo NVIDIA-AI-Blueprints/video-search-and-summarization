@@ -493,7 +493,7 @@ The canonical harbor command is in § Harbor invocation.
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
-| `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
+| `spark` | BYOH registered nodes `SPARK`, `Spark-ba-WiFi` | Edge / unified memory; GB10. Allowlisted via `BREV_REGISTERED_POOL`. |
 
 Pool naming is operator-managed; the actual fleet is the union of managed
 instances from `brev ls --json` and connected registered nodes from
@@ -501,8 +501,9 @@ instances from `brev ls --json` and connected registered nodes from
 comma/space-separated `BREV_REGISTERED_POOL` allowlist. Registered-node
 JSON omits GPU metadata, so `run_leg.py` accepts only documented hardware
 prefixes (`vss-eval-rtx*`, `vss-eval-geforce-rtx4090-vm*`,
-`vss-eval-l40s*`, `vss-eval-h100*`) and fails closed for unknown GPU
-families. Don't hardcode a specific instance name —
+`vss-eval-l40s*`, `vss-eval-h100*`, `vss-eval-spark*`) plus the Spark
+BYOH aliases (`SPARK`, `Spark-*`, `dgx-spark*`) and fails closed for
+unknown GPU families. Don't hardcode a specific instance name —
 `run_leg.py`'s pool selection (§ 5a) picks the candidate. **Lifecycle is
 the operator's job**; the box lock and the trials both live inside
 `run_leg.py` — see Hard rules about `brev create / start / stop / delete /
@@ -533,8 +534,10 @@ start / stop / reset / delete` a member; if none matches the platform,
 the wrapper waits out its budget and exits 75 — relay that as
 `BLOCKED: pool exhausted for <platform>`.
 
-**Name prefix is an anchored match, not a substring.** Only instances
-whose name starts with `vss-eval-` are eligible. Ignore everything else
+**Name prefix is an anchored match, not a substring.** Managed instances
+must start with `vss-eval-`. Allowlisted registered Spark nodes
+(`SPARK`, `Spark-ba-WiFi`, `vss-eval-spark*`) are the documented
+exception and are selected only for `GB10` legs. Ignore everything else
 in the snapshot — personal GPU boxes, unrelated `l40s-*` / `h100-*`
 rentals, stray `harbor-*` — even if the gpu_type looks compatible. The
 `gpu_count == 0` rule below skips the GPU-type check, so non-anchored
