@@ -22,7 +22,7 @@
 import React, { useState, useMemo } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
 import { IconChevronDown, IconChevronUp, IconCopy, IconCheck, IconSend } from '@tabler/icons-react';
-import { copyToClipboard } from '@nemo-agent-toolkit/ui';
+import { copyToClipboard } from 'common';
 
 interface MetadataSectionProps {
   alertId: string;

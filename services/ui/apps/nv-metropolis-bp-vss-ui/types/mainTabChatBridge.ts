@@ -17,7 +17,7 @@
  * (onChatVideoUploadComplete on SidebarNemoAgentToolkitApp), not the full-page Chat tab.
  * The parent implements that single callback and fans out (e.g. VSS tab registry emit).
  */
-import type { RegisterChatVideoUploadComplete } from '@nemo-agent-toolkit/ui';
+import type { RegisterChatVideoUploadComplete } from 'common';
 
 export type { RegisterChatVideoUploadComplete };
 

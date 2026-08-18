@@ -25,7 +25,7 @@ jest.mock('../../lib-src/api', () => ({
 }));
 
 const mockCopyToClipboard = jest.fn(() => Promise.resolve());
-jest.mock('@nemo-agent-toolkit/ui', () => ({
+jest.mock('common', () => ({
   copyToClipboard: (...args: unknown[]) => mockCopyToClipboard(...args),
 }));
 

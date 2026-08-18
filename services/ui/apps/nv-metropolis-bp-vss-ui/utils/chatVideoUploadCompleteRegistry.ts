@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 /**
  * VSS-specific routing: multiple main tabs subscribe by tab id.
- * Generic parent/listener API lives in @nemo-agent-toolkit/ui.
+ * Generic parent/listener API lives in `common`.
  */
 
-import type { ChatVideoUploadCompletePayload } from '../../../packages/nemo-agent-toolkit-ui/types/chatVideoUpload';
+import type { ChatVideoUploadCompletePayload } from 'common';
 import type { SidebarMainTabId } from './sidebarMainTabChatSubscribers';
 
 export type { ChatVideoUploadCompletePayload };

@@ -12,7 +12,7 @@ let lastUploadDialogProps: any = null;
 let lastUploadProgressPopupProps: any = null;
 let lastUploadSuccessPopupProps: any = null;
 
-jest.mock('@nemo-agent-toolkit/ui', () => ({
+jest.mock('common', () => ({
   UploadFilesDialog: (props: any) => {
     lastUploadDialogProps = props;
     return null;
@@ -25,7 +25,6 @@ jest.mock('@nemo-agent-toolkit/ui', () => ({
     lastUploadSuccessPopupProps = props;
     return <div data-testid="upload-success-popup" />;
   },
-  useChatVideoUploadCompleteSubscription: jest.fn(),
   VideoModal: ({ isOpen, title }: { isOpen: boolean; title: string }) =>
     isOpen ? <div data-testid="video-modal">{title}</div> : null,
   useVideoModal: () => ({
@@ -37,6 +36,7 @@ jest.mock('@nemo-agent-toolkit/ui', () => ({
     loadingAlertId: null,
   }),
   copyToClipboard: jest.fn(),
+  useChatVideoUploadCompleteSubscription: jest.fn(),
 }));
 
 jest.mock('../../lib-src/chunkedUpload', () => ({

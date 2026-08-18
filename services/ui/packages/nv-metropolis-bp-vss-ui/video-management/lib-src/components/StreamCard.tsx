@@ -4,7 +4,7 @@ import { Button } from '@nvidia/foundations-react-core';
 import type { StreamInfo, ChatSidebarQueryContext } from '../types';
 import { getFileExtension, isRtspStream, fetchPictureWithQueue, getStreamType } from '../utils';
 import { createApiEndpoints } from '../api';
-import { copyToClipboard } from '@nemo-agent-toolkit/ui';
+import { copyToClipboard } from 'common';
 import { IconCheck } from '@tabler/icons-react';
 
 interface StreamCardProps {

@@ -3,7 +3,6 @@ import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { AlertsFetchSettings } from '../../lib-src/components/AlertsFetchSettings';
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 jest.mock('@nvidia/foundations-react-core', () => {
   const React = require('react');

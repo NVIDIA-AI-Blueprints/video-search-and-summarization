@@ -13,7 +13,7 @@ import {
   type UploadFilesDialogEntry,
   type UploadFileConfigTemplate,
   type UploadResultItem,
-} from '@nemo-agent-toolkit/ui';
+} from 'common';
 import { chunkedUpload, notifyUploadComplete } from './chunkedUpload';
 import { createApiEndpoints } from './api';
 import { deleteRtspStream } from './rtspStream';

@@ -3,7 +3,6 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SearchHeader } from '../../lib-src/components/SearchHeader';
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 const defaultProps = {
   onUpdateSearchParams: jest.fn(),

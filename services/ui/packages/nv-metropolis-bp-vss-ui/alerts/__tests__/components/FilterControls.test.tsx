@@ -4,7 +4,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { FilterControls } from '../../lib-src/components/FilterControls';
 import { VLM_VERDICT, VlmVerdict } from '../../lib-src/types';
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 jest.mock('@nvidia/foundations-react-core', () => {
   const React = require('react');

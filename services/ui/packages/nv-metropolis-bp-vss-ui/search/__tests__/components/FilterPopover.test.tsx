@@ -3,7 +3,6 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { FilterDialog } from '../../lib-src/components/FilterPopover';
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 const defaultProps = {
   isOpen: true,

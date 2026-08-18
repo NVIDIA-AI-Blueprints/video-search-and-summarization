@@ -3,7 +3,6 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SearchVideoModal } from '../../lib-src/components/SearchVideoModal';
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 const setCurrentTime = (video: HTMLVideoElement, value: number) => {
   Object.defineProperty(video, 'currentTime', {

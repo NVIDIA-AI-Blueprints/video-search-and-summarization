@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 //
 // Chunked upload helpers for the Video Management tab. The core chunking
-// logic lives in the shared `@nemo-agent-toolkit/ui` package so the Chat
+// logic lives in the shared `common` package so the Chat
 // upload path can reuse it; this file wraps it with notifyUploadComplete(),
 // which posts to the universal /api/v1/videos/{sensor_id}/complete endpoint
 // (sensor_id = VST sensor id returned in the final chunk response) so VM
 // upload works on every profile (search/lvs/base/alerts).
 
 import type { FileUploadResponse } from './types';
-import { chunkedUpload as sharedChunkedUpload } from '@nemo-agent-toolkit/ui';
-import type { ChunkedUploadOptions, ChunkedUploadResponse } from '@nemo-agent-toolkit/ui';
+import { chunkedUpload as sharedChunkedUpload } from 'common';
+import type { ChunkedUploadOptions, ChunkedUploadResponse } from 'common';
 
 export type { ChunkedUploadOptions };
 

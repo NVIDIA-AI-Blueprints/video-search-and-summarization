@@ -4,7 +4,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoSearchList } from '../../lib-src/components/VideoSearchList';
 import { SearchData } from '../../lib-src/types';
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 const makeItem = (overrides: Partial<SearchData> = {}): SearchData => ({
   video_name: 'video-1.mp4',

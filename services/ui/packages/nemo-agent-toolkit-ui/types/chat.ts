@@ -15,7 +15,10 @@ export interface QueryDataContext {
 }
 
 /** Parent-provided renderable HTML snippet shown under an assistant response card. */
-export type CallerInfo = string;
+// Owned by `common` so host apps can produce caller-info without depending on
+// a specific chat UI. Re-exported here for existing consumers.
+export type { CallerInfo } from 'common';
+import type { CallerInfo } from 'common';
 
 export interface Message {
   id?: string;

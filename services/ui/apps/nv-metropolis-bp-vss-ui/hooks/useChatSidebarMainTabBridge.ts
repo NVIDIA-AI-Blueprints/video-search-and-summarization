@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import type { CallerInfo } from '@nemo-agent-toolkit/ui';
+import type { CallerInfo } from 'common';
 import {
   createSidebarMainTabChatSubscriberRegistry,
   parseSidebarMainTabId,

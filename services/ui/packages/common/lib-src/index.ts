@@ -38,6 +38,15 @@ export type {
   UploadFileFieldConfig,
 } from './types/uploadFileConfig';
 
+// Chat video-upload bridge contract. Owned here (not by the chat implementation)
+// so tabs can subscribe to upload completion regardless of which chat UI is mounted.
+export type { ChatVideoUploadCompletePayload } from './types/chatVideoUpload';
+export type { CallerInfo } from './types/chatBridge';
+export {
+  useChatVideoUploadCompleteSubscription,
+  type RegisterChatVideoUploadComplete,
+} from './hooks/useChatVideoUploadCompleteSubscription';
+
 // Hooks
 export { useVideoModal } from './hooks/useVideoModal';
 export type {

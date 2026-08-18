@@ -1,6 +1,2 @@
-import type { FileUploadResult } from 'common';
-
-/** Emitted when a chat upload batch finishes with at least one successful file. */
-export type ChatVideoUploadCompletePayload = {
-  results: { filename: string; result: FileUploadResult }[];
-};
+// Re-exported from `common`, which owns the chat video-upload bridge contract.
+export type { ChatVideoUploadCompletePayload } from 'common';

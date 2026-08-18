@@ -28,7 +28,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@nemo-agent-toolkit/ui": "0.1.1",
+    "common": "*",
     "@nvidia/foundations-react-core": "0.600.0",
     "@tabler/icons-react": "^2.9.0",
     "konva": "^9.3.22",

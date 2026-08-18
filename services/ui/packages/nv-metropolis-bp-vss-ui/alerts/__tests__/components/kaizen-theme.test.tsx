@@ -56,7 +56,6 @@ jest.mock('@nvidia/foundations-react-core', () => {
   };
 });
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 // ---------- Component imports ----------
 import { FilterTag } from '../../lib-src/components/FilterTag';

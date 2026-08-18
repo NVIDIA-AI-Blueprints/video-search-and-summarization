@@ -3,7 +3,6 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { FilterTag } from '../../lib-src/components/FilterTag';
 
-jest.mock('@nemo-agent-toolkit/ui');
 
 const defaultColors = {
   bg: 'bg-blue-100',
