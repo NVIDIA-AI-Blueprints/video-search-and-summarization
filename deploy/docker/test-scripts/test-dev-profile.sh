@@ -1213,6 +1213,10 @@ for _profile in base lvs search alerts; do
   fi
   _expected_override_keys=("${_common_overrides_env_keys[@]}")
   _allowed_duplicate_keys=()
+  # Reset alongside the other two: this is assigned only inside the case arms
+  # below and there is no default arm, so without a reset a profile that matches
+  # no arm silently inherits the previous iteration's expectations.
+  _expected_stable_keys=()
   case "${_profile}" in
     base)
       _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
