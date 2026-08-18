@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Example group adapters that live outside ``vss_core.memory``.
 
-These stand in for the real mappers, which ship with their command groups
-(``vss_cli.summarize_memory_adapter`` for summary, ``vss_core.search_core``
-for search). ``vss_core`` must not import ``vss_cli``, so memory's own tests
-carry a minimal pair here to prove the contract works for any external
-adapter: nothing below is imported by production code.
+Production summarize/search mappers move to their command groups in a
+follow-up PR. These fixtures prove memory only needs the Protocol + helpers,
+and that external adapters can build parent/child bundles without store
+changes. Nothing below is imported by production code.
 """
 
 from __future__ import annotations
