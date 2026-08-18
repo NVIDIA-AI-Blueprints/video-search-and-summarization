@@ -207,9 +207,15 @@ fi
 APT_CACHE_DIR="${VST_APT_CACHE_DIR:-/opt/apt-cache}"
 APT_CACHE_POPULATE="${VST_APT_CACHE_POPULATE:-false}"
 
+# Snapshot the options WITHOUT the cache overrides, so a cache-mode install that
+# fails (stale, partial, or -- being read-only -- unable to fetch a package it
+# lacks) can fall back to a normal networked install instead of blocking startup.
+BASE_APT_OPTS=("${APT_OPTS[@]}")
+CACHE_MODE=false
 if [[ "${APT_CACHE_POPULATE}" != "true" ]] && compgen -G "${APT_CACHE_DIR}/*.deb" >/dev/null 2>&1; then
   echo "Using shared package cache at ${APT_CACHE_DIR} ($(ls "${APT_CACHE_DIR}"/*.deb | wc -l) packages)."
   APT_OPTS+=(-o "Dir::Cache::archives=${APT_CACHE_DIR}" -o Debug::NoLocking=true)
+  CACHE_MODE=true
 fi
 
 
@@ -325,8 +331,27 @@ if ! install_packages; then
     dpkg --configure -a
   fi
   if ! install_packages_with_retries; then
-    echo "ERROR: Unable to install runtime media packages after ${MAX_RETRIES} attempts."
-    exit 1
+    if [[ "${CACHE_MODE}" == "true" ]]; then
+      # The shared cache is stale, incomplete, or (being read-only) cannot be
+      # written to for a package it lacks. Never let that block startup: drop
+      # the cache overrides and install normally over the network -- exactly
+      # what a deployment without the cache does. The cache is an optimization,
+      # not a hard dependency.
+      echo "Cache-mode install failed; falling back to a normal networked install (bypassing the shared cache)."
+      APT_OPTS=("${BASE_APT_OPTS[@]}")
+      CACHE_MODE=false
+      if ! refresh_apt_metadata; then
+        echo "ERROR: Unable to refresh APT metadata for the cache-fallback install."
+        exit 1
+      fi
+      if ! install_packages_with_retries; then
+        echo "ERROR: Unable to install runtime media packages after the cache fallback."
+        exit 1
+      fi
+    else
+      echo "ERROR: Unable to install runtime media packages after ${MAX_RETRIES} attempts."
+      exit 1
+    fi
   fi
 fi
 
