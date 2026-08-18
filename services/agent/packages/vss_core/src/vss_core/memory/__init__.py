@@ -4,6 +4,9 @@
 
 Bare ``import vss_core.memory`` must not pull elasticsearch, NAT, or torch.
 Heavy backends load lazily through :func:`build_memory_service`.
+
+Group-specific adapters (search, summarize, alerts, …) live with their
+command groups / domain packages — not in this package.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ __all__ = [
     "InMemoryStore",
     "JobFilters",
     "JobInfo",
+    "LifecycleAdapter",
     "MemoryAdapter",
     "MemoryInput",
     "MemoryNotFoundError",
@@ -26,8 +30,6 @@ __all__ = [
     "MemoryStore",
     "PersistResult",
     "RecordBundle",
-    "SearchAdapter",
-    "SummaryAdapter",
     "UnifiedMemoryRecord",
     "build_memory_service",
     "get_adapter",
@@ -48,19 +50,17 @@ _LAZY_EXPORTS = {
     "MemoryNotFoundError": ".service",
     "PersistResult": ".service",
     "build_memory_service": ".service",
-    "SummaryAdapter": ".adapters",
-    "SearchAdapter": ".adapters",
     "RecordBundle": ".adapters",
+    "LifecycleAdapter": ".adapters",
     "register_adapter": ".adapters",
     "get_adapter": ".adapters",
     "MemoryAdapter": ".adapters",
 }
 
 if TYPE_CHECKING:
+    from .adapters import LifecycleAdapter
     from .adapters import MemoryAdapter
     from .adapters import RecordBundle
-    from .adapters import SearchAdapter
-    from .adapters import SummaryAdapter
     from .adapters import get_adapter
     from .adapters import register_adapter
     from .backends.in_memory import InMemoryStore

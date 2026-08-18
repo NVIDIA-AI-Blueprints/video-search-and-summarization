@@ -9,9 +9,7 @@ import json
 from pydantic import ValidationError
 import pytest
 
-from vss_core.memory.adapters import SearchAdapter
-from vss_core.memory.adapters import SummaryAdapter
-from vss_core.memory.adapters import alert_incident_bundle
+from vss_core.memory.adapters import RecordBundle
 from vss_core.memory.adapters import child_record
 from vss_core.memory.adapters import clear_adapter_registry
 from vss_core.memory.adapters import get_adapter
@@ -30,6 +28,10 @@ from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
 from vss_core.memory.store import make_storage_id
 from vss_core.memory.store import storage_id_for
+from vss_core.search_core.memory_adapter import SearchAdapter
+
+from .group_adapters import SummaryAdapter
+from .group_adapters import alert_incident_bundle
 
 
 def _parent(**overrides: object) -> UnifiedMemoryRecord:
@@ -431,10 +433,15 @@ def test_future_adapter_uses_store_without_changes() -> None:
             raise NotImplementedError
 
     clear_adapter_registry()
+    # External adapters (search_core / summarize CLI / tests) opt into the registry.
     register_adapter(SummaryAdapter)
     register_adapter(SearchAdapter)
     register_adapter(_FutureAdapter)
+    assert get_adapter("summary").group == "summary"
+    assert get_adapter("search").group == "search"
     assert get_adapter("vlm").group == "vlm"
+    with pytest.raises(KeyError):
+        get_adapter("alert")
 
     store = InMemoryStore()
     service = MemoryService(store)
@@ -466,8 +473,6 @@ def test_future_adapter_uses_store_without_changes() -> None:
             },
         }
     )
-    from vss_core.memory.adapters import RecordBundle
-
     result = service.upsert_bundle(RecordBundle(parent=parent, children=(child,)))
     assert result.ok
     assert service.get("vlm-1").job.group == "vlm"
