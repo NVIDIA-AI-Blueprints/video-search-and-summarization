@@ -28,8 +28,8 @@ from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
 from vss_core.memory.store import make_storage_id
 from vss_core.memory.store import storage_id_for
-from vss_core.search_core.memory_adapter import SearchAdapter
 
+from .group_adapters import SearchAdapter
 from .group_adapters import SummaryAdapter
 from .group_adapters import alert_incident_bundle
 

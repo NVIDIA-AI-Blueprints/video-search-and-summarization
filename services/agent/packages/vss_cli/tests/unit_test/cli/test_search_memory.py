@@ -14,7 +14,7 @@ from vss_cli import config as config_mod
 from vss_cli.exits import Exit
 from vss_cli.group import Context
 from vss_cli.memory import Memory
-from vss_cli.search_group import SearchGroup
+from vss_cli.search.group import SearchGroup
 from vss_core.memory.backends.in_memory import InMemoryStore
 from vss_core.memory.service import MemoryService
 from vss_core.memory.store import MemoryQuery
@@ -65,14 +65,14 @@ def _search_output(n: int = 2) -> SearchOutput:
 def search_group(monkeypatch: pytest.MonkeyPatch) -> SearchGroup:
     group = SearchGroup()
     monkeypatch.setattr(
-        "vss_cli.search_group._runtime_from",
+        "vss_cli.search.group._runtime_from",
         lambda *_args, **_kwargs: MagicMock(),
     )
 
     async def _critic(_deployment: Any) -> tuple[None, None]:
         return None, None
 
-    monkeypatch.setattr("vss_cli.search_group._critic_from", _critic)
+    monkeypatch.setattr("vss_cli.search.group._critic_from", _critic)
 
     class _VSS:
         async def __aenter__(self) -> Any:

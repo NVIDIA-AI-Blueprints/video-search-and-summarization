@@ -21,11 +21,11 @@ import pytest
 
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
-from vss_cli import summarize_group
 from vss_cli.exits import Exit
-from vss_cli.summarize_group import SUMMARIZE
-from vss_cli.summarize_group import SummarizeInput
-from vss_cli.summarize_group import SummarizeOptions
+from vss_cli.summarize import group as summarize_group
+from vss_cli.summarize.group import SUMMARIZE
+from vss_cli.summarize.group import SummarizeInput
+from vss_cli.summarize.group import SummarizeOptions
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core.memory import InMemoryStore
 from vss_core.memory import MemoryService
@@ -1087,7 +1087,7 @@ def test_another_groups_job_is_not_this_groups_to_return(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
     """`summarize get` must not hand back a search job that shares the index."""
-    from vss_core.search_core import SearchAdapter
+    from vss_cli.search.memory_adapter import SearchAdapter
 
     foreign = SearchAdapter().submitted_record(
         job_id="search-01",
