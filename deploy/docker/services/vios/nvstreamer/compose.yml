@@ -22,7 +22,7 @@
 services:
 
   nvstreamer-base:
-    image: ${VSS_VIOS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${VSS_VIOS_NVSTREAMER_TAG:-1.4.0-26.08.1}
+    image: ${VSS_VIOS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_VIOS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
