@@ -79,6 +79,9 @@ env:
   # run_leg.py, and Harbor's isolated uvx environment. Do not fall back to the
   # self-hosted runner's system python3 (currently 3.10).
   SKILL_EVAL_PYTHON_VERSION: "3.12"
+  # Route RTXPRO6000BW onto the 10.86.16.223 OpenShell cohort and skip other
+  # GPU SKUs for this PR path. Unset on develop to restore coordinator labels.
+  OPENSHELL_RTXPRO6000_ONLY: "1"
 
 jobs:
   # ---------------------------------------------------------------------
@@ -90,7 +93,7 @@ jobs:
     if: >-
       startsWith(github.ref, 'refs/heads/pull-request/') ||
       github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -153,7 +156,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
@@ -195,13 +198,26 @@ jobs:
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
-          # The runner host (vss-skill-validator-v2) keeps coordinator
-          # secrets in a single .env. Don't echo contents.
+          # Coordinator hosts keep secrets in /home/ubuntu/eval-coordinator/.env.
+          # OpenShell GPU runners keep the same keys in $HOME/.eval_env.
+          # Don't echo contents.
+          COORD_ENV="${SKILL_EVAL_ENV_FILE:-}"
+          if [ -z "$COORD_ENV" ]; then
+            for cand in "$HOME/.eval_env" /home/ubuntu/eval-coordinator/.env; do
+              [ -s "$cand" ] && COORD_ENV="$cand" && break
+            done
+          fi
+          [ -n "$COORD_ENV" ] || { echo "no skill-eval env file" >&2; exit 1; }
           set -a
-          source /home/ubuntu/eval-coordinator/.env
+          # shellcheck source=/dev/null
+          source "$COORD_ENV"
           set +a
+          printf "SKILL_EVAL_ENV_FILE=%s\n" "$COORD_ENV" >> "$GITHUB_ENV"
           printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+          if [[ "${RUNNER_NAME:-}" == vss-skill-eval-gpu-rtxpro6000-* ]]; then
+            printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
+          fi
 
       - name: Run skills eval agent (single spec)
         id: agent
@@ -236,7 +252,8 @@ jobs:
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           set -a
-          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
+          # shellcheck source=/dev/null
+          source "${SKILL_EVAL_ENV_FILE:-$HOME/.eval_env}"   # Anthropic / NGC / Brev
           set +a
           # The coordinator .env is operator-managed and may define PATH.
           # Reassert the per-leg runtime afterwards so Claude's Bash children

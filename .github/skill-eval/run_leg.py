@@ -372,6 +372,27 @@ def build_harbor_command(
 
 def harbor_env(instance: str) -> dict[str, str]:
     env = os.environ.copy()
+    if env.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        for key in list(env):
+            if (
+                key in {
+                    "GH_TOKEN",
+                    "GITHUB_TOKEN",
+                    "SYSTEM_ACCESSTOKEN",
+                }
+                or key.startswith("ACTIONS_")
+                or (
+                    key.startswith("RUNNER_")
+                    and key != "RUNNER_TRACKING_ID"
+                )
+                or (
+                    key.startswith("GITHUB_")
+                    and key not in {"GITHUB_RUN_ID", "GITHUB_WORKSPACE"}
+                )
+            ):
+                env.pop(key, None)
+        env.pop("SSH_AGENT_PID", None)
+        env.pop("SSH_AUTH_SOCK", None)
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
     pythonpath = env.get("PYTHONPATH", "")
@@ -1489,8 +1510,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
+        # > SKILL_EVAL_LOCAL_GPU_INSTANCE (direct OpenShell runner)
         # > task.toml brev_instance > pool selection.
-        pinned = args.instance or metadata.get("brev_instance") or None
+        local_pin = os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+        pinned = args.instance or local_pin or metadata.get("brev_instance") or None
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)
