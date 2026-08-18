@@ -424,11 +424,13 @@ class HarnessScopeTests(unittest.TestCase):
             encoding="utf-8"
         )
         start = source.split("    async def start", 1)[1]
-        self.assertIn("openshell sandbox get skill-eval", command)
+        self.assertIn("nemoclaw list --json", command)
+        self.assertIn('row.get("name") == name', command)
+        self.assertNotIn("openshell sandbox get", command)
         self.assertIn('export HOME="$host_home/.skill-eval/nemoclaw-home"', command)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", command)
         self.assertIn(
-            "nemoclaw skill-eval destroy --yes --cleanup-gateway",
+            "nemoclaw skill-eval destroy --yes --force --cleanup-gateway",
             command,
         )
         self.assertLess(
