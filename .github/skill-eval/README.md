@@ -21,7 +21,7 @@ The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill
 - **[Brev CLI](https://docs.nvidia.com/brev/latest/cli/cli-overview)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
 - **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo.
 - **Python 3.12** — the workflows pin this runtime for the coordinator, adapters, `run_leg.py`, and Harbor. Each matrix leg installs Claude Agent SDK 0.2.128 in its own virtual environment so parallel jobs never mutate a shared interpreter.
-- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file.
+- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file. OpenShell RTX PRO 6000 runners instead source `$HOME/.eval_env` and set `SKILL_EVAL_LOCAL_GPU_INSTANCE` so Harbor runs on the same VM (no Brev hop).
 
 ### GPU targets (operator-managed `vss-eval-*` pool)
 
