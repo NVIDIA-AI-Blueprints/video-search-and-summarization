@@ -94,8 +94,9 @@ value for uploaded sample media with no real timestamp.
 | `--request-timeout-seconds` | HTTP timeout, default 3600 |
 
 Persisting a `--url` summary without `--video-id` exits 2 before the
-summarization runs, rather than after paying for it. On Kubernetes the Ingress
-caps a request at 600s regardless of a larger `--request-timeout-seconds`.
+summarization runs, rather than after paying for it. Both edges are configured
+to wait as long as this default does, so a summarization that runs for an hour
+is not cut short by a 504 the CLI would have to record as a failed job.
 
 The job is written twice — `submitted` before the VLM call, terminal after — so
 a run that times out or dies still leaves a record to reconcile against.
@@ -110,7 +111,8 @@ compact.)
 
 ```json
 {"job_id": "summarize-01K...", "summary": { ... LVS envelope ... },
- "persist": {"status": "complete", "index": "...", "group": "summary", "events": 3}}
+ "persist": {"status": "complete", "index": "...", "group": "summary", "events": 3},
+ "record": "closed"}
 ```
 
 The LVS response is nested under `summary` verbatim, so its own envelope is
@@ -119,10 +121,13 @@ holding `video_summary` and `events`, and `summary.usage` still carries
 `total_chunks_processed`. A run that fails after the job exists replaces those
 keys with `status`/`record`/`error` but still names the `job_id`, so only exits
 0 and 6 carry a summary to parse — reach for `summary` on any other exit and jq
-fails on a missing field, burying the marker that explains what went wrong. An
-exit 6 keeps its summary and adds both: `persist` for the write that failed, and
-`record` for what the `job_id` is now worth — `stale` there means the job reads
-`submitted` still, so `status` would call it running.
+fails on a missing field, burying the marker that explains what went wrong.
+
+`record` is on every marker, and says what the `job_id` is now worth to a read:
+`closed` when the record states the outcome, `absent` when nothing was persisted
+(`--no-persist`), `stale` when the write could not land and the record therefore
+still reads `submitted`, which is the one state `status` reports as running. An
+exit 6 carries both it and `persist`, the write that failed.
 
 A rejected flag or an unconfigured deployment is refused *before* a job exists,
 so stdout is empty and the stderr diagnostic is the entire result. Exit 2 spans

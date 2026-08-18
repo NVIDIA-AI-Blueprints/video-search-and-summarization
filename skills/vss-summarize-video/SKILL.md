@@ -120,8 +120,9 @@ private addresses.
 - Each user request permits one `vss summarize run`, with no automatic retry.
 - Persistence needs a routed Elasticsearch. A deployment without one summarizes
   and reports the result unpersisted rather than failing the job.
-- On Kubernetes the Ingress caps a summarize request at 600s regardless of a
-  larger `--request-timeout-seconds`.
+- Both edges are configured to wait an hour, matching the CLI's own default, so
+  a long summarization is not cut short by a 504 that would be recorded as a
+  failed job. An Ingress the deployment overrides shorter still caps the wait.
 - Stock LVS Helm Ingress does not publish LVS `/models`, LVS `/openapi.json`,
   `/recommended_config`, or `/metrics` — those remain Docker `:38111` only.
 
@@ -333,7 +334,10 @@ nothing, which is why empty stdout is the test.
 
 The marker's `persist` object is the report on the write: `status` is `complete`
 with the index it landed in and how many events went with it, and exit 6 says the
-summary survived but the write did not. Do not read the record back to confirm
+summary survived but the write did not. Alongside it on every marker, `record`
+says what the `job_id` is worth to a later read — `closed`, `absent` when nothing
+was persisted, or `stale` when the record still reads `submitted` and `status`
+would therefore call the job running. Do not read the record back to confirm
 it, and never read Elasticsearch directly — recalling memory is a separate
 skill's job. The one read that belongs here is reconciling an exit 7, whose
 outcome is genuinely unknown until `vss summarize get --job-id <job_id>` answers.

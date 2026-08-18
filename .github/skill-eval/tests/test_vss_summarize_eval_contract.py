@@ -479,6 +479,23 @@ def test_a_failure_marker_is_never_parsed_as_a_summary() -> None:
     assert '\' "$SUMMARIZE_OUT"' not in end_to_end_example
 
 
+def test_the_handles_worth_is_documented_as_present_on_every_marker() -> None:
+    """`record` is total, so the docs must not present it as a failure-only key.
+
+    Documented as something failures add, a reader takes its absence to mean
+    success and switches on the wrong thing -- on the one path that matters,
+    since the success marker is the one almost every run prints.
+    """
+    cli_reference = " ".join(CLI_REFERENCE.read_text().split())
+    summarize_skill = " ".join(SUMMARIZE_SKILL.read_text().split())
+
+    assert "`record` is on every marker" in cli_reference
+    assert '"record": "closed"' in cli_reference
+    for worth in ("closed", "absent", "stale"):
+        assert f"`{worth}`" in cli_reference, worth
+    assert "on every marker, `record`" in summarize_skill
+
+
 def test_a_summary_is_filed_under_a_sensor_not_a_stream() -> None:
     """`--video-id` is the sensor id, on both preparation paths.
 
