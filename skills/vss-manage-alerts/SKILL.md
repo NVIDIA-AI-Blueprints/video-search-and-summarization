@@ -278,7 +278,7 @@ Resolve `$AB` / `$VST` once in *Deployment prerequisite* (Kubernetes forces
 **Sensor resolution — two different identities, do not mix them:**
 
 - **Rule create/replay (Workflow D)** resolves a sensor **name → `sensorId` (UUID) + RTSP `url`** via `GET $VST/vst/api/v1/sensor/list` — RT-VLM keys its stream registration on the VIOS UUID. See `references/alert-subscriptions.md`.
-- **Incident filtering (Workflow C)** takes the sensor **name** — `GET /api/v1/realtime/incidents?sensor_id=<name>` term-matches the `sensorId` field stored in the incident documents, which RT-VLM / Behavior Analytics fill with the name. No VIOS lookup is needed, and a UUID there silently returns zero.
+- **Incident filtering (Workflow C)** takes the sensor **name** — `GET /api/v1/realtime/incidents?sensor_id=<name>` term-matches the `sensorId` field stored in the incident documents. Still use the same `GET $VST/vst/api/v1/sensor/list` call to turn the user's wording into an exact registered sensor, but carry its **`.name`** forward, not its `.sensorId`. A UUID there silently returns zero.
 
 Never fabricate a `sensor_id` or `live_stream_url`.
 
@@ -387,8 +387,13 @@ Query past incidents **directly** from Alert Bridge — no `/generate`:
 ```bash
 # recent incidents (optionally filter by sensor / category / time / limit)
 curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq .
-# scope to one sensor — pass the sensor NAME, not a VIOS UUID:
-curl -sf "$AB/api/v1/realtime/incidents?sensor_id=<sensor NAME>&start_time=<ISO>&end_time=<ISO>" | jq .
+# scope to one sensor — pass the sensor NAME, not a VIOS UUID.
+# Let curl encode it: a name with a space or reserved character breaks a hand-built URL,
+# and a mangled value filters on something else (silent zero) instead of erroring.
+curl -sfG "$AB/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=<sensor NAME>" \
+  --data-urlencode "start_time=<ISO>" \
+  --data-urlencode "end_time=<ISO>" | jq .
 ```
 
 > **`sensor_id` here is a name, not a UUID.** The filter is an exact term match on the
