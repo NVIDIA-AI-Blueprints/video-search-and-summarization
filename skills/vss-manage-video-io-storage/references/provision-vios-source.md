@@ -137,7 +137,7 @@ POST http://localhost:<vios-port>/vst/api/v1/sensor/add
 
 Then resolve the **live proxy** the consumers must target, and treat this read as a
 **readiness gate**. VST re-publishes the stream under a stable, VIOS-managed,
-`sensorId`-keyed RTSP handle (e.g. `rtsp://$HOST_IP:30554/live/<sensorId>`),
+`sensorId`-keyed RTSP handle (e.g. `rtsp://<vios-host>:<pool-port>/live/<sensorId>`),
 published asynchronously. Search and alerts builds run VIOS in **SDRC mode**, where
 the republish is gated on the SDRC Envoy, so the per-sensor
 `GET /sensor/<sensorId>/streams` → `.url` can stay empty well past the brief
@@ -171,7 +171,7 @@ POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-
 #     (read usage.total_chunks_processed). id = the Step-1 sensorId (see the shared-id
 #     rule). creation_time REQUIRED (see upload-date rule). No stream:true, no /v1/streams/add.
 #   Live (RTSP): register, then fire-and-verify — do NOT hold the SSE open —
-POST http://localhost:<rt-embed-port>/v1/streams/add                 # register the live proxy (header x-stream-id: <sensorId>)
+POST http://localhost:<rt-embed-port>/v1/streams/add                 # register the live proxy (header x-stream-id: <sensorId>; body {"streams":[{"id":"<sensorId>","liveStreamUrl":"<vios-url>"}]} — carry the id here so streams/add keys on the sensorId instead of minting its own UUID)
 POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-stream-id: <sensorId>; body {"id":"<sensorId>","model":"<resolved>","stream":true,"chunk_duration":<n>}
 #     open, confirm HTTP 200, then CLOSE. The server keeps embedding and publishing
 #     to Kafka after you disconnect (closing the SSE does not stop it, and Kafka
