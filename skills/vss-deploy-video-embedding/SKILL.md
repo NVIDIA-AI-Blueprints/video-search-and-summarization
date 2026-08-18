@@ -6,6 +6,8 @@ description: >
   GPU and storage prerequisites, the `/v1` REST API (file uploads,
   text and video embeddings, live RTSP streams, health and metrics),
   Redis/Kafka/OTel integration, common failure modes, and teardown.
+  Do not use for RT-CV, RT-VLM, VSS Agent, or general VSS deployment work
+  that does not include RT-Embed.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -24,6 +26,9 @@ Use this skill when you need to:
 - Triage readiness, model-download, GPU, or stream-reconnection failures.
 
 **Trigger phrases:** `vss-deploy-video-embedding`, `RT-Embed`, `rtvi-embed`, `video embedding service`, `Cosmos-Embed1`, `embed live stream`, `embed video file`, `generate video embeddings`, `text embedding for video search`.
+
+**Do not use this skill** for RT-CV, RT-VLM, VSS Agent, or general VSS
+deployment work unless the request deploys, operates, or integrates RT-Embed.
 
 ## Service Snapshot
 
