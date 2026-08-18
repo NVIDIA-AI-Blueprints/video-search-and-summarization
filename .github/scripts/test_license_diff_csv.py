@@ -307,5 +307,60 @@ class DiffPyprojectTest(unittest.TestCase):
         self.assertIn("pyproject.toml", rows[0]["notes"])
 
 
+class UnscannedAddedManifestsTest(unittest.TestCase):
+    def test_warns_on_added_lockfile_the_scanner_does_not_parse(self) -> None:
+        skipped = license_diff_csv.unscanned_added_manifests(
+            ["services/keep/uv.lock"],
+            [
+                "services/keep/uv.lock",
+                "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/poetry.lock",
+            ],
+        )
+
+        self.assertEqual(
+            ["services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/poetry.lock"],
+            skipped,
+        )
+
+    def test_does_not_warn_for_filenames_already_in_the_scan_set(self) -> None:
+        skipped = license_diff_csv.unscanned_added_manifests(
+            [],
+            [
+                "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml",
+                "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock",
+                "services/agent/uv.lock",
+                "libs/analytics/spatialai-data-utils/Pipfile.lock",
+                "services/foo/requirements.txt",
+                "services/foo/requirements-dev.txt",
+                "services/ui/package-lock.json",
+            ],
+        )
+
+        self.assertEqual([], skipped)
+
+    def test_does_not_warn_for_known_non_package_or_filtered_paths(self) -> None:
+        skipped = license_diff_csv.unscanned_added_manifests(
+            [],
+            [
+                "deploy/helm/services/rtvi/Chart.lock",
+                "services/video-summarization/docker/base/requirements_apt.txt",
+                "ui/node_modules/leftpad/package.lock",
+                "docs/overview.md",
+            ],
+        )
+
+        self.assertEqual([], skipped)
+
+    def test_warning_message_names_the_skipped_path(self) -> None:
+        with mock.patch.object(license_diff_csv, "_log") as log:
+            license_diff_csv.warn_unscanned_added_manifests(
+                ["services/new/poetry.lock"]
+            )
+
+        log.assert_called_once_with(
+            "WARNING: Skipped path — not in scan set: services/new/poetry.lock"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

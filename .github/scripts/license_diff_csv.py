@@ -24,6 +24,10 @@ it is deterministic — unchanged unpinned lines never produce phantom rows.
 It does NOT resolve the transitive closure; a committed lockfile remains the
 way to get full coverage.
 
+Added files whose names look like a lock or manifest (`pyproject.toml`,
+`*.lock`, `requirements*.txt`) but are not in that scan set are logged as a
+WARNING so a new lock format cannot stay invisible PR-by-PR.
+
 CSV columns: language, package, change, old_version, new_version, old_license,
 new_license, repository_url, notes.
 
@@ -82,6 +86,70 @@ def _list_lockfiles(ref: str, filename: str) -> list[str]:
         if p.endswith("/" + filename) or p == filename
         if "node_modules/" not in p
     ]
+
+
+# Basenames this scanner inventories. The tool is filename-recursive (any
+# nesting depth), not a path allow-list — the coverage gap is an unrecognized
+# *name*, which is how pdm.lock on RTVI-VLM slipped past OSRB.
+_SCANNED_BASENAMES = {
+    "uv.lock",
+    "pipfile.lock",
+    "pdm.lock",
+    "package-lock.json",
+    "pyproject.toml",
+}
+
+# Lock-shaped files that are not language package inventories.
+_NON_PACKAGE_LOCK_BASENAMES = {
+    "chart.lock",  # Helm chart dependency pin, not a language lockfile
+}
+
+
+def _basename(path: str) -> str:
+    return path.rsplit("/", 1)[-1]
+
+
+def looks_like_manifest(path: str) -> bool:
+    """True for added-file names that OSRB would expect License Diff to read."""
+    if "node_modules/" in path:
+        return False
+    base = _basename(path).lower()
+    if base in _NON_PACKAGE_LOCK_BASENAMES:
+        return False
+    if base == "pyproject.toml" or base.endswith(".lock"):
+        return True
+    return base.startswith("requirements") and base.endswith(".txt")
+
+
+def is_scanned_manifest(path: str) -> bool:
+    """True when this filename is one the inventory walkers already handle."""
+    base = _basename(path).lower()
+    if base in _SCANNED_BASENAMES:
+        return True
+    # requirements*.txt is handled, including the apt exclusion — that skip
+    # is deliberate, not a coverage gap.
+    return base.startswith("requirements") and base.endswith(".txt")
+
+
+def unscanned_added_manifests(base_paths: list[str], head_paths: list[str]) -> list[str]:
+    """Return added lock/manifest paths that no inventory walker will read."""
+    added = sorted(set(head_paths) - set(base_paths))
+    return [
+        path
+        for path in added
+        if looks_like_manifest(path) and not is_scanned_manifest(path)
+    ]
+
+
+def warn_unscanned_added_manifests(paths: list[str]) -> None:
+    """Log each coverage gap to stderr and as a GitHub Actions warning."""
+    for path in paths:
+        message = f"Skipped path — not in scan set: {path}"
+        _log(f"WARNING: {message}")
+        print(
+            f"::warning title=License Diff coverage gap::{message}",
+            file=sys.stderr,
+        )
 
 
 def parse_uv_lock(data: bytes) -> Inventory:
@@ -641,6 +709,9 @@ def main() -> int:
     args = parser.parse_args()
 
     _log(f"Comparing {args.base_ref} -> {args.head_ref}")
+    warn_unscanned_added_manifests(
+        unscanned_added_manifests(_ls_tree(args.base_ref), _ls_tree(args.head_ref))
+    )
 
     # Each (filename, parser) is scanned recursively across the whole repo tree
     # at the given ref (_list_lockfiles uses `git ls-tree -r`), so lockfiles at
