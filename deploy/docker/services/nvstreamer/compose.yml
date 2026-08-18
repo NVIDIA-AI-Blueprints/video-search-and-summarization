@@ -95,6 +95,7 @@ services:
       service: nvstreamer-base
     profiles: !override ["nvstreamer-2d-fusion"]
     volumes:
+      - ${NVSTREAMER_FUSION_VIDEO_DIR:-${VSS_DATA_DIR}/data_log/nvstreamer/streamer_videos}:/home/vst/vst_release/streamer_videos
       - ${VSS_DATA_DIR}/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
     depends_on:
       broker-health-check:
