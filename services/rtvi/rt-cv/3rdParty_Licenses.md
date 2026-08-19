@@ -1,13 +1,22 @@
-This software includes the following third party software (along with their corresponding
-licenses). These are the components ADDED by this container image on top of its base
-container. Additional 3rd-party software from the base image (NVIDIA DeepStream and the
-Ubuntu / Triton base) is listed in the base LICENSE file included in this image at
-`/opt/nvidia/deepstream/deepstream/LICENSE.txt`.
+# Third-Party Licenses
 
-Added components: 12 system (Debian/APT) + 50 Python (PyPI)
+This file contains the full license text for all third-party dependencies added by the vss-rt-cv container image on top of its base container.
 
-gir1.2-girepository-2.0
-================================================================================
+Third-party software from the base image (NVIDIA DeepStream and the Ubuntu / Triton base) is listed in the base LICENSE file included in that image at `/opt/nvidia/deepstream/deepstream/LICENSE.txt`.
+
+Added components: 12 system (Debian/APT) + 50 Python (PyPI) = 62 packages.
+
+Versions are those resolved in the linux/amd64 build. Unpinned dependencies may resolve to a newer patch release on a later build; the license type is the property this file records.
+
+---
+
+## gir1.2-girepository-2.0:1.80.1-1
+
+**License Type:** GPL-2+ / LGPL-2+ / LGPL-2 or MPL-1.1 / LGPL-2.1+ / BSD-2-clause / FSFAP and FSFULLR / Expat and GPL-2+ / LGPL-2+ and LGPL-2.1+ and FSFULLR and CC0-1.0 / AFL-2.0 or LGPL-2.1+ / Unicode-DFS-2016 / Expat / LGPL-3+ / Apache-2.0 with LLVM exception / LGPL-2.1+ and Kuchling-PD and Plumb-PD / bzip2-1.0.6 / CC-BY-SA-3.0 / GPL with Autoconf exception / AFL-2.0 / CC0-1.0 / FSFAP / FSFULLR / Kuchling-PD / LGPL-2 / MPL-1.1 / Plumb-PD
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Source: https://download.gnome.org/sources/gobject-introspection/
 Upstream-Name: GObject Introspection
@@ -1063,9 +1072,17 @@ License: Unicode-DFS-2016
  ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
  WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
  NONINFRINGEMENT OF THIRD PARTY RIGHTS.
+```
 
-gstreamer1.0-python3-plugin-loader
-================================================================================
+---
+
+## gstreamer1.0-python3-plugin-loader:1.24.1-1
+
+**License Type:** LGPL-2.1+ / LGPL-2+
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: GStreamer GObject Introspection overrides for python 1.0
 Upstream-Contact: gstreamer-devel@lists.freedesktop.org
@@ -1088,9 +1105,17 @@ Copyright: 2002, David I. Lehn
   2012, Thibault Saunier <thibault.saunier@collabora.com>
 License: LGPL-2+
  /usr/share/common-licenses/LGPL-2
+```
 
-libeigen3-dev
-================================================================================
+---
+
+## libeigen3-dev:3.4.0-4build0.1
+
+**License Type:** MPL-2 / LGPL-2.1+ or MPL-2 / BSD-3-clause / LGPL-2.1+
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Source: http://eigen.tuxfamily.org
 
@@ -1512,9 +1537,17 @@ License: MPL-2
  .
     This Source Code Form is "Incompatible With Secondary Licenses", as
     defined by the Mozilla Public License, v. 2.0.
+```
 
-libflac++10
-================================================================================
+---
+
+## libflac++10:1.4.3+ds-2.1ubuntu2
+
+**License Type:** GPL-2+ or LGPL-2.1+ / GFDL-1.1+ / GPL-2+ / BSD-3-clause / LGPL-2.1+ / LGPL-2+ / Public-domain / ISC
+
+**Source:** Debian/APT
+
+```
 --- NVIDIA LICENSE ELECTION NOTE ---
 Ships only libFLAC++.so; its implementation is dual-licensed "GPL-2+ OR LGPL-2.1+".
 NVIDIA ELECTS LGPL-2.1+, used via dynamic linking only (LGPL-2.1 sec.6 satisfied).
@@ -1736,9 +1769,17 @@ License: LGPL-2.1+
  .
  The complete text of the GNU Lesser General Public License
  can be found in "/usr/share/common-licenses/LGPL-2.1".
+```
 
-libgirepository-1.0-1
-================================================================================
+---
+
+## libgirepository-1.0-1:1.80.1-1
+
+**License Type:** GPL-2+ / LGPL-2+ / LGPL-2 or MPL-1.1 / LGPL-2.1+ / BSD-2-clause / FSFAP and FSFULLR / Expat and GPL-2+ / LGPL-2+ and LGPL-2.1+ and FSFULLR and CC0-1.0 / AFL-2.0 or LGPL-2.1+ / Unicode-DFS-2016 / Expat / LGPL-3+ / Apache-2.0 with LLVM exception / LGPL-2.1+ and Kuchling-PD and Plumb-PD / bzip2-1.0.6 / CC-BY-SA-3.0 / GPL with Autoconf exception / AFL-2.0 / CC0-1.0 / FSFAP / FSFULLR / Kuchling-PD / LGPL-2 / MPL-1.1 / Plumb-PD
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Source: https://download.gnome.org/sources/gobject-introspection/
 Upstream-Name: GObject Introspection
@@ -2794,9 +2835,17 @@ License: Unicode-DFS-2016
  ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
  WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
  NONINFRINGEMENT OF THIRD PARTY RIGHTS.
+```
 
-libhwloc-plugins
-================================================================================
+---
+
+## libhwloc-plugins:2.10.0-1build1
+
+**License Type:** See license text below
+
+**Source:** Debian/APT
+
+```
 This package was debianized by Samuel Thibault <sthibault@debian.org> on
 Mon, 06 Jul 2009 10:55:29 +0200.
 
@@ -2849,9 +2898,17 @@ The Debian packaging is:
 
 and is licensed under the GPL version 3, 
 see `/usr/share/common-licenses/GPL-3'.
+```
 
-libxnvctrl0
-================================================================================
+---
+
+## libxnvctrl0:610.57.04-1ubuntu1
+
+**License Type:** GPL-2 / Expat-NVIDIA / other-MetroLink and other-XFree / Expat-Precision / Expat-RedHat / other-MetroLink / other-XFree / Expat / other-Metrolink
+
+**Source:** Debian/APT
+
+```
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: nvidia-settings
 Upstream-Contact: NVIDIA Corporation
@@ -3061,9 +3118,17 @@ License: other-XFree
  and author(s) shall not be used in advertising or otherwise to promote
  the sale, use or other dealings in this Software without prior written
  authorization from the copyright holder(s) and author(s).
+```
 
-netcat-openbsd
-================================================================================
+---
+
+## netcat-openbsd:1.226-1ubuntu2
+
+**License Type:** BSD-3-Clause / BSD-2-Clause
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Source: http://www.openbsd.org/cgi-bin/cvsweb/src/usr.bin/nc/
 Upstream-Name: netcat
@@ -3147,9 +3212,17 @@ License: BSD-3-Clause
  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
-nlohmann-json3-dev
-================================================================================
+---
+
+## nlohmann-json3-dev:3.11.3-1
+
+**License Type:** Expat / U-OF-I-BSD-LIKE / BSD-3-clause
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: nlohmann-json
 Source: https://github.com/nlohmann/json
@@ -3274,9 +3347,17 @@ License: BSD-3-clause
  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  POSSIBILITY OF SUCH DAMAGE.
+```
 
-ocl-icd-libopencl1
-================================================================================
+---
+
+## ocl-icd-libopencl1:2.3.2-1build1
+
+**License Type:** BSD-2-Clause
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: ocl-icd
 Source: https://github.com/OCL-dev/ocl-icd/tags
@@ -3312,9 +3393,17 @@ License: BSD-2-Clause
  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  SUCH DAMAGE.
+```
 
-python3-gi
-================================================================================
+---
+
+## python3-gi:3.48.2-1
+
+**License Type:** LGPL-2.1+ / Expat
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: pygobject
 Upstream-Contact:
@@ -3380,9 +3469,17 @@ License: Expat
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  IN THE SOFTWARE.
+```
 
-python3-gst-1.0
-================================================================================
+---
+
+## python3-gst-1.0:1.24.1-1
+
+**License Type:** LGPL-2.1+ / LGPL-2+
+
+**Source:** Debian/APT
+
+```
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: GStreamer GObject Introspection overrides for python 1.0
 Upstream-Contact: gstreamer-devel@lists.freedesktop.org
@@ -3405,87 +3502,199 @@ Copyright: 2002, David I. Lehn
   2012, Thibault Saunier <thibault.saunier@collabora.com>
 License: LGPL-2+
  /usr/share/common-licenses/LGPL-2
+```
 
-charset-normalizer
-================================================================================
+---
+
+## charset-normalizer:3.5.0
+
+**License Type:** MIT
+
+**Source:** PyPI
+
+```
 License: MIT
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-cuda-bindings
-================================================================================
+---
+
+## cuda-bindings:13.4.0b1
+
+**License Type:** LicenseRef-NVIDIA-SOFTWARE-LICENSE
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-SOFTWARE-LICENSE
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-cuda-pathfinder
-================================================================================
+---
+
+## cuda-pathfinder:1.6.0
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-cuda-toolkit
-================================================================================
+---
+
+## cuda-toolkit:13.0.3.0
+
+**License Type:** See license text below
+
+**Source:** PyPI
+
+```
 License: 
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-flatbuffers
-================================================================================
+---
+
+## flatbuffers:25.12.19
+
+**License Type:** Apache 2.0
+
+**Source:** PyPI
+
+```
 License: Apache 2.0
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-fsspec
-================================================================================
+---
+
+## fsspec:2026.7.0
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 License: BSD-3-Clause
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-ftfy
-================================================================================
+---
+
+## ftfy:6.3.1
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-hf-xet
-================================================================================
+---
+
+## hf-xet:1.6.0
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-huggingface_hub
-================================================================================
+---
+
+## huggingface_hub:0.36.2
+
+**License Type:** Apache
+
+**Source:** PyPI
+
+```
 License: Apache
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-Jinja2
-================================================================================
+---
+
+## Jinja2:3.1.6
+
+**License Type:** License :: OSI Approved :: BSD License
+
+**Source:** PyPI
+
+```
 License: 
 License :: OSI Approved :: BSD License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-kafka-python
-================================================================================
+---
+
+## kafka-python:3.0.10
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-MarkupSafe
-================================================================================
+---
+
+## MarkupSafe:3.0.2
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 License: BSD-3-Clause
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-ml_dtypes
-================================================================================
+---
+
+## ml_dtypes:0.6.0
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-mpmath
-================================================================================
+---
+
+## mpmath:1.3.0
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 Copyright (c) 2005-2021 Fredrik Johansson and mpmath contributors
 
 All rights reserved.
@@ -3513,129 +3722,297 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
 LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
+```
 
-networkx
-================================================================================
+---
+
+## networkx:3.6.1
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 License: BSD-3-Clause
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cublas
-================================================================================
+---
+
+## nvidia-cublas:13.1.1.3
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cuda-cupti
-================================================================================
+---
+
+## nvidia-cuda-cupti:13.0.85
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cuda-nvrtc
-================================================================================
+---
+
+## nvidia-cuda-nvrtc:13.0.88
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cuda-runtime
-================================================================================
+---
+
+## nvidia-cuda-runtime:13.0.96
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cudnn-cu13
-================================================================================
+---
+
+## nvidia-cudnn-cu13:9.24.0.43
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cufft
-================================================================================
-License: LicenseRef-NVIDIA-Proprietary
-License :: Other/Proprietary License
-(Full license text not bundled in wheel; see project home page.)
+---
 
-nvidia-cufile
-================================================================================
-License: LicenseRef-NVIDIA-Proprietary
-License :: Other/Proprietary License
-(Full license text not bundled in wheel; see project home page.)
+## nvidia-cufft:12.0.0.61
 
-nvidia-curand
-================================================================================
-License: LicenseRef-NVIDIA-Proprietary
-License :: Other/Proprietary License
-(Full license text not bundled in wheel; see project home page.)
+**License Type:** LicenseRef-NVIDIA-Proprietary
 
-nvidia-cusolver
-================================================================================
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cusparse
-================================================================================
+---
+
+## nvidia-cufile:1.15.1.6
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-cusparselt-cu13
-================================================================================
+---
+
+## nvidia-curand:10.4.0.35
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
+License: LicenseRef-NVIDIA-Proprietary
+License :: Other/Proprietary License
+(Full license text not bundled in wheel; see project home page.)
+```
+
+---
+
+## nvidia-cusolver:12.0.4.66
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
+License: LicenseRef-NVIDIA-Proprietary
+License :: Other/Proprietary License
+(Full license text not bundled in wheel; see project home page.)
+```
+
+---
+
+## nvidia-cusparse:12.6.3.3
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
+License: LicenseRef-NVIDIA-Proprietary
+License :: Other/Proprietary License
+(Full license text not bundled in wheel; see project home page.)
+```
+
+---
+
+## nvidia-cusparselt-cu13:0.8.1
+
+**License Type:** NVIDIA Proprietary Software
+
+**Source:** PyPI
+
+```
 License: NVIDIA Proprietary Software
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-nccl-cu13
-================================================================================
+---
+
+## nvidia-nccl-cu13:2.30.7
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 License: BSD-3-Clause
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-nvjitlink
-================================================================================
+---
+
+## nvidia-nvjitlink:13.4.46rc1
+
+**License Type:** LicenseRef-NVIDIA-Proprietary
+
+**Source:** PyPI
+
+```
 License: LicenseRef-NVIDIA-Proprietary
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-nvshmem-cu13
-================================================================================
+---
+
+## nvidia-nvshmem-cu13:3.4.5
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 License: BSD-3-Clause
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-nvidia-nvtx
-================================================================================
+---
+
+## nvidia-nvtx:13.0.85
+
+**License Type:** Apache 2.0
+
+**Source:** PyPI
+
+```
 License: Apache 2.0
 License :: Other/Proprietary License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-onnx
-================================================================================
+---
+
+## onnx:1.22.0
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-onnxruntime-gpu
-================================================================================
+---
+
+## onnxruntime-gpu:1.28.0
+
+**License Type:** MIT License
+
+**Source:** PyPI
+
+```
 License: MIT License
 License :: OSI Approved :: MIT License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-open_clip_torch
-================================================================================
+---
+
+## open_clip_torch:3.3.0
+
+**License Type:** MIT
+
+**Source:** PyPI
+
+```
 License: MIT
 License :: OSI Approved :: MIT License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-pillow
-================================================================================
+---
+
+## pillow:12.2.0
+
+**License Type:** MIT-CMU
+
+**Source:** PyPI
+
+```
 License: MIT-CMU
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-protobuf
-================================================================================
+---
+
+## protobuf:7.35.1
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 Copyright 2008 Google Inc.  All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -3668,9 +4045,17 @@ Code generated by the Protocol Buffer compiler is owned by the owner
 of the input file used when generating it.  This code is not
 standalone and requires a support library to be linked with it.  This
 support library is itself covered by the above license.
+```
 
-psutil
-================================================================================
+---
+
+## psutil:7.2.2
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 BSD 3-Clause License
 
 Copyright (c) 2009, Jay Loden, Dave Daeschler, Giampaolo Rodola
@@ -3700,63 +4085,143 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
-PyYAML
-================================================================================
+---
+
+## PyYAML:6.0.3
+
+**License Type:** MIT
+
+**Source:** PyPI
+
+```
 License: MIT
 License :: OSI Approved :: MIT License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-regex
-================================================================================
+---
+
+## regex:2026.7.19
+
+**License Type:** Apache-2.0 AND CNRI-Python
+
+**Source:** PyPI
+
+```
 License: Apache-2.0 AND CNRI-Python
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-requests
-================================================================================
+---
+
+## requests:2.34.2
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-safetensors
-================================================================================
+---
+
+## safetensors:0.8.0
+
+**License Type:** License :: OSI Approved :: Apache Software License
+
+**Source:** PyPI
+
+```
 License: 
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-sentencepiece
-================================================================================
+---
+
+## sentencepiece:0.2.2
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-sympy
-================================================================================
+---
+
+## sympy:1.14.0
+
+**License Type:** BSD
+
+**Source:** PyPI
+
+```
 License: BSD
 License :: OSI Approved :: BSD License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-timm
-================================================================================
+---
+
+## timm:1.0.28
+
+**License Type:** Apache-2.0
+
+**Source:** PyPI
+
+```
 License: Apache-2.0
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-tokenizers
-================================================================================
+---
+
+## tokenizers:0.22.2
+
+**License Type:** License :: OSI Approved :: Apache Software License
+
+**Source:** PyPI
+
+```
 License: 
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-torch
-================================================================================
+---
+
+## torch:2.15.0.dev20260813+cu130
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 License: BSD-3-Clause
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-torchvision
-================================================================================
+---
+
+## torchvision:0.29.0.dev20260814+cu130
+
+**License Type:** BSD-3-Clause
+
+**Source:** PyPI
+
+```
 BSD 3-Clause License
 
 Copyright (c) Soumith Chintala 2016, 
@@ -3786,27 +4251,62 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
-transformers
-================================================================================
+---
+
+## transformers:4.57.6
+
+**License Type:** Apache 2.0 License
+
+**Source:** PyPI
+
+```
 License: Apache 2.0 License
 License :: OSI Approved :: Apache Software License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-triton
-================================================================================
+---
+
+## triton:3.8.0+git675c5987
+
+**License Type:** License :: OSI Approved :: MIT License
+
+**Source:** PyPI
+
+```
 License: 
 License :: OSI Approved :: MIT License
 (Full license text not bundled in wheel; see project home page.)
+```
 
-urllib3
-================================================================================
+---
+
+## urllib3:2.7.0
+
+**License Type:** MIT
+
+**Source:** PyPI
+
+```
 License: MIT
 
 (Full license text not bundled in wheel; see project home page.)
+```
 
-wcwidth
-================================================================================
+---
+
+## wcwidth:0.8.2
+
+**License Type:** MIT
+
+**Source:** PyPI
+
+```
 License: MIT
 
 (Full license text not bundled in wheel; see project home page.)
+```
+
+---

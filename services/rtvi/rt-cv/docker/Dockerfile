@@ -101,9 +101,9 @@ RUN mv /opt/nvidia/deepstream/deepstream/sources/TritonGdino/prebuilts/libnvdstr
     mv /opt/nvidia/deepstream/deepstream/sources/TritonMaskGdino/prebuilts/libnvdstriton_custom_impl_mgdino_${TARGETARCH}.so /opt/nvidia/deepstream/deepstream/sources/TritonMaskGdino/prebuilts/libnvdstriton_custom_impl_mgdino.so
 
 # Copy license files for compliance
-COPY THIRD_PARTY_LICENSES.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/THIRD_PARTY_LICENSES.txt
+COPY 3rdParty_Licenses.md /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/3rdParty_Licenses.md
 COPY NOTICE.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/NOTICE.txt
-COPY THIRD_PARTY_LICENSES.txt /opt/mm/LICENSE.3rdparty
+COPY 3rdParty_Licenses.md /opt/mm/LICENSE.3rdparty
 
 # -- build ---------------------------------------------------------------
 # CUDA_VER: the Makefile builds -I/usr/local/cuda-$(CUDA_VER)/include, so this
