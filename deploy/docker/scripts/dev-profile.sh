@@ -1468,10 +1468,6 @@ function state_up() {
   if [[ "${profile}" == "alerts" ]] && contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
   fi
-  # Alerts profile: conditionally set vlm-as-verifier config prefix for IGX-THOR, AGX-THOR only; DGX-SPARK uses default config.yml
-  if [[ "${profile}" == "alerts" ]] && ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${vlm_mode}" != "remote" ]]; then
-    set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
-  fi
 
   # Base/alerts/LVS/search for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed RT-VLM configuration)
   if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]); then

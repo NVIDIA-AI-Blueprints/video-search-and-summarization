@@ -18,7 +18,7 @@ Deployment-time contract for the `alert-bridge` microservice (the **Alert Micros
 - **Tag (snapshot):** `3.2.0`, declared inline at `services/alert/compose.yml` (the `alert-bridge` service). The standalone dev compose (`services/alert/deploy_docker-compose.yml`)
 - **Registry:** `nvcr.io`
 - **NGC pull requirements:** yes — `NGC_CLI_API_KEY` + `docker login nvcr.io`.
-- **Architecture support:** x86_64 and aarch64. For DGX-SPARK / IGX-THOR / AGX-THOR with a non-remote VLM, set `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` so the edge-tuned verifier config is mounted.
+- **Architecture support:** x86_64 and aarch64. All hardware profiles (including DGX-SPARK / IGX-THOR / AGX-THOR) and both local and remote VLM modes mount the same verifier `config.yml` — there is no edge-specific variant.
 
 ## GPU Requirements
 

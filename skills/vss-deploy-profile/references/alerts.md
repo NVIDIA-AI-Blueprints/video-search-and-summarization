@@ -154,7 +154,7 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 | `VLM_MODE=remote` | irrelevant; RT-VLM not started |
 | Edge (`IGX-THOR` / `AGX-THOR`) | `0` (unified memory) |
 
-Edge platforms also need `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` so `vlm-as-verifier` picks up the matching config under `dev-profile-alerts/vlm-as-verifier/configs/EDGE-LOCAL-VLM-config.yml`.
+Every hardware profile and VLM mode mounts the same verifier config at `dev-profile-alerts/vlm-as-verifier/configs/config.yml` via `VLM_AS_VERIFIER_CONFIG_FILE`; there is no edge-specific variant to select.
 
 ### Shared-mode LLM budget
 
@@ -192,7 +192,7 @@ On RTX 4500 the LLM is remote, so there is no local `NIM_KVCACHE_PERCENT` to set
 ### Hard rules
 
 - **L40S can't run `local_shared`.** dev-profile.sh rejects sharing the L40S device ID, so RT-VLM and the LLM can't co-locate — use `local` (RT-VLM on its own GPU @ 0.8) with the LLM remote or on another GPU.
-- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason3 Nano BF16 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos3-reasoner` NIM service; the alerts compose graph routes through RT-VLM only, and the generated/runtime env already pairs `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and `RT_VLM_DEVICE_ID=0` (unified memory) are also part of the Thor shape. For the LLM side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
+- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason3 Nano BF16 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos3-reasoner` NIM service; the alerts compose graph routes through RT-VLM only, and the generated/runtime env already pairs `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `RT_VLM_DEVICE_ID=0` (unified memory) is also part of the Thor shape. For the LLM side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
 - **Don't co-deploy a standalone Cosmos NIM with alerts.** `COMPOSE_PROFILES` for alerts has no `vlm_*_<slug>` segment by design. Verify by checking `resolved.yml` doesn't have `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu` services alongside `rtvi-vlm`.
 - **`VLM_NAME` mismatch ⇒ HTTP 400.** dev-profile.sh sets `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` for the default Cosmos3 Nano BF16 path. If you change `RTVI_VLM_MODEL_PATH` you must update `VLM_NAME` to match the new model basename — otherwise alert-bridge / agent get "No such model" from `/v1/models`.
 - **`VLM_NAME_SLUG=none` is required.** The alerts compose graph has no `vlm_local_*_<slug>` profiles. Setting a real slug doesn't bring up a VLM service — it just makes the COMPOSE_PROFILES reference dead.
@@ -298,4 +298,4 @@ RT-VLM downloads `cosmos3-nano-reasoner:bf16-final` from NGC on first start (~10
 - **2d_cv: alerts never fire** — check `vss-behavior-analytics` is consuming RT-CV metadata: `docker logs vss-behavior-analytics`. RT-CV side: `curl http://${HOST_IP}:9000/v1/health`.
 - **2d_vlm: VLM not running over live streams** — confirm `MODE=2d_vlm` (not `2d_cv`) in `resolved.yml` and that nvstreamer-alerts is publishing streams.
 - **OOM on shared GPU 1** — drop `NIM_KVCACHE_PERCENT` for the LLM by 0.05; if RT-VLM is the OOM, raise its `RTVI_VLLM_GPU_MEMORY_UTILIZATION` ceiling and re-tune the LLM down (the per-hardware RT-VLM/LLM split — e.g. 0.4/0.4 on H100 — assumes Nano 9B FP16; larger LLMs need different ratios).
-- **Edge: `vlm-as-verifier` config not loaded** — verify `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` is set in `generated.env` and the matching `EDGE-LOCAL-VLM-config.yml` exists under `dev-profile-alerts/vlm-as-verifier/configs/`.
+- **`vlm-as-verifier` config not loaded** — verify `VLM_AS_VERIFIER_CONFIG_FILE` in `generated.env` resolves to an existing `dev-profile-alerts/vlm-as-verifier/configs/config.yml` (the same file for every hardware profile and VLM mode).

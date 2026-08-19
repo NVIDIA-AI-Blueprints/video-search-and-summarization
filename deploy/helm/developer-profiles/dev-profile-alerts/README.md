@@ -214,7 +214,6 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vss-alert-bridge.vlmName`** | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | NGC model id passed to **`vlm.model`**; must match the **RTVI-VLM** NIM you run (same idea as **`agent.vss-agent.vlmName`**). |
 | **`vss-alert-bridge.vstBaseUrl`** | **`""`** | **VST** ingress base URL for **`vst_config`** and storage paths in **`config.yml`**. When empty, defaults to **`http://<release>-vss-vios-ingress:30888`**. |
 | **`vss-alert-bridge.alertReviewMediaBaseDir`** | **`""`** | Optional **`ALERT_REVIEW_MEDIA_BASE_DIR`** in **`config.yml`** for alert-review media; leave empty if unused. |
-| **`vss-alert-bridge.configVariant`** | **`""`** | **`""`:** default **`config.yml`**. |
 | **`vss-alert-bridge.waitForDependencies.enabled`** | **`true`** in **`values.yaml`** | When **`true`**, an **initContainer** waits until **Kafka**, **Redis**, and **Elasticsearch** TCP ports accept connections before **`vss-alert-bridge`** starts (reduces startup **`Connection refused`** when infra stack pods are still coming up). Set **`false`** to skip. Override **`waitForDependencies.*Host`** / ports if your service DNS differs. |
 | **`infra.kafka.enabled`** | **`true`** | Set **`false`** to disable **Kafka** (infra subchart). Bootstrap DNS is **`kafka-kafka:9092`**; with **`global.useReleaseNamePrefix: true`**, **`<release>-kafka-kafka:9092`**. |
 | **`infra.kafka.persistence.size`** | **10Gi** in **`values.yaml`** | PVC size for Kafka broker data (alerts override). |

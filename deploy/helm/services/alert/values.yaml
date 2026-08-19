@@ -48,10 +48,6 @@ realtimeConfig: ""
 # Base directory for media used during alert review (optional). Leave "" if not set.
 alertReviewMediaBaseDir: ""
 
-# Config variant: "" (default) or "edge-local-vlm" (DGX-SPARK, IGX-THOR, AGX-THOR with local VLM)
-# When "edge-local-vlm", uses EDGE-LOCAL-VLM-config.yml content (adds request_timeout, use_vlm_media_defaults).
-configVariant: ""
-
 # App listens on 9080 (see logs: "Uvicorn running on http://0.0.0.0:9080")
 service:
   port: 9080

@@ -1230,7 +1230,7 @@ for _profile in base lvs search alerts; do
       _expected_stable_keys=(MODE PERCEPTION_TAG)
       ;;
     alerts)
-      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
+      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
       _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=()
       ;;
@@ -1864,19 +1864,16 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alert bridge verifier configs need the internal VST URL for media lookup.
-for _cfg in \
-  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml" \
-  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/EDGE-LOCAL-VLM-config.yml"; do
-  _vst_base_count="$(grep -c "base_url: \${VST_INTERNAL_URL}" "${_cfg}" || true)"
-  if [[ "${_vst_base_count}" -eq 2 ]]; then
-    echo "PASS: alert verifier config ${_cfg} uses VST_INTERNAL_URL for media lookup"
-    ((TESTS_PASSED++)) || true
-  else
-    echo "FAIL: alert verifier config ${_cfg} should set both VST base_url entries to VST_INTERNAL_URL"
-    ((TESTS_FAILED++)) || true
-  fi
-done
+# Alert bridge verifier config needs the internal VST URL for media lookup.
+_cfg="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml"
+_vst_base_count="$(grep -c "base_url: \${VST_INTERNAL_URL}" "${_cfg}" || true)"
+if [[ "${_vst_base_count}" -eq 2 ]]; then
+  echo "PASS: alert verifier config ${_cfg} uses VST_INTERNAL_URL for media lookup"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alert verifier config ${_cfg} should set both VST base_url entries to VST_INTERNAL_URL"
+  ((TESTS_FAILED++)) || true
+fi
 
 # Real-time (2d_vlm) with local VLM: script keeps profile overrides.env defaults for VLM_PORT, RTVI_VLM_ENDPOINT, and RTVI_VLM_MODEL_TO_USE (rtvi-vlm on the Compose network, cosmos-reason3).
 run_dry_run_up_and_check_generated_env "generated.env alerts real-time local VLM preserves overrides.env defaults (rtvi-vlm on the Compose network)" "alerts" \
@@ -1914,24 +1911,24 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 RT
  -i 127.0.0.1 -H OTHER --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
   "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "8"
 
-# Alerts profile: PERCEPTION_DOCKERFILE_PREFIX and VLM_AS_VERIFIER_CONFIG_FILE_PREFIX (conditional on HARDWARE_PROFILE and VLM_MODE)
-run_dry_run_up_and_check_generated_env "generated.env alerts prefixes non-DGX-SPARK (empty)" "alerts" \
+# Alerts profile: PERCEPTION_DOCKERFILE_PREFIX (conditional on HARDWARE_PROFILE).
+# All hardware profiles and VLM modes share the single vlm-as-verifier config.yml.
+run_dry_run_up_and_check_generated_env "generated.env alerts perception prefix non-edge (empty)" "alerts" \
  -i 127.0.0.1 -H OTHER -m verification -d -- \
-  "PERCEPTION_DOCKERFILE_PREFIX" "" "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" ""
-# DGX-SPARK uses default config.yml (empty prefix); only IGX-THOR/AGX-THOR get EDGE-LOCAL-VLM- prefix
-run_dry_run_up_and_check_generated_env "generated.env alerts prefixes DGX-SPARK local VLM" "alerts" \
+  "PERCEPTION_DOCKERFILE_PREFIX" ""
+run_dry_run_up_and_check_generated_env "generated.env alerts perception prefix DGX-SPARK local VLM" "alerts" \
  -i 127.0.0.1 -H DGX-SPARK -m real-time -d -- \
-  "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-" "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" ""
-run_dry_run_up_and_check_generated_env "generated.env alerts prefixes IGX-THOR local VLM" "alerts" \
+  "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
+run_dry_run_up_and_check_generated_env "generated.env alerts perception prefix IGX-THOR local VLM" "alerts" \
  -i 127.0.0.1 -H IGX-THOR -m real-time -d -- \
-  "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-" "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
-run_dry_run_up_and_check_generated_env "generated.env alerts prefixes AGX-THOR local VLM" "alerts" \
+  "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
+run_dry_run_up_and_check_generated_env "generated.env alerts perception prefix AGX-THOR local VLM" "alerts" \
  -i 127.0.0.1 -H AGX-THOR -m real-time -d -- \
-  "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-" "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
+  "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
 # Both-remote alerts prefix check (OTHER allows remote+remote; IGX-THOR does not accept --use-remote-vlm for alerts)
-LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env alerts prefixes both remote (OTHER)" "alerts" \
+LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env alerts perception prefix both remote (OTHER)" "alerts" \
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm x --use-remote-vlm --vlm y -d -- \
-  "PERCEPTION_DOCKERFILE_PREFIX" "" "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" ""
+  "PERCEPTION_DOCKERFILE_PREFIX" ""
 
 # --- Remote with explicit model name via --llm/--vlm (no API call) ---
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_NAME from --llm when remote" "base" \

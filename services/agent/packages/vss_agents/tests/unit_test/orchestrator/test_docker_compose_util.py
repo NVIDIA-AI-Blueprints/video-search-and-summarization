@@ -778,7 +778,6 @@ class TestBuildResolvedEnv:
 
         assert resolved["MODE"] == dcu.MODE_2D_VLM
         assert resolved["PERCEPTION_DOCKERFILE_PREFIX"] == "EDGE-"
-        assert resolved["VLM_AS_VERIFIER_CONFIG_FILE_PREFIX"] == "EDGE-LOCAL-VLM-"
         assert resolved["RTVI_VLM_INPUT_WIDTH"] == dcu.EDGE_ALERTS_RTVI_INPUT_WIDTH
         assert resolved["RTVI_VLM_INPUT_HEIGHT"] == dcu.EDGE_ALERTS_RTVI_INPUT_HEIGHT
         assert resolved["RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK"] == dcu.EDGE_ALERTS_RTVI_FPS

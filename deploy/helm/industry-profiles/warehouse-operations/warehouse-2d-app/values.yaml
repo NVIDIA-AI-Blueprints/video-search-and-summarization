@@ -407,7 +407,6 @@ vss-alert-bridge:
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
   vstBaseUrl: ""
   alertReviewMediaBaseDir: ""
-  configVariant: ""
   waitForDependencies:
     enabled: true
 
