@@ -7,13 +7,13 @@ filter on ``sensor.type.keyword`` (see
 ``vss_core.search_core.primitives._embed_helpers.build_source_type_filter``).
 That filter is only queryable because the ``mdx-embed-filtered-*`` index template
 leaves ``sensor.type`` to Elasticsearch's default dynamic string mapping (``text``
-plus a ``keyword`` sub-field) — it neither disables dynamic mapping nor remaps
+plus a ``keyword`` sub-field): it neither disables dynamic mapping nor remaps
 ``sensor``.
 
 This is the failure mode a mock-only shape assertion cannot catch: if a deployment
 template later sets ``dynamic: strict``/``false`` or maps ``sensor`` explicitly
 without a keyword sub-field, ``sensor.type.keyword`` stops matching and the fix
-regresses silently — exactly the class of bug this change set removed. These tests
+regresses silently, exactly the class of bug this change set removed. These tests
 pin the template contract at unit speed. What they cannot prove without a live
 cluster (that ES actually materializes ``.keyword`` and that no producer writes a
 conflicting mapping first) remains the release-time ``_count`` verification.

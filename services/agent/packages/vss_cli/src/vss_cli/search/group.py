@@ -64,20 +64,15 @@ _JOB_DOMAIN = "search"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 #: Index families the deployment reports. Discovery (`vss configure` reads ES
-#: `_cat/indices`) is used to confirm a family exists and to enable frame
-#: lookups -- NOT to pick the "uploads base". The base is the pinned anchor; see
-#: :func:`_runtime_from`.
+#: `_cat/indices`) confirms the raw family exists to enable frame lookups -- it
+#: does NOT pick a base or a wildcard (both are pinned `SearchRuntime` defaults);
+#: see :func:`_runtime_from`. The embed/behavior entries are kept only to document
+#: the families the deployment reports.
 _INDEX_PREFIXES = {
     "video_embed_index": "mdx-embed-filtered-",
     "behavior_index": "mdx-behavior-",
     "frames_index": "mdx-raw-",
 }
-
-#: Synthetic epoch that uploaded files are ingested under, so their docs always
-#: land in the ``-2025-01-01`` indices (write-side contract in
-#: ``vss_agents/api/video_ingest.py`` and ``video_delete.py``). Used to pin the
-#: raw frames anchor; the embed/behavior anchors are the ``SearchRuntime`` defaults.
-_UPLOADS_ANCHOR_DATE = "2025-01-01"
 
 
 class _Common(BaseModel):
@@ -273,6 +268,7 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     Resolving it to None keeps the deployment usable for the paths it can
     serve instead of failing them all on the strictest path's needs.
     """
+    from vss_core.search_core.runtime import RAW_INDEX_ANCHOR
     from vss_core.search_core.runtime import SearchRuntime
 
     es = deployment.endpoint_or_none("elasticsearch")
@@ -295,20 +291,16 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     if embed_service and embed_service.models:
         kwargs["cosmos_embed_model"] = embed_service.models[0]
 
-    # Do NOT promote a discovered index to a base: in a stream-first deployment
-    # the earliest-sorting index is a live-dated one, and using it as the uploads
-    # base inverts ``rtsp`` source-type selection (it subtracts the only index
-    # holding live data). Bases stay at their ``SearchRuntime`` anchor defaults.
-    # Discovery is used only to set each family's wildcard and to enable frame
-    # lookups (pinned to the raw anchor) when the raw family exists; otherwise
-    # ``frames_index`` stays ``None`` and frame-level lookups are disabled.
-    available = sorted(es_service.indices) if es_service else []
-    for field_name, prefix in _INDEX_PREFIXES.items():
-        if not any(i.startswith(prefix) for i in available):
-            continue
-        kwargs[f"{field_name}_wildcard"] = f"{prefix}*"
-        if field_name == "frames_index":
-            kwargs["frames_index"] = f"{prefix}{_UPLOADS_ANCHOR_DATE}"
+    # Bases and family wildcards are the pinned ``SearchRuntime`` anchor defaults
+    # and are NOT discovered: promoting a discovered index to a base inverts
+    # ``rtsp`` source-type selection (it subtracts the only index holding live
+    # data in a stream-first deployment), and every family wildcard already
+    # equals its default. Discovery's only load-bearing output is enabling frame
+    # lookups when the raw family exists, pinned to the raw uploads anchor;
+    # otherwise ``frames_index`` stays ``None`` and frame-level lookups are off.
+    available = es_service.indices if es_service else []
+    if any(i.startswith(_INDEX_PREFIXES["frames_index"]) for i in available):
+        kwargs["frames_index"] = RAW_INDEX_ANCHOR
 
     kwargs.update(tuning or {})
     return SearchRuntime(**kwargs)

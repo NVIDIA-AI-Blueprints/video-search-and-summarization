@@ -327,8 +327,7 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     search_request = mock_services.requests_ending_with("/_search")[-1]
     # Embed queries the family wildcard for every source type (source-type is a
     # sensor.type document filter now), never the date anchor.
-    assert search_request.path.startswith("/mdx-embed-filtered-")
-    assert "2025-01-01" not in search_request.path
+    assert search_request.path == "/mdx-embed-filtered-*/_search"
     # Two multipliers compound: Search doubles top_k so merging adjacent
     # windows can still yield top_k results, and EmbedSearch overfetches 5x
     # because ES filters may discard KNN hits. top_k=1 -> 2 -> 10.
@@ -365,8 +364,7 @@ def test_search_archive_cli_rtsp_queries_embed_wildcard_with_camera_filter(
 
     assert result.returncode == 0, result.stderr
     search_request = mock_services.requests_ending_with("/_search")[-1]
-    assert search_request.path.startswith("/mdx-embed-filtered-")
-    assert "2025-01-01" not in search_request.path
+    assert search_request.path == "/mdx-embed-filtered-*/_search"
     assert '"sensor.type.keyword": "Camera"' in json.dumps(search_request.body)
 
 
@@ -604,8 +602,7 @@ async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
     assert out.data[0].similarity == 0.86
     assert _single(mock_services.requests_for("/v1/generate_text_embeddings")).body["text_input"] == ["red forklift"]
     search_request = _single(mock_services.requests_ending_with("/_search"))
-    assert search_request.path.startswith("/mdx-embed-filtered-")
-    assert "2025-01-01" not in search_request.path
+    assert search_request.path == "/mdx-embed-filtered-*/_search"
 
 
 def _run_search_archive(
