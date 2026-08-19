@@ -17,8 +17,9 @@ Rules (see docs/matrix-dispatch-design.md):
         -> dispatch every spec under <skill>
   - harness files (envs/, verifiers/, skills_eval_agent.py, AGENTS.md,
     plan_matrix.py, skills-eval.yml) match no rule, so a harness-only
-    diff yields an empty matrix and the eval job is skipped. Validate
-    those via the manual workflow_dispatch sweep.
+    diff yields an empty matrix — except OPENSHELL_RTXPRO6000_ONLY, which
+    enumerates every skill (like a daily sweep) so `/ok to test` runs the
+    full RTX PRO 6000 matrix. Other SKUs stay skipped.
 
 A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
@@ -532,7 +533,11 @@ def emit(include: list[dict]) -> None:
 
 def main() -> int:
     DAILY_RUN = os.environ.get("DAILY_RUN")
-    if DAILY_RUN:
+    # OpenShell `/ok to test` must run every RTX PRO 6000 spec on this
+    # fleet, not only the files in the PR diff (and not only the
+    # vss-deploy-profile/base smoke fallback). Other SKUs stay skipped
+    # inside build_matrix via OPENSHELL_RTXPRO6000_ONLY.
+    if DAILY_RUN or os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
         changed = list_skill_file_paths()
     else:
         changed = list_changed_files()
