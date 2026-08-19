@@ -113,6 +113,32 @@ def test_only_final_nonempty_line_is_the_terminal_marker() -> None:
     )
 
 
+def test_fenced_done_marker_from_harbor_pass_is_accepted() -> None:
+    """Harbor 1.0 plus a fenced DONE: must be exit 0 (run 32225077286)."""
+    assert (
+        _exit_code(
+            "Comment posted at [PR #1751 comment 5339053947]"
+            "(https://github.com/NVIDIA-AI-Blueprints/"
+            "video-search-and-summarization/pull/1751"
+            "#issuecomment-5339053947).\n"
+            "\n"
+            "Summary of the eval:\n"
+            "- **Verifier**: 7/7 checks passed, reward = 1.0\n"
+            "\n"
+            "```\n"
+            "DONE: 1/1 specs passed; 0 blockers\n"
+            "```"
+        )
+        == 0
+    )
+    assert _exit_code("```\nDONE: 1/1 spec passed\n```") == 0
+    assert _exit_code("```text\nDONE: 1/1 specs passed; 0 blockers\n```") == 0
+    assert (
+        _exit_code("```\nDONE: 1/1 specs passed; 0 blockers\n```\nTrailing prose")
+        == skills_eval_agent._PROTOCOL_FAILURE_EXIT_CODE
+    )
+
+
 def test_blocked_remains_a_valid_non_crash_outcome() -> None:
     assert _exit_code("BLOCKED: pool exhausted for RTXPRO6000BW") == 0
 

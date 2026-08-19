@@ -113,6 +113,11 @@ _DONE_RESULT_RE = re.compile(
     r"^DONE:\s*(?P<passed>\d+)\s*/\s*(?P<total>\d+)\s+"
     r"spec(?:s)?\s+passed\b"
 )
+# Claude often wraps the mandatory DONE:/BLOCKED: line in a fenced code
+# block. The closing fence is a nonempty line and must not be treated as
+# the protocol marker (run 32225077286: Harbor 1.0, then
+# ``DONE: 1/1 specs passed; 0 blockers`` inside ```, wrapper exit 4).
+_MARKDOWN_FENCE_RE = re.compile(r"^```[\w+-]*\s*$")
 
 # ---------------------------------------------------------------------------
 # Pre-flight
@@ -548,11 +553,19 @@ def missing_renderer_outputs(marker: str, results_root: Path,
 
 
 def _last_nonempty_line(text_blocks: list[str]) -> str | None:
-    """Return the final printed assistant line without accepting leading space."""
+    """Return the final printed assistant line without accepting leading space.
+
+    Trailing markdown fences are ignored so a well-formed ``DONE:`` /
+    ``BLOCKED:`` marker wrapped in a code block still counts as the
+    terminal line. Other trailing prose still fails closed.
+    """
     for block in reversed(text_blocks):
         for line in reversed(block.splitlines()):
-            if line.strip():
-                return line.rstrip()
+            if not line.strip():
+                continue
+            if _MARKDOWN_FENCE_RE.fullmatch(line.strip()):
+                continue
+            return line.rstrip()
     return None
 
 
