@@ -221,6 +221,13 @@ jobs:
             if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
               printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
             fi
+            # Do not persist corp remote LLM/VLM URLs into GITHUB_ENV.
+            # Guests cannot reach 10.86.6.50; the skill then deploys
+            # remote mode and local NIMs never occupy VRAM.
+            printf "LLM_REMOTE_URL=\n" >> "$GITHUB_ENV"
+            printf "LLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
+            printf "VLM_REMOTE_URL=\n" >> "$GITHUB_ENV"
+            printf "VLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
           fi
 
       - name: Run skills eval agent (single spec)
@@ -284,6 +291,12 @@ jobs:
           fi
           if [ -z "${ANTHROPIC_MODEL:-}" ]; then
             export ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
+          fi
+          # OpenShell local-GPU smoke must not inherit corp remote LLM/VLM
+          # URLs from ~/.eval_env. Those endpoints time out from the guests;
+          # the skill then writes LLM_MODE=remote and never starts local NIMs.
+          if [ -n "${SKILL_EVAL_LOCAL_GPU_INSTANCE:-}" ]; then
+            unset LLM_REMOTE_URL LLM_REMOTE_MODEL VLM_REMOTE_URL VLM_REMOTE_MODEL
           fi
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
