@@ -56,6 +56,7 @@ class NemoClaw(OpenClaw):
 host_home=$HOME
 repo="$host_home/video-search-and-summarization"
 export HOME="$host_home/.skill-eval/nemoclaw-home"
+export PATH="$HOME/.local/bin:$PATH"
 cd "$repo"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}
