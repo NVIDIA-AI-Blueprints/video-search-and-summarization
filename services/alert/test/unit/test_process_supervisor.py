@@ -69,7 +69,6 @@ class Spawner:
 
 def _supervisor(spawn, count=2, **kwargs):
     kwargs.setdefault("poll_interval", 0.0)
-    kwargs.setdefault("restart_backoff", 0.0)
     kwargs.setdefault("stop_timeout", 0.0)
     return ProcessSupervisor(count=count, spawn=spawn, **kwargs)
 
@@ -118,123 +117,84 @@ class TestStartAndStop:
             ProcessSupervisor(count=0, spawn=Spawner())
 
 
-class TestRestart:
-    def test_dead_child_is_replaced_in_place(self):
+class TestAnyExitFailsTheInstance:
+    """A child that exits on its own takes the instance down with it.
+
+    Replacing it in place kept the container alive around a partially rebuilt
+    instance: the replacement rejoins the group and forces a rebalance, the
+    survivors keep whatever work they had, and the cause of the exit is still
+    there. Failing whole makes the orchestrator's restart the recovery path.
+    """
+
+    def test_a_dead_child_raises(self):
         spawn = Spawner()
         supervisor = _supervisor(spawn, count=2)
         supervisor.start()
         supervisor.processes[1].die(exitcode=9)
 
-        supervisor._reap_and_restart()
+        with pytest.raises(SupervisedProcessError, match="pipeline process 1"):
+            supervisor._fail_on_any_exit()
 
-        assert len(spawn.spawned) == 3
-        assert supervisor.processes[1] is spawn.spawned[2]
-        assert supervisor.processes[1].index == 1
-        assert supervisor.processes[0] is spawn.spawned[0]
+    def test_the_exit_code_is_carried_into_the_error(self):
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=1)
+        supervisor.start()
+        supervisor.processes[0].die(exitcode=137)
+
+        with pytest.raises(SupervisedProcessError, match="exitcode=137"):
+            supervisor._fail_on_any_exit()
+
+    def test_nothing_is_replaced(self):
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=2)
+        supervisor.start()
+        supervisor.processes[0].die()
+
+        with pytest.raises(SupervisedProcessError):
+            supervisor._fail_on_any_exit()
+        assert len(spawn.spawned) == 2
 
     def test_live_children_are_left_alone(self):
         spawn = Spawner()
         supervisor = _supervisor(spawn, count=2)
         supervisor.start()
-        supervisor._reap_and_restart()
+        supervisor._fail_on_any_exit()
         assert len(spawn.spawned) == 2
 
-    def test_dead_child_is_reported_to_the_exit_hook_before_replacement(self):
-        seen = []
-        spawn = Spawner()
-        supervisor = _supervisor(spawn, count=1, on_exit=seen.append)
-        supervisor.start()
-        original = supervisor.processes[0]
-        original.die()
-
-        supervisor._reap_and_restart()
-
-        assert seen == [original]
-
-    def test_each_exit_is_reported_exactly_once(self):
-        """Metrics keyed off the hook double-count otherwise.
-
-        The reaper reports a dead child and then hands the slot back for a
-        restart; if the restart is abandoned, stop() must not report the same
-        corpse a second time on its way out.
-        """
-        seen = []
-        spawn = Spawner()
-        supervisor = _supervisor(spawn, count=2, on_exit=seen.append,
-                                 max_rapid_restarts=0)
-        supervisor.start()
-        dead = supervisor.processes[1]
-        dead.die(exitcode=1)
-
-        with pytest.raises(SupervisedProcessError):
-            supervisor._reap_and_restart()
-        supervisor.stop()
-
-        assert seen.count(dead) == 1
-        assert len(seen) == 2      # the dead slot plus the live one stop() ends
-
-    def test_a_slot_abandoned_mid_backoff_is_not_reported_again(self):
-        seen = []
-        spawn = Spawner()
-        supervisor = _supervisor(spawn, count=1, on_exit=seen.append)
-        supervisor.start()
-        dead = supervisor.processes[0]
-        dead.die(exitcode=0)
-
-        # Shutdown lands while the reaper waits out its restart backoff, so it
-        # abandons the restart. Driven off the wait rather than a timer to keep
-        # the interleaving fixed.
-        original_wait = supervisor._shutdown.wait
-
-        def shutdown_during_backoff(timeout=None):
-            supervisor._shutdown.set()
-            return original_wait(timeout)
-
-        supervisor._shutdown.wait = shutdown_during_backoff
-
-        supervisor._reap_and_restart()
-        supervisor.stop()
-
-        assert len(spawn.spawned) == 1     # no replacement was started
-        assert seen == [dead]
-
-    def test_no_restart_once_shutdown_requested(self):
+    def test_an_exit_during_shutdown_is_not_a_failure(self):
         spawn = Spawner()
         supervisor = _supervisor(spawn, count=1)
         supervisor.start()
         supervisor.processes[0].die(exitcode=0)
         supervisor.request_shutdown()
 
-        supervisor._reap_and_restart()
+        supervisor._fail_on_any_exit()      # expected, so it must not raise
 
-        assert len(spawn.spawned) == 1
-
-    def test_gives_up_after_repeated_immediate_failures(self):
+    def test_the_run_loop_tears_the_rest_down_on_the_way_out(self):
         spawn = Spawner()
-        supervisor = _supervisor(spawn, count=1, rapid_restart_window=60.0, max_rapid_restarts=2)
+        supervisor = _supervisor(spawn, count=3, poll_interval=0.01)
         supervisor.start()
+        supervisor.processes[1].die(exitcode=1)
 
         with pytest.raises(SupervisedProcessError):
-            for _ in range(4):
-                supervisor.processes[0].die()
-                supervisor._reap_and_restart()
+            supervisor.run()
 
-    def test_healthy_uptime_resets_the_failure_counter(self, monkeypatch):
-        import utils.process_supervisor as module
+        # Survivors must not be left holding consumer-group slots.
+        assert spawn.spawned[0].terminated or spawn.spawned[0].killed
+        assert spawn.spawned[2].terminated or spawn.spawned[2].killed
 
-        clock = {"now": 0.0}
-        monkeypatch.setattr(module.time, "monotonic", lambda: clock["now"])
-
+    def test_every_child_is_reported_to_the_exit_hook_exactly_once(self):
+        seen = []
         spawn = Spawner()
-        supervisor = _supervisor(spawn, count=1, rapid_restart_window=60.0, max_rapid_restarts=1)
+        supervisor = _supervisor(spawn, count=3, poll_interval=0.01, on_exit=seen.append)
         supervisor.start()
+        supervisor.processes[1].die(exitcode=1)
 
-        for _ in range(4):
-            clock["now"] += 3600.0
-            supervisor.processes[0].die()
-            supervisor._reap_and_restart()
+        with pytest.raises(SupervisedProcessError):
+            supervisor.run()
 
-        assert len(spawn.spawned) == 5
+        assert len(seen) == 3
+        assert len(set(id(p) for p in seen)) == 3
 
 
 class TestRunLoop:
@@ -259,31 +219,27 @@ class TestRealProcesses:
         process.start()
         return process
 
-    def test_killed_child_is_replaced_and_all_children_are_reaped(self):
+    def test_a_killed_child_takes_the_others_down_with_it(self):
         supervisor = ProcessSupervisor(
             count=2,
             spawn=self._spawn,
             poll_interval=0.05,
-            restart_backoff=0.0,
             stop_timeout=5.0,
         )
         supervisor.start()
+        pids = [p.pid for p in supervisor.processes]
         try:
-            original = supervisor.processes[0]
-            os.kill(original.pid, signal.SIGKILL)
+            os.kill(pids[0], signal.SIGKILL)
             deadline = time.monotonic() + 10
-            while original.is_alive() and time.monotonic() < deadline:
+            while supervisor.processes[0].is_alive() and time.monotonic() < deadline:
                 time.sleep(0.05)
 
-            supervisor._reap_and_restart()
-
-            replacement = supervisor.processes[0]
-            assert replacement.pid != original.pid
-            assert replacement.is_alive()
-            pids = [p.pid for p in supervisor.processes]
+            with pytest.raises(SupervisedProcessError):
+                supervisor.run()
         finally:
             supervisor.stop()
 
+        # Including the survivor: an orphan keeps its consumer-group slot.
         for pid in pids:
             with pytest.raises(OSError):
                 os.kill(pid, 0)

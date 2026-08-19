@@ -281,10 +281,13 @@ alert_agent:
   Prometheus scrape endpoint, owns the FastAPI child, and supervises. It never
   joins the consumer group — a member that stopped polling would stall the
   partitions assigned to it.
-- **Crashed children are restarted** in place, so their partitions resume
-  without waiting for a rebalance. A slot that keeps dying within 60 s is a
-  config or dependency failure: after 5 such restarts the supervisor gives up
-  and exits, surfacing the error instead of hiding it behind restart noise.
+- **A crashed child takes the instance down.** The supervisor terminates and
+  reaps the others and exits non-zero, leaving the restart to the
+  orchestrator. Replacing the dead child in place kept the container alive
+  around a partially rebuilt instance — the replacement rejoins the group and
+  forces a rebalance, the survivors keep whatever work they had, and whatever
+  caused the exit is still there. It also reported success on the way out, so
+  a crash-looping deployment read as a clean finish.
 - **Metrics aggregate automatically.** Children inherit
   `PROMETHEUS_MULTIPROC_DIR` and the parent scrapes with
   `MultiProcessCollector`, so `:9081` stays the single endpoint. Counters and

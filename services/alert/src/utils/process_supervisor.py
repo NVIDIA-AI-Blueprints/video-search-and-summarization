@@ -13,11 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Supervisor keeping a fixed set of pipeline processes alive.
+"""Supervisor running a fixed set of pipeline processes as one unit.
 
-A dead child stops polling its Kafka partitions, and those partitions stay
-stalled until the group next rebalances, so every exit must be detected and
-replaced rather than merely logged.
+A child that exits unexpectedly takes the whole instance down with it. The
+alternative, replacing the dead one in place, kept the container alive around
+a partially rebuilt instance: the replacement rejoins the consumer group and
+triggers a rebalance, the surviving children keep whatever in-flight work they
+had, and whatever caused the exit is still there. Failing whole is what makes
+the orchestrator's restart the recovery path, and what makes a crash visible
+as a crash.
 """
 
 import threading
@@ -29,18 +33,15 @@ from utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_POLL_INTERVAL = 1.0
-DEFAULT_RESTART_BACKOFF = 5.0
-DEFAULT_RAPID_RESTART_WINDOW = 60.0
-DEFAULT_MAX_RAPID_RESTARTS = 5
 DEFAULT_STOP_TIMEOUT = 15.0
 
 
 class SupervisedProcessError(RuntimeError):
-    """Raised when a slot fails faster than it can be usefully restarted."""
+    """Raised when a pipeline process exits without a shutdown being asked for."""
 
 
 class ProcessSupervisor:
-    """Start ``count`` processes via ``spawn(index)`` and restart them on exit."""
+    """Start ``count`` processes via ``spawn(index)`` and fail if any exits."""
 
     def __init__(
         self,
@@ -48,9 +49,6 @@ class ProcessSupervisor:
         spawn: Callable[[int], Any],
         on_exit: Optional[Callable[[Any], None]] = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
-        restart_backoff: float = DEFAULT_RESTART_BACKOFF,
-        rapid_restart_window: float = DEFAULT_RAPID_RESTART_WINDOW,
-        max_rapid_restarts: int = DEFAULT_MAX_RAPID_RESTARTS,
         stop_timeout: float = DEFAULT_STOP_TIMEOUT,
     ) -> None:
         if count < 1:
@@ -59,13 +57,8 @@ class ProcessSupervisor:
         self._spawn = spawn
         self._on_exit = on_exit
         self._poll_interval = poll_interval
-        self._restart_backoff = restart_backoff
-        self._rapid_restart_window = rapid_restart_window
-        self._max_rapid_restarts = max_rapid_restarts
         self._stop_timeout = stop_timeout
         self._processes: List[Any] = []
-        self._started_at: List[float] = []
-        self._rapid_restarts: List[int] = [0] * count
         self._shutdown = threading.Event()
 
     @property
@@ -73,14 +66,10 @@ class ProcessSupervisor:
         return list(self._processes)
 
     def start(self) -> None:
-        self._processes = []
-        self._started_at = []
-        for index in range(self._count):
-            self._processes.append(self._spawn(index))
-            self._started_at.append(time.monotonic())
+        self._processes = [self._spawn(index) for index in range(self._count)]
 
     def run(self) -> None:
-        """Block supervising the children until shutdown is requested."""
+        """Block until shutdown is requested, or a child exits on its own."""
         try:
             if not self._processes:
                 # Inside the try: a spawn that fails partway through startup
@@ -88,7 +77,7 @@ class ProcessSupervisor:
                 # each holding a consumer-group slot.
                 self.start()
             while not self._shutdown.is_set():
-                self._reap_and_restart()
+                self._fail_on_any_exit()
                 self._shutdown.wait(self._poll_interval)
         finally:
             self.stop()
@@ -96,53 +85,33 @@ class ProcessSupervisor:
     def request_shutdown(self) -> None:
         self._shutdown.set()
 
-    def _reap_and_restart(self) -> None:
+    def _fail_on_any_exit(self) -> None:
         for index, process in enumerate(self._processes):
-            if process is None or self._shutdown.is_set() or process.is_alive():
+            if self._shutdown.is_set() or process.is_alive():
                 continue
 
-            exitcode = process.exitcode
-            process.join()
-            self._processes[index] = None
-            self._notify_exit(process)
-
-            uptime = time.monotonic() - self._started_at[index]
-            if uptime < self._rapid_restart_window:
-                self._rapid_restarts[index] += 1
-            else:
-                self._rapid_restarts[index] = 0
-
-            # A slot that cannot stay up is a config or dependency failure;
-            # looping on it forever hides the error behind restart noise.
-            if self._rapid_restarts[index] > self._max_rapid_restarts:
-                raise SupervisedProcessError(
-                    f"pipeline process {index} exited {self._rapid_restarts[index]} times "
-                    f"within {self._rapid_restart_window}s (last exitcode={exitcode})"
-                )
-
+            # Report the exit before tearing the rest down, so the cause is
+            # the first thing in the log rather than the last.
             logger.error(
-                "Pipeline process %d exited (exitcode=%s, uptime=%.1fs), restarting",
+                "Pipeline process %d exited (exitcode=%s); stopping the instance",
                 index,
-                exitcode,
-                uptime,
+                process.exitcode,
             )
-            if self._shutdown.wait(self._restart_backoff):
-                return
-            self._processes[index] = self._spawn(index)
-            self._started_at[index] = time.monotonic()
+            raise SupervisedProcessError(
+                f"pipeline process {index} exited unexpectedly "
+                f"(exitcode={process.exitcode})"
+            )
 
     def stop(self) -> None:
         """Terminate every child, escalating to kill after ``stop_timeout``."""
         self._shutdown.set()
         processes, self._processes = self._processes, []
         for process in processes:
-            if process is not None and process.is_alive():
+            if process.is_alive():
                 process.terminate()
 
         deadline = time.monotonic() + self._stop_timeout
         for process in processes:
-            if process is None:
-                continue        # already reaped and reported by the poll loop
             process.join(timeout=max(0.0, deadline - time.monotonic()))
             if process.is_alive():
                 logger.warning("Pipeline process %s did not stop gracefully, killing", process.pid)

@@ -2571,8 +2571,8 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
     logger.info("Pipeline process %d starting (pid=%d)", index, os.getpid())
     try:
         # Child 0 owns the work that belongs to the instance rather than to a
-        # pipeline. If it dies the supervisor replaces it and the jobs resume
-        # with it; the others never start them.
+        # pipeline; the others never start it. Any child exiting takes the
+        # instance down, so there is no state where that work has no owner.
         enhancer = AnomalyEnhancer(config_path, instance_leader=(index == 0),
                                    seed_shared_store=False)
         # Construction is where children contend on Elasticsearch, and it can
@@ -2640,8 +2640,9 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
     """Fork ``process_count`` pipeline children and supervise them until shutdown."""
     global _pipeline_supervisor
 
-    # One per slot rather than a Barrier: a child restarted later must not
-    # block on peers that already passed, and readiness is announced once.
+    # One per slot rather than a Barrier: readiness is announced once, when
+    # the last child arrives, and a Barrier would also make every child wait
+    # for its peers before it could start consuming.
     ready_events = [ProcessEvent() for _ in range(process_count)]
     if on_ready is not None:
         _announce_when_all_ready(ready_events, on_ready)
