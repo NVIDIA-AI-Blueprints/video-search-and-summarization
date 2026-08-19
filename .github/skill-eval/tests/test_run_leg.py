@@ -440,6 +440,32 @@ class RunCommand(unittest.TestCase):
         proc.wait.assert_called_once_with(timeout=42)
         killpg.assert_not_called()
 
+    def test_clean_harbor_exit_reaps_leftover_transports_and_keeps_zero(self):
+        proc = mock.Mock(pid=4321)
+        proc.wait.return_value = 0
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(
+                run_leg, "_registered_transport_groups", return_value=[18398, 18399]
+            ),
+            mock.patch.object(
+                run_leg, "_signal_registered_transport_groups"
+            ) as signal_groups,
+            mock.patch.object(
+                run_leg, "_wait_for_process_group_exit", return_value=False
+            ) as wait_group,
+            mock.patch.object(run_leg.os, "killpg") as killpg,
+        ):
+            rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [call.args[1] for call in signal_groups.call_args_list],
+            [run_leg.signal.SIGTERM, run_leg.signal.SIGKILL],
+        )
+        wait_group.assert_called_once()
+        killpg.assert_not_called()
+
     def test_signal_exit_is_normalized_and_reaps_remaining_tree(self):
         proc = mock.Mock(pid=4321)
         proc.wait.return_value = -run_leg.signal.SIGTERM

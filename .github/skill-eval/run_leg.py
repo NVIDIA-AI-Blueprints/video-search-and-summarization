@@ -1106,6 +1106,33 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                     if not detached:
                         cleanup_started = True
                         return rc
+                    if rc == 0:
+                        # Harbor finished the trial. Leftover Brev/SSH
+                        # transport PGIDs are teardown residue on OpenShell
+                        # (observed: reward 1.0 then outcome=124 skipped the
+                        # rest of a multi-step chain). Reap them and keep
+                        # Harbor's success so later steps still run.
+                        print(
+                            "[run-leg] Harbor exited 0 with leftover "
+                            "transport groups "
+                            + ", ".join(map(str, detached))
+                            + "; reaping and keeping rc=0",
+                            flush=True,
+                        )
+                        _signal_registered_transport_groups(
+                            registry_path, signal.SIGTERM
+                        )
+                        _wait_for_process_group_exit(
+                            proc,
+                            pgid,
+                            HARBOR_SIGTERM_GRACE_SEC,
+                            registry_path,
+                        )
+                        _signal_registered_transport_groups(
+                            registry_path, signal.SIGKILL
+                        )
+                        cleanup_started = True
+                        return 0
                     cleanup_started = True
                     outcome = 124
                     reason = (
