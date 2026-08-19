@@ -140,14 +140,50 @@ runbook: that is the host bridge gateway, correct only when reaching a
 host-mode VSS from a container on the default bridge, and wrong inside the
 project network.
 
+## The Foundation's Compose entry point
+
+**Use the root `${VSS_APPS_DIR}/compose.yml`.** Not
+`developer-profiles/compose.yml`, and not the per-profile
+`developer-profiles/dev-profile-<name>/compose.yml`.
+
+Both of those are **fragments**. The lvs profile's services depend on others
+defined elsewhere — `kibana` lives in `services/infra/compose.yml` — and only the
+root file pulls the whole set in. Composing against a fragment fails with:
+
+```
+service "kibana-init-container-lvs" depends on undefined service "kibana"
+```
+
+That error names the delta, so it reads like delta drift. It is not: the bare
+Foundation fails the same way against the same fragment. Check the entry point
+before changing anything about the delta.
+
+Pair it with the profile's checked-in `overrides.env` as the env file. That file
+is authoritative for the service set, and without it Compose cannot resolve the
+`env_file:` paths the root file includes.
+
 ## Verify before running
 
 ```bash
 # The delta adds exactly one service to the Foundation.
-diff <(docker compose ... -f <foundation> config --services | sort) \
-     <(docker compose ... -f _builds/<name>/compose.yml config --services | sort)
+FOUNDATION_ENV="${VSS_APPS_DIR}/developer-profiles/dev-profile-<profile>/overrides.env"
+
+diff <(docker compose --env-file "${FOUNDATION_ENV}" \
+         -f "${VSS_APPS_DIR}/compose.yml" config --services | sort) \
+     <(docker compose --env-file _builds/<name>/override.env \
+         -f _builds/<name>/compose.yml config --services | sort)
 # Expect exactly one line: > gym-eval
 ```
+
+`VSS_GYM_EVAL_TAG` must be set for either command to resolve — the runner's pin
+is fail-closed with no default. Before a tag has cleared the image gate, any
+syntactically valid placeholder works for a composition check that starts
+nothing.
+
+**Compose the delta without touching the checked-in tree.** Everything the delta
+needs is written under `_builds/<name>/`; nothing under `deploy/docker/` should
+be created, edited or regenerated to make composition succeed. If it seems
+necessary, the entry point or the env file is wrong — not the tree.
 
 If that diff shows anything else, the delta has drifted from its Foundation and
 any comparison run against it is invalid. Fix the delta rather than explaining
