@@ -14,7 +14,7 @@
 # limitations under the License.
 
 apiVersion: v2
-name: dev-profile-alerts
+name: vss-dev-profile-alerts
 description: "VSS stack - Helm chart for developer profiles - alerts"
 type: application
 version: 3.3.0
