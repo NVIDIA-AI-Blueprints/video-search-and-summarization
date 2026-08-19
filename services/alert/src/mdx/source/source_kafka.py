@@ -146,22 +146,37 @@ class SourceKafka(SourceBase):
             self.topic_to_kind = {self.anomaly_topic: 'anomaly'}
 
     def await_ready(self, timeout: float = 60.0) -> bool:
-        """Create every source consumer up front and wait for the group join."""
+        """Create every source consumer up front and wait for its assignment."""
         deadline = time.monotonic() + timeout
-        joined = True
+        ready = True
         for topic in self.source_topics:
             self._ensure_consumer(topic)
             remaining = max(0.0, deadline - time.monotonic())
-            if not self.kafka_message_broker.await_group_join(
+            if not self.kafka_message_broker.await_assignment(
                 self.topic_consumer_map[topic], remaining
             ):
                 logging.warning(
-                    "Consumer for topic %s did not join group %s within %.0fs; "
-                    "records published before it joins may be skipped",
+                    "Consumer for topic %s was given no assignment in group %s "
+                    "within %.0fs; records published before it is assigned may "
+                    "be skipped",
                     topic, self.groupId, timeout,
                 )
-                joined = False
-        return joined
+                ready = False
+        return ready
+
+    def is_ready(self) -> bool:
+        """Whether every source consumer currently holds a decided assignment.
+
+        Goes false again while a rebalance is in flight, which is what makes
+        it usable as live state rather than a latch that can only ever be set.
+        """
+        if not self.topic_consumer_map:
+            return False
+        return all(
+            self.kafka_message_broker.assignment_decided(self.topic_consumer_map[topic])
+            for topic in self.source_topics
+            if topic in self.topic_consumer_map
+        )
 
     def _ensure_consumer(self, topic: str) -> None:
         """Create and cache a consumer for the given topic if not already present."""

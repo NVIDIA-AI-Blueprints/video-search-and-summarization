@@ -51,26 +51,49 @@ class FakeMessage:
         return (1, 1700000000000)
 
 
-class FakeConsumer:
-    """Joins the group after ``join_after`` polls, like a real coordinator."""
+class FakePartition:
+    def __init__(self, topic, partition):
+        self.topic, self.partition = topic, partition
 
-    def __init__(self, join_after=2, messages=None):
-        self.join_after = join_after
+
+class FakeConsumer:
+    """Delivers its assignment after ``assign_after`` polls, via the callback."""
+
+    def __init__(self, assign_after=2, messages=None, partitions=(0, 1)):
+        self.assign_after = assign_after
         self.polls = 0
         self._queued = list(messages or [])
+        self._partitions = partitions
         self.committed = []
+        self.assigned_calls = []
+        self._on_assign = None
+        self._on_revoke = None
+
+    def subscribe(self, topics, on_assign=None, on_revoke=None, on_lost=None):
+        self._on_assign, self._on_revoke = on_assign, on_revoke
 
     def poll(self, timeout=None):
         self.polls += 1
-        if self.polls > self.join_after and self._queued:
+        if self.polls == self.assign_after and self._on_assign is not None:
+            self._on_assign(self, [FakePartition("t", p) for p in self._partitions])
+        if self.polls > self.assign_after and self._queued:
             return self._queued.pop(0)
         return None
 
-    def memberid(self):
-        return "member-1" if self.polls >= self.join_after else None
+    def assign(self, partitions):
+        self.assigned_calls.append(list(partitions))
+
+    def revoke(self):
+        self._on_revoke(self, [FakePartition("t", p) for p in self._partitions])
 
     def commit(self, msg):
         self.committed.append(msg)
+
+
+def wire(broker, consumer, on_revoke=None):
+    """Attach the broker's rebalance hooks to a fake consumer."""
+    broker._subscribe_with_rebalance_hooks(consumer, "t", on_revoke)
+    return consumer
 
 
 @pytest.fixture
@@ -78,28 +101,63 @@ def broker():
     return KafkaMessageBroker(CONFIG)
 
 
-class TestAwaitGroupJoin:
-    def test_polls_until_the_coordinator_admits_the_member(self, broker):
-        consumer = FakeConsumer(join_after=3)
-        assert broker.await_group_join(consumer, timeout=5) is True
+class TestAwaitAssignment:
+    def test_polls_until_the_assignment_lands(self, broker):
+        consumer = wire(broker, FakeConsumer(assign_after=3))
+        assert broker.await_assignment(consumer, timeout=5) is True
         assert consumer.polls == 3
 
-    def test_returns_immediately_once_a_member(self, broker):
-        consumer = FakeConsumer(join_after=1)
-        assert broker.await_group_join(consumer, timeout=5) is True
-        assert consumer.polls == 1
+    def test_returns_immediately_once_decided(self, broker):
+        consumer = wire(broker, FakeConsumer(assign_after=1))
+        broker.await_assignment(consumer, timeout=5)
+        polls = consumer.polls
+        assert broker.await_assignment(consumer, timeout=5) is True
+        assert consumer.polls == polls        # no further polling
 
     def test_reports_failure_rather_than_blocking_forever(self, broker):
-        consumer = FakeConsumer()
-        consumer.memberid = lambda: None        # coordinator never answers
-        assert broker.await_group_join(consumer, timeout=0.3) is False
+        consumer = wire(broker, FakeConsumer(assign_after=10**9))
+        assert broker.await_assignment(consumer, timeout=0.3) is False
 
-    def test_a_member_with_no_partitions_still_counts_as_joined(self, broker):
-        # With more processes than partitions some members get nothing; they
-        # have still joined, so an assignment-based wait would hang on them.
-        consumer = FakeConsumer(join_after=1)
-        consumer.assignment = lambda: []
-        assert broker.await_group_join(consumer, timeout=5) is True
+    def test_a_member_assigned_nothing_is_still_decided(self, broker):
+        # With more group members than partitions on a topic, a member owns
+        # none of it. Requiring a non-empty assignment would hang on it.
+        consumer = wire(broker, FakeConsumer(assign_after=1, partitions=()))
+        assert broker.await_assignment(consumer, timeout=5) is True
+        assert broker.owned_partitions(consumer) == set()
+
+    def test_the_assignment_is_applied_explicitly(self, broker):
+        # The client's behaviour when a rebalance callback does not assign
+        # differs between protocols; this must not depend on it.
+        consumer = wire(broker, FakeConsumer(assign_after=1))
+        broker.await_assignment(consumer, timeout=5)
+        assert consumer.assigned_calls
+
+
+class TestAssignmentIsLiveState:
+    """Readiness has to be able to go false again.
+
+    A latch that can only be set reports an instance as ready after its
+    partitions have moved elsewhere.
+    """
+
+    def test_owned_partitions_are_tracked(self, broker):
+        consumer = wire(broker, FakeConsumer(assign_after=1, partitions=(0, 3)))
+        broker.await_assignment(consumer, timeout=5)
+        assert broker.owned_partitions(consumer) == {("t", 0), ("t", 3)}
+
+    def test_a_revoke_empties_what_is_owned(self, broker):
+        consumer = wire(broker, FakeConsumer(assign_after=1))
+        broker.await_assignment(consumer, timeout=5)
+        consumer.revoke()
+        assert broker.owned_partitions(consumer) == set()
+
+    def test_a_revoke_hands_the_losing_partitions_to_the_hook(self, broker):
+        seen = []
+        consumer = wire(broker, FakeConsumer(assign_after=1, partitions=(2, 5)),
+                        on_revoke=seen.append)
+        broker.await_assignment(consumer, timeout=5)
+        consumer.revoke()
+        assert seen == [{("t", 2), ("t", 5)}]
 
 
 class TestWaitingDoesNotDropMessages:
@@ -107,21 +165,19 @@ class TestWaitingDoesNotDropMessages:
     returns is real traffic that has already moved the offset."""
 
     def test_a_message_seen_while_waiting_reaches_the_caller(self, broker):
-        wanted = FakeMessage(b"during-join")
-        consumer = FakeConsumer(join_after=2, messages=[wanted])
-        # Poll 3 lands the message; joined is reported from poll 2 onward, so
-        # the wait ends first and the message would otherwise be discarded.
-        broker.await_group_join(consumer, timeout=5)
+        wanted = FakeMessage(b"during-assign")
+        consumer = wire(broker, FakeConsumer(assign_after=2, messages=[wanted]))
+        broker.await_assignment(consumer, timeout=5)
         broker._prefetched[id(consumer)] = [wanted]
 
         batch = broker.get_consumed_messages(consumer)
 
         values = [value for msgs in batch.values() for _, value, _ in msgs]
-        assert b"during-join" in values
+        assert b"during-assign" in values
 
     def test_prefetched_messages_come_before_freshly_polled_ones(self, broker):
         first, second = FakeMessage(b"first"), FakeMessage(b"second")
-        consumer = FakeConsumer(join_after=0, messages=[second])
+        consumer = FakeConsumer(assign_after=0, messages=[second])
         broker._prefetched[id(consumer)] = [first]
 
         batch = broker.get_consumed_messages(consumer)
@@ -131,7 +187,7 @@ class TestWaitingDoesNotDropMessages:
 
     def test_an_overflowing_prefetch_is_kept_for_the_next_batch(self, broker):
         held = [FakeMessage(f"m{i}".encode()) for i in range(4)]
-        consumer = FakeConsumer(join_after=0)
+        consumer = FakeConsumer(assign_after=0)
         broker._prefetched[id(consumer)] = list(held)
 
         first = broker.get_consumed_messages(consumer, batch_size=2)
@@ -141,7 +197,7 @@ class TestWaitingDoesNotDropMessages:
         assert seen == [b"m0", b"m1", b"m2", b"m3"]
 
     def test_the_buffer_is_emptied_once_drained(self, broker):
-        consumer = FakeConsumer(join_after=0)
+        consumer = FakeConsumer(assign_after=0)
         broker._prefetched[id(consumer)] = [FakeMessage()]
         broker.get_consumed_messages(consumer)
         assert broker._prefetched.get(id(consumer)) in (None, [])

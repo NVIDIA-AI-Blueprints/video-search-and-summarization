@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import threading
 import time
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 
@@ -32,12 +33,23 @@ class KafkaMessageBroker:
     def __init__(self, kafkaConfig: dict) -> None:
         self.config = kafkaConfig
         self.batch_commit = bool(kafkaConfig.get('kafka', {}).get('batch_commit', False))
-        # Messages that arrived while waiting for a group join, keyed by
-        # consumer. Kafka only delivers to an assigned member, so anything the
-        # wait poll returns is real traffic and has to reach the caller.
+        # Messages that arrived while waiting for the first assignment, keyed
+        # by consumer. Kafka only delivers to an assigned member, so anything
+        # the wait poll returns is real traffic and has to reach the caller.
         self._prefetched: Dict[int, List[Any]] = {}
+        # Assignment state per consumer. ``decided`` says the coordinator has
+        # answered at least once, which is what readiness turns on; ``owned``
+        # is the current set, which a revoke empties.
+        self._assignment_lock = threading.Lock()
+        self._assignment_decided: Set[int] = set()
+        self._owned: Dict[int, Set[Tuple[str, int]]] = {}
 
-    def get_consumer(self, topic: str, group_id: str) -> Consumer:
+    def get_consumer(
+        self,
+        topic: str,
+        group_id: str,
+        on_revoke: Optional[Callable[[Set[Tuple[str, int]]], None]] = None,
+    ) -> Consumer:
         """
         Creates a Confluent Kafka consumer.
 
@@ -56,29 +68,82 @@ class KafkaMessageBroker:
             'heartbeat.interval.ms': self.config['kafka'].get('heartbeat_interval_ms', 300000)
         }
         consumer = Consumer(consumer_config)
-        consumer.subscribe([topic])
+        self._subscribe_with_rebalance_hooks(consumer, topic, on_revoke)
         return consumer
 
-    def await_group_join(self, consumer: Consumer, timeout: float) -> bool:
-        """Poll until the coordinator admits ``consumer`` to its group.
+    def _subscribe_with_rebalance_hooks(
+        self,
+        consumer: Consumer,
+        topic: str,
+        on_revoke: Optional[Callable[[Set[Tuple[str, int]]], None]],
+    ) -> None:
+        """Subscribe and record what the coordinator decides.
 
-        ``subscribe`` only starts the join; it completes on a later poll. Until
-        then the member holds no partitions, so a producer that starts in the
-        meantime writes past a ``latest`` offset the consumer has not reached
-        yet and those records are never delivered.
+        Membership and assignment are different questions. A member that has
+        joined may still be waiting to be told what it owns, and a member that
+        owned partitions a moment ago may own none now. Tracking the callbacks
+        is the only way to answer either without polling for a side effect.
+        """
+        def assigned(_consumer, partitions):
+            owned = {(p.topic, p.partition) for p in partitions}
+            with self._assignment_lock:
+                self._assignment_decided.add(id(consumer))
+                self._owned[id(consumer)] = owned
+            logger.info(
+                "Assignment for %s: %d partition(s) %s",
+                topic, len(owned), sorted(p for _, p in owned),
+            )
+            # Assign explicitly rather than relying on the client to do it
+            # after the callback returns: the contract for that differs
+            # between rebalance protocols and this must not depend on it.
+            _consumer.assign(partitions)
 
-        Membership is read from ``memberid`` rather than ``assignment`` because
-        a member with fewer partitions than peers is still a member, and with
-        more processes than partitions some legitimately get none.
+        def revoked(_consumer, partitions):
+            losing = {(p.topic, p.partition) for p in partitions}
+            with self._assignment_lock:
+                self._owned[id(consumer)] = set()
+            logger.info("Revoking %d partition(s) of %s", len(losing), topic)
+            if on_revoke is not None:
+                # Runs before the rebalance completes, which is the only point
+                # at which this member can still finish what it started on a
+                # partition another member is about to own.
+                on_revoke(losing)
+
+        consumer.subscribe([topic], on_assign=assigned, on_revoke=revoked, on_lost=revoked)
+
+    def assignment_decided(self, consumer: Consumer) -> bool:
+        """Whether the coordinator has told ``consumer`` what it owns.
+
+        Not "owns something": with more group members than partitions on a
+        topic, a member legitimately owns none of it and would never become
+        ready under that reading.
+        """
+        with self._assignment_lock:
+            return id(consumer) in self._assignment_decided
+
+    def owned_partitions(self, consumer: Consumer) -> Set[Tuple[str, int]]:
+        with self._assignment_lock:
+            return set(self._owned.get(id(consumer), ()))
+
+    def await_assignment(self, consumer: Consumer, timeout: float) -> bool:
+        """Poll until the coordinator has decided what ``consumer`` owns.
+
+        ``subscribe`` only starts the join; the assignment lands on a later
+        poll. Until it does the member holds nothing, so a producer that
+        starts in the meantime writes past a ``latest`` offset no member has
+        reached and those records are never delivered.
+
+        Waiting on the assignment rather than on membership is the difference
+        between "the group knows about me" and "I know what to read".
         """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if self.assignment_decided(consumer):
+                return True
             message = consumer.poll(timeout=0.1)
             if message is not None and message.error() is None:
                 self._prefetched.setdefault(id(consumer), []).append(message)
-            if consumer.memberid():
-                return True
-        return bool(consumer.memberid())
+        return self.assignment_decided(consumer)
 
     def get_producer(self) -> Producer:
         """
