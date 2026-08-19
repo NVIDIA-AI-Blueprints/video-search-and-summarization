@@ -46,7 +46,7 @@ If your issue is not addressed on this page, please raise it on [GitHub Issues](
 - [Why does Kibana show request timeouts or ELK services fail startup health checks?](/faq#why-does-kibana-show-request-timeouts-or-elk-services-fail-startup-health-checks)
 - [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high)
 - [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host)
-- [PUT /api/v1/videos-for-search/{filename} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
+- [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
 
 ## VIOS
 
@@ -213,11 +213,11 @@ Re-run the bridge-container `curl` to confirm HTTP 200, then re-run the profile'
 
 As an alternative, move the failing service to host networking (for `vss-rtvi-embed`, add `network_mode: host` and drop the `ports:` mapping in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`). This sidesteps the firewall but edits a shipped Compose file, so prefer the firewall fix.
 
-Related: [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) (same root cause, remote host); [PUT /api/v1/videos-for-search/{filename} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type) (a separate 400 mode that can look similar on the search profile).
+Related: [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) (same root cause, remote host); [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type) (a separate 400 mode that can look similar on the search profile).
 
-PUT /api/v1/videos-for-search/{filename} returns 400 from a missing `Content-Type`
+PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`
 
-### PUT /api/v1/videos-for-search/{filename} returns 400 from a missing `Content-Type`
+### PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`
 
 The streaming upload endpoint rejects requests without a video `Content-Type` header (HTTP 400, `Content-Type header is required. Must be a video format (e.g., video/mp4, video/x-matroska)`). A header problem produces an immediate 400 from the agent; the firewall issue in [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host) instead lets the upload look successful in VST but produces no embeddings.
 

@@ -1848,7 +1848,7 @@ To find this optimal placement strategy we provide two different search algorith
   * Genetic algorithm logic is constructed as follows:
 
     * Genome = the placement plan of N pallets: [(x1,y1), (x2,y2), …., (xN,yN)] there (x,y) is the center location of each pallet.
-    * Fitness score = the negative value of number of crosses between the N pallets and against the buffer zone boundaries + the existing pallets. So here fitness score is <=0, the larger the better, if fitness score=0 reached which means a placement plan is found, in other words: N pallets can be fit in the free area.
+    * Fitness score = the negative value of number of crosses between the N pallets and against the buffer zone boundaries + the existing pallets. So here fitness score is `<=0`, the larger the better, if fitness score=0 reached which means a placement plan is found, in other words: N pallets can be fit in the free area.
     * Crossover is randomly swap two genomes (x1,y1) and (x2,y2) to (x1,y2) and (x2,y1)
     * Mutation is randomly add delta to (x1,y1) and (x2,y2) to (x1+delta,y1+delta) and (x2+delta,y2+delta)
     * We gradually increase N and find the largest N with fitness score=0, which is the maximum number of pallets that can fit in the free space.

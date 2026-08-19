@@ -653,7 +653,7 @@ The following parameters control concurrency and throughput:
 
 1. **Kafka Consumer Groups**: Multiple instances of the Alerts Microservice can share the same `event_bridge.kafka_source.group_id` to distribute load across partitions.
 
-2. **Partition Alignment**: Ensure Kafka topic partitions >= number of consumer instances for effective load distribution.
+2. **Partition Alignment**: Ensure Kafka topic partitions `>=` number of consumer instances for effective load distribution.
 
 3. **Stateless Design**: The Alerts Microservice is stateless; scale horizontally by adding replicas behind Kubernetes or Docker instances.
 

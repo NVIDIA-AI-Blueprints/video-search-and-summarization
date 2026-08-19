@@ -128,10 +128,9 @@ or you can config vss-behavior-analytics-playback-2d or vss-behavior-analytics-p
 
 Specifically, using warehouse blueprint 3D app as example, add the following in `deployments/warehouse/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-kafka-config.json` under "app" section to loop through the data 10 times:
 
-    ```text
-    ```
-
-		{   "name": "playbackLoop",  "value": "10"  }
+```json
+{ "name": "playbackLoop", "value": "10" }
+```
 
 ### What if I don't want to expose Kafka service when deploying it on different CSPs using docker compose?
 

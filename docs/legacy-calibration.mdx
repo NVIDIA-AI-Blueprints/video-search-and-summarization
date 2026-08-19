@@ -72,14 +72,13 @@ mkdir <path/to/dir>/data
 
 3. Run the docker container using host's port 8003, and mounting the aforementioned directory as your data folder.
 
+```bash
+docker run -p 8003:8003 -v <path to data dir>/data:/calibration/server/data/ -it nvcr.io/nvidia/vss-core/calibration:3.1.0 deploy.sh 8003
 ```
-  docker run -p 8003:8003 -v <path to data dir>/data:/calibration/server/data/ -it nvcr.io/nvidia/vss-core/calibration:3.1.0 deploy.sh 8003
 
 <Note>
-```
-
 Run the container on your local system or use SSH tunneling if accessing remotely. Otherwise, you may not be able to connect to the web UI.
-   </Note>
+</Note>
 
 4. Navigate to http://localhost-or-remote-IP:8003, where the application will be live. In K8s deployment, navigate to http://localhost-or-remote-IP:31080/calibration.
 

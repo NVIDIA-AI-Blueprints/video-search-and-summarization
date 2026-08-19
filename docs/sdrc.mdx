@@ -23,7 +23,7 @@ The component enables collaboration between agents/pods/processes in application
 
 A distributed stream orchestration and routing layer that assigns stream sessions to worker pods, tracks stream-to-pod state, and uses Envoy plus Redis/Kafka-backed coordination to route, scale, and recover workloads reliably.
 
-<Frame caption=":name: sdr-architecture :alt: SDRC assigns streams to worker pods, maintains routing state, and directs client traffic through Envoy to the correct pod. :align: center :width: 100% High-level SDR architecture.">
+<Frame caption="High-level SDR architecture.">
   <img src="/assets/images/sdr/sdrc.png" alt="" />
 </Frame>
 
@@ -203,6 +203,7 @@ When an add event arrives (from Redis, Kafka, or `POST /apply_metadata_payload`)
 
 Delete events (`WDM_WL_CHANGE_ID_DEL`) reverse the flow: locate the assigned worker, POST `WDM_WL_DELETE_URL`, remove Redis mappings, and drop the stream from the workload spec.
 
+```mermaid
 flowchart TD
   A[Event on bus or HTTP] --> B{change type?}
   B -->|camera_add| C[provisionStreamRedis]
@@ -218,6 +219,7 @@ flowchart TD
   H -->|No| J[Report add_stream_failed]
   classDef threshold fill:#fff3cd,stroke:#856404,stroke-width:2px
   class F threshold
+```
 
 **Worker pool vs per-worker stream limit**
 

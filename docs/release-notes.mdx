@@ -416,12 +416,12 @@ See [Warehouse Known Limitations ](/warehouse-docs/Known-Limitations) for curren
   bundled UI lib at `/vst-ui` inside the ingress container.
 
 * **Picture API in Storage Service** — `GET
-  /v1/storage/stream/{streamId}/picture` and
-  `/v1/storage/stream/{streamId}/picture/url` return JPEG
+  /v1/storage/stream/\{streamId\}/picture` and
+  `/v1/storage/stream/\{streamId\}/picture/url` return JPEG
   snapshots and temporary URLs for any sensor / clip; works for
   live and replay, including disconnected sensors.
 * **Replay-picture for disconnected H.265 sensors** —
-  `GET /v1/replay/stream/{streamId}/picture` now succeeds for
+  `GET /v1/replay/stream/\{streamId\}/picture` now succeeds for
   codec-specific corner cases that previously timed out.
 * **Conflict-aware** `POST /v1/sensor/add` — returns the
   existing `sensorId` and three distinct error contracts when

@@ -1514,7 +1514,7 @@ processors:
         - 'metric.name == "stream_frame_number" and value_int == -1'
 ```
 
-If exporting to Prometheus, set `metric_expiration` >= `otlp-interval` to drop stale metrics:
+If exporting to Prometheus, set `metric_expiration` `>=` `otlp-interval` to drop stale metrics:
 
 ```yaml
 exporters:

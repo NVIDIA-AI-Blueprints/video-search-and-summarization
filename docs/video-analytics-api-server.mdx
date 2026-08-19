@@ -25,8 +25,8 @@ Video Analytics API comprises of REST API endpoints which queries Elasticsearch 
 
 The response is aggregated (if required) and formatted appropriately before responding to clients.
 
-<Note title="Kafka is optional. If Kafka is not configured (i.e., `&quot;brokers&quot;: null`) and a request is made to an API endpoint which uses it, an appropriate error message will be returned as part of the response.">
-
+<Note>
+Kafka is optional. If Kafka is not configured (`"brokers": null`) and a request is made to an API endpoint which uses it, an appropriate error message is returned in the response.
 </Note>
 
 ## Configurations
