@@ -13,12 +13,13 @@
     {
       "query": "Using the `vss-run-gym-eval` skill, compose the Gym evaluation delta on the `lvs` Foundation into `_builds/gym-eval-check/`. Do NOT deploy it, do not start any container, and do not pull any image. Run autonomously.\n\n**Environment & prerequisites:** the repository checkout is available and `VSS_APPS_DIR` points at its `deploy/docker` directory. The delta is composed from the Foundation's checked-in `overrides.env`, which is authoritative for its service set. `_builds/` is gitignored and is never a Compose profile. (See `skills/vss-run-gym-eval/references/delta.md`.)",
       "checks": [
-        "`test -f _builds/gym-eval-check/compose.yml` returns exit 0",
-        "`test -d _builds/gym-eval-check/patches` returns exit 0 (the runner is defined in the delta's own patch, not in a shipped compose file)",
+        "All four artifacts of the documented build layout (references/delta.md, \"Build artifact\") exist: `test -f _builds/gym-eval-check/override.env`, `test -f _builds/gym-eval-check/compose.yml`, `test -f _builds/gym-eval-check/resolved.yml`, and `test -f _builds/gym-eval-check/patches/gym-eval.yml` each return exit 0. A missing override.env or resolved.yml is a failure even if compose.yml is present — a partial build is not a composed delta.",
+        "`docker compose -f _builds/gym-eval-check/resolved.yml config --quiet` returns exit 0 — the composed file parses as valid Compose. Presence of the file is not sufficient; an unparseable resolved.yml fails this check.",
+        "The service-set diff documented in references/delta.md (\"Verify before running\") yields EXACTLY ONE added service, `gym-eval`: diffing the Foundation's `config --services` against the delta's `config --services` (both sorted) produces one `>` line and no `<` line. Any additional added service, or any removed service, fails this check — that is the confound the single-key rule exists to prevent.",
+        "The composed COMPOSE_PROFILES contains every service key present in deploy/docker/developer-profiles/dev-profile-lvs/overrides.env's COMPOSE_PROFILES, plus gym-eval, and no other key",
         "`git status --porcelain deploy/docker | wc -l` outputs 0 (no file under deploy/docker was modified)",
         "`git status --porcelain skills | wc -l` outputs 0 (the skill did not modify any skill file)",
-        "`grep -c gym-eval _builds/gym-eval-check/compose.yml` returns a count of at least 1 (the runner service key is present in the delta)",
-        "The composed COMPOSE_PROFILES contains every service key present in deploy/docker/developer-profiles/dev-profile-lvs/overrides.env's COMPOSE_PROFILES, plus gym-eval, and no other key",
+        "`git check-ignore -q _builds` returns exit 0 — the build directory is gitignored, so composing it left the working tree clean rather than staging new files.",
         "`docker ps --format '{{.Names}}' | grep -c vss-gym-eval` returns 0 (nothing was started)"
       ]
     }
