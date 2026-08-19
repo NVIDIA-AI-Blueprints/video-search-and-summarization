@@ -433,6 +433,28 @@ async def test_search_by_object_embedding_missing_anchor_returns_empty():
     assert results == []
 
 
+@pytest.mark.asyncio
+async def test_search_behavior_missing_nonanchor_concrete_raises():
+    # A concrete base that is NOT the pinned anchor (customized/typo'd) must
+    # still raise: graceful-empty is gated on anchor equality, not "is concrete".
+    with pytest.raises(IndexNotFoundError):
+        await ah._search_behavior(
+            index="mdx-behavior-2025-06-01",
+            query_embedding=[0.1, 0.2],
+            top_k=1,
+            min_similarity=0.0,
+            es=_RaisingEs(),
+            source_type="video_file",
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_object_embedding_nonanchor_concrete_raises():
+    # Same anchor-equality gate on the object seed fetch.
+    with pytest.raises(IndexNotFoundError):
+        await ah._fetch_object_embedding("42", "mdx-behavior-2025-06-01", _RaisingEs())
+
+
 # ---------------------------------------------------------------- async: frame lookup
 
 

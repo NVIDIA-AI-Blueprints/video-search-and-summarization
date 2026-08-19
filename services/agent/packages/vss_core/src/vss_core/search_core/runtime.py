@@ -45,6 +45,20 @@ from .errors import ConfigurationError
 from .models.common import FusionMethod  # noqa: TC001  used in dataclass field annotation
 
 # =============================================================================
+# Uploads anchor (single source of truth)
+# =============================================================================
+
+#: Synthetic epoch uploaded files are ingested under (write-side contract in
+#: ``video_ingest.py`` / ``video_delete.py``), so their embed/behavior/raw docs
+#: always land in the ``-2025-01-01`` indices. Single-sourced here so the index
+#: defaults below, the CLI ``_runtime_from`` frames anchor, and the graceful-empty
+#: catch in ``_attribute_helpers`` cannot drift.
+UPLOADS_ANCHOR_DATE = "2025-01-01"
+BEHAVIOR_INDEX_ANCHOR = f"mdx-behavior-{UPLOADS_ANCHOR_DATE}"
+VIDEO_EMBED_INDEX_ANCHOR = f"mdx-embed-filtered-{UPLOADS_ANCHOR_DATE}"
+RAW_INDEX_ANCHOR = f"mdx-raw-{UPLOADS_ANCHOR_DATE}"
+
+# =============================================================================
 # Helpers
 # =============================================================================
 
@@ -85,13 +99,13 @@ class SearchRuntime:
     # This is a write-side contract: the base must NOT be discovered from the live
     # index inventory, or a live-dated index can masquerade as the uploads base and
     # invert ``rtsp`` source-type selection.
-    behavior_index: str = "mdx-behavior-2025-01-01"
+    behavior_index: str = BEHAVIOR_INDEX_ANCHOR
     behavior_index_wildcard: str = "mdx-behavior-*"
     # Retained as the uploads anchor for parity with behavior/raw. The embed read
     # path partitions by the ``sensor.type`` document field and queries the
     # wildcard, so it no longer selects an index from this value. (The vss CLI
     # never reads ``ELASTIC_SEARCH_INDEX``; only the agent container consumes it.)
-    video_embed_index: str = "mdx-embed-filtered-2025-01-01"
+    video_embed_index: str = VIDEO_EMBED_INDEX_ANCHOR
     video_embed_index_wildcard: str = "mdx-embed-filtered-*"
     frames_index: str | None = None  # None disables frame-level lookups
     # NEW in v1: today's code hardcodes "mdx-raw-*" at tools/attribute_search.py:1223

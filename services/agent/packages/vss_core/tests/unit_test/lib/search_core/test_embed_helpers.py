@@ -31,8 +31,12 @@ def test_build_source_type_filter():
     assert h.build_source_type_filter("video_file") == {"term": {"sensor.type.keyword": "Video"}}
 
 
-def test_build_source_type_filter_unknown_is_none():
-    assert h.build_source_type_filter("bogus") is None
+def test_build_source_type_filter_unknown_raises():
+    # The clause is mandatory (every embed query is partitioned), so an
+    # unrecognized source_type raises rather than dropping the partition,
+    # matching resolve_index_by_source_type.
+    with pytest.raises(ValueError, match="Unsupported source_type"):
+        h.build_source_type_filter("bogus")
 
 
 # (escaping + video_sources filter now live in _internal/es_filters.py and are

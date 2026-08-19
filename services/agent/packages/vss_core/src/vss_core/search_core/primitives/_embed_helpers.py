@@ -85,17 +85,19 @@ def select_search_index(video_embed_index_wildcard: str) -> str:
 _SOURCE_TYPE_TO_SENSOR_TYPE = {"rtsp": "Camera", "video_file": "Video"}
 
 
-def build_source_type_filter(source_type: str) -> dict[str, Any] | None:
+def build_source_type_filter(source_type: str) -> dict[str, Any]:
     """Build the ES term filter selecting documents by media source type.
 
     Filters positively on the document's own ``sensor.type`` field, which is
-    what partitions embed results by source. Returns None for an unrecognized
-    ``source_type`` so the query stays unpartitioned rather than matching
-    nothing.
+    what partitions embed results by source. The clause is always present, so
+    every embed query is partitioned; an unrecognized ``source_type`` raises
+    (mirroring :func:`_attribute_helpers.resolve_index_by_source_type`) rather
+    than silently dropping the partition. Callers pass a validated Literal, so
+    this is a defensive guard.
     """
     sensor_type = _SOURCE_TYPE_TO_SENSOR_TYPE.get(source_type)
     if sensor_type is None:
-        return None
+        raise ValueError(f"Unsupported source_type {source_type!r}; expected 'video_file' or 'rtsp'.")
     return {"term": {"sensor.type.keyword": sensor_type}}
 
 
@@ -183,6 +185,11 @@ def build_es_query(
         if clause is not None:
             filters.append(clause)
 
+    # A source-type clause is always present (build_source_type_filter maps the
+    # required ``source_type`` Literal to a term), so ``filters`` is never empty
+    # and ``has_filters`` is always true: every embed query overfetches (k =
+    # top_k * 5). That is intended: the term is a top-level filter beside the
+    # nested kNN and can discard hits, so the extra candidates protect ``top_k``.
     k_value = compute_k_value(
         inp.top_k,
         default_max_results=default_max_results,
@@ -205,13 +212,13 @@ def build_es_query(
         }
     }
 
-    if filters:
-        filter_clause = {"bool": {"must": filters}} if len(filters) > 1 else filters[0]
-        return {
-            "query": {"bool": {"must": [nested_query], "filter": [filter_clause]}},
-            "size": k_value,
-        }
-    return {"query": nested_query, "size": k_value}
+    # ``filters`` is always non-empty (source-type clause above), so there is no
+    # unfiltered embed query to build: the kNN always sits beside a filter.
+    filter_clause = {"bool": {"must": filters}} if len(filters) > 1 else filters[0]
+    return {
+        "query": {"bool": {"must": [nested_query], "filter": [filter_clause]}},
+        "size": k_value,
+    }
 
 
 # =============================================================================
