@@ -15,6 +15,7 @@ Or directly:
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import os
 import tempfile
 import unittest
@@ -542,6 +543,9 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         )
 
     def test_harness_only_diff_emits_smoke_leg(self):
+        # build_matrix() itself still has a smoke fallback when given a
+        # harness-only file list. `/ok to test` goes through main(), which
+        # enumerates every skill file when OPENSHELL_RTXPRO6000_ONLY is set.
         inc = plan_matrix.build_matrix(
             [".github/workflows/skills-eval.yml"]
         )
@@ -550,6 +554,11 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertEqual(inc[0]["spec_stem"], "base")
         self.assertEqual(inc[0]["platform"], "RTXPRO6000BW")
         self.assertEqual(inc[0]["kind"], "eval")
+
+    def test_openshell_main_enumerates_all_skills(self):
+        src = inspect.getsource(plan_matrix.main)
+        self.assertIn("OPENSHELL_RTXPRO6000_ONLY", src)
+        self.assertIn("list_skill_file_paths", src)
 
 
 if __name__ == "__main__":
