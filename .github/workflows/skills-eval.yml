@@ -81,6 +81,7 @@ env:
   SKILL_EVAL_PYTHON_VERSION: "3.12"
   # Route RTXPRO6000BW onto the 10.86.16.223 OpenShell cohort and skip other
   # GPU SKUs for this PR path. Unset on develop to restore coordinator labels.
+  # Those guests need NOPASSWD sudo for gha-runner (Harbor /logs reset) and uvx.
   OPENSHELL_RTXPRO6000_ONLY: "1"
 
 jobs:
