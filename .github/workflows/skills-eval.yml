@@ -321,7 +321,7 @@ jobs:
           export SKILL_EVAL_VENV="$skill_eval_venv_dir"
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
-          export PATH="/usr/local/bin:$skill_eval_venv_dir/bin:$PATH"
+          export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:$PATH"
           hash -r
           "$skill_eval_venv_dir/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
@@ -383,7 +383,7 @@ jobs:
           # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
-          python3 .github/skill-eval/skills_eval_agent.py
+          "$skill_eval_venv_dir/bin/python" .github/skill-eval/skills_eval_agent.py
 
       - name: Collect results for workflow artifact
         if: always()
