@@ -274,7 +274,7 @@ the VLM through the RT-VLM proxy:
 | Key | Purpose |
 |-----|---------|
 | `agent.vss-agent.llmBaseUrl` / `llmName` | The LLM endpoint the agent calls directly. Omit both to keep this file's hosted Nemotron default. |
-| `agent.vss-agent.evalLlmJudgeBaseUrl` / `evalLlmJudgeName` | The judge used by evaluation runs. This file pins them to NVIDIA Build and they take precedence over `llmBaseUrl`, so override them too when you supply your own LLM. |
+| `agent.vss-agent.evalLlmJudgeBaseUrl` / `evalLlmJudgeName` | The judge used by evaluation runs. This file pins them to NVIDIA Build and they take precedence over `llmBaseUrl`, so a custom LLM leaves the judge on Build unless you set these as well — the example below does. |
 | `global.vlmBaseUrl` / `global.vlmName` | The remote VLM that RT-VLM forwards to (`VIA_VLM_ENDPOINT`). Overriding only `agent.vss-agent.vlmBaseUrl` leaves the proxy pointed at this file's Cosmos3 default and the critic still fails. |
 | `agent.vss-agent.vlmName` | The model id the agent asks RT-VLM for. Must match `global.vlmName`, or RT-VLM rejects the request. |
 
@@ -286,6 +286,7 @@ This profile lists the **full** **`agent.vss-agent.env`** block for Search deplo
 ```bash
 
 export LLM_BASE_URL='<REMOTE LLM ENDPOINT>'
+export LLM_MODEL_ID='<MODEL ID YOUR LLM ENDPOINT SERVES>'
 export VLM_BASE_URL='<YOUR OPENAI-COMPATIBLE VLM ENDPOINT>'
 export VLM_MODEL_ID='<MODEL ID YOUR VLM ENDPOINT SERVES>'
 
@@ -297,8 +298,10 @@ helm upgrade --install vss-search ./dev-profile-search \
   --set agent.vss-agent.apiKeys.nvidia=$NGC_CLI_API_KEY \
   --set global.storageClass=$STORAGE_CLASS \
   --set nims.enabled=false \
-  --set agent.vss-agent.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
+  --set agent.vss-agent.llmName="$LLM_MODEL_ID" \
   --set agent.vss-agent.llmBaseUrl="$LLM_BASE_URL" \
+  --set agent.vss-agent.evalLlmJudgeName="$LLM_MODEL_ID" \
+  --set agent.vss-agent.evalLlmJudgeBaseUrl="$LLM_BASE_URL" \
   --set global.vlmBaseUrl="$VLM_BASE_URL" \
   --set global.vlmName="$VLM_MODEL_ID" \
   --set agent.vss-agent.vlmName="$VLM_MODEL_ID" \
