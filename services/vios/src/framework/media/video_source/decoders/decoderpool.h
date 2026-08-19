@@ -211,7 +211,7 @@ class DecoderPool
                 shared_ptr<GstNvVideoDecoder> dec = it.second;
                 if (dec)
                 {
-                    LOG(info) << "Deleting dec instance: " << dec->getUri() << endl;
+                    LOG(info) << "Deleting dec instance: " << secureUrlForLogging(dec->getUri()) << endl;
                     dec.reset();    // It will destroy the decoder instance.
                 }
             }
@@ -222,7 +222,7 @@ class DecoderPool
         void addStream(const string& url, const std::map<std::string, std::string, std::less<>>& opts = std::map<string, std::string, std::less<>>())
         {
             std::lock_guard<std::mutex> guard(m_poolLock);
-            LOG(info) << "Adding stream: " << url << endl;
+            LOG(info) << "Adding stream: " << secureUrlForLogging(url) << endl;
             dec_map::iterator it = m_decoderPool.find(url);
             if (it == m_decoderPool.end())
             {
@@ -235,7 +235,7 @@ class DecoderPool
             }
             else
             {
-                LOG(info) << "Found Stream : " << it->first << endl;
+                LOG(info) << "Found Stream : " << secureUrlForLogging(it->first) << endl;
             }
         }
 
@@ -248,7 +248,7 @@ class DecoderPool
                 shared_ptr<GstNvVideoDecoder> dec = it->second;
                 if (dec)
                 {
-                    LOG(info) << "Deleting dec instance: " << dec->getUri() << endl;
+                    LOG(info) << "Deleting dec instance: " << secureUrlForLogging(dec->getUri()) << endl;
                     dec.reset();    // It will destroy the decoder instance.
                 }
                 m_decoderPool.erase(it);
@@ -270,13 +270,13 @@ class DecoderPool
         void setDecoder(shared_ptr<GstNvVideoDecoder>& dec, const string& url)
         {
             std::lock_guard<std::mutex> guard(m_poolLock);
-            LOG(info) << "=== Set Decoder === " << url << endl;
+            LOG(info) << "=== Set Decoder === " << secureUrlForLogging(url) << endl;
             m_decoderPool[url] = dec;
         }
 
         dec_result tryDecoderStart(shared_ptr<GstNvVideoDecoder>& dec, const string & url)
         {
-            LOG(info) << url << endl;
+            LOG(info) << secureUrlForLogging(url) << endl;
             bool result = true;
             std::lock_guard<std::mutex> guard(m_poolLock);
             if (dec.get() == nullptr)
