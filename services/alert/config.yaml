@@ -185,14 +185,17 @@ alert_type_config_file: "alert_type_config.json"
 
 # Alert Agent Configuration - Processing Settings
 alert_agent:
-  # Number of independent pipeline processes (integer, or "auto" for one per
-  # available CPU). The GIL is per-process, so this — not num_workers — is
-  # what lets one instance use more than ~1 core: each process runs its own
-  # consume loop, its own event loop and its own clients. Effective
-  # parallelism is min(processes, kafka partition count); processes beyond
-  # the partition count join the consumer group and idle. Dedup stays correct
-  # without coordination because mdx-incidents is partitioned by sensorId, so
-  # a whole cohort lands on one process.
+  # Number of independent pipeline processes (positive integer). The GIL is
+  # per-process, so this — not num_workers — is what lets one instance use
+  # more than ~1 core: each process runs its own consume loop, its own event
+  # loop and its own clients. Dedup stays correct without coordination because
+  # mdx-incidents is partitioned by sensorId, so a whole cohort lands on one
+  # process.
+  #
+  # Above 1 the value is validated at startup rather than adjusted: it
+  # requires pipeline_mode: event_loop, and it must not exceed the total
+  # partitions across the source topics, or startup fails. With N replicas the
+  # constraint is replicas x processes <= partitions.
   processes: 1
   num_workers: 10                                # Number of worker threads
   max_allowed_stream_size: 2                    # Maximum stream size in minutes

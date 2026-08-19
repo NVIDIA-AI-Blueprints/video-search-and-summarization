@@ -111,6 +111,40 @@ class TestPooledScheduling:
         assert stub.worker_queue.qsize() == 2
 
 
+class TestMultiProcessRequiresEventLoop:
+    """The other modes hold their concurrency in threads.
+
+    Several processes then multiply the load offered to the VLM and VST
+    backends by the process count, without the per-process caps that event
+    loop mode applies to bound it.
+    """
+
+    @staticmethod
+    def _mode(config):
+        from enhance_alert_with_vlm import pipeline_mode_from_config
+        return pipeline_mode_from_config(config)
+
+    def test_reads_the_top_level_spelling(self):
+        assert self._mode({"alert_agent": {"pipeline_mode": "event_loop"}}) == "event_loop"
+
+    def test_reads_the_nested_spelling(self):
+        assert self._mode({"alert_agent": {"async_io": {
+            "pipeline_mode": "event_loop"}}}) == "event_loop"
+
+    def test_conflicting_spellings_fail_startup(self):
+        with pytest.raises(ValueError, match="Conflicting"):
+            self._mode({"alert_agent": {"pipeline_mode": "sync",
+                                        "async_io": {"pipeline_mode": "event_loop"}}})
+
+    def test_the_legacy_flag_still_decides_when_unset(self):
+        assert self._mode({"alert_agent": {"async_io": {"enabled": True}}}) == "thread_bridge"
+        assert self._mode({"alert_agent": {}}) == "sync"
+
+    def test_an_invalid_mode_fails_startup(self):
+        with pytest.raises(ValueError, match="Invalid pipeline_mode"):
+            self._mode({"alert_agent": {"pipeline_mode": "turbo"}})
+
+
 class TestSeedingFollowsStoreSharing:
     """Seeding once per instance only works when the store is shared.
 

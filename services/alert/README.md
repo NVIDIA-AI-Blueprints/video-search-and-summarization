@@ -227,23 +227,35 @@ saturated. Both figures above are per-instance and workload-dependent;
 re-measure against your own dependencies rather than treating them as
 constants.
 
-`alert_agent.processes` (integer, or `"auto"` for one per available CPU;
-default `1`) forks that many independent pipeline processes. Each child owns a
-complete stack — its own consumers, its own event loop, its own clients — and
-its own GIL, which is what actually lifts both ceilings.
+`alert_agent.processes` (positive integer, default `1`) forks that many
+independent pipeline processes. Each child owns a complete stack — its own
+consumers, its own event loop, its own clients — and its own GIL, which is
+what actually lifts both ceilings.
 
 ```yaml
 alert_agent:
-  processes: 4        # or "auto"
+  processes: 4
+  pipeline_mode: event_loop     # required above 1
 ```
 
-- **Effective parallelism is `min(processes, partition_count)`.** Children
-  beyond the partition count join the consumer group and idle. Raise the
-  partition count on `mdx-incidents` alongside `processes`. Startup reads the
-  partition count from the broker and logs a warning naming how many children
-  will idle; `"auto"` is clamped to it, because one process per core on a
-  256-core host with 8 partitions would otherwise start 248 children that
-  never receive a partition and still cost ~140 MiB each.
+- **The count is validated, not adjusted.** Above `1`, startup fails unless
+  the mode is `event_loop` and the source topics carry at least that many
+  partitions between them. Nothing is clamped or derived: a count the
+  deployment cannot honour is a configuration error, and silently running
+  fewer processes than asked hides it. There is no `"auto"` — deriving from
+  the CPU count read well but hid the constraint that actually binds, and on
+  a 256-core host with 8 partitions it produced 248 children that could never
+  receive a partition and still cost ~140 MiB each.
+- **`event_loop` is required above 1** because the other modes hold their
+  concurrency in threads. Several processes then multiply the load offered to
+  the VLM and VST backends by the process count, without the per-process caps
+  that bound it.
+- **Startup waits for the topics before validating.** The partition count is
+  read from the broker, retried while the topics do not yet exist, and only
+  then compared. Compose gates the container on the topic-init container and
+  never spends that wait; on Kubernetes the topics come from a Job with no
+  ordering against the Deployment, so a first install would otherwise fail
+  a perfectly good configuration.
 - **Across replicas the constraint is `replicas × processes ≤ partitions`.**
   Consumer-group members are pods *and* processes: 2 replicas × 4 processes
   needs 8 partitions, and 3 × 4 on 8 partitions leaves 4 members idle. Scale

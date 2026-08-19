@@ -108,7 +108,7 @@ from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
-from utils.process_scaling import resolve_process_count, source_partition_count
+from utils.process_scaling import await_source_partitions, resolve_process_count
 from utils.process_supervisor import ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
 from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
@@ -178,6 +178,33 @@ _VLM_API_ERROR_CLASSIFICATION = (
     (InternalServerError, (500, "VLM service internal error", "vlm_server_error", "VLM server error")),
     (UnprocessableEntityError, (422, "Invalid VLM request payload", "vlm_invalid_payload", "VLM invalid payload")),
 )
+
+
+def pipeline_mode_from_config(config: dict) -> str:
+    """Resolve the effective pipeline mode from a parsed config.
+
+    Shared with the supervising process, which has to read the mode before it
+    can decide whether several processes are allowed, and must not build a
+    pipeline to find out.
+    """
+    alert_agent = (config or {}).get("alert_agent", {}) or {}
+    async_io_cfg = alert_agent.get("async_io", {}) or {}
+
+    # Accepted at both alert_agent.pipeline_mode and the nested
+    # alert_agent.async_io.pipeline_mode; conflicting values fail startup.
+    raw_mode = alert_agent.get("pipeline_mode")
+    nested_mode = async_io_cfg.get("pipeline_mode")
+    if raw_mode is not None and nested_mode is not None \
+            and str(raw_mode).strip().lower() != str(nested_mode).strip().lower():
+        raise ValueError(
+            "Conflicting pipeline_mode values: "
+            f"alert_agent.pipeline_mode={raw_mode!r} vs "
+            f"alert_agent.async_io.pipeline_mode={nested_mode!r}"
+        )
+    if raw_mode is None:
+        raw_mode = nested_mode
+
+    return resolve_pipeline_mode(raw_mode, bool(async_io_cfg.get("enabled", False)))
 
 
 def _alert_config_store_is_shared(config: dict) -> bool:
@@ -321,24 +348,11 @@ class AnomalyEnhancer(
         )
 
         async_io_cfg = self.config.get('alert_agent', {}).get('async_io', {}) or {}
-        legacy_async_io_enabled = bool(async_io_cfg.get('enabled', False))
         # ``pipeline_mode`` is accepted at both alert_agent.pipeline_mode and
         # alert_agent.async_io.pipeline_mode; conflicting values fail startup.
-        raw_pipeline_mode = self.config.get('alert_agent', {}).get('pipeline_mode')
-        nested_pipeline_mode = async_io_cfg.get('pipeline_mode')
-        if raw_pipeline_mode is not None and nested_pipeline_mode is not None \
-                and str(raw_pipeline_mode).strip().lower() != str(nested_pipeline_mode).strip().lower():
-            raise ValueError(
-                "Conflicting pipeline_mode values: "
-                f"alert_agent.pipeline_mode={raw_pipeline_mode!r} vs "
-                f"alert_agent.async_io.pipeline_mode={nested_pipeline_mode!r}"
-            )
-        if raw_pipeline_mode is None:
-            raw_pipeline_mode = nested_pipeline_mode
-        self.pipeline_mode = resolve_pipeline_mode(
-            raw_pipeline_mode,
-            legacy_async_io_enabled,
-        )
+        # Shared with the supervising process, which has to read the mode
+        # before it can decide whether multiple processes are allowed.
+        self.pipeline_mode = pipeline_mode_from_config(self.config)
         # ``async_io_enabled`` gates the thread_bridge machinery only; the
         # event_loop mode awaits external I/O on the pipeline loop instead of
         # routing it through the per-service guardrail wrappers.
@@ -2756,17 +2770,33 @@ if __name__ == "__main__":
         pipeline_config = AnomalyEnhancer.load_config(args.config)
         process_count = resolve_process_count(pipeline_config)
         source_partitions = None
-        if process_count > 1:
-            # Only worth a broker round-trip once more than one process is on
-            # the table; "auto" is clamped to it, an explicit count is not.
-            source_partitions = source_partition_count(pipeline_config)
-            process_count = resolve_process_count(pipeline_config, source_partitions)
         multi_process = process_count > 1
 
-        if multi_process and not EventBridgeFactory.validate_configuration(pipeline_config):
-            # Validate up front so a bad config fails the parent instead of
-            # crash-looping every child.
-            raise ValueError("Invalid event bridge configuration")
+        if multi_process:
+            # Everything a wrong multi-process configuration would only reveal
+            # later is checked here, in the parent, before a single child is
+            # forked: a bad value must fail the container rather than
+            # crash-loop every child or leave some of them silently idle.
+            if not EventBridgeFactory.validate_configuration(pipeline_config):
+                raise ValueError("Invalid event bridge configuration")
+
+            mode = pipeline_mode_from_config(pipeline_config)
+            if mode != PIPELINE_MODE_EVENT_LOOP:
+                raise ValueError(
+                    f"alert_agent.processes={process_count} requires "
+                    f"pipeline_mode={PIPELINE_MODE_EVENT_LOOP!r}, got {mode!r}. "
+                    f"The other modes hold their concurrency in threads, so "
+                    f"several processes multiply the load on the VLM and VST "
+                    f"backends by the process count without the per-process "
+                    f"caps that bound it."
+                )
+
+            # Blocks until the topics exist, then raises if they carry fewer
+            # partitions than there are processes. Waiting is what lets the
+            # same check hold on both deployment paths: Compose starts this
+            # only after the topic-init container completes, while on
+            # Kubernetes the topics come from a Job that races this Deployment.
+            source_partitions = await_source_partitions(pipeline_config, process_count)
 
         if not multi_process:
             enhancer = AnomalyEnhancer(args.config)
@@ -2825,30 +2855,11 @@ if __name__ == "__main__":
             logger.info("Starting anomaly processing loop...")
 
         if multi_process:
-            if source_partitions is None:
-                logger.info(
-                    "Pipeline running across %d processes; partition count unknown, "
-                    "effective parallelism is min(processes, kafka partition count)",
-                    process_count,
-                )
-            elif process_count > source_partitions:
-                logger.warning(
-                    "alert_agent.processes=%d exceeds the %d source partitions: %d "
-                    "processes will join the consumer group, receive nothing and idle. "
-                    "Effective parallelism is %d. Raise the partition count or lower "
-                    "processes; with N replicas the constraint is "
-                    "replicas x processes <= partitions.",
-                    process_count,
-                    source_partitions,
-                    process_count - source_partitions,
-                    source_partitions,
-                )
-            else:
-                logger.info(
-                    "Pipeline running across %d processes over %d partitions",
-                    process_count,
-                    source_partitions,
-                )
+            logger.info(
+                "Pipeline running across %d processes over %d partitions",
+                process_count,
+                source_partitions,
+            )
             run_multi_process_pipeline(os.path.abspath(args.config), process_count,
                                        on_ready=announce_ready)
         else:

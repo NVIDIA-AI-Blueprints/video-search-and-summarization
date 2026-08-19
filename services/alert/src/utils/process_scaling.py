@@ -13,20 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Resolution of the pipeline process count from ``alert_agent.processes``."""
+"""Resolution and validation of the pipeline process count."""
 
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-PROCESSES_AUTO = "auto"
 DEFAULT_PROCESS_COUNT = 1
 
+# Long enough to cover topic creation racing container startup: on Kubernetes
+# the topics are made by a Job with no ordering against this Deployment, so a
+# first install legitimately reaches here before the topics exist. Compose
+# gates on the topic-init container instead and never spends this.
+PARTITION_WAIT_SECONDS = 300.0
+PARTITION_POLL_SECONDS = 5.0
+
 _ERROR = (
-    "alert_agent.processes must be a positive integer or {auto!r}, got {value!r}"
+    "alert_agent.processes must be a positive integer, got {value!r}. "
+    "Pick a count deliberately: it must not exceed the source partition "
+    "count, and every process beyond it would idle."
 )
 
 
@@ -34,7 +43,8 @@ def available_cpus() -> int:
     """CPU count the process may actually run on.
 
     ``sched_getaffinity`` respects cpuset restrictions, so a container pinned
-    to 4 of 128 host cores resolves ``auto`` to 4 rather than 128.
+    to 4 of 128 host cores reports 4 rather than 128. Advisory only: it sizes
+    the guidance an operator gets, never the process count itself.
     """
     try:
         return len(os.sched_getaffinity(0))
@@ -49,8 +59,8 @@ def source_topics(config: Optional[Dict[str, Any]]) -> List[str]:
     only reading the modern spelling. A config that omits ``sourceType`` still
     gets a Kafka source, and one without ``kafka_source.topics`` still reads
     the legacy ``kafka.anomalyTopic``; reporting no topics for either would
-    leave ``processes: "auto"`` unclamped and spawn a consumer per core
-    against a topic that may have one partition.
+    make the partition count unreadable and fail a valid multi-process
+    configuration that this cannot check.
     """
     config = config or {}
     bridge = config.get("event_bridge", {}) or {}
@@ -65,20 +75,14 @@ def source_topics(config: Optional[Dict[str, Any]]) -> List[str]:
     return [legacy_topic] if legacy_topic else []
 
 
-def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10.0) -> Optional[int]:
-    """Total partitions across the source topics, or None if unknown.
-
-    Summed, not minimised: one group member can hold partitions from several
-    subscribed topics, so the number of members that can receive work is the
-    total. Taking the minimum let a low-traffic companion topic decide the
-    answer - a one-partition ``mdx-alerts`` alongside an eight-partition
-    ``mdx-incidents`` reported 1, which warned wrongly and, worse, clamped
-    ``processes: "auto"`` to a single process.
+def source_partitions_by_topic(
+    config: Optional[Dict[str, Any]], timeout: float = 10.0
+) -> Optional[Dict[str, int]]:
+    """Partitions per source topic, or None while that is not yet knowable.
 
     Read through an admin client, which fetches metadata without joining the
-    consumer group — a member that joined and then stopped polling would stall
-    the partitions assigned to it. Best effort: an unreachable broker or a
-    missing topic returns None and startup continues.
+    consumer group -- a member that joined and then stopped polling would
+    stall the partitions assigned to it.
     """
     topics = source_topics(config)
     if not topics:
@@ -96,26 +100,61 @@ def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10
         logger.debug("Could not read Kafka topic metadata for partition sizing", exc_info=True)
         return None
 
-    total = 0
+    sizes: Dict[str, int] = {}
     for topic in topics:
         topic_metadata = getattr(metadata, "topics", {}).get(topic)
         if topic_metadata is None or getattr(topic_metadata, "error", None) is not None:
-            continue
-        total += len(topic_metadata.partitions or ())
-    return total or None
+            # Unknown, not zero. A topic missing from the metadata is usually
+            # one that has not been created yet, and reporting the rest would
+            # give the caller a number it would treat as authoritative.
+            return None
+        sizes[topic] = len(topic_metadata.partitions or ())
+    return sizes or None
 
 
-def resolve_process_count(
-    config: Optional[Dict[str, Any]],
-    partition_count: Optional[int] = None,
-) -> int:
+def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10.0) -> Optional[int]:
+    """Total partitions across the source topics, or None if unknown.
+
+    Summed, not minimised: one group member can hold partitions from several
+    subscribed topics, so the number of members that can receive work is the
+    total. Taking the minimum let a low-traffic companion topic decide the
+    answer - a one-partition ``mdx-alerts`` alongside an eight-partition
+    ``mdx-incidents`` reported 1, which would reject a nine-process
+    configuration that the partitions in fact support.
+    """
+    sizes = source_partitions_by_topic(config, timeout)
+    if not sizes:
+        return None
+    return sum(sizes.values()) or None
+
+
+def warn_topics_short_of_processes(sizes: Dict[str, int], process_count: int) -> None:
+    """Name the topics that cannot give every process a partition.
+
+    The startup check is on the total, which is what bounds the group as a
+    whole. It is per topic that a process actually goes hungry: each one
+    subscribes to a single topic per consumer, so a topic with fewer
+    partitions than processes leaves the difference holding nothing on it,
+    however large the total.
+    """
+    for topic, partitions in sorted(sizes.items()):
+        if partitions < process_count:
+            logger.warning(
+                "Topic %s has %d partitions for %d processes: %d of them will hold "
+                "none of it and consume only the other source topics. Raise the "
+                "partition count on %s to use every process fully.",
+                topic, partitions, process_count, process_count - partitions, topic,
+            )
+
+
+def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
     """Return the number of pipeline processes to run (>= 1).
 
-    ``partition_count`` only bounds ``"auto"``. Effective parallelism is
-    ``min(processes, partitions)``, so on a 256-core host with 8 partitions
-    ``auto`` would otherwise start 248 processes that consume memory and never
-    receive a partition. An explicit integer is an operator instruction and is
-    left alone; the caller warns instead.
+    A positive integer only. Deriving it from the CPU count read well but hid
+    the constraint that actually binds: parallelism is capped by the source
+    partition count, and a derived value silently produced processes that
+    could never receive one. An explicit count is checked against the
+    partitions instead, so a wrong number fails startup rather than idling.
     """
     raw = (config or {}).get("alert_agent", {}).get("processes", DEFAULT_PROCESS_COUNT)
 
@@ -123,18 +162,64 @@ def resolve_process_count(
         return DEFAULT_PROCESS_COUNT
 
     if isinstance(raw, str):
-        normalized = raw.strip().lower()
-        if normalized == PROCESSES_AUTO:
-            count = max(1, available_cpus())
-            if partition_count and partition_count > 0:
-                count = min(count, partition_count)
-            return count
+        # Rendered configs substitute environment variables textually, so a
+        # templated count arrives as a string. The value still has to be a
+        # positive integer; only the spelling is relaxed.
         try:
-            raw = int(normalized)
+            raw = int(raw.strip())
         except ValueError:
-            raise ValueError(_ERROR.format(auto=PROCESSES_AUTO, value=raw))
+            raise ValueError(_ERROR.format(value=raw))
 
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
-        raise ValueError(_ERROR.format(auto=PROCESSES_AUTO, value=raw))
+        raise ValueError(_ERROR.format(value=raw))
 
     return raw
+
+
+def await_source_partitions(
+    config: Optional[Dict[str, Any]],
+    required: int,
+    timeout: float = PARTITION_WAIT_SECONDS,
+    interval: float = PARTITION_POLL_SECONDS,
+) -> int:
+    """Block until the source topics exist, then return their total partitions.
+
+    Raises ``RuntimeError`` if they never appear or carry fewer partitions
+    than ``required``. Waiting rather than reading once is what lets the same
+    check hold on both deployment paths: Compose starts this process only
+    after the topic-init container has completed, so the first read is already
+    authoritative, while on Kubernetes the topics arrive from a Job that races
+    this one and an immediate read would fail a perfectly good install.
+    """
+    deadline = time.monotonic() + timeout
+    warned = False
+    while True:
+        sizes = source_partitions_by_topic(config)
+        total = sum(sizes.values()) if sizes else None
+        if total:
+            if total < required:
+                raise RuntimeError(
+                    f"alert_agent.processes={required} exceeds the {total} partitions "
+                    f"across {', '.join(source_topics(config)) or 'the source topics'}. "
+                    f"Every process beyond the partition count joins the consumer "
+                    f"group and idles. Lower processes to at most {total}, or raise "
+                    f"the partition count; with N replicas the constraint is "
+                    f"replicas x processes <= partitions."
+                )
+            warn_topics_short_of_processes(sizes, required)
+            return total
+
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"Could not read the partition count for "
+                f"{', '.join(source_topics(config)) or 'the source topics'} within "
+                f"{timeout:.0f}s. alert_agent.processes={required} cannot be validated "
+                f"against a broker that is unreachable or topics that do not exist."
+            )
+        if not warned:
+            logger.info(
+                "Waiting for source topic metadata before starting %d pipeline processes",
+                required,
+            )
+            warned = True
+        time.sleep(min(interval, max(0.0, deadline - time.monotonic())))

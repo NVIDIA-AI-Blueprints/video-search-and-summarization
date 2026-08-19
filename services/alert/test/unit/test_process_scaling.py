@@ -13,12 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Resolution of alert_agent.processes."""
+"""Resolution and validation of alert_agent.processes."""
 
 import pytest
 
 from utils import process_scaling
-from utils.process_scaling import resolve_process_count
+from utils.process_scaling import (
+    await_source_partitions,
+    resolve_process_count,
+    warn_topics_short_of_processes,
+)
 
 
 class TestResolveProcessCount:
@@ -34,15 +38,9 @@ class TestResolveProcessCount:
         assert resolve_process_count({"alert_agent": {"processes": 4}}) == 4
 
     def test_numeric_string_value(self):
+        # Rendered configs substitute environment variables textually, so a
+        # templated count arrives as a string. Only the spelling is relaxed.
         assert resolve_process_count({"alert_agent": {"processes": " 6 "}}) == 6
-
-    def test_auto_uses_available_cpus(self, monkeypatch):
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 12)
-        assert resolve_process_count({"alert_agent": {"processes": "AUTO"}}) == 12
-
-    def test_auto_never_returns_zero(self, monkeypatch):
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 0)
-        assert resolve_process_count({"alert_agent": {"processes": "auto"}}) == 1
 
     @pytest.mark.parametrize("value", [0, -1, True, 2.5, "many", ""])
     def test_invalid_values_fail_startup(self, value):
@@ -50,28 +48,27 @@ class TestResolveProcessCount:
             resolve_process_count({"alert_agent": {"processes": value}})
 
 
-class TestAutoClampedToPartitions:
-    """Processes beyond the partition count idle, so auto must not create them."""
+class TestAutoIsGone:
+    """The count is no longer derived from the host.
 
-    def test_auto_clamps_to_partition_count(self, monkeypatch):
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 256)
-        cfg = {"alert_agent": {"processes": "auto"}}
-        assert resolve_process_count(cfg, partition_count=8) == 8
+    Deriving from the CPU count read well but hid the constraint that binds:
+    parallelism is capped by the partitions, and a derived value silently
+    produced processes that could never receive one.
+    """
 
-    def test_auto_keeps_cpu_count_when_partitions_are_plentiful(self, monkeypatch):
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 4)
-        cfg = {"alert_agent": {"processes": "auto"}}
-        assert resolve_process_count(cfg, partition_count=64) == 4
+    @pytest.mark.parametrize("value", ["auto", "AUTO", " auto "])
+    def test_auto_is_rejected(self, value):
+        with pytest.raises(ValueError, match="positive integer"):
+            resolve_process_count({"alert_agent": {"processes": value}})
 
-    @pytest.mark.parametrize("partitions", [None, 0])
-    def test_auto_unclamped_when_partition_count_is_unknown(self, monkeypatch, partitions):
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 6)
-        cfg = {"alert_agent": {"processes": "auto"}}
-        assert resolve_process_count(cfg, partition_count=partitions) == 6
+    def test_the_error_says_what_bounds_the_count(self):
+        with pytest.raises(ValueError, match="partition"):
+            resolve_process_count({"alert_agent": {"processes": "auto"}})
 
-    def test_explicit_count_is_an_instruction_and_is_not_clamped(self):
-        cfg = {"alert_agent": {"processes": 16}}
-        assert resolve_process_count(cfg, partition_count=2) == 16
+    def test_resolution_does_not_consult_the_host(self, monkeypatch):
+        monkeypatch.setattr(process_scaling, "available_cpus",
+                            lambda: (_ for _ in ()).throw(AssertionError("consulted")))
+        assert resolve_process_count({"alert_agent": {"processes": 3}}) == 3
 
 
 class TestSourceTopics:
@@ -98,11 +95,11 @@ class TestSourceTopics:
                "kafka": {"anomalyTopic": "mdx-raw"}}
         assert process_scaling.source_topics(cfg) == ["mdx-incidents"]
 
-    def test_a_legacy_config_clamps_auto(self, monkeypatch):
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 64)
+    def test_a_legacy_config_is_still_readable(self, monkeypatch):
+        # Reading it wrongly no longer just loses a clamp: it would block boot
+        # on a supported configuration whose partitions cannot be counted.
         cfg = {"kafka": {"anomalyTopic": "mdx-raw"}}
         assert process_scaling.source_topics(cfg) == ["mdx-raw"]
-        assert resolve_process_count({"alert_agent": {"processes": "auto"}}, 2) == 2
 
     def test_non_kafka_source_has_no_topics(self):
         cfg = {"event_bridge": {"sourceType": "elasticsearch", "kafka_source": {"topics": {"incident": "x"}}}}
@@ -141,17 +138,16 @@ class TestPartitionCountIsSummed:
     def test_totals_the_topics(self, monkeypatch):
         assert self._count(monkeypatch, {"mdx-incidents": 8, "mdx-alerts": 1}) == 9
 
-    def test_a_single_partition_topic_does_not_clamp_auto(self, monkeypatch):
-        # The bug: min() returned 1 here, so "auto" resolved to one process on
-        # any deployment carrying a one-partition companion topic.
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 16)
-        partitions = self._count(monkeypatch, {"mdx-incidents": 8, "mdx-alerts": 1})
-        assert resolve_process_count({"alert_agent": {"processes": "auto"}}, partitions) == 9
+    def test_a_single_partition_companion_topic_does_not_decide(self, monkeypatch):
+        # The bug: min() returned 1 here, which would now reject a nine-process
+        # configuration the partitions in fact support.
+        assert self._count(monkeypatch, {"mdx-incidents": 8, "mdx-alerts": 1}) == 9
 
-    def test_still_clamps_when_partitions_are_genuinely_few(self, monkeypatch):
-        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 256)
-        partitions = self._count(monkeypatch, {"mdx-incidents": 2, "mdx-alerts": 1})
-        assert resolve_process_count({"alert_agent": {"processes": "auto"}}, partitions) == 3
+    def test_a_missing_topic_reads_as_unknown_not_as_zero(self, monkeypatch):
+        # A topic absent from the metadata is usually one the deployment has
+        # not created yet. Summing the rest would report a number the caller
+        # treats as authoritative and reject a valid configuration.
+        assert self._count(monkeypatch, {"mdx-incidents": 8}) is None
 
 
 class TestSourcePartitionCount:
@@ -168,6 +164,105 @@ class TestSourcePartitionCount:
             "kafka": {"bootstrap_servers": "127.0.0.1:1"},
         }
         assert process_scaling.source_partition_count(cfg, timeout=0.2) is None
+
+
+class TestAwaitSourcePartitions:
+    """Validating the count has to survive both deployment paths.
+
+    Compose starts this process only after the topic-init container has
+    completed, so the first read is already authoritative. On Kubernetes the
+    topics come from a Job with no ordering against the Deployment, so a first
+    install legitimately reaches here before they exist and an immediate read
+    would fail a perfectly good install.
+    """
+
+    @staticmethod
+    def _counts(monkeypatch, sequence):
+        """Make the metadata read return each total in turn (None = not yet)."""
+        remaining = list(sequence)
+        seen = []
+
+        def fake(config, timeout=10.0):
+            value = remaining.pop(0) if remaining else sequence[-1]
+            seen.append(value)
+            return None if value is None else {"mdx-incidents": value}
+
+        monkeypatch.setattr(process_scaling, "source_partitions_by_topic", fake)
+        monkeypatch.setattr(process_scaling, "source_topics", lambda cfg: ["mdx-incidents"])
+        return seen
+
+    def test_returns_the_count_when_it_is_already_known(self, monkeypatch):
+        self._counts(monkeypatch, [16])
+        assert await_source_partitions({}, required=4) == 16
+
+    def test_waits_out_topics_that_do_not_exist_yet(self, monkeypatch):
+        seen = self._counts(monkeypatch, [None, None, 8])
+        assert await_source_partitions({}, required=8, interval=0.01) == 8
+        assert seen == [None, None, 8]
+
+    def test_rejects_more_processes_than_partitions(self, monkeypatch):
+        self._counts(monkeypatch, [4])
+        with pytest.raises(RuntimeError, match="exceeds the 4 partitions"):
+            await_source_partitions({}, required=8)
+
+    def test_rejection_is_immediate_rather_than_waited_out(self, monkeypatch):
+        # An authoritative count that is too low will not improve by waiting,
+        # so a misconfiguration must not cost the full timeout to surface.
+        seen = self._counts(monkeypatch, [4])
+        with pytest.raises(RuntimeError):
+            await_source_partitions({}, required=8, timeout=30.0, interval=10.0)
+        assert len(seen) == 1
+
+    def test_equal_counts_are_allowed(self, monkeypatch):
+        self._counts(monkeypatch, [8])
+        assert await_source_partitions({}, required=8) == 8
+
+    def test_gives_up_when_the_topics_never_appear(self, monkeypatch):
+        self._counts(monkeypatch, [None])
+        with pytest.raises(RuntimeError, match="within"):
+            await_source_partitions({}, required=2, timeout=0.05, interval=0.01)
+
+    def test_the_timeout_message_names_the_topics(self, monkeypatch):
+        self._counts(monkeypatch, [None])
+        with pytest.raises(RuntimeError, match="mdx-incidents"):
+            await_source_partitions({}, required=2, timeout=0.05, interval=0.01)
+
+
+class TestShortTopicsAreNamed:
+    """The startup check is on the total; hunger is per topic.
+
+    Each process subscribes to a single topic per consumer, so a topic with
+    fewer partitions than processes leaves the difference holding none of it,
+    however large the total. Failing on that would be a breaking change for
+    an asymmetric layout, so it is reported rather than rejected.
+    """
+
+    @staticmethod
+    def _warnings(caplog, sizes, processes):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            warn_topics_short_of_processes(sizes, processes)
+        return " ".join(r.getMessage() for r in caplog.records)
+
+    def test_a_short_topic_is_named(self, caplog):
+        text = self._warnings(caplog, {"mdx-incidents": 8, "mdx-alerts": 1}, 4)
+        assert "mdx-alerts" in text and "3 of them will hold" in text
+
+    def test_a_topic_that_covers_every_process_is_silent(self, caplog):
+        assert self._warnings(caplog, {"mdx-incidents": 8, "mdx-alerts": 8}, 4) == ""
+
+    def test_equal_partitions_and_processes_is_silent(self, caplog):
+        assert self._warnings(caplog, {"mdx-incidents": 4}, 4) == ""
+
+    def test_every_short_topic_is_reported(self, caplog):
+        text = self._warnings(caplog, {"a": 1, "b": 2, "c": 9}, 4)
+        assert "Topic a" in text and "Topic b" in text and "Topic c" not in text
+
+    def test_a_generous_total_does_not_silence_it(self, caplog):
+        # 8 + 1 = 9 passes the total check for 4 processes, yet three of them
+        # hold nothing on mdx-alerts. That is the gap this reports.
+        text = self._warnings(caplog, {"mdx-incidents": 8, "mdx-alerts": 1}, 4)
+        assert "mdx-alerts" in text
 
 
 if __name__ == "__main__":
