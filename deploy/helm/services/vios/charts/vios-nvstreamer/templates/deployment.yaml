@@ -40,8 +40,43 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- $seed := .Values.ngcVideoSeed | default dict }}
-      {{- if $seed.enabled }}
+      {{- $sac := .Values.sharedAptCache | default dict }}
+      {{- if or $seed.enabled $sac.enabled }}
       initContainers:
+        {{- if $sac.enabled }}
+        # Populate the shared APT package cache in-pod. Mirrors the
+        # vios-apt-cache-init compose service (PR #1675). Best-effort: on
+        # failure the main container's user_additional_install.sh falls back
+        # to a normal networked install.
+        - name: vios-apt-cache-init
+          image: {{ include "vss-vios-nvstreamer.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              if [ "${VST_INSTALL_ADDITIONAL_PACKAGES:-}" = "true" ]; then
+                /home/vst/vst_release/tools/user_additional_install.sh \
+                  || echo 'cache populate failed (best-effort); consumers will download'
+              else
+                echo 'additional packages disabled; nothing to cache'
+              fi
+          env:
+            - name: VST_INSTALL_ADDITIONAL_PACKAGES
+              value: {{ .Values.env.NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES | quote }}
+            - name: VST_APT_CACHE_POPULATE
+              value: "true"
+            - name: VST_APT_CACHE_DIR
+              value: {{ .Values.env.VST_APT_CACHE_DIR | default "/opt/apt-cache" | quote }}
+            - name: VST_APT_MIRROR
+              value: {{ .Values.env.VST_APT_MIRROR | default "" | quote }}
+          volumeMounts:
+            - name: user-install-script
+              mountPath: /home/vst/vst_release/tools/user_additional_install.sh
+              subPath: user_additional_install.sh
+            - name: vios-apt-cache
+              mountPath: {{ .Values.env.VST_APT_CACHE_DIR | default "/opt/apt-cache" | quote }}
+        {{- end }}
+        {{- if $seed.enabled }}
         - name: prepare-streamer-videos
           {{- if $seed.fromExistingClaim }}
           image: "busybox:1.37.0"
@@ -121,6 +156,7 @@ spec:
               mountPath: /ngc-bundle
               readOnly: true
             {{- end }}
+        {{- end }}
       {{- end }}
       containers:
         - name: vss-vios-nvstreamer
@@ -138,6 +174,10 @@ spec:
               value: {{ .Values.env.NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES | quote }}
             - name: VST_APT_MIRROR
               value: {{ .Values.env.VST_APT_MIRROR | default "" | quote }}
+            {{- if $sac.enabled }}
+            - name: VST_APT_CACHE_DIR
+              value: {{ .Values.env.VST_APT_CACHE_DIR | default "/opt/apt-cache" | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -158,6 +198,11 @@ spec:
             - name: user-install-script
               mountPath: /home/vst/vst_release/tools/user_additional_install.sh
               subPath: user_additional_install.sh
+            {{- if $sac.enabled }}
+            - name: vios-apt-cache
+              mountPath: {{ .Values.env.VST_APT_CACHE_DIR | default "/opt/apt-cache" | quote }}
+              readOnly: true
+            {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -174,6 +219,11 @@ spec:
           configMap:
             name: {{ include "vss-vios-nvstreamer.fullname" . }}-user-install-script
             defaultMode: 493
+        {{- if $sac.enabled }}
+        - name: vios-apt-cache
+          persistentVolumeClaim:
+            claimName: {{ include "vss-vios-nvstreamer.aptCacheClaim" . }}
+        {{- end }}
         - name: streamer-videos
           {{- $sv := (.Values.persistence | default dict).streamerVideos | default dict }}
           {{- if $sv.hostPath }}

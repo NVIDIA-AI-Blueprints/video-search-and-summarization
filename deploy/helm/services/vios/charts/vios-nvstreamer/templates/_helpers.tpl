@@ -42,3 +42,14 @@
 {{- define "vss-vios-nvstreamer.sharedVstClaimStreamerVideos" -}}
 {{- printf "%s-vst-streamer-videos" (.Release.Name | trunc 63 | trimSuffix "-") }}
 {{- end }}
+
+{{/* Name of the shared APT cache PVC (per-release). Overridden by
+     sharedAptCache.existingClaim when set. */}}
+{{- define "vss-vios-nvstreamer.aptCacheClaim" -}}
+{{- $sac := .Values.sharedAptCache | default dict -}}
+{{- if $sac.existingClaim -}}
+{{- $sac.existingClaim -}}
+{{- else -}}
+{{- printf "%s-vios-apt-cache" (.Release.Name | trunc 63 | trimSuffix "-") -}}
+{{- end -}}
+{{- end }}

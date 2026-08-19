@@ -47,8 +47,36 @@ spec:
            endpoints are set so VIOS can write calibration.json / Top.png. */}}
       {{- $writableConfigs := or .Values.calibrationFileEndpoint .Values.floormapImageEndpoint }}
       {{- $waitRedis := (.Values.waitForRedis | default dict).enabled }}
-      {{- if or $writableConfigs $waitRedis }}
+      {{- $sac := .Values.sharedAptCache | default dict }}
+      {{- if or $writableConfigs $waitRedis $sac.enabled }}
       initContainers:
+        {{- if $sac.enabled }}
+        # Populate the shared APT package cache in-pod. Mirrors the
+        # vios-apt-cache-init compose service (PR #1675). Best-effort: on
+        # failure the main container falls back to a normal networked install.
+        - name: vios-apt-cache-init
+          image: {{ include "vss-vios-streamprocessing.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              if [ "${VST_INSTALL_ADDITIONAL_PACKAGES:-}" = "true" ]; then
+                /home/vst/vst_release/tools/user_additional_install.sh \
+                  || echo 'cache populate failed (best-effort); consumers will download'
+              else
+                echo 'additional packages disabled; nothing to cache'
+              fi
+          env:
+            - name: VST_INSTALL_ADDITIONAL_PACKAGES
+              value: "true"
+            - name: VST_APT_CACHE_POPULATE
+              value: "true"
+            - name: VST_APT_CACHE_DIR
+              value: "/opt/apt-cache"
+          volumeMounts:
+            - name: vios-apt-cache
+              mountPath: /opt/apt-cache
+        {{- end }}
         {{- if $waitRedis }}
         {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index (.Values.global | default dict) "useReleaseNamePrefix")) }}
         {{- $redisH := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
@@ -148,6 +176,11 @@ spec:
               mountPath: /home/vst/vst_release/streamer_videos
             - name: temp-files
               mountPath: /home/vst/vst_release/webroot/temp_files
+            {{- if $sac.enabled }}
+            - name: vios-apt-cache
+              mountPath: /opt/apt-cache
+              readOnly: true
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -195,6 +228,11 @@ spec:
           {{- end }}
         - name: temp-files
           emptyDir: {}
+        {{- if $sac.enabled }}
+        - name: vios-apt-cache
+          persistentVolumeClaim:
+            claimName: {{ include "vss-vios-streamprocessing.aptCacheClaim" . }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

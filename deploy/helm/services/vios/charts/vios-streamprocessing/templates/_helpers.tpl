@@ -40,6 +40,15 @@
 {{- define "vss-vios-streamprocessing.sharedVstClaimStreamerVideos" -}}
 {{- printf "%s-vst-streamer-videos" (.Release.Name | trunc 63 | trimSuffix "-") }}
 {{- end }}
+{{/* Shared APT-cache PVC name. Overridden by sharedAptCache.existingClaim when set. */}}
+{{- define "vss-vios-streamprocessing.aptCacheClaim" -}}
+{{- $sac := .Values.sharedAptCache | default dict -}}
+{{- if $sac.existingClaim -}}
+{{- $sac.existingClaim -}}
+{{- else -}}
+{{- printf "%s-vios-apt-cache" (.Release.Name | trunc 63 | trimSuffix "-") -}}
+{{- end -}}
+{{- end }}
 {{- define "vss-vios-streamprocessing.image" -}}
 {{- $global := .Values.global | default dict -}}
 {{- $prefix := index $global "container_prefix" | default "" -}}
