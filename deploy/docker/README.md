@@ -154,6 +154,25 @@ If you choose to pass `overrides.env` directly instead of `generated.env`, first
 replace its placeholder values for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
 credentials, ports, and model settings.
 
+To validate placement-neutral agent egress through HAProxy with native Compose,
+pass the gateway endpoint overlay after the profile env files. Profiles expose
+blank `VSS_GATEWAY_HOST`, `VSS_GATEWAY_PORT`, and `VSS_GATEWAY_ORIGIN` values, plus
+a `VSS_GATEWAY_ORIGIN_FALLBACK` derived from that profile's public HAProxy origin.
+The endpoint overlay derives agent-facing downstream URLs from
+`VSS_GATEWAY_ORIGIN`, or from the fallback when it is blank. For same-bridge
+tests, HAProxy publishes `VSS_GATEWAY_HOST` as a Docker network alias, defaulting
+to `vss.local` when unset:
+
+```bash
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file services/vios/compose-defaults.env \
+  --env-file developer-profiles/dev-profile-alerts/.env \
+  --env-file developer-profiles/dev-profile-alerts/overrides.env \
+  --env-file gateway-endpoints.env.example \
+  config vss-agent vss-haproxy-ingress
+```
+
 Create writable host directories for the bind-mounted infrastructure volumes
 before starting a direct Compose stack:
 
