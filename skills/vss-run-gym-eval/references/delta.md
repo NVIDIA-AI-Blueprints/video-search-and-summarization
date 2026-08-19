@@ -217,6 +217,23 @@ Pair it with the profile's checked-in `overrides.env` as the env file. That file
 is authoritative for the service set, and without it Compose cannot resolve the
 `env_file:` paths the root file includes.
 
+## Writing resolved.yml
+
+`resolved.yml` is the fully-interpolated form, produced by letting Compose
+resolve the delta:
+
+```bash
+docker compose --env-file "_builds/<name>/override.env" \
+    -f "_builds/<name>/compose.yml" config > "_builds/<name>/resolved.yml"
+```
+
+**Redirect stdout only.** Compose writes the resolved YAML to stdout and its
+warnings — `The "MODE" variable is not set. Defaulting to a blank string.` and
+similar — to stderr. Capturing both with `&>` or `2>&1` prepends those warning
+lines to the file, and the result is no longer valid YAML: every later read of
+`resolved.yml` fails to parse, for a reason that is invisible unless you open
+the file. The warnings are expected and harmless; let them go to the terminal.
+
 ## Verify before running
 
 ```bash
