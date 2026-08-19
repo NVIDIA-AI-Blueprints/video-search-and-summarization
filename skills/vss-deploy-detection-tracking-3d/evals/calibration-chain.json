@@ -10,6 +10,12 @@
         "modes": [
           "standalone"
         ]
+      },
+      "DGX-SPARK": {
+        "gpu_count": 0,
+        "modes": [
+          "standalone"
+        ]
       }
     }
   },

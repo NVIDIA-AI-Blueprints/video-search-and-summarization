@@ -390,8 +390,9 @@ The canonical harbor command is in § Harbor invocation.
    `vss-eval-*` boxes are a long-running pool managed by the
    operator; instances stay up across runs, and so do the slow caches
    that survive a volume wipe (docker **image** layers, the repo clone, the
-   `data/` sample-data extract — but NOT the model-weight *volumes*, which
-   the per-trial reset drops; see § 7).
+   `data/` sample-data extract, and the `rtvi-hf-cache` /
+   `rtvi-ngc-model-cache` model-weight volumes, which the per-trial reset
+   keeps; see § 7).
    `run_leg.py` releases the per-box lock automatically when its process
    exits; there is no shell FD for you to close. You never `brev stop` /
    `brev delete`. Pool lifecycle is strictly an operator concern.
@@ -400,8 +401,9 @@ The canonical harbor command is in § Harbor invocation.
    not on exit.** On a spec's first trial — a single-step spec, or `step-1`
    of a multi-step one — `BrevEnvironment.start()` (the env provider, before
    the agent runs) wipes the docker runtime to a clean slate: it force-removes
-   **all** containers, **all** user-defined networks, and **all** volumes
-   (images are preserved — re-pulling them is slow). So a spec always begins
+   **all** containers, **all** user-defined networks, and every volume except
+   the model-weight caches (those and the images are preserved — re-fetching
+   them is slow). So a spec always begins
    from a deterministic, leak-free runtime regardless of what the previous
    spec left — a leftover container from a *different* compose project used to
    port-conflict the new deploy (observed: a stuck `phoenix` + missing init
@@ -415,13 +417,13 @@ The canonical harbor command is in § Harbor invocation.
    You still do **not** tear anything down on *exit* — no `atexit`, no signal
    handler — and you never `brev stop` / `brev delete`; the *next* spec's
    `start()` is what cleans up, on every exit path (happy, `BLOCKED`, cancel,
-   max-turns, crash, SIGKILL, reboot). One consequence: wiping all volumes
-   drops the `rtvi-hf-cache` / `rtvi-ngc-model-cache` model-weight volumes, so
-   a spec's first deploy is cold (~20 min weight download vs ~55 s warm) under
-   the canonical `-n 1 --max-retries 0` invocation — paid once per spec; an
-   `-n>1` rollout or a harbor retry re-wipes the caches and re-pays it. The
-   per-trial harbor timeout already budgets for a cold deploy. The deploy
-   runbook may still `docker compose down` defensively, but it no longer has to.
+   max-turns, crash, SIGKILL, reboot). The `rtvi-hf-cache` /
+   `rtvi-ngc-model-cache` model-weight volumes are the one exception to the
+   volume wipe: they are read-through caches, and dropping them made a spec's
+   first deploy pay a cold weight download (~25 min measured on a WiFi-linked
+   GB10 board vs ~55 s warm) out of the same budget the agent needs for the
+   deploy itself. The deploy runbook may still `docker compose down`
+   defensively, but it no longer has to.
 
    ⚠️ **`start()` is now destructive on a spec's first trial — never run
    `harbor` manually against a box another run currently holds.** The wipe is

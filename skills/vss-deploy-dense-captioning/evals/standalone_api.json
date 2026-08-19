@@ -8,6 +8,11 @@
         "modes": [
           "standalone"
         ]
+      },
+      "DGX-SPARK": {
+        "modes": [
+          "standalone"
+        ]
       }
     }
   },
