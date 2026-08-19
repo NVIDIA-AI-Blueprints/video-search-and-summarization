@@ -64,7 +64,9 @@ backend bk_behavior_analytics
 backend bk_perception_sdr
     server s1 "${PERCEPTION_SDR_SERVICE_HOST}:${PERCEPTION_SDR_PORT}" check resolvers docker init-addr none
 
-backend bk_va_mcp
+backend bk_va_mcp_strip
+    http-request replace-path ^/va-mcp/(.*) /\1
+    http-request replace-path ^/va-mcp$ /
     server s1 "${VSS_VA_MCP_SERVICE_HOST}:${VSS_VA_MCP_PORT}" check resolvers docker init-addr none
 
 backend bk_kibana
@@ -272,6 +274,6 @@ frontend fe_http
 
     acl p_va_mcp path /va-mcp
     acl p_va_mcp path_beg /va-mcp/
-    use_backend bk_va_mcp if h_main p_va_mcp
+    use_backend bk_va_mcp_strip if h_main p_va_mcp
 
     use_backend bk_vss_ui if h_main
