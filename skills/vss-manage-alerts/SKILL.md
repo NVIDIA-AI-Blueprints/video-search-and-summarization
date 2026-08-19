@@ -341,7 +341,7 @@ Use when the user **explicitly mentions Slack or the webhook relay** (start/stop
 
 One relay, **two backends**: the `alert-notify` webhook server fans incidents out to **Slack** and/or the **OpenClaw Dashboard**, selected by `NOTIFY_BACKENDS` (default **`dashboard`** — a Slack setup MUST set `NOTIFY_BACKENDS=slack`, or `slack,dashboard` for both). The four skill-level ops all hit `:9090`: **status** (`GET /webhook/alert-notify/status`), **start** (creds gate below), **test** (POST a sample incident to `/webhook/alert-notify`), **stop**.
 
-**Credentials gate before any start:** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID` (plus `VST_ENDPOINT`); the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT` — never start it with placeholder values. Ask for real credentials and stop until provided.
+**Credentials gate before any start — both backends have one.** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`; the Dashboard needs `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN`. Being the *default* backend does not make the Dashboard zero-config — its init raises when either is unset. Both also need `VST_ENDPOINT`, and the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT` — never start it with placeholder values. Ask for the real values and stop until provided.
 
 Routes here: "Set up Slack notifications", "Check if alert-notify is running", "Send a test alert to Slack". Does **not** route here: "Notify me when someone enters the zone" (→ Workflow D), "Alert and notify on my phone" (ambiguous — ask).
 
