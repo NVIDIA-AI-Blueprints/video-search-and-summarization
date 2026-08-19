@@ -126,8 +126,17 @@ BLOB=$(curl -fsSL -H "Authorization: Bearer $TOK" "https://nvcr.io/v2/${REPO}/bl
 CREATED=$(echo "$BLOB" | jq -er '.created') \
   || { echo "GATE FAIL: no .created in config blob -- do not proceed"; exit 1; }
 [ -n "$CREATED" ] || { echo "GATE FAIL: empty .created -- do not proceed"; exit 1; }
-echo "$BLOB" | jq -e '.history | arrays and (length > 0)' >/dev/null \
+# Require history entries we can actually READ. A non-empty array is not enough:
+# an entry such as {} yields no created_by, jq emits nothing, and the codec count
+# below becomes 0 -- so an image whose history is entirely uninspectable would be
+# accepted exactly like one confirmed clean. Absence of evidence is not evidence.
+HIST_TOTAL=$(echo "$BLOB" | jq -r '.history | length') \
   || { echo "GATE FAIL: config blob has no usable .history -- do not proceed"; exit 1; }
+HIST_READABLE=$(echo "$BLOB" | jq -r '[.history[] | select(type=="object") | .created_by | select(type=="string" and length > 0)] | length')
+[ "${HIST_TOTAL:-0}" -gt 0 ] \
+  || { echo "GATE FAIL: config blob has an empty .history -- do not proceed"; exit 1; }
+[ "${HIST_READABLE:-0}" -eq "${HIST_TOTAL}" ] \
+  || { echo "GATE FAIL: ${HIST_READABLE}/${HIST_TOTAL} history entries are inspectable -- cannot establish provenance, do not proceed"; exit 1; }
 
 # `|| true` is required, not defensive: grep -c exits 1 when it matches nothing,
 # so under `set -e` a CODEC-FREE image -- the one this gate exists to approve --
@@ -135,16 +144,20 @@ echo "$BLOB" | jq -e '.history | arrays and (length > 0)' >/dev/null \
 # grep -c already prints 0 on no match, so echoing another produces "0\n0" and
 # breaks the numeric comparison below.
 CODEC_LAYERS=$(echo "$BLOB" | jq -r '.history[].created_by // empty' | grep -cE 'ffmpeg|libav|x264|x265' || true)
+case "${CODEC_LAYERS}" in (*[!0-9]*|"") echo "GATE FAIL: unreadable codec count (${CODEC_LAYERS})"; exit 1 ;; esac
 echo "created: ${CREATED}"
 echo "codec-installing layers: ${CODEC_LAYERS}"
 
 # ENFORCE. Printing the two values is not a gate -- a caller checking the exit
 # status would read success for a codec-bearing image. Decide here, in the script.
-FIX_EPOCH=$(date -u -d '2026-08-11' +%s)
+# First acceptable instant is the START OF THE DAY AFTER the fix merged, so a build
+# stamped anywhere on the merge day itself -- which may predate the merge commit --
+# is not accepted.
+FIX_EPOCH=$(date -u -d '2026-08-12' +%s)
 CREATED_EPOCH=$(date -u -d "${CREATED}" +%s) \
   || { echo "GATE FAIL: unparseable .created (${CREATED}) -- do not proceed"; exit 1; }
 
-if [ "${CREATED_EPOCH}" -le "${FIX_EPOCH}" ]; then
+if [ "${CREATED_EPOCH}" -lt "${FIX_EPOCH}" ]; then
   echo "GATE FAIL: build predates NVIDIA-NeMo/Gym#2376 -- do not pull ${TAG}"; exit 1
 fi
 if [ "${CODEC_LAYERS}" -ne 0 ]; then
