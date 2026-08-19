@@ -43,13 +43,14 @@ Env (set by the workflow step):
     BREV_ENV_ID           Set by Brev on the coordinator host; part of secure-link URLs
 
 Exit codes:
-    0 - all reported specs passed, or the agent reported a valid blocker
+    0 - all reported specs passed
     1 - setup error (missing env, AGENTS.md not found, sdk install failed)
     2 - agent crashed
     3 - agent hit max_turns without finishing
     4 - missing or malformed terminal protocol marker
     5 - agent completed but one or more reported specs failed
     6 - the agent's reserved work window expired before a verdict
+    7 - agent reported BLOCKED: (infra/capacity/adapter); the GHA job must fail
 """
 from __future__ import annotations
 
@@ -109,6 +110,7 @@ SKILL_EVAL_HARBOR_DEADLINE_ENV = "SKILL_EVAL_HARBOR_DEADLINE_MONOTONIC"
 _PROTOCOL_FAILURE_EXIT_CODE = 4
 _EVAL_FAILURE_EXIT_CODE = 5
 _WORK_DEADLINE_EXIT_CODE = 6
+_BLOCKED_EXIT_CODE = 7
 _DONE_RESULT_RE = re.compile(
     r"^DONE:\s*(?P<passed>\d+)\s*/\s*(?P<total>\d+)\s+"
     r"spec(?:s)?\s+passed\b"
@@ -591,9 +593,12 @@ def _last_nonempty_line(text_blocks: list[str]) -> str | None:
 def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
     """Validate the final protocol marker and return its exit code and reason.
 
-    AGENTS.md defines ``BLOCKED:`` as a valid outcome for conditions such as
-    unavailable capacity or an adapter update that needs a rerun, so it remains
-    exit 0. A completed eval is successful only when its final ``DONE:`` marker
+    AGENTS.md still requires a ``BLOCKED:`` marker for capacity or adapter
+    conditions that cannot finish the trial. That marker is a protocol
+    success for the agent, but GitHub must not treat it as a green job:
+    ``/ok to test`` re-runs have to see red until the fleet can actually
+    run the spec. Exit 7.
+    A completed eval is successful only when its final ``DONE:`` marker
     reports a positive, complete ``N/N specs passed`` result. Syntactically valid
     partial results fail with exit 5; malformed or misplaced markers fail closed
     with the existing protocol-error exit 4.
@@ -612,7 +617,7 @@ def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
                 _PROTOCOL_FAILURE_EXIT_CODE,
                 "malformed BLOCKED marker; a non-empty reason is required",
             )
-        return 0, f"reported blocker: {blocker_reason}"
+        return _BLOCKED_EXIT_CODE, f"reported blocker: {blocker_reason}"
 
     if not marker.startswith("DONE:"):
         return (

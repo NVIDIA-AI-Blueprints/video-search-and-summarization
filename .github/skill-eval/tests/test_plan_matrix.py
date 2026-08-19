@@ -510,6 +510,21 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         plan_matrix.Path.is_file = self._orig_isfile
         os.environ.pop("OPENSHELL_RTXPRO6000_ONLY", None)
 
+    def test_zero_gpu_count_stays_on_openshell(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("RTXPRO6000BW", {"gpu_count": 0}),
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "rtx-pro-6000",
+                "gpu-rtxpro6000bw",
+                "gpus-1",
+            ],
+        )
+        self.assertNotIn("ubuntu-24.04", plan_matrix.runs_on_labels(
+            "RTXPRO6000BW", {"gpu_count": 0}
+        ))
+
     def test_dedicated_labels_for_rtxpro6000(self):
         self.assertEqual(
             plan_matrix.runs_on_labels("RTXPRO6000BW", {"gpu_count": 1}),
