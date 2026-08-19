@@ -5,7 +5,7 @@
 groups = ["default", "amd64"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:c9172ac7910f7978b0cba15bb10d9657ac8a01906e23e3b66d41a93f03c0b8ef"
+content_hash = "sha256:70425f344f4720b6af71ed479f9e2b3e546697bd916237005d4125669b174e7d"
 
 [[metadata.targets]]
 requires_python = "==3.12.*"
@@ -1152,6 +1152,16 @@ files = [
 ]
 
 [[package]]
+name = "nvidia-ml-py"
+version = "13.610.43"
+summary = "Python Bindings for the NVIDIA Management Library"
+groups = ["default"]
+files = [
+    {file = "nvidia_ml_py-13.610.43-py3-none-any.whl", hash = "sha256:f13c72698edef492f985cc225f14faafe68ae065a2e407f45bdf6f4b9b43fde8"},
+    {file = "nvidia_ml_py-13.610.43.tar.gz", hash = "sha256:65437eb73d68d0c62c931ca4d45038472faff03bd0b8729abba4b899f70d60f2"},
+]
+
+[[package]]
 name = "nvtx"
 version = "0.2.11"
 summary = "PyNVTX - Python code annotation library"
@@ -1756,17 +1766,6 @@ files = [
     {file = "pymediainfo-6.1.0-py3-none-win32.whl", hash = "sha256:19e6baeca3db71f12ed568f056de899fd02f380990fb10f43a26c32b67362dd3"},
     {file = "pymediainfo-6.1.0-py3-none-win_amd64.whl", hash = "sha256:f3f6bad666c65ac993dd8d64f45a2b26ba2acd50f9875f74cebb624dbf2f8da0"},
     {file = "pymediainfo-6.1.0.tar.gz", hash = "sha256:186a0b41a94524f0984d085ca6b945c79a254465b7097f2560dc0c04e8d1d8a5"},
-]
-
-[[package]]
-name = "pynvml"
-version = "11.5.3"
-requires_python = ">=3.6"
-summary = "Python utilities for the NVIDIA Management Library"
-groups = ["default"]
-files = [
-    {file = "pynvml-11.5.3-py3-none-any.whl", hash = "sha256:a5fba3ab14febda50d19dbda012ef62ae0aed45b7ccc07af0bc5be79223e450c"},
-    {file = "pynvml-11.5.3.tar.gz", hash = "sha256:183d223ae487e5f00402d8da06c68c978ef8a9295793ee75559839c6ade7b229"},
 ]
 
 [[package]]

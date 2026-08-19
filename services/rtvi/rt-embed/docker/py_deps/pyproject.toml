@@ -13,7 +13,7 @@ dependencies = [
     "schema>=0.7.7,<0.8.0",
     "einops==0.8.0",
     "nvtx==0.2.11",
-    "pynvml==11.5.3",
+    "nvidia-ml-py==13.610.43",
     "deepspeed==0.15.1",
     "opencv-python==4.10.0.84",
     "starlette==0.50.0",
@@ -72,7 +72,9 @@ verify_ssl = true
 name = "nvidia"
 url = "https://pypi.nvidia.com"
 verify_ssl = true
-include_packages = ["tensorrt*", "cudf-*", "cuml-*", "nvidia-*"]
+# nvidia-ml-py is published on the primary PyPI index, so do not route all
+# nvidia-* names through this index.
+include_packages = ["tensorrt*", "cudf-*", "cuml-*"]
 
 [tool.pdm.resolution]
 excludes = ["torch", "torchvision", "ffmpeg", "intel-openmp", "flash_attn", "tensorrt", "triton"]

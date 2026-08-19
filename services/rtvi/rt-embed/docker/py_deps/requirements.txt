@@ -68,6 +68,7 @@ networkx==3.5
 ngcsdk==3.64.2
 ninja==1.13.0
 numpy==2.1.0
+nvidia-ml-py==13.610.43
 nvtx==0.2.11
 omegaconf==2.3.0
 onnx==1.21.0
@@ -104,7 +105,6 @@ pydantic==2.13.4
 pydantic-core==2.46.4
 pygments==2.19.2
 pymediainfo==6.1.0
-pynvml==11.5.3
 pyparsing==3.2.3
 python-dateutil==2.8.2
 python-multipart==0.0.27
