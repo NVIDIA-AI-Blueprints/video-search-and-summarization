@@ -65,6 +65,40 @@ Start from the Foundation's effective `COMPOSE_PROFILES` — read it from the
 profile's checked-in `overrides.env`, which is authoritative — and **add exactly
 one key**, `gym-eval`. Add nothing else and remove nothing.
 
+### Resolve the host placeholders when you copy it
+
+The checked-in `overrides.env` is a template. It ships **unresolved
+placeholders**:
+
+```
+VSS_APPS_DIR="/path/to/deploy/docker"
+VSS_DATA_DIR="/path/to/vss-apps-data"
+```
+
+Copy it to `_builds/<name>/override.env` and rewrite those to real absolute
+paths. Skip this and Compose cannot find the Foundation file, because the
+`-f "${VSS_APPS_DIR}/compose.yml"` above resolves against `/path/to/...`.
+
+**Rewrite them in place; do not strip and append.** Compose's dotenv loader
+resolves each entry against the shell environment and the entries parsed *so
+far*, never against later ones. `overrides.env` defines `VSS_APPS_DIR` before
+the entries that consume it — `VST_CONFIG_PATH`, `SDR_CONTROLLER_CONFIG_PATH` —
+so moving the definition to the end silently resolves those to an empty prefix.
+Nothing errors; the paths are just wrong.
+
+```bash
+sed -E \
+  -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${FOUNDATION_PROFILES},gym-eval|" \
+  -e "s|^VSS_APPS_DIR=.*|VSS_APPS_DIR=${VSS_APPS_DIR}|" \
+  -e "s|^VSS_DATA_DIR=.*|VSS_DATA_DIR=${VSS_DATA_DIR}|" \
+  "${FOUNDATION_ENV}" > "_builds/<name>/override.env"
+echo "VSS_GYM_EVAL_OUTPUT_DIR=/workspace/outputs" >> "_builds/<name>/override.env"
+```
+
+**Edit only the copy.** The checked-in `overrides.env` is never modified —
+resolving a placeholder there dirties the tree and changes the Foundation for
+everyone. Everything the delta needs lives under `_builds/<name>/`.
+
 That single-key rule is not tidiness. The comparison this skill supports is two
 eval harnesses scoring one identical stack, so any other divergence from the
 Foundation is a confound in every score reported — and a silent one, because
