@@ -31,6 +31,7 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
         if relative_path.endswith("skills-eval.yml"):
             assert 'export PATH="/usr/local/bin:$skill_eval_venv_dir/bin:$PATH"' in workflow
             assert "Assert OpenShell GPU runtime" in workflow
+            assert "uv tool run" in workflow
 
 
 def test_ci_executes_harness_contracts_on_production_python() -> None:
