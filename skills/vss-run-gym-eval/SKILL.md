@@ -72,13 +72,14 @@ before trusting a number.
 |---|---|
 | A running VSS deployment, or a Foundation profile you can deploy | `docker ps --format '{{.Names}}' \| grep -qx vss-agent` |
 | `VSS_APPS_DIR` set to the repo's `deploy/docker` | `test -d "${VSS_APPS_DIR}/developer-profiles"` |
-| A **post-#2376** `nemo-gym` image tag — see the gate below | `references/delta.md` |
-| NGC credentials for image pulls | `test -n "${NGC_CLI_API_KEY}"` |
+| A **post-#2376** `nemo-gym` image tag | run the image gate in the next section; it exits non-zero on a tag that fails |
+| NGC credentials — for pulling the image once a tag passes the gate, not for the gate itself | `test -n "${NGC_CLI_API_KEY}"` |
 
 ## ⛔ Image gate — check this before pulling anything
 
-The published `nvcr.io/nvidia/eval-factory/nemo-gym:26.05` was built 2026-06-03
-and **predates [NVIDIA-NeMo/Gym#2376](https://github.com/NVIDIA-NeMo/Gym/pull/2376)**
+The published `nvcr.io/nvidia/eval-factory/nemo-gym:26.05` records a build date of
+2026-06-01 in its config blob (NGC lists a later *push* date; the gate reads the
+recorded build, which is the one that matters) and **predates [NVIDIA-NeMo/Gym#2376](https://github.com/NVIDIA-NeMo/Gym/pull/2376)**
 (merged 2026-08-11), which removes bundled royalty-bearing codec binaries. Its
 layer history still `apt-get install`s ffmpeg, so it carries the libraries
 `.github/scripts/check_no_patented_codecs.py` forbids in VSS containers.
@@ -91,7 +92,10 @@ image never touches the host:
 ```bash
 REPO=nvidia/eval-factory/nemo-gym
 TAG="${VSS_GYM_EVAL_TAG:?set the tag explicitly; there is deliberately no default}"
-TOK=$(curl -fsS "https://nvcr.io/proxy_auth?scope=repository:${REPO}:pull" | jq -er .token) || { echo "GATE FAIL: could not authenticate to nvcr.io"; exit 1; }
+# Anonymous pull-scope token: this repository is publicly readable, and the gate
+# only ever reads metadata. No NGC credential is needed to RUN THE GATE -- one is
+# needed later to pull the image, once a tag passes.
+TOK=$(curl -fsS "https://nvcr.io/proxy_auth?scope=repository:${REPO}:pull" | jq -er .token) || { echo "GATE FAIL: could not obtain a registry token"; exit 1; }
 
 # 1. manifest list -> the linux/amd64 manifest
 AMD=$(curl -fsS -H "Authorization: Bearer $TOK" \
@@ -187,6 +191,16 @@ tool, not a VSS product image: it lives outside the four
 | Evaluate with no deployment running | Deploy the Foundation first via `vss-build-vision-agent` or `vss-deploy-profile`, then return here. |
 | "Add Gym to a profile" / "create a gym profile" | **Stop.** This skill never adds a profile or a shipped service. The runner is a delta in `_builds/<name>/`, which is gitignored and never a Compose profile. |
 | A tag that predates Gym#2376 is the only one available | Stop at the image gate above and report it. |
+
+## When not to use this skill
+
+| Situation | Use instead |
+|---|---|
+| You want VSS's own evaluation result, or a `passed / total` figure comparable to CI | The existing skill-eval in `.github/skill-eval/`. This skill's reward is a different quantity — see the warning above. |
+| You want to evaluate the CI skill-eval corpus through Gym | Not supported. Those tasks are shell execution in a sandbox; see the scope note in `references/run.md`. |
+| You want to add Gym to a profile, or a `gym-eval` service to a compose file | Neither is done. The runner is a runtime delta under `_builds/`, never a profile or a shipped service. |
+| No VSS deployment is running | Deploy one first via `vss-build-vision-agent` or `vss-deploy-profile`, then return. |
+| The only available image tag fails the gate | Stop and report it. Do not pull it, and do not weaken the gate to proceed. |
 
 ## Foundation selection
 

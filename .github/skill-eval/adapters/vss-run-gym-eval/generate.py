@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Generate Harbor tasks for the vss-eval-with-gym skill.
+"""Generate Harbor tasks for the vss-run-gym-eval skill.
 
-The vss-eval-with-gym skill scores a VSS deployment with NVIDIA NeMo Gym.
+The vss-run-gym-eval skill scores a VSS deployment with NVIDIA NeMo Gym.
 Its eval specs exercise two offline capabilities that require NO running
 deployment and NO GPU:
 
@@ -28,15 +28,15 @@ Directory layout:
         tests/<spec_name>              (the spec JSON)
         tests/generic_judge.py
         solution/solve.sh
-        skills/vss-eval-with-gym/      (full skill copy)
+        skills/vss-run-gym-eval/      (full skill copy)
         skills/vss-deploy-profile/     (optional, for agent context)
         environment/Dockerfile
 
 Usage from the repository root:
-    python3 .github/skill-eval/adapters/vss-eval-with-gym/generate.py \\
+    python3 .github/skill-eval/adapters/vss-run-gym-eval/generate.py \\
         --output-dir /tmp/skill-eval/datasets/<leg-slug>/<run_id> \\
-        --skill-dir skills/vss-eval-with-gym \\
-        --spec skills/vss-eval-with-gym/evals/delta_adds_only_the_runner.json \\
+        --skill-dir skills/vss-run-gym-eval \\
+        --spec skills/vss-run-gym-eval/evals/delta_adds_only_the_runner.json \\
         --platform ANY
 """
 from __future__ import annotations
@@ -87,7 +87,7 @@ def generate_test_script(step: int, spec_name: str) -> str:
     single step's checks. Harbor reads /logs/verifier/reward.txt."""
     return (
         "#!/bin/bash\n"
-        f"# vss-eval-with-gym verifier (step {step}): delegates to the generic\n"
+        f"# vss-run-gym-eval verifier (step {step}): delegates to the generic\n"
         "# LLM-as-judge (.github/skill-eval/verifiers/generic_judge.py).\n"
         "set -uo pipefail\n"
         "\n"
@@ -106,7 +106,7 @@ def generate_solve_script(platform: str, spec_stem: str) -> str:
     verifier."""
     return (
         "#!/bin/bash\n"
-        f"# Gold solution: vss-eval-with-gym/{spec_stem} on {platform}\n"
+        f"# Gold solution: vss-run-gym-eval/{spec_stem} on {platform}\n"
         "# These specs exercise offline operations (delta composition,\n"
         "# image-gate checking). The verifier drives evaluation directly.\n"
         "set -euo pipefail\n"
@@ -148,9 +148,9 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         meta_lines = [
             "[task]",
-            f'name = "nvidia-vss/vss-eval-with-gym-base-{platform_short}{step_suffix}"',
-            f'description = "vss-eval-with-gym query {idx}/{len(expects)} on {platform}"',
-            f'keywords = ["vss-eval-with-gym", "nemo-gym", "base", "{platform}"]',
+            f'name = "nvidia-vss/vss-run-gym-eval-base-{platform_short}{step_suffix}"',
+            f'description = "vss-run-gym-eval query {idx}/{len(expects)} on {platform}"',
+            f'keywords = ["vss-run-gym-eval", "nemo-gym", "base", "{platform}"]',
             "",
             "[agent]",
             "timeout_sec = 600.0",
@@ -164,7 +164,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
             "",
             "[metadata]",
-            f'skill = "vss-eval-with-gym"',
+            f'skill = "vss-run-gym-eval"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'gpu_count = {pspec["gpu_count"]}',
@@ -205,9 +205,9 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             generate_solve_script(platform, spec_stem)
         )
 
-        # skills/ — include vss-eval-with-gym + deploy-profile (for context)
+        # skills/ — include vss-run-gym-eval + deploy-profile (for context)
         for src, name in (
-            (skill_dir, "vss-eval-with-gym"),
+            (skill_dir, "vss-run-gym-eval"),
             (deploy_skill_dir, "vss-deploy-profile"),
         ):
             if src and src.exists():
@@ -232,7 +232,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--skill-dir", required=True,
-        help="Path to skills/vss-eval-with-gym",
+        help="Path to skills/vss-run-gym-eval",
     )
     parser.add_argument(
         "--deploy-skill-dir", default=None,
@@ -300,7 +300,7 @@ def main() -> None:
     print()
     for plat in platforms:
         task_id = PLATFORMS[plat]["short_name"]
-        print(f"  GEN  vss-eval-with-gym/base/{task_id}")
+        print(f"  GEN  vss-run-gym-eval/base/{task_id}")
         generate_task(plat, spec, output_root, skill_dir, deploy_skill_dir)
     print()
     print(f"Generated {len(platforms)} task(s) under {output_root}/base/")
