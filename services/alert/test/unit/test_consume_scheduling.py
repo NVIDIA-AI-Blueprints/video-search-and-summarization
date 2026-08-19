@@ -146,7 +146,7 @@ class TestMultiProcessRequiresEventLoop:
 
 
 class TestSeedingFollowsStoreSharing:
-    """Seeding once per instance only works when the store is shared.
+    """Seeding ahead of a process only works when the store is shared.
 
     With persistence disabled every process owns a private in-memory store, so
     a child that skipped seeding would raise on every prompt lookup for its
@@ -169,15 +169,15 @@ class TestSeedingFollowsStoreSharing:
         # Matches the factory default, which is Elasticsearch-backed.
         assert self._shared(config) is True
 
-    @pytest.mark.parametrize("leader,shared,expected", [
-        (True, True, True),      # the one seeder for a shared store
-        (False, True, False),    # peers leave the shared store alone
+    @pytest.mark.parametrize("seed_shared,shared,expected", [
+        (True, True, True),      # single process: nobody seeded ahead of it
+        (False, True, False),    # a supervisor already wrote the shared store
         (True, False, True),
-        (False, False, True),    # its own store, so it must seed it itself
+        (False, False, True),    # private store, so it must write its own
     ])
-    def test_who_seeds(self, leader, shared, expected):
+    def test_who_seeds(self, seed_shared, shared, expected):
         config = {"persistence": {"enabled": shared}}
-        assert (leader or not self._shared(config)) is expected
+        assert (seed_shared or not self._shared(config)) is expected
 
 
 class TestWorkerPoolIsNeeded:

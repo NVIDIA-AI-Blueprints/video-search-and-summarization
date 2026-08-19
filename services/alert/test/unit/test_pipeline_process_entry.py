@@ -28,7 +28,7 @@ def built():
     """Capture the instance_leader each child would construct itself with."""
     seen = []
 
-    def fake_enhancer(config_path, instance_leader=True):
+    def fake_enhancer(config_path, instance_leader=True, seed_shared_store=True):
         seen.append(instance_leader)
         return MagicMock()
 
@@ -49,10 +49,9 @@ def enhancer():
 
 
 class TestInstanceLeaderElection:
-    """Prompt seeding and the verdict reaper are per instance, not per pipeline.
+    """The verdict reaper is per instance, not per pipeline.
 
-    Running them in every child multiplies writes against a shared
-    Elasticsearch and defeats the reaper's own request-rate throttle.
+    Running it in every child defeats the reaper's own request-rate throttle.
     """
 
     def test_child_zero_leads(self, built):
@@ -155,69 +154,30 @@ class TestInstanceReadiness:
         assert any("not ready within" in r.getMessage() for r in caplog.records)
 
 
-class TestSeedingGatesConsumption:
-    """Only child 0 seeds the prompt store, and it seeds while building.
+class TestSeedingHappensBeforeAnyChild:
+    """The prompt store is written by the supervisor, not by a child.
 
-    A follower builds faster because it skips that write, so left alone it can
-    consume its partitions against a store the leader has not filled yet and
-    fail every lookup as having no prompt.
+    Only one child used to seed, and it seeded while building its own
+    pipeline. The children that skipped that write finished building first, so
+    they could start reading a store nobody had filled yet and fail every
+    lookup as having no prompt.
     """
 
-    def test_the_leader_signals_once_its_pipeline_is_built(self, enhancer):
-        enhancer.source.await_ready.return_value = True
-        seeded = MagicMock()
-        seeded.is_set.return_value = False
+    def test_the_supervisor_seeds(self):
+        with patch("handlers.prompt_handler.prompt_manager.PromptManager") as manager:
+            entry.seed_prompt_store("config.yaml")
+        manager.assert_called_once_with("config.yaml", seed_prompts=True)
 
-        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 2, None, seeded)
+    def test_a_failure_to_seed_is_fatal(self):
+        # Serving traffic against a store that may be empty drops events
+        # silently, which is worse than refusing to start.
+        with patch("handlers.prompt_handler.prompt_manager.PromptManager",
+                   side_effect=RuntimeError("ES unreachable")):
+            with pytest.raises(RuntimeError, match="ES unreachable"):
+                entry.seed_prompt_store("config.yaml")
 
-        seeded.set.assert_called_once()
-
-    def test_a_follower_never_signals(self, enhancer):
-        enhancer.source.await_ready.return_value = True
-        seeded = MagicMock()
-        seeded.is_set.return_value = True
-
-        entry._run_pipeline_process("config.yaml", 1, os.getpid(), 2, None, seeded)
-
-        seeded.set.assert_not_called()
-
-    def test_a_follower_waits_before_consuming(self, enhancer):
-        enhancer.source.await_ready.return_value = True
-        order = MagicMock()
-        seeded = MagicMock()
-        seeded.is_set.return_value = False
-        seeded.wait = order.wait
-        order.wait.return_value = True
-        enhancer.process_anomalies = order.process_anomalies
-
-        entry._run_pipeline_process("config.yaml", 1, os.getpid(), 2, None, seeded)
-
-        assert [c[0] for c in order.mock_calls] == ["wait", "process_anomalies"]
-
-    def test_an_already_seeded_store_is_not_waited_on(self, enhancer):
-        enhancer.source.await_ready.return_value = True
-        seeded = MagicMock()
-        seeded.is_set.return_value = True
-
-        entry._run_pipeline_process("config.yaml", 2, os.getpid(), 3, None, seeded)
-
-        seeded.wait.assert_not_called()
-
-    def test_a_follower_consumes_anyway_once_the_wait_expires(self, enhancer, caplog):
-        import logging
-        enhancer.source.await_ready.return_value = True
-        seeded = MagicMock()
-        seeded.is_set.return_value = False
-        seeded.wait.return_value = False        # never seeded
-
-        with caplog.at_level(logging.ERROR):
-            entry._run_pipeline_process("config.yaml", 1, os.getpid(), 2, None, seeded)
-
-        # A stalled partition is worse than a stale prompt, so it proceeds.
-        enhancer.process_anomalies.assert_called_once()
-        assert any("gave up waiting" in r.getMessage() for r in caplog.records)
-
-    def test_a_single_process_run_has_nothing_to_wait_for(self, enhancer):
-        enhancer.source.await_ready.return_value = True
-        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, None, None)
-        enhancer.process_anomalies.assert_called_once()
+    def test_children_do_not_seed_the_shared_store(self, built):
+        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 2)
+        # `built` records instance_leader; the seeding flag is asserted here
+        # against the constructor call itself.
+        assert entry.AnomalyEnhancer.call_args.kwargs["seed_shared_store"] is False

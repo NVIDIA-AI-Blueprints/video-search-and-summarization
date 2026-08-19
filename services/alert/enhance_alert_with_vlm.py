@@ -91,10 +91,6 @@ _PLUGGABLE_PARSER_ERROR_STATUS = PLUGGABLE_PARSER_ERROR_STATUS
 # of them contend on Elasticsearch. Only bounds how long readiness is awaited;
 # a child that arrives later still runs and still serves its partitions.
 READINESS_TIMEOUT_SECONDS = 600.0
-
-# How long a follower waits for the seeding process before consuming anyway.
-# Bounded because stale prompts beat a partition nobody is draining.
-SEED_TIMEOUT_SECONDS = 300.0
 from handlers.enrichment import EnrichmentProcessor
 from handlers.direct_media import DirectMediaHandler
 from handlers.async_dispatch_mixin import (
@@ -207,6 +203,18 @@ def pipeline_mode_from_config(config: dict) -> str:
     return resolve_pipeline_mode(raw_mode, bool(async_io_cfg.get("enabled", False)))
 
 
+def seed_prompt_store(config_path: str) -> None:
+    """Write the startup prompts once, from the supervising process.
+
+    Builds nothing but the PromptManager, which reaches Elasticsearch and not
+    Kafka, so the parent still never joins the consumer group.
+    """
+    from handlers.prompt_handler.prompt_manager import PromptManager
+
+    logger.info("Seeding the prompt store before starting pipeline processes")
+    PromptManager(config_path, seed_prompts=True)
+
+
 def _alert_config_store_is_shared(config: dict) -> bool:
     """Whether every process sees the same alert-config store.
 
@@ -222,16 +230,19 @@ class AnomalyEnhancer(
     AsyncVLMModeMixin,
     EventLoopPipelineMixin,
 ):
-    def __init__(self, config_file="config.yaml", instance_leader: bool = True):
+    def __init__(self, config_file="config.yaml", instance_leader: bool = True,
+                 seed_shared_store: bool = True):
         """Build one complete pipeline.
 
-        ``instance_leader`` marks the single process responsible for work that
-        belongs to the instance rather than to a pipeline: writing the seeded
-        prompts and running the verdict-retention reaper. Every concurrency
-        knob is per process by design, but these are not knobs — running them
-        in each child would multiply writes against a shared Elasticsearch and
-        defeat the retention job's own request-rate throttle. Defaults to True
-        so a single-process deployment is unchanged.
+        ``instance_leader`` marks the single process responsible for the
+        verdict-retention reaper, which belongs to the instance rather than to
+        a pipeline: running it in each child would defeat its own
+        request-rate throttle. Defaults to True so a single-process
+        deployment is unchanged.
+
+        ``seed_shared_store`` is cleared for a pipeline whose supervisor has
+        already written the prompts, which is how a multi-process instance
+        seeds once before any child can read.
         """
         self.instance_leader = instance_leader
         self.config = self.load_config(config_file)
@@ -259,13 +270,13 @@ class AnomalyEnhancer(
         # sink would have no live source for output_category and would
         # silently use the startup file mapping instead.
         from handlers.prompt_handler.prompt_manager import PromptManager
-        # Seeding once per instance only works when the store is shared. With
-        # persistence disabled every process owns a private in-memory store, so
-        # a child that skipped seeding would raise on every prompt lookup for
-        # its partitions -- there is no file fallback behind the store.
+        # A store that is not shared cannot be seeded ahead of this process:
+        # with persistence disabled every process owns a private in-memory
+        # copy, so each has to write its own or every prompt lookup for its
+        # partitions raises -- there is no file fallback behind the store.
         self.prompt_manager = PromptManager(
             config_file,
-            seed_prompts=instance_leader or not _alert_config_store_is_shared(self.config),
+            seed_prompts=seed_shared_store or not _alert_config_store_is_shared(self.config),
         )
         logger.info("PromptManager initialized successfully")
 
@@ -2546,28 +2557,8 @@ def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -
     )
 
 
-def _await_seeded_prompts(index: int, seeded_event: Optional[Any]) -> None:
-    """Hold a follower until the seeding process has written the prompt store.
-
-    Only child 0 seeds, and it seeds while building its pipeline. A follower
-    builds faster because it skips that write, so without this it can consume
-    its partitions against a store the leader has not filled yet and fail
-    every lookup as having no prompt.
-    """
-    if seeded_event is None or seeded_event.is_set():
-        return
-    logger.info("Pipeline process %d waiting for the prompt store to be seeded", index)
-    if not seeded_event.wait(SEED_TIMEOUT_SECONDS):
-        logger.error(
-            "Pipeline process %d gave up waiting %.0fs for seeded prompts and is "
-            "consuming anyway; lookups may fail until the store is written",
-            index, SEED_TIMEOUT_SECONDS,
-        )
-
-
 def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process_count: int = 1,
-                          ready_event: Optional[Any] = None,
-                          seeded_event: Optional[Any] = None) -> None:
+                          ready_event: Optional[Any] = None) -> None:
     """Child entry point: one independent consume + dispatch stack."""
     _exit_when_parent_dies(parent_pid)
 
@@ -2582,12 +2573,8 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         # Child 0 owns the work that belongs to the instance rather than to a
         # pipeline. If it dies the supervisor replaces it and the jobs resume
         # with it; the others never start them.
-        enhancer = AnomalyEnhancer(config_path, instance_leader=(index == 0))
-        if index == 0 and seeded_event is not None:
-            # Construction is where seeding happens, so reaching here means the
-            # store is written. Set before the group join so the followers are
-            # not held behind it.
-            seeded_event.set()
+        enhancer = AnomalyEnhancer(config_path, instance_leader=(index == 0),
+                                   seed_shared_store=False)
         # Construction is where children contend on Elasticsearch, and it can
         # take tens of seconds with several of them; the group join then adds
         # its own. Both have to finish before this child counts as ready, or
@@ -2605,7 +2592,6 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
             ready_event.set()
         if index == 0:
             _log_instance_concurrency(enhancer, process_count)
-        _await_seeded_prompts(index, seeded_event)
         enhancer.process_anomalies()
     except SystemExit:
         pass
@@ -2616,11 +2602,10 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
 
 
 def _start_pipeline_process(config_path: str, index: int, process_count: int,
-                            ready_event: Optional[Any] = None,
-                            seeded_event: Optional[Any] = None) -> Process:
+                            ready_event: Optional[Any] = None) -> Process:
     process = Process(
         target=_run_pipeline_process,
-        args=(config_path, index, os.getpid(), process_count, ready_event, seeded_event),
+        args=(config_path, index, os.getpid(), process_count, ready_event),
         name=f"ab-pipeline-{index}",
     )
     process.start()
@@ -2661,14 +2646,10 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
     if on_ready is not None:
         _announce_when_all_ready(ready_events, on_ready)
 
-    # Latched, not per slot: once the store is seeded it stays seeded, so a
-    # child 0 replaced later must not make the followers wait again.
-    seeded_event = ProcessEvent()
-
     _pipeline_supervisor = ProcessSupervisor(
         count=process_count,
         spawn=lambda index: _start_pipeline_process(
-            config_path, index, process_count, ready_events[index], seeded_event
+            config_path, index, process_count, ready_events[index]
         ),
         on_exit=_mark_prometheus_process_dead,
     )
@@ -2797,6 +2778,15 @@ if __name__ == "__main__":
             # only after the topic-init container completes, while on
             # Kubernetes the topics come from a Job that races this Deployment.
             source_partitions = await_source_partitions(pipeline_config, process_count)
+
+            # Seed the prompt store here, before a child exists to consume
+            # against it. Only the seeding process wrote it before, and it
+            # wrote while building its own pipeline, so the children that
+            # skipped that write finished building first and could start
+            # reading a store nobody had filled. Fatal on failure: an event
+            # with no prompt is dropped, so serving traffic without a
+            # confirmed store is worse than not starting.
+            seed_prompt_store(args.config)
 
         if not multi_process:
             enhancer = AnomalyEnhancer(args.config)
