@@ -40,8 +40,10 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 
 | Variable | Purpose |
 |---|---|
-| `SKILLS_EVAL_PROVIDER` | Agent provider selected by manual CI: `nvidia-inference` (default) or `nvidia-build` |
-| `SKILLS_EVAL_MODEL` | Model used by the agent under evaluation; optional for the default provider and required for NVIDIA Build |
+| `SKILLS_EVAL_PROVIDER` | Agent provider selected by manual CI: `nvidia-inference` (default), `nvidia-build`, or `custom` |
+| `SKILLS_EVAL_MODEL` | Model used by the agent under evaluation; optional for the default provider and required for NVIDIA Build or a custom endpoint |
+| `SKILLS_EVAL_ENDPOINT_URL` | Endpoint for `custom`; it must implement the protocol expected by the selected runtime |
+| `SKILLS_EVAL_API_KEY` | API key for `custom`; can also override the provider-specific key for the evaluated agent |
 | `ANTHROPIC_API_KEY` | Claude coordinator, default agent provider, and Harbor judge authentication |
 | `ANTHROPIC_BASE_URL` | Default NVIDIA inference API base (e.g. `https://inference-api.nvidia.com`) |
 | `ANTHROPIC_MODEL` | Existing Claude coordinator and Harbor judge model; also the default evaluated-agent model |

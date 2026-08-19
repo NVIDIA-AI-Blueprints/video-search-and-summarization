@@ -13,12 +13,13 @@ RUNTIMES = ("claude-code", "codex", "nemoclaw")
 PROVIDERS = (
     "nvidia-inference",
     "nvidia-build",
+    "custom",
 )
 
 _COMPATIBLE_PROVIDERS = {
-    "claude-code": {"nvidia-inference"},
-    "codex": {"nvidia-inference"},
-    "nemoclaw": {"nvidia-inference", "nvidia-build"},
+    "claude-code": {"nvidia-inference", "custom"},
+    "codex": {"nvidia-inference", "custom"},
+    "nemoclaw": {"nvidia-inference", "nvidia-build", "custom"},
 }
 
 
@@ -104,6 +105,9 @@ def resolve_model_config(
             env.get("SKILLS_EVAL_API_KEY"),
             env.get("NVIDIA_API_KEY"),
         )
+    else:
+        endpoint_url = _first(env.get("SKILLS_EVAL_ENDPOINT_URL"))
+        api_key = _first(env.get("SKILLS_EVAL_API_KEY"))
     if provider != "nvidia-build" and not endpoint_url:
         raise ValueError(f"SKILLS_EVAL_ENDPOINT_URL is required for {provider}")
     if not api_key:

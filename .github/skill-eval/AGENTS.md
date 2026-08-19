@@ -598,8 +598,10 @@ other runtime, NemoClaw leaves worker selection and locking to `run_leg.py`.
 `SKILLS_EVAL_PROVIDER` and optional `SKILLS_EVAL_MODEL` select the model used
 by that Harbor agent. They do not change the Claude model driving this outer
 CI coordinator or the Harbor judge, which continue to use `ANTHROPIC_*`.
-`nvidia-build` is supported only with `EVAL_AGENT=nemoclaw`; the default
-`nvidia-inference` provider preserves the current model when
+`nvidia-build` is supported only with `EVAL_AGENT=nemoclaw`. `custom` requires
+`SKILLS_EVAL_ENDPOINT_URL`, `SKILLS_EVAL_API_KEY`, and `SKILLS_EVAL_MODEL`; its
+endpoint must implement the protocol expected by the selected runtime. The
+default `nvidia-inference` provider preserves the current model when
 `SKILLS_EVAL_MODEL` is unset.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch

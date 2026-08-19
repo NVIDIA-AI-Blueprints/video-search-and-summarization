@@ -468,6 +468,7 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertIn('default: "claude-code"', workflow)
         self.assertIn('default: "nvidia-inference"', workflow)
         self.assertIn("nvidia-build", workflow)
+        self.assertIn("custom", workflow)
         self.assertIn("SKILLS_EVAL_MODEL_INPUT", workflow)
         self.assertIn("model_config.py", workflow)
         self.assertIn("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}", eval_job)

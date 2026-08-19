@@ -1286,6 +1286,9 @@ def run_invocations(
     if agent == "codex":
         env["OPENAI_API_KEY"] = model_config.api_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
+    elif agent == "claude-code":
+        env["ANTHROPIC_API_KEY"] = model_config.api_key
+        env["ANTHROPIC_BASE_URL"] = base_url
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;

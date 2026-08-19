@@ -725,6 +725,57 @@ class RunInvocations(unittest.TestCase):
             ),
         )
 
+    def test_claude_code_uses_selected_custom_provider_credentials(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/spec"),
+            include_task_name="task",
+            chain_key="spec",
+        )
+        selected = {
+            "SKILLS_EVAL_PROVIDER": "custom",
+            "SKILLS_EVAL_MODEL": "custom-model",
+            "SKILLS_EVAL_ENDPOINT_URL": "https://models.example.test",
+            "SKILLS_EVAL_API_KEY": "custom-key",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, selected, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg,
+                    "build_harbor_command",
+                    return_value=["harbor"],
+                ) as build,
+                mock.patch.object(
+                    run_leg,
+                    "run_command",
+                    return_value=0,
+                ) as execute,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            build.call_args.args[2:],
+            ("custom-model", "https://models.example.test", "claude-code"),
+        )
+        command_env = execute.call_args.args[1]
+        self.assertEqual(command_env["ANTHROPIC_API_KEY"], "custom-key")
+        self.assertEqual(
+            command_env["ANTHROPIC_BASE_URL"],
+            "https://models.example.test",
+        )
+
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [
             run_leg.HarborInvocation(
