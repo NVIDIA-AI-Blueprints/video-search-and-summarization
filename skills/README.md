@@ -98,6 +98,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](vss-setup-video-analytics-api/SKILL.md) |
+| Score a deployment with NeMo Gym, or compare that against VSS's own eval | [`vss-run-gym-eval`](vss-run-gym-eval/SKILL.md) |
 
 **Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence; the catalog below is grouped by layer so you can see what's adjacent.
 
@@ -141,6 +142,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
 | [vss-query-analytics](vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
+| [vss-run-gym-eval](vss-run-gym-eval/SKILL.md) | Score a running deployment with NVIDIA NeMo Gym, producing a scalar reward per task, and compare that against VSS's own eval harness on one identical stack. Composes the eval runner as a runtime delta; never adds a profile or a shipped service. |
 
 ### Middleware
 | Skill | Description |

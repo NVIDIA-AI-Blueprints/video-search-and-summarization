@@ -1,0 +1,25 @@
+{
+  "skills": [
+    "vss-run-gym-eval"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Using the `vss-run-gym-eval` skill, check whether the NeMo Gym evaluation image tag `26.05` is safe to use, and report the result. Do not deploy anything and do not pull the image. Run autonomously.\n\n**Environment & prerequisites:** network access to `nvcr.io` is required; `curl` and `jq` must be available. The skill's image gate reads the manifest list, the platform manifest, and the image config blob — roughly 20 KB — and never pulls an image layer. A tag is acceptable only when its recorded build date is on or after the codec-removal cutoff the gate encodes AND no layer in its recorded history installs a codec package. Take the cutoff from the gate in `skills/vss-run-gym-eval/SKILL.md`; do not assume one.",
+      "checks": [
+        "The final reply states that tag 26.05 FAILS the gate and must not be pulled or run",
+        "**The agent actually ran the gate rather than reciting the documentation.** The trajectory shows real network calls to the registry — a token/auth request and GETs against `nvcr.io` resolving the manifest list, then the platform manifest, then the config blob — and the values reported in the final reply were read out of that fetched blob. SKILL.md states the expected result for this exact tag in prose, so an agent can produce every correct number without ever touching the registry: if the trajectory contains no registry fetch, this check FAILS even though the reported values are correct.",
+        "The creation date in the final reply matches the `.created` field of the config blob fetched in the trajectory (2026-06-01), and the agent states that this falls before the codec-removal cutoff encoded in the gate.",
+        "The final reply reports at least one layer in the fetched image history that installs a codec package, and identifies it by quoting or paraphrasing that layer's actual `created_by` text from the fetched blob (ffmpeg or libav or x264 or x265).",
+        "The image was never pulled: `docker images --format '{{.Repository}}' | grep -q nemo-gym` returns exit 1, AND the trajectory contains no `docker pull`, `docker run`, or `docker create` against any nemo-gym image reference.",
+        "The final reply does not recommend proceeding with the evaluation using this tag"
+      ]
+    }
+  ]
+}
