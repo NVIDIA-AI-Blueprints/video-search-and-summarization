@@ -595,6 +595,13 @@ dispatch. The only runtime-specific pieces are its Harbor agent adapter and
 the Brev environment that executes the checked-in setup notebooks. Like every
 other runtime, NemoClaw leaves worker selection and locking to `run_leg.py`.
 
+`SKILLS_EVAL_PROVIDER` and optional `SKILLS_EVAL_MODEL` select the model used
+by that Harbor agent. They do not change the Claude model driving this outer
+CI coordinator or the Harbor judge, which continue to use `ANTHROPIC_*`.
+`nvidia-build` is supported only with `EVAL_AGENT=nemoclaw`; the default
+`nvidia-inference` provider preserves the current model when
+`SKILLS_EVAL_MODEL` is unset.
+
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
 path; concurrent legs share the host. `$RES` is the Harbor `-o` root
