@@ -204,12 +204,15 @@ jobs:
       - name: Assert OpenShell GPU runtime
         if: startsWith(runner.name, 'vss-skill-eval-gpu-rtxpro6000-')
         run: |
-          export PATH="/usr/local/bin:$PATH"
-          # A symlink uvx -> uv makes `uvx --python` fail (full uv CLI).
-          # Harbor/GHA call `uvx --python` and `uvx --version`.
-          if [ -x /usr/local/bin/uv ]; then
-            if [ -L /usr/local/bin/uvx ] || [ ! -x /usr/local/bin/uvx ]; then
-              sudo -n tee /usr/local/bin/uvx >/dev/null <<'EOF'
+          export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+          # Harbor/GHA call `uvx --python` and `uvx --version`. A symlink
+          # uvx -> uv exposes the full uv CLI and those flags fail.
+          # The GHA workload namespace is often no_new_privs, so sudo cannot
+          # rewrite /usr/local/bin. Install a user-local wrapper whenever PATH
+          # uvx is missing, a symlink, or not `uv tool run`.
+          install_uvx_wrapper() {
+            mkdir -p "$HOME/.local/bin"
+            cat > "$HOME/.local/bin/uvx" <<'EOF'
 #!/bin/sh
 case "${1-}" in
   --version|-V) exec /usr/local/bin/uv --version ;;
@@ -217,8 +220,17 @@ case "${1-}" in
 esac
 exec /usr/local/bin/uv tool run "$@"
 EOF
-              sudo -n chmod 0755 /usr/local/bin/uvx
-            fi
+            chmod 0755 "$HOME/.local/bin/uvx"
+          }
+          need_wrapper=0
+          if [ ! -x /usr/local/bin/uvx ] || [ -L /usr/local/bin/uvx ]; then
+            need_wrapper=1
+          elif ! command -v uvx >/dev/null || ! uvx --help 2>/dev/null | grep -q -- --from; then
+            need_wrapper=1
+          fi
+          if [ "$need_wrapper" = 1 ] && [ -x /usr/local/bin/uv ]; then
+            install_uvx_wrapper
+            hash -r
           fi
           command -v uvx
           uvx --version
