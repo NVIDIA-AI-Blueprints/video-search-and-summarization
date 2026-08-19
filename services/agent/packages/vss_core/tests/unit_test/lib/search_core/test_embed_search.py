@@ -3,8 +3,8 @@
 """Contract tests for lib.search_core.primitives.EmbedSearch.
 
 Locks in the behaviors that /api/v1/embed_search depends on:
-  - index selection by source_type (video_file → configured index;
-    rtsp → wildcard list excluding configured index)
+  - both source types query the embed wildcard; source_type partitions
+    positively via a sensor.type document filter (not index-name arithmetic)
   - text queries are the only supported embedding source
   - hits without an `llm` field are skipped
   - min_cosine_similarity threshold (cosine = 2*_score - 1, rounded to 2dp)
@@ -122,7 +122,6 @@ def make_search():
             es=es,
             embed=embed,
             vst=vst,
-            video_embed_index="video_embeddings",
             video_embed_index_wildcard=index_wildcard,
             default_max_results=10,
         )
@@ -136,17 +135,19 @@ def make_search():
 
 class TestEmbedSearchContract:
     @pytest.mark.asyncio
-    async def test_video_file_uses_configured_index(self, make_search):
+    async def test_video_file_queries_wildcard_and_filters_video(self, make_search):
         e, es, _embed, _vst = make_search()
         out = await e.run(EmbedSearchInput(query="red car", source_type="video_file"))
-        assert es.last_index == "video_embeddings"
+        assert es.last_index == "mdx-embed-filtered-*"
+        assert {"term": {"sensor.type.keyword": "Video"}} in es.last_body["query"]["bool"]["filter"]
         assert len(out.results) == 1  # h2 (no llm) skipped
 
     @pytest.mark.asyncio
-    async def test_rtsp_uses_wildcard_with_exclusion(self, make_search):
+    async def test_rtsp_queries_wildcard_and_filters_camera(self, make_search):
         e, es, _embed, _vst = make_search()
         await e.run(EmbedSearchInput(query="person", source_type="rtsp"))
-        assert es.last_index == ["mdx-embed-filtered-*", "-video_embeddings"]
+        assert es.last_index == "mdx-embed-filtered-*"
+        assert {"term": {"sensor.type.keyword": "Camera"}} in es.last_body["query"]["bool"]["filter"]
 
     @pytest.mark.asyncio
     async def test_missing_llm_key_is_skipped(self, make_search):
@@ -362,10 +363,12 @@ class TestEmbedSearchQueryShape:
         assert _knn(es.last_body)["k"] == 10
 
     @pytest.mark.asyncio
-    async def test_top_k_without_filters_uses_top_k(self, make_search):
+    async def test_source_type_filter_triggers_overfetch(self, make_search):
+        # Every embed query now carries a positive sensor.type filter, which may
+        # discard KNN hits, so a set top_k always overfetches (top_k * 5).
         e, es, _embed, _vst = make_search()
         await e.run(EmbedSearchInput(query="q", source_type="video_file", top_k=3))
-        assert _knn(es.last_body)["k"] == 3
+        assert _knn(es.last_body)["k"] == 15
 
     @pytest.mark.asyncio
     async def test_top_k_overfetches_with_threshold(self, make_search):
@@ -398,8 +401,10 @@ class TestEmbedSearchQueryShape:
                 timestamp_end="2025-01-02T00:00:00Z",
             )
         )
-        filter_clauses = es.last_body["query"]["bool"]["filter"]
-        time_clause = next(c for c in filter_clauses if "bool" in c and "must" in c["bool"])
+        # filters now = [sensor.type term, timestamp-overlap bool]; locate the overlap.
+        outer = es.last_body["query"]["bool"]["filter"][0]
+        must = outer["bool"]["must"] if "bool" in outer else [outer]
+        time_clause = next(c for c in must if isinstance(c, dict) and "bool" in c and "must" in c["bool"])
         assert time_clause["bool"]["must"] == [
             {"range": {"end": {"gte": "2025-01-01T00:00:00+00:00"}}},
             {"range": {"timestamp": {"lte": "2025-01-02T00:00:00+00:00"}}},
@@ -410,8 +415,10 @@ class TestEmbedSearchQueryShape:
         e, es, _embed, _vst = make_search()
         uuid = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
         await e.run(EmbedSearchInput(query="q", source_type="video_file", video_sources=[uuid]))
-        filter_clause = es.last_body["query"]["bool"]["filter"][0]
-        assert filter_clause == {"terms": {"sensor.id.keyword": [uuid]}}
+        # filters now = [sensor.id terms, sensor.type term]; both must be present.
+        must = es.last_body["query"]["bool"]["filter"][0]["bool"]["must"]
+        assert {"terms": {"sensor.id.keyword": [uuid]}} in must
+        assert {"term": {"sensor.type.keyword": "Video"}} in must
 
     @pytest.mark.asyncio
     async def test_top_k_caps_results(self, make_search):

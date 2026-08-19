@@ -78,15 +78,20 @@ class SearchRuntime:
     vst_external_url: str | None = None
 
     # ---- Indexes ----
-    behavior_index: str = "mdx-behavior-2025-01-01"  # DEFAULT_BEHAVIOR_INDEX in code
-    # NEW in v1: today's code hardcodes this literal at tools/search.py:997 and
-    # tools/attribute_search.py:1218. The library extracts it to a field so
-    # deployments with different index naming families don't need a code change.
+    # The ``*_index`` bases are the fixed uploads anchors. Uploaded files are
+    # ingested with a synthetic ``2025-01-01`` timestamp (``video_ingest.py``), so
+    # their embed/behavior/raw docs always land in the ``-2025-01-01`` indices, and
+    # ``video_delete.py`` hardcodes the same three names as its cleanup targets.
+    # This is a write-side contract: the base must NOT be discovered from the live
+    # index inventory, or a live-dated index can masquerade as the uploads base and
+    # invert ``rtsp`` source-type selection.
+    behavior_index: str = "mdx-behavior-2025-01-01"
     behavior_index_wildcard: str = "mdx-behavior-*"
-    video_embed_index: str = "mdx-embed-filtered-2025-01-01"  # from ELASTIC_SEARCH_INDEX
-    # NEW in v1: today's code hardcodes "mdx-embed-filtered-*" at
-    # tools/embed_search.py:615 for the RTSP search-index selection. The library
-    # extracts it for the same reason as behavior_index_wildcard.
+    # Retained as the uploads anchor for parity with behavior/raw. The embed read
+    # path partitions by the ``sensor.type`` document field and queries the
+    # wildcard, so it no longer selects an index from this value. (The vss CLI
+    # never reads ``ELASTIC_SEARCH_INDEX``; only the agent container consumes it.)
+    video_embed_index: str = "mdx-embed-filtered-2025-01-01"
     video_embed_index_wildcard: str = "mdx-embed-filtered-*"
     frames_index: str | None = None  # None disables frame-level lookups
     # NEW in v1: today's code hardcodes "mdx-raw-*" at tools/attribute_search.py:1223

@@ -72,6 +72,30 @@
     ]
   },
   {
+    "id": "search-archive-rtsp-live-stream",
+    "question": "Search the live camera stream dock_cam_live for a person entering the restricted zone.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent resolves the live stream, runs archive retrieval scoped to it with the rtsp source type, and proves readiness against the embedding family wildcard rather than a date-stamped index before reporting candidates.",
+    "expected_behavior": [
+      "The agent loads vss-search-archive and resolves dock_cam_live to its registered live-stream identity before search.",
+      "The agent selects --source-type rtsp and scopes retrieval to the resolved live-stream identifier.",
+      "The agent proves searchable documents with a stream-scoped count against the embedding family wildcard, not a single 2025-01-01 anchor index, and does not treat an empty uploads anchor as a live-stream failure."
+    ]
+  },
+  {
+    "id": "search-archive-mixed-upload-and-stream",
+    "question": "This deployment has both uploaded clips and a live camera gate_cam. Find forklifts only in the live camera feed.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent restricts retrieval to the live camera by selecting the rtsp source type and the resolved stream identity, so uploaded-file documents are excluded regardless of ingestion order.",
+    "expected_behavior": [
+      "The agent loads vss-search-archive and resolves gate_cam to its live-stream identity.",
+      "The agent runs retrieval with --source-type rtsp scoped to that identity so uploaded-file hits are excluded.",
+      "The agent does not select the upload partition or a date-stamped anchor index and does not conflate the two source types."
+    ]
+  },
+  {
     "id": "search-archive-negative-direct-video-qa",
     "question": "Watch /workspace/input/forklift.mp4 and tell me whether the driver is wearing a helmet.",
     "expected_skill": null,

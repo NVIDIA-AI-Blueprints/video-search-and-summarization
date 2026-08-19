@@ -11,11 +11,14 @@ from __future__ import annotations
 
 from datetime import UTC
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
+from elasticsearch import NotFoundError as ESNotFoundError
 import pytest
 
 from vss_core._foundation.time import iso8601_instants_match
+from vss_core.search_core.errors import IndexNotFoundError
 from vss_core.search_core.models.attribute_search import AttributeSearchMetadata
 from vss_core.search_core.models.attribute_search import AttributeSearchResult
 from vss_core.search_core.primitives import _attribute_helpers as ah
@@ -356,6 +359,78 @@ def test_append_rank_key_deterministic_tiebreak():
     b.metadata.behavior_score = 0.5
     ordered = sorted([b, a], key=ah._append_rank_key)
     assert [r.metadata.object_id for r in ordered] == ["1", "2"]
+
+
+# ---------------------------------------------------------------- async: missing-anchor catch
+
+
+class _RaisingEs:
+    """ElasticIndex surface whose search always raises an ES 404."""
+
+    async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
+        raise ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_search_behavior_missing_concrete_anchor_returns_empty():
+    # video_file targets the concrete uploads anchor; its absence is an empty
+    # uploads partition (graceful []), not a fault.
+    hits = await ah._search_behavior(
+        index="mdx-behavior-2025-01-01",
+        query_embedding=[0.1, 0.2],
+        top_k=1,
+        min_similarity=0.0,
+        es=_RaisingEs(),
+        source_type="video_file",
+    )
+    assert hits == []
+
+
+@pytest.mark.asyncio
+async def test_search_behavior_missing_wildcard_raises():
+    # An rtsp query targets a wildcard list; a genuine NotFound there is a fault
+    # and must stay loud rather than silently returning empty.
+    with pytest.raises(IndexNotFoundError):
+        await ah._search_behavior(
+            index=["mdx-behavior-*", "-mdx-behavior-2025-01-01"],
+            query_embedding=[0.1, 0.2],
+            top_k=1,
+            min_similarity=0.0,
+            es=_RaisingEs(),
+            source_type="rtsp",
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_object_embedding_missing_concrete_anchor_returns_empty():
+    # The object path seeds from a concrete anchor fetch; a missing video_file
+    # anchor must degrade to an empty vector (no uploads), mirroring the
+    # attribute path, so object search does not exit 5 in a live-only deployment.
+    vector = await ah._fetch_object_embedding("42", "mdx-behavior-2025-01-01", _RaisingEs())
+    assert vector == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_object_embedding_missing_wildcard_raises():
+    # A wildcard-list target (rtsp) that 404s is a genuine fault, not an empty
+    # uploads partition, so it must still raise rather than seed an empty vector.
+    with pytest.raises(IndexNotFoundError):
+        await ah._fetch_object_embedding("42", ["mdx-behavior-*", "-mdx-behavior-2025-01-01"], _RaisingEs())
+
+
+@pytest.mark.asyncio
+async def test_search_by_object_embedding_missing_anchor_returns_empty():
+    # End-to-end object leg: an absent uploads anchor yields no seed vector, so
+    # the whole re-search returns [] instead of issuing an empty-vector kNN.
+    results = await ah.search_by_object_embedding(
+        object_id="42",
+        behavior_index="mdx-behavior-2025-01-01",
+        es=_RaisingEs(),
+    )
+    assert results == []
 
 
 # ---------------------------------------------------------------- async: frame lookup

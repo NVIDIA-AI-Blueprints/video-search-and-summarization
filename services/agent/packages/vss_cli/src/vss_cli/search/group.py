@@ -63,14 +63,21 @@ if TYPE_CHECKING:
 _JOB_DOMAIN = "search"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-#: Index families the deployment reports, mapped to the runtime field that
-#: consumes them. Discovered rather than declared -- `vss configure` reads
-#: them from Elasticsearch's own _cat/indices.
+#: Index families the deployment reports. Discovery (`vss configure` reads ES
+#: `_cat/indices`) is used to confirm a family exists and to enable frame
+#: lookups -- NOT to pick the "uploads base". The base is the pinned anchor; see
+#: :func:`_runtime_from`.
 _INDEX_PREFIXES = {
     "video_embed_index": "mdx-embed-filtered-",
     "behavior_index": "mdx-behavior-",
     "frames_index": "mdx-raw-",
 }
+
+#: Synthetic epoch that uploaded files are ingested under, so their docs always
+#: land in the ``-2025-01-01`` indices (write-side contract in
+#: ``vss_agents/api/video_ingest.py`` and ``video_delete.py``). Used to pin the
+#: raw frames anchor; the embed/behavior anchors are the ``SearchRuntime`` defaults.
+_UPLOADS_ANCHOR_DATE = "2025-01-01"
 
 
 class _Common(BaseModel):
@@ -288,12 +295,20 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     if embed_service and embed_service.models:
         kwargs["cosmos_embed_model"] = embed_service.models[0]
 
+    # Do NOT promote a discovered index to a base: in a stream-first deployment
+    # the earliest-sorting index is a live-dated one, and using it as the uploads
+    # base inverts ``rtsp`` source-type selection (it subtracts the only index
+    # holding live data). Bases stay at their ``SearchRuntime`` anchor defaults.
+    # Discovery is used only to set each family's wildcard and to enable frame
+    # lookups (pinned to the raw anchor) when the raw family exists; otherwise
+    # ``frames_index`` stays ``None`` and frame-level lookups are disabled.
     available = sorted(es_service.indices) if es_service else []
     for field_name, prefix in _INDEX_PREFIXES.items():
-        matches = [i for i in available if i.startswith(prefix)]
-        if matches:
-            kwargs[field_name] = matches[0]
-            kwargs[f"{field_name}_wildcard"] = f"{prefix}*"
+        if not any(i.startswith(prefix) for i in available):
+            continue
+        kwargs[f"{field_name}_wildcard"] = f"{prefix}*"
+        if field_name == "frames_index":
+            kwargs["frames_index"] = f"{prefix}{_UPLOADS_ANCHOR_DATE}"
 
     kwargs.update(tuning or {})
     return SearchRuntime(**kwargs)

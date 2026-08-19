@@ -175,7 +175,9 @@ class _MockSearchServices:
         self._send_json(handler, {"error": f"unexpected {method} {path}"}, status=404)
 
     def _search_response_for(self, path: str, body: Any) -> dict[str, Any]:
-        if path == "/mdx-embed-filtered-2025-01-01/_search":
+        # Embed now queries the family wildcard (`mdx-embed-filtered-*`) for every
+        # source type, so match by family rather than an exact date-anchored index.
+        if "mdx-embed-filtered" in path:
             return self.search_response
         if isinstance(body, dict) and body.get("query", {}).get("term", {}).get("object.id.keyword") is not None:
             return _object_embedding_response()
@@ -323,16 +325,49 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     # No preflight probe in the request path any more: index discovery
     # happens once at `vss configure` time, so this is the search itself.
     search_request = mock_services.requests_ending_with("/_search")[-1]
-    assert search_request.path == "/mdx-embed-filtered-2025-01-01/_search"
+    # Embed queries the family wildcard for every source type (source-type is a
+    # sensor.type document filter now), never the date anchor.
+    assert search_request.path.startswith("/mdx-embed-filtered-")
+    assert "2025-01-01" not in search_request.path
     # Two multipliers compound: Search doubles top_k so merging adjacent
     # windows can still yield top_k results, and EmbedSearch overfetches 5x
     # because ES filters may discard KNN hits. top_k=1 -> 2 -> 10.
     assert search_request.body["size"] == 10
     assert search_request.body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
     assert "warehouse_clip" in json.dumps(search_request.body)
+    # video_file partitions positively on sensor.type == "Video".
+    assert '"sensor.type.keyword": "Video"' in json.dumps(search_request.body)
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)
     assert len(mock_services.requests_for("/v1/models")) == 1
     assert len(mock_services.requests_for("/v1/chat/completions")) == 1
+
+
+def test_search_archive_cli_rtsp_queries_embed_wildcard_with_camera_filter(
+    agent_root: Path,
+    mock_services: _MockSearchServices,
+) -> None:
+    # Regression: the rtsp flag previously subtracted a discovered "uploads base",
+    # returning nothing in a stream-first / single-index deployment. It must now
+    # query the embed family wildcard and partition positively on
+    # sensor.type == "Camera" -- correct regardless of ingestion order.
+    result = _run_search_archive(
+        agent_root,
+        mock_services,
+        "--query",
+        "person at entrance",
+        "--source-type",
+        "rtsp",
+        "--video-source",
+        _STREAM_ID,
+        "--top-k",
+        "1",
+    )
+
+    assert result.returncode == 0, result.stderr
+    search_request = mock_services.requests_ending_with("/_search")[-1]
+    assert search_request.path.startswith("/mdx-embed-filtered-")
+    assert "2025-01-01" not in search_request.path
+    assert '"sensor.type.keyword": "Camera"' in json.dumps(search_request.body)
 
 
 def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
@@ -437,7 +472,9 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
     ]
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body["text_input"] == "white jacket"
     search_paths = [request.path for request in mock_services.requests_ending_with("/_search")]
-    assert search_paths.count("/mdx-embed-filtered-2025-01-01/_search") == 1
+    # Embed leg queries the family wildcard (source_type is a sensor.type doc filter);
+    # the behavior leg still targets the pinned uploads anchor.
+    assert search_paths.count("/mdx-embed-filtered-*/_search") == 1
     assert search_paths.count("/mdx-behavior-2025-01-01/_search") == 1
 
 
@@ -566,7 +603,9 @@ async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
     assert out.data[0].video_name == "warehouse_clip.mp4"
     assert out.data[0].similarity == 0.86
     assert _single(mock_services.requests_for("/v1/generate_text_embeddings")).body["text_input"] == ["red forklift"]
-    assert _single(mock_services.requests_ending_with("/_search")).path == "/mdx-embed-filtered-2025-01-01/_search"
+    search_request = _single(mock_services.requests_ending_with("/_search"))
+    assert search_request.path.startswith("/mdx-embed-filtered-")
+    assert "2025-01-01" not in search_request.path
 
 
 def _run_search_archive(
