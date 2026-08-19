@@ -3,11 +3,10 @@
 """Regression tests for model discovery in LVS summarization workflows."""
 
 import json
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 import pytest
-
 
 MODEL_SELECTOR = """
   [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
@@ -19,15 +18,19 @@ MODEL_SELECTOR = """
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SELECTOR_DOCUMENTS = {
-    # K8s + Docker discovery branches each embed the tested jq selector.
-    "skills/vss-summarize-video/references/end-to-end-example.md": 3,
-    "skills/vss-summarize-video/references/hitl-prompts.md": 2,
+    # Only the approved VLM fallback still picks a model by hand here; the
+    # summarize request takes the one `vss configure` recorded from LVS.
+    "skills/vss-summarize-video/references/end-to-end-example.md": 1,
+    # The direct-API reference keeps both discovery branches, because a caller
+    # working against the API by hand still has to name a model.
     "skills/vss-summarize-video/references/video-summarization-api.md": 2,
 }
 LVS_DISCOVERY_DOCUMENTS = [
-    "skills/vss-summarize-video/references/end-to-end-example.md",
-    "skills/vss-summarize-video/references/hitl-prompts.md",
     "skills/vss-summarize-video/references/video-summarization-api.md",
+]
+#: Documents describing the ordered workflow, which asks the CLI for the model.
+CLI_WORKFLOW_DOCUMENTS = [
+    "skills/vss-summarize-video/references/hitl-prompts.md",
 ]
 
 
@@ -94,6 +97,22 @@ def test_lvs_workflows_use_unversioned_models_route(relative_path: str) -> None:
         '"$BASE_URL/models"',
     )
     assert any(route in content for route in expected_routes)
+
+
+@pytest.mark.parametrize("relative_path", CLI_WORKFLOW_DOCUMENTS)
+def test_cli_workflow_documents_do_not_discover_a_model(relative_path: str) -> None:
+    """The workflow must not re-derive what the recorded deployment already has.
+
+    `vss summarize run` defaults the model to the id LVS reports serving, so a
+    document that still probes `/models` teaches an agent to pass `--model`
+    and can select a different model than the one the service is actually
+    summarizing with.
+    """
+    content = (REPO_ROOT / relative_path).read_text()
+
+    assert "/models" not in content
+    assert " ".join(MODEL_SELECTOR.split()) not in " ".join(content.split())
+    assert "--model" not in content
 
 
 def test_direct_vlm_fallback_uses_versioned_models_route() -> None:

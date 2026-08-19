@@ -310,6 +310,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
+                        "build_args": "",
                     },
                     {
                         "name": "vss-agent-ui",
@@ -320,6 +321,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/ui",
+                        "build_args": "",
                     },
                 ]
             },
@@ -347,6 +349,7 @@ class SelectImagesTest(unittest.TestCase):
                 "lfs_include": "",
                 "platforms": "linux/arm64",
                 "source_path": "services/rtvi/rt-cv",
+                "build_args": "",
             },
         )
 
@@ -423,6 +426,10 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-configurator",
                 "vss-rt-config-adaptor",
                 "vss-rt-vlm",
+                "vss-vios-sensor",
+                "vss-vios-streamprocessing",
+                "vss-vios-nvstreamer",
+                "vss-vios-ingress",
             },
         )
         self.assertNotIn(
