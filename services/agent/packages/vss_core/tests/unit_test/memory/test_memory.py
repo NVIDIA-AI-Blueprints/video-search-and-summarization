@@ -737,6 +737,47 @@ def test_upsert_bundle_reports_partial_failures() -> None:
         service.get_record("summarize-x", "event", "evt-bad")
 
 
+def test_upsert_bundle_counts_distinct_storage_ids_on_child_collision() -> None:
+    """Colliding child record_ids must not inflate written beyond docs stored."""
+    service = MemoryService(InMemoryStore())
+    adapter = SummaryAdapter()
+    input_data = adapter.build_input(prompt="p", video_id="cam-1", media_ref=None, params=None)
+    duplicate = {
+        "event_id": "evt-72d73704a0ef2ce7",
+        "timestamp": "2026-07-22T11:00:00Z",
+        "description": "same id twice",
+    }
+    bundle = adapter.terminal_bundle(
+        job_id="summarize-collision",
+        created_at="2026-07-22T12:00:00Z",
+        status="completed",
+        input_data=input_data,
+        answer="ok",
+        events=[duplicate, duplicate],
+    )
+    assert len(bundle.children) == 2
+    assert storage_id_for(bundle.children[0]) == storage_id_for(bundle.children[1])
+    assert bundle.parent.output is not None
+    assert bundle.parent.output.ext is not None
+    assert bundle.parent.output.ext["event_count"] == 2
+
+    result = service.upsert_bundle(bundle)
+    # Distinct storage ids: parent + one child document.
+    assert result.expected == 2
+    assert result.written == 2
+    assert result.ok
+    assert result.failed == []
+
+    parent = service.get("summarize-collision", reconcile=False)
+    assert parent.job.status == "partial"
+    assert parent.output is not None
+    assert parent.output.ext is not None
+    assert parent.output.ext["event_count"] == 1
+    assert service.get_record(
+        "summarize-collision", "event", "evt-72d73704a0ef2ce7"
+    ).output is not None
+
+
 def test_upsert_bundle_skips_children_when_parent_fails() -> None:
     class _ParentFails(InMemoryStore):
         def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:

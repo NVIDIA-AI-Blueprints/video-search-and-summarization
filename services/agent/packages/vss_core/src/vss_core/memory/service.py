@@ -102,10 +102,17 @@ def _parent_after_partial_children(
     ``status=completed`` with the full ``event_count`` / ``result_count`` /
     ``incident_count`` would advertise a complete result set that ``query`` /
     ``get_record`` cannot return. Mark the job ``partial`` and rewrite any
-    known count keys to the number of children that actually persisted.
+    known count keys to the number of **distinct** children that actually
+    persisted (keyed by storage id, so colliding ``record_id`` values do not
+    inflate the count).
     """
     counts: dict[str, int] = dict.fromkeys(_CHILD_COUNT_EXT_KEYS.values(), 0)
+    seen_storage_ids: set[str] = set()
     for child in written_children:
+        storage_id = storage_id_for(child)
+        if storage_id in seen_storage_ids:
+            continue
+        seen_storage_ids.add(storage_id)
         count_key = _CHILD_COUNT_EXT_KEYS.get(child.job.record_type or "")
         if count_key is not None:
             counts[count_key] += 1
@@ -164,18 +171,24 @@ class MemoryService:
         children that actually persisted, so job reads do not advertise a
         complete result set that record queries cannot return.
 
+        ``expected`` / ``written`` count **distinct** storage ids (not upsert
+        call sites). Two children that collide on ``record_id`` share one
+        storage document; both calls succeed, but only one id is written.
+
         Callers must still return the paid-for operation result when persistence
         is incomplete. Use :attr:`PersistResult.ok` / :meth:`PersistResult.to_dict`
         for CLI exit-6 reporting.
         """
         failed: list[PersistFailure] = []
-        written = 0
+        written_ids: set[str] = set()
         records = bundle.all_records
-        written_children: list[UnifiedMemoryRecord] = []
+        expected = len({storage_id_for(record) for record in records})
+        # Last successful upsert per storage id — collisions overwrite in place.
+        written_children_by_id: dict[str, UnifiedMemoryRecord] = {}
 
         try:
             self._store.upsert(bundle.parent)
-            written += 1
+            written_ids.add(storage_id_for(bundle.parent))
         except Exception as error:
             failed.append(
                 PersistFailure(
@@ -197,17 +210,18 @@ class MemoryService:
                         is_parent=False,
                     )
                 )
-            return PersistResult(expected=len(records), written=written, failed=failed)
+            return PersistResult(expected=expected, written=len(written_ids), failed=failed)
 
         for child in bundle.children:
+            child_storage_id = storage_id_for(child)
             try:
                 self._store.upsert(child)
-                written += 1
-                written_children.append(child)
+                written_ids.add(child_storage_id)
+                written_children_by_id[child_storage_id] = child
             except Exception as error:
                 failed.append(
                     PersistFailure(
-                        storage_id=storage_id_for(child),
+                        storage_id=child_storage_id,
                         error=str(error),
                         record_type=child.job.record_type,
                         record_id=child.job.record_id,
@@ -215,7 +229,13 @@ class MemoryService:
                     )
                 )
 
-        if failed:
+        written_children = list(written_children_by_id.values())
+        # Colliding children that share a storage id never appear in ``failed``,
+        # but the parent may still advertise a higher event/result count than
+        # distinct docs held. Correct counts whenever the persisted child set
+        # is smaller than the bundle asked for.
+        children_collapsed = len(written_children) < len(bundle.children)
+        if failed or children_collapsed:
             corrected = _parent_after_partial_children(bundle.parent, written_children)
             if corrected != bundle.parent:
                 try:
@@ -231,7 +251,7 @@ class MemoryService:
                         )
                     )
 
-        return PersistResult(expected=len(records), written=written, failed=failed)
+        return PersistResult(expected=expected, written=len(written_ids), failed=failed)
 
     def get(
         self,
