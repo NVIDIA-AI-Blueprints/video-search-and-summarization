@@ -64,6 +64,12 @@ from pathlib import Path
 
 HARNESS_REPO_ROOT = "$HOME/video-search-and-summarization"
 
+_GYM_PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. Work "
+    "autonomously and do not pause for confirmation. This task is OFFLINE: "
+    "do not deploy anything, do not start a container, and do not pull an image."
+)
+
 PLATFORMS: dict[str, dict] = {
     # Offline specs (the Gym evaluation overlay) need no GPU and no
     # particular box; the spec declares gpu_count 0 and the coordinator
@@ -458,7 +464,10 @@ def generate_task(
         build_profile = Path(spec_name).stem  # fallback to spec filename stem
 
     rendered_spec = _substitute_spec(spec, platform)
-    runtime_deploy = bool(spec.get("runtime_deploy", True))
+    # Gym overlay specs are offline: no deployment, no GPU. The adapter's
+    # default is a deploying profile build, which is the opposite.
+    _is_gym = Path(spec_name).stem.startswith("gym_")
+    runtime_deploy = False if _is_gym else bool(spec.get("runtime_deploy", True))
     judge_max_turns = int(spec.get("judge_max_turns", 60))
 
     # dataset group = spec stem (e.g. "profile_in_1_streaming_dense_captions")
@@ -473,11 +482,17 @@ def generate_task(
         # ---- instruction.md ------------------------------------------------
         # Note: spec.env notes and query are rendered ({{...}} substituted).
         lines = [
-            PREAMBLE,
+            PREAMBLE if not _is_gym else _GYM_PREAMBLE,
             "",
-            f"Use the `/vss-build-vision-agent` skill for the "
-            f"`{build_profile}` profile on `{platform}`. "
-            "Work from `$HOME/video-search-and-summarization` (the VSS repository root).",
+            (
+                "Use the `/vss-build-vision-agent` skill's Gym evaluation overlay "
+                "(`references/services/gym.md`). Work from "
+                "`$HOME/video-search-and-summarization` (the VSS repository root)."
+                if _is_gym else
+                f"Use the `/vss-build-vision-agent` skill for the "
+                f"`{build_profile}` profile on `{platform}`. "
+                "Work from `$HOME/video-search-and-summarization` (the VSS repository root)."
+            ),
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -495,6 +510,8 @@ def generate_task(
         # ---- task.toml -----------------------------------------------------
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         task_description = (
+            f"Gym evaluation overlay: {build_profile.removeprefix('gym_')}"
+            if _is_gym else
             f"Build+deploy {build_profile} profile"
             if runtime_deploy
             else f"Build {build_profile} profile"
