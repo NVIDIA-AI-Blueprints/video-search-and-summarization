@@ -212,14 +212,10 @@ jobs:
           # uvx is missing, a symlink, or not `uv tool run`.
           install_uvx_wrapper() {
             mkdir -p "$HOME/.local/bin"
-            cat > "$HOME/.local/bin/uvx" <<'EOF'
-#!/bin/sh
-case "${1-}" in
-  --version|-V) exec /usr/local/bin/uv --version ;;
-  --help|-h|"") exec /usr/local/bin/uv tool run --help ;;
-esac
-exec /usr/local/bin/uv tool run "$@"
-EOF
+            # Same wrapper as scripts/lib/openshell_uvx.sh. Do not use a
+            # YAML heredoc: an unindented `#!/bin/sh` ends the `run: |` block
+            # and GitHub never starts Skills Eval.
+            printf '%s\n' IyEvYmluL3NoCiMgUmVhbCBgdXZ4YCBpcyBgdXYgdG9vbCBydW5gLiBBIHN5bWxpbmsgdG8gYHV2YCBtYWtlcyBgdXZ4IC0tcHl0aG9uYCBmYWlsLgojIEhhcmJvci9HSEEgYWxzbyBjYWxsIGB1dnggLS12ZXJzaW9uYC4KY2FzZSAiJHsxLX0iIGluCiAgLS12ZXJzaW9ufC1WKQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diAtLXZlcnNpb24KICAgIDs7CiAgLS1oZWxwfC1ofCIiKQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diB0b29sIHJ1biAtLWhlbHAKICAgIDs7CmVzYWMKZXhlYyAvdXNyL2xvY2FsL2Jpbi91diB0b29sIHJ1biAiJEAiCg== | base64 -d > "$HOME/.local/bin/uvx"
             chmod 0755 "$HOME/.local/bin/uvx"
           }
           need_wrapper=0
