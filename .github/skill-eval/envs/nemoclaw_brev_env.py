@@ -79,8 +79,10 @@ def _forwarded_nemoclaw_env() -> str:
             ("LLM_DEVICE_ID", ""),
             ("VLM_DEVICE_ID", ""),
             # The eval agent uses a remote model. VSS workloads use the host
-            # GPUs through MCP, so this harness always uses a CPU sandbox.
+            # GPUs through MCP, so this harness always uses a CPU sandbox and
+            # must not recreate it with NemoClaw's post-onboard GPU patch.
             ("NEMOCLAW_SANDBOX_GPU", "0"),
+            ("NEMOCLAW_DOCKER_GPU_PATCH", "0"),
         ]
     )
     return "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values)
