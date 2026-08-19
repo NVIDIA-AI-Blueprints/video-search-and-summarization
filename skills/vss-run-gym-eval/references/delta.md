@@ -99,6 +99,27 @@ echo "VSS_GYM_EVAL_OUTPUT_DIR=/workspace/outputs" >> "_builds/<name>/override.en
 resolving a placeholder there dirties the tree and changes the Foundation for
 everyone. Everything the delta needs lives under `_builds/<name>/`.
 
+**Run no deployment script while composing.** Composing a delta is a read of the
+Foundation, not a deployment of it. Do not run `dev-profile.sh`,
+`blueprint-deploy.sh`, or any `up`/configure helper to "prepare" or inspect the
+profile — they rewrite tracked files in place. Both
+`developer-profiles/dev-profile-<profile>/.env` and its `overrides.env` are
+checked in, so a single configure pass dirties the tree even when nothing is
+started. Read the profile's files directly instead; everything the delta needs
+is already in `overrides.env`.
+
+**Confirm the tree is clean before reporting done:**
+
+```bash
+git -C "<repo-root>" status --porcelain deploy/docker
+# Expect no output. Anything listed was modified by this run.
+```
+
+If that prints anything, restore it — `git -C "<repo-root>" checkout --
+deploy/docker` — and re-read this section before retrying. A delta composed on
+top of a modified Foundation is not a delta on that Foundation, so any
+comparison it feeds is void.
+
 That single-key rule is not tidiness. The comparison this skill supports is two
 eval harnesses scoring one identical stack, so any other divergence from the
 Foundation is a confound in every score reported — and a silent one, because
