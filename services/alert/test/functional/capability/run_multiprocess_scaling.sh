@@ -457,10 +457,10 @@ ts_030() {
 
 # ─── TS-031: killed child is restarted and its partitions resume ────────────
 ts_031() {
-    echo ""; echo "=== TS-031: child crash → supervisor restarts → partitions resume ==="
+    echo ""; echo "=== TS-031: child crash -> whole instance stops and exits non-zero ==="
     prepare_run "$PROCESSES" false 1 || { record_result TS-031 FAIL "AB startup"; return; }
 
-    local before after victim
+    local before victim
     before=$(pipeline_child_pids)
     local before_count; before_count=$(echo "$before" | wc -w)
     if [ "$before_count" -ne "$PROCESSES" ]; then
@@ -471,50 +471,44 @@ ts_031() {
     victim=$(echo "$before" | tr ' ' '\n' | grep -v '^$' | tail -1)
     kill -9 "$victim" 2>/dev/null || true
 
-    local waited=0 restarted=0
-    while [ $waited -lt 60 ]; do
-        after=$(pipeline_child_pids)
-        if [ "$(echo "$after" | wc -w)" -eq "$before_count" ] && ! echo "$after" | grep -qw "$victim"; then
-            restarted=1; break
-        fi
+    # Replacing the dead child in place left the container alive around a
+    # partially rebuilt instance. The contract now is the opposite: the
+    # survivors are reaped too, and the parent exits non-zero so the
+    # orchestrator restarts the instance from a known state.
+    local parent; parent=$(cat "$PID_DIR/alert_bridge.pid" 2>/dev/null)
+    local waited=0 stopped=0
+    while [ $waited -lt 90 ]; do
+        if ! kill -0 "$parent" 2>/dev/null; then stopped=1; break; fi
         sleep 2; waited=$((waited+2))
     done
 
-    if [ "$restarted" -ne 1 ]; then
-        record_result TS-031 FAIL "child $victim not replaced within ${waited}s"
-        return
-    fi
-    if ! grep -q "Pipeline process .* exited" "$PID_DIR/alert_bridge.log"; then
-        record_result TS-031 FAIL "supervisor did not log the child exit"
+    if [ "$stopped" -ne 1 ]; then
+        record_result TS-031 FAIL "parent still running ${waited}s after child $victim was killed; \
+survivors=$(pipeline_child_pids)"
         return
     fi
 
-    # Every partition must be served again: inject across all of them and
-    # require the full set to land in Elasticsearch.
-    sleep 10
-    python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
-        --num-sensors "$PARTITIONS" --rate 4 --duration 30 --unique \
-        --sensor-prefix TS031 > "$RESULTS_DIR/injector_TS031.log" 2>&1
-    local produced; produced=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS031.log" | grep -o "[0-9]*")
-
-    waited=0
-    while [ $waited -lt 120 ]; do
-        local lag; lag=$(kafka_consumer_lag "$CONSUMER_GROUP")
-        [ "${lag:-1}" -eq 0 ] 2>/dev/null && break
-        sleep 5; waited=$((waited+5))
+    # No orphan may keep its consumer-group slot: it would stall the
+    # partitions it holds until the group next rebalances.
+    local orphans=""
+    local pid
+    for pid in $before; do
+        kill -0 "$pid" 2>/dev/null && orphans="$orphans $pid"
     done
-    sleep 10
 
-    local docs; docs=$(count_es_docs "$ES_HOST")
-    local detail="killed=$victim restarted_after=${waited}s produced=$produced es_docs=$docs"
-    if [ "${docs:-0}" -eq "${produced:-0}" ] && [ "${produced:-0}" -gt 0 ]; then
+    local logged_exit=0 logged_stop=0
+    grep -q "Pipeline process .* exited" "$PID_DIR/alert_bridge.log" && logged_exit=1
+    grep -q "exited unexpectedly" "$PID_DIR/alert_bridge.log" && logged_stop=1
+
+    local detail="killed=$victim stopped_after=${waited}s orphans=${orphans:-none} \
+logged_exit=$logged_exit logged_error=$logged_stop"
+    if [ -z "$orphans" ] && [ "$logged_exit" -eq 1 ] && [ "$logged_stop" -eq 1 ]; then
         record_result TS-031 PASS "$detail"
     else
         record_result TS-031 FAIL "$detail"
     fi
 }
 
-# ─── TS-032: no message loss under overload, both commit modes ──────────────
 ts_032() {
     echo ""; echo "=== TS-032: no loss under overload (batch_commit off then on) ==="
     local detail="" failed=0
@@ -598,19 +592,7 @@ drain_to_idle() {
     return 1
 }
 
-wait_for_child_restart() {
-    local victim="$1" waited=0 live
-    while [ $waited -lt 60 ]; do
-        live=$(pipeline_child_pids)
-        if [ "$(echo "$live" | wc -w)" -eq "$PROCESSES" ] && ! echo "$live" | grep -qw "$victim"; then
-            return 0
-        fi
-        sleep 2; waited=$((waited+2))
-    done
-    return 1
-}
-
-# ─── TS-033: crash/replay semantics per commit mode ─────────────────────────
+# ─── TS-033: crash semantics per commit mode ────────────────────────────────
 #
 # What this pins down: batched commit does NOT make the pipeline at-least-once.
 # The batch is flushed in get_consumed_messages' finally, before read_data()
@@ -619,12 +601,17 @@ wait_for_child_restart() {
 # process. The redelivery window batching opens is one poll batch, entered only
 # if the crash lands inside the poll loop itself.
 #
-# Deterministic and therefore asserted: batch_commit=false never replays;
-# everything that clears dedup is persisted; the restarted child resumes its
-# partitions. The per-mode loss counts are measured evidence for the window
-# above, not pass criteria — the crash lands where it lands.
+# One dead child now stops the instance, which widens the blast radius rather
+# than narrowing it: in-flight work in every child is lost, not just the dead
+# one's, and none of it is replayed because the offsets are already committed.
+# That is the trade fail-all makes, and the numbers below are what it costs.
+#
+# Deterministic and therefore asserted: batch_commit=false never replays, and
+# nothing is persisted that was never admitted. The per-mode loss counts are
+# measured evidence for the window above, not pass criteria — the crash lands
+# where it lands.
 ts_033() {
-    echo ""; echo "=== TS-033: crash/replay semantics — kill mid-flight, both commit modes ==="
+    echo ""; echo "=== TS-033: crash semantics under fail-all, both commit modes ==="
     local detail="" failed=0
 
     for batch in false true; do
@@ -637,6 +624,7 @@ ts_033() {
         local inj=$!
 
         sleep 10
+        local parent; parent=$(cat "$PID_DIR/alert_bridge.pid" 2>/dev/null)
         local victim; victim=$(pipeline_child_pids | tr ' ' '\n' | grep -v '^$' | tail -1)
         if [ -z "$victim" ]; then
             failed=1; detail="$detail batch_commit=$batch: no pipeline child to kill;"
@@ -647,46 +635,45 @@ ts_033() {
         wait $inj || true
 
         local produced; produced=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS033K_$batch.log" | grep -o "[0-9]*")
-        if ! wait_for_child_restart "$victim"; then
-            failed=1; detail="$detail batch_commit=$batch: child $victim not replaced;"
+
+        # One dead child now stops the instance, so there is nothing left to
+        # drain into: whatever was in flight anywhere in the instance is lost,
+        # not just the dead child's. That is the cost this measures.
+        local waited=0 stopped=0
+        while [ $waited -lt 90 ]; do
+            if ! kill -0 "$parent" 2>/dev/null; then stopped=1; break; fi
+            sleep 2; waited=$((waited+2))
+        done
+        if [ "$stopped" -ne 1 ]; then
+            failed=1; detail="$detail batch_commit=$batch: instance still running ${waited}s after the kill;"
             continue
         fi
-        drain_to_idle 240 || true
 
-        local d1 survivors docs
+        local d1 admitted docs committed
         d1=$(prom_value alert_bridge_events_after_dedup_total)
-        survivors=$(python3 -c "print(int(round(float('$d1') - float('$d0'))))")
+        admitted=$(python3 -c "print(int(round(float('$d1') - float('$d0'))))")
         docs=$(count_es_docs "$ES_HOST")
+        # Offsets commit at read, so anything read is charged to the instance
+        # whether or not it was ever processed. Lag against the produced count
+        # is what a restarted instance would NOT replay.
+        committed=$(kafka_consumer_lag "$CONSUMER_GROUP")
 
-        # Partitions must be served again after the restart.
-        python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
-            --num-sensors "$PARTITIONS" --rate 4 --duration 20 --unique \
-            --sensor-prefix "TS033R$batch" > "$RESULTS_DIR/injector_TS033R_$batch.log" 2>&1
-        local produced2; produced2=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS033R_$batch.log" | grep -o "[0-9]*")
-        drain_to_idle 180 || true
-        local d2 recovered
-        d2=$(prom_value alert_bridge_events_after_dedup_total)
-        recovered=$(python3 -c "print(int(round(float('$d2') - float('$d1'))))")
-
-        local lost=$(( produced - survivors ))
-        local in_flight_lost=$(( survivors - docs ))
-        detail="$detail batch_commit=$batch produced=$produced survivors=$survivors never_admitted=$lost in_flight_lost=$in_flight_lost docs=$docs recovery=$recovered/$produced2;"
-        print_status "info" "batch_commit=$batch killed=$victim lost_in_flight=$lost recovery=$recovered/$produced2"
+        local in_flight_lost=$(( admitted - docs ))
+        detail="$detail batch_commit=$batch produced=$produced admitted=$admitted docs=$docs \
+in_flight_lost=$in_flight_lost residual_lag=${committed:-unknown} stopped_after=${waited}s;"
+        print_status "info" "batch_commit=$batch killed=$victim admitted=$admitted docs=$docs in_flight_lost=$in_flight_lost"
 
         if ! python3 -c "
 import sys
 batch = '$batch' == 'true'
-produced, survivors, docs = $produced, $survivors, $docs
-recovered, produced2 = $recovered, $produced2
-# events_after_dedup counts admission to dispatch, not completion, so a child
-# killed mid-flight always leaves docs < survivors. That gap is the in-flight
-# loss this test exists to measure - it is reported, not gated.
+produced, admitted, docs = $produced, $admitted, $docs
+# events_after_dedup counts admission to dispatch, not completion, so an
+# instance stopped mid-flight always leaves docs < admitted. That gap is the
+# in-flight loss this measures - reported, not gated.
 ok = (produced > 0
-      and docs <= survivors            # cannot persist more than was admitted
-      and produced2 > 0
-      and recovered == produced2)      # restarted child serves its partitions
+      and docs <= admitted)            # cannot persist more than was admitted
 if not batch:
-    ok = ok and survivors <= produced  # at-most-once: nothing is ever replayed
+    ok = ok and admitted <= produced   # at-most-once: nothing is ever replayed
 sys.exit(0 if ok else 1)"; then
             failed=1
         fi
@@ -696,6 +683,39 @@ sys.exit(0 if ok else 1)"; then
         record_result TS-033 PASS "$detail"
     else
         record_result TS-033 FAIL "$detail"
+    fi
+}
+
+ts_034() {
+    echo ""; echo "=== TS-034: readiness follows assignment; prompts are seeded once, up front ==="
+    prepare_run "$PROCESSES" false 1 || { record_result TS-034 FAIL "AB startup"; return; }
+    local log="$PID_DIR/alert_bridge.log"
+
+    # The prompt store is written by the supervisor before any child exists.
+    # Seeding from a child let the others read a store nobody had filled.
+    local seeds; seeds=$(grep -c "Seeding the prompt store" "$log" 2>/dev/null || echo 0)
+    local seed_line; seed_line=$(grep -n "Seeding the prompt store" "$log" | head -1 | cut -d: -f1)
+    local first_child; first_child=$(grep -n "Pipeline process .* starting" "$log" | head -1 | cut -d: -f1)
+
+    # Every child must be told what it owns, and readiness must trail the last
+    # of them rather than the fork.
+    local assigned; assigned=$(grep -c "^.*Assignment for " "$log" 2>/dev/null || echo 0)
+    local ready_children; ready_children=$(grep -c "Pipeline process .* ready" "$log" 2>/dev/null || echo 0)
+    local ready_line; ready_line=$(grep -n "Starting anomaly processing loop" "$log" | head -1 | cut -d: -f1)
+    local last_ready; last_ready=$(grep -n "Pipeline process .* ready" "$log" | tail -1 | cut -d: -f1)
+
+    local detail="seeds=$seeds seed_line=${seed_line:-none} first_child_line=${first_child:-none} \
+assignments=$assigned ready_children=$ready_children/$PROCESSES \
+readiness_line=${ready_line:-none} last_child_ready=${last_ready:-none}"
+
+    if [ "$seeds" -eq 1 ] \
+       && [ -n "$seed_line" ] && [ -n "$first_child" ] && [ "$seed_line" -lt "$first_child" ] \
+       && [ "$assigned" -ge "$PROCESSES" ] \
+       && [ "$ready_children" -eq "$PROCESSES" ] \
+       && [ -n "$ready_line" ] && [ -n "$last_ready" ] && [ "$ready_line" -gt "$last_ready" ]; then
+        record_result TS-034 PASS "$detail"
+    else
+        record_result TS-034 FAIL "$detail"
     fi
 }
 
@@ -735,7 +755,7 @@ fi
 # --skip-setup is most likely to be used.
 purge_stale_consumer_groups
 
-for ts in ts_030 ts_031 ts_032 ts_033; do
+for ts in ts_030 ts_031 ts_032 ts_033 ts_034; do
     ts_id="TS-${ts#ts_}"
     if [ -n "$ONLY_TEST" ] && [ "$ONLY_TEST" != "$ts_id" ]; then
         continue
