@@ -194,7 +194,11 @@ jobs:
         env:
           SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
         run: |
-          python3 -m venv "$SKILL_EVAL_VENV"
+          # OpenShell guests may put /sandbox/.venv (CPython 3.14) first on
+          # PATH. The harness contract is 3.12; use that interpreter explicitly.
+          PYTHON312="$(command -v python3.12 || true)"
+          [ -x "$PYTHON312" ] || PYTHON312="/usr/bin/python3.12"
+          "$PYTHON312" -m venv "$SKILL_EVAL_VENV"
           "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet "claude-agent-sdk==0.2.128"
           "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
@@ -319,7 +323,7 @@ jobs:
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="/usr/local/bin:$skill_eval_venv_dir/bin:$PATH"
           hash -r
-          python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          "$skill_eval_venv_dir/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
