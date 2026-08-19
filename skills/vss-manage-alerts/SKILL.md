@@ -384,14 +384,30 @@ Load `references/always-on.md` for the event contract, reason-code table, YAML r
 
 Query past incidents **directly** from Alert Bridge — no `/generate`:
 
+**If the ask names a sensor, resolve its exact stored name FIRST.** Never derive the value
+from the user's phrasing: "the warehouse sample sensor" is English, not an identifier, and
+guessing the separator (`warehouse-sample` vs `warehouse_sample`) filters on a value that
+does not exist — which returns `count: 0`, not an error.
+
 ```bash
+# 1. exact name, from the source of truth (match the user's wording case-insensitively)
+NAME=$(curl -sf "$VST_API_BASE/sensor/list" \
+  | jq -r '.[] | .name' | grep -i -- "<user's wording, e.g. warehouse>" | head -1)
+# no match → report the sensor as not found and list what exists; do NOT guess a name
+```
+
+Fall back to an unfiltered `/incidents` response only when VIOS is unavailable — its
+`sensorId` values are the same strings.
+
+```bash
+# 2. query
 # recent incidents (optionally filter by sensor / category / time / limit)
 curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq .
 # scope to one sensor — pass the sensor NAME, not a VIOS UUID.
 # Let curl encode it: a name with a space or reserved character breaks a hand-built URL,
 # and a mangled value filters on something else (silent zero) instead of erroring.
 curl -sfG "$AB/api/v1/realtime/incidents" \
-  --data-urlencode "sensor_id=<sensor NAME>" \
+  --data-urlencode "sensor_id=$NAME" \
   --data-urlencode "start_time=<ISO>" \
   --data-urlencode "end_time=<ISO>" | jq .
 ```
