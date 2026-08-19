@@ -70,7 +70,8 @@ VisualTracker:
   useColorNames: 1    # Use ColorNames feature
   useHog: 1    # Use Histogram-of-Oriented-Gradient (HOG) feature
   featureImgSizeLevel: 3    # Size of a feature image. Valid range: {1, 2, 3, 4, 5}, from the smallest to the largest
-  featureFocusOffsetFactor_y: -0.1054    # The offset for the center of hanning window relative to the feature height. The center of hanning window would move by (featureFocusOffsetFactor_y*featureMatSize.height) in vertical direction
+  # The offset for the center of hanning window relative to the feature height. The center of hanning window would move by (featureFocusOffsetFactor_y*featureMatSize.height) in vertical direction
+  featureFocusOffsetFactor_y: -0.1054
 
   # [NvDCF: Correlation Filter]
   filterLr: 0.0767    # learning rate for DCF filter in exponential moving average. Valid Range: [0.0, 1.0]
