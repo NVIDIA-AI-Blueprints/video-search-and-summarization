@@ -45,9 +45,10 @@ import argparse
 import asyncio
 import json
 import os
+from pathlib import Path
+import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -255,28 +256,66 @@ def _assemble_judge_prompt(check: str, traj_path: str | None) -> str:
     )
 
 
+_TRIAL_HOME_ROOT = Path("/home")
+
+
+def _import_agent_sdk():
+    """Import `claude_agent_sdk`, installing it on first use.
+
+    The retry carries `--break-system-packages`. On a PEP 668 marked
+    interpreter (Ubuntu 24.04+, which DGX Spark nodes ship) the plain
+    install refuses to touch the system environment and exits non-zero, so
+    without the retry the import below fails and every check on that node
+    reports `ModuleNotFoundError` instead of a verdict.
+    """
+    for extra_args in ((), ("--break-system-packages",)):
+        try:
+            import claude_agent_sdk
+        except ImportError:
+            subprocess.run(
+                [
+                    sys.executable, "-m", "pip", "install", "--quiet",
+                    *extra_args, "claude-agent-sdk>=0.0.5",
+                ],
+                check=False, timeout=180,
+            )
+        else:
+            return claude_agent_sdk
+    import claude_agent_sdk  # noqa: F811
+
+    return claude_agent_sdk
+
+
+def _ensure_agent_cli_on_path() -> None:
+    """Make the `claude` CLI resolvable for the judge SDK.
+
+    Harbor installs it under the trial user's `~/.local/bin`, which a
+    non-interactive verifier shell does not inherit on a freshly
+    provisioned node — the profile line that adds it is only read by
+    interactive shells. The login home is searched too because the
+    verifier can run as root while the CLI lives in the trial user's home.
+    """
+    if shutil.which("claude"):
+        return
+    candidates = [Path.home() / ".local" / "bin"]
+    candidates += sorted(_TRIAL_HOME_ROOT.glob("*/.local/bin"))
+    for directory in candidates:
+        if (directory / "claude").exists():
+            os.environ["PATH"] = (
+                f"{directory}{os.pathsep}{os.environ.get('PATH', '')}"
+            )
+            return
+
+
 async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int) -> dict:
     """Run one check through a claude-agent-sdk judge agent."""
-    try:
-        from claude_agent_sdk import (
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ClaudeSDKClient,
-            ResultMessage,
-            TextBlock,
-        )
-    except ImportError:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "claude-agent-sdk>=0.0.5"],
-            check=False, timeout=180,
-        )
-        from claude_agent_sdk import (  # noqa: F811
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ClaudeSDKClient,
-            ResultMessage,
-            TextBlock,
-        )
+    sdk = _import_agent_sdk()
+    AssistantMessage = sdk.AssistantMessage
+    ClaudeAgentOptions = sdk.ClaudeAgentOptions
+    ClaudeSDKClient = sdk.ClaudeSDKClient
+    ResultMessage = sdk.ResultMessage
+    TextBlock = sdk.TextBlock
+    _ensure_agent_cli_on_path()
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return {
