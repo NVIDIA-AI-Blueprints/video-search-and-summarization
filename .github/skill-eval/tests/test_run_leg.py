@@ -110,13 +110,18 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(run_leg.SKILL_EVAL_PYTHON_VERSION, (3, 12))
         self.assertEqual(run_leg.HARBOR_REQUIREMENT, "harbor==0.20.0")
         self.assertEqual(
-            cmd[:7],
+            run_leg.CLAUDE_AGENT_SDK_REQUIREMENT, "claude-agent-sdk==0.2.128"
+        )
+        self.assertEqual(
+            cmd[:9],
             [
                 "uvx",
                 "--python",
                 run_leg.sys.executable,
                 "--from",
                 run_leg.HARBOR_REQUIREMENT,
+                "--with",
+                run_leg.CLAUDE_AGENT_SDK_REQUIREMENT,
                 "harbor",
                 "run",
             ],

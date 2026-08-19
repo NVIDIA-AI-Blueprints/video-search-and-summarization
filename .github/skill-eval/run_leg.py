@@ -51,6 +51,9 @@ from leg_timing import HEARTBEAT_SEC, leg_log, phase
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
 HARBOR_REQUIREMENT = "harbor==0.20.0"
+# Harbor's uvx env is isolated from SKILL_EVAL_VENV. The generic verifier
+# imports claude-agent-sdk (and cannot `pip install` into a uvx runtime).
+CLAUDE_AGENT_SDK_REQUIREMENT = "claude-agent-sdk==0.2.128"
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
@@ -345,6 +348,8 @@ def build_harbor_command(
         sys.executable,
         "--from",
         HARBOR_REQUIREMENT,
+        "--with",
+        CLAUDE_AGENT_SDK_REQUIREMENT,
         "harbor",
         "run",
         "--environment-import-path",
