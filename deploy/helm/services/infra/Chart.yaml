@@ -37,7 +37,7 @@ dependencies:
     repository: "file://./charts/sdrc"
     condition: sdrc.enabled
   - name: elasticsearch
-    version: 3.2.0
+    version: 3.3.0
     repository: "file://./charts/elasticsearch"
     condition: elasticsearch.enabled
   - name: kibana
