@@ -358,6 +358,66 @@ class HarborEnvironment(unittest.TestCase):
             run_leg.HARBOR_TRANSFER_OPERATION_BUDGET_SEC,
         )
 
+    def test_local_gpu_strips_remote_placement_and_raises_agent_budget(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base"),
+            include_task_name="rtxpro6000bw",
+            chain_key="base_rtxpro6000bw",
+        )
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {
+                "SKILL_EVAL_LOCAL_GPU_INSTANCE": (
+                    "vss-skill-eval-gpu-rtxpro6000-1"
+                ),
+                "BREV_EXEC_TIMEOUT": "60",
+                "LLM_REMOTE_URL": "http://10.86.6.50:32081",
+                "LLM_REMOTE_MODEL": "remote-llm",
+                "VLM_REMOTE_URL": "http://10.86.6.50:32086",
+                "VLM_REMOTE_MODEL": "remote-vlm",
+            },
+            clear=True,
+        ):
+            env = run_leg.harbor_env("vss-skill-eval-gpu-rtxpro6000-1")
+            cmd = run_leg.build_harbor_command(
+                invocation,
+                Path("/tmp/results"),
+                "aws/anthropic/bedrock-claude-sonnet-4-6",
+                "https://inference-api.nvidia.com/v1",
+            )
+            args = run_leg.parse_args(
+                [
+                    "--dataset-root", "/tmp/data",
+                    "--results-root", "/tmp/results",
+                ]
+            )
+
+        self.assertNotIn("LLM_REMOTE_URL", env)
+        self.assertNotIn("LLM_REMOTE_MODEL", env)
+        self.assertNotIn("VLM_REMOTE_URL", env)
+        self.assertNotIn("VLM_REMOTE_MODEL", env)
+        self.assertEqual(int(env["BREV_EXEC_TIMEOUT"]), 7830)
+        self.assertEqual(
+            cmd[cmd.index("--agent-timeout-multiplier") + 1],
+            "12.0",
+        )
+        self.assertEqual(args.harbor_timeout_sec, 15_000)
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {
+                "SKILL_EVAL_LOCAL_GPU_INSTANCE": (
+                    "vss-skill-eval-gpu-rtxpro6000-1"
+                ),
+            },
+            clear=True,
+        ):
+            self.assertEqual(run_leg.min_brev_exec_timeout_sec(), 7830)
+            self.assertEqual(run_leg.min_harbor_backstop_sec(), 13680)
+            self.assertGreater(
+                run_leg.LOCAL_GPU_HARBOR_TIMEOUT_SEC,
+                run_leg.min_harbor_backstop_sec(),
+            )
+
 
 class RunCommand(unittest.TestCase):
     COMMAND = ["uvx", "harbor", "run"]
