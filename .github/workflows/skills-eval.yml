@@ -46,15 +46,16 @@ on:
           - claude-code
           - nemoclaw
       provider:
-        description: "Agent model provider. nvidia-build is supported by the NemoClaw runtime."
+        description: "Agent model provider. nvidia-build requires NemoClaw; custom uses runner-configured credentials."
         required: false
         default: "nvidia-inference"
         type: choice
         options:
           - nvidia-inference
           - nvidia-build
+          - custom
       model:
-        description: "Agent model ID. Blank keeps the current nvidia-inference model; required for nvidia-build."
+        description: "Agent model ID. Blank keeps the nvidia-inference default; required for nvidia-build or custom."
         required: false
         default: ""
         type: string

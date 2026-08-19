@@ -83,6 +83,36 @@ def test_nvidia_build_requires_an_explicit_model() -> None:
         model_config.resolve_model_config(env)
 
 
+@pytest.mark.parametrize("runtime", model_config.RUNTIMES)
+def test_custom_provider_uses_only_standardized_model_inputs(runtime: str) -> None:
+    env = {
+        "EVAL_AGENT": runtime,
+        "SKILLS_EVAL_PROVIDER": "custom",
+        "SKILLS_EVAL_MODEL": "custom-model",
+        "SKILLS_EVAL_ENDPOINT_URL": "https://models.example.test/v1/",
+        "SKILLS_EVAL_API_KEY": "custom-key",
+        "ANTHROPIC_BASE_URL": "https://must-not-be-used.example.test",
+        "ANTHROPIC_API_KEY": "must-not-be-used",
+    }
+
+    config = model_config.apply_model_config(env)
+
+    assert config.provider == "custom"
+    assert config.model == "custom-model"
+    assert config.endpoint_url == "https://models.example.test/v1"
+    assert config.api_key == "custom-key"
+
+
+def test_custom_provider_requires_endpoint_and_key() -> None:
+    env = {
+        "SKILLS_EVAL_PROVIDER": "custom",
+        "SKILLS_EVAL_MODEL": "custom-model",
+    }
+
+    with pytest.raises(ValueError, match="SKILLS_EVAL_ENDPOINT_URL is required"):
+        model_config.resolve_model_config(env)
+
+
 def test_api_key_is_hidden_from_config_repr() -> None:
     env = {
         "ANTHROPIC_MODEL": "model",
