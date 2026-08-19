@@ -22,7 +22,7 @@ services:
   # carries every vios profile so it activates whenever a vios service does
   # (and never for a non-vios profile). Add new vios profiles here too.
   vios-apt-cache-init:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     container_name: vios-apt-cache-init
     profiles: ["streamprocessing-ms", "streamprocessing-ms-2d", "streamprocessing-ms-3d", "streamprocessing-ms-mv3dt", "nvstreamer-alerts", "nvstreamer-lvs", "nvstreamer-2d-fusion", "nvstreamer-2d", "nvstreamer-3d", "nvstreamer-mv3dt"]
     user: "0:0"
