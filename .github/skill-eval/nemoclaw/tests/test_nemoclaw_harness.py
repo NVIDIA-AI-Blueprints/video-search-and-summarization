@@ -433,6 +433,7 @@ class HarnessScopeTests(unittest.TestCase):
             "nemoclaw skill-eval destroy --yes --force --cleanup-gateway",
             command,
         )
+        self.assertIn('grep -Fq "does not exist"', command)
         self.assertLess(
             start.index("_destroy_sandbox_command(sandbox, gateway_port)"),
             start.index("await super().start(force_build)"),
