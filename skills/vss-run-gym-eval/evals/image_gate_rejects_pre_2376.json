@@ -1,0 +1,24 @@
+{
+  "skills": [
+    "vss-run-gym-eval"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Using the `vss-run-gym-eval` skill, check whether the NeMo Gym evaluation image tag `26.05` is safe to use, and report the result. Do not deploy anything and do not pull the image. Run autonomously.\n\n**Environment & prerequisites:** network access to `nvcr.io` is required; `curl` and `jq` must be available. The skill's image gate reads the manifest list, the platform manifest, and the image config blob — roughly 20 KB — and never pulls an image layer. A tag is acceptable only when its recorded build date postdates 2026-08-11 (when NVIDIA-NeMo/Gym#2376 removed bundled royalty-bearing codec binaries) AND no layer in its recorded history installs a codec package. (See `skills/vss-run-gym-eval/SKILL.md`.)",
+      "checks": [
+        "The final reply states that tag 26.05 FAILS the gate and must not be pulled or run",
+        "The final reply reports the image's recorded creation date as 2026-06-01 (or an equivalent statement that the build predates 2026-08-11)",
+        "The final reply reports at least one layer in the image history that installs a codec package (ffmpeg or libav or x264 or x265)",
+        "`docker images --format '{{.Repository}}' | grep -q nemo-gym` returns exit 1 (the image was NOT pulled onto the host)",
+        "The final reply does not recommend proceeding with the evaluation using this tag"
+      ]
+    }
+  ]
+}

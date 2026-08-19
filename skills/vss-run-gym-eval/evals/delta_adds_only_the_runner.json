@@ -1,0 +1,26 @@
+{
+  "skills": [
+    "vss-run-gym-eval"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Using the `vss-run-gym-eval` skill, compose the Gym evaluation delta on the `lvs` Foundation into `_builds/gym-eval-check/`. Do NOT deploy it, do not start any container, and do not pull any image. Run autonomously.\n\n**Environment & prerequisites:** the repository checkout is available and `VSS_APPS_DIR` points at its `deploy/docker` directory. The delta is composed from the Foundation's checked-in `overrides.env`, which is authoritative for its service set. `_builds/` is gitignored and is never a Compose profile. (See `skills/vss-run-gym-eval/references/delta.md`.)",
+      "checks": [
+        "`test -f _builds/gym-eval-check/compose.yml` returns exit 0",
+        "`test -d _builds/gym-eval-check/patches` returns exit 0 (the runner is defined in the delta's own patch, not in a shipped compose file)",
+        "`git status --porcelain deploy/docker | wc -l` outputs 0 (no file under deploy/docker was modified)",
+        "`git status --porcelain skills | wc -l` outputs 0 (the skill did not modify any skill file)",
+        "`grep -c gym-eval _builds/gym-eval-check/compose.yml` returns a count of at least 1 (the runner service key is present in the delta)",
+        "The composed COMPOSE_PROFILES contains every service key present in deploy/docker/developer-profiles/dev-profile-lvs/overrides.env's COMPOSE_PROFILES, plus gym-eval, and no other key",
+        "`docker ps --format '{{.Names}}' | grep -c vss-gym-eval` returns 0 (nothing was started)"
+      ]
+    }
+  ]
+}
