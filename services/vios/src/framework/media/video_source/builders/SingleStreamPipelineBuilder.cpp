@@ -179,32 +179,29 @@ void SingleStreamPipelineBuilder::buildStandardPipeline(const PipelineConfigurat
         }
     } else {
         LOG(info) << "Using decoder pool for live streaming" << endl;
+        // The pool finds or creates the decoder in one step and records this peer
+        // as one of its viewers, so a decoder can no longer be created twice for
+        // the same url, nor torn down while another viewer is still watching.
         DecoderPool* pool = DecoderPool::getInstance();
-        m_decoder = pool->getDecoder(config.getUri());
-        if (m_decoder == nullptr) {
-            LOG(warning) << "Decoder is not found so create new decoder instance..." << endl;
-            pool->addStream(config.getUri(), config.getOptions());
-            m_decoder = pool->getDecoder(config.getUri());
-        }
-        
+        m_decoder = pool->acquireDecoder(config.getUri(), config.getPeerId(), config.getOptions());
+
         if (m_decoder) {
+            m_pooledDecoder = true;
             m_decoder->setOptions(config.getOptions());
-            
+
             // IMediaDataProducer integration for single decoder case
             if (config.isLivePlayback()) {
                 setupDecoderWithProducer(m_decoder, config.getUri(), config);
             }
-            
+
             if (!config.isHlsPlayback()) {
                 m_decoder->setNeedSharedStream();
             }
-            
-            dec_result result = pool->tryDecoderStart(m_decoder, config.getUri());
-            if (!result.first) {
-                LOG(error) << "Error in Creating Pipeline" << endl;
-                pool->removeStream(config.getUri());
-                throw std::invalid_argument("Error in Creating Pipeline");
-            }
+        }
+        else {
+            // As before, a decoder that could not be built leaves m_decoder null and
+            // the pipeline carries on without one, rather than failing the request.
+            LOG(error) << "Error in Creating Pipeline for " << config.getUri() << endl;
         }
     }
 }
@@ -214,41 +211,46 @@ void SingleStreamPipelineBuilder::destroyPipeline()
     LOG(info) << "Destroying single stream pipeline" << endl;
     
     try {
-        // Phase 1: Stop data flow by removing consumers
-        if (m_decoder) {
+        // Phase 1: Hand the decoder back.
+        //
+        // A pooled decoder may be shared with other viewers (another live view or
+        // a video wall tile on the same camera), so this pipeline must not decide
+        // on its own to shut it down. releaseDecoder() detaches this peer, counts
+        // what is left, and only tears the decoder down when this was the last
+        // viewer. Detaching and counting happen together under the pool lock, so a
+        // viewer arriving mid-teardown cannot attach to a decoder that is going away.
+        if (m_pooledDecoder && m_decoder) {
+            try {
+                DecoderPool::getInstance()->releaseDecoder(m_decoder, m_config.getUri(), m_config.getPeerId());
+            } catch (const std::exception& e) {
+                LOG(error) << "Exception while releasing pooled decoder: " << e.what() << endl;
+            }
+        }
+        // Private decoder (recorded playback, image capture, gods eye view, new_dec):
+        // owned outright by this pipeline, so tear it down here. It was never in the
+        // pool, so the pool must not be touched for it.
+        else if (m_decoder) {
             try {
                 m_decoder->removeConsumer(m_config.getPeerId());
                 LOG(info) << "Removed consumer from decoder" << endl;
             } catch (const std::exception& e) {
                 LOG(error) << "Exception while removing consumer: " << e.what() << endl;
             }
-        }
 
-        // Clear producer from decoder
-        if (m_decoder && (m_config.isCloudStream() || m_config.isImageCapture()) && m_decoder->getProducer()) {
-            try {
-                clearDecoderProducer(m_decoder, m_config);
-                LOG(info) << "Cleared producer from decoder" << endl;
-            } catch (const std::exception& e) {
-                LOG(error) << "Exception while clearing producer: " << e.what() << endl;
+            if ((m_config.isCloudStream() || m_config.isImageCapture()) && m_decoder->getProducer()) {
+                try {
+                    clearDecoderProducer(m_decoder, m_config);
+                    LOG(info) << "Cleared producer from decoder" << endl;
+                } catch (const std::exception& e) {
+                    LOG(error) << "Exception while clearing producer: " << e.what() << endl;
+                }
             }
-        }
-        
-        // Phase 2: Handle decoder cleanup based on how it was created
-        bool wasNewDecoder = m_config.isRecordedPlayback() || m_config.isImageCapture();
-        const auto& opts = m_config.getOptions();
-        if (opts.find("new_dec") != opts.end() && opts.at("new_dec") == "true") {
-            wasNewDecoder = true;
-        }
-        
-        // Phase 3: CRITICAL - Must explicitly call destroy() to break circular dependency
-        // ALL decoders (pooled or new) that use StreamMonitor need explicit destroy() call.
-        // The decoder is registered with StreamMonitor which holds a shared_ptr reference.
-        // Decoder's destructor calls destroy() which unregisters from StreamMonitor.
-        // BUT destructor won't run while StreamMonitor holds the reference!
-        // SOLUTION: Call destroy() explicitly BEFORE final cleanup to break the cycle.
-        // IMPORTANT: Do NOT clear producer before destroy() - destroy_internal() needs it to unregister from StreamMonitor!
-        if (m_decoder) {
+
+            // Explicit destroy() is required: the decoder is registered with
+            // StreamMonitor, which holds a reference to it, and destroy_internal()
+            // is what unregisters. Waiting for the destructor would deadlock that
+            // cycle, because the destructor cannot run while the registration holds
+            // the reference.
             try {
                 m_decoder->destroy(true);
             } catch (const std::exception& e) {
@@ -256,25 +258,10 @@ void SingleStreamPipelineBuilder::destroyPipeline()
             }
         }
 
-        // Phase 4: Remove from pool if this was a pooled decoder
-        if (!wasNewDecoder) {
-            // Remove from pool - this releases the pool's shared_ptr reference
-            DecoderPool* pool = DecoderPool::getInstance();
-            if (m_decoder) {
-                try {
-                    pool->removeStream(m_config.getUri());
-                    LOG(info) << "Removed decoder from pool for URI: " << m_config.getUri() << endl;
-                } catch (const std::exception& e) {
-                    LOG(error) << "Exception while removing from pool: " << e.what() << endl;
-                }
-            }
-        }
-        
-        // Phase 5: Clear component references
-        // This releases the pipeline's shared_ptr reference to the decoder
-        // Combined with destroy() above (which unregistered from StreamMonitor),
-        // pool cleanup (if applicable), and CommonVideoSource cleanup (from RemoveSink),
-        // the ref count should reach 0, triggering the destructor
+        // Phase 2: Clear component references
+        // Releases this pipeline's reference to the decoder. Together with the
+        // teardown above and CommonVideoSource cleanup (from RemoveSink), the
+        // last reference goes away and the destructor runs.
         m_decoder.reset();
         m_videoSender.reset();
         m_nativeStreamProducer.reset();
@@ -282,7 +269,7 @@ void SingleStreamPipelineBuilder::destroyPipeline()
         m_ipcProducer.reset();
 #endif
 
-        // Phase 6: Destroy common components (encoder, transform, etc.)
+        // Phase 3: Destroy common components (encoder, transform, etc.)
         destroyCommonComponents();
         
     } catch (const std::exception& e) {
