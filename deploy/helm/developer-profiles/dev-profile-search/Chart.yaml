@@ -53,7 +53,7 @@ description: |
       -n metropolis --create-namespace
 
 type: application
-version: 3.2.1
+version: 3.3.0
 appVersion: "1.0"
 keywords:
   - metropolis

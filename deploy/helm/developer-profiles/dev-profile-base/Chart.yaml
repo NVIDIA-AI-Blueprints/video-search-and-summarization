@@ -14,10 +14,10 @@
 # limitations under the License.
 
 apiVersion: v2
-name: vss
+name: dev-profile-base
 description: "VSS stack - Helm chart for developer profiles - base"
 type: application
-version: 3.2.1
+version: 3.3.0
 appVersion: "1.0"
 dependencies:
   - name: infra
