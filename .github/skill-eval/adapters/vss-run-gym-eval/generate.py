@@ -28,8 +28,9 @@ Directory layout:
         tests/<spec_name>              (the spec JSON)
         tests/generic_judge.py
         solution/solve.sh
-        skills/vss-run-gym-eval/      (full skill copy)
-        skills/vss-deploy-profile/     (optional, for agent context)
+        skills/vss-run-gym-eval/          (full skill copy)
+        skills/vss-build-vision-agent/    (required — delta.md links into it)
+        skills/vss-deploy-profile/        (optional, for agent context)
         environment/Dockerfile
 
 Usage from the repository root:
@@ -43,9 +44,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
+
+# The harness checks out the repository here. Spec checks and the gold
+# solution must both address the tree by absolute path: the agent's cwd is
+# whatever the pool box hands it (observed: /home/shadeform), so a check
+# written as `test -f _builds/...` resolves against the wrong directory and
+# fails an otherwise correct run.
+HARNESS_REPO_ROOT = "$HOME/video-search-and-summarization"
 
 # ---------------------------------------------------------------------------
 # Platforms — gpu_count=0 specs accept any pool box
@@ -81,6 +90,33 @@ PREAMBLE = (
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
+# `{{repo_root}}` only — `{{.Names}}` and friends in the specs' docker
+# --format strings are left alone, since `\w+` does not match a leading dot.
+_PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def _substitute_spec(spec: dict, platform: str) -> dict:
+    """Resolve {{repo_root}} / {{platform}} in every string in the spec.
+
+    The rendered copy is what lands in tests/ — copying the spec verbatim
+    would ship unresolved placeholders to the judge, which then evaluates
+    checks against a literal `{{repo_root}}` path that cannot exist.
+    """
+    substitutions = {"platform": platform, "repo_root": HARNESS_REPO_ROOT}
+
+    def _sub(value):
+        if isinstance(value, str):
+            return _PLACEHOLDER.sub(
+                lambda m: str(substitutions.get(m.group(1), m.group(0))), value
+            )
+        if isinstance(value, list):
+            return [_sub(v) for v in value]
+        if isinstance(value, dict):
+            return {k: _sub(v) for k, v in value.items()}
+        return value
+
+    return _sub(spec)
+
 
 def generate_test_script(step: int, spec_name: str) -> str:
     """Shell wrapper that invokes the generic LLM-as-judge verifier for a
@@ -100,18 +136,178 @@ def generate_test_script(step: int, spec_name: str) -> str:
     )
 
 
+_SOLVE_DELTA = r"""#!/bin/bash
+# Gold solution: compose the Gym evaluation delta exactly as
+# references/delta.md specifies. Nothing is pulled and nothing is started.
+set -euo pipefail
+
+REPO_ROOT="__REPO_ROOT__"
+export VSS_APPS_DIR="${REPO_ROOT}/deploy/docker"
+export VSS_DATA_DIR="${VSS_DATA_DIR:-${REPO_ROOT}/data}"
+# The runner's image pin is fail-closed (${VAR:?}) with deliberately no
+# default, so composition needs a tag even though nothing is pulled here.
+export VSS_GYM_EVAL_TAG="${VSS_GYM_EVAL_TAG:-gate-pending}"
+
+# The Foundation's Compose entry point is the ROOT deploy/docker/compose.yml.
+# Neither developer-profiles/compose.yml nor the per-profile file works: both
+# are fragments, and services the lvs profile depends on (kibana lives in
+# services/infra/compose.yml) are only pulled in by the root file. Pointing the
+# delta at a fragment yields "service kibana-init-container-lvs depends on
+# undefined service kibana" -- the profile-filtering hazard delta.md warns
+# about, and it fails identically for the bare Foundation, so a delta built on
+# a fragment would look broken when the fragment was the mistake.
+FOUNDATION_COMPOSE="${VSS_APPS_DIR}/compose.yml"
+FOUNDATION_ENV="${VSS_APPS_DIR}/developer-profiles/dev-profile-lvs/overrides.env"
+BUILD_DIR="${REPO_ROOT}/_builds/gym-eval-check"
+mkdir -p "${BUILD_DIR}/patches"
+
+# The Foundation's checked-in overrides.env is authoritative for its service
+# set. Add exactly one key; remove none.
+FOUNDATION_PROFILES=$(grep -E '^COMPOSE_PROFILES=' "${FOUNDATION_ENV}" \
+  | tail -1 | cut -d= -f2-)
+[ -n "${FOUNDATION_PROFILES}" ] || {
+    echo "no COMPOSE_PROFILES in ${FOUNDATION_ENV}"; exit 1; }
+
+cat > "${BUILD_DIR}/patches/gym-eval.yml" <<'YAML'
+services:
+  gym-eval:
+    image: ${VSS_GYM_EVAL_IMAGE:-nvcr.io/nvidia/eval-factory/nemo-gym}:${VSS_GYM_EVAL_TAG:?set only after the image gate in SKILL.md passes}
+    profiles: ["gym-eval"]
+    container_name: vss-gym-eval
+    restart: "no"
+    environment:
+      - VSS_GYM_EVAL_OUTPUT_DIR=${VSS_GYM_EVAL_OUTPUT_DIR:-/workspace/outputs}
+    volumes:
+      - ${VSS_DATA_DIR}/gym_eval:/workspace/outputs
+YAML
+
+grep -v -E '^COMPOSE_PROFILES=' "${FOUNDATION_ENV}" > "${BUILD_DIR}/override.env"
+{
+    echo "COMPOSE_PROFILES=${FOUNDATION_PROFILES},gym-eval"
+    echo "VSS_GYM_EVAL_OUTPUT_DIR=/workspace/outputs"
+} >> "${BUILD_DIR}/override.env"
+
+cat > "${BUILD_DIR}/compose.yml" <<YAML
+include:
+  - ${FOUNDATION_COMPOSE}
+  - ${BUILD_DIR}/patches/gym-eval.yml
+YAML
+
+docker compose --env-file "${BUILD_DIR}/override.env" \
+    -f "${BUILD_DIR}/compose.yml" config > "${BUILD_DIR}/resolved.yml"
+
+for artifact in override.env compose.yml resolved.yml patches/gym-eval.yml; do
+    [ -f "${BUILD_DIR}/${artifact}" ] || {
+        echo "missing build artifact: ${BUILD_DIR}/${artifact}"; exit 1; }
+done
+
+# The delta adds exactly one service to the Foundation -- no more, none removed.
+DELTA=$(diff \
+    <(docker compose --env-file "${FOUNDATION_ENV}" \
+        -f "${FOUNDATION_COMPOSE}" config --services 2>/dev/null | sort) \
+    <(docker compose --env-file "${BUILD_DIR}/override.env" \
+        -f "${BUILD_DIR}/compose.yml" config --services 2>/dev/null | sort) \
+    | grep -E '^[<>]' || true)
+[ "${DELTA}" = "> gym-eval" ] || {
+    echo "delta drifted from its Foundation:"; echo "${DELTA}"; exit 1; }
+
+# Fail-closed pin: with the tag unset, resolution must fail and say so.
+if env -u VSS_GYM_EVAL_TAG docker compose --env-file "${BUILD_DIR}/override.env" \
+        -f "${BUILD_DIR}/compose.yml" config --quiet >/dev/null 2>&1; then
+    echo "runner tag is not fail-closed: config succeeded with VSS_GYM_EVAL_TAG unset"
+    exit 1
+fi
+
+echo "Composed ${BUILD_DIR}: Foundation + gym-eval only, nothing started."
+"""
+
+_SOLVE_IMAGE_GATE = r"""#!/bin/bash
+# Gold solution: run the SKILL.md image gate against a tag that must be
+# rejected, and assert it rejects without pulling the image.
+set -uo pipefail
+
+REPO=nvidia/eval-factory/nemo-gym
+TAG=26.05
+
+run_gate() (
+    set -euo pipefail
+    TOK=$(curl -fsS "https://nvcr.io/proxy_auth?scope=repository:${REPO}:pull" \
+        | jq -er .token) || { echo "GATE FAIL: no registry token"; exit 1; }
+    AMD=$(curl -fsS -H "Authorization: Bearer $TOK" \
+        -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json" \
+        "https://nvcr.io/v2/${REPO}/manifests/${TAG}" \
+        | jq -r '.manifests[]? | select(.platform.architecture=="amd64" and .platform.os=="linux") | .digest' | head -1)
+    [ -n "$AMD" ] || { echo "GATE FAIL: no linux/amd64 manifest"; exit 1; }
+    CFG=$(curl -fsS -H "Authorization: Bearer $TOK" \
+        -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json" \
+        "https://nvcr.io/v2/${REPO}/manifests/${AMD}" | jq -r '.config.digest')
+    [ -n "$CFG" ] || { echo "GATE FAIL: no config blob digest"; exit 1; }
+    BLOB=$(curl -fsSL -H "Authorization: Bearer $TOK" \
+        "https://nvcr.io/v2/${REPO}/blobs/${CFG}") \
+        || { echo "GATE FAIL: config blob fetch failed"; exit 1; }
+    [ -n "$BLOB" ] || { echo "GATE FAIL: empty config blob"; exit 1; }
+    CREATED=$(echo "$BLOB" | jq -er '.created') \
+        || { echo "GATE FAIL: no .created"; exit 1; }
+    HIST_TOTAL=$(echo "$BLOB" | jq -r '.history | length')
+    HIST_READABLE=$(echo "$BLOB" | jq -r '[.history[] | select(type=="object") | .created_by | select(type=="string" and length > 0)] | length')
+    [ "${HIST_TOTAL:-0}" -gt 0 ] || { echo "GATE FAIL: empty .history"; exit 1; }
+    [ "${HIST_READABLE:-0}" -eq "${HIST_TOTAL}" ] \
+        || { echo "GATE FAIL: history not inspectable"; exit 1; }
+    CODEC_LAYERS=$(echo "$BLOB" | jq -r '.history[].created_by // empty' \
+        | grep -cE 'ffmpeg|libav|x264|x265' || true)
+    echo "created: ${CREATED}"
+    echo "codec-installing layers: ${CODEC_LAYERS}"
+    FIX_EPOCH=$(date -u -d '2026-08-12' +%s)
+    CREATED_EPOCH=$(date -u -d "${CREATED}" +%s) \
+        || { echo "GATE FAIL: unparseable .created"; exit 1; }
+    [ "${CREATED_EPOCH}" -ge "${FIX_EPOCH}" ] \
+        || { echo "GATE FAIL: build predates the codec-removal cutoff -- do not pull ${TAG}"; exit 1; }
+    [ "${CODEC_LAYERS}" -eq 0 ] \
+        || { echo "GATE FAIL: ${CODEC_LAYERS} codec layer(s) -- do not pull ${TAG}"; exit 1; }
+    echo "GATE PASS"
+)
+
+OUT=$(run_gate); RC=$?
+echo "${OUT}"
+
+# This tag MUST be rejected; a pass here means the gate stopped working.
+[ "${RC}" -ne 0 ] || { echo "gate accepted ${TAG}, which it must reject"; exit 1; }
+echo "${OUT}" | grep -q 'GATE FAIL' || { echo "gate did not report a failure"; exit 1; }
+
+# ...and it must have reached that verdict on metadata alone.
+if docker images --format '{{.Repository}}' 2>/dev/null | grep -q nemo-gym; then
+    echo "a nemo-gym image is present on the host -- the gate must not pull"
+    exit 1
+fi
+
+echo "Gate correctly rejected ${TAG} without pulling it."
+"""
+
+
 def generate_solve_script(platform: str, spec_stem: str) -> str:
-    """Gold solution placeholder — these specs are offline checks (no VSS
-    deployment needed), so the solve script is a no-op that defers to the
-    verifier."""
-    return (
-        "#!/bin/bash\n"
-        f"# Gold solution: vss-run-gym-eval/{spec_stem} on {platform}\n"
-        "# These specs exercise offline operations (delta composition,\n"
-        "# image-gate checking). The verifier drives evaluation directly.\n"
-        "set -euo pipefail\n"
-        "\n"
-        "echo 'Offline spec — verifier will evaluate directly.'\n"
+    """Gold solution — a real oracle, one per spec.
+
+    These specs are offline (no deployment, no GPU), but "offline" is not
+    "nothing to do": the delta spec's checks assert build artifacts that
+    only exist once the delta is composed, and the gate spec's checks
+    assert a verdict that only exists once the gate has run. A solve
+    script that merely echoes cannot satisfy either, so it would report
+    the task unsolvable regardless of the skill's quality.
+    """
+    if spec_stem.startswith("delta_"):
+        body = _SOLVE_DELTA.replace("__REPO_ROOT__", HARNESS_REPO_ROOT)
+    elif spec_stem.startswith("image_gate_"):
+        body = _SOLVE_IMAGE_GATE
+    else:
+        raise SystemExit(
+            f"no gold solution for spec '{spec_stem}' — add one to "
+            f"{Path(__file__).name} rather than shipping a stub that "
+            f"cannot satisfy the spec's checks"
+        )
+    return body.replace(
+        "#!/bin/bash\n",
+        f"#!/bin/bash\n# Gold solution: vss-run-gym-eval/{spec_stem} on {platform}\n",
+        1,
     )
 
 
@@ -121,9 +317,10 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     Single-step specs collapse to a flat `base/<platform_short>/`."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
-    expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
     spec_stem = Path(spec_name).stem
+    rendered_spec = _substitute_spec(spec, platform)
+    expects = rendered_spec.get("expects") or []
 
     for idx, expect in enumerate(expects, 1):
         step_dir = output_root / "base" / platform_short
@@ -134,6 +331,10 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # instruction.md — ONE step's query + environment notes ONLY.
         lines = [
             PREAMBLE,
+            "",
+            f"Use the `/vss-run-gym-eval` skill. Work from "
+            f"`{HARNESS_REPO_ROOT}` (the VSS repository root) — the shell "
+            f"you start in is not the checkout.",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -188,15 +389,10 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if not spec_src.exists():
-            legacy = skill_dir / "eval" / spec_name
-            if legacy.exists():
-                spec_src = legacy
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # Write the RENDERED spec, never a verbatim copy: the checks address
+        # the checkout by absolute path via {{repo_root}}, and an unrendered
+        # placeholder would have the judge test a path that cannot exist.
+        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"
@@ -205,16 +401,35 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             generate_solve_script(platform, spec_stem)
         )
 
-        # skills/ — include vss-run-gym-eval + deploy-profile (for context)
+        # skills/ — the skill under test plus the siblings it points at.
+        #
+        # vss-build-vision-agent is not optional context: references/delta.md
+        # links to ../../vss-build-vision-agent/references/composition.md for
+        # the delta contract this skill documents an exception to. Without it
+        # bundled alongside, that relative link dangles and the agent cannot
+        # read the contract it is being asked to depart from.
+        siblings = skill_dir.parent
         for src, name in (
             (skill_dir, "vss-run-gym-eval"),
-            (deploy_skill_dir, "vss-deploy-profile"),
+            (siblings / "vss-build-vision-agent", "vss-build-vision-agent"),
+            (deploy_skill_dir or siblings / "vss-deploy-profile",
+             "vss-deploy-profile"),
         ):
             if src and src.exists():
                 dst = step_dir / "skills" / name
                 if dst.exists():
                     shutil.rmtree(dst)
                 shutil.copytree(src, dst)
+            elif name == "vss-build-vision-agent":
+                raise SystemExit(
+                    f"{name} not found at {src} — references/delta.md links "
+                    f"into it, so the generated task would ship a broken "
+                    f"cross-skill reference"
+                )
+
+        # Harbor executes these directly.
+        for script in (tests_dir / "test.sh", solution_dir / "solve.sh"):
+            script.chmod(0o755)
 
 
 # ---------------------------------------------------------------------------
