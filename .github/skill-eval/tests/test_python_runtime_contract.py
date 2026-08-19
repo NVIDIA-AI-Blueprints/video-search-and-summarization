@@ -29,7 +29,9 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
         assert 'export PATH=' in workflow
         assert "$skill_eval_venv_dir/bin" in workflow
         if relative_path.endswith("skills-eval.yml"):
-            assert 'export PATH="/usr/local/bin:$skill_eval_venv_dir/bin:$PATH"' in workflow
+            assert 'export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:$PATH"' in workflow
+            assert '"$skill_eval_venv_dir/bin/python" .github/skill-eval/skills_eval_agent.py' in workflow
+            assert "python3 .github/skill-eval/skills_eval_agent.py" not in workflow
             assert "Assert OpenShell GPU runtime" in workflow
             assert "uv tool run" in workflow
             assert "base64 -d" in workflow
