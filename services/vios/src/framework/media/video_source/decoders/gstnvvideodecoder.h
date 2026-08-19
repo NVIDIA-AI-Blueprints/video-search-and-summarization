@@ -195,7 +195,14 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         void addFrameTs(int64_t ts);
         void setEOS();
         void setOptions(const std::map<std::string, std::string, std::less<>> &opts);
-        int getVideoSinkListSize() { return m_videoSinkList.size(); }
+        /* Number of viewers currently attached to this decoder. Load bearing:
+         * DecoderPool uses this to decide whether a shared decoder still has
+         * an audience, so it must be read under m_videoSinkLock. */
+        [[nodiscard]] size_t getVideoSinkListSize()
+        {
+            std::lock_guard<std::mutex> lock(m_videoSinkLock);
+            return m_videoSinkList.size();
+        }
         std::vector<VideoFileInfo> getActiveFileList() { return m_fileNameArray; }
 #ifdef UNIT_TEST
         void setPeerid(const string& peer_id);
