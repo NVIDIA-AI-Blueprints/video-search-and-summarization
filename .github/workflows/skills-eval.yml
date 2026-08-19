@@ -377,6 +377,9 @@ jobs:
 
       - name: Upload results artifact
         if: always()
+        # A Harbor 1.0 must not fail the check because Azure blob PUT stalled
+        # (run 32235369765: 4 KB tarball, "Upload progress stalled").
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: skills-eval-results-pr-${{ needs.plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
