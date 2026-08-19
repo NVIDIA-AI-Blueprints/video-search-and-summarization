@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.3.3"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
