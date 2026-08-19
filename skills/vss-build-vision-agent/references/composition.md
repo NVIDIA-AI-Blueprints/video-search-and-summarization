@@ -70,19 +70,6 @@ service outside that closure, including a peer whose only consumer was removed
 requested). A service is retained only because a requested capability reaches it,
 never because the Foundation happened to ship it.
 
-**Evaluation overlays are the one exception, and they sit outside this pass.** An
-overlay whose subject is the built stack itself — `gym-eval`
-([`services/gym-eval.md`](services/gym-eval.md)) is the only one today — cannot
-be resolved by forward closure, because its "requested capability" is the
-resolved service set as a whole. Pruning to a closure would score a different
-system and the numbers would not be comparable to anything. Such an overlay
-therefore contributes no owners and no peers to the closure, and is applied
-**after** resolution and pruning have finished, adding its own service key to the
-resolved set and removing none. It cannot retain a Foundation service that
-resolution decided to drop, so the symmetry rule above still holds for every
-service that participates in it. The validation below applies unchanged to the
-pre-overlay resolved set.
-
 When more than one requested capability maps to the same owner, converge on a
 single instance (one service key, one variant, one config), never two variants
 of one owner for the same role (for example, one detector feeding two pipelines).
@@ -92,6 +79,15 @@ state which owners are singletons, what output each fixes, and which consumer
 keys track it; read them before merging configs.
 
 Service activation alone is never a Compose-definition change.
+
+> **Evaluation overlays are the one exception to the pruning rule, and they
+> sit outside this pass.** An overlay whose subject is the built stack itself
+> (`gym-eval`, [`services/gym.md`](services/gym.md), is the only one today)
+> contributes no owners and no peers to the closure. It is applied *after*
+> resolution and pruning finish, adding its own key to the resolved set and
+> removing none, so it cannot retain a service resolution decided to drop.
+> Everything above and below applies to the pre-overlay resolved set. If you
+> are not composing an evaluation overlay, this note does not apply to you.
 
 ## Clarification gate
 
