@@ -224,9 +224,15 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
     """
     count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
     if os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
-        if platform == "RTXPRO6000BW" and count > 0:
-            return [*OPENSHELL_RTXPRO6000_LABELS, f"gpus-{count}"]
-        return list(SKIP_RUNNER)
+        # RTXPRO6000BW — including gpu_count: 0 routing/calibration-chain —
+        # must land on the OpenShell cohort. Never ubuntu-24.04: that runner
+        # has no ~/.eval_env and no GPU, so the job fails env-load instead of
+        # running or skipping honestly.
+        if platform == "RTXPRO6000BW":
+            labels = list(OPENSHELL_RTXPRO6000_LABELS)
+            labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
+            return labels
+        return list(OPENSHELL_RTXPRO6000_LABELS)
     labels = list(BASE_LABELS)
     if count <= 0:
         return labels
@@ -435,7 +441,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
                 "runs_on": (
-                    list(SKIP_RUNNER)
+                    [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"]
                     if os.environ.get("OPENSHELL_RTXPRO6000_ONLY")
                     else list(BASE_LABELS)
                 ),

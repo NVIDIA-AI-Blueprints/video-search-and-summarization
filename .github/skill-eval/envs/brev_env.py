@@ -389,10 +389,17 @@ class BrevEnvironment(BaseEnvironment):
                 or claude_task_cleanup_result.stdout
                 or ""
             )[-500:]
-            raise RuntimeError(
-                f"claude task scratch cleanup failed on {self._instance_name}: "
-                f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
-            )
+            if os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip():
+                print(
+                    "claude task scratch cleanup failed on local GPU runner; "
+                    f"continuing so uvx/docker scratch is not blocked: {tail}",
+                    flush=True,
+                )
+            else:
+                raise RuntimeError(
+                    f"claude task scratch cleanup failed on {self._instance_name}: "
+                    f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
+                )
 
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
@@ -1495,16 +1502,20 @@ def _claude_task_scratch_cleanup_command() -> str:
     `/tmp/claude-1002/-home-shadeform/<session>/tasks/<id>.output`. Removing
     the old `tasks/` dirs prevents completed background-command notifications
     from being replayed into the next Harbor trial.
+
+    Never touch uv/harbor caches, `$HOME/.local`, `/usr/local`, or a BASE
+    that is not exactly `/tmp/claude-<uid>`.
     """
     return (
         "UID_NUM=$(id -u); "
         'BASE="/tmp/claude-${UID_NUM}"; '
+        'case "$BASE" in '
+        '  /tmp/claude-[0-9]*) ;; '
+        '  *) echo "[claude-task-scratch] refusing to clean $BASE"; exit 0 ;; '
+        "esac; "
         'if [ -d "$BASE" ]; then '
         '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
-        # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must
-        # reach claude_task_cleanup_result.stderr so the RuntimeError tail isn't
-        # empty (the BEFORE/AFTER count-finds keep theirs — that noise is benign).
-        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || exit 1; '
+        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || true; '
         '  AFTER=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
         '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
         'else '

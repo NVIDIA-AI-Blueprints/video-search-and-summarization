@@ -199,6 +199,25 @@ jobs:
           "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
           echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+
+      - name: Assert OpenShell GPU runtime
+        if: startsWith(runner.name, 'vss-skill-eval-gpu-rtxpro6000-')
+        run: |
+          export PATH="/usr/local/bin:$PATH"
+          if [ -x /usr/local/bin/uv ] && [ ! -e /usr/local/bin/uvx ]; then
+            sudo -n ln -sfn /usr/local/bin/uv /usr/local/bin/uvx
+          fi
+          command -v uvx
+          uvx --version
+          test -S /var/run/docker.sock
+          docker info >/dev/null
+          fstype=$(findmnt -n -o FSTYPE /var/lib/docker || true)
+          [ "$fstype" = ext4 ] || {
+            echo "/var/lib/docker fstype=$fstype (need loop-ext4, not overlay)" >&2
+            findmnt /var/lib/docker >&2 || true
+            exit 1
+          }
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
@@ -277,7 +296,7 @@ jobs:
           export SKILL_EVAL_VENV="$skill_eval_venv_dir"
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
-          export PATH="$skill_eval_venv_dir/bin:$PATH"
+          export PATH="/usr/local/bin:$skill_eval_venv_dir/bin:$PATH"
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
