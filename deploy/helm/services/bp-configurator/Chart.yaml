@@ -5,8 +5,8 @@ apiVersion: v2
 name: bp-configurator
 description: NVIDIA Metropolis blueprint configurator service
 type: application
-version: 3.2.0
-appVersion: "3.2.0"
+version: 3.3.0
+appVersion: "3.3.0"
 keywords:
   - metropolis
   - blueprint

@@ -32,6 +32,18 @@ HELM_VALUES = {
     "vss-rt-cv": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "vss-vios-sensor": [
+        "deploy/helm/services/vios/charts/vios-sensor/values.yaml",
+    ],
+    "vss-vios-streamprocessing": [
+        "deploy/helm/services/vios/charts/vios-streamprocessing/values.yaml",
+    ],
+    "vss-vios-nvstreamer": [
+        "deploy/helm/services/vios/charts/vios-nvstreamer/values.yaml",
+    ],
+    "vss-vios-ingress": [
+        "deploy/helm/services/vios/charts/vios-ingress/values.yaml",
+    ],
     "sdr-mw-l": ["deploy/helm/services/infra/charts/sdrc/values.yaml"],
     "vss-configurator": [
         "deploy/helm/services/bp-configurator/values.yaml",
@@ -70,6 +82,18 @@ HELM_HELPERS = {
     # name, not the helper prefix.
     "vss-rt-cv": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "vss-vios-sensor": [
+        "deploy/helm/services/vios/charts/vios-sensor/templates/_helpers.tpl",
+    ],
+    "vss-vios-streamprocessing": [
+        "deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl",
+    ],
+    "vss-vios-nvstreamer": [
+        "deploy/helm/services/vios/charts/vios-nvstreamer/templates/_helpers.tpl",
+    ],
+    "vss-vios-ingress": [
+        "deploy/helm/services/vios/charts/vios-ingress/templates/_helpers.tpl",
     ],
     "sdr-mw-l": ["deploy/helm/services/infra/charts/sdrc/templates/_helpers.tpl"],
     "vss-configurator": [

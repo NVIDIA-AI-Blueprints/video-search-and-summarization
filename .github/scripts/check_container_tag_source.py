@@ -92,6 +92,22 @@ IMAGE_CONFIGS = {
         image_name="vss-rt-cv",
         source_path=Path("services/rtvi/rt-cv"),
     ),
+    "vss-vios-sensor": ImageConfig(
+        image_name="vss-vios-sensor",
+        source_path=Path("services/vios"),
+    ),
+    "vss-vios-streamprocessing": ImageConfig(
+        image_name="vss-vios-streamprocessing",
+        source_path=Path("services/vios"),
+    ),
+    "vss-vios-nvstreamer": ImageConfig(
+        image_name="vss-vios-nvstreamer",
+        source_path=Path("services/vios"),
+    ),
+    "vss-vios-ingress": ImageConfig(
+        image_name="vss-vios-ingress",
+        source_path=Path("services/vios"),
+    ),
     "sdr-mw-l": ImageConfig(
         image_name="sdr-mw-l", source_path=Path("services/sdrc")
     ),
