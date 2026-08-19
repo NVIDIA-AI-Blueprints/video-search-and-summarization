@@ -224,7 +224,16 @@ services:
     # fails, so a transient apt error never blocks the consumers that depend on
     # it -- they fall back to a normal download (the install script bypasses the
     # cache on failure). The cache is an optimization, not a hard dependency.
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh || echo 'cache populate failed (best-effort); consumers will download'; else echo 'additional packages disabled; nothing to cache'; fi"]
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ "$$VST_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+          /home/vst/vst_release/tools/user_additional_install.sh \
+            || echo 'cache populate failed (best-effort); consumers will download'
+        else
+          echo 'additional packages disabled; nothing to cache'
+        fi
     volumes:
       - vios_apt_cache:/opt/apt-cache
       # This compose file lives in docker-compose/, so the shared populate

@@ -77,3 +77,4 @@ deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
+deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
