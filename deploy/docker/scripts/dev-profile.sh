@@ -812,15 +812,6 @@ function process_args() {
         vlm_model_type="$(get_env_value_from_files "VLM_MODEL_TYPE" "${_profile_env}" "${_profile_overrides_env}")"
       fi
 
-      # Nemotron 3.5 Lightning 30B-A3B is validated for GB300, so prefer it for
-      # local LVS deployments. An explicit --llm selection always wins, and
-      # remote LLM deployments discover/use the model exposed by their endpoint.
-      if [[ "${profile}" == "lvs" ]] && [[ "${hardware_profile}" == "GB300" ]] \
-        && ! contains_element "llm" "${options_provided[@]}" \
-        && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
-        llm="nvidia/nemotron-3.5-lightning-30b-a3b"
-      fi
-
       # Validate hardware profile value (from profile .env or --hardware-profile)
       _valid_hardware_profiles=('H100' 'GB300' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then

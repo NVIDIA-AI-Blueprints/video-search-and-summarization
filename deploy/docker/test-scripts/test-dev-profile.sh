@@ -1515,20 +1515,25 @@ run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "b
  -i 127.0.0.1 -H OTHER -d -- \
   "HARDWARE_PROFILE" "OTHER"
 
-run_dry_run_up_and_check_generated_env "generated.env LVS GB300 defaults to Nemotron 3.5 Lightning" "lvs" \
+run_dry_run_up_and_check_generated_env "generated.env LVS defaults to Nemotron 3.5 Lightning on H100" "lvs" \
+ -i 127.0.0.1 -H H100 -d -- \
+  "HARDWARE_PROFILE" "H100" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
+
+run_dry_run_up_and_check_generated_env "generated.env LVS defaults to Nemotron 3.5 Lightning on GB300" "lvs" \
  -i 127.0.0.1 -H GB300 -d -- \
   "HARDWARE_PROFILE" "GB300" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
-for _gb300_nemotron_env in \
-  "${REPO_ROOT}/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-GB300.env" \
-  "${REPO_ROOT}/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-GB300-shared.env"; do
-  if grep -Fq -- "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder" "${_gb300_nemotron_env}"; then
-    echo "PASS: $(basename "${_gb300_nemotron_env}") enables Nemotron 3.5 reasoning and tool calling"
+for _nemotron_3_5_env in \
+  "${REPO_ROOT}"/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-*.env; do
+  if grep -Fq -- "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder" "${_nemotron_3_5_env}"; then
+    echo "PASS: $(basename "${_nemotron_3_5_env}") enables Nemotron 3.5 reasoning and tool calling"
     ((TESTS_PASSED++)) || true
   else
-    echo "FAIL: $(basename "${_gb300_nemotron_env}") does not enable Nemotron 3.5 reasoning and tool calling"
+    echo "FAIL: $(basename "${_nemotron_3_5_env}") does not enable Nemotron 3.5 reasoning and tool calling"
     ((TESTS_FAILED++)) || true
   fi
 done
