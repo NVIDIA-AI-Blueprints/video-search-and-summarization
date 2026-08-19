@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 apiVersion: v2
-name: warehouse-2d-app
+name: vss-warehouse-2d-app
 description: NVIDIA Metropolis warehouse operations 2D app profile
 type: application
 version: 3.3.0
