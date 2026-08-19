@@ -108,6 +108,16 @@
         "The answer does not use kubectl, port-forward, Kubernetes Service DNS, a NodePort, localhost, direct `:8000`, direct `:9200`, or direct `:30888`",
         "The answer explains that routes the Ingress does not expose are recorded as absent and that a search path needing one exits 4, rather than proposing to expose or forward them"
       ]
+    },
+    {
+      "scenario": "rtsp-live-stream-search-contract",
+      "query": "A live RTSP camera is already registered on the prepared Docker search deployment as `gate_cam_live`. This is a contract check: show the exact host-side commands you would run to first prove that live stream is searchable and then return up to three embed hits for a person wearing a hard hat in that stream only. Do not execute the commands, and do not deploy, ingest, or add a stream.",
+      "checks": [
+        "The answer resolves `gate_cam_live` to its exact registered live-stream identity through the configured origin's VST route before search, and adds, ingests, deploys, or restarts nothing",
+        "The readiness proof queries the embedding family wildcard `mdx-embed-filtered-*`, scoped to the resolved stream identity, for a document count greater than zero, and explicitly does not poll a single date-stamped index such as `mdx-embed-filtered-2025-01-01`, because a live stream's documents carry wall-clock timestamps and never land in the uploads anchor",
+        "The search command runs `vss search run embed` with `--query`, the resolved stream sensor ID as `--video-source`, `--source-type rtsp`, and `--top-k 3`, passing no endpoint, index, or model flags and not using `--search-mode` or `--base-url` on the search command",
+        "The answer explains that `--source-type rtsp` selects live-stream documents by media kind, so uploaded-file hits are excluded regardless of ingestion order, and does not claim the live stream's documents live in the `2025-01-01` uploads anchor"
+      ]
     }
   ]
 }

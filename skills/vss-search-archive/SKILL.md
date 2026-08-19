@@ -81,8 +81,9 @@ one exits 4.
 
 For deployment readiness, ingestion, fixture cleanup, index checks, RTSP, or
 deletion, read [source lifecycle](references/source_lifecycle.md) completely
-before acting. Re-run `vss configure` after ingestion because the recorded
-index inventory is a snapshot.
+before acting. Re-running `vss configure` after ingestion refreshes the recorded
+service snapshot and is good practice, though search no longer depends on the
+index inventory for source-type selection.
 
 ## Mandatory search workflow
 
@@ -105,7 +106,8 @@ index inventory is a snapshot.
    `embed` and `fusion` use the sensor ID; `attribute` and `object` use the
    name. The CLI matches this value literally and does no name↔ID conversion.
    Set `--source-type video_file` for uploads or `--source-type rtsp` for live
-   streams; this chooses the index partition independently of the identifier.
+   streams. This partitions by media kind, independently of the identifier and
+   of the index inventory, so it is correct regardless of ingestion order.
 
 3. Preserve the complete object/action, source, time bounds, result limit, and
    visual attributes. Choose one path:

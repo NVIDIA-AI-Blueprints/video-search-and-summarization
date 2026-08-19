@@ -20,12 +20,19 @@ _UUID = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
 # ---------------------------------------------------------------- index select
 
 
-def test_select_index_video_file():
-    assert h.select_search_index("video_file", video_embed_index="vi", video_embed_index_wildcard="w-*") == "vi"
+def test_select_index_returns_wildcard_for_both_source_types():
+    # Index no longer varies by source type: both query the wildcard and the
+    # sensor.type document filter (build_source_type_filter) does the partitioning.
+    assert h.select_search_index("w-*") == "w-*"
 
 
-def test_select_index_rtsp():
-    assert h.select_search_index("rtsp", video_embed_index="vi", video_embed_index_wildcard="w-*") == ["w-*", "-vi"]
+def test_build_source_type_filter():
+    assert h.build_source_type_filter("rtsp") == {"term": {"sensor.type.keyword": "Camera"}}
+    assert h.build_source_type_filter("video_file") == {"term": {"sensor.type.keyword": "Video"}}
+
+
+def test_build_source_type_filter_unknown_is_none():
+    assert h.build_source_type_filter("bogus") is None
 
 
 # (escaping + video_sources filter now live in _internal/es_filters.py and are
@@ -112,20 +119,34 @@ def test_compute_k_value(top_k, min_cos, has_filters, expected):
     )
 
 
-def test_build_es_query_unfiltered():
+def _filter_clauses(body: dict) -> list[dict]:
+    """Return the filter clauses from a (single- or multi-clause) ES body."""
+    filter_clause = body["query"]["bool"]["filter"][0]
+    return filter_clause["bool"]["must"] if "bool" in filter_clause else [filter_clause]
+
+
+def test_build_es_query_always_filters_by_source_type():
+    # Every embed query carries a positive sensor.type filter, so it is never
+    # "unfiltered": has_filters is True -> overfetch (top_k * 5).
     inp = EmbedSearchInput(query="q", source_type="video_file", top_k=4)
     body = h.build_es_query(inp, [0.1, 0.2], default_max_results=100)
-    assert body["size"] == 4
-    assert body["query"]["nested"]["query"]["knn"]["k"] == 4
-    assert body["query"]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2]
+    assert body["size"] == 20
+    assert body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2]
+    assert {"term": {"sensor.type.keyword": "Video"}} in _filter_clauses(body)
 
 
-def test_build_es_query_filtered():
+def test_build_es_query_rtsp_filters_camera():
+    inp = EmbedSearchInput(query="q", source_type="rtsp", top_k=2)
+    body = h.build_es_query(inp, [0.1], default_max_results=100)
+    assert {"term": {"sensor.type.keyword": "Camera"}} in _filter_clauses(body)
+
+
+def test_build_es_query_combines_source_type_and_description():
     inp = EmbedSearchInput(query="q", source_type="video_file", top_k=2, description="warehouse")
     body = h.build_es_query(inp, [0.1], default_max_results=100)
     # filters -> overfetch (2 * 5)
     assert body["size"] == 10
-    assert "filter" in body["query"]["bool"]
+    assert {"term": {"sensor.type.keyword": "Video"}} in _filter_clauses(body)
 
 
 # ---------------------------------------------------------------- scoring

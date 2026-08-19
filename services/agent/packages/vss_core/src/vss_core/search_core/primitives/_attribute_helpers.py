@@ -99,10 +99,21 @@ def resolve_index_by_source_type(
     source_type: Literal["video_file", "rtsp"],
     wildcard_pattern: str,
 ) -> str | list[str]:
-    """Resolve ES index(es) by source_type.
+    """Resolve ES index(es) by source_type for the behavior/raw families.
 
     - ``video_file`` -> ``base_index`` unchanged.
     - ``rtsp``       -> ``[wildcard_pattern, "-" + base_index]``.
+
+    Unlike the embed path (which partitions positively on ``sensor.type``),
+    behavior and raw documents carry only ``sensor.id`` — no media-kind field —
+    so source partitioning still relies on index-name subtraction. For that to be
+    correct, ``base_index`` MUST be the pinned uploads anchor
+    (``mdx-behavior-2025-01-01`` / ``mdx-raw-2025-01-01`` — the write-side contract
+    in ``video_delete.py`` and the ``SearchRuntime`` defaults), never a value
+    discovered from the live index inventory: an ``rtsp`` query subtracts exactly
+    the base, so a live-dated base would exclude the very data being searched. A
+    ``video_file`` query against an absent anchor is treated downstream as an empty
+    uploads partition (see :func:`_search_behavior`).
     """
     if source_type == "video_file":
         return base_index
@@ -408,6 +419,20 @@ async def _search_behavior(
     try:
         response = await es.search(index=search_index_str, body=search_query)
     except ESNotFoundError as e:
+        # The guard is shape-based: a single concrete (non-wildcard) target that
+        # 404s maps to an empty result. On this path that concrete target is only
+        # ever the pinned ``video_file`` uploads anchor (e.g.
+        # ``mdx-behavior-2025-01-01``), whose absence means no files were
+        # ingested — an empty uploads partition, not a fault — so return no
+        # candidates. An ``rtsp`` target is a wildcard list and falls through to
+        # raise; an unmatched wildcard yields an empty result rather than a 404,
+        # so a 404 on a non-concrete target is a genuine backend fault.
+        if isinstance(index, str) and "*" not in index:
+            logger.warning(
+                f"Uploads anchor index '{index}' does not exist (no files ingested); "
+                f"returning no {source_type} candidates."
+            )
+            return []
         logger.error(f"Elasticsearch index '{index}' not found: {e}")
         raise IndexNotFoundError(index, e) from e
 
@@ -602,6 +627,19 @@ async def _fetch_object_embedding(
     try:
         response = await es.search(index=search_index_str, body=query)
     except ESNotFoundError as e:
+        # Mirror the graceful-empty contract in :func:`_search_behavior`: a
+        # missing single concrete target is the pinned ``video_file`` uploads
+        # anchor, whose absence means no files were ingested (an empty
+        # partition, not a fault). Return an empty vector so the caller yields
+        # no results, matching the attribute path rather than exiting 5. An
+        # ``rtsp`` target is a wildcard list and never lands here, so a 404 on
+        # any non-concrete target is a genuine backend fault and still raises.
+        if isinstance(behavior_index, str) and "*" not in behavior_index:
+            logger.warning(
+                f"Uploads anchor index '{behavior_index}' does not exist (no files ingested); "
+                f"no object embedding to fetch."
+            )
+            return []
         logger.error(f"Elasticsearch index '{behavior_index}' not found: {e}")
         raise IndexNotFoundError(behavior_index, e) from e
 
@@ -851,6 +889,11 @@ async def search_by_object_embedding(
 ) -> list[AttributeSearchResult]:
     """Re-search by an existing object's embedding (fetch its vector, then kNN)."""
     embedding = await _fetch_object_embedding(object_id, behavior_index, es)
+    # An absent uploads anchor yields an empty seed vector (see
+    # :func:`_fetch_object_embedding`); there is nothing to re-search against, so
+    # return no results rather than issuing a kNN query with an empty vector.
+    if not embedding:
+        return []
     results = await search_by_attributes(
         query_embedding=embedding,
         index=behavior_index,

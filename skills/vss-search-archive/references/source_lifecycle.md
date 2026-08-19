@@ -43,27 +43,27 @@ RTVI_CV_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rtvi_cv.url') || 
 RTVI_VLM_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er \
   '.services.rt_vlm.url // empty') || RTVI_VLM_URL=
 resolve_search_indexes() {
-  CONFIG_JSON=$("${VSS[@]}" configure show) || return 1
-  printf '%s' "${CONFIG_JSON}" |
-    jq -e '.services.elasticsearch.indices | type == "array"' >/dev/null || return 1
-  EMBED_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-embed-"))] | sort | first') || return 1
-  BEHAVIOR_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-behavior-"))] | sort | first') || return 1
-  RAW_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-raw-"))] | sort | first') || return 1
-  [ "${EMBED_INDEX}" != "${BEHAVIOR_INDEX}" ] &&
-    [ "${EMBED_INDEX}" != "${RAW_INDEX}" ] &&
-    [ "${BEHAVIOR_INDEX}" != "${RAW_INDEX}" ]
+  # Source type is a document property, not an index name: embed docs carry
+  # `sensor.type`, and behavior/raw are partitioned by a pinned uploads anchor.
+  # So readiness counts query the family wildcard and let the sensor-id filter
+  # below scope the result. Never resolve a single date-stamped index
+  # (`sort | first`): in a mixed deployment that is the `2025-01-01` uploads
+  # anchor, so a live stream whose docs sit in today's index would never satisfy
+  # readiness.
+  EMBED_INDEX="mdx-embed-filtered-*"
+  BEHAVIOR_INDEX="mdx-behavior-*"
+  RAW_INDEX="mdx-raw-*"
 }
 ```
 
-Do not call `resolve_search_indexes` on a fresh stack. Indexes are created
-lazily by ingestion. After every intended upload completes, re-run
-`vss configure --base-url "${VSS_ORIGIN}"`, refresh `CONFIG_JSON`, and call
-`resolve_search_indexes` before readiness checks.
-Never use `ELASTIC_SEARCH_INDEX`, an index template, or a guessed date in place
-of `vss configure show`.
+`resolve_search_indexes` only sets family wildcards, so it is safe to call at any
+time. Indexes are still created lazily by ingestion, but readiness is proven by
+the sensor-scoped document counts below — a count greater than zero — not by an
+index appearing in the inventory. Re-running
+`vss configure --base-url "${VSS_ORIGIN}"` after ingestion refreshes the service
+snapshot and is good practice, but is no longer required for correct index
+selection. Never substitute `ELASTIC_SEARCH_INDEX`, an index template, or a
+guessed single date for the family wildcard.
 
 Before downloading or ingesting media, require bounded Agent and VST health
 through the deployment's host-reachable origin and RTVI-CV readiness. If
@@ -398,9 +398,10 @@ The response is `{status, message, error}` and does not contain a sensor UUID;
 the agent keys the stream by `name`. Do not log credentials. Poll boundedly
 until the source is registered, then resolve its exact VST sensor identity
 before search. A successful add only starts embedding generation; it does not
-prove that searchable documents exist. Poll the selected embedding index for
-the exact registered stream identity and require a count greater than zero
-within five minutes.
+prove that searchable documents exist. Poll the embed index family wildcard
+(`EMBED_INDEX`), scoped to the exact registered stream identity, and require a
+count greater than zero within five minutes. Do not poll a single date-stamped
+index: a live stream's docs are in today's index, not the uploads anchor.
 
 ## Delete source
 
@@ -410,9 +411,9 @@ Confirm the target unless deletion was already explicit:
 ```bash
 : "${SAVED_SENSOR_ID:?save the exact file-source UUID before deletion}"
 : "${SAVED_SOURCE_NAME:?save the canonical source name before deletion}"
-: "${EMBED_INDEX:?resolve from vss configure show}"
-: "${BEHAVIOR_INDEX:?resolve from vss configure show}"
-: "${RAW_INDEX:?resolve from vss configure show}"
+: "${EMBED_INDEX:?call resolve_search_indexes first}"
+: "${BEHAVIOR_INDEX:?call resolve_search_indexes first}"
+: "${RAW_INDEX:?call resolve_search_indexes first}"
 
 DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))
 delete_timeout() {

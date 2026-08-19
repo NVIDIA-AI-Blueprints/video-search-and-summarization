@@ -204,6 +204,21 @@ KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
     "or direct Elasticsearch/RTVI access."
 )
 
+RTSP_LIVE_STREAM_CONTRACT_PREAMBLE = (
+    PREAMBLE
+    + " This step is a read-only live-stream search contract check. Do not deploy, "
+    "redeploy, ingest, add or delete a stream, execute the example commands, or reuse "
+    "earlier deployment state; show the exact host-side commands only. Resolve the "
+    "registered live stream to its exact identity through the configured origin's VST "
+    "route first. Prove readiness by counting documents in the embedding family wildcard "
+    "`mdx-embed-filtered-*`, scoped to that stream identity, rather than a single "
+    "date-stamped index: a live stream's documents carry wall-clock timestamps and never "
+    "land in the `2025-01-01` uploads anchor. Search with `vss search run embed` using the "
+    "resolved sensor ID as `--video-source` and `--source-type rtsp`, which selects "
+    "live-stream documents by media kind so uploaded-file hits are excluded regardless of "
+    "ingestion order. Pass no endpoint, index, or model flags."
+)
+
 
 # ---------------------------------------------------------------------------
 # Generation
@@ -379,6 +394,8 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             preamble = INGESTION_PREAMBLE
         elif expect.get("scenario") == "kubernetes-ingress-contract":
             preamble = KUBERNETES_INGRESS_CONTRACT_PREAMBLE
+        elif expect.get("scenario") == "rtsp-live-stream-search-contract":
+            preamble = RTSP_LIVE_STREAM_CONTRACT_PREAMBLE
         elif expect.get("scenario") == "confirmed-search-result-verification":
             preamble = VERIFICATION_PREAMBLE
         else:

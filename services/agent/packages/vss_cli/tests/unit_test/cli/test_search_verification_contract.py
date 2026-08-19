@@ -135,7 +135,7 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     deployment_checks = spec["expects"][0]["checks"]
     ingestion_checks = spec["expects"][1]["checks"]
 
-    assert len(spec["expects"]) == 9
+    assert len(spec["expects"]) == 10
     assert spec["expects"][0]["scenario"] == "deploy-search-profile"
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
     assert "vss-ask-video" in spec["skills"]

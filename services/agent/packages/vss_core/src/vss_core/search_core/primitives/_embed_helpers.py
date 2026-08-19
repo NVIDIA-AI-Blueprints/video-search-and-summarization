@@ -57,25 +57,46 @@ _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 # =============================================================================
 
 
-def select_search_index(
-    source_type: str,
-    *,
-    video_embed_index: str,
-    video_embed_index_wildcard: str,
-) -> str | list[str]:
-    """Pick the ES index (or index list) for a given source type.
+def select_search_index(video_embed_index_wildcard: str) -> str:
+    """Return the embed index pattern to query, for any source type.
 
-    ``video_file`` searches the configured index; ``rtsp`` searches the
-    wildcard pattern while excluding the configured (uploaded-file) index.
+    Source-type partitioning is a positive document filter on ``sensor.type``
+    (see :func:`build_source_type_filter`), not index-name arithmetic, so both
+    ``video_file`` and ``rtsp`` query the same ``mdx-embed-filtered-*`` wildcard
+    and the ``sensor.type`` term does the separating.
+
+    This replaces the former ``video_file -> base`` / ``rtsp -> wildcard - base``
+    scheme, which inferred the partition from a discovered "uploads base" index
+    and silently inverted in stream-first / single-index deployments: a live-only
+    stack has exactly one embed index, so ``wildcard - base`` excluded the only
+    index holding data and ``rtsp`` returned nothing.
     """
-    if source_type == "video_file":
-        return video_embed_index
-    return [video_embed_index_wildcard, "-" + video_embed_index]
+    return video_embed_index_wildcard
 
 
 # =============================================================================
 # ES query construction
 # =============================================================================
+
+
+# The RT-Embed publisher records each document's media kind at ingest as
+# ``sensor.type`` ("Camera" for live RTSP, "Video" for an uploaded file). These
+# are the only two values the ``source_type`` request field maps onto.
+_SOURCE_TYPE_TO_SENSOR_TYPE = {"rtsp": "Camera", "video_file": "Video"}
+
+
+def build_source_type_filter(source_type: str) -> dict[str, Any] | None:
+    """Build the ES term filter selecting documents by media source type.
+
+    Filters positively on the document's own ``sensor.type`` field, which is
+    what partitions embed results by source. Returns None for an unrecognized
+    ``source_type`` so the query stays unpartitioned rather than matching
+    nothing.
+    """
+    sensor_type = _SOURCE_TYPE_TO_SENSOR_TYPE.get(source_type)
+    if sensor_type is None:
+        return None
+    return {"term": {"sensor.type.keyword": sensor_type}}
 
 
 def build_description_filter(description: str | None) -> dict[str, Any] | None:
@@ -155,6 +176,7 @@ def build_es_query(
     filters: list[dict[str, Any]] = []
     for clause in (
         build_video_sources_filter(inp.video_sources, inp.source_type),
+        build_source_type_filter(inp.source_type),
         build_description_filter(inp.description),
         build_timestamp_filter(inp.timestamp_start, inp.timestamp_end),
     ):

@@ -74,6 +74,11 @@ run embed --query "person at entrance" --video-source entrance-camera \
 run fusion --query "person in white jacket running" --attribute "white jacket"
 ```
 
+`--source-type` selects the media kind, not the index inventory: `rtsp` returns
+only live-stream documents and `video_file` only uploaded-file documents,
+whether scoped to a `--video-source` or run unscoped, and regardless of
+ingestion order (stream-first, upload-first, or mixed).
+
 `--video-source` is matched **literally** against the index — the CLI does no
 name↔id resolution or VST validation, so an unknown source silently returns
 nothing (not an error). Validating a named source is the skill's job (SKILL.md

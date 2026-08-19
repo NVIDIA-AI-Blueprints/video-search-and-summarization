@@ -73,7 +73,6 @@ class EmbedSearch:
         es: ElasticIndex,
         embed: TextEmbedder,
         vst: VSTSnapshot,
-        video_embed_index: str,
         video_embed_index_wildcard: str = "mdx-embed-filtered-*",
         default_max_results: int = 10,
         owns_es: bool = False,
@@ -82,7 +81,6 @@ class EmbedSearch:
         self._es = es
         self._embed = embed
         self._vst = vst
-        self._index = video_embed_index
         self._index_wildcard = video_embed_index_wildcard
         self._default_k = default_max_results
         self._owns_es = owns_es
@@ -94,14 +92,8 @@ class EmbedSearch:
         """Execute the embed search and return ranked results."""
         inp.validate_semantics()
 
-        search_index = helpers.select_search_index(
-            inp.source_type,
-            video_embed_index=self._index,
-            video_embed_index_wildcard=self._index_wildcard,
-        )
-        logger.info(
-            f"Embed search: index(es)={search_index} source_type={inp.source_type} query={scrub_log(inp.query)}"
-        )
+        search_index = helpers.select_search_index(self._index_wildcard)
+        logger.info(f"Embed search: index={search_index} source_type={inp.source_type} query={scrub_log(inp.query)}")
 
         with TimeMeasure("embed_search: generate query embedding"):
             query_embedding = await self._generate_query_embedding(inp)
@@ -271,7 +263,6 @@ class EmbedSearch:
                 external_url=rt.require("vst_external_url"),
                 timeout_seconds=rt.request_timeout_seconds,
             ),
-            video_embed_index=rt.video_embed_index,
             video_embed_index_wildcard=rt.video_embed_index_wildcard,
             default_max_results=rt.default_max_results,
             owns_es=owns_es,
