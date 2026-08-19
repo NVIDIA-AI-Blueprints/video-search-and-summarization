@@ -181,3 +181,48 @@ class TestSeedingHappensBeforeAnyChild:
         # `built` records instance_leader; the seeding flag is asserted here
         # against the constructor call itself.
         assert entry.AnomalyEnhancer.call_args.kwargs["seed_shared_store"] is False
+
+
+class TestChildrenStartInAFreshInterpreter:
+    """Children are spawned, not forked.
+
+    By the time the pipeline processes start, this process is running a
+    Prometheus HTTP server thread, a readiness thread and a FastAPI child of
+    its own. Forking copies the address space but only the calling thread, so
+    a child would inherit locks, sockets and logging handlers mid-use with
+    nobody left to release them.
+    """
+
+    def test_the_context_is_spawn(self):
+        assert entry._pipeline_mp_context().get_start_method() == "spawn"
+
+    def test_children_are_created_from_it(self):
+        with patch.object(entry, "_pipeline_mp_context") as ctx:
+            entry._start_pipeline_process("config.yaml", 0, 1, None)
+        ctx.return_value.Process.assert_called_once()
+        assert ctx.return_value.Process.return_value.start.called
+
+    def test_the_child_entry_point_and_its_plain_arguments_pickle(self):
+        # Spawn re-imports and unpickles instead of inheriting memory, so a
+        # target defined anywhere but module level fails at start(). The
+        # readiness Event is deliberately not included: multiprocessing
+        # refuses to pickle a synchronisation primitive on its own and hands
+        # it over through the Process constructor instead, which is what
+        # test_a_readiness_event_crosses_a_spawned_process exercises.
+        import pickle
+        payload = (entry._run_pipeline_process, ("config.yaml", 0, os.getpid(), 2))
+        assert pickle.loads(pickle.dumps(payload))[0] is entry._run_pipeline_process
+
+    def test_a_readiness_event_crosses_a_spawned_process(self):
+        ctx = entry._pipeline_mp_context()
+        event = ctx.Event()
+        process = ctx.Process(target=_set_event, args=(event,))
+        process.start()
+        process.join(timeout=30)
+        assert event.is_set(), "the child never signalled through the event"
+        assert process.exitcode == 0
+
+
+def _set_event(event):
+    """Module level so spawn can import it in the child."""
+    event.set()

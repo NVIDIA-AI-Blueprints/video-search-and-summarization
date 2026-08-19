@@ -29,7 +29,7 @@ import sys
 import time
 import threading
 from datetime import datetime, timezone
-from multiprocessing import Event as ProcessEvent, Process
+import multiprocessing
 from queue import Queue, Empty
 from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
@@ -201,6 +201,19 @@ def pipeline_mode_from_config(config: dict) -> str:
         raw_mode = nested_mode
 
     return resolve_pipeline_mode(raw_mode, bool(async_io_cfg.get("enabled", False)))
+
+
+def _pipeline_mp_context():
+    """Start children with a fresh interpreter rather than a fork of this one.
+
+    By the time the pipeline processes are started this process has a
+    Prometheus HTTP server thread, a readiness thread and a FastAPI child of
+    its own. Forking copies the address space but only the calling thread, so
+    a child inherits locks, sockets and logging handlers mid-use with nobody
+    left to release them. Spawn costs a re-import per child, which is small
+    beside the pipeline each one builds anyway.
+    """
+    return multiprocessing.get_context("spawn")
 
 
 def seed_prompt_store(config_path: str) -> None:
@@ -2496,7 +2509,7 @@ def _start_prometheus_metrics_server(port: int) -> None:
     start_prometheus_server(port)
 
 
-def _mark_prometheus_process_dead(process: Optional[Process]) -> None:
+def _mark_prometheus_process_dead(process: Optional[Any]) -> None:
     """Tell prometheus_client to drop live gauge shards for a stopped child."""
     if not PROMETHEUS_ENABLED or process is None:
         return
@@ -2602,8 +2615,8 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
 
 
 def _start_pipeline_process(config_path: str, index: int, process_count: int,
-                            ready_event: Optional[Any] = None) -> Process:
-    process = Process(
+                            ready_event: Optional[Any] = None) -> Any:
+    process = _pipeline_mp_context().Process(
         target=_run_pipeline_process,
         args=(config_path, index, os.getpid(), process_count, ready_event),
         name=f"ab-pipeline-{index}",
@@ -2643,7 +2656,7 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
     # One per slot rather than a Barrier: readiness is announced once, when
     # the last child arrives, and a Barrier would also make every child wait
     # for its peers before it could start consuming.
-    ready_events = [ProcessEvent() for _ in range(process_count)]
+    ready_events = [_pipeline_mp_context().Event() for _ in range(process_count)]
     if on_ready is not None:
         _announce_when_all_ready(ready_events, on_ready)
 
@@ -2812,7 +2825,7 @@ if __name__ == "__main__":
                 logger.warning("Continuing without Prometheus metrics endpoint")
 
         # Start the FastAPI server in a separate process
-        fastapi_process = Process(target=start_fastapi)
+        fastapi_process = _pipeline_mp_context().Process(target=start_fastapi)
         fastapi_process.start()
         logger.info("FastAPI server started in separate process")
 
