@@ -435,6 +435,9 @@ class HarnessScopeTests(unittest.TestCase):
             command,
         )
         self.assertIn('grep -Fq "does not exist"', command)
+        self.assertIn('gateway=nemoclaw-$NEMOCLAW_GATEWAY_PORT', command)
+        self.assertIn('openshell gateway stop -g "$gateway"', command)
+        self.assertIn('openshell gateway remove "$gateway"', command)
         self.assertLess(
             start.index("_destroy_sandbox_command(sandbox, gateway_port)"),
             start.index("await super().start(force_build)"),
