@@ -160,8 +160,13 @@ def test_inline_backtick_done_marker_from_harbor_pass_is_accepted() -> None:
     )
 
 
-def test_blocked_remains_a_valid_non_crash_outcome() -> None:
-    assert _exit_code("BLOCKED: pool exhausted for RTXPRO6000BW") == 0
+def test_blocked_fails_the_github_job() -> None:
+    assert _exit_code("BLOCKED: pool exhausted for RTXPRO6000BW") == (
+        skills_eval_agent._BLOCKED_EXIT_CODE
+    )
+    assert _exit_code("BLOCKED: docker daemon unreachable") == (
+        skills_eval_agent._BLOCKED_EXIT_CODE
+    )
 
 
 def test_blocked_requires_a_nonempty_reason() -> None:
