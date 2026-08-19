@@ -5,6 +5,8 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
     '^common$': '<rootDir>/../../common/lib-src/index.ts',
+    // ESM-only; jest cannot parse its published form.
+    '^react-markdown$': '<rootDir>/__mocks__/react-markdown.js',
     '^@nvidia/foundations-react-core$': '<rootDir>/../__mocks__/@nvidia-foundations-react-core.js',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },

@@ -11,6 +11,7 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from 'rea
 import { useTranslation } from 'next-i18next';
 
 import ChatContext from '../../state/ChatContext';
+import type { QueryDataContext } from '../../types/chat';
 import { isQueryProcessing } from '../../utils/queryProcessing';
 import {
   CustomAgentParams,
@@ -32,6 +33,9 @@ export interface ChatInputProps {
   chatBlocked?: boolean;
   /** Reports this instance's upload flow to a coordinator. */
   onUploadFlowActiveChange?: (sourceId: string, active: boolean) => void;
+  /** Tab-supplied references attached to the next turn. */
+  queryContextItems?: QueryDataContext[];
+  onRemoveQueryContext?: (id: string) => void;
   onSendHiddenMessage?: (message: string, uploadConversationId: string) => void;
 }
 
@@ -45,6 +49,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onStopConversation,
   chatBlocked = false,
   onUploadFlowActiveChange,
+  queryContextItems = [],
+  onRemoveQueryContext,
   onSendHiddenMessage,
 }) => {
   const { t } = useTranslation('chat');
@@ -157,6 +163,39 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </button>
               )}
             </div>
+
+            {queryContextItems.length > 0 && (
+              <div className="flex flex-wrap gap-1 px-3 pt-2">
+                {queryContextItems.map((item) => (
+                  <span
+                    key={item.id}
+                    // Type is shown on hover rather than inline: the label is
+                    // what identifies the item, the type only disambiguates.
+                    title={`${item.label} (${item.contextType})`}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-300 px-2 py-0.5 text-xs dark:border-gray-600"
+                  >
+                    {item.label}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${item.label}`}
+                      onClick={() => onRemoveQueryContext?.(item.id)}
+                      className="rounded-full px-1 hover:bg-gray-200 dark:hover:bg-neutral-700"
+                    >
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {queryContextItems.length === 0 && content.length === 0 && (
+              <span
+                data-testid="chat-input-placeholder"
+                className="pointer-events-none absolute left-20 top-3 text-sm text-gray-400"
+              >
+                {t('Type a message') ?? 'Type a message'}
+              </span>
+            )}
 
             <textarea
               ref={textareaRef}
