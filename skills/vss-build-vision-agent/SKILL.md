@@ -39,6 +39,7 @@ metadata:
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
+| Evaluate, score, or benchmark a build with NeMo Gym, or compare Gym against VSS's own eval | `references/services/gym-eval.md` — an evaluation overlay applied **after** resolution, never a Q2b capability. Mechanics are owned by `vss-run-gym-eval`; route there. |
 | Warehouse or another industry profile | Stop: this skill currently covers developer examples only. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
@@ -85,6 +86,8 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 
 These are **predefined developer profiles** — the skill keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (Stock mode, Step 5 exact match) and follows the shared build lifecycle (Steps 5–9). For Alerts, set the profile `MODE` per Q2a-mode.
 
+**Evaluate a build → `vss-run-gym-eval`.** After a build is deployed and ready, the user may want to score it. Offer: *"Want to evaluate this build with NeMo Gym? It scores the stack you just deployed and produces a reward per task."* On **yes**, route to [`vss-run-gym-eval`](../vss-run-gym-eval/SKILL.md); the overlay contract is [`references/services/gym-eval.md`](references/services/gym-eval.md). Do not compose it as a capability and do not re-run resolution — the deployed set is the thing being measured, so it is applied on top of what is already there. Today this lands on that skill's verified host workflow, which needs no image; the containerised runner is blocked until a `nemo-gym` tag clears its image gate.
+
 **Customize a pre-built workflow → Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** and computing a **capability delta** on top of it (the profile itself is never modified — it is only the baseline). The stock build becomes a **Delta build**: the same `_builds/<name>/` machinery now carries the added/removed profile keys and any changed knobs.
 
 ### Mode: Custom build (guided)
@@ -102,6 +105,8 @@ Offer the user **exactly** the capabilities in the table below. Each row's owner
 | **Video summarization** — time-windowed summaries on demand | `lvs.md` | `lvs-server` | `lvs` | Requires Agent + one reachable LLM + one VLM/RT-VLM |
 
 **Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`), the HAProxy ingress (`ingress.md`) — providing a stable, unified interface to the VSS stack so agents and skills reference a single endpoint rather than per-service ports — plus the shared `redis` cache peer that ships with the Foundation. **Added conditionally, never offered directly:** the **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka **only** when `RTVI_VLM_KAFKA_ENABLED=true`. A dense-captioning-only build on `base` therefore adds **no** ELK/Kafka, preserving the smallest-delta contract. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
+
+**Never offered here — evaluation overlay:** `gym-eval` ([`gym-eval.md`](references/services/gym-eval.md)) scores a build rather than adding an ability to it, so it is **not** a vision capability and must not appear in this multi-select. It is offered after a build completes, applied to the already-resolved service set, and takes no part in forward closure or pruning. See the routing table above.
 
 Rules for the multi-select:
 - **Offer exactly the table rows** whose owner contract exists under `references/services/` (all rows are present on this branch); show any pending capability disabled with a short "not yet available" note. **Never offer a foundational or model-backend owner as a choice** — do **not** silently offer a capability the skill cannot resolve.

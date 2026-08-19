@@ -70,6 +70,19 @@ service outside that closure, including a peer whose only consumer was removed
 requested). A service is retained only because a requested capability reaches it,
 never because the Foundation happened to ship it.
 
+**Evaluation overlays are the one exception, and they sit outside this pass.** An
+overlay whose subject is the built stack itself — `gym-eval`
+([`services/gym-eval.md`](services/gym-eval.md)) is the only one today — cannot
+be resolved by forward closure, because its "requested capability" is the
+resolved service set as a whole. Pruning to a closure would score a different
+system and the numbers would not be comparable to anything. Such an overlay
+therefore contributes no owners and no peers to the closure, and is applied
+**after** resolution and pruning have finished, adding its own service key to the
+resolved set and removing none. It cannot retain a Foundation service that
+resolution decided to drop, so the symmetry rule above still holds for every
+service that participates in it. The validation below applies unchanged to the
+pre-overlay resolved set.
+
 When more than one requested capability maps to the same owner, converge on a
 single instance (one service key, one variant, one config), never two variants
 of one owner for the same role (for example, one detector feeding two pipelines).
@@ -304,7 +317,9 @@ Then verify:
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
 - Every retained service is transitively required by at least one requested
-  capability; no orphaned Foundation carryover survives the delta.
+  capability; no orphaned Foundation carryover survives the delta. Evaluate this
+  on the pre-overlay resolved set: an evaluation overlay's key is added after
+  resolution and is not required by any requested capability by construction.
 - A shared singleton owner resolves to exactly one variant, and every consumer
   config that keys on that owner's output (class-label taxonomy and casing,
   topic names) matches the resolved variant; no consumer filters on a taxonomy
