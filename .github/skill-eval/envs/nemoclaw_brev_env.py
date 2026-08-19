@@ -107,8 +107,16 @@ if command -v nemoclaw >/dev/null 2>&1; then
   status=$?
   set -e
   printf '%s\n' "$output"
-  if [ "$status" -ne 0 ] && ! printf '%s\n' "$output" | grep -Fq "does not exist"; then
-    exit "$status"
+  if [ "$status" -ne 0 ]; then
+    if ! printf '%s\n' "$output" | grep -Fq "does not exist"; then
+      exit "$status"
+    fi
+    gateway=nemoclaw-$NEMOCLAW_GATEWAY_PORT
+    if [ "$NEMOCLAW_GATEWAY_PORT" = 8080 ]; then gateway=nemoclaw; fi
+    if command -v openshell >/dev/null 2>&1; then
+      timeout 120s openshell gateway stop -g "$gateway" >/dev/null 2>&1 || true
+      timeout 120s openshell gateway remove "$gateway" >/dev/null 2>&1 || true
+    fi
   fi
 fi
 """.strip()
