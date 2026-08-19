@@ -77,6 +77,8 @@ gpuProfiles:
       NIM_LOW_MEMORY_MODE: "1"
       NIM_MAX_MODEL_LEN: "128000"
       NIM_MAX_NUM_SEQS: "4"
+    nemotron3:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
