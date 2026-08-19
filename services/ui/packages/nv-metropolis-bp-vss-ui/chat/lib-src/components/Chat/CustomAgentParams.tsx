@@ -185,7 +185,7 @@ export const CustomAgentParams: React.FC<CustomAgentParamsProps> = ({
       <div
         ref={panelRef}
         role="dialog"
-        aria-label="Agent Parameters"
+        aria-label="Agent parameters"
         className="absolute w-80 rounded-md border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-600 dark:bg-neutral-900"
         style={{
           zIndex: OVERLAY_Z + 1,
