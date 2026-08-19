@@ -397,13 +397,14 @@ class HarnessScopeTests(unittest.TestCase):
             {
                 "GITHUB_RUN_ID": "123",
                 "EVAL_PLATFORM": "L40S",
+                "NEMOCLAW_INSTALL_REF": "must-not-be-forwarded",
                 "NEMOCLAW_SANDBOX_GPU": "1",
             },
             clear=True,
         ):
             forwarded = self.env_module._forwarded_nemoclaw_env()
         self.assertIn("export NEMOCLAW_SANDBOX_NAME=skill-eval", forwarded)
-        self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.109", forwarded)
+        self.assertNotIn("NEMOCLAW_INSTALL_REF", forwarded)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", forwarded)
         self.assertIn("export NEMOCLAW_SANDBOX_GPU=0", forwarded)
         self.assertIn("export NEMOCLAW_DOCKER_GPU_PATCH=0", forwarded)
