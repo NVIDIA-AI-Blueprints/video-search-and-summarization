@@ -217,6 +217,9 @@ jobs:
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
           if [[ "${RUNNER_NAME:-}" == vss-skill-eval-gpu-rtxpro6000-* ]]; then
             printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
+            if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
+              printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
+            fi
           fi
 
       - name: Run skills eval agent (single spec)
@@ -229,6 +232,8 @@ jobs:
           # below, then this value is restored so it cannot overwrite the
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -269,6 +274,15 @@ jobs:
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
+          # The repo secret is the NVIDIA inference-api key (same as helm-sync).
+          # Hitting api.anthropic.com with it returns 401. Default the gateway
+          # when the secret/base is unset so OpenShell jobs use the same path.
+          if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
+            export ANTHROPIC_BASE_URL="https://inference-api.nvidia.com"
+          fi
+          if [ -z "${ANTHROPIC_MODEL:-}" ]; then
+            export ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
           fi
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
