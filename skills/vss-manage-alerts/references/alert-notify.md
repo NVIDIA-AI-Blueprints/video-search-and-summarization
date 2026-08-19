@@ -46,6 +46,20 @@ The webhook server is a single relay on `:9090`; Alert Bridge POSTs incidents to
 > real bot token and channel id the correct outcome is to **stop and ask the operator for
 > them** — a relay that only runs because Slack was faked reports "notifications configured"
 > while nothing reaches Slack, which is worse than not starting it at all.
+>
+> Those are examples, not a list to route around. Editing `slack_notifier.py` or any other
+> file under `scripts/alert-notify/` to skip, flag off or soften the `auth_test` call is the
+> same mistake in a more expensive form: it disables the one check that would have told the
+> operator their credentials are wrong, and it leaves that hole behind for the next person.
+> **Never modify this code to make a start succeed.** If the token is missing, the answer is
+> a question to the operator, not a patch.
+>
+> When you do stop and ask, ask for everything a working Slack setup needs, not just the
+> token: `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, **and** `NOTIFY_BACKENDS=slack`
+> (or `slack,dashboard`). Leaving the last one out is the quiet failure — the operator hands
+> you a valid token, the relay starts, and every incident goes to the Dashboard because that
+> is what the default selects. A request that omits it sets up the person answering it to
+> fail.
 
 ---
 
