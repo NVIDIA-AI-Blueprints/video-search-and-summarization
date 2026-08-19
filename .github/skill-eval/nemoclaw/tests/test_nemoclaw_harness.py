@@ -449,6 +449,7 @@ class HarnessScopeTests(unittest.TestCase):
         )
         self.assertIn("class NemoClaw(OpenClaw)", source)
         self.assertIn("headless_runner.py", source)
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', source)
         self.assertNotIn("populate_context_post_run", source)
         self.assertNotIn("trajectory.json", source)
 
