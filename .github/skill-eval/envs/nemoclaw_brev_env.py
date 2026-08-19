@@ -99,8 +99,15 @@ export HOME="$host_home/.skill-eval/nemoclaw-home"
 export PATH="$HOME/.local/bin:$PATH"
 export NEMOCLAW_GATEWAY_PORT={quoted_port}
 if command -v nemoclaw >/dev/null 2>&1; then
-  timeout --signal=TERM --kill-after=30 600s \
-    nemoclaw {quoted} destroy --yes --force --cleanup-gateway
+  set +e
+  output=$(timeout --signal=TERM --kill-after=30 600s \
+    nemoclaw {quoted} destroy --yes --force --cleanup-gateway 2>&1)
+  status=$?
+  set -e
+  printf '%s\n' "$output"
+  if [ "$status" -ne 0 ] && ! printf '%s\n' "$output" | grep -Fq "does not exist"; then
+    exit "$status"
+  fi
 fi
 """.strip()
 
