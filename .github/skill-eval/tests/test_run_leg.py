@@ -1027,16 +1027,19 @@ class PoolCandidates(unittest.TestCase):
             "GEFORCE RTX 4090",
         )
         self.assertEqual(run_leg._registered_gpu_hint("vss-eval-mystery"), "")
-        self.assertEqual(run_leg._registered_gpu_hint("SPARK"), "GB10")
+        self.assertEqual(run_leg._registered_gpu_hint("SPARK"), "")
         self.assertEqual(
             run_leg._registered_gpu_hint("Spark-ba-WiFi"), "GB10"
         )
         self.assertEqual(
-            run_leg._registered_gpu_hint("vss-eval-spark-1"), "GB10"
+            run_leg._registered_gpu_hint("vss-eval-spark-1"), ""
         )
         self.assertFalse(run_leg._is_eval_pool_name("Spark-ba-WiFi"))
         self.assertTrue(
             run_leg._is_eval_pool_name("Spark-ba-WiFi", registered=True)
+        )
+        self.assertFalse(
+            run_leg._is_eval_pool_name("SPARK", registered=True)
         )
         self.assertFalse(
             run_leg._is_eval_pool_name("H100-VLM", registered=True)
@@ -1065,9 +1068,13 @@ class PoolCandidates(unittest.TestCase):
             {"gpu_type": "GB10", "gpu_count": 2}
         )
 
-        self.assertEqual(spark, ["SPARK", "Spark-ba-WiFi"])
+        self.assertEqual(spark, ["Spark-ba-WiFi"])
         self.assertEqual(rtx, ["vss-eval-rtx-2g-VM1b"])
         self.assertEqual(two_gpu, [])
+        self.assertEqual(
+            run_leg.pool_candidates({"gpu_count": 0}),
+            ["Spark-ba-WiFi", "vss-eval-rtx-2g-VM1b"],
+        )
 
     def test_pool_snapshot_includes_allowlisted_spark_node(self):
         orig_managed = run_leg._list_brev_instances

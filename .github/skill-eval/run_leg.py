@@ -517,14 +517,14 @@ def _list_registered_nodes() -> list[dict]:
 
 
 def _is_spark_node_name(name: str) -> bool:
-    """Documented Spark BYOH aliases used by registered external nodes."""
-    normalized = name.lower()
-    return (
-        normalized == "spark"
-        or normalized.startswith("spark-")
-        or normalized.startswith("vss-eval-spark")
-        or normalized.startswith("dgx-spark")
-    )
+    """The visitor-network Spark is the only GB10 node Harbor can reach.
+
+    ``SPARK`` is also GB10, but it sits on the internal network and the eval
+    coordinator cannot SSH or run an agent on it. Keep the match exact until
+    that board is reachable; do not treat ``spark`` / ``vss-eval-spark*`` as
+    aliases in the meantime.
+    """
+    return name.lower() == "spark-ba-wifi"
 
 
 def _registered_gpu_hint(name: str) -> str:
@@ -553,10 +553,10 @@ def _registered_gpu_hint(name: str) -> str:
 def _is_eval_pool_name(name: str, registered: bool = False) -> bool:
     """Anchored ``vss-eval-*`` names, plus allowlisted Spark BYOH aliases.
 
-    Managed cloud instances must keep the ``vss-eval-`` prefix. Registered
-    Spark nodes such as ``SPARK`` and ``Spark-ba-WiFi`` are the documented
-    exception: they only become candidates when they appear in
-    ``BREV_REGISTERED_POOL`` and carry a GB10 hardware hint.
+    Managed cloud instances must keep the ``vss-eval-`` prefix. The
+    visitor-network Spark ``Spark-ba-WiFi`` is the documented exception: it
+    only becomes a candidate when it appears in ``BREV_REGISTERED_POOL``.
+    The internal-network ``SPARK`` board is not eligible.
     """
     if name.startswith("vss-eval-"):
         return True
