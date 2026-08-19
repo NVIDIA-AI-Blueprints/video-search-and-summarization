@@ -22,9 +22,11 @@
   with optional: true, so missing keys are silently ignored.
 
   ConfigMap names produced (respects fullnameOverride):
-    <nemotron-fullname>-nim-env  ← read by nemotron NIMService
-    <cosmos-fullname>-nim-env    ← read by cosmos NIMService
-    <cosmos3-fullname>-nim-env   ← read by cosmos3 NIMService
+    <nemotron-fullname>-nim-env             ← read by nemotron NIMService
+    <nemotron3-fullname>-nim-env            ← read by nemotron3 NIMService
+    <nemotron35lightning-fullname>-nim-env  ← read by nemotron35lightning NIMService
+    <cosmos-fullname>-nim-env               ← read by cosmos NIMService
+    <cosmos3-fullname>-nim-env              ← read by cosmos3 NIMService
 */}}
 
 {{- $gpuType  := .Values.gpuType | default "H100" }}
@@ -61,6 +63,21 @@ metadata:
     nims.nvidia.com/gpu-type: {{ $gpuType | quote }}
 data:
   {{- range $k, $v := (index $profile "nemotron3") }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.nemotron35lightning.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nims.nemotron35lightning.fullname" . }}-nim-env
+  labels:
+    {{- include "nims.labels" . | nindent 4 }}
+    nims.nvidia.com/gpu-type: {{ $gpuType | quote }}
+data:
+  {{- range $k, $v := (index $profile "nemotron35lightning") }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}
 {{- end }}

@@ -21,7 +21,8 @@
 
 profile: lvs
 mode: ""
-llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
+# Mirrors dev-profile-lvs/overrides.env → LLM_NAME_SLUG.
+llmNameSlug: nemotron-3.5-lightning-30b-a3b
 vlmNameSlug: none # LVS uses the integrated RT-VLM checkpoint, not a VLM NIM subchart.
 vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
@@ -39,7 +40,8 @@ global:
   # Remote NIM: one place for vss-agent + vss-summarization. Use the same base URL for both (e.g. http://host:31081); vss-summarization adds /v1 internally when absent.
   llmBaseUrl: ""
   vlmBaseUrl: ""
-  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  # Mirrors dev-profile-lvs/overrides.env → LLM_NAME.
+  llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 

@@ -59,6 +59,8 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
     nemotron3:
       NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35lightning:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
@@ -79,6 +81,8 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
     nemotron3:
       NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35lightning:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
@@ -97,6 +101,8 @@ gpuProfiles:
       NIM_MAX_MODEL_LEN: "128000"
       NIM_LOW_MEMORY_MODE: "1"
     nemotron3:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35lightning:
       NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.8"
@@ -123,6 +129,8 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
     nemotron3:
       NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35lightning:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
@@ -139,6 +147,7 @@ gpuProfiles:
   OTHER:
     nemotron: {}
     nemotron3: {}
+    nemotron35lightning: {}
     cosmos: {}
     cosmos3: {}
 
@@ -192,6 +201,47 @@ nemotron3:
   image:
     repository: nvcr.io/nim/nvidia/nemotron-3-nano
     tag: "2.0.3"
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    limits:
+      nvidia.com/gpu: "1"
+    requests:
+      nvidia.com/gpu: "1"
+
+  storage:
+    pvc:
+      storageClass: ""
+      size: "50Gi"
+
+  metrics:
+    enabled: false
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  nodeSelector: {}
+
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# ---------------------------------------------------------------------------
+# Nemotron 3.5 Lightning 30B A3B – LLM NIM (alias: nemotron35lightning)
+# Mirrors deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml.
+# Deploys NIMCache + NIMService via NVIDIA NIM Operator CRDs.
+# ---------------------------------------------------------------------------
+nemotron35lightning:
+  enabled: false
+  fullnameOverride: ""
+
+  image:
+    repository: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b
+    tag: "2.0.9-variant"
     pullPolicy: IfNotPresent
 
   replicas: 1
