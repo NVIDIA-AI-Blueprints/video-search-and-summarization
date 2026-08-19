@@ -113,11 +113,12 @@ _DONE_RESULT_RE = re.compile(
     r"^DONE:\s*(?P<passed>\d+)\s*/\s*(?P<total>\d+)\s+"
     r"spec(?:s)?\s+passed\b"
 )
-# Claude often wraps the mandatory DONE:/BLOCKED: line in a fenced code
-# block. The closing fence is a nonempty line and must not be treated as
-# the protocol marker (run 32225077286: Harbor 1.0, then
-# ``DONE: 1/1 specs passed; 0 blockers`` inside ```, wrapper exit 4).
+# Claude often wraps the mandatory DONE:/BLOCKED: line in markdown.
+# Run 32225077286 put it in a fenced block (closing ``` was the last
+# line). Run 32229635259 put the whole marker in inline backticks
+# (`DONE: ...`). Neither form starts with DONE:/BLOCKED: until unwrapped.
 _MARKDOWN_FENCE_RE = re.compile(r"^```[\w+-]*\s*$")
+_INLINE_CODE_RE = re.compile(r"^`+(?P<body>.*)`+$")
 
 # ---------------------------------------------------------------------------
 # Pre-flight
@@ -552,20 +553,38 @@ def missing_renderer_outputs(marker: str, results_root: Path,
     return [p for p in (summary_path, report_path) if not p.is_file()]
 
 
+def _unwrap_protocol_line(line: str) -> str | None:
+    """Return a protocol-line candidate, or None to skip blank/fence lines.
+
+    Surrounding inline-code ticks are stripped so a last line of
+    `` `DONE: 1/1 specs passed; ...` `` is still a valid marker. Leading
+    space on a bare marker still fails closed.
+    """
+    if not line.strip():
+        return None
+    if _MARKDOWN_FENCE_RE.fullmatch(line.strip()):
+        return None
+    candidate = line.rstrip()
+    match = _INLINE_CODE_RE.fullmatch(candidate.strip())
+    if match is not None:
+        return match.group("body").rstrip()
+    return candidate
+
+
 def _last_nonempty_line(text_blocks: list[str]) -> str | None:
     """Return the final printed assistant line without accepting leading space.
 
-    Trailing markdown fences are ignored so a well-formed ``DONE:`` /
-    ``BLOCKED:`` marker wrapped in a code block still counts as the
-    terminal line. Other trailing prose still fails closed.
+    Trailing markdown fences are ignored, and a last line that is only
+    an inline-code span is unwrapped, so a well-formed ``DONE:`` /
+    ``BLOCKED:`` marker wrapped in markdown still counts. Other trailing
+    prose still fails closed.
     """
     for block in reversed(text_blocks):
         for line in reversed(block.splitlines()):
-            if not line.strip():
+            candidate = _unwrap_protocol_line(line)
+            if candidate is None:
                 continue
-            if _MARKDOWN_FENCE_RE.fullmatch(line.strip()):
-                continue
-            return line.rstrip()
+            return candidate
     return None
 
 
