@@ -12,9 +12,9 @@ deployment and NO GPU:
    the delta matches the contract (one extra service key, no modifications
    to checked-in files).
 
-2. **image_gate_rejects_pre_2376** — run the image gate against a known
-   pre-#2376 tag (`26.05`) and verify it correctly rejects the tag without
-   pulling the image.
+2. **image_gate_rejects_unsafe_tag** — run the image gate against a known
+   codec-bearing tag (`26.05`) and verify it correctly rejects the tag
+   without pulling the image.
 
 Both specs declare `gpu_count: 0` and platform `ANY`, so the task runs on
 whichever pool box the coordinator picks (no GPU requirement). The adapter
