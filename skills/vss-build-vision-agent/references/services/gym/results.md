@@ -9,9 +9,9 @@ the only writable path the delta gives the runner into the host, and it is
 nothing under `skills/`.
 
 That describes what the delta *declares*. The containerised runner has not been
-exercised (see the status note in [`delta.md`](delta.md)), so treat where its
+exercised (see the status note in [`compose-delta.md`](compose-delta.md)), so treat where its
 files actually land as unconfirmed until a tag clears the image gate. On the host
-path in [`run.md`](run.md) — the one that has produced a real reward — results go
+path in [`run-lifecycle.md`](run-lifecycle.md) — the one that has produced a real reward — results go
 wherever the Gym CLI is pointed, not to this mount.
 
 A rollout file is JSONL, one object per task instance, each carrying the
@@ -28,14 +28,14 @@ A reward is computed by **this server**, not forwarded from VSS's own eval:
 recall-and-honesty score when the task carries ground truth. Three things follow:
 
 - **It is not `passed / total` from VSS's CI eval**, and the two are not
-  numerically comparable. See the warning in `../SKILL.md`.
+  numerically comparable. See the warning in `../gym.md`.
 
 - **A number that moved is a real change only if the scorer did not.** The judge
   model, the rubric and the reward formula are all part of the measurement, so a
   comparison is valid only across runs that share them. Record the judge used with
   the results.
 - **A reward of 0.0 needs triage before interpretation.** See the reward traps in
-  [`run.md`](run.md): an exception handler that degrades to zero looks exactly
+  [`run-lifecycle.md`](run-lifecycle.md): an exception handler that degrades to zero looks exactly
   like a genuine miss. Reward 0.0 together with an empty `response.output` means
   the server errored.
 
@@ -81,7 +81,7 @@ service sets differ only by `gym-eval`. It does **not** make
 resolved values identical: delta resolution does not read the Foundation's
 `generated.env`, so a host-customised deployment can differ on values while the
 service list matches exactly. See the identity warning in
-[`../SKILL.md`](../SKILL.md), which is what to do about it. Confirm both — the
+[`../gym.md`](../gym.md), which is what to do about it. Confirm both — the
 service list and the resolved environment — before trusting a comparison:
 
 ```bash

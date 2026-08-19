@@ -2,7 +2,7 @@
 
 > ## ⚠ Status: this is the packaging target, and it has NOT been run
 >
-> **What has been verified** is the host workflow in [`run.md`](run.md): the Gym
+> **What has been verified** is the host workflow in [`run-lifecycle.md`](run-lifecycle.md): the Gym
 > CLI and the `vss_ask_video` resources server running on the host, scoring a VSS
 > deployment reachable at a published port. That path produced a real reward
 > against a live deployment and is what to use today.
@@ -11,7 +11,7 @@
 > `gym-eval` container composed into the Compose project. It cannot be exercised
 > yet: running it means pulling a `nemo-gym` image, and every tag checked so far
 > — `26.05` is the one with recorded evidence — is rejected by the image gate in
-> [`../SKILL.md`](../SKILL.md) for carrying royalty-bearing codec libraries. No
+> [`../gym.md`](../gym.md) for carrying royalty-bearing codec libraries. No
 > tag is known to pass; that is not the same as having checked them all, so run
 > the gate rather than assuming. A patch release is expected upstream.
 >
@@ -31,7 +31,7 @@
 
 The Gym eval runner is added to a deployment as a **Delta Profile** on exactly
 one Foundation, using the composition rules in
-[`vss-build-vision-agent/references/composition.md`](../../vss-build-vision-agent/references/composition.md).
+[`vss-build-vision-agent/references/composition.md`](../../composition.md).
 Read that file first; this one records only what is specific to the eval runner.
 
 **Nothing here is checked in.** The only writable location is `_builds/<name>/`,
@@ -127,7 +127,7 @@ nothing would fail.
 
 > ### ⚠ This is a deliberate exception to the general delta contract
 >
-> [`composition.md`](../../vss-build-vision-agent/references/composition.md)
+> [`composition.md`](../../composition.md)
 > requires a delta to be **symmetric**: compute the forward closure from the
 > requested capabilities and *prune every Foundation service outside it*, with
 > validation rejecting "orphaned Foundation carryover". **This skill does the
@@ -148,7 +148,7 @@ nothing would fail.
 Composing the delta as *Foundation + one key* **preserves every Foundation
 service and adds only `gym-eval`** by construction, so the two service sets
 differ by exactly that runner. It does **not** make resolved values identical:
-see the identity warning in [`../SKILL.md`](../SKILL.md), because delta
+see the identity warning in [`../gym.md`](../gym.md), because delta
 resolution does not read the Foundation's `generated.env`.
 
 `gym-eval` is a genuinely new service, so it uses its own service key as its
