@@ -19,7 +19,7 @@ none:
 
 ✅ `gym env start` resolves each server's directory **relative to the working
 directory**, and dataset paths in the config resolve from the Gym checkout root.
-Copy this skill's server in, so both agree:
+Copy the `vss_ask_video` server in, so both agree:
 
 ```bash
 # Obtain the vss_ask_video resources server from the Gym repository, then:
@@ -114,7 +114,7 @@ Check for the output file rather than trusting the exit code.
   reward — is the class of bug to look for in any server.*
 - ⚠️ **A policy too weak for the harness.** The prototype recorded empty
   `response.output` with reward 0.0 under a 9B model, because a terminal-style
-  agent needs a stronger policy. Unmeasured for this skill's server.
+  agent needs a stronger policy. Unmeasured for the `vss_ask_video` server.
 
 **Diagnostic:** reward 0.0 *together with* an empty `response.output` means the
 server hit an exception handler, not that the answer was wrong. Grep the server
@@ -138,7 +138,7 @@ The prototype server treated an unreachable or unparseable judge as *no verdict*
 and fell back to a keyword check, so **a judge outage produced a passing score**.
 An expired key would have turned an entire eval green.
 
-**Fixed in this skill's server, and flagging alone was not enough.** Gym's
+**Fixed in the `vss_ask_video` server, and flagging alone was not enough.** Gym's
 `reward_profile` aggregates every numeric and boolean field independently and
 does **not** filter on `verifier_ok`, so a flagged row still headlines
 `mean/reward 1.0`. The correct mechanism is Gym's own: a failed judge *call*

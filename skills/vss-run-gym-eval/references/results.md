@@ -2,10 +2,17 @@
 
 ## Where results land
 
-The runner mounts `${VSS_DATA_DIR}/gym_eval` at `/workspace/outputs`, so rollouts
-survive the container. That directory is the only thing the runner writes, and it
-is **outside the repository** — the skill writes nothing under `deploy/docker/`
-and nothing under `skills/`.
+The delta mounts `${VSS_DATA_DIR}/gym_eval` at `/workspace/outputs` and points the
+runner's output directory there, so rollouts survive the container. That mount is
+the only writable path the delta gives the runner into the host, and it is
+**outside the repository** — the skill writes nothing under `deploy/docker/` and
+nothing under `skills/`.
+
+That describes what the delta *declares*. The containerised runner has not been
+exercised (see the status note in [`delta.md`](delta.md)), so treat where its
+files actually land as unconfirmed until a tag clears the image gate. On the host
+path in [`run.md`](run.md) — the one that has produced a real reward — results go
+wherever the Gym CLI is pointed, not to this mount.
 
 A rollout file is JSONL, one object per task instance, each carrying the
 `instance_id`, the trajectory the policy produced, and the scalar `reward` the
@@ -45,11 +52,19 @@ valid procedure is sequential:
 | 4 | Persist Gym's results, then compare | — |
 
 **Step 2 is the one that gets skipped.** Every developer profile resolves to
-`COMPOSE_PROJECT_NAME=vss` and the same host ports, and `dev-profile.sh` runs
-`state_down` before every `state_up` — which tears down the previous deployment
-*and its data directory*. Results left in `${VSS_DATA_DIR}` when the stack is
-switched are gone, and the first indication is an empty directory after a run
-that took hours.
+`COMPOSE_PROJECT_NAME=vss` and the same host ports, and the deploy script tears
+the previous deployment down before bringing the next one up: `docker compose -p
+vss down -v --remove-orphans`, which removes named volumes, followed by a cleanup
+that empties a fixed list of `${VSS_DATA_DIR}/data_log/*` subdirectories — kafka,
+elastic, redis, vst, nvstreamer and others (`deploy/docker/scripts/blueprint-deploy.sh`).
+Anything a previous run left in a named volume or under those `data_log` paths is
+gone, and the first indication is an empty directory after a run that took hours.
+
+`${VSS_DATA_DIR}/gym_eval` is a bind mount outside `data_log/`, so it is not on
+that list today. Do not treat that as durable: the list is a hardcoded set that
+changes, nothing enforces the exclusion, and a future entry would take the
+results with it silently. Persist anything you intend to compare somewhere
+neither script reaches.
 
 Running both stacks concurrently is not an alternative: they would contend for
 the same GPU, so the measurement would reflect contention rather than harness
@@ -58,8 +73,13 @@ behaviour.
 ## What a valid comparison requires
 
 Both runs must score the **same stack**, differing only by the eval runner. The
-delta guarantees this by construction — it is the Foundation's `COMPOSE_PROFILES`
-plus exactly one key — but confirm it before trusting a comparison:
+delta makes the **service set** identical by construction — it is the
+Foundation's `COMPOSE_PROFILES` plus exactly one key. It does **not** make
+resolved values identical: delta resolution does not read the Foundation's
+`generated.env`, so a host-customised deployment can differ on values while the
+service list matches exactly. See the identity warning in
+[`../SKILL.md`](../SKILL.md), which is what to do about it. Confirm both — the
+service list and the resolved environment — before trusting a comparison:
 
 ```bash
 diff <(docker compose ... -f <foundation> config --services | sort) \

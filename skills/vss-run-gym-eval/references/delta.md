@@ -3,7 +3,7 @@
 > ## ⚠ Status: this is the packaging target, and it has NOT been run
 >
 > **What has been verified** is the host workflow in [`run.md`](run.md): the Gym
-> CLI and this skill's resources server running on the host, scoring a VSS
+> CLI and the `vss_ask_video` resources server running on the host, scoring a VSS
 > deployment reachable at a published port. That path produced a real reward
 > against a live deployment and is what to use today.
 >

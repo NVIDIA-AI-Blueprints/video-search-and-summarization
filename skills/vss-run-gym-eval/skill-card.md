@@ -29,7 +29,7 @@ Risk: The published `nemo-gym` image built before NVIDIA-NeMo/Gym#2376 bundles r
 Mitigation: The skill gates on image provenance and refuses to pull a tag that predates that fix. The gate reads the manifest list, the platform manifest, and the image config blob — approximately 20 KB — and accepts a tag only when the recorded build date postdates the upstream fix and no layer in the recorded history installs a codec package. No image layer is pulled. <br>
 
 Risk: A deployment evaluated by a stack that has drifted from its Foundation produces scores that are not comparable, and the drift is silent. <br>
-Mitigation: The evaluation runner is composed as a delta adding exactly one service key to a Foundation profile, so stack identity holds by construction, and the skill provides a verification diff before any run. <br>
+Mitigation: The evaluation runner is composed as a delta adding exactly one service key to a Foundation profile, so the two stacks carry an identical service set by construction. Resolved values are not identical by construction — delta resolution does not read the Foundation's generated.env — so the skill states that limit and provides verification diffs for both the service list and the resolved environment, to be run before any comparison is trusted. <br>
 
 Risk: Comparison results can be lost because developer profiles share a Compose project name and are torn down before redeployment. <br>
 Mitigation: The comparison protocol requires persisting each harness's results before switching stacks. <br>
