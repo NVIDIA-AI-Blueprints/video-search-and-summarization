@@ -9,9 +9,11 @@
 >
 > **What is described below** is the eventual packaging — the runner as a
 > `gym-eval` container composed into the Compose project. It cannot be exercised
-> yet: running it means pulling a `nemo-gym` image, and every published tag is
-> currently rejected by the image gate in [`../SKILL.md`](../SKILL.md) for
-> carrying royalty-bearing codec libraries. A patch release is expected upstream.
+> yet: running it means pulling a `nemo-gym` image, and every tag checked so far
+> — `26.05` is the one with recorded evidence — is rejected by the image gate in
+> [`../SKILL.md`](../SKILL.md) for carrying royalty-bearing codec libraries. No
+> tag is known to pass; that is not the same as having checked them all, so run
+> the gate rather than assuming. A patch release is expected upstream.
 >
 > **Known gaps to close before this path is usable**, listed so nobody assumes
 > they are handled:

@@ -130,8 +130,13 @@ CREATED=$(echo "$BLOB" | jq -er '.created') \
 # an entry such as {} yields no created_by, jq emits nothing, and the codec count
 # below becomes 0 -- so an image whose history is entirely uninspectable would be
 # accepted exactly like one confirmed clean. Absence of evidence is not evidence.
-HIST_TOTAL=$(echo "$BLOB" | jq -r '.history | length') \
-  || { echo "GATE FAIL: config blob has no usable .history -- do not proceed"; exit 1; }
+#
+# `arrays` is load-bearing: `.history | length` on an OBJECT returns its key
+# count, and `.history[]` iterates that object's values, so a blob carrying
+# `"history": {"x": {"created_by": "..."}}` yields TOTAL == READABLE and sails
+# through. Reject anything that is not an array before counting.
+HIST_TOTAL=$(echo "$BLOB" | jq -er '.history | arrays | length') \
+  || { echo "GATE FAIL: .history is absent or not an array -- do not proceed"; exit 1; }
 HIST_READABLE=$(echo "$BLOB" | jq -r '[.history[] | select(type=="object") | .created_by | select(type=="string" and length > 0)] | length')
 [ "${HIST_TOTAL:-0}" -gt 0 ] \
   || { echo "GATE FAIL: config blob has an empty .history -- do not proceed"; exit 1; }
@@ -147,6 +152,13 @@ CODEC_LAYERS=$(echo "$BLOB" | jq -r '.history[].created_by // empty' | grep -cE 
 case "${CODEC_LAYERS}" in (*[!0-9]*|"") echo "GATE FAIL: unreadable codec count (${CODEC_LAYERS})"; exit 1 ;; esac
 echo "created: ${CREATED}"
 echo "codec-installing layers: ${CODEC_LAYERS}"
+# Name the offending layer. "1 codec layer" is a number to argue with; the actual
+# `apt-get install ... ffmpeg ...` line is the evidence, and it is what to quote
+# when reporting a rejection.
+if [ "${CODEC_LAYERS}" -ne 0 ]; then
+  echo "$BLOB" | jq -r '.history[].created_by // empty' \
+    | grep -E 'ffmpeg|libav|x264|x265' | head -1 | sed 's/^/matched layer: /' || true
+fi
 
 # ENFORCE. Printing the two values is not a gate -- a caller checking the exit
 # status would read success for a codec-bearing image. Decide here, in the script.

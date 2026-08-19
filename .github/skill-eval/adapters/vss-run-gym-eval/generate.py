@@ -181,9 +181,17 @@ services:
       - ${VSS_DATA_DIR}/gym_eval:/workspace/outputs
 YAML
 
-grep -v -E '^COMPOSE_PROFILES=' "${FOUNDATION_ENV}" > "${BUILD_DIR}/override.env"
+# The checked-in overrides.env ships unresolved host placeholders
+# (VSS_APPS_DIR="/path/to/deploy/docker", VSS_DATA_DIR="/path/to/vss-apps-data"),
+# so copying it verbatim yields an override.env that only works while this
+# script's own exports are in scope. Rewrite them to real paths, or the build
+# artifact is not self-contained the way the layout in delta.md implies.
+grep -v -E '^(COMPOSE_PROFILES|VSS_APPS_DIR|VSS_DATA_DIR)=' "${FOUNDATION_ENV}" \
+    > "${BUILD_DIR}/override.env"
 {
     echo "COMPOSE_PROFILES=${FOUNDATION_PROFILES},gym-eval"
+    echo "VSS_APPS_DIR=${VSS_APPS_DIR}"
+    echo "VSS_DATA_DIR=${VSS_DATA_DIR}"
     echo "VSS_GYM_EVAL_OUTPUT_DIR=/workspace/outputs"
 } >> "${BUILD_DIR}/override.env"
 
@@ -211,12 +219,21 @@ DELTA=$(diff \
 [ "${DELTA}" = "> gym-eval" ] || {
     echo "delta drifted from its Foundation:"; echo "${DELTA}"; exit 1; }
 
-# Fail-closed pin: with the tag unset, resolution must fail and say so.
-if env -u VSS_GYM_EVAL_TAG docker compose --env-file "${BUILD_DIR}/override.env" \
-        -f "${BUILD_DIR}/compose.yml" config --quiet >/dev/null 2>&1; then
+# Fail-closed pin: with the tag unset, resolution must fail AND say why.
+# Accepting any nonzero status would let an unrelated Compose error masquerade
+# as the gate working, which is the same fail-open shape this whole spec exists
+# to catch. `2>&1 >/dev/null` captures stderr only.
+if FAILCLOSED_ERR=$(env -u VSS_GYM_EVAL_TAG docker compose \
+        --env-file "${BUILD_DIR}/override.env" \
+        -f "${BUILD_DIR}/compose.yml" config --quiet 2>&1 >/dev/null); then
     echo "runner tag is not fail-closed: config succeeded with VSS_GYM_EVAL_TAG unset"
     exit 1
 fi
+case "${FAILCLOSED_ERR}" in
+    *VSS_GYM_EVAL_TAG*) ;;
+    *) echo "config failed with the tag unset, but not because of VSS_GYM_EVAL_TAG:"
+       echo "${FAILCLOSED_ERR}"; exit 1 ;;
+esac
 
 echo "Composed ${BUILD_DIR}: Foundation + gym-eval only, nothing started."
 """
@@ -257,6 +274,11 @@ run_gate() (
         | grep -cE 'ffmpeg|libav|x264|x265' || true)
     echo "created: ${CREATED}"
     echo "codec-installing layers: ${CODEC_LAYERS}"
+    if [ "${CODEC_LAYERS}" -ne 0 ]; then
+        echo "$BLOB" | jq -r '.history[].created_by // empty' \
+            | grep -E 'ffmpeg|libav|x264|x265' | head -1 \
+            | sed 's/^/matched layer: /' || true
+    fi
     FIX_EPOCH=$(date -u -d '2026-08-12' +%s)
     CREATED_EPOCH=$(date -u -d "${CREATED}" +%s) \
         || { echo "GATE FAIL: unparseable .created"; exit 1; }
@@ -270,15 +292,31 @@ run_gate() (
 OUT=$(run_gate); RC=$?
 echo "${OUT}"
 
-# This tag MUST be rejected; a pass here means the gate stopped working.
-[ "${RC}" -ne 0 ] || { echo "gate accepted ${TAG}, which it must reject"; exit 1; }
-echo "${OUT}" | grep -q 'GATE FAIL' || { echo "gate did not report a failure"; exit 1; }
+# A rejection only counts if the gate actually READ the metadata. Every failure
+# branch prints "GATE FAIL", so without these markers an expired token, a
+# registry outage or a missing jq is indistinguishable from a correct verdict on
+# a codec-bearing image -- the oracle would report success for a run that
+# established nothing.
+for marker in '^created: ' '^codec-installing layers: ' '^matched layer: '; do
+    echo "${OUT}" | grep -q "${marker}" || {
+        echo "gate produced no '${marker}' line -- infrastructure failure, not a verdict"
+        exit 1; }
+done
 
-# ...and it must have reached that verdict on metadata alone.
-if docker images --format '{{.Repository}}' 2>/dev/null | grep -q nemo-gym; then
-    echo "a nemo-gym image is present on the host -- the gate must not pull"
-    exit 1
-fi
+# This tag MUST be rejected, and for one of the two reasons the gate exists for.
+[ "${RC}" -ne 0 ] || { echo "gate accepted ${TAG}, which it must reject"; exit 1; }
+echo "${OUT}" | grep -qE 'GATE FAIL: (build predates|[0-9]+ layer\(s\) install codec|[0-9]+ codec)' || {
+    echo "gate failed, but not on provenance -- wrong reason:"; echo "${OUT}"; exit 1; }
+
+# ...and it must have reached that verdict on metadata alone. A docker CLI that
+# cannot list images proves nothing, so treat that as fatal rather than as
+# evidence of absence.
+DOCKER_IMAGES=$(docker images --format '{{.Repository}}') || {
+    echo "cannot list docker images -- cannot establish that nothing was pulled"
+    exit 1; }
+case "${DOCKER_IMAGES}" in
+    *nemo-gym*) echo "a nemo-gym image is present -- the gate must not pull"; exit 1 ;;
+esac
 
 echo "Gate correctly rejected ${TAG} without pulling it."
 """

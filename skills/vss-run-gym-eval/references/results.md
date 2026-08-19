@@ -52,19 +52,21 @@ valid procedure is sequential:
 | 4 | Persist Gym's results, then compare | — |
 
 **Step 2 is the one that gets skipped.** Every developer profile resolves to
-`COMPOSE_PROJECT_NAME=vss` and the same host ports, and the deploy script tears
-the previous deployment down before bringing the next one up: `docker compose -p
-vss down -v --remove-orphans`, which removes named volumes, followed by a cleanup
-that empties a fixed list of `${VSS_DATA_DIR}/data_log/*` subdirectories — kafka,
-elastic, redis, vst, nvstreamer and others (`deploy/docker/scripts/blueprint-deploy.sh`).
-Anything a previous run left in a named volume or under those `data_log` paths is
-gone, and the first indication is an empty directory after a run that took hours.
+`COMPOSE_PROJECT_NAME=vss` and the same host ports, and `dev-profile.sh` runs
+`state_down` before every `state_up` — its `up` path is literally `state_down;
+state_up`. That teardown does `rm -rf` on the **entire data directory**, not a
+subset of it (`deploy/docker/scripts/dev-profile.sh`).
 
-`${VSS_DATA_DIR}/gym_eval` is a bind mount outside `data_log/`, so it is not on
-that list today. Do not treat that as durable: the list is a hardcoded set that
-changes, nothing enforces the exclusion, and a future entry would take the
-results with it silently. Persist anything you intend to compare somewhere
-neither script reaches.
+`${VSS_DATA_DIR}/gym_eval` is inside that directory. Results left there when the
+stack is switched are gone, and the first indication is an empty directory after
+a run that took hours. Persist anything you intend to compare **outside**
+`${VSS_DATA_DIR}` before deploying the next profile.
+
+> Do not reason from `blueprint-deploy.sh` here. Its teardown is much narrower —
+> named volumes plus a fixed list of `data_log/*` subdirectories, which
+> `gym_eval` is not on — but that is the **warehouse** path. The
+> developer-profile comparison this skill supports runs `dev-profile.sh`, and
+> that one deletes everything.
 
 Running both stacks concurrently is not an alternative: they would contend for
 the same GPU, so the measurement would reflect contention rather than harness
@@ -72,9 +74,10 @@ behaviour.
 
 ## What a valid comparison requires
 
-Both runs must score the **same stack**, differing only by the eval runner. The
-delta makes the **service set** identical by construction — it is the
-Foundation's `COMPOSE_PROFILES` plus exactly one key. It does **not** make
+Both runs must score the **same stack**, differing only by the eval runner. By
+construction the delta **preserves every Foundation service and adds exactly one**
+— it is the Foundation's `COMPOSE_PROFILES` plus a single key — so the two
+service sets differ only by `gym-eval`. It does **not** make
 resolved values identical: delta resolution does not read the Foundation's
 `generated.env`, so a host-customised deployment can differ on values while the
 service list matches exactly. See the identity warning in
