@@ -95,10 +95,10 @@ TAG="${VSS_GYM_EVAL_TAG:?set the tag explicitly; there is deliberately no defaul
 # Anonymous pull-scope token: this repository is publicly readable, and the gate
 # only ever reads metadata. No NGC credential is needed to RUN THE GATE -- one is
 # needed later to pull the image, once a tag passes.
-TOK=$(curl -fsS "https://nvcr.io/proxy_auth?scope=repository:${REPO}:pull" | jq -er .token) || { echo "GATE FAIL: could not obtain a registry token"; exit 1; }
+TOK=$(curl -fsS --connect-timeout 5 --max-time 30 "https://nvcr.io/proxy_auth?scope=repository:${REPO}:pull" | jq -er .token) || { echo "GATE FAIL: could not obtain a registry token"; exit 1; }
 
 # 1. manifest list -> the linux/amd64 manifest
-AMD=$(curl -fsS -H "Authorization: Bearer $TOK" \
+AMD=$(curl -fsS --connect-timeout 5 --max-time 30 -H "Authorization: Bearer $TOK" \
   -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json" \
   "https://nvcr.io/v2/${REPO}/manifests/${TAG}" \
   | jq -r '.manifests[]? | select(.platform.architecture=="amd64" and .platform.os=="linux") | .digest' | head -1)
@@ -106,13 +106,13 @@ AMD=$(curl -fsS -H "Authorization: Bearer $TOK" \
 [ -n "$AMD" ] || { echo "GATE FAIL: no linux/amd64 manifest for ${TAG} -- do not proceed"; exit 1; }
 
 # 2. that manifest -> its config blob digest
-CFG=$(curl -fsS -H "Authorization: Bearer $TOK" \
+CFG=$(curl -fsS --connect-timeout 5 --max-time 30 -H "Authorization: Bearer $TOK" \
   -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json" \
   "https://nvcr.io/v2/${REPO}/manifests/${AMD}" | jq -r '.config.digest')
 [ -n "$CFG" ] || { echo "GATE FAIL: could not resolve the config blob -- do not proceed"; exit 1; }
 
 # 3. the config blob -> build date and layer history
-BLOB=$(curl -fsSL -H "Authorization: Bearer $TOK" "https://nvcr.io/v2/${REPO}/blobs/${CFG}") \
+BLOB=$(curl -fsSL --connect-timeout 5 --max-time 60 -H "Authorization: Bearer $TOK" "https://nvcr.io/v2/${REPO}/blobs/${CFG}") \
   || { echo "GATE FAIL: config blob fetch failed -- do not proceed"; exit 1; }
 
 # Fail closed on an unusable blob. Without these checks a malformed or empty
@@ -230,10 +230,11 @@ tool, not a VSS product image: it lives outside the four
 ## Foundation selection
 
 Default to **`lvs`**. Its `config.yml` registers `lvs_video_understanding`;
-`base`'s registers it zero times and offers only `video_understanding`, whose
-fixed 30-frame sample across a 210s clip holds scores near 0.70 for any model —
-so a harness comparison run on `base` cannot separate a harness difference from a
-sampling ceiling.
+`base`'s registers it zero times and offers only `video_understanding`, the
+sparser of the two. A comparison run on `base` therefore risks conflating a
+harness difference with the weaker sampling, which is the confound the whole
+exercise exists to avoid — so prefer a Foundation that registers the denser
+variant.
 
 Use a different Foundation only when the user names one, or when the deployment
 already running is a different profile — in which case the Foundation **must** be

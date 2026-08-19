@@ -442,8 +442,16 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
-        if GENERIC_JUDGE.exists():
-            shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        # Fatal, not conditional: the wrapper invokes generic_judge.py
+        # unconditionally, so skipping the copy emits a task that looks
+        # well-formed and cannot score. Fail while it is still a generation bug
+        # rather than a mystery zero in CI.
+        if not GENERIC_JUDGE.exists():
+            raise SystemExit(
+                f"generic_judge.py not found at {GENERIC_JUDGE} — the generated "
+                f"task would carry a verifier that cannot run"
+            )
+        shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
         # Write the RENDERED spec, never a verbatim copy: the checks address
         # the checkout by absolute path via {{repo_root}}, and an unrendered
         # placeholder would have the judge test a path that cannot exist.

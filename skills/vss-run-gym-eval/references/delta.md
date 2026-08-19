@@ -43,7 +43,8 @@ profile, no service to any shipped compose file, and nothing to
 
 ```
 _builds/<name>/
-├── override.env           # output dir, COMPOSE_PROFILES, and the Foundation's
+├── override.env           # VSS_GYM_EVAL_OUTPUT_DIR (the runner's output dir,
+│                          # /workspace/outputs), COMPOSE_PROFILES, and the Foundation's
 │                          # CHECKED-IN values -- copied from its overrides.env,
 │                          # NOT its generated.env, so host-resolved values are
 │                          # absent (see the identity warning in ../SKILL.md).
