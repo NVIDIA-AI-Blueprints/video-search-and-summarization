@@ -40,9 +40,12 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Claude Code authentication (NVIDIA inference API key works) |
-| `ANTHROPIC_BASE_URL` | Custom API base (e.g. `https://inference-api.nvidia.com`) |
-| `ANTHROPIC_MODEL` | Model ID (e.g. `aws/anthropic/bedrock-claude-sonnet-4-6`) |
+| `SKILLS_EVAL_PROVIDER` | Agent provider selected by manual CI: `nvidia-inference` (default) or `nvidia-build` |
+| `SKILLS_EVAL_MODEL` | Model used by the agent under evaluation; optional for the default provider and required for NVIDIA Build |
+| `ANTHROPIC_API_KEY` | Claude coordinator, default agent provider, and Harbor judge authentication |
+| `ANTHROPIC_BASE_URL` | Default NVIDIA inference API base (e.g. `https://inference-api.nvidia.com`) |
+| `ANTHROPIC_MODEL` | Existing Claude coordinator and Harbor judge model; also the default evaluated-agent model |
+| `NVIDIA_API_KEY` | NVIDIA Build authentication for `runner=nemoclaw`, `provider=nvidia-build` |
 | `NGC_CLI_API_KEY` | Pull VSS NIM containers from `nvcr.io` |
 | `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` | Remote-LLM endpoint used by `remote-*` deploy modes |
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
@@ -50,6 +53,12 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
+
+The manual workflow's blank `model` input keeps the existing behavior. To
+evaluate NemoClaw with a hosted NVIDIA Build model, select `runner=nemoclaw`,
+`provider=nvidia-build`, and pass the build.nvidia.com model ID. This changes
+the agent under evaluation only; the CI coordinator and Harbor judge retain
+their existing Claude configuration.
 
 ## Layout
 

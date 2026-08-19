@@ -677,7 +677,53 @@ class RunInvocations(unittest.TestCase):
     ENV = {
         "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+        "ANTHROPIC_API_KEY": "test-key",
     }
+
+    def test_nemoclaw_uses_selected_nvidia_build_model(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/spec"),
+            include_task_name="task",
+            chain_key="spec",
+        )
+        env = {
+            "EVAL_AGENT": "nemoclaw",
+            "SKILLS_EVAL_PROVIDER": "nvidia-build",
+            "SKILLS_EVAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "NVIDIA_API_KEY": "build-key",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg,
+                    "build_harbor_command",
+                    return_value=["harbor"],
+                ) as build,
+                mock.patch.object(run_leg, "run_command", return_value=0),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            build.call_args.args[2:],
+            (
+                "nvidia/nemotron-3.5-lightning-30b-a3b",
+                "",
+                "nemoclaw",
+            ),
+        )
 
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [

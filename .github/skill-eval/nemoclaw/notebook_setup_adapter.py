@@ -3,10 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Execute the checked-in NemoClaw setup notebooks from beginning to end.
 
-Phase 1 deliberately keeps the existing skill-eval model/provider contract.
-The coordinator's Anthropic-compatible NVIDIA inference settings are mapped to
-the notebooks' native variables before both checked-in notebooks are executed
-in their documented order. Executed notebooks are never persisted.
+The selected skill-eval model provider is mapped to the notebooks' native
+variables before both checked-in notebooks are executed in their documented
+order. Executed notebooks are never persisted.
 """
 
 from __future__ import annotations
@@ -23,6 +22,12 @@ from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+SKILL_EVAL_ROOT = Path(__file__).resolve().parents[1]
+if str(SKILL_EVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SKILL_EVAL_ROOT))
+
+from model_config import apply_model_config  # noqa: E402
 
 DEFAULT_ENV_OUT = Path("/tmp/skill-eval/nemoclaw/nemoclaw.env")
 NOTEBOOK_RELATIVE_PATHS = (
@@ -93,10 +98,14 @@ def prepare_environment(
     *,
     root: Path | None = None,
 ) -> MutableMapping[str, str]:
-    """Map the current CI provider contract to notebook-native variables."""
+    """Map the selected skill-eval provider to notebook-native variables."""
 
     env = environment if environment is not None else os.environ
     repo_root = (root or _repo_root()).resolve()
+    env.setdefault("EVAL_AGENT", "nemoclaw")
+    config = apply_model_config(env)
+    if config.runtime != "nemoclaw":
+        raise ValueError("the NemoClaw notebook adapter requires EVAL_AGENT=nemoclaw")
     env.setdefault("VSS_REPO_DIR", str(repo_root))
     env.setdefault("AGENT_RUNTIME", "openclaw")
     env.setdefault("ORCHESTRATOR_ENABLE_HTTPS", "false")
@@ -114,41 +123,18 @@ def prepare_environment(
         raise RuntimeError("NGC_CLI_API_KEY is required for notebook setup")
     env["NGC_CLI_API_KEY"] = ngc_key
 
-    endpoint = _openai_base_url(
-        _first_nonempty(
-            env.get("NEMOCLAW_ENDPOINT_URL"),
-            env.get("ANTHROPIC_BASE_URL"),
-            env.get("LLM_REMOTE_URL"),
-        )
+    endpoint = (
+        ""
+        if config.provider == "nvidia-build"
+        else _openai_base_url(config.endpoint_url)
     )
-    model = _first_nonempty(
-        env.get("NEMOCLAW_MODEL"),
-        env.get("ANTHROPIC_MODEL"),
-        env.get("LLM_REMOTE_MODEL"),
-    )
-    compatible_key = _first_nonempty(
-        env.get("COMPATIBLE_API_KEY"),
-        env.get("ANTHROPIC_API_KEY"),
-        env.get("OPENAI_API_KEY"),
-        env.get("NVIDIA_API_KEY"),
-    )
-    missing = [
-        name
-        for name, value in (
-            ("NEMOCLAW_ENDPOINT_URL/ANTHROPIC_BASE_URL", endpoint),
-            ("NEMOCLAW_MODEL/ANTHROPIC_MODEL", model),
-            ("COMPATIBLE_API_KEY/ANTHROPIC_API_KEY", compatible_key),
-        )
-        if not value
-    ]
-    if missing:
-        raise RuntimeError(
-            "Phase 1 requires the current NVIDIA inference configuration: "
-            + ", ".join(missing)
-        )
+    model = config.model
+    compatible_key = "" if config.provider == "nvidia-build" else config.api_key
     env["NEMOCLAW_ENDPOINT_URL"] = endpoint
     env["NEMOCLAW_MODEL"] = model
     env["COMPATIBLE_API_KEY"] = compatible_key
+    if config.provider == "nvidia-build":
+        env["NVIDIA_API_KEY"] = config.api_key
 
     llm_url = _endpoint_base_url(
         _first_nonempty(env.get("LLM_ENDPOINT_URL"), env.get("LLM_REMOTE_URL"))
@@ -353,9 +339,12 @@ def run_notebooks(*, root: Path, env_out: Path, timeout: int) -> None:
     print(f"Scoped MCP cleanup stopped {stopped} prior process(es).")
 
     nemoclaw = execute_notebook(paths[0], cwd=root, timeout=timeout)
+    expected_provider = (
+        "build" if os.environ["SKILLS_EVAL_PROVIDER"] == "nvidia-build" else "custom"
+    )
     _require_output(
         nemoclaw,
-        "NEMOCLAW_PROVIDER: custom",
+        f"NEMOCLAW_PROVIDER: {expected_provider}",
         notebook_name=paths[0].name,
     )
     _require_output(
@@ -397,10 +386,13 @@ def main(argv: list[str] | None = None) -> int:
 
     root = _repo_root()
     prepare_environment(os.environ, root=root)
-    endpoint_host = urlsplit(os.environ["NEMOCLAW_ENDPOINT_URL"]).netloc
+    endpoint_host = urlsplit(os.environ["NEMOCLAW_ENDPOINT_URL"]).netloc or "default"
+    notebook_provider = (
+        "build" if not os.environ["NEMOCLAW_ENDPOINT_URL"] else "custom"
+    )
     print(
-        "Phase 1 provider: nvidia-inference "
-        f"(notebook provider=custom, endpoint={endpoint_host}, "
+        f"Skill eval provider: {os.environ['SKILLS_EVAL_PROVIDER']} "
+        f"(notebook provider={notebook_provider}, endpoint={endpoint_host}, "
         f"model={os.environ['NEMOCLAW_MODEL']})"
     )
     run_notebooks(

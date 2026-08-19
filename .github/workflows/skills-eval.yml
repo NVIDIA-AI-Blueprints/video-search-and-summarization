@@ -45,6 +45,19 @@ on:
         options:
           - claude-code
           - nemoclaw
+      provider:
+        description: "Agent model provider. nvidia-build is supported by the NemoClaw runtime."
+        required: false
+        default: "nvidia-inference"
+        type: choice
+        options:
+          - nvidia-inference
+          - nvidia-build
+      model:
+        description: "Agent model ID. Blank keeps the current nvidia-inference model; required for nvidia-build."
+        required: false
+        default: ""
+        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -214,6 +227,8 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
+          SKILLS_EVAL_PROVIDER_INPUT: ${{ inputs.provider || 'nvidia-inference' }}
+          SKILLS_EVAL_MODEL_INPUT: ${{ inputs.model || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -253,6 +268,13 @@ jobs:
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
           fi
+          export SKILLS_EVAL_PROVIDER="$SKILLS_EVAL_PROVIDER_INPUT"
+          if [ -n "$SKILLS_EVAL_MODEL_INPUT" ]; then
+            export SKILLS_EVAL_MODEL="$SKILLS_EVAL_MODEL_INPUT"
+          else
+            unset SKILLS_EVAL_MODEL
+          fi
+          python3 .github/skill-eval/model_config.py
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
           # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
