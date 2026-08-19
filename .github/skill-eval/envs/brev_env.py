@@ -66,6 +66,48 @@ def _is_local_gpu_instance(instance: str | None) -> bool:
     local = _local_gpu_instance()
     return bool(local and instance and local.lower() == instance.lower())
 
+
+# Corp remote LLM/VLM endpoints are optional on coordinator Brev boxes.
+# OpenShell guests cannot reach 10.86.6.50, and forwarding these keys
+# makes /vss-deploy-profile write LLM_MODE=remote / VLM_MODE=remote so
+# local NIMs never start and VRAM stays empty.
+_REMOTE_PLACEMENT_KEYS = (
+    "LLM_REMOTE_URL",
+    "LLM_REMOTE_MODEL",
+    "VLM_REMOTE_URL",
+    "VLM_REMOTE_MODEL",
+)
+
+
+def _eval_env_forward_keys() -> tuple[str, ...]:
+    keys = (
+        "NGC_CLI_API_KEY",
+        "NVIDIA_API_KEY",
+        "HF_TOKEN",
+        *_REMOTE_PLACEMENT_KEYS,
+        # The Build Vision AI provisioning task owns host-side NemoClaw
+        # setup. Forward its provider and lifecycle inputs exactly as
+        # supplied by CI; the harness invokes the worker's NemoClaw CLI.
+        "NEMOCLAW_SANDBOX_NAME",
+        "NEMOCLAW_RECREATE_SANDBOX",
+        "NEMOCLAW_GATEWAY_PORT",
+        "NEMOCLAW_DASHBOARD_PORT",
+        "NEMOCLAW_POLICY_MODE",
+        "NEMOCLAW_PROVIDER",
+        "NEMOCLAW_ENDPOINT_URL",
+        "NEMOCLAW_MODEL",
+        "COMPATIBLE_API_KEY",
+        "PR_HEAD_SHA",
+        "PR_REPO",
+        "GITHUB_RUN_ID",
+        # Prebaked VIOS packages (#1798). The workflow setting it is not
+        # enough: dev-profile.sh reads it here, from ~/.eval_env.
+        "VSS_VIOS_PREBAKE_PACKAGES",
+    )
+    if _local_gpu_instance():
+        return tuple(key for key in keys if key not in _REMOTE_PLACEMENT_KEYS)
+    return keys
+
 # Keep every file-transfer API bounded below run_leg.py's recovery headroom.
 # Remote work gets 600 seconds. The public 630-second wall-clock bound also
 # accounts for two worst-case 11-second process-group reap paths (a timed-out
@@ -407,36 +449,7 @@ class BrevEnvironment(BaseEnvironment):
             # and its bridge-networked RT-VLM container can reach.
             ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
-        for key in (
-            "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
-            "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
-            "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
-            # The Build Vision AI provisioning task owns host-side NemoClaw
-            # setup. Forward its provider and lifecycle inputs exactly as
-            # supplied by CI; the harness invokes the worker's NemoClaw CLI.
-            "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
-            "NEMOCLAW_GATEWAY_PORT",
-            "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
-            "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
-            "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
-            # Pin the eval's deploy step to the PR's actual head SHA on
-            # the actual source repo — the pre-deploy script reads these
-            # and resets $REPO to that SHA. Without them, the adapter's
-            # baked-in branch wins and warm-pool boxes drift from PR
-            # reality (NVBug 6154461 / PR #377 finding: spec asserted
-            # the renamed release/3.2.0 container names while the eval
-            # deployed feat/skills's old names).
-            "PR_HEAD_SHA", "PR_REPO",
-            # Identifies this CI run inside the trial environment for
-            # logs and any future per-run scratch dirs the agent may
-            # create. No longer load-bearing now that the harness
-            # doesn't pre-deploy profiles or maintain an active-deploy
-            # marker.
-            "GITHUB_RUN_ID",
-            # Prebaked VIOS packages (#1798). The workflow setting it is not
-            # enough: dev-profile.sh reads it here, from ~/.eval_env.
-            "VSS_VIOS_PREBAKE_PACKAGES",
-        ):
+        for key in _eval_env_forward_keys():
             val = os.environ.get(key)
             if val:
                 forwarded.append((key, val))
