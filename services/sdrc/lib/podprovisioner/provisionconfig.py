@@ -223,7 +223,14 @@ class provisionconfig:
                     logger.info(f"configure operation text return: {response.text}")
                 except Exception as e:
                     logger.info("error while trying to print response.text - " + repr(e))
-                return response
+                if response.status_code == 200:
+                    return response
+                logger.info(
+                    "non-200 response in configure call %s/%s: status=%s",
+                    attempt,
+                    retry_attempts,
+                    response.status_code,
+                )
             except requests.RequestException as e:
                 logger.info(
                     "transport error occurred in configure call %s/%s: %s",
@@ -231,8 +238,8 @@ class provisionconfig:
                     retry_attempts,
                     e,
                 )
-                if attempt < retry_attempts:
-                    time.sleep(retry_delay)
+            if attempt < retry_attempts:
+                time.sleep(retry_delay)
 
         logger.info(f"Max configure retry attempt exhausted {retry_attempts}")
         return response

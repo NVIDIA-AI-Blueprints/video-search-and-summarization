@@ -3207,10 +3207,22 @@ def readdStreams(podName, pod_spec):
                 if podInfoItm['podName'] == podName:
                     for spec in json_spec:
                         data = redisMsging.getMessageValue(spec)
-                        resp = pc.add(
-                            podInfo=podInfoItm, configData=spec
+                        try:
+                            resp = pc.add(
+                                podInfo=podInfoItm, configData=spec
+                                )
+                        except Exception:
+                            app.logger.exception(
+                                "readd failed with an unexpected exception for stream %s on pod %s; "
+                                "continuing with remaining streams",
+                                data.get(app.config["WDM_WL_ID_FIELD"]),
+                                podInfoItm.get("podName"),
                             )
-                        app.logger.info(f"readd status {resp.status_code}")
+                            resp = None
+                        app.logger.info(
+                            "readd status %s",
+                            resp.status_code if resp is not None else "no_response",
+                        )
                         if app.config["WDM_CHECK_STATUS"] and (
                             (
                                 resp is not None
