@@ -205,11 +205,24 @@ jobs:
         if: startsWith(runner.name, 'vss-skill-eval-gpu-rtxpro6000-')
         run: |
           export PATH="/usr/local/bin:$PATH"
-          if [ -x /usr/local/bin/uv ] && [ ! -e /usr/local/bin/uvx ]; then
-            sudo -n ln -sfn /usr/local/bin/uv /usr/local/bin/uvx
+          # A symlink uvx -> uv makes `uvx --python` fail (full uv CLI).
+          # Harbor/GHA call `uvx --python` and `uvx --version`.
+          if [ -x /usr/local/bin/uv ]; then
+            if [ -L /usr/local/bin/uvx ] || [ ! -x /usr/local/bin/uvx ]; then
+              sudo -n tee /usr/local/bin/uvx >/dev/null <<'EOF'
+#!/bin/sh
+case "${1-}" in
+  --version|-V) exec /usr/local/bin/uv --version ;;
+  --help|-h|"") exec /usr/local/bin/uv tool run --help ;;
+esac
+exec /usr/local/bin/uv tool run "$@"
+EOF
+              sudo -n chmod 0755 /usr/local/bin/uvx
+            fi
           fi
           command -v uvx
           uvx --version
+          uvx --help | grep -q -- --from
           test -S /var/run/docker.sock
           docker info >/dev/null
           fstype=$(findmnt -n -o FSTYPE /var/lib/docker || true)
