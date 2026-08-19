@@ -316,7 +316,7 @@ class SelectImagesTest(unittest.TestCase):
         self.assertTrue(sbsa_entry["native_platform_build"])
         self.assertEqual(sbsa_entry["repository"], "vss-rt-embed")
         self.assertEqual(sbsa_entry["tag_suffix"], "-sbsa")
-        self.assertEqual(sbsa_entry["build_args"], "ARM_PLATFORM=sbsa")
+        self.assertEqual(sbsa_entry["build_args"], {"ARM_PLATFORM": "sbsa"})
         self.assertEqual(sbsa_entry["platforms"], ["linux/arm64"])
         self.assertEqual(sbsa_entry["compose_image_names"], [])
         self.assertEqual(sbsa_entry["tag_variables"], [])
@@ -359,7 +359,7 @@ class SelectImagesTest(unittest.TestCase):
             repo_root / ".github/workflows/build-dev-images.yml"
         ).read_text()
         verifier = """      - name: Verify RT Embed LFS shared objects
-        if: matrix.repository == 'vss-rt-embed'
+        if: matrix.name == 'vss-rt-embed'
         run: |
           mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \\
             -type f -name '*.so' -print)"""

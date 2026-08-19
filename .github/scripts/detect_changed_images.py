@@ -285,8 +285,6 @@ def matrix_entry(entry: dict) -> dict:
         "source_path": entry["source_path"],
         "build_args": _format_build_args(entry.get("build_args")),
     }
-    if entry.get("build_args"):
-        matrix["build_args"] = entry["build_args"]
     return matrix
 
 
