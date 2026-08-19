@@ -37,6 +37,15 @@ The webhook server is a single relay on `:9090`; Alert Bridge POSTs incidents to
 - The `/status` endpoint reports per-backend state — use it to tell the user which destinations are live.
 
 > ⚠️ **The server exits at startup on a bad backend.** A failed Slack `auth_test` (invalid/placeholder `SLACK_BOT_TOKEN`), missing Dashboard credentials, or an unset `VST_ENDPOINT` each terminate the process (`sys.exit(1)`) — there is no degraded half-started mode. Collect real credentials **before** starting; never launch with placeholders to "see if it works".
+>
+> **The credentials gate is not something to get past.** The values in `.env.example`
+> (`xoxb-YOUR-SLACK-BOT-TOKEN`, `C0YOUR_CHANNEL_ID`) are documentation, not credentials — a
+> `.env` you created by copying that file contains no more than a placeholder does. Do not
+> point `SLACK_API_URL`/the Slack base URL at a mock, stub, proxy or local server to make
+> `auth_test` succeed, and do not start the relay just to show the wiring works. Without a
+> real bot token and channel id the correct outcome is to **stop and ask the operator for
+> them** — a relay that only runs because Slack was faked reports "notifications configured"
+> while nothing reaches Slack, which is worse than not starting it at all.
 
 ---
 
