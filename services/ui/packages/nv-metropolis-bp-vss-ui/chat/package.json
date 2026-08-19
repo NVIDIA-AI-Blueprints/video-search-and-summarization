@@ -18,6 +18,11 @@
       "import": "./lib/api.js",
       "require": "./lib/api.js",
       "types": "./lib/api.d.ts"
+    },
+    "./middleware": {
+      "import": "./lib/middleware.js",
+      "require": "./lib/middleware.js",
+      "types": "./lib/middleware.d.ts"
     }
   },
   "files": [
