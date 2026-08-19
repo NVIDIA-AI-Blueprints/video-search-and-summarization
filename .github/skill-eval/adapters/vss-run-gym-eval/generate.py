@@ -132,7 +132,14 @@ def generate_test_script(step: int, spec_name: str) -> str:
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
-        "exit 0\n"
+        "# No trailing `exit 0`. The judge's own status is the wrapper's status.\n"
+        "#\n"
+        "# generic_judge.main() returns 0 after scoring whatever the reward is,\n"
+        "# pass or fail, so propagating it cannot turn a low score into a harness\n"
+        "# error. It returns non-zero only for --step out of range, which is a\n"
+        "# generation bug, and exits non-zero if it dies before writing\n"
+        "# reward.txt. Both of those are exactly the cases worth surfacing:\n"
+        "# swallowing them reports a broken verifier as a legitimate zero.\n"
     )
 
 
