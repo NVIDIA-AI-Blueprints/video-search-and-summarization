@@ -14,7 +14,7 @@
 # limitations under the License.
 
 apiVersion: v2
-name: dev-profile-search
+name: vss-dev-profile-search
 description: |
   NVIDIA Metropolis Developer Workflow - Search Profile
 

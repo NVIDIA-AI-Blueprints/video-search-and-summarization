@@ -14,7 +14,7 @@
 # limitations under the License.
 
 apiVersion: v2
-name: dev-profile-lvs
+name: vss-dev-profile-lvs
 description: "VSS stack - Helm chart for developer profiles - LVS (Long Video Summarization)"
 type: application
 version: 3.3.0

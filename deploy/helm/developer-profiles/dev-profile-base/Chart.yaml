@@ -14,7 +14,7 @@
 # limitations under the License.
 
 apiVersion: v2
-name: dev-profile-base
+name: vss-dev-profile-base
 description: "VSS stack - Helm chart for developer profiles - base"
 type: application
 version: 3.3.0
