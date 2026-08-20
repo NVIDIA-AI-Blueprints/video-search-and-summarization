@@ -786,18 +786,25 @@ async def resolve_sensor(
     if match is None:
         # Last resort: a streamId. _pick_stream tells an ambiguous caller to
         # address one explicitly, so the resolver has to accept what it asked for.
+        scan_failure: VSTError | None = None
         for sensor in sensors:
             candidate = str(sensor.get("sensorId") or "")
             if not candidate:
                 continue
             try:
                 entries = await _sensor_streams(vst_internal_url, candidate, timeout_seconds)
-            except VSTError:
+            except VSTError as exc:
+                # Keep the first failure. One unreadable sensor should not stop
+                # the search, but if the search then finds nothing we must not
+                # call it "not found" -- VIOS may simply have been unable to answer.
+                scan_failure = scan_failure or exc
                 continue
             if any(str(entry.get("streamId") or "") == handle for entry in entries):
                 match, wanted_stream = sensor, handle
                 break
     if match is None:
+        if scan_failure is not None:
+            raise scan_failure
         raise VIOSNotFoundError(f"no VIOS sensor named {handle!r} (and no sensor or stream with that id)")
 
     sensor_id = str(match.get("sensorId") or "")
@@ -1017,6 +1024,42 @@ async def _delete(url: str, timeout_seconds: float, what: str) -> None:
         raise VSTError(f"Failed to reach VIOS during {what}", e) from e
 
 
+async def recorded_span(
+    vst_internal_url: str,
+    stream_id: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[str, str] | None:
+    """The envelope of every recorded segment for one stream, or None if it has none.
+
+    Deliberately stricter than :func:`get_timelines_map`, which serves
+    best-effort screenshot enrichment and treats an unreadable payload as
+    "unmapped". That is right there and wrong here: a delete that cannot read
+    the timeline must not conclude there was nothing to reclaim. Absent from
+    the listing means no recordings; present but unparseable is an error.
+    """
+    base = vst_internal_url.rstrip("/")
+    if base.endswith("/vst"):
+        base = base[:-4]
+    payload = await _get_json(f"{base}/vst/api/v1/storage/timelines", timeout_seconds, "timelines")
+    if not isinstance(payload, dict):
+        raise VSTError(f"Unexpected timelines response shape: {type(payload).__name__}")
+
+    segments = payload.get(stream_id)
+    if segments is None or (isinstance(segments, list) and not segments):
+        return None
+    if not isinstance(segments, list):
+        raise VSTError(f"Unexpected timeline shape for {stream_id}: {type(segments).__name__}")
+
+    starts = [str(seg["startTime"]) for seg in segments if isinstance(seg, dict) and seg.get("startTime")]
+    ends = [str(seg["endTime"]) for seg in segments if isinstance(seg, dict) and seg.get("endTime")]
+    if not starts or not ends:
+        raise VSTError(
+            f"VIOS listed {len(segments)} recorded segment(s) for {stream_id} but none carried a usable "
+            f"start and end time; refusing to report a clean delete"
+        )
+    return min(starts), max(ends)
+
+
 async def confirm_absent(
     vst_internal_url: str,
     name: str,
@@ -1057,8 +1100,7 @@ async def delete_media(
     # The whole envelope, not one segment: a stream with several recorded
     # segments would otherwise keep everything after the first while this
     # function reported a confirmed cleanup.
-    timelines = await get_timelines_map(vst_internal_url, timeout_seconds=timeout_seconds)
-    span = timelines.get(ref.stream_id)
+    span = await recorded_span(vst_internal_url, ref.stream_id, timeout_seconds)
 
     if ref.kind == "stream":
         await _delete(f"{base}/vst/api/v1/sensor/{quote_path_segment(ref.sensor_id)}", timeout_seconds, "sensor delete")

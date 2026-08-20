@@ -22,6 +22,7 @@ from .client import list_media
 from .client import list_sensors
 from .client import map_interval_to_timeline
 from .client import map_timestamp_to_timeline
+from .client import recorded_span
 from .client import resolve_sensor
 from .client import upload_media
 from .client import validate_media_name
@@ -49,6 +50,7 @@ __all__ = [
     "list_sensors",
     "map_interval_to_timeline",
     "map_timestamp_to_timeline",
+    "recorded_span",
     "resolve_sensor",
     "upload_media",
     "validate_media_name",
