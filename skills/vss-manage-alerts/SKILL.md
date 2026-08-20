@@ -417,10 +417,12 @@ the point of this fallback is that the stored strings are in front of you.
 
 That response is **not** an answer on its own: its `count`/`total` covers every sensor in the
 store, so count only the documents carrying the matched value, and say the name could not be
-confirmed against VIOS. This list is weaker than VIOS in one way worth stating to the user:
-it only contains sensors that have **produced** incidents. When nothing matches, you cannot
-tell "this sensor has no incidents" from "that is not its stored name" — report that
-ambiguity instead of reporting `0`.
+confirmed against VIOS. Counting what came back is only sound while `count == total` — a
+truncated page gives a partial figure that looks like a complete one, so when they differ,
+narrow the window or say the list was cut short rather than reporting the number. This list
+is weaker than VIOS in one way worth stating to the user: it only contains sensors that have
+**produced** incidents. When nothing matches, you cannot tell "this sensor has no incidents"
+from "that is not its stored name" — report that ambiguity instead of reporting `0`.
 
 ```bash
 # 2. query — run ONE of these two, never both: the unscoped call answers a different
@@ -448,7 +450,12 @@ UUID=$(curl -sf "$VST_API_BASE/sensor/list" | jq -r --arg n "$NAME" '.[]|select(
 # sensor since step 1, an empty $UUID is dropped from the query and the store-wide total comes
 # back as this sensor's — turning "none" into someone else's incidents.
 : "${UUID:?VIOS no longer resolves this sensor — say the alternate identity could not be checked}"
-curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "sensor_id=$UUID" | jq '.total'
+# Carry the SAME window as (b). Drop it and you answer a different question: the endpoint
+# applies no range filter without it, so an all-time total comes back for a "today" ask.
+curl -sfG "$AB/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=$UUID" \
+  --data-urlencode "start_time=<ISO>" \
+  --data-urlencode "end_time=<ISO>" | jq '.total'
 # > 0 → that is the answer; say it matched the sensor's UUID, not its name.
 # 0 as well → both identities are empty, so "none found" is now a checked answer.
 ```
