@@ -133,6 +133,59 @@ class TestAwaitAssignment:
         assert consumer.assigned_calls
 
 
+class TestJoiningLaterDoesNotStarveTheEarlierConsumers:
+    """One consumer per topic, all in one group, all rebalanced together.
+
+    Subscribing the second consumer forces a rebalance that only completes
+    once every member polls. Waiting on the newcomer alone leaves the first
+    consumer unpolled, the rebalance never finishes, and the wait deadlocks
+    the very thing it is waiting for -- which is what took startup down on any
+    deployment with two source topics.
+    """
+
+    @staticmethod
+    def _pair(broker):
+        """B is assigned only while A keeps being polled, as a group behaves."""
+        a = wire(broker, FakeConsumer(assign_after=1), )
+        b = FakeConsumer(assign_after=10**9)
+
+        polls_at_subscribe = {}
+
+        def b_assign_when_a_is_polled(_c, _p):
+            pass
+
+        broker._subscribe_with_rebalance_hooks(b, "t2", None)
+        polls_at_subscribe["a"] = a.polls
+        original_poll = b.poll
+
+        def gated_poll(timeout=None):
+            b.polls += 1
+            # The coordinator can only complete the rebalance once the other
+            # member has polled since this one joined.
+            if a.polls > polls_at_subscribe["a"] and b._on_assign is not None:
+                b._on_assign(b, [FakePartition("t2", 0)])
+                b._on_assign = None
+            return None
+
+        b.poll = gated_poll
+        return a, b
+
+    def test_waiting_on_the_newcomer_alone_never_completes(self, broker):
+        a, b = self._pair(broker)
+        assert broker.await_assignment(b, timeout=0.4) is False
+
+    def test_polling_every_consumer_completes_the_rebalance(self, broker):
+        a, b = self._pair(broker)
+        assert broker.await_assignments([a, b], timeout=5) is True
+        assert broker.assignment_decided(b)
+
+    def test_an_already_assigned_consumer_is_still_polled(self, broker):
+        a, b = self._pair(broker)
+        before = a.polls
+        broker.await_assignments([a, b], timeout=5)
+        assert a.polls > before, "the assigned consumer stopped being polled"
+
+
 class TestAssignmentIsLiveState:
     """Readiness has to be able to go false again.
 

@@ -126,24 +126,37 @@ class KafkaMessageBroker:
             return set(self._owned.get(id(consumer), ()))
 
     def await_assignment(self, consumer: Consumer, timeout: float) -> bool:
-        """Poll until the coordinator has decided what ``consumer`` owns.
+        """Wait for one consumer, polling only it. See ``await_assignments``."""
+        return self.await_assignments([consumer], timeout)
+
+    def await_assignments(self, consumers: List[Consumer], timeout: float) -> bool:
+        """Poll every consumer until the coordinator has decided what each owns.
 
         ``subscribe`` only starts the join; the assignment lands on a later
         poll. Until it does the member holds nothing, so a producer that
         starts in the meantime writes past a ``latest`` offset no member has
         reached and those records are never delivered.
 
+        Every consumer is polled on every pass, including ones already
+        assigned. Members of a group share a rebalance: a consumer joining
+        later forces one, and it does not complete until *all* members poll.
+        Waiting on the newcomer alone starves the earlier ones and the
+        rebalance never finishes, which deadlocks the wait it was meant to
+        satisfy.
+
         Waiting on the assignment rather than on membership is the difference
         between "the group knows about me" and "I know what to read".
         """
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self.assignment_decided(consumer):
+        while True:
+            if all(self.assignment_decided(c) for c in consumers):
                 return True
-            message = consumer.poll(timeout=0.1)
-            if message is not None and message.error() is None:
-                self._prefetched.setdefault(id(consumer), []).append(message)
-        return self.assignment_decided(consumer)
+            if time.monotonic() >= deadline:
+                return all(self.assignment_decided(c) for c in consumers)
+            for consumer in consumers:
+                message = consumer.poll(timeout=0.1)
+                if message is not None and message.error() is None:
+                    self._prefetched.setdefault(id(consumer), []).append(message)
 
     def get_producer(self) -> Producer:
         """

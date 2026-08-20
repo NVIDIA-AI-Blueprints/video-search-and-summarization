@@ -113,6 +113,10 @@ class AlertTypeConfigLoader:
             main_config_file: Path to the main configuration YAML file. Defaults to "config.yaml".
         """
         self.logger = logging.getLogger(self.__class__.__name__)
+        # Set before loading: the file is optional and _load_configurations
+        # returns early when it is absent, which left every reader below
+        # raising AttributeError on a path that only logged a warning.
+        self.alert_configs: Dict[str, Any] = {}
 
         if config_file_path:
             self.config_file_path = Path(config_file_path)

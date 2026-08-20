@@ -146,23 +146,35 @@ class SourceKafka(SourceBase):
             self.topic_to_kind = {self.anomaly_topic: 'anomaly'}
 
     def await_ready(self, timeout: float = 60.0) -> bool:
-        """Create every source consumer up front and wait for its assignment."""
-        deadline = time.monotonic() + timeout
-        ready = True
+        """Create every source consumer, then wait for all their assignments.
+
+        Every consumer is created before any of them is waited on. They share
+        a group, so each subscription forces a rebalance that only completes
+        once all members poll; creating and waiting one at a time leaves the
+        earlier consumers unpolled and the rebalance never finishes.
+        """
         for topic in self.source_topics:
             self._ensure_consumer(topic)
-            remaining = max(0.0, deadline - time.monotonic())
-            if not self.kafka_message_broker.await_assignment(
-                self.topic_consumer_map[topic], remaining
-            ):
-                logging.warning(
-                    "Consumer for topic %s was given no assignment in group %s "
-                    "within %.0fs; records published before it is assigned may "
-                    "be skipped",
-                    topic, self.groupId, timeout,
-                )
-                ready = False
-        return ready
+
+        consumers = [
+            self.topic_consumer_map[topic]
+            for topic in self.source_topics
+            if topic in self.topic_consumer_map
+        ]
+        if self.kafka_message_broker.await_assignments(consumers, timeout):
+            return True
+
+        for topic in self.source_topics:
+            consumer = self.topic_consumer_map.get(topic)
+            if consumer is None or self.kafka_message_broker.assignment_decided(consumer):
+                continue
+            logging.warning(
+                "Consumer for topic %s was given no assignment in group %s "
+                "within %.0fs; records published before it is assigned may "
+                "be skipped",
+                topic, self.groupId, timeout,
+            )
+        return False
 
     def is_ready(self) -> bool:
         """Whether every source consumer currently holds a decided assignment.
