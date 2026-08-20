@@ -456,7 +456,11 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "sensor_id=$UUID" \
   --data-urlencode "start_time=<ISO>" \
   --data-urlencode "end_time=<ISO>" | jq '.total'
-# > 0 → that is the answer; say it matched the sensor's UUID, not its name.
+# > 0 → that is the answer; say it matched the sensor's UUID, not its name. Exactly 10000 is
+#   the one number to distrust: this raw view never asks Elasticsearch for an exact hit count,
+#   and paging cannot go past it either, so 10000 is a floor. Report it as "at least 10000" —
+#   that is the true answer, not a fallback. Only narrow the window if the user asks for a
+#   finer figure, and then say which window the new number belongs to.
 # 0 as well → both identities are empty, so "none found" is now a checked answer.
 ```
 
@@ -483,7 +487,7 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
 > tell you it was a typo. This is the opposite of Workflow D, where the rule-create payload's
 > `sensor_id` **must** be the VIOS UUID.
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a scoped zero means *not under this identity*, so run step 3 before reporting it. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote the number from the response you filtered by the identity you confirmed — the name, or the UUID step 3 matched — and say which sensor, and which identity, it belongs to. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. `total` here is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and the response does not carry the flag that tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a scoped zero means *not under this identity*, so run step 3 before reporting it. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote the number from the response you filtered by the identity you confirmed — the name, or the UUID step 3 matched — and say which sensor, and which identity, it belongs to. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
 
 **Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D). Incidents produced by **always-on** rules (Workflow G) appear here like any other realtime incident, and so do **on-demand verification results** (incident-kind, `sensorId: "ondemand"` — see Workflow F).
 
