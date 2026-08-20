@@ -48,6 +48,7 @@ from vss_cli.group import Action
 from vss_cli.group import CommandGroup
 from vss_cli.group import Context
 from vss_cli.group import Result
+from vss_cli.group import _exit_for
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -465,6 +466,18 @@ class SearchGroup(CommandGroup):
         created_at = utc_now_iso()
         input_data = _search_memory_input(action=action, payload=payload, inputs=inputs)
         persist_error: str | None = None
+        submitted = False
+        asset_id = input_data.sensors[0].id if input_data.sensors else None
+
+        def outcome(response: dict[str, Any], code: Exit, *, status: str, record: str) -> Result:
+            response["record"] = record
+            persisted = bool(response.get("persisted", False)) and code != Exit.PARTIAL
+            return Result(
+                body=response,
+                exit=code,
+                job_id=job_id,
+                extra={"marker": {"asset_id": asset_id, "status": status, "persisted": persisted}},
+            )
 
         if memory is not None:
             from .memory_adapter import SearchAdapter
@@ -473,10 +486,35 @@ class SearchGroup(CommandGroup):
                 memory.service.upsert(
                     SearchAdapter().submitted_record(job_id=job_id, created_at=created_at, input_data=input_data)
                 )
+                submitted = True
             except memory_mod.write_failures() as error:
                 click.echo(f"vss: unified memory is not writable, searching without it ({error})", err=True)
                 persist_error = str(error)
                 memory = None
+
+        def close(status: str, message: str) -> str:
+            if memory is None or not submitted:
+                return "absent"
+            from vss_cli.persistence import mark_terminal
+
+            from .memory_adapter import SearchAdapter
+
+            if mark_terminal(
+                memory,
+                SearchAdapter(),
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status=status,
+                message=message,
+            ):
+                return "closed"
+            click.echo(
+                f"vss: could not record job {job_id} as {status} in unified memory, "
+                "so `status` still reports it submitted",
+                err=True,
+            )
+            return "stale"
 
         async def _go() -> Any:
             critic, vlm = await _critic_from(deployment)
@@ -487,12 +525,33 @@ class SearchGroup(CommandGroup):
                 if vlm is not None:
                     await vlm.aclose()
 
-        output = asyncio.run(_go())
+        try:
+            output = asyncio.run(_go())
+        except Exception as error:
+            code = _exit_for(error) or Exit.ERROR
+            record = close("failed", str(error))
+            click.echo(f"vss: search failed: {error}", err=True)
+            return outcome(
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "persisted": record == "closed",
+                    "error": str(error),
+                },
+                code,
+                status="failed",
+                record=record,
+            )
         # Preserve the library stdout contract — never mutate SearchOutput for persistence.
         body = output.model_dump() if hasattr(output, "model_dump") else output
 
         persist_meta: dict[str, Any] | None = None
         if memory is not None:
+            unpersistable: tuple[type[BaseException], ...] = (
+                ValueError,
+                RuntimeError,
+                *memory_mod.write_failures(),
+            )
             try:
                 bundle = _search_terminal_bundle(
                     job_id=job_id,
@@ -504,30 +563,38 @@ class SearchGroup(CommandGroup):
                 result = memory.service.upsert_bundle(bundle)
                 persist_meta = result.to_dict()
                 if not result.ok:
-                    return Result(
-                        body={
+                    stored = memory.service.get(job_id, reconcile=False)
+                    record = (
+                        close("partial", f"persistence incomplete: {persist_meta}")
+                        if stored.job.status in {"submitted", "running"}
+                        else "closed"
+                    )
+                    return outcome(
+                        {
                             "job_id": job_id,
                             "data": body.get("data") if isinstance(body, dict) else body,
                             "search_messages": body.get("search_messages", []) if isinstance(body, dict) else [],
                             "persisted": False,
                             "persistence": persist_meta,
                         },
-                        exit=Exit.PARTIAL,
-                        job_id=job_id,
+                        Exit.PARTIAL,
+                        status="partial",
+                        record=record,
                     )
-            except memory_mod.write_failures() as error:
+            except unpersistable as error:
                 persist_error = str(error)
                 click.echo(f"vss: search succeeded but memory persistence failed ({error})", err=True)
-                return Result(
-                    body={
+                return outcome(
+                    {
                         "job_id": job_id,
                         "data": body.get("data") if isinstance(body, dict) else body,
                         "search_messages": body.get("search_messages", []) if isinstance(body, dict) else [],
                         "persisted": False,
                         "persistence_error": persist_error,
                     },
-                    exit=Exit.PARTIAL,
-                    job_id=job_id,
+                    Exit.PARTIAL,
+                    status="partial",
+                    record=close("partial", persist_error),
                 )
 
         response: dict[str, Any]
@@ -544,7 +611,10 @@ class SearchGroup(CommandGroup):
             response["persistence_error"] = persist_error
         elif not want_persist or memory is None:
             response["persisted"] = False
-        return Result(body=response, exit=Exit.SUCCESS, job_id=job_id)
+        if persist_error is not None:
+            return outcome(response, Exit.PARTIAL, status="partial", record="absent")
+        record = "closed" if persist_meta is not None else "absent"
+        return outcome(response, Exit.SUCCESS, status="completed", record=record)
 
 
 def _search_memory_input(*, action: str, payload: dict[str, Any], inputs: BaseModel) -> Any:

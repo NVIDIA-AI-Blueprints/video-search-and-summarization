@@ -339,7 +339,7 @@ class CommandGroup(ABC):
                     # say). That is equally the caller's error, same exit 2.
                     raise InvalidInput(_format_validation(exc)) from exc
 
-            _emit(_guarded(dispatch), ctx)
+            _emit(_guarded(dispatch), ctx, marker_group=owner.name)
 
         return click.Command(
             name=action.name,
@@ -452,13 +452,44 @@ def _memory_context(values: dict[str, Any]) -> Context:
     return ctx
 
 
-def _emit(result: Result, ctx: Context) -> None:
-    """Render a Result and carry its exit code out through Click."""
+def _completion_marker(result: Result, group: str) -> dict[str, Any]:
+    """Build the compact, group-agnostic completion callback from one result."""
+    marker_data = result.extra.get("marker")
+    data = marker_data if isinstance(marker_data, dict) else {}
+    status = str(data.get("status") or "completed")
+    if status == "timeout":
+        event = "vss_job_timeout"
+    elif status == "failed":
+        event = "vss_job_failed"
+    else:
+        event = "vss_job_completed"
+    return {
+        "event": event,
+        "group": memory_mod.group_token(group),
+        "job_id": result.job_id,
+        "asset_id": data.get("asset_id"),
+        "status": status,
+        "persisted": bool(data.get("persisted", False)),
+        "exit_hint": int(result.exit),
+    }
+
+
+def _emit(result: Result, ctx: Context, *, marker_group: str | None = None) -> None:
+    """Render a Result, append the §7.2 marker, and carry its exit code."""
     import json
 
     if result.body is not None:
         pretty = bool(ctx.pretty)
         text = json.dumps(result.body, indent=2 if pretty else None, default=str)
+        click.echo(text)
+    if marker_group is not None and result.job_id:
+        marker = _completion_marker(result, marker_group)
+        text = json.dumps(marker, separators=(",", ":"), default=str)
+        if len(text.encode("utf-8")) > 1024:
+            marker["asset_id"] = None
+            text = json.dumps(marker, separators=(",", ":"), default=str)
+        if len(text.encode("utf-8")) > 1024:  # pragma: no cover - fixed fields are bounded
+            raise ValueError("completion marker exceeds 1 KB")
         click.echo(text)
     if result.exit != Exit.SUCCESS:
         raise SystemExit(int(result.exit))
