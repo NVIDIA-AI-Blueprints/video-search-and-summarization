@@ -14,8 +14,35 @@
 # limitations under the License.
 
 services:
+  # Populate the shared APT package cache once per bring-up. Every vios
+  # consumer (streamprocessing + all nvstreamer-base profiles) then installs
+  # from it read-only instead of each downloading ~138MB independently. The
+  # streamprocessing and nvstreamer images resolve to the same package set, so
+  # one populator covers both. Gated on VST_INSTALL_ADDITIONAL_PACKAGES and
+  # carries every vios profile so it activates whenever a vios service does
+  # (and never for a non-vios profile). Add new vios profiles here too.
+  vios-apt-cache-init:
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    container_name: vios-apt-cache-init
+    profiles: ["streamprocessing-ms", "streamprocessing-ms-2d", "streamprocessing-ms-3d", "streamprocessing-ms-mv3dt", "nvstreamer-alerts", "nvstreamer-lvs", "nvstreamer-2d-fusion", "nvstreamer-2d", "nvstreamer-3d", "nvstreamer-mv3dt"]
+    user: "0:0"
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_POPULATE=true
+      - VST_APT_CACHE_DIR=/opt/apt-cache
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
+    # Best-effort: the `|| echo` keeps the init exit 0 even if the populate
+    # fails, so a transient apt error never blocks the consumers that
+    # depend_on this (service_completed_successfully) -- they just fall back to
+    # downloading. The cache is an optimization, not a hard dependency.
+    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh || echo 'cache populate failed (best-effort); consumers will download'; else echo 'additional packages disabled; nothing to cache'; fi"]
+    volumes:
+      - vios_apt_cache:/opt/apt-cache
+      - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    restart: "no"
+
   streamprocessing-ms:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -31,6 +58,7 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -44,6 +72,7 @@ services:
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -70,9 +99,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      vios-apt-cache-init:
+        condition: service_completed_successfully
 
   streamprocessing-ms-2d:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms-2d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -88,6 +119,7 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -110,6 +142,7 @@ services:
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -138,9 +171,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      vios-apt-cache-init:
+        condition: service_completed_successfully
 
   streamprocessing-ms-3d:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms-3d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -156,6 +191,7 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -180,6 +216,7 @@ services:
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/home/vst/vst_release/configs/labels.txt
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -208,9 +245,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      vios-apt-cache-init:
+        condition: service_completed_successfully
 
   streamprocessing-ms-mv3dt:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["streamprocessing-ms-mv3dt"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -226,6 +265,7 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -250,6 +290,7 @@ services:
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -278,3 +319,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      vios-apt-cache-init:
+        condition: service_completed_successfully
+
+volumes:
+  vios_apt_cache:
+    name: vios_apt_cache

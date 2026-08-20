@@ -215,6 +215,14 @@ Then go straight to Step 2 — **skip the Sensor check**.
 > the same video exists**. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
 > Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `videoUrl`.
 > Applies even to temporal questions ("at what timestamp…").
+>
+> **A follow-up that names no video stays on the sensor already in play.** "At what timestamp did
+> the worker climb the ladder?" asked after a question about `warehouse_safety_0001` is another
+> Path B question about *that* sensor — re-resolve its clip URL. Never switch to a different video
+> because its filename echoes the question ("ladder", "safety"): a matching name is not the subject,
+> a sample file lying on disk is no substitute for the sensor's clip, and serving one over your own
+> HTTP server does not make it one. Only a file or URL the user gives you **in the request** (Path A)
+> outranks the sensor.
 
 When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage`: confirm the
 named `<sensor-id>` exists (the *Sensor check* above — required on this path), then run the block
@@ -460,8 +468,8 @@ up, else use the documented defaults.
 > **Which backend is this?** Any model id containing `cosmos` reached as a **direct/base NIM**
 > endpoint is NIM Cosmos and needs these fields. An `nim_nvidia_…_bf16` / `_hf`-style id (e.g.
 > `nim_nvidia_cosmos3-nano-reasoner_bf16-final`) does **not** make it RT-VLM: RT-VLM is decided by
-> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM genuinely
-> does not need them — it preprocesses server-side.
+> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM takes its
+> own sampling fields instead of these two — see immediately below.
 >
 > **Run the `curl` below verbatim rather than hand-writing your own**, and answer a second or
 > follow-up question by re-running the same block with a new `USER_QUESTION` / `UPLOAD_FORMAT`.
@@ -473,6 +481,14 @@ up, else use the documented defaults.
 > "mm_processor_kwargs": {"videos_kwargs": {"min_pixels": 3136, "max_pixels": 8388608}}  // other cosmos (reason1, reason3/cosmos3)
 > "media_io_kwargs": {"video": {"num_frames": <NUM_FRAMES>}}                             // both shapes
 > ```
+
+On **RT-VLM** the fields differ but are just as **required**. Its `ChatCompletionRequest` defaults
+`num_frames_per_second_or_fixed_frames_chunk` to **0** (with `use_fps_for_chunking: false`, i.e. a
+fixed count) and `vlm_input_width` / `vlm_input_height` to **0**, so a bare request samples the clip
+at zero frames and answers from its opening frame — a clip that starts on a black frame comes back
+as *"the frame is completely black"* however long the video is, and trimming past the black frame
+only hides it. Send what the profile's own agent config sends to RT-VLM
+(`rtvi_vlm.model_kwargs.extra_body`): 20 fixed frames per chunk at 1280×720.
 
 ```bash
 USER_QUESTION='<the user's question, verbatim>'
@@ -493,16 +509,28 @@ Your reasoning.
 Write your final answer immediately after the </think> tag."
 fi
 
-# Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly).
-[ -z "${VLM_BACKEND:-}" ] && {
-  # Prefix-agnostic (matches the *cosmos* family used by the MM_KWARGS block below), so a
-  # self-hosted NIM advertising a bare id (e.g. cosmos-reason2-8b, no nvidia/ prefix) still
-  # resolves to nim_cosmos and gets the required frame-sampling kwargs.
+# Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly). The
+# endpoint decides, never the model name: RT-VLM serves cosmos-named ids
+# (nim_nvidia_cosmos-reason2-8b_hf-…), so matching *cosmos* first labels RT-VLM as NIM Cosmos and
+# drops the sampling fields it needs — the exact defect this ordering exists to prevent.
+if [ -z "${VLM_BACKEND:-}" ]; then
+  # The RT-VLM port, when the agent resolved the endpoint itself instead of running Step 2.
+  case "${VLM_ENDPOINT:-}" in
+    *":${RTVI_VLM_PORT:-8018}"|*":${RTVI_VLM_PORT:-8018}/"*) VLM_BACKEND="rtvlm" ;;
+  esac
+fi
+# Otherwise ask the server: RT-VLM reports an audio_support flag on /v1/models, a NIM does not.
+# Use /v1/models, not /openapi.json — that spec is ~110 kB and slow to build on a cold container.
+if [ -z "${VLM_BACKEND:-}" ] && curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | grep -q '"audio_support"'; then
+  VLM_BACKEND="rtvlm"
+fi
+# Last resort, the model id: a *cosmos* NIM (even a bare cosmos-reason2-8b) needs the Cosmos kwargs.
+if [ -z "${VLM_BACKEND:-}" ]; then
   case "${VLM_MODEL:-}" in
     *cosmos*) VLM_BACKEND="nim_cosmos" ;;
     *)        VLM_BACKEND="rtvlm" ;;
   esac
-}
+fi
 
 # Path B guard: a VST-sourced clip is ALWAYS the VST videoUrl, never a stray local copy.
 # If this run came from VST (VST_SOURCED=1) but VIDEO_URL is empty, the VST /url GET was skipped —
@@ -560,8 +588,8 @@ esac
 
 # Cosmos NIM frame-sampling + visual-token budget. REQUIRED on both video-block paths
 # (`video_url` AND `file_base64` data-URI): without `media_io_kwargs.num_frames` the NIM
-# under-samples the inline MP4 and can hallucinate (verified on cosmos-reason2-8b). Not needed
-# for RT-VLM (preprocesses server-side).
+# under-samples the inline MP4 and can hallucinate (verified on cosmos-reason2-8b). RT-VLM uses
+# its own sampling fields instead (built below).
 if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] || [ "$UPLOAD_FORMAT" = "file_base64" ]; }; then
   case "$VLM_MODEL" in
     *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
@@ -573,8 +601,24 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] |
   esac
 fi
 
+# RT-VLM frame sampling. REQUIRED: RT-VLM defaults num_frames_per_second_or_fixed_frames_chunk and
+# vlm_input_width/height to 0, so a bare request samples zero frames and answers from the clip's
+# opening frame (a black first frame then reads as "completely black"). Values match
+# rtvi_vlm.model_kwargs.extra_body in the profile agent config; override via env if yours differs.
+RTVI_SAMPLING=""
+if [ "${VLM_BACKEND}" = "rtvlm" ]; then
+  # Keep these numeric/boolean so a malformed env value cannot inject JSON into the body. -1 is
+  # RT-VLM's documented "every decoded frame in the chunk"; anything else non-numeric is ignored.
+  _nf="${RTVI_NUM_FRAMES:-20}";    case "$_nf" in -1) : ;; ''|*[!0-9]*) _nf=20 ;; esac
+  _w="${RTVI_INPUT_WIDTH:-1280}";  case "$_w"  in ''|*[!0-9]*) _w=1280 ;; esac
+  _h="${RTVI_INPUT_HEIGHT:-720}";  case "$_h"  in ''|*[!0-9]*) _h=720 ;; esac
+  case "${RTVI_USE_FPS:-false}" in true) _fps=true ;; *) _fps=false ;; esac
+  RTVI_SAMPLING=", \"num_frames_per_second_or_fixed_frames_chunk\": ${_nf}, \"use_fps_for_chunking\": ${_fps}, \"vlm_input_width\": ${_w}, \"vlm_input_height\": ${_h}"
+fi
+
 # Send THIS body for both formats. Do not write a separate minimal video_url curl — hand-built
-# video_url requests keep dropping ${MM_KWARGS}, which under-samples the clip on NIM Cosmos.
+# requests keep dropping ${MM_KWARGS} / ${RTVI_SAMPLING}, which under-samples the clip: on NIM
+# Cosmos it degrades the answer, and on RT-VLM it collapses to the first frame.
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
@@ -590,7 +634,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
     }
   ],
   "max_tokens": 1024,
-  "temperature": 0.0${MM_KWARGS}
+  "temperature": 0.0${MM_KWARGS}${RTVI_SAMPLING}
 }
 EOF
 ```

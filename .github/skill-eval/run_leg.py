@@ -73,6 +73,7 @@ VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 # environment before this wrapper intervenes.
 HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
+NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
@@ -300,6 +301,10 @@ def build_harbor_command(
     anthropic_base_url: str,
     agent: str = "claude-code",
 ) -> list[str]:
+    environment_import_path = "envs.brev_env:BrevEnvironment"
+    environment_build_timeout_multiplier = (
+        HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+    )
     if agent == "codex":
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
         # provider-prefixed model id — harbor's stock codex strips it to the
@@ -318,8 +323,22 @@ def build_harbor_command(
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
         ]
+    elif agent == "nemoclaw":
+        environment_import_path = (
+            "envs.nemoclaw_brev_env:NemoClawBrevEnvironment"
+        )
+        environment_build_timeout_multiplier = (
+            NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+        )
+        agent_flags = [
+            "-a", "agents.nemoclaw:NemoClaw",
+            "--model", model,
+        ]
     else:
-        raise ValueError(f"unsupported agent {agent!r} (expected claude-code | codex)")
+        raise ValueError(
+            f"unsupported agent {agent!r} "
+            "(expected claude-code | codex | nemoclaw)"
+        )
     return [
         "uvx",
         "--python",
@@ -329,14 +348,14 @@ def build_harbor_command(
         "harbor",
         "run",
         "--environment-import-path",
-        "envs.brev_env:BrevEnvironment",
+        environment_import_path,
         "-p",
         str(invocation.harbor_root),
         "--include-task-name",
         invocation.include_task_name,
         *agent_flags,
         "--environment-build-timeout-multiplier",
-        str(HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
+        str(environment_build_timeout_multiplier),
         "--agent-timeout-multiplier",
         str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
         "--verifier-timeout-multiplier",
@@ -1259,9 +1278,12 @@ def run_invocations(
     # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
     # silently fall through to the claude-code path and be indistinguishable
     # from a real claude-code run in the logs.
-    if agent not in ("claude-code", "codex"):
-        print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
-              file=sys.stderr)
+    if agent not in ("claude-code", "codex", "nemoclaw"):
+        print(
+            f"FATAL: unsupported EVAL_AGENT {agent!r} "
+            "(expected claude-code | codex | nemoclaw)",
+            file=sys.stderr,
+        )
         return 1
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")

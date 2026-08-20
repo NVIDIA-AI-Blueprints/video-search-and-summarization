@@ -124,6 +124,5 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         calls = await self._run_start_for("step-10")
         self.assertEqual(calls, set(), "step-10 must skip all destructive prep")
 
-
 if __name__ == "__main__":
     unittest.main()

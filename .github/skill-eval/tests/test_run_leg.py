@@ -164,6 +164,33 @@ class HarborCommand(unittest.TestCase):
         self.assertFalse(any("OPENAI_API_KEY" in part for part in cmd))
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
+    def test_build_command_nemoclaw_reuses_standard_dispatch(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base"),
+            include_task_name="rtxpro6000bw",
+            chain_key="base_rtxpro6000bw",
+        )
+
+        cmd = run_leg.build_harbor_command(
+            invocation,
+            Path("/tmp/results"),
+            "aws/anthropic/bedrock-claude-opus-4-6",
+            "https://inference-api.nvidia.com/v1",
+            "nemoclaw",
+        )
+
+        self.assertEqual(cmd[cmd.index("-a") + 1], "agents.nemoclaw:NemoClaw")
+        self.assertEqual(
+            cmd[cmd.index("--environment-import-path") + 1],
+            "envs.nemoclaw_brev_env:NemoClawBrevEnvironment",
+        )
+        self.assertEqual(
+            cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
+            str(run_leg.NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
+        )
+        self.assertNotIn("--ak", cmd)
+        self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
+
     def test_build_command_rejects_unknown_agent(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
@@ -179,6 +206,10 @@ class HarborCommand(unittest.TestCase):
 class PhaseBudgets(unittest.TestCase):
     def test_default_backstop_exceeds_all_phases_and_recovery_headroom(self):
         self.assertEqual(run_leg.HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC, 1800)
+        self.assertEqual(
+            run_leg.NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER,
+            10.0,
+        )
         self.assertEqual(run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC, 360)
         self.assertEqual(run_leg.HARBOR_AGENT_BUDGET_SEC, 3600)
         self.assertEqual(run_leg.HARBOR_VERIFIER_BUDGET_SEC, 1800)
