@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+from typing import Optional
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -178,7 +179,51 @@ async def health_check():
                 "message": _startup_error or "service is not ready",
             },
         )
+    degraded = _degraded_workers()
+    if degraded:
+        # Startup succeeded, so the process is healthy, but a rebalance can
+        # take every partition from a worker that is still running. Reporting
+        # ok while part of the instance serves nothing hides exactly the
+        # degradation this is for.
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "message": degraded},
+        )
     return {"status": "ok", "message": "Alert Bridge is running"}
+
+
+def _degraded_workers() -> Optional[str]:
+    """Describe the fleet when fewer workers hold an assignment than exist.
+
+    Read from the multiprocess metric shards, which is the channel the
+    pipeline processes already publish through -- no other one crosses from
+    them to this process. Silent when metrics are off, since there is then
+    nothing to read rather than nothing wrong.
+    """
+    if not os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+        return None
+    try:
+        from prometheus_client import CollectorRegistry, multiprocess
+
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        values = {
+            sample.name: sample.value
+            for metric in registry.collect()
+            for sample in metric.samples
+        }
+        configured = values.get("alert_bridge_pipeline_processes_configured")
+        ready = values.get("alert_bridge_pipeline_processes_ready")
+        if configured is None or ready is None or configured <= 0:
+            return None
+        if ready < configured:
+            return (
+                f"{int(ready)} of {int(configured)} pipeline processes hold a "
+                f"partition assignment"
+            )
+    except Exception:
+        logger.debug("Could not read pipeline readiness from metrics", exc_info=True)
+    return None
 
 
 # Prometheus metrics endpoint info

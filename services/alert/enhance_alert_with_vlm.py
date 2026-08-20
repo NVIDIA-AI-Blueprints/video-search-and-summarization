@@ -2625,6 +2625,28 @@ def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -
     )
 
 
+def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
+                       ready_event: Optional[Any]) -> None:
+    """Mirror the live assignment into the readiness signal and the gauge.
+
+    Readiness is not a milestone that a process passes once. A rebalance can
+    take every partition away from a member that is still running, and until
+    it is given some back it is serving nothing -- the health endpoint and the
+    fleet gauge both have to say so.
+    """
+    from metrics.recorder import set_assigned_partitions
+
+    held = enhancer.source.assigned_partition_count()
+    set_assigned_partitions(held)
+    ready = enhancer.source.is_ready() and held > 0
+    if ready_event is not None:
+        if ready:
+            ready_event.set()
+        else:
+            ready_event.clear()
+    return ready
+
+
 def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process_count: int = 1,
                           ready_event: Optional[Any] = None) -> None:
     """Child entry point: one independent consume + dispatch stack."""
@@ -2655,11 +2677,11 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
             raise RuntimeError(
                 f"pipeline process {index} could not join the consumer group"
             )
-        from metrics.recorder import set_assigned_partitions
-        set_assigned_partitions(enhancer.source.assigned_partition_count())
+        enhancer.source.set_assignment_change_hook(
+            lambda: _publish_readiness(enhancer, index, ready_event)
+        )
+        _publish_readiness(enhancer, index, ready_event)
         logger.info("Pipeline process %d ready (pid=%d)", index, os.getpid())
-        if ready_event is not None:
-            ready_event.set()
         if index == 0:
             _log_instance_concurrency(enhancer, process_count)
         enhancer.process_anomalies()

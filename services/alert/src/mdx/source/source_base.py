@@ -57,6 +57,11 @@ class SourceBase(ABC):
         notion does not apply."""
         return 0
 
+    def set_assignment_change_hook(self, hook) -> None:
+        """Register a callback for assignment changes. A no-op where the
+        notion does not apply."""
+        return None
+
     def set_revoke_hook(self, hook) -> None:
         """Register a drain callback for partitions being taken away.
 

@@ -66,7 +66,7 @@ LEGACY_CONFIG = {
 
 def make_source(config=NEW_CONFIG):
     with patch("mdx.source.source_kafka.KafkaMessageBroker") as broker_cls:
-        broker_cls.return_value.get_consumer.side_effect = lambda topic, group, on_revoke=None: MagicMock(
+        broker_cls.return_value.get_consumer.side_effect = lambda topic, group, on_revoke=None, on_assignment_change=None: MagicMock(
             name=f"consumer:{topic}"
         )
         return SourceKafka(config)
@@ -157,7 +157,7 @@ class TestEnsureConsumer:
 
         assert "mdx-alerts" in source.topic_consumer_map
         source.kafka_message_broker.get_consumer.assert_called_once_with(
-            "mdx-alerts", "alert-bridge", on_revoke=None
+            "mdx-alerts", "alert-bridge", on_revoke=None, on_assignment_change=None
         )
 
     def test_the_consumer_is_cached(self, source):

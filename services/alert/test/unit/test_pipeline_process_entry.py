@@ -30,7 +30,10 @@ def built():
 
     def fake_enhancer(config_path, instance_leader=True, seed_shared_store=True):
         seen.append(instance_leader)
-        return MagicMock()
+        built = MagicMock()
+        built.source.assigned_partition_count.return_value = 2
+        built.source.is_ready.return_value = True
+        return built
 
     with patch.object(entry, "AnomalyEnhancer", side_effect=fake_enhancer), \
          patch.object(entry, "_exit_when_parent_dies"), \
@@ -42,6 +45,8 @@ def built():
 def enhancer():
     """A child whose every startup step records itself in call order."""
     built = MagicMock()
+    built.source.assigned_partition_count.return_value = 2
+    built.source.is_ready.return_value = True
     with patch.object(entry, "AnomalyEnhancer", return_value=built), \
          patch.object(entry, "_exit_when_parent_dies"), \
          patch.object(entry, "_log_instance_concurrency"):
@@ -226,3 +231,48 @@ class TestChildrenStartInAFreshInterpreter:
 def _set_event(event):
     """Module level so spawn can import it in the child."""
     event.set()
+
+
+class TestReadinessTracksTheLiveAssignment:
+    """Readiness is not a milestone a process passes once.
+
+    A rebalance can take every partition from a worker that is still running.
+    Until it is given some back it is serving nothing, and both the readiness
+    signal and the partition gauge have to say so.
+    """
+
+    @staticmethod
+    def _child(held, ready=True):
+        enhancer = MagicMock()
+        enhancer.source.assigned_partition_count.return_value = held
+        enhancer.source.is_ready.return_value = ready
+        return enhancer
+
+    def test_holding_partitions_is_ready(self):
+        event = entry._pipeline_mp_context().Event()
+        assert entry._publish_readiness(self._child(held=2), 0, event) is True
+        assert event.is_set()
+
+    def test_losing_every_partition_clears_readiness(self):
+        event = entry._pipeline_mp_context().Event()
+        entry._publish_readiness(self._child(held=2), 0, event)
+        entry._publish_readiness(self._child(held=0), 0, event)
+        assert not event.is_set()
+
+    def test_being_reassigned_raises_it_again(self):
+        event = entry._pipeline_mp_context().Event()
+        entry._publish_readiness(self._child(held=0), 0, event)
+        entry._publish_readiness(self._child(held=3), 0, event)
+        assert event.is_set()
+
+    def test_an_undecided_assignment_is_not_ready(self):
+        event = entry._pipeline_mp_context().Event()
+        assert entry._publish_readiness(self._child(held=2, ready=False), 0, event) is False
+        assert not event.is_set()
+
+    def test_the_hook_is_registered_so_a_revoke_reaches_it(self, enhancer):
+        enhancer.source.await_ready.return_value = True
+        enhancer.source.assigned_partition_count.return_value = 2
+        enhancer.source.is_ready.return_value = True
+        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, None)
+        enhancer.source.set_assignment_change_hook.assert_called_once()

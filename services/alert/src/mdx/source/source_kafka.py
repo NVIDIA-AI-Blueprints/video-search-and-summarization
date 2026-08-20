@@ -116,6 +116,7 @@ class SourceKafka(SourceBase):
         self.topic_consumer_map = {}
         self.kafka_message_broker = KafkaMessageBroker(config)
         self._revoke_hook = None
+        self._assignment_change_hook = None
 
         kafka_cfg = config.get('event_bridge', {}).get('kafka_source', {})
         topics_cfg = kafka_cfg.get("topics")
@@ -197,6 +198,10 @@ class SourceKafka(SourceBase):
             for consumer in self.topic_consumer_map.values()
         )
 
+    def set_assignment_change_hook(self, hook) -> None:
+        """Register what to run whenever the assignment is decided or taken."""
+        self._assignment_change_hook = hook
+
     def set_revoke_hook(self, hook) -> None:
         """Register what to run when partitions are taken away.
 
@@ -211,7 +216,8 @@ class SourceKafka(SourceBase):
         """Create and cache a consumer for the given topic if not already present."""
         if topic not in self.topic_consumer_map:
             self.topic_consumer_map[topic] = self.kafka_message_broker.get_consumer(
-                topic, self.groupId, on_revoke=self._revoke_hook
+                topic, self.groupId, on_revoke=self._revoke_hook,
+                on_assignment_change=self._assignment_change_hook
             )
 
     # def read_from_topic(self, topic: str, message_transfer_func: Optional[Callable] = None) -> List[Any]:

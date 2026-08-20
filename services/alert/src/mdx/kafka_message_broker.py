@@ -49,6 +49,7 @@ class KafkaMessageBroker:
         topic: str,
         group_id: str,
         on_revoke: Optional[Callable[[Set[Tuple[str, int]]], None]] = None,
+        on_assignment_change: Optional[Callable[[], None]] = None,
     ) -> Consumer:
         """
         Creates a Confluent Kafka consumer.
@@ -68,7 +69,7 @@ class KafkaMessageBroker:
             'heartbeat.interval.ms': self.config['kafka'].get('heartbeat_interval_ms', 300000)
         }
         consumer = Consumer(consumer_config)
-        self._subscribe_with_rebalance_hooks(consumer, topic, on_revoke)
+        self._subscribe_with_rebalance_hooks(consumer, topic, on_revoke, on_assignment_change)
         return consumer
 
     def _subscribe_with_rebalance_hooks(
@@ -76,6 +77,7 @@ class KafkaMessageBroker:
         consumer: Consumer,
         topic: str,
         on_revoke: Optional[Callable[[Set[Tuple[str, int]]], None]],
+        on_assignment_change: Optional[Callable[[], None]] = None,
     ) -> None:
         """Subscribe and record what the coordinator decides.
 
@@ -93,6 +95,8 @@ class KafkaMessageBroker:
                 "Assignment for %s: %d partition(s) %s",
                 topic, len(owned), sorted(p for _, p in owned),
             )
+            if on_assignment_change is not None:
+                on_assignment_change()
             # Assign explicitly rather than relying on the client to do it
             # after the callback returns: the contract for that differs
             # between rebalance protocols and this must not depend on it.
@@ -103,6 +107,10 @@ class KafkaMessageBroker:
             with self._assignment_lock:
                 self._owned[id(consumer)] = set()
             logger.info("Revoking %d partition(s) of %s", len(losing), topic)
+            if on_assignment_change is not None:
+                # Before the drain: readiness has to drop the moment the
+                # partitions are taken, not after the work on them finishes.
+                on_assignment_change()
             if on_revoke is not None:
                 # Runs before the rebalance completes, which is the only point
                 # at which this member can still finish what it started on a

@@ -258,3 +258,51 @@ class TestWaitingDoesNotDropMessages:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestHealthReflectsLiveWorkers:
+    """A startup that succeeded is not the same as an instance serving.
+
+    A rebalance can leave a running worker holding nothing, and reporting ok
+    while part of the instance serves no partition hides exactly what this is
+    meant to surface.
+    """
+
+    @staticmethod
+    def _degraded(values, multiproc=True):
+        import sys
+        from unittest.mock import MagicMock, patch
+        sys.modules.pop("web.main", None)
+        from web import main
+
+        samples = [MagicMock(name=n, value=v) for n, v in values.items()]
+        for sample, name in zip(samples, values):
+            sample.name = name
+        metric = MagicMock(samples=samples)
+
+        env = {"PROMETHEUS_MULTIPROC_DIR": "/tmp/x"} if multiproc else {}
+        with patch.dict("os.environ", env, clear=not multiproc), \
+             patch("prometheus_client.CollectorRegistry") as reg, \
+             patch("prometheus_client.multiprocess.MultiProcessCollector"):
+            reg.return_value.collect.return_value = [metric]
+            return main._degraded_workers()
+
+    def test_a_full_fleet_is_silent(self):
+        assert self._degraded({
+            "alert_bridge_pipeline_processes_configured": 4.0,
+            "alert_bridge_pipeline_processes_ready": 4.0,
+        }) is None
+
+    def test_a_worker_without_an_assignment_is_reported(self):
+        message = self._degraded({
+            "alert_bridge_pipeline_processes_configured": 4.0,
+            "alert_bridge_pipeline_processes_ready": 3.0,
+        })
+        assert message and "3 of 4" in message
+
+    def test_metrics_switched_off_is_not_an_error(self):
+        # Nothing to read is not the same as something wrong.
+        assert self._degraded({}, multiproc=False) is None
+
+    def test_missing_series_is_not_an_error(self):
+        assert self._degraded({"alert_bridge_pipeline_processes_ready": 2.0}) is None
