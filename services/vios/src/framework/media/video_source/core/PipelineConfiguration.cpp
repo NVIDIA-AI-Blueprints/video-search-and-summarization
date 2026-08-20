@@ -80,6 +80,7 @@ void PipelineConfiguration::setupQualityConfig(const std::map<std::string, std::
     }
     
     m_quality.hlsPlayback = (opts.find("hls") != opts.end() && opts.at("hls") == "hls");
+    m_quality.dashPlayback = (opts.find("dash") != opts.end() && opts.at("dash") == "dash");
     
     // Determine pass-through mode
     if (m_isNativeStream) {
