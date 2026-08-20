@@ -93,6 +93,18 @@ class NotebookRunnerTests(unittest.TestCase):
             namespace["NEMOCLAW_MODEL"],
             "aws/anthropic/bedrock-claude-sonnet-4-6",
         )
+        self.assertEqual(namespace["NEMOCLAW_SANDBOX_GPU"], "0")
+        self.assertEqual(namespace["NEMOCLAW_DOCKER_GPU_PATCH"], "0")
+
+    def test_notebook_exports_cpu_only_sandbox_defaults(self) -> None:
+        source = (
+            REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb"
+        ).read_text(encoding="utf-8")
+        self.assertIn('env[\\"NEMOCLAW_SANDBOX_GPU\\"] = NEMOCLAW_SANDBOX_GPU', source)
+        self.assertIn(
+            'env[\\"NEMOCLAW_DOCKER_GPU_PATCH\\"] = NEMOCLAW_DOCKER_GPU_PATCH',
+            source,
+        )
 
     def test_orchestrator_ci_values_are_injected_without_source_edits(self) -> None:
         environment = {
@@ -399,6 +411,7 @@ class HarnessScopeTests(unittest.TestCase):
                 "EVAL_PLATFORM": "L40S",
                 "NEMOCLAW_INSTALL_REF": "must-not-be-forwarded",
                 "NEMOCLAW_SANDBOX_GPU": "1",
+                "NEMOCLAW_DOCKER_GPU_PATCH": "1",
             },
             clear=True,
         ):
@@ -406,9 +419,8 @@ class HarnessScopeTests(unittest.TestCase):
         self.assertIn("export NEMOCLAW_SANDBOX_NAME=skill-eval", forwarded)
         self.assertNotIn("NEMOCLAW_INSTALL_REF", forwarded)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", forwarded)
-        self.assertIn("export NEMOCLAW_SANDBOX_GPU=0", forwarded)
-        self.assertIn("export NEMOCLAW_DOCKER_GPU_PATCH=0", forwarded)
-        self.assertNotIn("export NEMOCLAW_SANDBOX_GPU=1", forwarded)
+        self.assertNotIn("NEMOCLAW_SANDBOX_GPU", forwarded)
+        self.assertNotIn("NEMOCLAW_DOCKER_GPU_PATCH", forwarded)
         self.assertIn("export NEMOCLAW_DASHBOARD_PORT=20123", forwarded)
         self.assertIn("export HARDWARE_PROFILE=L40S", forwarded)
 
