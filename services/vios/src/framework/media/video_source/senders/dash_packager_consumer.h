@@ -20,6 +20,7 @@
 #include "media_consumer.h"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <mutex>
 #include <string>
@@ -30,6 +31,10 @@ struct DashPackagerConfig
     std::filesystem::path outputRoot;
     unsigned targetDurationSeconds = 1;
     unsigned playlistLength = 8;
+    // The recorded pipeline hands the encoder a constant presentation time, so
+    // a replay session cannot derive a media timeline from its source and uses
+    // frame arrival instead.  Live sessions carry real RTSP timestamps.
+    bool useArrivalTimestamps = false;
     bool enableAac = false;
     unsigned audioSampleRate = 48000;
     unsigned audioChannels = 2;
@@ -71,8 +76,24 @@ private:
     [[nodiscard]] bool createPipeline();
     void destroyPipeline();
     void cleanupOutput();
+    // Per-branch state for turning producer timestamps into a monotonic media
+    // timeline.  A producer that stamps every frame identically (the recorded
+    // pipeline hands the encoder a constant pts) cannot drive a muxer, so the
+    // branch falls back to arrival time once it sees the source is not
+    // advancing.
+    struct TimelineState
+    {
+        GstClockTime baseline = 0;
+        bool baselineValid = false;
+        GstClockTime lastRaw = 0;
+        bool lastRawValid = false;
+        bool useArrivalClock = false;
+        std::chrono::steady_clock::time_point arrivalStart{};
+        bool arrivalStarted = false;
+    };
+
     [[nodiscard]] bool pushFrame(GstElement* appsrc, const uint8_t* data, size_t size,
-                                 GstClockTime rawPts, GstClockTime& baseline, bool& baselineValid);
+                                 GstClockTime rawPts, TimelineState& timeline);
     void setFailure(const std::string& message);
     static GstBusSyncReply busSyncHandler(GstBus* bus, GstMessage* message, gpointer userData);
 
@@ -92,8 +113,6 @@ private:
     mutable std::mutex m_mutex;
     mutable std::mutex m_errorMutex;
     std::string m_lastError;
-    GstClockTime m_videoBaseline = 0;
-    GstClockTime m_audioBaseline = 0;
-    bool m_videoBaselineValid = false;
-    bool m_audioBaselineValid = false;
+    TimelineState m_videoTimeline;
+    TimelineState m_audioTimeline;
 };

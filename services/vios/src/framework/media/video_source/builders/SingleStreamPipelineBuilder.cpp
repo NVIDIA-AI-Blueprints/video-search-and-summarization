@@ -504,14 +504,14 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
             if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true) {
                 if (getEncoder() && getWebrtcConsumer()) {
                     getOverlay()->setConsumer(getEncoder());
-                    getEncoder()->setConsumer(getWebrtcConsumer());
+                    getEncoder()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "   🔗 [Overlay] → [HW Encoder] → [WebRTC Consumer]" << endl;
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [Transform] → [Overlay] → [HW Encoder] → [WebRTC]" << endl;
                 }
             } else {
                 if (getTransformSink() && getWebrtcConsumer()) {
                     getOverlay()->setConsumer(getTransformSink());
-                    getTransformSink()->setConsumer(getWebrtcConsumer());
+                    getTransformSink()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "   🔗 [Overlay] → [TransformSink] → [WebRTC Consumer]" << endl;
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [Transform] → [Overlay] → [TransformSink] → [WebRTC]" << endl;
                 }
@@ -524,13 +524,13 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
                 if (getTransform() && getEncoder() && getWebrtcConsumer()) {
                     m_decoder->setConsumer(config.getPeerId(), getTransform());
                     getTransform()->setConsumer(getEncoder());
-                    getEncoder()->setConsumer(getWebrtcConsumer());
+                    getEncoder()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [Transform] → [HW Encoder] → [WebRTC]" << endl;
                 }
             } else {
                 if (getTransformSink() && getWebrtcConsumer()) {
                     m_decoder->setConsumer(config.getPeerId(), getTransformSink());
-                    getTransformSink()->setConsumer(getWebrtcConsumer());
+                    getTransformSink()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [TransformSink] → [WebRTC]" << endl;
                 }
             }

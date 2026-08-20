@@ -21,7 +21,60 @@
 #include "config.h"
 #include "vst_common.h"
 #include "health_probes.h"
+#include "dash_session_manager.h"
 #include <filesystem>
+
+namespace {
+
+const char* replayDashStateString(DashPackagerState state)
+{
+    switch (state)
+    {
+        case DashPackagerState::Stopped: return "stopped";
+        case DashPackagerState::Starting: return "starting";
+        case DashPackagerState::Running: return "running";
+        case DashPackagerState::Failed: return "failed";
+    }
+    return "unknown";
+}
+
+VmsErrorCode replayDashStartErrorCode(const std::string& error)
+{
+    if (error == "Stream not found")
+    {
+        return VmsErrorCode::CameraNotFoundError;
+    }
+    if (error.find("H.264") != std::string::npos)
+    {
+        return VmsErrorCode::UnsupportedMediaTypeError;
+    }
+    if (error.find("recording") != std::string::npos)
+    {
+        return VmsErrorCode::VMSNoDataError;
+    }
+    if (error.find("Maximum") != std::string::npos)
+    {
+        return VmsErrorCode::TooManyRequestsError;
+    }
+    if (error.find("GStreamer") != std::string::npos || error.find("pipeline") != std::string::npos)
+    {
+        return VmsErrorCode::ServiceUnavailableError;
+    }
+    return VmsErrorCode::InvalidParameterError;
+}
+
+void fillReplayDashResponse(const DashStartResult& result, Json::Value& response)
+{
+    response["viewerId"] = result.viewerId;
+    response["streamId"] = result.streamId;
+    response["streamToken"] = result.streamToken;
+    response["manifestUrl"] = result.manifestRelativeUrl;
+    response["state"] = replayDashStateString(result.state);
+}
+
+} // namespace
+
+
 
 #define REPLAY_API "/api/v1/replay/stream/*"
 
@@ -76,6 +129,118 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
     {
         initUnifiedStorageReader();
     }
+
+    m_func["/api/v1/replay/dash/start"] = [](const Json::Value& req_info, const Json::Value& in,
+                                            Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        const std::string streamId = in.get("streamId", EMPTY_STRING).asString();
+        const std::string startTime = in.get("startTime", EMPTY_STRING).asString();
+        const std::string endTime = in.get("endTime", EMPTY_STRING).asString();
+        const DashStartResult result =
+            DashSessionManager::instance().startReplay(streamId, startTime, endTime);
+        if (!result.success)
+        {
+            const VmsErrorCode code = replayDashStartErrorCode(result.error);
+            SET_VMS_ERROR2(code, response, result.error.c_str())
+            return code;
+        }
+        fillReplayDashResponse(result, response);
+        return VmsErrorCode::NoError;
+    };
+
+    m_func["/api/v1/replay/dash/stop"] = [](const Json::Value& req_info, const Json::Value& in,
+                                           Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        const std::string viewerId = in.get("viewerId", EMPTY_STRING).asString();
+        if (!DashSessionManager::instance().stopViewer(viewerId))
+        {
+            SET_VMS_ERROR2(VmsErrorCode::CameraNotFoundError, response, "Replay DASH viewer not found")
+            return VmsErrorCode::CameraNotFoundError;
+        }
+        response["viewerId"] = viewerId;
+        response["state"] = "released";
+        return VmsErrorCode::NoError;
+    };
+
+    m_func["/api/v1/replay/dash/status"] = [](const Json::Value& req_info, const Json::Value& /*in*/,
+                                             Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        std::string viewerId;
+        CivetServer::getParam(req_info.get("query", EMPTY_STRING).asString(), "viewerId", viewerId);
+        const std::optional<DashStartResult> result = DashSessionManager::instance().status(viewerId);
+        if (!result)
+        {
+            SET_VMS_ERROR2(VmsErrorCode::CameraNotFoundError, response, "Replay DASH viewer not found")
+            return VmsErrorCode::CameraNotFoundError;
+        }
+        fillReplayDashResponse(*result, response);
+        if (!result->error.empty())
+        {
+            response["error"] = result->error;
+        }
+        return VmsErrorCode::NoError;
+    };
+
+    // pause, resume and seek all drive the same recorded pipeline, so they
+    // differ only in the action they forward and whether a value comes with it.
+    const auto dashControl = [](const std::string& action) {
+        return [action](const Json::Value& req_info, const Json::Value& in, Json::Value& response,
+                        struct mg_connection* /*conn*/) -> VmsErrorCode
+        {
+            if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "post"))
+            {
+                SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+                return VmsErrorCode::MethodNotAllowedError;
+            }
+            const std::string viewerId = in.get("viewerId", EMPTY_STRING).asString();
+            std::string resolvedAction = action;
+            std::string value;
+            if (action == "seek")
+            {
+                value = in.get("value", EMPTY_STRING).asString();
+                const std::string requested = in.get("action", EMPTY_STRING).asString();
+                if (requested == "seekBackward")
+                {
+                    resolvedAction = "seek_backward";
+                }
+                else if (requested == "seekForward")
+                {
+                    resolvedAction = "seek_forward";
+                }
+                else if (!requested.empty())
+                {
+                    resolvedAction = requested;
+                }
+            }
+            if (!DashSessionManager::instance().controlReplay(viewerId, resolvedAction, value))
+            {
+                SET_VMS_ERROR2(VmsErrorCode::CameraNotFoundError, response,
+                               "Replay DASH viewer not found or control rejected")
+                return VmsErrorCode::CameraNotFoundError;
+            }
+            response["viewerId"] = viewerId;
+            response["action"] = resolvedAction;
+            return VmsErrorCode::NoError;
+        };
+    };
+    m_func["/api/v1/replay/dash/pause"] = dashControl("pause");
+    m_func["/api/v1/replay/dash/resume"] = dashControl("resume");
+    m_func["/api/v1/replay/dash/seek"] = dashControl("seek");
 
     m_func["/api/v1/replay/stream/start"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {

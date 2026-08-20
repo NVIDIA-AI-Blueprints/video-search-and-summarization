@@ -19,6 +19,7 @@
 
 #include "logger.h"
 #include "stream_monitor.h"
+#include "CommonVideoSource.h"
 #include "utils.h"
 
 #include <algorithm>
@@ -275,6 +276,170 @@ DashStartResult DashSessionManager::start(const std::string& streamId)
     return result;
 }
 
+DashStartResult DashSessionManager::startReplay(const std::string& streamId,
+                                               const std::string& startTime,
+                                               const std::string& endTime)
+{
+    DashStartResult result;
+    if (streamId.empty())
+    {
+        result.error = "streamId is required";
+        return result;
+    }
+    if (startTime.empty())
+    {
+        result.error = "startTime is required";
+        return result;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_sessionsByStream.size() + m_replaySessionsByToken.size() >= m_maxSessions)
+        {
+            result.error = "Maximum number of DASH sessions reached";
+            return result;
+        }
+    }
+
+    const std::shared_ptr<nv_vms::StreamInfo> stream = findStream(streamId);
+    if (!stream)
+    {
+        result.error = "Stream not found";
+        return result;
+    }
+    const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
+    if (videoCodec != "h264" && videoCodec != "avc")
+    {
+        result.error = "Replay DASH v1 requires an H.264 recording";
+        return result;
+    }
+    if (stream->replay_url.empty())
+    {
+        result.error = "Stream has no recording to replay";
+        return result;
+    }
+
+    // The recorded source is addressed as a file URI carrying its window; that
+    // is what marks the pipeline as recorded playback rather than live.
+    std::string uri = stream->replay_url;
+    const std::string rtspPrefix = "rtsp://";
+    if (uri.rfind(rtspPrefix, 0) == 0)
+    {
+        uri = "file://" + uri.substr(rtspPrefix.size());
+    }
+    uri += "?startTime=" + startTime;
+    if (!endTime.empty())
+    {
+        uri += "&endTime=" + endTime;
+    }
+
+    DashPackagerConfig packagerConfig;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        // A replay token must be unique per viewer, not per stream: two viewers
+        // of one recording must not share an output directory.
+        packagerConfig.streamToken = createStreamToken(streamId) + "-" + generate_uuid();
+        packagerConfig.outputRoot = m_outputRoot;
+        packagerConfig.targetDurationSeconds = m_targetDuration;
+        packagerConfig.playlistLength = m_playlistLength;
+        packagerConfig.useArrivalTimestamps = true;
+    }
+
+    auto session = std::make_shared<Session>();
+    session->streamId = streamId;
+    session->streamToken = packagerConfig.streamToken;
+    session->replay = true;
+    session->startTime = startTime;
+    session->endTime = endTime;
+    session->packager = std::make_shared<DashPackagerConsumer>(std::move(packagerConfig));
+    session->lastActivity = std::chrono::steady_clock::now();
+
+    if (!session->packager->start())
+    {
+        result.error = session->packager->lastError();
+        return result;
+    }
+
+    std::map<std::string, std::string, std::less<>> opts;
+    opts["streamId"] = streamId;
+    opts["sensorId"] = stream->sensorId;
+    opts["peerid"] = session->streamToken;
+    opts["startTime"] = startTime;
+    if (!endTime.empty())
+    {
+        opts["endTime"] = endTime;
+    }
+    opts["codec"] = stream->settings.encoderValues.encoding;
+    opts["framerate"] = stream->settings.encoderValues.frameRate;
+    // Terminates the pipeline in this session's packager instead of a WebRTC sink.
+    opts["dash"] = "dash";
+
+    // The packager must be handed to the constructor: CommonVideoSource builds
+    // its pipeline there, and the terminal consumer is chosen while it does.
+    session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
+    session->source->createConsumerPipeline();
+    session->source->setConsumerReady();
+    session->source->startStream();
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_replaySessionsByToken[session->streamToken] = session;
+        m_sessionsByToken[session->streamToken] = session;
+        result.viewerId = generate_uuid();
+        session->viewerIds.insert(result.viewerId);
+        m_sessionsByViewer[result.viewerId] = session;
+    }
+
+    result.success = true;
+    result.streamId = streamId;
+    result.streamToken = session->streamToken;
+    result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                 + session->streamToken + ".mpd";
+    result.state = session->packager->state();
+    LOG(info) << "Replay DASH viewer started streamId=" << streamId
+              << " startTime=" << startTime << " endTime=" << (endTime.empty() ? "none" : endTime)
+              << " state=" << stateString(result.state) << endl;
+    return result;
+}
+
+bool DashSessionManager::controlReplay(const std::string& viewerId, const std::string& action,
+                                       const std::string& value)
+{
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto viewer = m_sessionsByViewer.find(viewerId);
+        if (viewer == m_sessionsByViewer.end())
+        {
+            return false;
+        }
+        session = viewer->second.lock();
+        if (!session || !session->replay || !session->source)
+        {
+            return false;
+        }
+        // Control counts as activity: a paused viewer stops fetching segments,
+        // and without this the reaper would collect the session it just paused.
+        session->lastActivity = std::chrono::steady_clock::now();
+        if (action == "pause")
+        {
+            session->paused = true;
+        }
+        else if (action == "resume")
+        {
+            session->paused = false;
+        }
+    }
+    const VmsErrorCode code = session->source->controlStreamFileVideoSource(action, value);
+    if (code != VmsErrorCode::NoError)
+    {
+        LOG(error) << "Replay DASH control failed action=" << action << " viewer=" << viewerId << endl;
+        return false;
+    }
+    LOG(info) << "Replay DASH control action=" << action << " value=" << (value.empty() ? "none" : value)
+              << " token=" << session->streamToken << endl;
+    return true;
+}
+
 bool DashSessionManager::stopViewer(const std::string& viewerId)
 {
     std::shared_ptr<Session> sessionToDestroy;
@@ -292,7 +457,16 @@ bool DashSessionManager::stopViewer(const std::string& viewerId)
             if (session->viewerIds.empty())
             {
                 m_sessionsByToken.erase(session->streamToken);
-                m_sessionsByStream.erase(session->streamId);
+                if (session->replay)
+                {
+                    // Replay sessions are keyed by token; erasing by streamId
+                    // here would evict the live session for the same camera.
+                    m_replaySessionsByToken.erase(session->streamToken);
+                }
+                else
+                {
+                    m_sessionsByStream.erase(session->streamId);
+                }
                 sessionToDestroy = session;
             }
         }
@@ -414,8 +588,21 @@ void DashSessionManager::destroySession(std::shared_ptr<Session> session)
     {
         return;
     }
-    std::string registrationUrl = session->mediaUrl;
-    StreamMonitor::getInstance()->deregisterDataCallback(session->packager, registrationUrl, false);
+    if (session->replay)
+    {
+        // A replay session owns its pipeline outright; there is no StreamMonitor
+        // registration to undo.
+        if (session->source)
+        {
+            session->source->stopAndRemoveConsumers();
+            session->source->resetConsumerAndDestroyDecoderIfRequired();
+        }
+    }
+    else
+    {
+        std::string registrationUrl = session->mediaUrl;
+        StreamMonitor::getInstance()->deregisterDataCallback(session->packager, registrationUrl, false);
+    }
     session->packager->stop();
 }
 
@@ -517,8 +704,31 @@ void DashSessionManager::reaperLoop()
                 ++iterator;
             }
         }
+        for (auto iterator = m_replaySessionsByToken.begin(); iterator != m_replaySessionsByToken.end();)
+        {
+            const std::shared_ptr<Session>& session = iterator->second;
+            if (now - session->lastActivity >= m_idleTimeout)
+            {
+                for (const std::string& staleViewer : session->viewerIds)
+                {
+                    m_sessionsByViewer.erase(staleViewer);
+                }
+                session->viewerIds.clear();
+                m_sessionsByToken.erase(session->streamToken);
+                expired.push_back(session);
+                iterator = m_replaySessionsByToken.erase(iterator);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
         std::vector<std::filesystem::path> liveDirectories;
         for (const auto& [streamId, session] : m_sessionsByStream)
+        {
+            liveDirectories.push_back(session->packager->manifestPath().parent_path());
+        }
+        for (const auto& [token, session] : m_replaySessionsByToken)
         {
             liveDirectories.push_back(session->packager->manifestPath().parent_path());
         }
@@ -549,7 +759,12 @@ void DashSessionManager::shutdown()
         {
             sessions.push_back(entry.second);
         }
+        for (const auto& entry : m_replaySessionsByToken)
+        {
+            sessions.push_back(entry.second);
+        }
         m_sessionsByStream.clear();
+        m_replaySessionsByToken.clear();
         m_sessionsByToken.clear();
         m_sessionsByViewer.clear();
     }

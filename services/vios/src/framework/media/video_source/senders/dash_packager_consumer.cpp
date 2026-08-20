@@ -366,8 +366,8 @@ void DashPackagerConsumer::sendEOS()
 
 void DashPackagerConsumer::destroyPipeline()
 {
-    m_videoBaselineValid = false;
-    m_audioBaselineValid = false;
+    m_videoTimeline = TimelineState{};
+    m_audioTimeline = TimelineState{};
     if (m_pipeline != nullptr)
     {
         GstBus* bus = gst_pipeline_get_bus(GST_PIPELINE(m_pipeline));
@@ -406,12 +406,64 @@ void DashPackagerConsumer::cleanupOutput()
 }
 
 bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, size_t size,
-                                     GstClockTime rawPts, GstClockTime& baseline, bool& baselineValid)
+                                     GstClockTime rawPts, TimelineState& timeline)
 {
     if (appsrc == nullptr || data == nullptr || size == 0)
     {
         return false;
     }
+
+    // The recorded pipeline stamps every encoded frame with the same value, so
+    // the source timeline never advances.  mp4mux rejects the whole stream on
+    // the first buffer it cannot place ("Could not multiplex stream. Buffer has
+    // no PTS"), so the branch switches to arrival time the moment it sees the
+    // source is unusable.  Frames arrive at playback rate, which is exactly the
+    // timeline a dynamic manifest needs.
+    if (m_config.useArrivalTimestamps)
+    {
+        timeline.useArrivalClock = true;
+    }
+    if (!timeline.useArrivalClock)
+    {
+        if (!GST_CLOCK_TIME_IS_VALID(rawPts))
+        {
+            timeline.useArrivalClock = true;
+        }
+        else if (timeline.lastRawValid && rawPts <= timeline.lastRaw)
+        {
+            LOG(warning) << "DASH source timestamps are not advancing; using arrival time for "
+                         << m_config.streamToken << endl;
+            timeline.useArrivalClock = true;
+        }
+        else
+        {
+            timeline.lastRaw = rawPts;
+            timeline.lastRawValid = true;
+        }
+    }
+
+    GstClockTime pts = 0;
+    if (timeline.useArrivalClock)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (!timeline.arrivalStarted)
+        {
+            timeline.arrivalStart = now;
+            timeline.arrivalStarted = true;
+        }
+        pts = static_cast<GstClockTime>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now - timeline.arrivalStart).count());
+    }
+    else
+    {
+        if (!timeline.baselineValid || rawPts < timeline.baseline)
+        {
+            timeline.baseline = rawPts;
+            timeline.baselineValid = true;
+        }
+        pts = rawPts - timeline.baseline;
+    }
+
     GstBuffer* buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
     if (buffer == nullptr)
     {
@@ -426,16 +478,9 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
     std::memcpy(map.data, data, size);
     gst_buffer_unmap(buffer, &map);
 
-    if (GST_CLOCK_TIME_IS_VALID(rawPts))
-    {
-        if (!baselineValid || rawPts < baseline)
-        {
-            baseline = rawPts;
-            baselineValid = true;
-        }
-        GST_BUFFER_PTS(buffer) = rawPts - baseline;
-        GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer);
-    }
+    GST_BUFFER_PTS(buffer) = pts;
+    GST_BUFFER_DTS(buffer) = pts;
+
     const GstFlowReturn flow = gst_app_src_push_buffer(GST_APP_SRC(appsrc), buffer);
     return flow == GST_FLOW_OK;
 }
@@ -474,8 +519,8 @@ void DashPackagerConsumer::onFrame(FrameParams& params)
     // as a burst of callbacks.
     const bool pushed = isAudio
         ? (m_config.enableAac && isAac
-           && pushFrame(m_audioAppsrc, data, size, toGstTime(params), m_audioBaseline, m_audioBaselineValid))
-        : pushFrame(m_videoAppsrc, data, size, toGstTime(params), m_videoBaseline, m_videoBaselineValid);
+           && pushFrame(m_audioAppsrc, data, size, toGstTime(params), m_audioTimeline))
+        : pushFrame(m_videoAppsrc, data, size, toGstTime(params), m_videoTimeline);
     if (!pushed && !isAudio)
     {
         LOG(warning) << "DASH video frame dropped for " << m_config.streamToken << endl;
@@ -533,7 +578,15 @@ GstBusSyncReply DashPackagerConsumer::busSyncHandler(GstBus* /*bus*/, GstMessage
         GError* error = nullptr;
         gchar* debug = nullptr;
         gst_message_parse_error(message, &error, &debug);
-        const std::string text = error != nullptr ? error->message : "Unknown GStreamer error";
+        std::string text = error != nullptr ? error->message : "Unknown GStreamer error";
+        // The debug string names the element and the reason; without it a mux
+        // failure is indistinguishable from any other pipeline error.
+        if (debug != nullptr)
+        {
+            text += " [";
+            text += debug;
+            text += "]";
+        }
         self->setFailure(text);
         if (error != nullptr)
         {
