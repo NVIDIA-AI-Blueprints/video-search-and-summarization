@@ -10,6 +10,26 @@
 # a skip. Compare each result with the chosen deployment mode before continuing.
 set -u
 
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  check_credentials.sh [-h|--help]
+
+Probes NGC_CLI_API_KEY/NGC_API_KEY, NVIDIA_API_KEY, and HF_TOKEN from the
+environment against their services (NGC registry auth, build.nvidia.com,
+Hugging Face) and prints "ok" / "invalid" / "skip" per credential. Read-only —
+does not write generated.env. An unset credential is a skip, not a failure;
+compare each result against the profile's required credentials.
+
+Takes no arguments; reads credentials from the environment.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
 # NGC — local NIM image pulls. NGC_CLI_API_KEY (NGC CLI / VSS env) and
 # NGC_API_KEY (NIM / RT-VLM containers) are the SAME personal NGC key under two
 # names; resolve to one. Refuse to proceed if both are set and differ.
