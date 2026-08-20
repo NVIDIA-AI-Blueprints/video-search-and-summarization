@@ -396,7 +396,8 @@ does not exist — which returns `count: 0`, not an error.
 # Keep the two failures apart: a dead VIOS and an unknown sensor both leave you with no
 # name, but one means "use the fallback below" and the other means "tell the user".
 LIST=$(curl -sf "$VST_API_BASE/sensor/list") || { echo "VIOS unreachable → fallback"; exit 2; }
-MATCHES=$(printf '%s' "$LIST" | jq -r '.[] | .name' | grep -Fi -- "<user's wording, e.g. warehouse>")
+# sort -u: one sensor registered twice is one name, not an ambiguous choice between two.
+MATCHES=$(printf '%s' "$LIST" | jq -r '.[] | .name' | grep -Fi -- "<user's wording, e.g. warehouse>" | sort -u)
 # Stop unless exactly one name matched — anything else is a question for the user, not a guess
 [ "$(printf '%s\n' "$MATCHES" | grep -c .)" = 1 ] || { printf '%s\n' "$MATCHES"; exit 1; }
 NAME="$MATCHES"
