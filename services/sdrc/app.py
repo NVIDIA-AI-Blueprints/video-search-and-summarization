@@ -3231,12 +3231,9 @@ def readdStreams(podName, pod_spec):
                             "readd status %s",
                             resp.status_code if resp is not None else "no_response",
                         )
-                        if app.config["WDM_CHECK_STATUS"] and (
-                            (
-                                resp is not None
-                                and resp.status_code != 200
-                            )
-                            or resp is None
+                        if resp is None or (
+                            app.config["WDM_CHECK_STATUS"]
+                            and resp.status_code != 200
                             ):
                             redisMsging.message_err(
                                 wlobject=wl_object_name,
