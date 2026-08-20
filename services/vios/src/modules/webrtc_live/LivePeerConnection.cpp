@@ -22,12 +22,73 @@
 #include "vst_common.h"
 #include "halo_safety.h"
 #include "health_probes.h"
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
 
 using namespace std;
 using namespace nv_vms;
 
 #define LIVE_API "/api/v1/live/stream/*"
+
+namespace {
+
+const char* dashStateString(DashPackagerState state)
+{
+    switch (state)
+    {
+        case DashPackagerState::Stopped: return "stopped";
+        case DashPackagerState::Starting: return "starting";
+        case DashPackagerState::Running: return "running";
+        case DashPackagerState::Failed: return "failed";
+    }
+    return "unknown";
+}
+
+void fillDashResponse(const DashStartResult& result, Json::Value& response)
+{
+    response["viewerId"] = result.viewerId;
+    response["streamId"] = result.streamId;
+    response["streamToken"] = result.streamToken;
+    response["manifestUrl"] = result.manifestRelativeUrl;
+    response["state"] = dashStateString(result.state);
+    response["audioAvailable"] = result.audioAvailable;
+}
+
+std::filesystem::path validatedDashOutputRoot()
+{
+    std::filesystem::path relativeRoot(GET_CONFIG().dash_output_root);
+    if (relativeRoot.empty() || relativeRoot.is_absolute() || relativeRoot.has_parent_path()
+        || relativeRoot == "." || relativeRoot == "..")
+    {
+        LOG(warning) << "Invalid dash_output_root; using webroot/dash" << endl;
+        relativeRoot = "dash";
+    }
+    return std::filesystem::path(VmsConfigManager::getInstance()->getWebRootPath()) / relativeRoot;
+}
+
+VmsErrorCode dashStartErrorCode(const std::string& error)
+{
+    if (error == "Stream not found")
+    {
+        return VmsErrorCode::CameraNotFoundError;
+    }
+    if (error.find("H.264") != std::string::npos)
+    {
+        return VmsErrorCode::UnsupportedMediaTypeError;
+    }
+    if (error.find("GStreamer") != std::string::npos || error.find("pipeline") != std::string::npos)
+    {
+        return VmsErrorCode::ServiceUnavailableError;
+    }
+    if (error.find("Maximum number") != std::string::npos)
+    {
+        return VmsErrorCode::TooManyRequestsError;
+    }
+    return VmsErrorCode::InvalidParameterError;
+}
+
+} // namespace
 
 extern "C" void* createPeerConnectionLiveManagerObject()
 {
@@ -64,6 +125,77 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
     {
         HaloSafetyCommandListener::getInstance()->start();
     }
+
+    DashSessionManager::instance().setDeviceManager(m_deviceManager);
+    DashSessionManager::instance().configure(
+        std::chrono::seconds(std::max(GET_CONFIG().dash_idle_timeout_sec, 5)),
+        static_cast<unsigned>(std::max(GET_CONFIG().dash_segment_duration_sec, 1)),
+        static_cast<unsigned>(std::max(GET_CONFIG().dash_playlist_length, 3)),
+        static_cast<size_t>(std::max(GET_CONFIG().max_live_dash_sessions, 1)),
+        validatedDashOutputRoot());
+
+    m_func["/api/v1/live/dash/start"] = [](const Json::Value& req_info, const Json::Value& in,
+                                           Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        const std::string streamId = in.get("streamId", EMPTY_STRING).asString();
+        const DashStartResult result = DashSessionManager::instance().start(streamId);
+        if (!result.success)
+        {
+            const VmsErrorCode code = dashStartErrorCode(result.error);
+            SET_VMS_ERROR2(code, response, result.error.c_str())
+            return code;
+        }
+        fillDashResponse(result, response);
+        return VmsErrorCode::NoError;
+    };
+
+    m_func["/api/v1/live/dash/stop"] = [](const Json::Value& req_info, const Json::Value& in,
+                                          Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        const std::string viewerId = in.get("viewerId", EMPTY_STRING).asString();
+        if (!DashSessionManager::instance().stopViewer(viewerId))
+        {
+            SET_VMS_ERROR2(VmsErrorCode::CameraNotFoundError, response, "DASH viewer not found")
+            return VmsErrorCode::CameraNotFoundError;
+        }
+        response["viewerId"] = viewerId;
+        response["state"] = "released";
+        return VmsErrorCode::NoError;
+    };
+
+    m_func["/api/v1/live/dash/status"] = [](const Json::Value& req_info, const Json::Value& /*in*/,
+                                            Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        std::string viewerId;
+        CivetServer::getParam(req_info.get("query", EMPTY_STRING).asString(), "viewerId", viewerId);
+        const std::optional<DashStartResult> result = DashSessionManager::instance().status(viewerId);
+        if (!result)
+        {
+            SET_VMS_ERROR2(VmsErrorCode::CameraNotFoundError, response, "DASH viewer not found")
+            return VmsErrorCode::CameraNotFoundError;
+        }
+        fillDashResponse(*result, response);
+        if (!result->error.empty())
+        {
+            response["error"] = result->error;
+        }
+        return VmsErrorCode::NoError;
+    };
 
     m_func["/api/v1/live/stream/start"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
@@ -467,6 +599,7 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
 
 LivePeerConnection::~LivePeerConnection()
 {
+    DashSessionManager::instance().shutdown();
     m_imageCleanupScheduler.reset();
 
     if (HaloSafetyCommandListener::getInstance()->isRunning())
