@@ -148,6 +148,11 @@ struct DeviceConfig
     bool enable_perf_logging;
     int max_webrtc_out_connections;
     int max_webrtc_in_connections;
+    int max_live_dash_sessions;
+    int dash_segment_duration_sec;
+    int dash_playlist_length;
+    int dash_idle_timeout_sec;
+    string dash_output_root;
     string storage_config_file;
     size_t total_video_storage_size_MB;
     double storage_threshold_percentage;
