@@ -36,6 +36,15 @@ To define APIs:
 const std::vector<ApiSpec> LIVE_API_SPEC = {
     {"/api/v1/live/streams"},
 
+    {"/api/v1/live/dash/start",
+     {{"streamId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    {"/api/v1/live/dash/stop",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    {"/api/v1/live/dash/status",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
     {"/api/v1/live/stream/settings",
      {{"framerate", JsonType::Int},
       {"resolution", JsonType::String},

@@ -27,7 +27,13 @@ export interface BitrateSettings {
     bitrate_start: number | null;
 }
 
+/** Delivery protocol for a stream.  WebRTC is signalled over the websocket;
+ *  DASH is pulled over HTTP and needs no websocket at all. */
+export type StreamDeliveryProtocol = 'webrtc' | 'dash';
+
 export interface StreamOptions {
+    /** Defaults to webrtc when omitted, so existing callers are unaffected. */
+    streamType?: StreamDeliveryProtocol;
     quality?: string;
     rtptransport?: string;
     timeout?: number;

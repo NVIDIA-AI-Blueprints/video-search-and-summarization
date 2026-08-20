@@ -22,6 +22,7 @@
 #include "device_manager.h"
 #include "vstmodule.h"
 #include "TempFileScheduler.h"
+#include "dash_session_manager.h"
 
 class LivePeerConnection : public IVstModule
 {

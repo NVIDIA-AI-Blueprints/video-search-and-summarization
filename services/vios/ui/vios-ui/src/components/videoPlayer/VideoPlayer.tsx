@@ -47,7 +47,6 @@ import StreamManager, {
     WebRTCNetworkScores,
 } from 'vst-streaming-lib';
 import RangePickerDialog from '../../features/rangePickerDialog/RangePickerDialog';
-import useEffectOnce from '../../hooks/useEffectOnce';
 import LOG from '../../utils/misc/Logger';
 import { pause, resume, rewindOrFastforward, seekBackward, seekForward, seekToTime } from './videoPlayerUtils/trickModesAPIs';
 import { subSeconds, format } from 'date-fns';
@@ -78,6 +77,7 @@ const FALLBACK_START_TIME = '1970-01-01T00:00:00.000Z';
 const DEFAULT_QUALITY = 'auto';
 // Delay before auto-hiding the overlay controls while in fullscreen (YouTube/VLC style).
 const CONTROLS_HIDE_DELAY_MS = 3000;
+type LiveDeliveryProtocol = 'webrtc' | 'dash';
 
 interface SensorTimelineEntry {
     sensorId?: string;
@@ -164,6 +164,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     const [inboundPeerId, setInboundPeerId] = useState<string>('');
     const [webRTCStats, setWebRTCStats] = useState<WebRTCStats>();
     const [fullWebRTCStats, setFullWebRTCStats] = useState<RTCStatsReport>();
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('webrtc');
     const bitrate = useBitrate(fullWebRTCStats);
 
     // Video playback controls
@@ -391,9 +392,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
     }, [videoElementId]);
 
-    useEffectOnce(() => {
+    useEffect(() => {
         runOnceRef.current = false;
-        streamManagerRef.current = new StreamManager();
 
         const onFirstFrameReceived = () => {
             // NOTE: test contract — BDD/sanity scrapes the browser console for this exact string.
@@ -404,6 +404,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             setConnectionPhase('initial');
         };
 
+        // DASH is delivered over HTTP by streaming-lib.  The component only
+        // selects the protocol; StreamManager owns the transport for both.
+        if (streamType === StreamType.Live && deliveryProtocol === 'dash' && !sensor?.streamId) {
+            setHasError(true);
+            setIsLoading(false);
+            setErrorDetails({ message: 'A live stream ID is required for DASH playback', code: 400 });
+            return;
+        }
+
+        streamManagerRef.current = new StreamManager();
         const wsEndpoint = toWebSocketUrl(config.liveStreamEndpoint);
 
         const webStreamerConfig: AppConfig = {
@@ -473,6 +483,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             }
         }
 
+        if (streamType === StreamType.Live && deliveryProtocol === 'dash') {
+            streamConfig.options.streamType = 'dash';
+        }
+
         streamManagerRef.current.startStreaming(streamConfig);
         setConnectionPhase('connecting');
 
@@ -480,9 +494,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             clearInterval(inboundConnectionQualityWatchdogRef.current);
             if (streamManagerRef.current) {
                 streamManagerRef.current.stopStreaming();
+                streamManagerRef.current = null;
             }
         };
-    });
+        // Stream setup intentionally restarts only when the selected live delivery protocol changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [deliveryProtocol]);
 
     // Effect for fetching live stream configuration
     useEffect(() => {
@@ -657,6 +674,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     };
 
     const handlePlayPause = async () => {
+        if (deliveryProtocol === 'dash' && streamType === StreamType.Live) {
+            if (!videoRef.current) {
+                return;
+            }
+            if (videoRef.current.paused) {
+                await videoRef.current.play();
+                setPlaybackStatus(StreamState.PLAYING);
+            } else {
+                videoRef.current.pause();
+                setPlaybackStatus(StreamState.PAUSED);
+            }
+            return;
+        }
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current) {
             LOG.error('Stream not ready, cant play-pause');
             return;
@@ -1543,6 +1573,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // one instance exists at a time (avoids duplicate element IDs used by automated tests).
     const controlsCluster = (
         <>
+            {streamType === StreamType.Live && (
+                <Box sx={{ display: 'flex', gap: 0.5, mr: 1 }} aria-label='Live delivery protocol'>
+                    <Button
+                        size='small'
+                        variant={deliveryProtocol === 'webrtc' ? 'contained' : 'outlined'}
+                        onClick={() => setDeliveryProtocol('webrtc')}
+                    >
+                        WebRTC
+                    </Button>
+                    <Button
+                        size='small'
+                        variant={deliveryProtocol === 'dash' ? 'contained' : 'outlined'}
+                        onClick={() => setDeliveryProtocol('dash')}
+                    >
+                        DASH
+                    </Button>
+                </Box>
+            )}
             <VideoControls
                 playbackStatus={playbackStatus}
                 playbackSpeed={playbackSpeed}
@@ -1574,7 +1622,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 <QualityMenu
                     onSettingChange={handleQualitySettingChange}
                     currentSetting={quality}
-                    show={streamType !== StreamType.VideoWall}
+                    show={streamType !== StreamType.VideoWall && deliveryProtocol === 'webrtc'}
                     container={fullscreenContainer}
                     onOpenChange={setIsQualityMenuOpen}
                 />
@@ -1892,7 +1940,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                 {isFetchingEvents ? 'Stop Loading' : 'Show Events'}
                             </Button>
                         )}
-                        <BitrateSparkline bitrate={bitrate} />
+                        {deliveryProtocol === 'webrtc' && <BitrateSparkline bitrate={bitrate} />}
                         {onClose && (
                             <IconButton
                                 onClick={onClose}
@@ -2026,7 +2074,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                         streamType={streamType}
                                         setPlaybackStatus={setPlaybackStatus}
                                     />
-                                    {webRTCStats && (
+                                    {deliveryProtocol === 'webrtc' && webRTCStats && (
                                         <NetworkQualityWidget
                                             stats={webRTCStats}
                                             sensorName={sensor?.name}
