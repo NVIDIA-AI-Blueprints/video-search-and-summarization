@@ -34,8 +34,10 @@ class SchedulerStub:
         self.calls = []
 
     def process_batch_vlm(self, worker_id, messages, message_type,
-                          kafka_consumed_at, kafka_published_at, worker_assigned_at):
+                          kafka_consumed_at, kafka_published_at, worker_assigned_at,
+                          source_partition=None):
         self.calls.append({
+            "source_partition": source_partition,
             "worker_id": worker_id,
             "messages": messages,
             "message_type": message_type,

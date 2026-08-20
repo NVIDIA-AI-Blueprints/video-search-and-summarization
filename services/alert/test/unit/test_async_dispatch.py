@@ -68,6 +68,7 @@ class TestAsyncDispatchMode:
             "msg-1",
             "sensor-1",
             True,
+            None,      # partition key: absent for a source without partitions
         )
 
     def test_process_single_message_falls_back_when_dispatch_executor_missing(self):

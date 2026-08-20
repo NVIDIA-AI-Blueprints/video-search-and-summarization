@@ -52,6 +52,14 @@ class SourceBase(ABC):
         """
         pass
 
+    def set_revoke_hook(self, hook) -> None:
+        """Register a drain callback for partitions being taken away.
+
+        A no-op for sources that have no notion of partitions moving between
+        members.
+        """
+        return None
+
     def await_ready(self, timeout: float = 60.0) -> bool:
         """Block until this source can receive what a producer sends next.
 

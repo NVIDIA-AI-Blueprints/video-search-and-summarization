@@ -22,6 +22,7 @@ _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 
 
 import argparse
 import asyncio
+from functools import partial
 import json
 import os
 import signal
@@ -104,6 +105,7 @@ from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
+from utils.partition_in_flight import PartitionInFlight
 from utils.process_scaling import await_source_partitions, resolve_process_count
 from utils.process_supervisor import ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
@@ -174,6 +176,14 @@ _VLM_API_ERROR_CLASSIFICATION = (
     (InternalServerError, (500, "VLM service internal error", "vlm_server_error", "VLM server error")),
     (UnprocessableEntityError, (422, "Invalid VLM request payload", "vlm_invalid_payload", "VLM invalid payload")),
 )
+
+
+def _batch_partition(batch: dict):
+    """The (topic, partition) a batch came from, or None for other sources."""
+    topic, partition = batch.get("topic"), batch.get("partition")
+    if topic is None or partition is None:
+        return None
+    return (topic, partition)
 
 
 def pipeline_mode_from_config(config: dict) -> str:
@@ -267,6 +277,12 @@ class AnomalyEnhancer(
 
         # Create source and sink using factory pattern
         self.source = EventBridgeFactory.create_source(self.config)
+        # Dedup state lives in this process, so two members working the same
+        # sensor cannot see each other. A rebalance creates exactly that, so
+        # the outgoing member finishes what it owes on a partition before
+        # letting it move.
+        self._partition_in_flight = PartitionInFlight()
+        self.source.set_revoke_hook(self._drain_revoked_partitions)
         self.sink = EventBridgeFactory.create_sink(self.config)
 
         # Get source type for logging
@@ -841,6 +857,8 @@ class AnomalyEnhancer(
         accepted for processing, so ``WORKER_QUEUE_WAIT_DURATION`` keeps one
         meaning in every mode: "kafka_consumed -> accepted for processing".
         """
+        source_partition = _batch_partition(batch)
+
         if worker_pool is None:
             # Async modes dispatch each message onward and return, so there is
             # nothing to run on a separate thread. Backpressure still applies:
@@ -855,6 +873,7 @@ class AnomalyEnhancer(
                 batch.get("kafka_consumed_at"),
                 batch.get("kafka_published_at"),
                 datetime.now(timezone.utc).isoformat(),
+                source_partition=source_partition,
             )
             return
 
@@ -866,7 +885,7 @@ class AnomalyEnhancer(
                 logger.debug("All workers busy. Waiting to schedule next message...")
 
         future: Future = worker_pool.submit(
-            self.process_batch_vlm,
+            partial(self.process_batch_vlm, source_partition=source_partition),
             worker_id,
             [message],
             message_type,
@@ -877,6 +896,29 @@ class AnomalyEnhancer(
         future.add_done_callback(
             lambda _f, released_id=worker_id: self.worker_queue.put(released_id)
         )
+
+    def _drain_revoked_partitions(self, partitions) -> None:
+        """Finish what is owed on partitions about to move to another member.
+
+        Runs inside the rebalance callback, on the consume thread, so the
+        group cannot complete the rebalance until this returns. It is bounded
+        for that reason: overrunning the poll interval would cost this member
+        its place and start another rebalance, which is worse than the overlap
+        it is trying to avoid.
+
+        This is about overlap, not durability. Offsets are committed at read,
+        so a process that is killed loses whatever it held regardless.
+        """
+        if not partitions:
+            return
+        outstanding = sum(self._partition_in_flight.in_flight(p) for p in partitions)
+        if not outstanding:
+            return
+        logger.info(
+            "Draining %d message(s) still in flight across %d revoked partition(s)",
+            outstanding, len(partitions),
+        )
+        self._partition_in_flight.drain(partitions)
 
     def _needs_worker_pool(self) -> bool:
         """Whether the batch pool between the consume loop and processing is useful.
@@ -1042,6 +1084,7 @@ class AnomalyEnhancer(
         kafka_consumed_at=None,
         kafka_published_at=None,
         worker_assigned_at=None,
+        source_partition=None,
     ):
         """
         Processes a batch of messages from the event bridge source.
@@ -1198,6 +1241,7 @@ class AnomalyEnhancer(
                     kafka_consumed_at,
                     kafka_published_at,
                     worker_assigned_at=worker_assigned_at,
+                    source_partition=source_partition,
                 )
 
         except Exception as e:

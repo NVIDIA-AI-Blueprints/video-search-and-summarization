@@ -66,7 +66,7 @@ LEGACY_CONFIG = {
 
 def make_source(config=NEW_CONFIG):
     with patch("mdx.source.source_kafka.KafkaMessageBroker") as broker_cls:
-        broker_cls.return_value.get_consumer.side_effect = lambda topic, group: MagicMock(
+        broker_cls.return_value.get_consumer.side_effect = lambda topic, group, on_revoke=None: MagicMock(
             name=f"consumer:{topic}"
         )
         return SourceKafka(config)
@@ -157,7 +157,7 @@ class TestEnsureConsumer:
 
         assert "mdx-alerts" in source.topic_consumer_map
         source.kafka_message_broker.get_consumer.assert_called_once_with(
-            "mdx-alerts", "alert-bridge"
+            "mdx-alerts", "alert-bridge", on_revoke=None
         )
 
     def test_the_consumer_is_cached(self, source):
@@ -187,7 +187,10 @@ class TestReadData:
         assert {b["kind"] for b in batches} == {"incident", "alert"}
         assert len(batches) == 2
 
-    def test_messages_from_several_partitions_merge_into_one_kind(self, source):
+    def test_each_partition_becomes_its_own_batch(self, source):
+        # Merging partitions into one batch per kind threw away the only thing
+        # that says which partition work belongs to, and a rebalance cannot
+        # drain what it cannot attribute.
         source.kafka_message_broker.get_consumed_messages.side_effect = [
             {
                 "mdx-incidents-0": [(b"cam-1", payload(), 1700000000000)],
@@ -198,8 +201,24 @@ class TestReadData:
 
         batches = source.read_data()
 
-        assert len(batches) == 1
-        assert len(batches[0]["messages"]) == 2
+        assert len(batches) == 2
+        assert all(len(b["messages"]) == 1 for b in batches)
+        assert sorted(b["partition"] for b in batches) == [0, 1]
+        assert {b["topic"] for b in batches} == {"mdx-incidents"}
+        assert {b["kind"] for b in batches} == {"incident"}
+
+    def test_a_hyphenated_topic_name_does_not_confuse_the_partition(self, source):
+        # The key is "<topic>-<partition>" and every shipped topic name has
+        # hyphens in it, so the number has to come off the right.
+        source.kafka_message_broker.get_consumed_messages.side_effect = [
+            {"mdx-incidents-11": [(b"cam-1", payload(), 1700000000000)]},
+            {},
+        ]
+
+        batches = source.read_data()
+
+        assert batches[0]["topic"] == "mdx-incidents"
+        assert batches[0]["partition"] == 11
 
     def test_empty_kinds_are_dropped(self, source):
         source.kafka_message_broker.get_consumed_messages.side_effect = [{}, {}]

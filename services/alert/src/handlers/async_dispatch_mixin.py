@@ -112,7 +112,14 @@ class AsyncDispatchMixin:
         message_id: str,
         sensor_id: str,
         dispatch_slot_acquired: bool = False,
+        partition_key: Optional[Any] = None,
     ) -> None:
+        tracker = getattr(self, "_partition_in_flight", None)
+        if tracker is not None:
+            # First thing, and outside the try below: a drain waiting on this
+            # partition must not be held up by the reporting that follows.
+            tracker.release(partition_key)
+
         with self._message_dispatch_lock:
             self._message_dispatch_futures.discard(future)
             in_flight = len(self._message_dispatch_futures)
@@ -187,6 +194,7 @@ class AsyncDispatchMixin:
         message_id: str,
         sensor_id: str,
         dispatch_slot_acquired: bool,
+        partition_key: Optional[Any] = None,
     ) -> None:
         with self._message_dispatch_lock:
             self._message_dispatch_futures.add(future)
@@ -205,11 +213,12 @@ class AsyncDispatchMixin:
         )
 
         future.add_done_callback(
-            lambda done_future, msg_id=message_id, sid=sensor_id, slot_acquired=dispatch_slot_acquired: self._on_dispatched_message_done(
+            lambda done_future, msg_id=message_id, sid=sensor_id, slot_acquired=dispatch_slot_acquired, pkey=partition_key: self._on_dispatched_message_done(
                 done_future,
                 msg_id,
                 sid,
                 slot_acquired,
+                pkey,
             )
         )
 
@@ -220,6 +229,7 @@ class AsyncDispatchMixin:
         kafka_consumed_at: Optional[str] = None,
         kafka_published_at: Optional[str] = None,
         worker_assigned_at: Optional[str] = None,
+        source_partition: Optional[Any] = None,
     ) -> None:
         """Dispatch one message according to the effective pipeline mode.
 
@@ -233,16 +243,29 @@ class AsyncDispatchMixin:
         processing. Threading it down, instead of letting
         ``_process_single_message`` stamp its own, keeps
         ``WORKER_QUEUE_WAIT_DURATION`` comparable across modes.
+
+        The per-partition count is taken and released here, in one place,
+        because this is the only point every mode passes through. Counting
+        where messages are scheduled instead would leak on every message
+        dropped by dedup or the rate limiter between there and here, and a
+        leaked count means a rebalance drain waits out its whole timeout.
         """
+        tracker = getattr(self, "_partition_in_flight", None)
+        accepted = tracker.accept(source_partition) if tracker is not None else None
+
         mode = _effective_mode(self)
         if mode == PIPELINE_MODE_SYNC:
-            self._process_single_message(
-                worker_id,
-                message,
-                kafka_consumed_at,
-                kafka_published_at,
-                worker_assigned_at=worker_assigned_at,
-            )
+            try:
+                self._process_single_message(
+                    worker_id,
+                    message,
+                    kafka_consumed_at,
+                    kafka_published_at,
+                    worker_assigned_at=worker_assigned_at,
+                )
+            finally:
+                if tracker is not None:
+                    tracker.release(accepted)
             return
 
         message_id = str(message.get("Id") or message.get("id") or "unknown")
@@ -267,10 +290,14 @@ class AsyncDispatchMixin:
         target = self.async_vlm_runtime if on_event_loop else self._message_dispatch_executor
         if target is None:
             logger.warning(missing_log)
-            _fallback_to_inline(
-                self, missing_reason, worker_id, message, kafka_consumed_at,
-                kafka_published_at, worker_assigned_at, dispatch_slot_acquired,
-            )
+            try:
+                _fallback_to_inline(
+                    self, missing_reason, worker_id, message, kafka_consumed_at,
+                    kafka_published_at, worker_assigned_at, dispatch_slot_acquired,
+                )
+            finally:
+                if tracker is not None:
+                    tracker.release(accepted)
             return
 
         coroutine = None
@@ -319,12 +346,19 @@ class AsyncDispatchMixin:
                     "error_type": type(exc).__name__,
                 },
             )
-            _fallback_to_inline(
-                self, "submit_error", worker_id, message, kafka_consumed_at,
-                kafka_published_at, worker_assigned_at, dispatch_slot_acquired,
-            )
+            try:
+                _fallback_to_inline(
+                    self, "submit_error", worker_id, message, kafka_consumed_at,
+                    kafka_published_at, worker_assigned_at, dispatch_slot_acquired,
+                )
+            finally:
+                if tracker is not None:
+                    tracker.release(accepted)
             return
 
+        # Released by the done callback: from here the message outlives this
+        # call, and the count has to outlive it too.
         self._track_dispatched_future(
-            future, worker_id, message_id, sensor_id, dispatch_slot_acquired
+            future, worker_id, message_id, sensor_id, dispatch_slot_acquired,
+            partition_key=accepted,
         )

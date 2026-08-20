@@ -115,6 +115,7 @@ class SourceKafka(SourceBase):
         super().__init__(config)
         self.topic_consumer_map = {}
         self.kafka_message_broker = KafkaMessageBroker(config)
+        self._revoke_hook = None
 
         kafka_cfg = config.get('event_bridge', {}).get('kafka_source', {})
         topics_cfg = kafka_cfg.get("topics")
@@ -190,11 +191,21 @@ class SourceKafka(SourceBase):
             if topic in self.topic_consumer_map
         )
 
+    def set_revoke_hook(self, hook) -> None:
+        """Register what to run when partitions are taken away.
+
+        Set after construction because the pipeline that owns the in-flight
+        accounting is built around this source, not before it. Consumers are
+        created lazily, so a hook registered before the first read reaches all
+        of them.
+        """
+        self._revoke_hook = hook
+
     def _ensure_consumer(self, topic: str) -> None:
         """Create and cache a consumer for the given topic if not already present."""
         if topic not in self.topic_consumer_map:
             self.topic_consumer_map[topic] = self.kafka_message_broker.get_consumer(
-                topic, self.groupId
+                topic, self.groupId, on_revoke=self._revoke_hook
             )
 
     # def read_from_topic(self, topic: str, message_transfer_func: Optional[Callable] = None) -> List[Any]:
@@ -303,10 +314,18 @@ class SourceKafka(SourceBase):
 
     def read_data(self) -> List[Any]:
         """
-        Read data from kafka and return aggregated batches per kind.
-        Shape: [ { 'kind': 'incident'|'alert', 'messages': [(key, value, kafka_ts_ms), ...], 'kafka_consumed_at': ..., 'kafka_published_at': ... }, ... ]
+        Read data from kafka and return batches, one per source partition.
+
+        Shape: [ { 'kind': 'incident'|'alert', 'topic': ..., 'partition': int,
+                   'messages': [(key, value, kafka_ts_ms), ...],
+                   'kafka_consumed_at': ..., 'kafka_published_at': ... }, ... ]
+
+        Split per partition rather than per kind so the partition a message
+        came from survives into dispatch. Work in flight has to be
+        attributable to a partition for a rebalance to be able to drain it
+        before that partition moves to another member.
         """
-        kind_to_messages: Dict[str, List[Any]] = {}
+        partition_to_messages: Dict[Any, List[Any]] = {}
         earliest_kafka_ts_ms: int = None
         for topic in self.source_topics:
             self._ensure_consumer(topic)
@@ -314,13 +333,17 @@ class SourceKafka(SourceBase):
             topic_messages = self.kafka_message_broker.get_consumed_messages(consumer)
 
             kind = self.topic_to_kind.get(topic, 'unknown')
-            if kind not in kind_to_messages:
-                kind_to_messages[kind] = []
 
-            for _, msgs in topic_messages.items():
+            for partition_key, msgs in topic_messages.items():
                 if not msgs:
                     continue
-                kind_to_messages[kind].extend(msgs)
+                # Keys are "<topic>-<partition>" and topic names contain
+                # hyphens, so take the partition off the right.
+                try:
+                    partition = int(str(partition_key).rsplit('-', 1)[1])
+                except (IndexError, ValueError):
+                    partition = -1
+                partition_to_messages.setdefault((kind, topic, partition), []).extend(msgs)
                 # Track earliest kafka timestamp in batch (producer timestamp)
                 for msg in msgs:
                     if len(msg) >= 3 and msg[2] is not None and msg[2] > 0:
@@ -338,12 +361,13 @@ class SourceKafka(SourceBase):
         if earliest_kafka_ts_ms:
             kafka_published_at = datetime.fromtimestamp(earliest_kafka_ts_ms / 1000, tz=timezone.utc).isoformat()
 
-        # Build list of batches without partition/topic metadata
         batches: List[Dict[str, Any]] = []
-        for kind, msgs in kind_to_messages.items():
+        for (kind, topic, partition), msgs in partition_to_messages.items():
             if msgs:
                 batches.append({
                     'kind': kind,
+                    'topic': topic,
+                    'partition': partition,
                     'messages': msgs,
                     'kafka_consumed_at': kafka_consumed_at,
                     'kafka_published_at': kafka_published_at,
