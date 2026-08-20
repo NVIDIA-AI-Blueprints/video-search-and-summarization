@@ -109,19 +109,23 @@ index inventory for source-type selection.
    streams. This partitions by media kind, independently of the identifier and
    of the index inventory, so it is correct regardless of ingestion order.
 
-3. Preserve the complete object/action, source, time bounds, result limit, and
-   visual attributes. Choose one path:
+3. Decompose the request before choosing a path; do not pick by surface form.
+   `run embed` accepts any sentence, so being one sentence is not evidence for
+   embed. Separate each specific detectable property (`white jacket`, `red hard
+   hat`) from the actions/relations only embeddings capture, then choose:
 
-   - text query only → `run embed`
-   - visual attributes only → `run attribute`
-   - text query plus attributes → `run fusion`
+   - a detectable property is present → `run fusion` (even within one sentence)
+   - free-text intent with no detectable property → `run embed`
+   - detectable properties only, no action/relation → `run attribute`
    - explicit tracked object IDs → `run object`
 
-   `--attribute` is for specific detectable properties such as `white jacket`
-   or `red hard hat`, not generic nouns or actions. Keep `red forklift` wholly
-   in `--query`. For `person in a red jacket running`, preserve the action and
-   attribute: `run fusion --query "person in a red jacket running" --attribute
-   "red jacket"`.
+   `--attribute` is for specific detectable properties, not generic nouns or
+   actions. A property counts only when RT-CV detects it on the subject (attire,
+   PPE, color-on-person), not object identity or an object's own color; keep
+   `red forklift` wholly in `--query`. `worker in a hard hat carrying a cone` has
+   a property (`hard hat`) and an action (`carrying a cone`): `run fusion --query
+   "worker in a hard hat carrying a cone" --attribute "hard hat"`. Reserve embed
+   for genuinely attribute-free intent.
 
 4. Construct the invocation as a Bash array and validate only its exact
    stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.

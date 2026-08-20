@@ -96,6 +96,18 @@
     ]
   },
   {
+    "id": "search-archive-fusion-decompose",
+    "question": "In dock_cam, find up to three clips of a worker in a hard hat carrying a cone.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent decomposes the single sentence into a detectable property and an action, so it routes to fusion rather than defaulting to embed on the sentence's surface form.",
+    "expected_behavior": [
+      "The agent loads vss-search-archive and resolves dock_cam before search.",
+      "The agent recognizes the embedded detectable property (hard hat) and routes to fusion, not embed, even though the request arrived as one sentence.",
+      "The agent keeps the action carrying a cone in the query and passes hard hat as the attribute, without extracting a generic noun or an object's own color as an attribute."
+    ]
+  },
+  {
     "id": "search-archive-negative-direct-video-qa",
     "question": "Watch /workspace/input/forklift.mp4 and tell me whether the driver is wearing a helmet.",
     "expected_skill": null,
