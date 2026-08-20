@@ -321,9 +321,16 @@ def build_harbor_command(
         agent_flags = [
             "-a", "claude-code",
             "--model", model,
-            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
+            # Keep ANTHROPIC_BASE_URL in Harbor's parent environment for the
+            # verifier, but clear it for the evaluated Claude process so the
+            # Anthropic SDK uses its native endpoint.
+            "--ae", "ANTHROPIC_BASE_URL=",
         ]
+        if anthropic_base_url:
+            agent_flags.extend(
+                ["--ak", f"api_base={_api_base_v1(anthropic_base_url)}"]
+            )
     elif agent == "nemoclaw":
         environment_import_path = (
             "envs.nemoclaw_brev_env:NemoClawBrevEnvironment"
@@ -1288,7 +1295,6 @@ def run_invocations(
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
     elif agent == "claude-code":
         env["ANTHROPIC_API_KEY"] = model_config.api_key
-        env["ANTHROPIC_BASE_URL"] = base_url
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;

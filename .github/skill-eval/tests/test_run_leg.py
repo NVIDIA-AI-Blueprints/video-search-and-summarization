@@ -93,7 +93,7 @@ class DiscoverInvocations(unittest.TestCase):
 
 
 class HarborCommand(unittest.TestCase):
-    def test_build_command_uses_env_and_v1_suffix(self):
+    def test_build_command_uses_native_anthropic_endpoint(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
             include_task_name="rtxpro6000bw",
@@ -103,8 +103,8 @@ class HarborCommand(unittest.TestCase):
         cmd = run_leg.build_harbor_command(
             invocation,
             Path("/tmp/results"),
-            "aws/anthropic/bedrock-claude-opus-4-6",
-            "https://inference-api.nvidia.com/v1",
+            "claude-opus-4-6",
+            "",
         )
 
         self.assertEqual(run_leg.SKILL_EVAL_PYTHON_VERSION, (3, 12))
@@ -124,8 +124,9 @@ class HarborCommand(unittest.TestCase):
         self.assertIn("--include-task-name", cmd)
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
         self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
-        self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
-        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "claude-opus-4-6")
+        self.assertNotIn("--ak", cmd)
+        self.assertIn("ANTHROPIC_BASE_URL=", cmd)
         self.assertEqual(cmd[cmd.index("-o") + 1], "/tmp/results")
         self.assertEqual(
             cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
@@ -725,23 +726,27 @@ class RunInvocations(unittest.TestCase):
             ),
         )
 
-    def test_claude_code_uses_selected_custom_provider_credentials(self):
+    def test_claude_code_uses_native_anthropic_credentials(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/spec"),
             include_task_name="task",
             chain_key="spec",
         )
         selected = {
-            "SKILLS_EVAL_PROVIDER": "custom",
-            "SKILLS_EVAL_MODEL": "custom-model",
-            "SKILLS_EVAL_ENDPOINT_URL": "https://models.example.test",
-            "SKILLS_EVAL_API_KEY": "custom-key",
+            "SKILLS_EVAL_PROVIDER": "default",
+            "SKILLS_EVAL_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_BASE_URL": "https://must-not-be-used.example.test",
+            "ANTHROPIC_API_KEY": "anthropic-key",
         }
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             with (
                 mock.patch.dict(run_leg.os.environ, selected, clear=True),
-                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg,
+                    "harbor_env",
+                    return_value=selected.copy(),
+                ),
                 mock.patch.object(
                     run_leg,
                     "build_harbor_command",
@@ -767,13 +772,13 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(
             build.call_args.args[2:],
-            ("custom-model", "https://models.example.test", "claude-code"),
+            ("claude-opus-4-6", "", "claude-code"),
         )
         command_env = execute.call_args.args[1]
-        self.assertEqual(command_env["ANTHROPIC_API_KEY"], "custom-key")
+        self.assertEqual(command_env["ANTHROPIC_API_KEY"], "anthropic-key")
         self.assertEqual(
             command_env["ANTHROPIC_BASE_URL"],
-            "https://models.example.test",
+            "https://must-not-be-used.example.test",
         )
 
     def test_timeout_stops_all_single_step_invocations(self):
