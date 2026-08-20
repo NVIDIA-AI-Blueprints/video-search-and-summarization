@@ -107,9 +107,9 @@ def _timeline(ctx: Any, values: dict[str, Any]) -> Result:
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
-    # The envelope across every recorded segment. Reporting only the first
-    # would understate what is on disk for a stream that recorded in bursts.
-    span = _run(vios.get_timelines_map(origin)).get(ref.stream_id)
+    # The envelope across every recorded segment, read strictly: `timeline` and
+    # `delete` must not disagree about whether a stream has recordings.
+    span = _run(vios.recorded_span(origin, ref.stream_id))
     if span is None:
         return Result(body=_with_ref(ref, {"start_time": None, "end_time": None, "recorded": False}))
     return Result(body=_with_ref(ref, {"start_time": span[0], "end_time": span[1], "recorded": True}))
@@ -134,10 +134,17 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
             vst_internal_url=origin,
         )
     )
+    url = vios.normalise_media_url(url, origin)
+    warmed = _run(vios.warm_media_url(url))
     # Echo the window this command resolved -- the segment bounds when none was
     # given. VIOS does not report the window it actually served, so this is the
     # requested range, not a confirmation of the bytes behind the URL.
-    return Result(body=_with_ref(ref, {"media_url": url, "start_time": start, "end_time": end, "kind": "clip"}))
+    return Result(
+        body=_with_ref(
+            ref,
+            {"media_url": url, "start_time": start, "end_time": end, "kind": "clip", "warmed": warmed},
+        )
+    )
 
 
 def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
@@ -146,7 +153,7 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
     at = values.get("at")
-    url = _run(vios.get_snapshot_url(origin, ref.stream_id, at=at))
+    url = vios.normalise_media_url(_run(vios.get_snapshot_url(origin, ref.stream_id, at=at)), origin)
     body = {"media_url": url, "kind": "snapshot", "source": "replay" if at else "live"}
     if at:
         body["at"] = at

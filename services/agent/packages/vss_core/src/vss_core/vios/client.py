@@ -848,6 +848,10 @@ async def list_media(
         if not sensor_id:
             # POST-uploaded sources sometimes report an empty sensorId. Say so
             # in the row rather than dropping the sensor from the listing.
+            if kind is not None:
+                # An unknown-provenance row answers neither --type video nor
+                # --type stream; including it in both would be a wrong answer.
+                continue
             rows.append(
                 {
                     "name": name,
@@ -910,6 +914,56 @@ async def get_snapshot_url(
     if not image_url:
         raise VSTError(f"VIOS returned no imageUrl for {what}")
     return str(image_url)
+
+
+def normalise_media_url(media_url: str, origin: str) -> str:
+    """Re-anchor a VIOS-issued URL on the origin the caller can actually reach.
+
+    VIOS 3.2.0 can answer with a doubled scheme (``http://http://host/...``), a
+    bare ``/storage/...`` path, or a ``localhost`` host that does not resolve
+    from inside the VLM's container. Reduce whatever came back to its path and
+    re-attach the configured origin, so the handle works for whoever we give it
+    to rather than only for VIOS itself.
+    """
+    if not media_url:
+        raise VSTError("VIOS returned an empty media url")
+
+    remainder = media_url
+    while remainder.startswith(("http://", "https://")):
+        remainder = remainder.split("://", 1)[1]
+        if not remainder.startswith(("http://", "https://")):
+            # `remainder` is now host[/path]; keep the path only.
+            remainder = "/" + remainder.split("/", 1)[1] if "/" in remainder else "/"
+            break
+
+    path = remainder if remainder.startswith("/") else f"/{remainder}"
+    if not path.startswith("/vst/"):
+        path = f"/vst{path}"
+    return f"{origin.rstrip('/').removesuffix('/vst')}{path}"
+
+
+async def warm_media_url(media_url: str, timeout_seconds: float = 120.0, attempts: int = 3) -> bool:
+    """GET the handle once so VIOS renders it before anyone else asks.
+
+    VIOS renders a clip lazily on first fetch, and a HEAD answers 404, so this
+    is a real GET. Best-effort by design: a cold URL is still a valid handle,
+    and failing the whole command because the warm-up timed out would be worse
+    than handing back a URL whose first read is slow.
+    """
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    for _ in range(attempts):
+        try:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(media_url) as response,
+            ):
+                if response.status == 200:
+                    await response.read()
+                    return True
+        except _VST_BOUNDARY_ERRORS as exc:
+            logger.info("Warm-up attempt failed for %s: %s", media_url, exc)
+    logger.info("Could not warm %s; returning it cold", media_url)
+    return False
 
 
 async def add_stream(
@@ -979,7 +1033,7 @@ async def upload_media(
             ):
                 body = await response.text()
                 if response.status == 409:
-                    raise VSTError(
+                    raise VIOSInvalidInputError(
                         f"VIOS already holds a file named {path.name!r}; delete it first "
                         f"(`vss vios delete --type video --sensor {path.stem}`) or upload under another name"
                     )
@@ -1050,13 +1104,19 @@ async def recorded_span(
     if not isinstance(segments, list):
         raise VSTError(f"Unexpected timeline shape for {stream_id}: {type(segments).__name__}")
 
-    starts = [str(seg["startTime"]) for seg in segments if isinstance(seg, dict) and seg.get("startTime")]
-    ends = [str(seg["endTime"]) for seg in segments if isinstance(seg, dict) and seg.get("endTime")]
-    if not starts or not ends:
-        raise VSTError(
-            f"VIOS listed {len(segments)} recorded segment(s) for {stream_id} but none carried a usable "
-            f"start and end time; refusing to report a clean delete"
-        )
+    starts: list[str] = []
+    ends: list[str] = []
+    for seg in segments:
+        # Per segment, not across the list: collecting starts and ends
+        # independently would let one entry with only a start and another with
+        # only an end combine into a span neither of them describes.
+        if not (isinstance(seg, dict) and seg.get("startTime") and seg.get("endTime")):
+            raise VSTError(
+                f"VIOS listed a recorded segment for {stream_id} without a usable start and end time; "
+                f"refusing to report a clean delete"
+            )
+        starts.append(str(seg["startTime"]))
+        ends.append(str(seg["endTime"]))
     return min(starts), max(ends)
 
 
@@ -1102,8 +1162,10 @@ async def delete_media(
     # function reported a confirmed cleanup.
     span = await recorded_span(vst_internal_url, ref.stream_id, timeout_seconds)
 
+    sensor_url = f"{base}/vst/api/v1/sensor/{quote_path_segment(ref.sensor_id)}"
+
     if ref.kind == "stream":
-        await _delete(f"{base}/vst/api/v1/sensor/{quote_path_segment(ref.sensor_id)}", timeout_seconds, "sensor delete")
+        await _delete(sensor_url, timeout_seconds, "sensor delete")
         steps.append("sensor")
 
     if span is not None:
@@ -1114,6 +1176,17 @@ async def delete_media(
             "storage delete",
         )
         steps.append("storage")
+
+    # For an uploaded file the storage delete is what deregisters the sensor --
+    # so a file with nothing recorded yet (timelines populate asynchronously
+    # after an upload) would otherwise have had nothing issued against it at
+    # all, and the confirmation below would fail on a sensor we never tried to
+    # remove. Deregister whatever is still listed before confirming.
+    if "sensor" not in steps and any(
+        s.get("name") == ref.name for s in await list_sensors(vst_internal_url, timeout_seconds)
+    ):
+        await _delete(sensor_url, timeout_seconds, "sensor delete")
+        steps.append("sensor")
 
     await confirm_absent(vst_internal_url, ref.name, timeout_seconds)
     return {

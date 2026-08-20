@@ -165,9 +165,12 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 > run `vss` from the VSS checkout, `vss configure --base-url "${VSS_PUBLIC_URL}"` once per
 > deployment, and no command afterwards takes a host or port.
 
-1. List sensors:
+1. List sensors (capture first — a bare pipe into `jq` would hide a failed
+   `vss` behind `jq`'s exit code and read as "no sensors"):
    ```bash
-   vss vios list --type video | jq -r '.sensors[].name'
+   set -o pipefail
+   SENSORS=$(vss vios list --type video) || { echo "vss vios list failed" >&2; exit 1; }
+   printf '%s' "${SENSORS}" | jq -r '.sensors[].name'
    ```
 
 2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,

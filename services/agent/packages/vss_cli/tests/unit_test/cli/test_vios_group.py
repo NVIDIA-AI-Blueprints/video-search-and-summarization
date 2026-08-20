@@ -100,20 +100,30 @@ def test_backend_failure_exits_three_with_stderr(
     assert "502" in result.output
 
 
-def test_list_filters_by_provenance(cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    rows = [{"name": "f", "sensor_id": "f", "stream_id": "f", "type": "video"}]
+def test_list_passes_the_requested_type_through_to_the_library(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert the filter reaches list_media, not just that the flag parses."""
     seen: dict[str, Any] = {}
 
-    def capture(coro: Any) -> Any:
-        coro.close()
-        return rows
+    def capture(origin: str, kind: str | None = None, *_a: Any, **_kw: Any) -> Any:
+        seen["origin"], seen["kind"] = origin, kind
 
-    monkeypatch.setattr(vios_group, "_run", capture)
+        async def _rows() -> list[dict[str, Any]]:
+            return [{"name": "f", "sensor_id": "f", "stream_id": "f", "type": "video"}]
+
+        return _rows()
+
+    from vss_core import vios as vios_lib
+
+    monkeypatch.setattr(vios_lib, "list_media", capture)
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), [{"name": "f", "type": "video"}])[1])
+
     result = CliRunner().invoke(cli, ["list", "--type", "video"])
 
     assert result.exit_code == 0
+    assert seen["kind"] == "video"
     assert json.loads(result.stdout)["type"] == "video"
-    assert seen == {}
 
 
 def test_clip_defaults_to_the_covering_segment_and_echoes_it(
@@ -183,7 +193,7 @@ def test_an_assumed_main_stream_is_reported(
     def fake_run(coro: Any) -> Any:
         coro.close()
         calls.append(coro)
-        return _Assumed() if len(calls) == 1 else {"s-1": ("2026-08-01T12:00:00Z", "2026-08-01T12:01:00Z")}
+        return _Assumed() if len(calls) == 1 else ("2026-08-01T12:00:00Z", "2026-08-01T12:01:00Z")
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
     body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
@@ -202,7 +212,7 @@ def test_timeline_reports_the_envelope_across_every_segment(
         calls.append(coro)
         if len(calls) == 1:
             return _Ref()
-        return {"s-1": ("2026-08-01T12:00:00Z", "2026-08-01T18:30:00Z")}
+        return "2026-08-01T12:00:00Z", "2026-08-01T18:30:00Z"
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
     body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
@@ -220,7 +230,7 @@ def test_timeline_says_so_when_nothing_was_recorded(
     def fake_run(coro: Any) -> Any:
         coro.close()
         calls.append(coro)
-        return _Ref() if len(calls) == 1 else {}
+        return _Ref() if len(calls) == 1 else None
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
     body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)

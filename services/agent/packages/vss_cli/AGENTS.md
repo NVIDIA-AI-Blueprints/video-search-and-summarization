@@ -23,7 +23,9 @@ not install the distribution that provides `vss`.
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT" >&2; exit 1; }
-alias vss='uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss'
+# A function, not an alias: bash does not expand aliases in non-interactive
+# shells, and neither survives into a separate command invocation.
+vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
 ```
 
 Or install it once into a venv — see [README.md](README.md#install).
@@ -61,6 +63,10 @@ URL, and you should never construct one:
 | 5 | Not found | The handle does not exist |
 | 6 | Partial | Some results are missing; the payload says which |
 | 7 | Timeout | Bounded wait expired; a `job_id` may be resumable |
+
+**Pipe carefully.** `vss … | jq` hides the CLI's exit code behind `jq`'s, so a
+failed command with empty stdout can read as an empty answer. Use `set -o
+pipefail`, or capture first and check, before piping into anything.
 
 **A non-zero exit always writes a diagnostic to stderr.** If you get a non-zero
 exit and no message, that is a bug worth reporting — not a reason to improvise a
@@ -125,8 +131,9 @@ timestamps come from — and a window spanning a recording gap is rejected.
 it explicitly, even when a previous turn used it:
 
 ```bash
-vss vios list --type video | jq -r '.sensors[].name'
-vss vios add --type video /path/to/clip.mp4    # if absent; the filename becomes the name
+SENSORS=$(vss vios list --type video) || exit 1     # check before piping
+printf '%s' "${SENSORS}" | jq -r '.sensors[].name'
+vss vios add --type video /path/to/clip.mp4         # if absent; the filename becomes the name
 ```
 
 Uploaded filenames must have no whitespace — the filename *is* the sensor name.

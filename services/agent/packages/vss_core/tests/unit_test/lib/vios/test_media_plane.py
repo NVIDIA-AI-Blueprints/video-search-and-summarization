@@ -67,6 +67,9 @@ class _Session:
     def post(self, url: str, **_kw: object) -> _Response:
         return self._match(url, "POST")
 
+    def put(self, url: str, **_kw: object) -> _Response:
+        return self._match(url, "PUT")
+
 
 @pytest.fixture
 def vios_http(monkeypatch: pytest.MonkeyPatch):
@@ -484,7 +487,7 @@ async def test_a_malformed_timeline_payload_does_not_confirm_a_clean_delete(vios
     configure, _, _ = vios_http
     configure(**{"/storage/timelines": {"r-stream": [{"note": "no times here"}]}})
 
-    with pytest.raises(vios.VSTError, match="none carried a usable"):
+    with pytest.raises(vios.VSTError, match="without a usable start and end"):
         await vios.recorded_span(VST, "r-stream")
 
 
@@ -533,3 +536,103 @@ async def test_a_failed_stream_scan_is_a_backend_error_not_a_missing_sensor(vios
 
     with pytest.raises(vios.VSTError, match="503"):
         await vios.resolve_sensor(VST, "some-stream-id")
+
+
+# ---------------------------------------- third review round (pane + Codex)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # VIOS 3.2.0 can double the scheme; the host is unreachable from the VLM.
+        ("http://http://localhost:30888/storage/temp/clip.mp4?t=a", "https://vss.test/vst/storage/temp/clip.mp4?t=a"),
+        ("/storage/temp/clip.mp4", "https://vss.test/vst/storage/temp/clip.mp4"),
+        ("http://localhost:30888/vst/storage/x.mp4", "https://vss.test/vst/storage/x.mp4"),
+        ("https://vss.test/vst/storage/y.mp4", "https://vss.test/vst/storage/y.mp4"),
+    ],
+)
+def test_media_urls_are_re_anchored_on_the_reachable_origin(raw: str, expected: str) -> None:
+    assert vios.normalise_media_url(raw, "https://vss.test") == expected
+
+
+def test_an_empty_media_url_is_an_error_not_a_handle() -> None:
+    with pytest.raises(vios.VSTError, match="empty media url"):
+        vios.normalise_media_url("", "https://vss.test")
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_uploaded_file_with_no_recordings_still_deregisters(vios_http, monkeypatch) -> None:
+    """Timelines populate asynchronously, so a fresh upload has no span yet.
+
+    Without the deregister fallback this raised "VIOS still lists ..." for a
+    sensor nothing had ever been issued against.
+    """
+    configure, calls, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "w", "sensorId": "w_0"}], "/sensor/w_0": (200, {})})
+
+    async def no_span(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(vios, "recorded_span", no_span)
+
+    async def absent_after_delete(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(vios, "confirm_absent", absent_after_delete)
+
+    ref = vios.SensorRef(name="w", sensor_id="w_0", stream_id="w-stream", url="/videos/w.mp4", kind="video")
+    result = await vios.delete_media(VST, ref)
+
+    assert result["deleted"] == ["sensor"]
+    assert result["recordings"] == "none"
+    assert any(c.startswith("DELETE") and "/sensor/w_0" in c for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_a_segment_missing_one_end_is_rejected_not_partially_used(vios_http) -> None:
+    """Collecting starts and ends independently would invent a span."""
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/storage/timelines": {
+                "r-stream": [
+                    {"startTime": "2026-08-01T12:00:00Z", "endTime": "2026-08-01T12:30:00Z"},
+                    {"startTime": "2026-08-01T17:00:00Z"},
+                ]
+            }
+        }
+    )
+
+    with pytest.raises(vios.VSTError, match="without a usable start and end"):
+        await vios.recorded_span(VST, "r-stream")
+
+
+@pytest.mark.asyncio
+async def test_two_half_segments_do_not_combine_into_an_invented_span(vios_http) -> None:
+    configure, _, _ = vios_http
+    configure(**{"/storage/timelines": {"r-stream": [{"startTime": "10"}, {"endTime": "11"}]}})
+
+    with pytest.raises(vios.VSTError, match="without a usable start and end"):
+        await vios.recorded_span(VST, "r-stream")
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_provenance_row_satisfies_neither_type_filter(vios_http) -> None:
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "orphan", "sensorId": ""}]})
+
+    assert await vios.list_media(VST, kind="video") == []
+    assert await vios.list_media(VST, kind="stream") == []
+    assert len(await vios.list_media(VST)) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_upload_name_conflict_is_a_caller_error(vios_http, tmp_path) -> None:
+    """409 is deterministic; retrying it is never the right response."""
+    configure, _, _ = vios_http
+    configure(**{"/storage/file/": (409, {"error_message": "File already exists"})})
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"x")
+
+    with pytest.raises(vios.VIOSInvalidInputError, match="already holds a file"):
+        await vios.upload_media(VST, media)
