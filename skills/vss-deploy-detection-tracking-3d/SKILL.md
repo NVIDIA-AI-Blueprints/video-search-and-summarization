@@ -25,13 +25,6 @@ metadata:
 Deploy the standalone RT-CV-3D MV3DT stack from `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
 This is the default path for MV3DT / RTVI-CV-3D / multi-camera tracking requests.
 
-Do not derive MV3DT services from the warehouse blueprint for this skill —
-warehouse-operations no longer has an MV3DT mode; its multi-camera 3D
-tracking now lives at the `mc-tracking` developer profile described below.
-Use `vss-deploy-profile` only when the user explicitly asks for the warehouse
-blueprint, a `bp_wh*` profile, warehouse compose files, or the combined
-warehouse application stack.
-
 **`mc-tracking` developer profile is a separate, third path** — not this
 skill's standalone stack, and not the warehouse industry profile. It's the
 full VIOS-backed compose stack (VST/nvstreamer, `sensor-ms`,

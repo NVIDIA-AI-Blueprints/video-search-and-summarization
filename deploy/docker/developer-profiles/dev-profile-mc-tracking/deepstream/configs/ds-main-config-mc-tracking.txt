@@ -135,7 +135,7 @@ msg-conv-payload-type=0
 enable=0
 proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so
 conn-str=<host>;<port>
-config-file=ds-pgie-config.yml
+config-file=/opt/nvidia/deepstream/deepstream/sources/libs/kafka_protocol_adaptor/cfg_kafka.txt
 subscribe-topic-list=<topic1>;<topic2>;<topicN>
 
 [osd]

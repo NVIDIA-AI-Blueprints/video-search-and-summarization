@@ -2,7 +2,7 @@
 
 Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill (``../SKILL.md`` (see `../SKILL.md`)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
 
-Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of a warehouse auto-calibration variant (`BP_PROFILE=bp_wh_auto_calib` with mode `2d`/`3d`/`mv3dt`). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
+Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of a warehouse auto-calibration variant (`BP_PROFILE=bp_wh_auto_calib` with mode `2d`/`3d`). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
 
 ## What's different from base VSS
 
@@ -119,7 +119,7 @@ Pick the deployment variant that matches the intent, initialize the runtime env 
 
 | Intent | `COMPOSE_PROFILES` value |
 |---|---|
-| Warehouse auto-calibration (RTSP via nvstreamer/VST) | `${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}` / `_3D` / `_MV3DT` (the variant service list) |
+| Warehouse auto-calibration (RTSP via nvstreamer/VST) | `${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}` / `_3D` (the variant service list) |
 | Standalone AMC only (no warehouse agent/UI stack) | `vss-auto-calibration,vss-auto-calibration-ui` |
 
 ```bash
@@ -139,8 +139,6 @@ grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/gene
 # COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}
 # Warehouse auto-calibration, MODE=3d:
 # COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}
-# Warehouse auto-calibration, MODE=mv3dt:
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT}
 
 # Resolve and export the selected list before every Compose command.
 set -a
@@ -289,9 +287,8 @@ set -a
 . industry-profiles/warehouse-operations/generated.env
 set +a
 case "${MODE}" in
-  2d)    COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}" ;;
-  3d)    COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}" ;;
-  mv3dt) COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT}" ;;
+  2d) COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}" ;;
+  3d) COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}" ;;
   *) echo "Unsupported auto-calibration MODE: ${MODE}" >&2; exit 1 ;;
 esac
 export COMPOSE_PROFILES
