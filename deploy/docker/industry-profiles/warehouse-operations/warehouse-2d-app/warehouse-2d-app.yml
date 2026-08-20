@@ -64,6 +64,7 @@ services:
       RECOMPUTE_BEV_CENTERS_ENABLED: false
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false
+      ENABLE_SENSOR_CONFIGURATOR: true
       SEND_CONFIG_TO_SDR: false
       CALL_SENSOR_ADD_API: true
     env_file:
