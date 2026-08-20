@@ -1,7 +1,7 @@
 {
   "network": {
     "http_port": "31000",
-    "server_domain_name": "",
+    "server_domain_name": "vss-vios-nvstreamer",
     "stunurl_list": [
       "stun.l.google.com:19302",
       "stun1.l.google.com:19302"
