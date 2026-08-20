@@ -129,8 +129,8 @@ preview the commands and generated environment without starting containers.
 - Docker uses one canonical RTVI CV startup entrypoint: `services/rtvi/rtvi-cv/ds-start.sh`.
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
-- **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) runs as phase 0 of the perception startup script (`ds-start.sh` / MV3DT `ds-start-mv3dt.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+- **`mc-tracking` is the documented exception** and keeps its dedicated `ds-start-mc-tracking.sh` command override.
+- Model acquisition for **developer profiles** (alerts, search, mc-tracking) and **warehouse RT-CV profiles** (2D, 3D) runs as phase 0 of the perception startup script (`ds-start.sh` / mc-tracking's `ds-start-mc-tracking.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
 
 ### Direct Compose usage and data directories
 
@@ -310,18 +310,18 @@ machine and selected warehouse scenario:
 - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
 - **`VSS_DATA_DIR`**: extracted warehouse app data directory
 - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
-- **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse, Sparse4D, and BodyPose3DNet model packages required by the selected mode; also **`NVIDIA_API_KEY`**, **`OPENAI_API_KEY`** as needed
-- **`MODE`**: `2d`, `3d`, or `mv3dt`
+- **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse and Sparse4D model packages required by the selected mode; also **`NVIDIA_API_KEY`**, **`OPENAI_API_KEY`** as needed
+- **`MODE`**: `2d` or `3d`
 - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`
 - **`HARDWARE_PROFILE`**, model settings, public ingress settings, and host-published ports
 - **`COMPOSE_PROFILES`**: one of the warehouse or playback profile lists defined in `overrides.env`
 
-`bp_wh` is valid only with `MODE=2d`. For `MODE=3d` or `MODE=mv3dt`, use
+`bp_wh` is valid only with `MODE=2d`. For `MODE=3d`, use
 `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`. Keep `MODE`,
 `BP_PROFILE`, `STREAM_TYPE`, sample dataset settings, and `COMPOSE_PROFILES`
 aligned with the comments in `overrides.env`.
 
-   Model destinations are shared across profiles: RT-DETR is stored at `models/rtdetr_warehouse_v1.0.2.fp16.onnx`, Sparse4D at `models/sparse4d/sparse4d_warehouse_v2.2.onnx`, and BodyPose3DNet at `models/BodyPose3DNet/bodypose3dnet_accuracy.onnx`.
+   Model destinations are shared across profiles: RT-DETR is stored at `models/rtdetr_warehouse_v1.0.2.fp16.onnx` and Sparse4D at `models/sparse4d/sparse4d_warehouse_v2.2.onnx`.
 
 3. **Start the stack**
 
@@ -359,6 +359,48 @@ bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/ov
 Compose profiles for warehouse slices are defined in
 **`industry-profiles/warehouse-operations/overrides.env`** and selected by
 `COMPOSE_PROFILES`.
+
+---
+
+## MC-Tracking developer profile
+
+The **`mc-tracking`** developer profile (multi-camera 3D tracking, lifted from the warehouse MV3DT industry blueprint into its own developer-profile packaging) lives under **`developer-profiles/dev-profile-mc-tracking/`**. It is deployed and torn down with direct Compose commands, not `dev-profile.sh`'s `up`/`down` flow — the same shape as the warehouse industry profile above.
+
+**Stop the running deployment:**
+
+```bash
+cd /path/to/video-search-and-summarization/deploy/docker
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-mc-tracking/.env \
+  --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+  down
+```
+
+**Alternatively, to remove all the containers, images and volumes:**
+
+```bash
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-mc-tracking/.env \
+  --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+  down -v --rmi all
+```
+
+**Tear down all dangling volumes:**
+
+```bash
+docker volume ls -q -f "dangling=true" | xargs docker volume rm
+```
+
+**Cleanup all data** (calibration output, VST/nvstreamer runtime data, `data_log` volumes, and blueprint-configurator backups) **from the data directory:**
+
+```bash
+bash scripts/cleanup_all_datalog.sh -e developer-profiles/dev-profile-mc-tracking/overrides.env
+```
+
+This deletes calibration output and VST/nvstreamer runtime data by default (matching `cleanup_all_datalog.sh`'s defaults) — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` / `$VSS_DATA_DIR/playback/` (sample media) — those aren't removed by this script for any profile.
 
 ---
 

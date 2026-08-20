@@ -58,7 +58,7 @@ function warehouse_bp_profile_valid_for_mode() {
     2d)
       contains_element "${_profile}" "bp_wh" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"
       ;;
-    3d | mv3dt)
+    3d)
       contains_element "${_profile}" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"
       ;;
     *)
@@ -78,7 +78,7 @@ function warehouse_default_bp_profile() {
   fi
   case "${_mode}" in
     2d) echo "bp_wh" ;;
-    3d | mv3dt) echo "bp_wh_kafka" ;;
+    3d) echo "bp_wh_kafka" ;;
     *) echo "bp_wh" ;;
   esac
 }
@@ -86,7 +86,7 @@ function warehouse_default_bp_profile() {
 function warehouse_sample_video_dataset() {
   local _mode="${1}"
   local _profile="${2}"
-  if [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
+  if [[ "${_mode}" == "3d" ]]; then
     echo "warehouse-4cams-20mx20m-synthetic"
   elif [[ "${_profile}" == "bp_wh" ]]; then
     echo "nv-warehouse-4cams"
@@ -98,7 +98,7 @@ function warehouse_sample_video_dataset() {
 function warehouse_num_streams() {
   local _mode="${1}"
   local _profile="${2}"
-  if [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
+  if [[ "${_mode}" == "3d" ]]; then
     echo "4"
   elif [[ "${_profile}" == "bp_wh" ]]; then
     echo "4"
@@ -274,11 +274,10 @@ function usage() {
   echo "Options for 'up':"
   echo "  -d, --deployment                 [REQUIRED] Deployment type."
   echo "                                   • warehouse — .env under industry-profiles/warehouse-operations/"
-  echo "  -m, --mode                       Deployment mode: 2d (default), 3d, or mv3dt"
+  echo "  -m, --mode                       Deployment mode: 2d (default) or 3d"
   echo "  -p, --bp-profile                Blueprint profile (must match MODE; see .env header):"
   echo "                                   • MODE=2d:  bp_wh (default), bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
   echo "                                   • MODE=3d:  bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (bp_wh not valid)"
-  echo "                                   • MODE=mv3dt: bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (bp_wh not valid)"
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
   echo "  -e, --external-ip                Externally accessible IP."
@@ -292,7 +291,7 @@ function usage() {
   echo "                                   • Default by mode+profile:"
   echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams)"
   echo "                                     2d+bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib: warehouse-loading-dock-3cams-synthetic (3 streams)"
-  echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams)"
+  echo "                                     3d+bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams)"
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
@@ -613,9 +612,9 @@ function process_args() {
       fi
 
       if [[ "${deployment}" == "warehouse" ]]; then
-        _valid_modes=('2d' '3d' 'mv3dt')
+        _valid_modes=('2d' '3d')
         if [[ -n "${mode}" ]] && ! contains_element "${mode}" "${_valid_modes[@]}"; then
-          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d, mv3dt"
+          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d"
           ((_all_good++))
         fi
         _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis' 'bp_wh_auto_calib')
@@ -629,7 +628,7 @@ function process_args() {
             2d)
               echo "[ERROR]   MODE=2d supports: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
               ;;
-            3d | mv3dt)
+            3d)
               echo "[ERROR]   MODE=${mode} supports: bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (not bp_wh)"
               ;;
           esac
@@ -806,13 +805,13 @@ function state_up() {
     set_env_var "ELASTICSEARCH_MODE" "${elasticsearch_mode}"
   fi
 
-  # HARDWARE_PROFILE from -H / warehouse .env (all modes: 2d, 3d, mv3dt; all bp profiles)
+  # HARDWARE_PROFILE from -H / warehouse .env (all modes: 2d, 3d; all bp profiles)
   if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
     set_env_var "HARDWARE_PROFILE" "${hardware_profile}"
   fi
 
-  # Warehouse 3d/mv3dt and non-agent profiles (kafka, redis, auto_calib): no local NIM LLM/VLM
-  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]] || [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; }; then
+  # Warehouse 3d and non-agent profiles (kafka, redis, auto_calib): no local NIM LLM/VLM
+  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]] || [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; }; then
     set_env_var "LLM_MODE" "none"
     set_env_var "VLM_MODE" "none"
     set_env_var "LLM_NAME_SLUG" "none"
@@ -949,9 +948,6 @@ function state_up() {
       bp_wh_kafka_3d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
       bp_wh_redis_3d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
       bp_wh_auto_calib_3d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_3D" ;;
-      bp_wh_kafka_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_KAFKA_MV3DT" ;;
-      bp_wh_redis_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_REDIS_MV3DT" ;;
-      bp_wh_auto_calib_mv3dt) _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT" ;;
       *)
         echo "[ERROR] Unknown warehouse bp-profile/mode combination: ${bp_profile}/${mode}"
         return 1
@@ -991,7 +987,7 @@ function state_up() {
     mkdir -p "${data_directory}/models"
     chmod -R 777 "${data_directory}/models" 2>/dev/null || true
     if [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
-      echo "[INFO] Warehouse RT-CV model download runs in ds-start phase 0 (perception / ds-start-mv3dt)."
+      echo "[INFO] Warehouse RT-CV model download runs in ds-start phase 0 (perception)."
     fi
   fi
 
