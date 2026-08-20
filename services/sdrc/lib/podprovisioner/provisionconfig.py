@@ -225,12 +225,19 @@ class provisionconfig:
                     logger.info("error while trying to print response.text - " + repr(e))
                 if response.status_code == 200:
                     return response
-                logger.info(
-                    "non-200 response in configure call %s/%s: status=%s",
-                    attempt,
-                    retry_attempts,
-                    response.status_code,
-                )
+                if 500 <= response.status_code < 600:
+                    logger.info(
+                        "server error response in configure call %s/%s: status=%s",
+                        attempt,
+                        retry_attempts,
+                        response.status_code,
+                    )
+                else:
+                    logger.info(
+                        "non-retryable response in configure call: status=%s",
+                        response.status_code,
+                    )
+                    return response
             except requests.RequestException as e:
                 logger.info(
                     "transport error occurred in configure call %s/%s: %s",
