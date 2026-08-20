@@ -28,7 +28,12 @@ test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
 vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
 ```
 
-Or install it once into a venv — see [README.md](README.md#install).
+**Use this form, not a globally installed `vss`.** The skill evals reject one
+explicitly — *"the `--extra cli` flag is required; a globally installed `vss` is
+not an acceptable substitute"* — because a `vss` on `PATH` can be any version
+from any checkout, and nothing in the trace says which. A venv install is fine
+for human development (see [README.md](README.md#install)); agent runs use the
+project-local form above.
 
 Do **not** run it through `docker exec`, `kubectl exec`, or a pod shell. It is a
 client; it talks to the deployment over the ingress like any other client.

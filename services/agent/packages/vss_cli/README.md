@@ -7,7 +7,22 @@ JSON on stdout, typed exit codes.
 Driving this from an agent or a skill? Read [AGENTS.md](AGENTS.md) — it is the
 single source for the workflow, so individual skills do not restate it.
 
-## Install
+## Run it
+
+**Agents and skills use the project-local form.** It pins the CLI to a known
+checkout, which is why the skill evals require it and reject a globally
+installed `vss` outright:
+
+```bash
+uv run --project services/agent --no-dev --extra cli vss --help
+```
+
+`--extra cli` is required: the base meta-package does not pull the
+`nvidia-vss-cli` distribution that provides the `vss` executable.
+
+## Install (human development)
+
+For working on the CLI itself, where a `vss` on `PATH` is convenient:
 
 ```bash
 uv venv --python 3.13
@@ -16,14 +31,7 @@ uv pip install -e "services/agent/packages/vss_core" -e "services/agent/packages
 vss --version
 ```
 
-From a checkout without installing anything, run it project-local instead:
-
-```bash
-uv run --project services/agent --no-dev --extra cli vss --help
-```
-
-`--extra cli` is required: the base meta-package does not pull the
-`nvidia-vss-cli` distribution that provides the `vss` executable.
+Do not use this form in a skill or an eval run — see [AGENTS.md](AGENTS.md#bootstrap).
 
 ## Point it at a deployment
 
