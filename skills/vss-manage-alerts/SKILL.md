@@ -393,8 +393,10 @@ does not exist — which returns `count: 0`, not an error.
 # 1. candidate names, from the source of truth. -F matches the wording literally: without it
 #    a `.` or `[` in what the user typed is read as a pattern, which quietly matches a
 #    different camera or errors out and reads back as "no such sensor".
-MATCHES=$(curl -sf "$VST_API_BASE/sensor/list" \
-  | jq -r '.[] | .name' | grep -Fi -- "<user's wording, e.g. warehouse>")
+# Keep the two failures apart: a dead VIOS and an unknown sensor both leave you with no
+# name, but one means "use the fallback below" and the other means "tell the user".
+LIST=$(curl -sf "$VST_API_BASE/sensor/list") || { echo "VIOS unreachable → fallback"; exit 2; }
+MATCHES=$(printf '%s' "$LIST" | jq -r '.[] | .name' | grep -Fi -- "<user's wording, e.g. warehouse>")
 # Stop unless exactly one name matched — anything else is a question for the user, not a guess
 [ "$(printf '%s\n' "$MATCHES" | grep -c .)" = 1 ] || { printf '%s\n' "$MATCHES"; exit 1; }
 NAME="$MATCHES"
@@ -439,13 +441,17 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
 
 # 3. a scoped `count: 0` is not an answer yet. A rule created without `sensor_name` stores
 #    the VIOS UUID, and the CV/VIOS path stores `camera_id`, so this sensor's rows can sit
-#    under an identity the name will never match. Look before concluding "none":
-curl -sf "$AB/api/v1/realtime/incidents?limit=200" \
-  | jq -r '.incidents[].sensorId' | sort | uniq -c
+#    under an identity the name will never match. Ask about that identity directly rather
+#    than scanning: `total` is the full match count, so this is exact at any `limit`.
 UUID=$(curl -sf "$VST_API_BASE/sensor/list" | jq -r --arg n "$NAME" '.[]|select(.name==$n)|.sensorId')
-# that UUID, or a camera id you recognise, listed above → re-run the scoped query with that
-# value and say which identity matched. Nothing related → "none found" is now a checked
-# answer instead of a guess.
+curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "sensor_id=$UUID" | jq '.total'
+# > 0 → that is the answer; say it matched the sensor's UUID, not its name.
+# still 0 → list what the store does hold, over the SAME window you were asked about. This
+#   page is newest-first and `limit` is capped at 1000, so a full page means you saw the
+#   newest 1000 rows and nothing older: say the scan was bounded instead of calling it proof.
+curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "limit=1000" \
+  --data-urlencode "start_time=<ISO>" --data-urlencode "end_time=<ISO>" \
+  | jq -r '.incidents[].sensorId' | sort | uniq -c
 ```
 
 > **`sensor_id` here filters on a stored value, not on a VIOS UUID.** It is an exact
@@ -469,7 +475,7 @@ UUID=$(curl -sf "$VST_API_BASE/sensor/list" | jq -r --arg n "$NAME" '.[]|select(
 > tell you it was a typo. This is the opposite of Workflow D, where the rule-create payload's
 > `sensor_id` **must** be the VIOS UUID.
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer**: report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote the number from the response you filtered by the resolved name, and say which sensor it belongs to. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a scoped zero means *not under this identity*, so run step 3 before reporting it. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote the number from the response you filtered by the identity you confirmed — the name, or the UUID step 3 matched — and say which sensor, and which identity, it belongs to. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
 
 **Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D). Incidents produced by **always-on** rules (Workflow G) appear here like any other realtime incident, and so do **on-demand verification results** (incident-kind, `sensorId: "ondemand"` — see Workflow F).
 
