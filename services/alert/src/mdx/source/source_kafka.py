@@ -191,6 +191,12 @@ class SourceKafka(SourceBase):
             if topic in self.topic_consumer_map
         )
 
+    def assigned_partition_count(self) -> int:
+        return sum(
+            len(self.kafka_message_broker.owned_partitions(consumer))
+            for consumer in self.topic_consumer_map.values()
+        )
+
     def set_revoke_hook(self, hook) -> None:
         """Register what to run when partitions are taken away.
 

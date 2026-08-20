@@ -245,5 +245,47 @@ class TestRealProcesses:
                 os.kill(pid, 0)
 
 
+class TestFleetStateIsReported:
+    """Degraded capacity is invisible from throughput alone.
+
+    An instance short of a process keeps serving whatever the survivors still
+    own, at a lower ceiling and with no signal that anything is wrong.
+    """
+
+    def test_the_hook_runs_while_supervising(self):
+        calls = []
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=2, poll_interval=0.01,
+                                 on_poll=lambda: calls.append(1))
+        supervisor.start()
+        thread = threading.Thread(target=supervisor.run)
+        thread.start()
+        deadline = time.monotonic() + 5
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        supervisor.request_shutdown()
+        thread.join(timeout=5)
+        assert calls, "fleet state was never published"
+
+    def test_a_failing_hook_does_not_take_the_supervisor_down(self):
+        # Reporting is not the job; supervising is.
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=1, poll_interval=0.01,
+                                 on_poll=lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+        supervisor.start()
+        thread = threading.Thread(target=supervisor.run)
+        thread.start()
+        time.sleep(0.05)
+        supervisor.request_shutdown()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+    def test_shutdown_requested_distinguishes_expected_exits(self):
+        supervisor = _supervisor(Spawner(), count=1)
+        assert supervisor.shutdown_requested is False
+        supervisor.request_shutdown()
+        assert supervisor.shutdown_requested is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

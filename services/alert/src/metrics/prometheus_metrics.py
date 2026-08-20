@@ -366,6 +366,47 @@ ASYNC_SINK_IN_FLIGHT = Gauge(
 
 # In-flight dispatched messages (thread_bridge executor tasks or event_loop
 # coroutines), i.e. the live occupancy of the backpressure semaphore.
+# ─── Multi-process fleet ────────────────────────────────────────────────────
+# Degraded capacity is invisible from throughput alone: an instance short of a
+# process, or holding no partitions, keeps serving whatever it still owns.
+# Bounded cardinality on purpose -- no per-partition or per-process labels, so
+# the series count does not grow with the fleet.
+PIPELINE_PROCESSES_CONFIGURED = Gauge(
+    'alert_bridge_pipeline_processes_configured',
+    'Pipeline processes this instance was configured to run',
+    multiprocess_mode='livemostrecent',
+)
+
+PIPELINE_PROCESSES_ALIVE = Gauge(
+    'alert_bridge_pipeline_processes_alive',
+    'Pipeline processes currently running',
+    multiprocess_mode='livemostrecent',
+)
+
+PIPELINE_PROCESSES_READY = Gauge(
+    'alert_bridge_pipeline_processes_ready',
+    'Pipeline processes that have been given a partition assignment',
+    multiprocess_mode='livemostrecent',
+)
+
+PIPELINE_PROCESS_EXITS = Counter(
+    'alert_bridge_pipeline_process_exits_total',
+    'Pipeline processes that exited, by whether a shutdown was asked for',
+    ['reason'],
+)
+
+ASSIGNED_PARTITIONS = Gauge(
+    'alert_bridge_assigned_partitions',
+    'Source partitions currently assigned to this instance',
+    multiprocess_mode='livesum',
+)
+
+REBALANCE_DRAINS = Counter(
+    'alert_bridge_rebalance_drains_total',
+    'Drains of revoked partitions, by whether they finished in time',
+    ['outcome'],
+)
+
 DISPATCH_IN_FLIGHT = Gauge(
     'alert_bridge_dispatch_in_flight',
     'Current number of in-flight dispatched messages',

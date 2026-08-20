@@ -909,16 +909,20 @@ class AnomalyEnhancer(
         This is about overlap, not durability. Offsets are committed at read,
         so a process that is killed loses whatever it held regardless.
         """
+        from metrics.recorder import inc_rebalance_drain
+
         if not partitions:
             return
         outstanding = sum(self._partition_in_flight.in_flight(p) for p in partitions)
         if not outstanding:
+            inc_rebalance_drain("nothing_owed")
             return
         logger.info(
             "Draining %d message(s) still in flight across %d revoked partition(s)",
             outstanding, len(partitions),
         )
-        self._partition_in_flight.drain(partitions)
+        drained = self._partition_in_flight.drain(partitions)
+        inc_rebalance_drain("drained" if drained else "timed_out")
 
     def _needs_worker_pool(self) -> bool:
         """Whether the batch pool between the consume loop and processing is useful.
@@ -2553,6 +2557,18 @@ def _start_prometheus_metrics_server(port: int) -> None:
     start_prometheus_server(port)
 
 
+def _on_pipeline_process_exit(process: Optional[Any]) -> None:
+    """Record the exit, then drop the dead child's metric shards."""
+    from metrics.recorder import inc_pipeline_process_exit
+    inc_pipeline_process_exit("shutdown" if _shutdown_requested() else "unexpected")
+    _mark_prometheus_process_dead(process)
+
+
+def _shutdown_requested() -> bool:
+    supervisor = _pipeline_supervisor
+    return bool(supervisor is not None and supervisor.shutdown_requested)
+
+
 def _mark_prometheus_process_dead(process: Optional[Any]) -> None:
     """Tell prometheus_client to drop live gauge shards for a stopped child."""
     if not PROMETHEUS_ENABLED or process is None:
@@ -2644,6 +2660,8 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
             raise RuntimeError(
                 f"pipeline process {index} could not join the consumer group"
             )
+        from metrics.recorder import set_assigned_partitions
+        set_assigned_partitions(enhancer.source.assigned_partition_count())
         logger.info("Pipeline process %d ready (pid=%d)", index, os.getpid())
         if ready_event is not None:
             ready_event.set()
@@ -2700,6 +2718,14 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
     # One per slot rather than a Barrier: readiness is announced once, when
     # the last child arrives, and a Barrier would also make every child wait
     # for its peers before it could start consuming.
+    def publish_fleet_state() -> None:
+        from metrics.recorder import set_pipeline_process_counts
+        supervisor = _pipeline_supervisor
+        alive = sum(1 for p in (supervisor.processes if supervisor else []) if p.is_alive())
+        set_pipeline_process_counts(
+            process_count, alive, sum(1 for e in ready_events if e.is_set())
+        )
+
     ready_events = [_pipeline_mp_context().Event() for _ in range(process_count)]
     if on_ready is not None:
         _announce_when_all_ready(ready_events, on_ready)
@@ -2709,7 +2735,8 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
         spawn=lambda index: _start_pipeline_process(
             config_path, index, process_count, ready_events[index]
         ),
-        on_exit=_mark_prometheus_process_dead,
+        on_exit=_on_pipeline_process_exit,
+        on_poll=publish_fleet_state,
     )
     try:
         _pipeline_supervisor.run()

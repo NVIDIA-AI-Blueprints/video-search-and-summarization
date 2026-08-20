@@ -52,6 +52,11 @@ class SourceBase(ABC):
         """
         pass
 
+    def assigned_partition_count(self) -> int:
+        """How many partitions this source currently holds. Zero when the
+        notion does not apply."""
+        return 0
+
     def set_revoke_hook(self, hook) -> None:
         """Register a drain callback for partitions being taken away.
 

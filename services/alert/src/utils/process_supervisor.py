@@ -48,6 +48,7 @@ class ProcessSupervisor:
         count: int,
         spawn: Callable[[int], Any],
         on_exit: Optional[Callable[[Any], None]] = None,
+        on_poll: Optional[Callable[[], None]] = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         stop_timeout: float = DEFAULT_STOP_TIMEOUT,
     ) -> None:
@@ -56,6 +57,7 @@ class ProcessSupervisor:
         self._count = count
         self._spawn = spawn
         self._on_exit = on_exit
+        self._on_poll = on_poll
         self._poll_interval = poll_interval
         self._stop_timeout = stop_timeout
         self._processes: List[Any] = []
@@ -64,6 +66,11 @@ class ProcessSupervisor:
     @property
     def processes(self) -> List[Any]:
         return list(self._processes)
+
+    @property
+    def shutdown_requested(self) -> bool:
+        """Whether the exits being seen are ones somebody asked for."""
+        return self._shutdown.is_set()
 
     def start(self) -> None:
         self._processes = [self._spawn(index) for index in range(self._count)]
@@ -77,6 +84,7 @@ class ProcessSupervisor:
                 # each holding a consumer-group slot.
                 self.start()
             while not self._shutdown.is_set():
+                self._report_state()
                 self._fail_on_any_exit()
                 self._shutdown.wait(self._poll_interval)
         finally:
@@ -84,6 +92,14 @@ class ProcessSupervisor:
 
     def request_shutdown(self) -> None:
         self._shutdown.set()
+
+    def _report_state(self) -> None:
+        if self._on_poll is None:
+            return
+        try:
+            self._on_poll()
+        except Exception:
+            logger.debug("Pipeline fleet state hook failed", exc_info=True)
 
     def _fail_on_any_exit(self) -> None:
         for index, process in enumerate(self._processes):
