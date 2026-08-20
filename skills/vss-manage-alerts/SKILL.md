@@ -439,19 +439,18 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "start_time=<ISO>" \
   --data-urlencode "end_time=<ISO>" | jq .
 
-# 3. a scoped `count: 0` is not an answer yet. A rule created without `sensor_name` stores
-#    the VIOS UUID, and the CV/VIOS path stores `camera_id`, so this sensor's rows can sit
-#    under an identity the name will never match. Ask about that identity directly rather
-#    than scanning: `total` is the full match count, so this is exact at any `limit`.
+# 3. a scoped `count: 0` is not an answer yet: a rule created without `sensor_name` stores the
+#    stream id instead, so the rows exist under the UUID. There are only these two identities
+#    to try — ask about the second one directly. `total` is the full match count, so this is
+#    exact at any `limit`, and needs no paging through the store.
 UUID=$(curl -sf "$VST_API_BASE/sensor/list" | jq -r --arg n "$NAME" '.[]|select(.name==$n)|.sensorId')
+# same trap as $NAME, and it springs while you are being careful: if VIOS died or dropped the
+# sensor since step 1, an empty $UUID is dropped from the query and the store-wide total comes
+# back as this sensor's — turning "none" into someone else's incidents.
+: "${UUID:?VIOS no longer resolves this sensor — say the alternate identity could not be checked}"
 curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "sensor_id=$UUID" | jq '.total'
 # > 0 → that is the answer; say it matched the sensor's UUID, not its name.
-# still 0 → list what the store does hold, over the SAME window you were asked about. This
-#   page is newest-first and `limit` is capped at 1000, so a full page means you saw the
-#   newest 1000 rows and nothing older: say the scan was bounded instead of calling it proof.
-curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "limit=1000" \
-  --data-urlencode "start_time=<ISO>" --data-urlencode "end_time=<ISO>" \
-  | jq -r '.incidents[].sensorId' | sort | uniq -c
+# 0 as well → both identities are empty, so "none found" is now a checked answer.
 ```
 
 > **`sensor_id` here filters on a stored value, not on a VIOS UUID.** It is an exact
@@ -459,11 +458,13 @@ curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "limit=1000" \
 > RT-VLM fills that field by precedence **`camera_id` → `sensor_name` → stream id**
 > (`rtvi_stream_handler.py`). Through the Workflow D path Alert Bridge sends `sensor_name`
 > and never `camera_id`, so a rule created the documented way yields the **sensor name**
-> (`warehouse_sample`, `sample-warehouse-ladder`; `ondemand` for Workflow F results). Two
-> cases legitimately hold something else: a rule created **without** `sensor_name` falls
-> back to the stream id — the VIOS UUID — and the CV/VIOS registration path sets
-> `camera_id`, which outranks any name. So **don't assume the shape** — read the value off
-> an unfiltered `/incidents` response and filter on that. Only the whitespace is stripped:
+> (`warehouse_sample`, `sample-warehouse-ladder`; `ondemand` for Workflow F results). One
+> case legitimately holds something else: a rule created **without** `sensor_name` falls back
+> to the stream id — the VIOS UUID. `camera_id` outranks the name in that expression but is
+> not a third value to hunt for: every VIOS registration path sets `sensor_name` and
+> `camera_id` from the same field (`rtvi_embed_server.py`), so it resolves to the string the
+> name lookup already returns. Two identities, both reachable from `sensor/list` — step 3
+> below tries the second one. Only the whitespace is stripped:
 > no lowercasing, and interior spaces survive, which is why the query parameter must be
 > URL-encoded.
 >
