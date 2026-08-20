@@ -98,6 +98,16 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     if not base_url:
         raise click.UsageError("--base-url is required (or use `vss configure show`)")
 
+    # Without a scheme httpx refuses to build the request, so every route comes
+    # back "absent" with an UnsupportedProtocol detail and the summary blames
+    # the ingress -- pointing at the deployment when the fault is the argument.
+    # Assume http and say so, rather than guessing silently or failing on
+    # something whose intent is unambiguous. Checked on "://" and not urlparse:
+    # urlparse reads "localhost:7777" as scheme "localhost", path "7777".
+    if "://" not in base_url:
+        base_url = f"http://{base_url}"
+        click.echo(f"no scheme given, assuming {base_url}", err=True)
+
     services: dict[str, config_mod.Service] = {}
     click.echo(f"probing {base_url}", err=True)
     for name, route in config_mod.INGRESS_SERVICES.items():
