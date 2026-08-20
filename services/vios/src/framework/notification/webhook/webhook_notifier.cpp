@@ -126,6 +126,30 @@ std::string makeEventLabel(const Json::Value& message)
     return label + "]";
 }
 
+// Copies the tagged event body and merges the receiver's user_defined_metadata
+// members into event.metadata, creating the object when the event carries
+// none. User-defined keys overwrite same-named event-generated keys.
+Json::Value mergeUserMetadata(const Json::Value& taggedEvent, const Json::Value& userMetadata)
+{
+    Json::Value merged = taggedEvent;
+    Json::Value& event = merged["event"];
+    if (!event.isNull() && !event.isObject())
+    {
+        // A scalar event cannot hold metadata; operator[] on it would throw.
+        event = Json::Value(Json::objectValue);
+    }
+    Json::Value& metadata = event["metadata"];
+    if (!metadata.isNull() && !metadata.isObject())
+    {
+        metadata = Json::Value(Json::objectValue);
+    }
+    for (const std::string& key : userMetadata.getMemberNames())
+    {
+        metadata[key] = userMetadata[key];
+    }
+    return merged;
+}
+
 bool anyEnabledWebhook(const Json::Value& config)
 {
     const Json::Value webhooks = config.get("webhooks", Json::nullValue);
@@ -349,6 +373,17 @@ void WebhookNotifier::loadConfig(const Json::Value& config)
                            << (webhook.m_requests.size() + 1)
                            << " camera_type must be an array, filter ignored" << endl;
             }
+            const Json::Value userMetadata = requestJson.get("user_defined_metadata", Json::nullValue);
+            if (userMetadata.isObject())
+            {
+                requestConfig.m_userDefinedMetadata = userMetadata;
+            }
+            else if (!userMetadata.isNull())
+            {
+                LOG(error) << "Webhook " << webhook.m_id << ": receiver "
+                           << (webhook.m_requests.size() + 1)
+                           << " user_defined_metadata must be a JSON object, ignored" << endl;
+            }
             const Json::Value timeoutMs = requestJson.get("timeout_ms", Json::nullValue);
             if (timeoutMs.isNumeric())
             {
@@ -541,12 +576,18 @@ bool WebhookNotifier::deliverMessage(Json::Value& message)
             LOG(info) << "Webhook " << webhook.m_id << ": delivering " << loggingLabel << " to receiver "
                       << (r + 1) << "/" << webhook.m_requests.size() << " (attempt 1/"
                       << requestConfig.m_maxAttempts << ")" << endl;
+            // A receiver with user_defined_metadata gets its own body with the
+            // extra keys merged into event.metadata; others share the plain body.
+            const std::string receiverBody =
+                requestConfig.m_userDefinedMetadata.isNull()
+                    ? body
+                    : jsonToString(mergeUserMetadata(taggedEvent, requestConfig.m_userDefinedMetadata));
             DeliveryState state;
             state.m_webhookIndex = i;
             state.m_requestIndex = r;
             state.m_attempt = 0;
             state.m_eventLabel = loggingLabel;
-            state.m_request = buildRequest(requestConfig, event, body, webhook.m_id);
+            state.m_request = buildRequest(requestConfig, event, receiverBody, webhook.m_id);
             submitDelivery(std::move(state), 0);
         }
     }

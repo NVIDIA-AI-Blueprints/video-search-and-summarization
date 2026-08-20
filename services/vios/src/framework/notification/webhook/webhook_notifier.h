@@ -39,7 +39,10 @@
  * matching event is posted to all receivers in that array through
  * AsyncHttpClient. A receiver may narrow further with a camera_type list;
  * it then only gets events whose event.camera_type is listed. An item's "id"
- * is copied into the delivered body under "webhook_id".
+ * is copied into the delivered body under "webhook_id". A receiver may carry
+ * a user_defined_metadata object; its members are merged verbatim into the
+ * delivered body's event.metadata (created when absent), overwriting
+ * same-named event-generated keys.
  *
  * deliverMessage() only enqueues HTTP work and returns true immediately: the
  * event-level 5 s retry loop in INotificationInterface is deliberately opted
@@ -89,6 +92,9 @@ private:
         std::vector<int> m_retryOnStatus;  // empty retries any non-2xx status
         // Camera types this receiver accepts; empty receives every matched event.
         std::vector<std::string> m_cameraTypes;
+        // Operator-supplied key/value pairs merged into event.metadata of the
+        // delivered body; null when the receiver defines none.
+        Json::Value m_userDefinedMetadata;
     };
 
     struct WebhookConfig

@@ -47,7 +47,7 @@
       ]
     },
     {
-      "query": "At what timestamp did the worker climb up the ladder?",
+      "query": "At what timestamp did the worker climb up the ladder in warehouse_safety_0001? Answer from the clip recorded on that VIOS sensor \u2014 not from a local copy of the file and not from any pre-extracted frames left on this host.",
       "checks": [
         "The run performed at least one successful GET to a VST clip-URL endpoint of the form http://localhost:30888/vst/api/v1/storage/file/<streamId>/url with startTime and endTime query params and returned a JSON body containing videoUrl.",
         "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint with a video_url block referencing that clip URL and the user's question as a text block; HTTP 2xx.",

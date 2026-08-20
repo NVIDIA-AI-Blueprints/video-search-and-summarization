@@ -31,9 +31,9 @@
   from the build's active ES write paths (not the Foundation name), to seed one data view
   per Elasticsearch index family this build writes:
   - Families of a **single** capability → mount that capability's bundle.
-  - Families spanning **more than one** → patch the Foundation's initializer to mount the
-    **union** bundle (the shipped merged bundle in Sources), replacing the single-capability
-    bundle it imports.
+  - Families spanning **more than one** → patch the Foundation's initializer to bind-mount
+    the shipped merged **union** bundle (Sources) **over the exact image-baked path its
+    import script already reads**, not a new path; a mount at any other target is a no-op.
   Never add a second initializer or mount two bundles: the shared `mdx-raw-*`/
   `mdx-behavior-*` views would duplicate and collide on the default-view singleton.
 - `redis` may be used without the full ELK/Kafka set when it is only a cache.
