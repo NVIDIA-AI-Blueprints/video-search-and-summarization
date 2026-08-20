@@ -175,8 +175,8 @@ class _MockSearchServices:
         self._send_json(handler, {"error": f"unexpected {method} {path}"}, status=404)
 
     def _search_response_for(self, path: str, body: Any) -> dict[str, Any]:
-        # Embed now queries the family wildcard (`mdx-embed-filtered-*`) for every
-        # source type, so match by family rather than an exact date-anchored index.
+        # Embed targets the family (`mdx-embed-filtered-*` for rtsp, the
+        # date-anchored index for video_file), so match by family prefix.
         if "mdx-embed-filtered" in path:
             return self.search_response
         if isinstance(body, dict) and body.get("query", {}).get("term", {}).get("object.id.keyword") is not None:
@@ -325,30 +325,27 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     # No preflight probe in the request path any more: index discovery
     # happens once at `vss configure` time, so this is the search itself.
     search_request = mock_services.requests_ending_with("/_search")[-1]
-    # Embed queries the family wildcard for every source type (source-type is a
-    # sensor.type document filter now), never the date anchor.
-    assert search_request.path == "/mdx-embed-filtered-*/_search"
+    # video_file selects the pinned uploads anchor, never a discovered date.
+    assert search_request.path == "/mdx-embed-filtered-2025-01-01/_search"
     # Two multipliers compound: Search doubles top_k so merging adjacent
     # windows can still yield top_k results, and EmbedSearch overfetches 5x
-    # because ES filters may discard KNN hits. top_k=1 -> 2 -> 10.
+    # because the video-source filter may discard KNN hits. top_k=1 -> 2 -> 10.
     assert search_request.body["size"] == 10
     assert search_request.body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
     assert "warehouse_clip" in json.dumps(search_request.body)
-    # video_file partitions positively on sensor.type == "Video".
-    assert '"sensor.type.keyword": "Video"' in json.dumps(search_request.body)
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)
     assert len(mock_services.requests_for("/v1/models")) == 1
     assert len(mock_services.requests_for("/v1/chat/completions")) == 1
 
 
-def test_search_archive_cli_rtsp_queries_embed_wildcard_with_camera_filter(
+def test_search_archive_cli_rtsp_subtracts_uploads_anchor(
     agent_root: Path,
     mock_services: _MockSearchServices,
 ) -> None:
     # Regression: the rtsp flag previously subtracted a discovered "uploads base",
     # returning nothing in a stream-first / single-index deployment. It must now
-    # query the embed family wildcard and partition positively on
-    # sensor.type == "Camera" -- correct regardless of ingestion order.
+    # subtract the pinned uploads anchor from the family wildcard, so live data
+    # is always in scope regardless of ingestion order.
     result = _run_search_archive(
         agent_root,
         mock_services,
@@ -364,8 +361,9 @@ def test_search_archive_cli_rtsp_queries_embed_wildcard_with_camera_filter(
 
     assert result.returncode == 0, result.stderr
     search_request = mock_services.requests_ending_with("/_search")[-1]
-    assert search_request.path == "/mdx-embed-filtered-*/_search"
-    assert '"sensor.type.keyword": "Camera"' in json.dumps(search_request.body)
+    # rtsp queries the wildcard minus the pinned uploads anchor. The CLI joins
+    # the multi-index target with commas in the request path.
+    assert search_request.path == "/mdx-embed-filtered-*,-mdx-embed-filtered-2025-01-01/_search"
 
 
 def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
@@ -470,9 +468,9 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
     ]
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body["text_input"] == "white jacket"
     search_paths = [request.path for request in mock_services.requests_ending_with("/_search")]
-    # Embed leg queries the family wildcard (source_type is a sensor.type doc filter);
-    # the behavior leg still targets the pinned uploads anchor.
-    assert search_paths.count("/mdx-embed-filtered-*/_search") == 1
+    # video_file selects the pinned uploads anchor on both the embed and
+    # behavior legs.
+    assert search_paths.count("/mdx-embed-filtered-2025-01-01/_search") == 1
     assert search_paths.count("/mdx-behavior-2025-01-01/_search") == 1
 
 
@@ -602,7 +600,7 @@ async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
     assert out.data[0].similarity == 0.86
     assert _single(mock_services.requests_for("/v1/generate_text_embeddings")).body["text_input"] == ["red forklift"]
     search_request = _single(mock_services.requests_ending_with("/_search"))
-    assert search_request.path == "/mdx-embed-filtered-*/_search"
+    assert search_request.path == "/mdx-embed-filtered-2025-01-01/_search"
 
 
 def _run_search_archive(

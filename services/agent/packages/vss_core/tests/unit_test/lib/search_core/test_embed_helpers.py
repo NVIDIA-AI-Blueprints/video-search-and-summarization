@@ -20,23 +20,22 @@ _UUID = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
 # ---------------------------------------------------------------- index select
 
 
-def test_select_index_returns_wildcard_for_both_source_types():
-    # Index no longer varies by source type: both query the wildcard and the
-    # sensor.type document filter (build_source_type_filter) does the partitioning.
-    assert h.select_search_index("w-*") == "w-*"
+def test_select_index_video_file_uses_pinned_base():
+    assert h.select_search_index("video_file", "mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-*") == (
+        "mdx-embed-filtered-2025-01-01"
+    )
 
 
-def test_build_source_type_filter():
-    assert h.build_source_type_filter("rtsp") == {"term": {"sensor.type.keyword": "Camera"}}
-    assert h.build_source_type_filter("video_file") == {"term": {"sensor.type.keyword": "Video"}}
+def test_select_index_rtsp_subtracts_base_from_wildcard():
+    assert h.select_search_index("rtsp", "mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-*") == [
+        "mdx-embed-filtered-*",
+        "-mdx-embed-filtered-2025-01-01",
+    ]
 
 
-def test_build_source_type_filter_unknown_raises():
-    # The clause is mandatory (every embed query is partitioned), so an
-    # unrecognized source_type raises rather than dropping the partition,
-    # matching resolve_index_by_source_type.
+def test_select_index_unknown_source_type_raises():
     with pytest.raises(ValueError, match="Unsupported source_type"):
-        h.build_source_type_filter("bogus")
+        h.select_search_index("bogus", "mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-*")
 
 
 # (escaping + video_sources filter now live in _internal/es_filters.py and are
@@ -123,34 +122,21 @@ def test_compute_k_value(top_k, min_cos, has_filters, expected):
     )
 
 
-def _filter_clauses(body: dict) -> list[dict]:
-    """Return the filter clauses from a (single- or multi-clause) ES body."""
-    filter_clause = body["query"]["bool"]["filter"][0]
-    return filter_clause["bool"]["must"] if "bool" in filter_clause else [filter_clause]
-
-
-def test_build_es_query_always_filters_by_source_type():
-    # Every embed query carries a positive sensor.type filter, so it is never
-    # "unfiltered": has_filters is True -> overfetch (top_k * 5).
+def test_build_es_query_unfiltered_uses_top_k_without_overfetch():
+    # No video_sources/description/timestamp -> bare nested query, no overfetch.
     inp = EmbedSearchInput(query="q", source_type="video_file", top_k=4)
     body = h.build_es_query(inp, [0.1, 0.2], default_max_results=100)
-    assert body["size"] == 20
-    assert body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2]
-    assert {"term": {"sensor.type.keyword": "Video"}} in _filter_clauses(body)
+    assert "bool" not in body["query"]
+    assert body["size"] == 4
+    assert body["query"]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2]
 
 
-def test_build_es_query_rtsp_filters_camera():
-    inp = EmbedSearchInput(query="q", source_type="rtsp", top_k=2)
+def test_build_es_query_with_filter_overfetches():
+    # A real filter (a video-source term) may discard hits, so k overfetches (top_k * 5).
+    inp = EmbedSearchInput(query="q", source_type="video_file", top_k=2, video_sources=[_UUID])
     body = h.build_es_query(inp, [0.1], default_max_results=100)
-    assert {"term": {"sensor.type.keyword": "Camera"}} in _filter_clauses(body)
-
-
-def test_build_es_query_combines_source_type_and_description():
-    inp = EmbedSearchInput(query="q", source_type="video_file", top_k=2, description="warehouse")
-    body = h.build_es_query(inp, [0.1], default_max_results=100)
-    # filters -> overfetch (2 * 5)
     assert body["size"] == 10
-    assert {"term": {"sensor.type.keyword": "Video"}} in _filter_clauses(body)
+    assert body["query"]["bool"]["filter"][0] == {"terms": {"sensor.id.keyword": [_UUID]}}
 
 
 # ---------------------------------------------------------------- scoring

@@ -101,10 +101,9 @@ class SearchRuntime:
     # invert ``rtsp`` source-type selection.
     behavior_index: str = BEHAVIOR_INDEX_ANCHOR
     behavior_index_wildcard: str = "mdx-behavior-*"
-    # Retained as the uploads anchor for parity with behavior/raw. The embed read
-    # path partitions by the ``sensor.type`` document field and queries the
-    # wildcard, so it no longer selects an index from this value. (The vss CLI
-    # never reads ``ELASTIC_SEARCH_INDEX``; only the agent container consumes it.)
+    # The embed read path selects ``video_file`` -> this anchor and ``rtsp`` ->
+    # wildcard minus this anchor, exactly as behavior/raw do. (The vss CLI never
+    # reads ``ELASTIC_SEARCH_INDEX``; only the agent container consumes it.)
     video_embed_index: str = VIDEO_EMBED_INDEX_ANCHOR
     video_embed_index_wildcard: str = "mdx-embed-filtered-*"
     frames_index: str | None = None  # None disables frame-level lookups

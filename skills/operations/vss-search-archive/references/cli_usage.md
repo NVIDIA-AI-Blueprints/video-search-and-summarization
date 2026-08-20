@@ -74,10 +74,12 @@ run embed --query "person at entrance" --video-source entrance-camera \
 run fusion --query "person in white jacket running" --attribute "white jacket"
 ```
 
-`--source-type` selects the media kind, not the index inventory: `rtsp` returns
-only live-stream documents and `video_file` only uploaded-file documents,
-whether scoped to a `--video-source` or run unscoped, and regardless of
-ingestion order (stream-first, upload-first, or mixed).
+`--source-type` selects the index partition for a media kind from a fixed
+uploads anchor (never a discovered index): `video_file` targets that anchor and
+`rtsp` targets everything else, so `rtsp` returns only live-stream documents and
+`video_file` only uploaded-file documents, whether scoped to a `--video-source`
+or run unscoped, and regardless of ingestion order (stream-first, upload-first,
+or mixed).
 
 `--video-source` is matched **literally** against the index — the CLI does no
 name↔id resolution or VST validation, so an unknown source silently returns

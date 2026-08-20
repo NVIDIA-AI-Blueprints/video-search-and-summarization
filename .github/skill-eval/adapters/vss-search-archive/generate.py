@@ -220,9 +220,10 @@ RTSP_LIVE_STREAM_CONTRACT_PREAMBLE = (
     "`mdx-embed-filtered-*`, scoped to that stream identity, rather than a single "
     "date-stamped index: a live stream's documents carry wall-clock timestamps and never "
     "land in the `2025-01-01` uploads anchor. Search with `vss search run embed` using the "
-    "resolved sensor ID as `--video-source` and `--source-type rtsp`, which selects "
-    "live-stream documents by media kind so uploaded-file hits are excluded regardless of "
-    "ingestion order. Pass no endpoint, index, or model flags."
+    "resolved sensor ID as `--video-source` and `--source-type rtsp`, which selects the "
+    "live-stream partition (the family wildcard minus the pinned uploads anchor) so "
+    "uploaded-file hits are excluded regardless of ingestion order. Pass no endpoint, "
+    "index, or model flags."
 )
 
 

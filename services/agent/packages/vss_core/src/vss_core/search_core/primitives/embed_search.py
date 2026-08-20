@@ -23,7 +23,9 @@ failures onto the library error hierarchy:
   - empty/whitespace-only input raises ``InvalidInputError`` rather than
     embedding an empty query;
   - ``timestamp_start > timestamp_end`` raises ``InvalidInputError``;
-  - a missing ES index raises ``IndexNotFoundError`` (a ``BackendUnreachableError``);
+  - a ``video_file`` search against the absent uploads anchor returns empty (no
+    files ingested), while any other missing ES index raises
+    ``IndexNotFoundError`` (a ``BackendUnreachableError``);
   - per-hit processing only swallows expected data-shape errors; unexpected
     exceptions propagate instead of silently shrinking the result set.
 """
@@ -44,9 +46,11 @@ from vss_core.vios import map_timestamp_to_timeline
 
 from .._internal.time_measure import TimeMeasure
 from ..errors import BackendUnreachableError
+from ..errors import IndexNotFoundError
 from ..models.embed_search import EmbedSearchInput
 from ..models.embed_search import EmbedSearchOutput
 from ..models.embed_search import EmbedSearchResultItem
+from ..runtime import VIDEO_EMBED_INDEX_ANCHOR
 from . import _embed_helpers as helpers
 
 if TYPE_CHECKING:
@@ -73,6 +77,7 @@ class EmbedSearch:
         es: ElasticIndex,
         embed: TextEmbedder,
         vst: VSTSnapshot,
+        video_embed_index: str = VIDEO_EMBED_INDEX_ANCHOR,
         video_embed_index_wildcard: str = "mdx-embed-filtered-*",
         default_max_results: int = 10,
         owns_es: bool = False,
@@ -81,6 +86,7 @@ class EmbedSearch:
         self._es = es
         self._embed = embed
         self._vst = vst
+        self._index = video_embed_index
         self._index_wildcard = video_embed_index_wildcard
         self._default_k = default_max_results
         self._owns_es = owns_es
@@ -92,7 +98,7 @@ class EmbedSearch:
         """Execute the embed search and return ranked results."""
         inp.validate_semantics()
 
-        search_index = helpers.select_search_index(self._index_wildcard)
+        search_index = helpers.select_search_index(inp.source_type, self._index, self._index_wildcard)
         logger.info(f"Embed search: index={search_index} source_type={inp.source_type} query={scrub_log(inp.query)}")
 
         with TimeMeasure("embed_search: generate query embedding"):
@@ -103,7 +109,20 @@ class EmbedSearch:
         logger.debug(f"Embed search: ES query size={search_query.get('size')} (vector omitted)")
 
         with TimeMeasure("embed_search: ES search execution"):
-            response = await self._search(search_index, search_query)
+            try:
+                response = await self._search(search_index, search_query)
+            except IndexNotFoundError:
+                # Graceful-empty only for the pinned uploads anchor (video_file
+                # against a stack with no ingested files); parity with the
+                # behavior/object paths. Any other missing index is a real fault
+                # and still raises.
+                if search_index != VIDEO_EMBED_INDEX_ANCHOR:
+                    raise
+                logger.warning(
+                    f"Uploads anchor index '{search_index}' does not exist (no files ingested); "
+                    f"returning no {inp.source_type} results."
+                )
+                return EmbedSearchOutput(query_embedding=query_embedding, results=[])
 
         with TimeMeasure("embed_search: process search hits"):
             response_data = response.body if isinstance(getattr(response, "body", None), Mapping) else response
@@ -263,6 +282,7 @@ class EmbedSearch:
                 external_url=rt.require("vst_external_url"),
                 timeout_seconds=rt.request_timeout_seconds,
             ),
+            video_embed_index=rt.video_embed_index,
             video_embed_index_wildcard=rt.video_embed_index_wildcard,
             default_max_results=rt.default_max_results,
             owns_es=owns_es,
