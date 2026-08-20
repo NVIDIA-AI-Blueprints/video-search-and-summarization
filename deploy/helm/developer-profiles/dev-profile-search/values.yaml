@@ -686,7 +686,7 @@ agent:
       limits:
         memory: 8Gi
         cpu: '2'
-    # vss-agent: full explicit container env for Search (Option B). URLs use Helm `tpl` against this chart's values + global.
+    # vss-agent: full explicit container env for Search (Option A, local NIMs). URLs use Helm `tpl` against this chart's values + global.
     env:
       - name: VSS_AGENT_CONFIG_FILE
         value: '{{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}'
