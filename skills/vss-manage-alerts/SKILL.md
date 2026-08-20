@@ -390,22 +390,38 @@ guessing the separator (`warehouse-sample` vs `warehouse_sample`) filters on a v
 does not exist — which returns `count: 0`, not an error.
 
 ```bash
-# 1. exact name, from the source of truth (match the user's wording case-insensitively)
-NAME=$(curl -sf "$VST_API_BASE/sensor/list" \
-  | jq -r '.[] | .name' | grep -i -- "<user's wording, e.g. warehouse>" | head -1)
-# no match → report the sensor as not found and list what exists; do NOT guess a name
+# 1. candidate names, from the source of truth (match the user's wording case-insensitively)
+MATCHES=$(curl -sf "$VST_API_BASE/sensor/list" \
+  | jq -r '.[] | .name' | grep -i -- "<user's wording, e.g. warehouse>")
+# Stop unless exactly one name matched — anything else is a question for the user, not a guess
+[ "$(printf '%s\n' "$MATCHES" | grep -c .)" = 1 ] || { printf '%s\n' "$MATCHES"; exit 1; }
+NAME="$MATCHES"
 ```
 
+No match means the sensor is not registered: say so and list what exists. Several matches
+mean the wording is ambiguous (`warehouse_sample` and `warehouse_sample_2` both contain
+"warehouse") — show them and ask which one. Do not take the first: it answers about a
+different camera, and its count looks exactly as valid as the right one. Feeding all of them
+to the query is worse, because the joined value matches nothing and reads back as `count: 0`.
+
 Fall back to an unfiltered `/incidents` response only when VIOS is unavailable — its
-`sensorId` values are the same strings.
+`sensorId` values are the same strings. That response is **not** an answer on its own: its
+`count`/`total` covers every sensor in the store, so count the documents whose `sensorId`
+equals the sensor asked about and report that, saying the name could not be confirmed
+against VIOS.
 
 ```bash
-# 2. query
-# recent incidents (optionally filter by sensor / category / time / limit)
+# 2. query — run ONE of these two, never both: the unscoped call answers a different
+#    question, and its count is the one that gets misreported as a single sensor's.
+
+# (a) the ask named NO sensor — recent incidents across every sensor
 curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq .
-# scope to one sensor — pass the sensor NAME, not a VIOS UUID.
+
+# (b) the ask named a sensor — scope to it, passing the NAME, not a VIOS UUID.
 # Let curl encode it: a name with a space or reserved character breaks a hand-built URL,
 # and a mangled value filters on something else (silent zero) instead of erroring.
+: "${NAME:?resolve the name first — an empty sensor_id is dropped, not rejected, and the
+   response then covers every sensor in the store}"
 curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "sensor_id=$NAME" \
   --data-urlencode "start_time=<ISO>" \
