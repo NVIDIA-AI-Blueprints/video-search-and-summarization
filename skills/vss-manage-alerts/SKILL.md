@@ -436,6 +436,16 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "sensor_id=$NAME" \
   --data-urlencode "start_time=<ISO>" \
   --data-urlencode "end_time=<ISO>" | jq .
+
+# 3. a scoped `count: 0` is not an answer yet. A rule created without `sensor_name` stores
+#    the VIOS UUID, and the CV/VIOS path stores `camera_id`, so this sensor's rows can sit
+#    under an identity the name will never match. Look before concluding "none":
+curl -sf "$AB/api/v1/realtime/incidents?limit=200" \
+  | jq -r '.incidents[].sensorId' | sort | uniq -c
+UUID=$(curl -sf "$VST_API_BASE/sensor/list" | jq -r --arg n "$NAME" '.[]|select(.name==$n)|.sensorId')
+# that UUID, or a camera id you recognise, listed above → re-run the scoped query with that
+# value and say which identity matched. Nothing related → "none found" is now a checked
+# answer instead of a guess.
 ```
 
 > **`sensor_id` here filters on a stored value, not on a VIOS UUID.** It is an exact
