@@ -21,7 +21,7 @@ commons:
 
       # Update the VST Configs
       - operation_type: "json_update"
-        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/services/vios/configs/vst_config.json"
         backup: true
         updates:
           onvif.max_devices_supported: ${NUM_STREAMS}
