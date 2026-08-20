@@ -61,6 +61,19 @@ services:
       bp-configurator-mv3dt:
         condition: service_healthy
 
+  nvstreamer-amc:
+    extends:
+      file: base.yml
+      service: nvstreamer-base
+    profiles: !override ["nvstreamer-amc"]
+    container_name: vss-vios-nvstreamer-amc
+    volumes:
+      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
+    depends_on:
+      bp-configurator-base:
+        condition: service_healthy
+
   # Developer / smartcity variants. These carry no blueprint configuration of
   # their own beyond vst-config.json, which base.yml mounts from
   # NVSTREAMER_CONFIG_DIR.
