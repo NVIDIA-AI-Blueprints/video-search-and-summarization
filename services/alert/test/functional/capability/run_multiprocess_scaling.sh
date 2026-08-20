@@ -124,6 +124,15 @@ ensure_kafka() {
     sleep 5
 }
 
+kafka_topic_partitions_total() {
+    local total=0 t n
+    for t in "$TOPIC" mdx-alerts; do
+        n=$(topic_partitions "$t")
+        total=$(( total + ${n:-0} ))
+    done
+    echo "$total"
+}
+
 topic_partitions() {
     docker exec "$KAFKA_CONTAINER" kafka-topics --describe \
         --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null \
@@ -744,6 +753,37 @@ readiness_line=${ready_line:-none} last_child_ready=${last_ready:-none}"
     fi
 }
 
+ts_035() {
+    echo ""; echo "=== TS-035: fleet metrics report what the instance actually holds ==="
+    prepare_run "$PROCESSES" false 1 || { record_result TS-035 FAIL "AB startup"; return; }
+
+    # Throughput alone hides degraded capacity, so these have to be right at
+    # rest before they are worth anything under load.
+    local configured alive ready assigned
+    configured=$(prom_value alert_bridge_pipeline_processes_configured)
+    alive=$(prom_value alert_bridge_pipeline_processes_alive)
+    ready=$(prom_value alert_bridge_pipeline_processes_ready)
+    assigned=$(prom_value alert_bridge_assigned_partitions)
+
+    # Every source partition is held exactly once across the instance.
+    local want_partitions; want_partitions=$(kafka_topic_partitions_total)
+
+    local detail="configured=$configured alive=$alive ready=$ready \
+assigned=$assigned/$want_partitions processes=$PROCESSES"
+
+    if python3 -c "
+import sys
+configured, alive, ready = float('${configured:-0}'), float('${alive:-0}'), float('${ready:-0}')
+assigned, want, procs = float('${assigned:-0}'), float('${want_partitions:-0}'), $PROCESSES
+ok = (configured == procs and alive == procs and ready == procs
+      and want > 0 and assigned == want)
+sys.exit(0 if ok else 1)"; then
+        record_result TS-035 PASS "$detail"
+    else
+        record_result TS-035 FAIL "$detail"
+    fi
+}
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo "=== Multi-process scaling suite (no-GPU sim harness) ==="
@@ -780,7 +820,7 @@ fi
 # --skip-setup is most likely to be used.
 purge_stale_consumer_groups
 
-for ts in ts_030 ts_031 ts_032 ts_033 ts_034; do
+for ts in ts_030 ts_031 ts_032 ts_033 ts_034 ts_035; do
     ts_id="TS-${ts#ts_}"
     if [ -n "$ONLY_TEST" ] && [ "$ONLY_TEST" != "$ts_id" ]; then
         continue

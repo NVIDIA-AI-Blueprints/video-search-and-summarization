@@ -41,6 +41,7 @@ instance uses more than the ~1 core a single GIL-bound process can reach.
 | TS-031 | N processes, `SIGKILL` one child | the supervisor logs the exit and stops the instance: every remaining child is reaped and the parent exits, leaving no orphan holding a consumer-group slot |
 | TS-032 | N processes, 60 msg/s overload, `batch_commit` off then on | no shortfall against the produced count in either mode (batched commit may add duplicates, never losses) |
 | TS-033 | N processes, `SIGKILL` one child mid-flight, `batch_commit` off then on | `batch_commit: false` never replays, and nothing is persisted that was never admitted. Loss counts are reported, not gated — `alert_bridge_events_after_dedup_total` counts admission to dispatch, not completion, and one dead child now stops the instance, so in-flight work in *every* child is lost rather than only the dead one's |
+| TS-035 | N processes, at rest | the fleet gauges agree with reality: configured, alive and ready all equal the process count, and the partitions held across the instance equal the partitions that exist |
 | TS-034 | N processes, clean start | the prompt store is seeded exactly once and before the first child starts; every child is given an assignment; the readiness line trails the last child rather than the fork |
 
 Sizing the run matters more than in the suite above:
