@@ -910,23 +910,24 @@ async def upload_media(
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
         headers = {"Content-Type": "application/octet-stream", "Content-Length": str(size)}
-        async with (
-            aiohttp.ClientSession(timeout=timeout) as session,
-            path.open("rb") as handle,
-            session.put(url, data=handle, headers=headers) as response,
-        ):
-            body = await response.text()
-            if response.status == 409:
-                raise VSTError(
-                    f"VIOS already holds a file named {path.name!r}; delete it first "
-                    f"(`vss vios delete --type video --sensor {path.stem}`) or upload under another name"
-                )
-            if response.status not in (200, 201):
-                raise VSTError(f"VIOS upload returned {response.status}: {_vios_error(body)}")
-            try:
-                result = json.loads(body)
-            except Exception as e:
-                raise VSTError(f"Error parsing upload response: {e}") from e
+        # `path.open` is a sync context manager: it cannot join the `async with`.
+        with path.open("rb") as handle:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.put(url, data=handle, headers=headers) as response,
+            ):
+                body = await response.text()
+                if response.status == 409:
+                    raise VSTError(
+                        f"VIOS already holds a file named {path.name!r}; delete it first "
+                        f"(`vss vios delete --type video --sensor {path.stem}`) or upload under another name"
+                    )
+                if response.status not in (200, 201):
+                    raise VSTError(f"VIOS upload returned {response.status}: {_vios_error(body)}")
+                try:
+                    result = json.loads(body)
+                except Exception as e:
+                    raise VSTError(f"Error parsing upload response: {e}") from e
     except _VST_BOUNDARY_ERRORS as e:
         raise VSTError("Failed to upload after retrying transport errors", e) from e
     if not isinstance(result, dict):
