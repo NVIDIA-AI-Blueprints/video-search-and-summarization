@@ -1019,6 +1019,60 @@ class Output(unittest.TestCase):
         self.assertGreater(d["samples"], 0)
         self.assertGreater(d["finished_at"], 0)
 
+    def test_sidecar_separates_a_stated_count_from_a_defaulted_one(self):
+        """`declared_gpu_count: 1` is ambiguous on its own.
+
+        `run_leg.pool_candidates` resolves an absent `gpu_count` to 1, so the
+        number alone cannot distinguish a spec that asked for one GPU from a
+        spec that asked for nothing. 15 of the 50 platform entries in
+        `skills/*/evals/` are the second kind, and reading them as the first
+        turns "no requirement was ever stated" into "the requirement was met".
+        """
+        with tempfile.TemporaryDirectory() as out:
+            _, js = self._run(out, gpu_count_source="spec")
+            stated = json.loads(js.read_text())
+        with tempfile.TemporaryDirectory() as out:
+            _, js = self._run(out, gpu_count_source="default")
+            defaulted = json.loads(js.read_text())
+        self.assertEqual(stated["gpu_count_source"], "spec")
+        self.assertEqual(defaulted["gpu_count_source"], "default")
+        # Same number, different meaning -- which is the whole point of the
+        # field. If these two ever compare equal the ambiguity is back.
+        self.assertEqual(
+            stated["declared_gpu_count"], defaulted["declared_gpu_count"]
+        )
+        self.assertNotEqual(
+            stated["gpu_count_source"], defaulted["gpu_count_source"]
+        )
+
+    def test_sidecar_refuses_a_source_outside_the_allowlist(self):
+        """The value reaches a published artifact, so it is not a free string.
+
+        Anything unrecognised degrades to "default", the conservative reading:
+        it claims only that no requirement was stated, which is never a
+        stronger assertion than the truth.
+        """
+        for hostile in ("spec\nevil", "SPEC", "", "../../etc/passwd", "1"):
+            with self.subTest(source=hostile):
+                with tempfile.TemporaryDirectory() as out:
+                    _, js = self._run(out, gpu_count_source=hostile)
+                    d = json.loads(js.read_text())
+                self.assertEqual(d["gpu_count_source"], "default")
+                self.assertIn(d["gpu_count_source"], mod.GPU_COUNT_SOURCES)
+
+    def test_sidecar_declares_its_schema_version(self):
+        """A reader must be able to tell whether `gpu_count_source` is there.
+
+        Schema 1 sidecars carried `declared_gpu_count` with no way to know it
+        might be a default, so the version is how a collector learns it may
+        now trust the distinction.
+        """
+        with tempfile.TemporaryDirectory() as out:
+            _, js = self._run(out)
+            d = json.loads(js.read_text())
+        self.assertEqual(d["schema"], 2)
+        self.assertIn("gpu_count_source", d)
+
     def test_sidecar_carries_no_host_identifiers_beyond_the_box_name(self):
         with tempfile.TemporaryDirectory() as out:
             _, js = self._run(out)

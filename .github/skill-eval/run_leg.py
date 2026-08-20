@@ -1283,6 +1283,7 @@ def run_invocations(
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
     declared_gpu_count: int | None = None,
+    gpu_count_source: str = "default",
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -1386,6 +1387,7 @@ def run_invocations(
                     # silently replaced the first.
                     chain=str(invocation.chain_key or invocation.include_task_name or ""),
                     declared_gpu_count=declared_gpu_count,
+                    gpu_count_source=gpu_count_source,
                     skill=os.environ.get("EVAL_SKILL", ""),
                     harbor_timeout_sec=harbor_timeout_sec,
                 ):
@@ -1576,7 +1578,19 @@ def main(argv: list[str] | None = None) -> int:
                     # The declaration under test. It has to travel with the
                     # measurement, because "declared 2 GPUs, used 1" is the whole
                     # question and the spec is the only place the 2 comes from.
+                    #
+                    # The resolved count keeps pool_candidates' exact reading
+                    # (absent -> 1, explicit 0/null -> GPU-independent), while
+                    # the source says whether that number was ever stated:
+                    # 15 of the 50 platform entries in skills/*/evals/ omit
+                    # gpu_count, and for those "declared 1" is this default
+                    # talking, not the spec. Without the second field the
+                    # sidecar cannot tell a satisfied requirement from an
+                    # absent one.
                     declared_gpu_count=int(metadata.get("gpu_count", 1) or 0),
+                    gpu_count_source=(
+                        "spec" if "gpu_count" in metadata else "default"
+                    ),
                 )
         except LockTimeoutError:
             leg_timing.record_phase(
