@@ -6,30 +6,25 @@ commons:
         target_directories:
           - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
-          action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
+          action: "file_count" # Keep only the last ${final_stream_count} videos in the directory
           parameters:
-            count: ${final_stream_count}
-            pattern: "*.mp4"
-
-  variables:
-    auto-calibration:
-      - final_stream_count: "${NUM_STREAMS}"
+            pattern: "*.mp4"          # File pattern to match
+          output_variable: NUM_STREAMS # Output the number of files matching the pattern to the NUM_STREAMS variable
 
   file_operations:
     auto-calibration:
-    variables:
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/services/nvstreamer/configs/vst-config.json"
         backup: true 
         updates:
-          data.nv_streamer_sync_file_count: ${final_stream_count}
+          data.nv_streamer_sync_file_count: ${NUM_STREAMS}
 
       # Update the VST Configs
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          onvif.max_devices_supported: ${effective_max_streams_supported}
+          onvif.max_devices_supported: ${NUM_STREAMS}
           data.always_recording: true
 
       - operation_type: "file_management"
@@ -39,5 +34,5 @@ commons:
         file_management:
           action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
           parameters:
-            count: ${final_stream_count}
+            count: ${NUM_STREAMS}
             pattern: "*.mp4"

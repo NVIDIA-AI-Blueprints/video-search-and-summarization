@@ -34,8 +34,8 @@ services:
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
-      ENABLE_SENSOR_CONFIGURATOR: false
-      PROFILE_CONFIG_FILE: $VSS_APPS_DIR/services/configurators/vss-configurator/configs/$CONFIGURATOR_CONFIG_FILE
+      ENABLE_SENSOR_CONFIGURATOR: true
+      PROFILE_CONFIG_FILE: $VSS_APPS_DIR/services/configurators/vss-configurator/configs/blueprint_config.yml
       ENABLE_REDIS_DUPLICATOR_THREAD: false
       CALL_SENSOR_ADD_API: false
       HARDWARE_PROFILE: $HARDWARE_PROFILE
