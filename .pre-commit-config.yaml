@@ -71,7 +71,7 @@ repos:
     name: License Check (Python deps)
     entry: bash .github/scripts/check_python_licenses.sh
     language: system
-    files: ^services/agent/(pyproject\.toml|uv\.lock)$
+    files: ^services/(agent|dt-based-calibration)/(pyproject\.toml|uv\.lock)$
     pass_filenames: false
     stages: [pre-commit]
 

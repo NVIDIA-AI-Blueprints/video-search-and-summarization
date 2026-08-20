@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 ARG IMAGE_ARCH=amd64
 ARG PYTHON_VERSION=3.12
 ARG TAG=v3.5.2
