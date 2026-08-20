@@ -9,7 +9,7 @@ VIOS is a **multi-container microservice**, deployed in one of two routing modes
 1. **Direct routing** (`VST_USE_SDRC=false`, `VST_NGINX_MODE=vst`, used by `bp_developer_base_2d`) — 4 long-running containers: `vss-vios-postgres` (centralizedb), `vss-vios-ingress` (nginx routing via `nginx-vst.conf`, the direct variant), `vss-vios-sensor` (sensor-ms with `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001` → calls streamprocessing directly, no L7 router), and `vss-vios-streamprocessing` (streamprocessing-ms — HTTP on 30001, RTSP server pool 30554–30564, WebRTC on 80). No SDRC. Per `dev-profile-base/.env` ("Direct streamprocessing (no SDR/Envoy/SDRC router on :10000)").
 2. **SDRC-routed** (`VST_USE_SDRC=true`, `VST_NGINX_MODE=vst-sdrc` — the default inherited from `services/vios/vst.env` — used by `bp_developer_lvs_2d`, `bp_developer_search_2d`, `bp_developer_alerts_2d_{cv,vlm}`, and all `bp_wh_*` warehouse profiles) — adds a 5th long-running container `sdr-controller` (the SDRC workload — combined WDM controller + Envoy router; **image from `SDR_MW_L_IMAGE` in [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml)** — **example default:** `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.4.0-2026.08.3-1`; resolve from compose before pull/deploy; controller on `WDM_CONTROLLER_PORT=5003`, SDRC direct listener on `8011`, Envoy admin on `9902`, and the rendered Envoy listener `WDM_MS_LISTENER_PORT` from `config.yml` — default `10000`, matching the SDRC-mode default of `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:10000` in `vss-vios-sensor`). Plus five one-shot SDRC init containers (`init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`). Direct `depends_on` for `sdr-controller` — see [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 164-171 — are `broker-health-check` (external, `required: false`), `init-dirs`, and `wdm-env-from-config`. `render-config` is transitive (required by `wdm-env-from-config`). The two `wait-for-*` inits still only gate downstream peer services (e.g. RT-CV). `sdr-controller` does not mount `.wdm-env` for its own env (compose env is explicit), but it does wait for `wdm-env-from-config` to complete.
 
-Container suffixes on `streamprocessing-ms` (`-2d`, `-3d`, `-mv3dt`) reflect industry-profile variants — only the base `streamprocessing-ms` runs in IN-1. Source: `vios-microservices.rst` § VIOS Microservices table + [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) + [`dev-profile-base/.env`](../../../deploy/docker/developer-profiles/dev-profile-base/.env) + verified live on `2xRTXPro-ubuntu` 2026-05-23.
+Container suffixes on `streamprocessing-ms` (`-2d`, `-3d`) reflect industry-profile variants, and `-mc-tracking` reflects the `mc-tracking` developer-profile variant — only the base `streamprocessing-ms` runs in IN-1. Source: `vios-microservices.rst` § VIOS Microservices table + [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) + [`dev-profile-base/.env`](../../../deploy/docker/developer-profiles/dev-profile-base/.env) + verified live on `2xRTXPro-ubuntu` 2026-05-23.
 
 **SDR → SDRC migration.** The legacy `vss-vios-sdr` (Flask WDM agent on port 4003, image `nvcr.io/nvidia/vss-core/sdr:3.1.0`) + `vss-vios-envoy` (L7 proxy on 10000, image `nvcr.io/nvidia/vss-core/envoy-proxy:3.1.0`) pair is **deprecated** and removed from `develop`. Both responsibilities (workload discovery + L7 routing) are consolidated in the single `sdr-controller` workload defined in [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml). The `localhost:10000` contract that downstream callers depend on is preserved by the SDRC-rendered Envoy listener (`WDM_MS_LISTENER_PORT`). New deployments should reference SDRC only.
 
@@ -133,10 +133,10 @@ component_services:
           - key: sensor-ms-3d
             file: services/vios/initiator/docker-compose.yaml
             role: VST adaptor preconfigured with the warehouse-3d vst_config overlay.
-        warehouse-mv3dt:
-          - key: sensor-ms-mv3dt
+        mc-tracking:
+          - key: sensor-ms-mc-tracking
             file: services/vios/initiator/docker-compose.yaml
-            role: VST adaptor preconfigured with the multi-view warehouse vst_config overlay.
+            role: VST adaptor preconfigured with the mc-tracking developer-profile vst_config overlay.
   # Streamprocessing — sibling-variant branching by the SAME topology selector as sensor-ms
   - variants:
       key: sensor_topology
@@ -153,10 +153,10 @@ component_services:
           - key: streamprocessing-ms-3d
             file: services/vios/streamprocessing/docker-compose.yaml
             role: DeepStream pipeline with warehouse-3d label overlay.
-        warehouse-mv3dt:
-          - key: streamprocessing-ms-mv3dt
+        mc-tracking:
+          - key: streamprocessing-ms-mc-tracking
             file: services/vios/streamprocessing/docker-compose.yaml
-            role: DeepStream pipeline with multi-view warehouse label overlay.
+            role: DeepStream pipeline with mc-tracking developer-profile label overlay.
   # bp-configurator wait shim — NOT in any default allow-list; warehouse profiles only.
   - key: sensor-bp-wait-bp-configurator
     file: services/vios/initiator/docker-compose.yaml

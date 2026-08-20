@@ -19,7 +19,7 @@ This is still the standalone RT-CV-3D path. Do not switch to warehouse compose f
 |---|---|
 | Models | Extracted `vss-warehouse-app-data/models` from the NGC warehouse app-data resource |
 | Videos | Extracted `vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/` |
-| Calibration | Repo sample `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json` |
+| Calibration | Repo sample `deploy/docker/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json` |
 | BEV map | Repo sample `.../warehouse-4cams-20mx20m-synthetic/images/Top.png` |
 | BEV transforms | Generate with `scripts/generate-transforms.sh` into `generated/bev-dataset/transforms.yml` |
 
@@ -117,7 +117,7 @@ The repo sample calibration path is used only as an input artifact; the runtime 
 ```bash
 cd "${RTCV3D_APP:?set RTCV3D_APP}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-SAMPLE_DATA="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic"
+SAMPLE_DATA="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic"
 CALIBRATION_JSON="${SAMPLE_DATA}/calibration.json"
 MAP_PNG="${SAMPLE_DATA}/images/Top.png"
 

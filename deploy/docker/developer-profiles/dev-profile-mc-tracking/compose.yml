@@ -1,0 +1,194 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  vss-behavior-analytics-mc-tracking:
+    extends:
+      file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      service: vss-behavior-analytics-base
+    profiles: ["vss-behavior-analytics-mc-tracking"]
+    volumes:
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+    container_name: vss-behavior-analytics-mc-tracking
+    networks:
+      default:
+        aliases:
+          - vss-behavior-analytics
+    command: python3 apps/analytics/main_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  vss-behavior-analytics-playback-mc-tracking:
+    extends:
+      file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      service: vss-behavior-analytics-base
+    profiles: ["vss-behavior-analytics-playback-mc-tracking"]
+    volumes:
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+      - $VSS_DATA_DIR/playback/warehouse_20x20_playback.txt:/opt/mdx/playback/warehouse_20x20_playback.txt
+    container_name: vss-behavior-analytics-playback-mc-tracking
+    command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_20x20_playback.txt
+
+  bp-configurator-mc-tracking-init:
+    extends:
+      file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
+      service: bp-configurator-init-base
+    profiles: ["bp-configurator-mc-tracking-init"]
+    container_name: vss-configurator-mc-tracking-init
+
+  bp-configurator-mc-tracking:
+    extends:
+      file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
+      service: bp-configurator-base
+    container_name: vss-configurator-mc-tracking
+    networks:
+      default:
+        aliases:
+          - vss-configurator
+    profiles: ["bp-configurator-mc-tracking"]
+    environment:
+      PROFILE_CONFIG_FILE: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/blueprint-configurator/blueprint_config.yml
+      DS_CONFIG_DIR: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/deepstream/configs
+      NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/nvstreamer/configs
+      RECOMPUTE_BEV_CENTERS_ENABLED: true
+      SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/camera_configs/camera_info.json}
+      CHECK_SENSOR_IN_CALIBRATION_FILE: true
+      SEND_CONFIG_TO_SDR: true
+      ENABLE_CALIBRATION_PROCESS: true
+    env_file:
+      - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/.env}
+      - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/overrides.env}
+    volumes:
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking:$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking:rw
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
+    depends_on:
+      bp-configurator-mc-tracking-init:
+        condition: service_completed_successfully
+
+  kibana-init-container-mc-tracking:
+    build:
+      context: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking
+      dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
+    profiles: ["kibana-init-container-mc-tracking"]
+    container_name: vss-kibana-init-mc-tracking
+    volumes:
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/kibana-dashboard/mc-tracking-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
+    command: bash /opt/vss/init-scripts/kibana-import-dashboard.sh
+    depends_on:
+      kibana:
+        condition: service_healthy
+
+  vss-video-analytics-api-mc-tracking:
+    extends:
+      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
+      service: vss-video-analytics-api
+    profiles: ["vss-video-analytics-api-mc-tracking"]
+    container_name: vss-video-analytics-api-mc-tracking
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      elasticsearch-init-container:
+        condition: service_completed_successfully
+
+  import-calibration-output-container-mc-tracking:
+    build:
+      context: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking
+      dockerfile: Dockerfiles/import-calibration.Dockerfile
+    profiles: ["import-calibration-output-container-mc-tracking"]
+    container_name: vss-import-calibration-output-mc-tracking
+    volumes:
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
+    command: bash /opt/vss/init-scripts/calibration-import.sh
+    depends_on:
+      - vss-video-analytics-api-mc-tracking
+
+  # Extends the generic, shared rtvi-cv-mv3dt library (services/rtvi/rtvi-cv/rtvi-cv-mv3dt/) —
+  # that path is a shared capability name, not this profile's own packaging.
+  vss-rtvi-cv-bev-fusion-mc-tracking:
+    extends:
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
+      service: measurement-fusion
+    # Base "measurement-fusion" hardcodes container_name: vss-rtvi-cv-bev-fusion; override
+    # so this profile has its own distinct container name.
+    container_name: vss-rtvi-cv-bev-fusion-mc-tracking
+    profiles: ["vss-rtvi-cv-bev-fusion-mc-tracking"]
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  vss-rtvi-cv-mc-tracking:
+    extends:
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
+      service: perception
+    user: "0:0"
+    profiles: ["vss-rtvi-cv-mc-tracking"]
+    # Base "perception" hardcodes container_name: vss-rtvi-cv-mv3dt; override so this
+    # profile has its own distinct container name. Note: Compose `extends` unions
+    # network alias lists rather than replacing them, so this service still also
+    # answers to the inherited "vss-rtvi-cv-mv3dt" alias on the Compose network —
+    # harmless as long as this profile isn't started alongside another profile that
+    # also uses that alias, but flagging so it isn't mistaken for a bug later.
+    container_name: vss-rtvi-cv-mc-tracking
+    networks:
+      default:
+        aliases:
+          - vss-rtvi-cv-mc-tracking
+
+    volumes:
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/models-download.json:/opt/config/models-download.json:ro
+      - $VSS_APPS_DIR/services/rtvi/rtvi-cv/download-models.sh:/opt/scripts/download-models.sh:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/:/tmp/camInfo/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/deepstream/init-scripts/ds-start-mc-tracking.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mc-tracking.sh
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/deepstream/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
+
+    environment:
+      INSTANCE_ID: "0"
+      DS_HTTP_PORT: "9000"
+      BATCH_SIZE: "${NUM_STREAMS:-4}"
+      MAX_BATCH_SIZE: "${NUM_STREAMS:-4}"
+      MQTT_HOST: "${MQTT_HOST:-mosquitto}"
+      MQTT_PORT: "${MQTT_PORT:-1883}"
+      DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
+      STREAM_TYPE: ${STREAM_TYPE}
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
+      OTEL_SERVICE_NAME: "rtvi-cv-mc-tracking"
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      MODELS_MANIFEST_PATH: /opt/config/models-download.json
+      MODELS_DEST_ROOT: /opt/storage
+      STORAGE_UID: ${STORAGE_UID:-1001}
+      STORAGE_GID: ${STORAGE_GID:-1001}
+      DS_MODEL_DOWNLOAD: auto
+      DOWNLOAD_MODELS_SCRIPT: /opt/scripts/download-models.sh
+    command: ["./ds-start-mc-tracking.sh"]
+    depends_on:
+      sensor-ms-mc-tracking:
+        condition: service_started
+      broker-health-check:
+        condition: service_completed_successfully
+      vss-rtvi-cv-bev-fusion-mc-tracking:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy

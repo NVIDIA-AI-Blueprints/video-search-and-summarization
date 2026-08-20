@@ -170,9 +170,9 @@ services:
         condition: service_completed_successfully
         required: false
 
-  sensor-ms-mv3dt:
+  sensor-ms-mc-tracking:
     image: ${VSS_VIOS_SENSOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-sensor}:${VSS_VIOS_SENSOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
-    profiles: ["sensor-ms-mv3dt"]
+    profiles: ["sensor-ms-mc-tracking"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
@@ -192,8 +192,8 @@ services:
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
     container_name: vss-vios-sensor

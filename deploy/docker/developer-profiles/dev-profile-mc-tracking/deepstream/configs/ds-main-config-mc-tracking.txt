@@ -14,8 +14,8 @@
 # limitations under the License.
 
 # ============================================================================
-# RT-DETR + MV3DT pipeline for warehouse-mv3dt-app
-# Uses standard nvinfer (RT-DETR detector) + NvMultiObjectTracker (MV3DT)
+# RT-DETR + MC-Tracking pipeline for the mc-tracking developer profile
+# Uses standard nvinfer (RT-DETR detector) + NvMultiObjectTracker (MC-Tracking)
 # instead of the Sparse4D custom videotemplate.
 # ============================================================================
 
@@ -173,7 +173,7 @@ tracker-height=1088
 display-tracking-id=1
 gpu-id=0
 ll-lib-file=/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so
-ll-config-file=ds-mv3dt-tracker-config.yml
+ll-config-file=ds-mc-tracking-tracker-config.yml
 
 [tests]
 file-loop=0

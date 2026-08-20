@@ -3,18 +3,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# RT-DETR + MV3DT pipeline start script for single-container deployment.
+# RT-DETR + MC-Tracking pipeline start script for single-container deployment.
 #
 # Generated files:
 #   /tmp/generated/pub_sub_info_config.yml
 
-echo "##### RT-DETR + MV3DT pipeline #####"
+echo "##### RT-DETR + MC-Tracking pipeline #####"
 
 ARCH="$(uname -m)"
 # libgomp/libGLdispatch must load first to reserve static TLS; keep any
 # preloads supplied by the image or operator after them.
-MV3DT_PRELOAD="/usr/lib/${ARCH}-linux-gnu/libgomp.so.1:/usr/lib/${ARCH}-linux-gnu/libGLdispatch.so.0"
-export LD_PRELOAD="${MV3DT_PRELOAD}${LD_PRELOAD:+:${LD_PRELOAD}}"
+MC_TRACKING_PRELOAD="/usr/lib/${ARCH}-linux-gnu/libgomp.so.1:/usr/lib/${ARCH}-linux-gnu/libGLdispatch.so.0"
+export LD_PRELOAD="${MC_TRACKING_PRELOAD}${LD_PRELOAD:+:${LD_PRELOAD}}"
 
 # Phase 0: manifest-driven NGC model acquisition (replaces Compose/Helm download init).
 ensure_models_from_manifest() {
@@ -50,7 +50,10 @@ ensure_models_from_manifest() {
     fi
 
     echo "##### Model download phase (manifest=${manifest}, script=${script}) #####"
-    bash "$script"
+    if ! bash "$script"; then
+        echo "ERROR: model download failed (script=${script}, manifest=${manifest}); refusing to start DeepStream without required model files" >&2
+        exit 1
+    fi
 }
 
 # Supplementary groups the runtime user needs for GPU access. Tegra ships
@@ -218,9 +221,9 @@ echo -e "\nPGIE config:"
 cat "${CONFIG_DIR}/ds-pgie-config.yml"
 
 echo -e "\nTracker config:"
-cat "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+cat "${CONFIG_DIR}/ds-mc-tracking-tracker-config.yml"
 
-echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
+echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MC-Tracking)..."
 echo -e "\nMain config:"
-cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
-exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
+cat "${CONFIG_DIR}/ds-main-config-mc-tracking.txt"
+exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mc-tracking.txt" -m 1 -t 0 -l 5 --message-rate 1

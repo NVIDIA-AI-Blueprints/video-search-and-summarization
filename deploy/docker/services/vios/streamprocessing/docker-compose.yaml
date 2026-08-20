@@ -24,7 +24,7 @@ services:
   vios-apt-cache-init:
     image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     container_name: vios-apt-cache-init
-    profiles: ["streamprocessing-ms", "streamprocessing-ms-2d", "streamprocessing-ms-3d", "streamprocessing-ms-mv3dt", "nvstreamer-alerts", "nvstreamer-lvs", "nvstreamer-2d-fusion", "nvstreamer-2d", "nvstreamer-3d", "nvstreamer-mv3dt"]
+    profiles: ["streamprocessing-ms", "streamprocessing-ms-2d", "streamprocessing-ms-3d", "streamprocessing-ms-mc-tracking", "nvstreamer-alerts", "nvstreamer-lvs", "nvstreamer-2d-fusion", "nvstreamer-2d", "nvstreamer-3d", "nvstreamer-mc-tracking"]
     user: "0:0"
     environment:
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
@@ -248,9 +248,9 @@ services:
       vios-apt-cache-init:
         condition: service_completed_successfully
 
-  streamprocessing-ms-mv3dt:
+  streamprocessing-ms-mc-tracking:
     image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
-    profiles: ["streamprocessing-ms-mv3dt"]
+    profiles: ["streamprocessing-ms-mc-tracking"]
     container_name: vss-vios-streamprocessing
     ports:
       - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -285,11 +285,11 @@ services:
       - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
       - vios_apt_cache:/opt/apt-cache:ro
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video

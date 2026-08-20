@@ -64,7 +64,7 @@ operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
-**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
+**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `mc-tracking`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
 
 | Profile | Workflow it deploys |
 |---|---|
@@ -72,6 +72,7 @@ skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 | `search` | Natural-language search across video archives using embeddings |
 | `lvs` | Summarization of long recordings via chunking + dense-caption aggregation |
 | `alerts` | Real-time perception → behavior analytics → VLM alert verification |
+| `mc-tracking` | Multi-camera 3D person/forklift tracking with BEV fusion and behavior analytics (no agent/LLM/VLM) |
 | `warehouse` / `edge` | Industry example stacks and edge-device deployments |
 
 ---
@@ -82,7 +83,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 | I want to… | Use this skill |
 |---|---|
-| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
+| Stand up a whole VSS workflow (base / search / lvs / alerts / mc-tracking / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](vss-summarize-video/SKILL.md) |
 | Ask a one-off visual question about a clip | [`vss-ask-video`](vss-ask-video/SKILL.md) |
@@ -92,7 +93,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Read incidents, metrics, or sensor data (incl. Slack/Kafka feeds) | [`vss-query-analytics`](vss-query-analytics/SKILL.md) |
 | Add a camera, extract a clip, grab a snapshot, manage recordings | [`vss-manage-video-io-storage`](vss-manage-video-io-storage/SKILL.md) |
 | Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](vss-deploy-detection-tracking-2d/SKILL.md) |
-| Run standalone RTVI-CV-3D / MV3DT multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
+| Run standalone RTVI-CV-3D multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
 | Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](vss-deploy-dense-captioning/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](vss-deploy-video-embedding/SKILL.md) |
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](vss-generate-video-calibration/SKILL.md) |
@@ -114,14 +115,14 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 ### Deployment & infrastructure
 | Skill | Description |
 |---|---|
-| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `mc-tracking`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
 | [vss-generate-video-calibration](vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
 ### Layer 1 — Real-time video intelligence
 | Skill | Description |
 |---|---|
 | [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
-| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
+| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; full VIOS-backed `mc-tracking` developer-profile requests route to `vss-deploy-profile`. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
 | [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
 
@@ -129,7 +130,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Skill | Description |
 |---|---|
 | [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
-| [vss-setup-behavior-analytics](vss-setup-behavior-analytics/SKILL.md) | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mv3dt, search_and_alerts), point it at a profile-shipped or custom config and optional calibration, and (with a Kafka / Redis Streams / MQTT broker reachable) push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
+| [vss-setup-behavior-analytics](vss-setup-behavior-analytics/SKILL.md) | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mc-tracking, search_and_alerts), point it at a profile-shipped or custom config and optional calibration, and (with a Kafka / Redis Streams / MQTT broker reachable) push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
 | [vss-setup-video-analytics-api](vss-setup-video-analytics-api/SKILL.md) | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
 
 ### Layer 3 — Agent & offline processing

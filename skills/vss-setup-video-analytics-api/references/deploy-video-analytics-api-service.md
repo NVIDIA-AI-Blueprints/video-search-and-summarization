@@ -146,11 +146,11 @@ Every profile extends the same base service and adds its own `depends_on` and `p
 |---|---|---|---|
 | `warehouse-2d-app/warehouse-2d-app.yml` | `vss-video-analytics-api-2d` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
 | `warehouse-3d-app/warehouse-3d-app.yml` | `vss-video-analytics-api-3d` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
-| `warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | `vss-video-analytics-api-mv3dt` | `vss-video-analytics-api-mv3dt` | `broker-health-check`, `elasticsearch-init-container` |
+| `developer-profiles/dev-profile-mc-tracking/compose.yml` | `vss-video-analytics-api-mc-tracking` | `vss-video-analytics-api-mc-tracking` | `broker-health-check`, `elasticsearch-init-container` |
 | `dev-profile-alerts/compose.yml` | `vss-video-analytics-api-alerts` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
 | `dev-profile-search/video-analytics-2d-app/compose.yml` | `vss-video-analytics-api-fusion` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
 
-The `import-calibration-output-container` in warehouse profiles depends on the video-analytics-api service — it POSTs calibration data to the API after startup.
+The `import-calibration-output-container` in warehouse profiles and the `mc-tracking` developer profile depends on the video-analytics-api service — it POSTs calibration data to the API after startup.
 
 ---
 

@@ -874,7 +874,6 @@ _warehouse_model_config_failed=0
 _warehouse_root="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations"
 _warehouse_2d_manifest="${_warehouse_root}/warehouse-2d-app/models-download.json"
 _warehouse_3d_manifest="${_warehouse_root}/warehouse-3d-app/models-download.json"
-_warehouse_mv3dt_manifest="${_warehouse_root}/warehouse-mv3dt-app/models-download.json"
 
 if ! jq -e '
   .downloads == [{
@@ -900,15 +899,6 @@ if ! jq -e '
   ((_warehouse_model_config_failed++)) || true
 fi
 
-if ! jq -e '
-  (.downloads | length) == 2
-  and any(.downloads[]; .model == "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2" and .destPath == "rtdetr_warehouse_v1.0.2.fp16.onnx")
-  and any(.downloads[]; .model == "nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0" and .sourcePath == "bodypose3dnet_accuracy.onnx" and .destPath == "BodyPose3DNet/bodypose3dnet_accuracy.onnx")
-' "${_warehouse_mv3dt_manifest}" >/dev/null; then
-  echo "FAIL: warehouse MV3DT manifest should download flattened RT-DETR and BodyPose3DNet artifacts"
-  ((_warehouse_model_config_failed++)) || true
-fi
-
 if [[ ! -s "${_warehouse_root}/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy" ]]; then
   echo "FAIL: warehouse 3D repository anchor asset is missing or empty"
   ((_warehouse_model_config_failed++)) || true
@@ -922,16 +912,14 @@ fi
 
 if grep -E 'models/mtmc|models/sparse4d/ov|models-download-warehouse-' \
   "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
-  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
-  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml" >/dev/null; then
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" >/dev/null; then
   echo "FAIL: warehouse Compose should not use legacy app-data model mounts or download init services"
   ((_warehouse_model_config_failed++)) || true
 fi
 
 for _wh_yml in \
   "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
-  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
-  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"; do
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml"; do
   if ! grep -q 'models-download.json:/opt/config/models-download.json:ro' "${_wh_yml}"; then
     echo "FAIL: ${_wh_yml} should mount models-download.json for ds-start phase 0"
     ((_warehouse_model_config_failed++)) || true
@@ -1025,18 +1013,6 @@ if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
   ((TESTS_PASSED++)) || true
 else
   echo "FAIL: warehouse MV3DT skill should not reference legacy app-data model paths"
-  ((TESTS_FAILED++)) || true
-fi
-
-_compose_mv3dt_root="${_warehouse_root}/warehouse-mv3dt-app"
-_helm_mv3dt_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
-if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_mv3dt_start}" \
-  && grep -q 'PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml" \
-  && grep -q 'PERCEPTION_TAG:-3.3.0-26.07.2' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
-  echo "PASS: warehouse MV3DT startup script and perception fallback are aligned across Compose and Helm"
-  ((TESTS_PASSED++)) || true
-else
-  echo "FAIL: warehouse MV3DT Compose and Helm startup semantics or perception fallback diverged"
   ((TESTS_FAILED++)) || true
 fi
 
@@ -1283,9 +1259,9 @@ _warehouse_stable_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-op
 _warehouse_overrides_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
 _warehouse_host_port_keys=(
   HAPROXY_HOST_PORT VSS_UI_HOST_PORT VSS_AGENT_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT
-  VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT RTVI_CV_MV3DT_HOST_PORT RTVI_VLM_PORT NVSTREAMER_HTTP_HOST_PORT PHOENIX_HOST_PORT ELASTICSEARCH_HOST_PORT
+  VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT RTVI_VLM_PORT NVSTREAMER_HTTP_HOST_PORT PHOENIX_HOST_PORT ELASTICSEARCH_HOST_PORT
   KAFKA_HOST_PORT REDIS_HOST_PORT KIBANA_HOST_PORT TURN_HOST_PORT TURN_MIN_RELAY_HOST_PORT TURN_MAX_RELAY_HOST_PORT
-  MQTT_HOST_PORT VST_INGRESS_HOST_PORT SENSOR_HTTP_HOST_PORT STREAM_PROCESSOR_HTTP_HOST_PORT RTSP_SERVER_HOST_PORT RTSP_SERVER_HOST_PORT_END
+  VST_INGRESS_HOST_PORT SENSOR_HTTP_HOST_PORT STREAM_PROCESSOR_HTTP_HOST_PORT RTSP_SERVER_HOST_PORT RTSP_SERVER_HOST_PORT_END
   SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT
   DCGM_EXPORTER_HOST_PORT PROMETHEUS_HOST_PORT GRAFANA_HOST_PORT NODE_EXPORTER_HOST_PORT CADVISOR_HOST_PORT
   VSS_AUTO_CALIBRATION_HOST_PORT VSS_AUTO_CALIBRATION_UI_HOST_PORT
@@ -1294,10 +1270,8 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
   _warehouse_compose_profile_keys=(
     COMPOSE_PROFILES_WH_2D
     COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
-    COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
-    COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
+    COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D
     COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
-    COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
     COMPOSE_PROFILES
   )
   if grep -Eq "^COMPOSE_PROJECT_NAME=" "${_warehouse_stable_env}"; then
@@ -1308,7 +1282,7 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     echo "FAIL: warehouse overrides.env should define user-facing compose project name COMPOSE_PROJECT_NAME"
     ((_split_failed++)) || true
   fi
-  for _key in NVSTREAMER_2D_CONFIG_DIR NVSTREAMER_3D_CONFIG_DIR NVSTREAMER_MV3DT_CONFIG_DIR; do
+  for _key in NVSTREAMER_2D_CONFIG_DIR NVSTREAMER_3D_CONFIG_DIR; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define blueprint path ${_key}"
       ((_split_failed++)) || true
@@ -1399,7 +1373,7 @@ _nvstreamer_service_definition_specs=(
   "nvstreamer-2d-fusion:deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml"
   "nvstreamer-2d:deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml"
   "nvstreamer-3d:deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml"
-  "nvstreamer-mv3dt:deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"
+  "nvstreamer-mc-tracking:deploy/docker/developer-profiles/dev-profile-mc-tracking/compose.yml"
 )
 for _spec in "${_nvstreamer_service_definition_specs[@]}"; do
   _service="${_spec%%:*}"
