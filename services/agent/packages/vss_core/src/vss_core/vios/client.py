@@ -28,9 +28,12 @@ OO wrapper.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import json
 import logging
+import re
+from typing import TYPE_CHECKING
 from typing import Literal
 import urllib.parse
 
@@ -40,6 +43,9 @@ from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.retry import create_retry_strategy
 from vss_core._foundation.sanitize import quote_path_segment
 from vss_core._foundation.time import iso8601_to_datetime
+
+if TYPE_CHECKING:
+    import pathlib
 
 logger = logging.getLogger(__name__)
 
@@ -613,3 +619,400 @@ class VSTClient:
 
     async def aclose(self) -> None:
         return None
+
+
+# ------------------------------------------------------------ media plane
+#
+# Operations behind `vss vios`. Ported from vss_agents/tools/vst/* so the CLI
+# does not depend on vss_agents (which pulls nvidia-nat, and the CLI is
+# NAT-free). Single copy: where the agent carried two implementations of a
+# delete or a timeline read, only one lands here.
+
+
+#: Uploaded filenames become the sensor's name, so they are the addressable
+#: handle. VIOS rejects whitespace outright; the rest of this is convention.
+_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+@dataclasses.dataclass(frozen=True)
+class SensorRef:
+    """A resolved VIOS sensor: what the caller named, and what VIOS calls it."""
+
+    name: str
+    sensor_id: str
+    stream_id: str
+    url: str
+    #: "video" for a file-backed sensor, "stream" for an RTSP one.
+    kind: str
+    #: True when no stream was flagged isMain and the first was taken instead.
+    main_stream_assumed: bool = False
+
+    @property
+    def has_timeline(self) -> bool:
+        return bool(self.url)
+
+
+def classify_source(url: str) -> str:
+    """Provenance of a sensor, read from its stream URL.
+
+    `rtsp://` is a live camera; anything else (a filesystem path) is an
+    uploaded file. This is the discriminator VIOS itself behaves differently
+    on -- it decides the teardown flow -- which is why it is preferred over a
+    `type` field (documented on `record/streams` but not emitted by current
+    VIOS source).
+    """
+    return "stream" if url.lower().startswith(("rtsp://", "rtsps://")) else "video"
+
+
+def validate_media_name(filename: str) -> None:
+    """Reject a filename VIOS would refuse, before spending the upload on it."""
+    if not _FILENAME_RE.match(filename):
+        raise VSTError(
+            f"invalid media name {filename!r}: the filename becomes the sensor name, so it must "
+            f"start alphanumeric and contain only letters, digits, dot, dash or underscore "
+            f"(no whitespace)"
+        )
+
+
+async def _get_json(url: str, timeout_seconds: float, what: str) -> object:
+    """GET returning parsed JSON, with the module's retry and error policy."""
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
+                with retry:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            raise VSTError(f"VIOS {what} returned status {response.status}")
+                        try:
+                            return json.loads(await response.text())
+                        except VSTError:
+                            raise
+                        except Exception as e:
+                            raise VSTError(f"Error parsing {what}: {e}") from e
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError(f"Failed to read {what} after retrying transport errors", e) from e
+    return None  # unreachable; satisfies mypy
+
+
+async def list_sensors(
+    vst_internal_url: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> list[dict[str, object]]:
+    """`GET /sensor/list` -- every sensor's `sensorId` and `name`."""
+    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/list"
+    payload = await _get_json(url, timeout_seconds, "sensor list")
+    if not isinstance(payload, list):
+        raise VSTError(f"Unexpected sensor list shape: {type(payload).__name__}")
+    return [entry for entry in payload if isinstance(entry, dict)]
+
+
+async def _sensor_streams(
+    vst_internal_url: str,
+    sensor_id: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> list[dict[str, object]]:
+    """`GET /sensor/{sensorId}/streams`, addressed by the id VIOS reported."""
+    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/{quote_path_segment(sensor_id)}/streams"
+    payload = await _get_json(url, timeout_seconds, f"streams for {sensor_id}")
+    if isinstance(payload, dict):
+        return [payload]
+    if not isinstance(payload, list):
+        raise VSTError(f"Unexpected streams shape for {sensor_id}: {type(payload).__name__}")
+    return [entry for entry in payload if isinstance(entry, dict)]
+
+
+def _pick_stream(streams: list[dict[str, object]], sensor_name: str) -> tuple[dict[str, object], bool]:
+    """Choose the stream to act on: isMain, else the only one, else refuse.
+
+    A camera may publish a full-resolution main stream plus lower-resolution
+    substreams. Silently taking the first yields degraded frames with no
+    error anywhere, so an ambiguous multi-stream sensor is a hard failure and
+    an assumed main is reported to the caller.
+    """
+    if not streams:
+        raise VSTError(f"sensor {sensor_name!r} has no streams")
+    main = [s for s in streams if s.get("isMain")]
+    if len(main) == 1:
+        return main[0], False
+    if len(streams) == 1:
+        return streams[0], True
+    ids = ", ".join(str(s.get("streamId", "?")) for s in streams)
+    raise VSTError(
+        f"sensor {sensor_name!r} has {len(streams)} streams and none is flagged isMain; address one explicitly: {ids}"
+    )
+
+
+async def resolve_sensor(
+    vst_internal_url: str,
+    handle: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> SensorRef:
+    """Resolve a sensor **name** (preferred) or a raw id to its ids and stream.
+
+    Name first, because the name is the stable handle: `sensorId` may carry a
+    `_N` uniqueifier for auto-discovered files, is a fresh UUID for
+    PUT-uploaded ones, and is occasionally an empty string for POST-uploaded
+    ones. The id is therefore always *read from* `/sensor/list` by matching
+    `.name` and never constructed from the name.
+
+    A raw `sensorId` is accepted as an exact-id fallback once the name lookup
+    misses, so a script already holding ids keeps working.
+    """
+    sensors = await list_sensors(vst_internal_url, timeout_seconds)
+
+    by_name = [s for s in sensors if s.get("name") == handle]
+    if len(by_name) > 1:
+        ids = ", ".join(str(s.get("sensorId", "?")) for s in by_name)
+        raise VSTError(f"{len(by_name)} sensors are named {handle!r}; re-run addressing one by id: {ids}")
+    match = by_name[0] if by_name else next((s for s in sensors if s.get("sensorId") == handle), None)
+    if match is None:
+        raise LookupError(f"no VIOS sensor named {handle!r} (and no sensor with that id)")
+
+    sensor_id = str(match.get("sensorId") or "")
+    name = str(match.get("name") or handle)
+    if not sensor_id:
+        raise VSTError(f"VIOS reported sensor {name!r} with no sensorId")
+
+    stream, assumed = _pick_stream(await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds), name)
+    stream_id = str(stream.get("streamId") or "")
+    if not stream_id:
+        raise VSTError(f"VIOS reported a stream for {name!r} with no streamId")
+    stream_url = str(stream.get("url") or "")
+    return SensorRef(
+        name=name,
+        sensor_id=sensor_id,
+        stream_id=stream_id,
+        url=stream_url,
+        kind=classify_source(stream_url),
+        main_stream_assumed=assumed,
+    )
+
+
+async def list_media(
+    vst_internal_url: str,
+    kind: str | None = None,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> list[dict[str, object]]:
+    """Sensors joined with their streams, optionally filtered by provenance.
+
+    The join is mandatory rather than an optimisation: provenance lives in the
+    stream URL, so `/sensor/list` alone cannot answer `--type`.
+    """
+    rows: list[dict[str, object]] = []
+    for sensor in await list_sensors(vst_internal_url, timeout_seconds):
+        sensor_id = str(sensor.get("sensorId") or "")
+        name = str(sensor.get("name") or "")
+        if not sensor_id:
+            logger.warning("Skipping VIOS sensor with no sensorId: %s", name or "<unnamed>")
+            continue
+        try:
+            streams = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
+        except VSTError as exc:  # one bad sensor must not blank the whole listing
+            logger.warning("Skipping streams for %s: %s", name or sensor_id, exc)
+            continue
+        for stream in streams:
+            stream_url = str(stream.get("url") or "")
+            row = {
+                "name": name,
+                "sensor_id": sensor_id,
+                "stream_id": str(stream.get("streamId") or ""),
+                "type": classify_source(stream_url),
+                "state": sensor.get("state"),
+                "url": stream_url,
+                "is_main": bool(stream.get("isMain")),
+                "has_timeline": bool(sensor.get("isTimelinePresent")),
+            }
+            if kind is None or row["type"] == kind:
+                rows.append(row)
+    return rows
+
+
+async def get_snapshot_url(
+    vst_internal_url: str,
+    stream_id: str,
+    at: str | None = None,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Temporary picture URL: the latest live frame, or the frame nearest `at`.
+
+    Ported from tools/vst/snapshot.py, minus the seconds-offset branch and the
+    overlay config -- neither is reachable from the CLI surface.
+    """
+    base = vst_internal_url.rstrip("/")
+    segment = quote_path_segment(stream_id)
+    if at is None:
+        url = f"{base}/vst/api/v1/live/stream/{segment}/picture/url"
+        what = "live snapshot url"
+    else:
+        query = urllib.parse.urlencode({"startTime": at})
+        url = f"{base}/vst/api/v1/replay/stream/{segment}/picture/url?{query}"
+        what = "replay snapshot url"
+    payload = await _get_json(url, timeout_seconds, what)
+    image_url = payload.get("imageUrl") if isinstance(payload, dict) else None
+    if not image_url:
+        raise VSTError(f"VIOS returned no imageUrl for {what}")
+    return str(image_url)
+
+
+async def add_stream(
+    vst_internal_url: str,
+    sensor_url: str,
+    name: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Register an RTSP source (`POST /sensor/add`); returns its `sensorId`.
+
+    Ported from tools/vst/utils.py:add_sensor without the `VST_INTERNAL_URL`
+    environment fallback -- the CLI resolves its origin from `vss configure`
+    and reads no process env.
+    """
+    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/add"
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    try:
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.post(url, json={"sensorUrl": sensor_url, "name": name}) as response,
+        ):
+            body = await response.text()
+            if response.status not in (200, 201):
+                raise VSTError(f"VIOS sensor/add returned {response.status}: {_vios_error(body)}")
+            try:
+                result = json.loads(body)
+            except Exception as e:
+                raise VSTError(f"Error parsing sensor/add response: {e}") from e
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError("Failed to add sensor after retrying transport errors", e) from e
+    sensor_id = result.get("sensorId") or result.get("id") if isinstance(result, dict) else None
+    if not sensor_id:
+        raise VSTError(f"VIOS sensor/add response carried no sensorId: {result}")
+    return str(sensor_id)
+
+
+async def upload_media(
+    vst_internal_url: str,
+    path: pathlib.Path,
+    timestamp: str = "2025-01-01T00:00:00.000Z",
+    timeout_seconds: float = 600.0,
+) -> dict[str, object]:
+    """`PUT /storage/file/{filename}` -- register a local file as a sensor.
+
+    The filename becomes the sensor's name, so it is validated first: a
+    rejected name here costs nothing, where VIOS would spend the whole upload
+    before answering 400.
+    """
+    validate_media_name(path.name)
+    if not path.is_file():
+        raise VSTError(f"no such file: {path}")
+    size = path.stat().st_size
+    query = urllib.parse.urlencode({"timestamp": timestamp})
+    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{quote_path_segment(path.name)}?{query}"
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    try:
+        headers = {"Content-Type": "application/octet-stream", "Content-Length": str(size)}
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            path.open("rb") as handle,
+            session.put(url, data=handle, headers=headers) as response,
+        ):
+            body = await response.text()
+            if response.status == 409:
+                raise VSTError(
+                    f"VIOS already holds a file named {path.name!r}; delete it first "
+                    f"(`vss vios delete --type video --sensor {path.stem}`) or upload under another name"
+                )
+            if response.status not in (200, 201):
+                raise VSTError(f"VIOS upload returned {response.status}: {_vios_error(body)}")
+            try:
+                result = json.loads(body)
+            except Exception as e:
+                raise VSTError(f"Error parsing upload response: {e}") from e
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError("Failed to upload after retrying transport errors", e) from e
+    if not isinstance(result, dict):
+        raise VSTError(f"Unexpected upload response shape: {type(result).__name__}")
+    return result
+
+
+def _vios_error(body: str) -> str:
+    """VIOS's `error_message` when it sent one, else the raw body."""
+    try:
+        parsed = json.loads(body)
+    except Exception:
+        return body.strip()
+    if isinstance(parsed, dict):
+        return str(parsed.get("error_message") or parsed)
+    return str(parsed)
+
+
+async def _delete(url: str, timeout_seconds: float, what: str) -> None:
+    """DELETE where 404 means the goal state already holds.
+
+    Idempotency is load-bearing: VIOS storage deletion can cascade the sensor
+    registration away before the paired sensor delete runs, and counting that
+    404 as a failure downgrades a fully clean teardown to `partial`.
+    """
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.delete(url) as response:
+            if response.status in (200, 204, 404):
+                return
+            raise VSTError(f"VIOS {what} returned {response.status}: {_vios_error(await response.text())}")
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError(f"Failed to {what} after retrying transport errors", e) from e
+
+
+async def confirm_absent(
+    vst_internal_url: str,
+    name: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> None:
+    """Re-list and fail if `name` is still registered.
+
+    Matching on **name** rather than sensorId is the point: an auto-discovered
+    file's `sensorId` may carry a `_N` suffix, so an id-keyed absence check
+    passes while VIOS still lists the source under its canonical name -- and
+    a delete that answered non-200 then reports success.
+    """
+    remaining = [s for s in await list_sensors(vst_internal_url, timeout_seconds) if s.get("name") == name]
+    if remaining:
+        ids = ", ".join(str(s.get("sensorId", "?")) for s in remaining)
+        raise VSTError(f"VIOS still lists {name!r} after delete (sensorId: {ids})")
+
+
+async def delete_media(
+    vst_internal_url: str,
+    ref: SensorRef,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> dict[str, object]:
+    """Remove a sensor and its recordings, by the flow its provenance needs.
+
+    An uploaded file is removed through storage (which takes the on-disk file
+    with it). An RTSP sensor needs both: the sensor delete stops the
+    recording, the storage delete reclaims what it already wrote. Either way
+    absence is then confirmed by name, never inferred from the status code.
+    """
+    base = vst_internal_url.rstrip("/")
+    steps: list[str] = []
+
+    if ref.kind == "stream":
+        await _delete(f"{base}/vst/api/v1/sensor/{quote_path_segment(ref.sensor_id)}", timeout_seconds, "sensor delete")
+        steps.append("sensor")
+
+    window = ""
+    try:
+        start, end = await get_timeline(ref.stream_id, vst_internal_url, timeout_seconds=timeout_seconds)
+        window = urllib.parse.urlencode({"startTime": start, "endTime": end})
+    except Exception as exc:  # no recordings is normal; nothing to reclaim
+        logger.info("No timeline for %s, skipping storage delete: %s", ref.name, exc)
+
+    if window:
+        await _delete(
+            f"{base}/vst/api/v1/storage/file/{quote_path_segment(ref.stream_id)}?{window}",
+            timeout_seconds,
+            "storage delete",
+        )
+        steps.append("storage")
+
+    await confirm_absent(vst_internal_url, ref.name, timeout_seconds)
+    return {"name": ref.name, "sensor_id": ref.sensor_id, "type": ref.kind, "deleted": steps, "confirmed": True}
