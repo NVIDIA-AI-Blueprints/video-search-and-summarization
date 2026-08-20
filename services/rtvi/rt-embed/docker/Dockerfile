@@ -195,6 +195,7 @@ RUN --mount=type=bind,source=docker/requirements_apt.txt,target=/tmp/requirement
         /usr/lib/*-linux-gnu/libFLAC.so* /usr/lib/*-linux-gnu/libjbig.so* \
         /usr/lib/*-linux-gnu/libmjpegutils-2.1.so* /usr/lib/*-linux-gnu/libmpeg2encpp-2.1.so* \
         /usr/lib/*-linux-gnu/libmplex2-2.1.so* /usr/lib/*-linux-gnu/libslang.so* \
+        /usr/lib/*-linux-gnu/libgpm.so* \
         /usr/lib/*-linux-gnu/libxvidcore.so* /usr/lib/*-linux-gnu/libzvbi* \
         /usr/lib/*-linux-gnu/libvo-aacenc.so* /usr/lib/*-linux-gnu/libjack* \
         /usr/lib/*-linux-gnu/libswresample.so.3* /usr/lib/*-linux-gnu/libopenh264.so.* \
