@@ -2,13 +2,13 @@
 
 Profile: `mc-tracking` | Blueprint: `bp_developer_mc-tracking` | Mode: `mc-tracking`
 
-Multi-camera 3D person/forklift tracking with BEV (bird's-eye-view) fusion, calibration import, and behavior analytics, packaged as a standalone developer profile with **zero runtime links to `industry-profiles/warehouse-operations`** — its own compose file, env files, camera config, calibration assets, and DeepStream/SDR-controller configs all live under `developer-profiles/dev-profile-mc-tracking/`.
+Multi-camera 3D person/forklift tracking with BEV (bird's-eye-view) fusion, calibration import, and behavior analytics, packaged as a standalone developer profile — its own compose file, env files, camera config, calibration assets, and DeepStream/SDR-controller configs all live under `developer-profiles/dev-profile-mc-tracking/`.
 
 ## What's different from `base` / `search` / `lvs` / `alerts`
 
 - **No VSS Agent, agent UI, LLM NIM, or VLM NIM.** This profile is perception + tracking + analytics only — there's no conversational/report-generation layer.
 - **No Cosmos Embed / RT-VLM.** Detection is RT-DETR (Person = class 0, Forklift = class 1) feeding a multi-camera tracker and BEV fusion, not an embedding or captioning pipeline.
-- **Uses the full VIOS stack** (`sensor-ms`, `streamprocessing-ms`, `nvstreamer`, `vst-ingress`) plus `bp-configurator` (dynamic per-camera config generation) and `sdr-controller` (SDR/WDM: provisions camera streams onto the perception pod at runtime) — the same shape as the industry warehouse blueprint, just repackaged as a developer profile.
+- **Uses the full VIOS stack** (`sensor-ms`, `streamprocessing-ms`, `nvstreamer`, `vst-ingress`) plus `bp-configurator` (dynamic per-camera config generation) and `sdr-controller` (SDR/WDM: provisions camera streams onto the perception pod at runtime).
 - **Two message-broker variants** (`STREAM_TYPE=kafka` or `redis`) and **minimal / playback variants** — see `COMPOSE_PROFILES_MC_TRACKING_*` in `overrides.env`.
 
 ## What gets deployed
@@ -40,30 +40,32 @@ Person (class 0) and Forklift (class 1) — no other classes are tracked by this
 
 ## Sample dataset
 
-`SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"` (4 synthetic cameras, 20m × 20m floor) is the default. `NUM_STREAMS` in `.env` must match the camera count in the selected dataset (default `4`). Calibration, camInfo, and imagery for this dataset live under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/` — this profile's own copy, not a link into the industry profile.
+`SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"` (4 synthetic cameras, 20m × 20m floor) is the default. `NUM_STREAMS` in `.env` must match the camera count in the selected dataset (default `4`). Calibration, camInfo, and imagery for this dataset live under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`.
 
 ## Hardware profiles
 
 Valid `HARDWARE_PROFILE` values: `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`.
 
-- **Known gap:** `RTXPRO4500BW` has no `mc-tracking:` entry in `blueprint-configurator/blueprint_config.yml` today (carried forward from the industry profile — not something introduced by this migration).
 - `PERCEPTION_TAG="3.3.0-26.07.2"` by default; switch to the `-sbsa-` variant for DGX Spark / IGX Thor / SBSA platforms (commented alternative in `.env`).
 - `RT_CV_DEVICE_ID` (perception/BEV-fusion GPU) defaults unscoped (`'0'`) — this profile isn't expected to run concurrently with another profile on the same host, so no reserved/shared-device-id bookkeeping is needed. NVStreamer itself needs no GPU (per `services/nvstreamer/base.yml`'s design) and carries no device reservation.
 
 ## Hard rules
 
-- **No VSS Agent / agent UI / LLM / VLM in the resolved service set** (MCT-FND-006) — if you see any of those containers in `docker compose config --services`, something is wrong with `COMPOSE_PROFILES`.
-- **No runtime path may reference `industry-profiles/warehouse-operations`** (MCT-FND-002) — this profile's compose, env files, camera config, calibration, and SDR-controller config are all self-contained under `dev-profile-mc-tracking/`.
+- **No VSS Agent / agent UI / LLM / VLM in the resolved service set** — if you see any of those containers in `docker compose config --services`, something is wrong with `COMPOSE_PROFILES`.
+- **This profile's compose, env files, camera config, calibration, and SDR-controller config are all self-contained under `dev-profile-mc-tracking/`.**
 - **Not expected to run concurrently with another profile on the same host** — GPU device IDs and container names are not namespaced for coexistence beyond what Compose's single shared namespace already requires (all `mc-tracking` service/container names carry an explicit `-mc-tracking` suffix so they don't collide with other profiles at the Compose-file level, but device IDs and ports are not defensively partitioned).
 - **`sdrc/` path is hardcoded** to this profile's own `sdrc/` directory (`SDR_CONTROLLER_CONFIG_PATH`) — no `MODE`-based path selection, since this profile has exactly one mode.
 
 ## Env file location
 
 ```
+deploy/docker/containers.env
 deploy/docker/developer-profiles/dev-profile-mc-tracking/.env
 deploy/docker/developer-profiles/dev-profile-mc-tracking/overrides.env
 deploy/docker/developer-profiles/dev-profile-mc-tracking/generated.env
 ```
+
+`containers.env` is shared across every profile (image/tag defaults) and is always the first `--env-file` in the deploy/teardown chain below.
 
 Set `VSS_APPS_DIR` (repo's `deploy/docker` path) and `VSS_DATA_DIR` (data directory for videos, playback, calibration, runtime logs, RT-CV model cache) in `overrides.env`/`generated.env` before first deploy — both ship as `/path/to/...` placeholders.
 
@@ -101,7 +103,7 @@ Same manifest-driven pattern as other profiles: `ds-start-mc-tracking.sh` downlo
 | sensor-ms (VMS) | `http://<HOST_IP>:30000/` |
 | streamprocessing-ms | `http://<HOST_IP>:30001/` |
 | VST ingress | `http://<HOST_IP>:30888/` |
-| Elasticsearch (direct) | `http://<HOST_IP>:9200/` |
+| Elasticsearch | `http://<HOST_IP>:9200/` |
 
 ## Teardown
 
@@ -118,4 +120,4 @@ Perception/provisioning failures in this profile are almost always one of the fi
 - **`vss-rtvi-cv-mc-tracking` stuck at 0 FPS, logs flooded with `uri:/api/v1/stream/remove` and no `stream/add`** — this is stale provisioning state, not a code bug. Root cause: `sdr-controller` (WDM) caches "what's currently provisioned on this pod" in a Redis hash (`vss-rtvi-cv-mc-tracking`) and sensor identity in Postgres (`vss_vios_pg_data`), neither of which is cleared by a plain `docker compose down` (no `-v`). After a non-destructive teardown + redeploy, those caches can point at camera UUIDs that no longer exist, so `sdr-controller` retries `stream/remove` (`500 STREAM_REMOVE_FAIL, No record found`) forever and never reaches `stream/add`. Fix: `docker exec redis redis-cli DEL vss-rtvi-cv-mc-tracking rtvi-cv-mc-tracking-data vss-rtvi-cv-mc-tracking-pod && docker restart sdr-controller` — or, more reliably, tear down with `-v` (wipes Postgres + Redis) before redeploying. Confirm the fix with `docker logs vss-rtvi-cv-mc-tracking | grep 'Active sources'` (should read 4, not 0) and `docker logs sdr-controller | grep -o '\(add\|delete\) operation Response Code: [0-9]*' | sort | uniq -c` (should show `200`s, not a `remove`-only loop).
 - **Shell-exported vars silently override `generated.env`** — if `PERCEPTION_TAG`, `VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE/TAG`, or `NGC_CLI_API_KEY` were ever `source`d into the current shell (e.g. from an earlier `source .env`), Compose gives OS env vars precedence over `--env-file`, and a stray literal-quote-baked value (`PERCEPTION_TAG="3.3.0-26.07.2"` with the quotes taken literally) produces `invalid reference format` on `up -d`. `env | grep -E "PERCEPTION_TAG|VSS_RT_CV_MV3DT_BEV_FUSION|NGC_CLI_API_KEY"` and `unset` anything present before redeploying.
 
-For a clean, known-good reset covering the last three issues at once: `docker compose ... down -v --rmi all` (wipes Postgres/Redis/images) + `docker volume ls -q -f dangling=true | xargs docker volume rm`, then redeploy. This forces a rebuild of any locally-built images (Elasticsearch, init containers), so expect the first `up -d` after a `-v --rmi all` teardown to take several minutes longer than an ordinary redeploy.
+For a clean, known-good reset covering the last three issues at once: `docker compose ... down -v --rmi all` (wipes Postgres/Redis/images) + `docker volume ls -q -f dangling=true -f label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss} | xargs -r docker volume rm` (scoped to this project's volumes — an unscoped `dangling=true` filter would also delete dangling volumes from unrelated stopped containers/apps on the host), then redeploy. This forces a rebuild of any locally-built images (Elasticsearch, init containers), so expect the first `up -d` after a `-v --rmi all` teardown to take several minutes longer than an ordinary redeploy.

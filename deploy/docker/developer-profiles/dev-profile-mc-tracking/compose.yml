@@ -67,8 +67,6 @@ services:
       RECOMPUTE_BEV_CENTERS_ENABLED: true
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: true
-      # BP_PROFILE is always bp_developer_mc-tracking for this profile, so these are
-      # plain env vars rather than a BP_PROFILE-branching wrapper.
       SEND_CONFIG_TO_SDR: true
       ENABLE_CALIBRATION_PROCESS: true
     env_file:

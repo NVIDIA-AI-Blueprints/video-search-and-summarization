@@ -364,7 +364,7 @@ Compose profiles for warehouse slices are defined in
 
 ## MC-Tracking developer profile
 
-The **`mc-tracking`** developer profile (multi-camera 3D tracking, lifted from the warehouse MV3DT industry blueprint into its own developer-profile packaging) lives under **`developer-profiles/dev-profile-mc-tracking/`**. It is deployed and torn down with direct Compose commands, not `dev-profile.sh`'s `up`/`down` flow — the same shape as the warehouse industry profile above.
+The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under **`developer-profiles/dev-profile-mc-tracking/`**. It is deployed and torn down with direct Compose commands, not `dev-profile.sh`'s `up`/`down` flow.
 
 **Stop the running deployment:**
 
@@ -388,10 +388,10 @@ docker compose -f compose.yml \
   down -v --rmi all
 ```
 
-**Tear down all dangling volumes:**
+**Tear down this project's dangling volumes** (scoped to `COMPOSE_PROJECT_NAME` — `vss` by default — so dangling volumes from unrelated stopped containers/apps on the host are not touched):
 
 ```bash
-docker volume ls -q -f "dangling=true" | xargs docker volume rm
+docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss}" | xargs -r docker volume rm
 ```
 
 **Cleanup all data** (calibration output, VST/nvstreamer runtime data, `data_log` volumes, and blueprint-configurator backups) **from the data directory:**

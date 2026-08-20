@@ -8,7 +8,9 @@
     },
     {
       "camera_name": "<camera_name_2>",
-      "rtsp_url": "<rtsp_url_2>"
+      "rtsp_url": "<rtsp_url_2>",
+      "group_id": "<group_id_2_optional>",
+      "region": "<region_2_optional>"
     }
   ]
 }
