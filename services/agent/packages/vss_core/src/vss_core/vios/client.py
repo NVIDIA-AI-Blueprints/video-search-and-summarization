@@ -32,8 +32,8 @@ import dataclasses
 import datetime
 import json
 import logging
+import pathlib
 import re
-from typing import TYPE_CHECKING
 from typing import Literal
 import urllib.parse
 
@@ -44,9 +44,6 @@ from vss_core._foundation.errors import LibraryError
 from vss_core._foundation.retry import create_retry_strategy
 from vss_core._foundation.sanitize import quote_path_segment
 from vss_core._foundation.time import iso8601_to_datetime
-
-if TYPE_CHECKING:
-    import pathlib
 
 logger = logging.getLogger(__name__)
 
@@ -662,6 +659,17 @@ class SensorRef:
     main_stream_assumed: bool = False
 
 
+def classify_media_source(source: str) -> str:
+    """What an `add` argument is, read from the argument itself.
+
+    An RTSP URL is a live stream; anything else -- a local path, an http(s)
+    URL to a file -- is a video. The caller already said which by what they
+    typed, so asking them to restate it as a flag only creates a way to
+    disagree with themselves.
+    """
+    return "stream" if source.lower().startswith(("rtsp://", "rtsps://")) else "video"
+
+
 def classify_source(url: str) -> str:
     """Provenance of a sensor, read from its stream URL.
 
@@ -1009,19 +1017,23 @@ async def upload_media(
     path: pathlib.Path,
     timestamp: str = "2025-01-01T00:00:00.000Z",
     timeout_seconds: float = 600.0,
+    name: str | None = None,
 ) -> dict[str, object]:
     """`PUT /storage/file/{filename}` -- register a local file as a sensor.
 
-    The filename becomes the sensor's name, so it is validated first: a
+    The stored filename becomes the sensor's name, so it is validated first: a
     rejected name here costs nothing, where VIOS would spend the whole upload
-    before answering 400.
+    before answering 400. Pass ``name`` to store it under something other than
+    the local basename -- the usual reason being that the local name is not a
+    name you would want to address the sensor by.
     """
-    validate_media_name(path.name)
+    stored_name = name or path.name
+    validate_media_name(stored_name)
     if not path.is_file():
         raise VIOSInvalidInputError(f"no such file: {path}")
     size = path.stat().st_size
     query = urllib.parse.urlencode({"timestamp": timestamp})
-    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{quote_path_segment(path.name)}?{query}"
+    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{quote_path_segment(stored_name)}?{query}"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
         headers = {"Content-Type": "application/octet-stream", "Content-Length": str(size)}
@@ -1034,8 +1046,9 @@ async def upload_media(
                 body = await response.text()
                 if response.status == 409:
                     raise VIOSInvalidInputError(
-                        f"VIOS already holds a file named {path.name!r}; delete it first "
-                        f"(`vss vios delete --type video --sensor {path.stem}`) or upload under another name"
+                        f"VIOS already holds a file named {stored_name!r}; delete it first "
+                        f"(`vss vios delete --type video --sensor {pathlib.Path(stored_name).stem}`) "
+                        f"or pass --name to store it under another"
                     )
                 if response.status not in (200, 201):
                     raise VSTError(f"VIOS upload returned {response.status}: {_vios_error(body)}")

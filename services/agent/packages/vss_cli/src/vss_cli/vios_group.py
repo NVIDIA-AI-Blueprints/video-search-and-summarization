@@ -165,15 +165,21 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
 
     origin = _origin(ctx)
     source = values["source"]
-    if values["type"] == "stream":
+    # SOURCE already says what it is, so do not make the caller restate it.
+    kind = vios.classify_media_source(source)
+    declared = values.get("type")
+    if declared and declared != kind:
+        return Result(
+            body={"error": f"{source!r} is a {kind} source, not a {declared}", "type": kind},
+            exit=Exit.INVALID_INPUT,
+        )
+    if kind == "stream":
         name = values.get("name") or source.rstrip("/").rsplit("/", 1)[-1]
         sensor_id = _run(vios.add_stream(origin, source, name))
         return Result(body={"name": name, "sensor_id": sensor_id, "type": "stream", "added": True})
 
-    if values.get("name"):
-        raise click.UsageError("--name applies to --type stream; a video's filename becomes its sensor name")
     path = pathlib.Path(source)
-    result = _run(vios.upload_media(origin, path))
+    result = _run(vios.upload_media(origin, path, name=values.get("name")))
     return Result(
         body={
             "name": result.get("filename") or path.name,
@@ -237,8 +243,14 @@ def _build() -> click.Group:
     group.add_command(
         _command(
             "list",
-            "List sensors joined with their streams.\n\n"
-            "--type filters by provenance; omitting it lists everything with its type resolved.",
+            "List sensors joined with their streams.\n"
+            "\n"
+            "--type filters by provenance; omitting it lists everything with its type resolved.\n"
+            "\n"
+            "\b\n"
+            "  vss vios list\n"
+            "  vss vios list --type video\n"
+            "  vss vios list --sensor warehouse_safety_0001\n",
             [
                 click.Option(["--type"], type=_TYPES, default=None, help="Filter by provenance."),
                 _sensor_option(required=False),
@@ -257,7 +269,11 @@ def _build() -> click.Group:
     group.add_command(
         _command(
             "clip",
-            "Mint a clip URL. Defaults to the whole covering segment.",
+            "Mint a clip URL. Defaults to the whole covering segment.\n"
+            "\n"
+            "\b\n"
+            "  vss vios clip --sensor warehouse_safety_0001\n"
+            "  vss vios clip --sensor dock-cam --start-time 2026-08-01T12:00:00Z --end-time 2026-08-01T12:00:10Z\n",
             [
                 _sensor_option(),
                 click.Option(["--start-time"], default=None, help="ISO-8601 start; defaults to the segment start."),
@@ -277,11 +293,24 @@ def _build() -> click.Group:
     group.add_command(
         _command(
             "add",
-            "Register media: a local file (--type video) or an RTSP URL (--type stream).",
+            "Register media: a local file, or an RTSP URL.\n"
+            "\n"
+            "What SOURCE is, is read from SOURCE: rtsp:// or rtsps:// is a live stream, "
+            "anything else is a video. The sensor is named after the file unless --name says otherwise.\n"
+            "\n"
+            "\b\n"
+            "  vss vios add ./warehouse_safety_0001.mp4\n"
+            "  vss vios add ./clip.mp4 --name warehouse_safety_0002.mp4\n"
+            "  vss vios add rtsp://cam.local/stream1 --name dock-cam\n",
             [
-                click.Option(["--type"], type=_TYPES, required=True, help="What SOURCE is."),
+                click.Option(
+                    ["--type"],
+                    type=_TYPES,
+                    default=None,
+                    help="Optional check: fail if SOURCE is not this kind.",
+                ),
                 click.Argument(["source"]),
-                click.Option(["--name"], default=None, help="Sensor name for an RTSP source."),
+                click.Option(["--name"], default=None, help="Name to register it under. Defaults to the filename."),
             ],
             _add,
         )
@@ -289,7 +318,13 @@ def _build() -> click.Group:
     group.add_command(
         _command(
             "delete",
-            "Remove a sensor and its recordings, by the flow its provenance needs.",
+            "Remove a sensor and its recordings, by the flow its provenance needs.\n"
+            "\n"
+            "--type is required here because a name does not say what it is, and the two "
+            "teardowns differ; a mismatch is refused rather than guessed.\n"
+            "\n"
+            "\b\n"
+            "  vss vios delete --type video --sensor warehouse_safety_0001\n",
             [click.Option(["--type"], type=_TYPES, required=True, help="What the target is."), _sensor_option()],
             _delete,
         )

@@ -7,6 +7,7 @@ from .client import VSTClient
 from .client import VSTError
 from .client import add_stream
 from .client import build_screenshot_url
+from .client import classify_media_source
 from .client import classify_source
 from .client import confirm_absent
 from .client import delete_media
@@ -37,6 +38,7 @@ __all__ = [
     "VSTSnapshot",
     "add_stream",
     "build_screenshot_url",
+    "classify_media_source",
     "classify_source",
     "confirm_absent",
     "delete_media",

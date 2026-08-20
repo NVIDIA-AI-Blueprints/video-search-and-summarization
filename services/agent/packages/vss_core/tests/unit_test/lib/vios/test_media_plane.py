@@ -636,3 +636,48 @@ async def test_an_upload_name_conflict_is_a_caller_error(vios_http, tmp_path) ->
 
     with pytest.raises(vios.VIOSInvalidInputError, match="already holds a file"):
         await vios.upload_media(VST, media)
+
+
+# ----------------------------------------------- add: derive, do not restate
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("rtsp://cam.local/stream1", "stream"),
+        ("RTSP://CAM.LOCAL/stream1", "stream"),
+        ("rtsps://cam.local/stream1", "stream"),
+        ("./warehouse_safety_0001.mp4", "video"),
+        ("/abs/path/clip.mp4", "video"),
+        ("https://example.com/clip.mp4", "video"),
+    ],
+)
+def test_an_add_source_says_what_it_is(source: str, expected: str) -> None:
+    assert vios.classify_media_source(source) == expected
+
+
+@pytest.mark.asyncio
+async def test_an_upload_can_be_stored_under_a_different_name(vios_http, tmp_path) -> None:
+    """The stored filename becomes the sensor name, so it must be nameable."""
+    configure, calls, _ = vios_http
+    configure(**{"/storage/file/": {"filename": "warehouse_safety_0002.mp4", "sensorId": "u"}})
+    local = tmp_path / "clip (1).mp4"
+    local.write_bytes(b"x")
+
+    await vios.upload_media(VST, local, name="warehouse_safety_0002.mp4")
+
+    put = next(c for c in calls if c.startswith("PUT"))
+    assert "warehouse_safety_0002.mp4" in put
+    assert "clip" not in put
+
+
+@pytest.mark.asyncio
+async def test_a_bad_explicit_name_is_rejected_before_the_upload(vios_http, tmp_path) -> None:
+    configure, calls, _ = vios_http
+    configure(**{"/storage/file/": {}})
+    local = tmp_path / "fine.mp4"
+    local.write_bytes(b"x")
+
+    with pytest.raises(vios.VIOSInvalidInputError, match="invalid media name"):
+        await vios.upload_media(VST, local, name="has space.mp4")
+    assert not calls

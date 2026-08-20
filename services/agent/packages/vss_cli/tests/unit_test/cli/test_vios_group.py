@@ -239,15 +239,6 @@ def test_timeline_says_so_when_nothing_was_recorded(
     assert body["start_time"] is None
 
 
-def test_upload_rejects_a_name_flag_it_would_have_ignored(
-    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    result = CliRunner().invoke(cli, ["add", "--type", "video", "/tmp/x.mp4", "--name", "other"])
-
-    assert result.exit_code != 0
-    assert "--name applies to --type stream" in result.output
-
-
 def test_delete_refuses_an_unknown_provenance(
     cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -263,3 +254,26 @@ def test_delete_refuses_an_unknown_provenance(
 
     assert result.exit_code == int(Exit.INVALID_INPUT)
     assert "provenance is unknown" in result.stdout
+
+
+def test_add_derives_provenance_and_does_not_require_type(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), "rtsp-sensor-id")[1])
+
+    result = CliRunner().invoke(cli, ["add", "rtsp://cam.local/stream1", "--name", "dock-cam"])
+
+    assert result.exit_code == 0
+    body = json.loads(result.stdout)
+    assert body["type"] == "stream"
+    assert body["name"] == "dock-cam"
+
+
+def test_add_refuses_a_type_that_contradicts_the_source(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--type is an optional check, so a mismatch is the caller's error."""
+    result = CliRunner().invoke(cli, ["add", "rtsp://cam.local/s1", "--type", "video"])
+
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "is a stream source, not a video" in result.stdout
