@@ -15,6 +15,7 @@ from vss_cli.exits import Exit
 from vss_cli.group import Context
 from vss_cli.memory import Memory
 from vss_cli.search.group import SearchGroup
+from vss_core._foundation.errors import BackendUnreachableError
 from vss_core.memory.backends.in_memory import InMemoryStore
 from vss_core.memory.service import MemoryService
 from vss_core.memory.store import MemoryQuery
@@ -104,6 +105,8 @@ def test_search_succeeds_without_memory_soft_persist(search_group: SearchGroup) 
     assert result.body["persisted"] is False
     assert len(result.body["data"]) == 2
     assert result.job_id.startswith("search-")
+    assert result.body["record"] == "absent"
+    assert result.extra["marker"]["persisted"] is False
 
 
 def test_no_persist_writes_nothing(search_group: SearchGroup) -> None:
@@ -116,6 +119,7 @@ def test_no_persist_writes_nothing(search_group: SearchGroup) -> None:
     result = search_group.run("embed", _inputs(), ctx)
     assert result.exit == Exit.SUCCESS
     assert result.body["persisted"] is False
+    assert result.body["record"] == "absent"
     assert store._records == {}
 
 
@@ -130,6 +134,8 @@ def test_persisted_search_parent_and_children(search_group: SearchGroup) -> None
     result = search_group.run("embed", _inputs(), ctx)
     assert result.exit == Exit.SUCCESS
     assert result.body["persisted"] is True
+    assert result.body["record"] == "closed"
+    assert result.extra["marker"]["persisted"] is True
     parent = service.get(result.job_id)
     assert parent.job.group == "search"
     assert parent.job.record_id is None
@@ -162,6 +168,97 @@ def test_child_write_failure_preserves_search_result(search_group: SearchGroup) 
     assert result.body["persisted"] is False
     assert len(result.body["data"]) == 2
     assert result.body["data"][0]["description"] == "hit 1"
+    assert result.body["record"] == "closed"
+    assert result.extra["marker"]["status"] == "partial"
+    assert result.extra["marker"]["persisted"] is False
+
+
+def test_submitted_write_failure_keeps_results_but_exits_partial(search_group: SearchGroup) -> None:
+    class _Refusing(InMemoryStore):
+        def upsert(self, record: Any) -> Any:
+            if record.job.status == "submitted":
+                raise BackendUnreachableError("elasticsearch", "read only")
+            return super().upsert(record)
+
+    ctx = Context(
+        deployment=_deployment(),
+        memory=Memory(MemoryService(_Refusing()), index="vss-memory"),
+        extra={"persist": True},
+    )
+    result = search_group.run("embed", _inputs(), ctx)
+    assert result.exit == Exit.PARTIAL
+    assert len(result.body["data"]) == 2
+    assert result.body["persisted"] is False
+    assert result.body["record"] == "absent"
+
+
+def test_search_failure_closes_submitted_parent(search_group: SearchGroup, monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FailingVSS:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+        async def search(self, **_kwargs: Any) -> SearchOutput:
+            raise BackendUnreachableError("search", "offline")
+
+        @classmethod
+        def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
+            return cls()
+
+    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _FailingVSS)
+    service = MemoryService(InMemoryStore())
+    ctx = Context(
+        deployment=_deployment(),
+        memory=Memory(service, index="vss-memory"),
+        extra={"persist": True},
+    )
+    result = search_group.run("embed", _inputs(), ctx)
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.body["status"] == "failed"
+    assert result.body["record"] == "closed"
+    assert service.get(result.job_id).job.status == "failed"
+    assert result.extra["marker"]["status"] == "failed"
+
+
+def test_terminal_conversion_failure_keeps_results_and_closes_partial(
+    search_group: SearchGroup, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "vss_cli.search.group._search_terminal_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("cannot map hits")),
+    )
+    service = MemoryService(InMemoryStore())
+    ctx = Context(
+        deployment=_deployment(),
+        memory=Memory(service, index="vss-memory"),
+        extra={"persist": True},
+    )
+    result = search_group.run("embed", _inputs(), ctx)
+    assert result.exit == Exit.PARTIAL
+    assert len(result.body["data"]) == 2
+    assert result.body["record"] == "closed"
+    assert service.get(result.job_id).job.status == "partial"
+
+
+def test_terminal_and_close_refusal_marks_handle_stale(search_group: SearchGroup) -> None:
+    class _RefusingTerminal(InMemoryStore):
+        def upsert(self, record: Any) -> Any:
+            if record.job.status in {"completed", "partial"}:
+                raise BackendUnreachableError("elasticsearch", "read only")
+            return super().upsert(record)
+
+    service = MemoryService(_RefusingTerminal())
+    ctx = Context(
+        deployment=_deployment(),
+        memory=Memory(service, index="vss-memory"),
+        extra={"persist": True},
+    )
+    result = search_group.run("embed", _inputs(), ctx)
+    assert result.exit == Exit.PARTIAL
+    assert result.body["record"] == "stale"
+    assert service.get(result.job_id).job.status == "submitted"
 
 
 def test_search_get_status_list_parent_oriented(search_group: SearchGroup) -> None:
@@ -176,8 +273,12 @@ def test_search_get_status_list_parent_oriented(search_group: SearchGroup) -> No
     got = search_group.get(run.job_id, ctx)
     assert got.body["job"]["job_id"] == run.job_id
     assert "record_id" not in got.body["job"]
+    assert len(got.body["children"]) == 2
+    assert [child["output"]["ext"]["rank"] for child in got.body["children"]] == [1, 2]
     status = search_group.status(run.job_id, ctx)
     assert status.body["job"]["status"] == "completed"
+    assert "children" not in status.body
     listed = search_group.list({}, ctx)
     assert len(listed.body) == 1
     assert "record_id" not in listed.body[0]["job"]
+    assert "children" not in listed.body[0]

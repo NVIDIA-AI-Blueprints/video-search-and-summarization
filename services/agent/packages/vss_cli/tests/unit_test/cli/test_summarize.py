@@ -14,6 +14,7 @@ import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import cast
 
 from click.testing import CliRunner
 import httpx
@@ -229,6 +230,16 @@ def _run(*argv: str) -> Any:
     return CliRunner().invoke(SUMMARIZE.cli(), ["run", *_steered(argv)])
 
 
+def _body(result: Any) -> dict[str, Any]:
+    """The paid-for result is the first compact JSON line."""
+    return cast("dict[str, Any]", json.loads(result.stdout.splitlines()[0]))
+
+
+def _marker(result: Any) -> dict[str, Any]:
+    """The SDD completion callback is always the final compact JSON line."""
+    return cast("dict[str, Any]", json.loads(result.stdout.splitlines()[-1]))
+
+
 def _run_via_root(*argv: str) -> int:
     """Invoke through the root dispatcher.
 
@@ -389,9 +400,22 @@ def test_run_posts_to_the_deployments_lvs_route(
     result = _run("--id", "v1", "--no-persist")
     assert result.exit_code == 0, result.output
     assert seen["url"] == f"{BASE_URL}/lvs/v1/summarize"
-    body = json.loads(result.output)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["job_id"].startswith("summarize-")
+
+
+def test_pretty_output_still_ends_with_one_compact_marker(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _capture_post(monkeypatch)
+    result = _run("--id", "v1", "--no-persist", "--pretty")
+    assert result.exit_code == 0, result.output
+    marker = json.loads(result.stdout.splitlines()[-1])
+    assert marker["event"] == "vss_job_completed"
+    assert marker["group"] == "summary"
+    assert marker["asset_id"] == "v1"
+    assert marker["persisted"] is False
 
 
 def test_model_defaults_to_what_lvs_reports(configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -504,7 +528,7 @@ def test_no_persist_skips_the_memory_write(
     result = _run("--id", "v1", "--no-persist")
     assert result.exit_code == 0
     assert _store(memory).statuses == []
-    assert "persist" not in json.loads(result.output)
+    assert "persist" not in _body(result)
 
 
 def test_persist_writes_one_unified_memory_record(
@@ -520,7 +544,7 @@ def test_persist_writes_one_unified_memory_record(
     result = _run("--id", "v1")
     assert result.exit_code == 0, result.output
 
-    body = json.loads(result.output)
+    body = _body(result)
     record = _persisted(memory)
     assert record["schema"] == "nv.vss.memory/1.0"
     assert record["job"]["group"] == "summary"
@@ -594,7 +618,7 @@ def test_structured_output_becomes_answer_and_events(
     assert child["output"]["ext"]["event_type"] == "forklift"
     assert child["input"]["window"]["start"]["timestamp"] == "2025-01-01T00:00:00Z"
     assert child["input"]["window"]["end"]["timestamp"] == "2025-01-01T00:00:10Z"
-    body = json.loads(result.output)
+    body = _body(result)
     assert body["persist"]["events"] == 1
     assert body["persist"]["written"] == 2  # parent + one child
 
@@ -651,7 +675,7 @@ def test_offsets_without_a_creation_time_name_the_flag_that_fixes_it(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    body = json.loads(result.stdout)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert "--creation-time" in body["persist"]["error"]
 
@@ -670,7 +694,7 @@ def test_events_without_a_timestamp_cost_the_write_not_the_summary(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    body = json.loads(result.stdout)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert "timestamp" in body["persist"]["error"]
 
@@ -700,7 +724,7 @@ def test_failed_write_is_partial_and_keeps_the_summary(
     result = _run("--id", "v1")
     assert result.exit_code == int(Exit.PARTIAL), result.output
 
-    body = json.loads(result.output)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
     # The close landed, so the job reads `partial` rather than still running.
@@ -722,10 +746,13 @@ def test_a_partial_that_could_not_be_closed_says_so(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    marker = json.loads(result.stdout)
-    assert marker["summary"]["id"] == "cmpl-1"
-    assert marker["persist"]["status"] == "failed"
-    assert marker["record"] == "stale"
+    body = _body(result)
+    marker = _marker(result)
+    assert body["summary"]["id"] == "cmpl-1"
+    assert body["persist"]["status"] == "failed"
+    assert body["record"] == "stale"
+    assert marker["persisted"] is False
+    assert marker["exit_hint"] == int(Exit.PARTIAL)
     assert "still reports it submitted" in result.stderr
 
 
@@ -745,7 +772,7 @@ def test_a_store_that_refuses_the_first_write_still_summarizes(
     assert result.exit_code == int(Exit.PARTIAL), result.output
     assert seen, "the summarization must still have been requested"
 
-    body = json.loads(result.stdout)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
     # Nothing was ever written, so there is no record to be stale about.
@@ -766,7 +793,7 @@ def test_a_status_rejection_is_a_persist_failure_not_a_crash(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    assert "405" in json.loads(result.stdout)["persist"]["error"]
+    assert "405" in _body(result)["persist"]["error"]
 
 
 def test_unreachable_memory_fails_before_summarizing(
@@ -871,10 +898,14 @@ def test_a_timeout_puts_its_handle_on_stdout(
     result = _run("--id", "v1")
     assert result.exit_code == int(Exit.TIMEOUT), result.output
 
-    marker = json.loads(result.stdout)
+    body = _body(result)
+    marker = _marker(result)
     assert marker["status"] == "timeout"
-    assert marker["record"] == "closed"
     assert marker["job_id"] == _store(memory).upsert_ids[0]
+    assert marker["event"] == "vss_job_timeout"
+    assert marker["persisted"] is True
+    assert marker["exit_hint"] == int(Exit.TIMEOUT)
+    assert body["record"] == "closed"
 
 
 @pytest.mark.parametrize(
@@ -905,10 +936,13 @@ def test_a_backend_failure_puts_its_handle_on_stdout(
     result = _run("--id", "v1")
     assert result.exit_code == int(expected), result.output
 
-    marker = json.loads(result.stdout)
+    body = _body(result)
+    marker = _marker(result)
     assert marker["status"] == "failed"
-    assert marker["record"] == "closed"
     assert marker["job_id"] == _store(memory).upsert_ids[0]
+    assert marker["event"] == "vss_job_failed"
+    assert marker["persisted"] is True
+    assert body["record"] == "closed"
     assert result.stderr.strip(), "a failure must still diagnose itself on stderr"
 
 
@@ -957,7 +991,7 @@ def test_a_close_that_loses_a_race_is_retried_before_it_is_given_up(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "closed"
+    assert _body(result)["record"] == "closed"
     assert store.attempts == 2, "one failure must not be final"
     assert _persisted(memory)["job"]["status"] == "timeout"
 
@@ -974,7 +1008,7 @@ def test_the_retry_budget_is_bounded(configured: config_mod.Deployment, monkeypa
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "stale"
+    assert _body(result)["record"] == "stale"
     assert store.attempts == summarize_group._TERMINAL_WRITE_ATTEMPTS
 
 
@@ -992,7 +1026,7 @@ def test_a_record_that_could_not_be_closed_says_so(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "stale"
+    assert _body(result)["record"] == "stale"
     assert "still reports it submitted" in result.stderr
 
 
@@ -1004,7 +1038,7 @@ def test_a_timeout_without_persistence_claims_no_record(
     result = _run("--id", "v1", "--no-persist")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "absent"
+    assert _body(result)["record"] == "absent"
 
 
 @pytest.mark.parametrize(("argv", "worth"), [((), "closed"), (("--no-persist",), "absent")])
@@ -1026,7 +1060,7 @@ def test_success_says_what_the_handle_is_worth_too(
     result = _run("--id", "v1", *argv)
 
     assert result.exit_code == int(Exit.SUCCESS), result.output
-    assert json.loads(result.stdout)["record"] == worth
+    assert _body(result)["record"] == worth
 
 
 # --------------------------------------------------------------------------
@@ -1043,13 +1077,34 @@ def test_get_returns_the_record_run_persisted(
 ) -> None:
     """run and get are two ends of one index -- the payoff of persisting."""
     _capture_post(monkeypatch)
-    job_id = json.loads(_run("--id", "v1").output)["job_id"]
+    job_id = _body(_run("--id", "v1"))["job_id"]
 
     result = _read("get", "--job-id", job_id)
     assert result.exit_code == 0, result.output
     record = json.loads(result.output)
     assert record["job"]["job_id"] == job_id
     assert record["output"]["answer"] == "a forklift crosses the aisle"
+    assert record["children"] == []
+
+
+def test_get_hydrates_event_children_in_time_order(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
+) -> None:
+    structured = {
+        "video_summary": "two events",
+        "events": [
+            {"start_time": 20, "end_time": 30, "description": "second"},
+            {"start_time": 0, "end_time": 10, "description": "first"},
+        ],
+    }
+    _capture_post(monkeypatch, _Response(_completion(structured)))
+    job_id = _body(_run("--id", "v1", "--creation-time", "2025-01-01T00:00:00Z"))["job_id"]
+
+    result = _read("get", "--job-id", job_id)
+    assert result.exit_code == 0, result.output
+    record = json.loads(result.output)
+    assert [child["output"]["answer"] for child in record["children"]] == ["first", "second"]
+    assert all(child["job"]["record_type"] == "event" for child in record["children"])
 
 
 def test_status_reports_the_lifecycle_state(
