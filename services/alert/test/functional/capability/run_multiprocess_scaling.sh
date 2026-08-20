@@ -362,7 +362,11 @@ prom_value() {
 }
 
 vlm_mean_over() {
-    # vlm_mean_over RATE DURATION PREFIX → "mean cpu_avg cpu_max"
+    # vlm_mean_over RATE DURATION PREFIX → "mean cpu_avg cpu_max completed_per_s"
+    #
+    # completed_per_s is the throughput actually achieved, which is not the
+    # rate on the command line: once a configuration saturates it stops
+    # keeping up, and that rate becomes offered load rather than a result.
     local rate="$1" duration="$2" prefix="$3"
     local s0 c0 s1 c1 cpu
     s0=$(prom_value alert_bridge_vlm_duration_seconds_sum)
@@ -383,7 +387,11 @@ vlm_mean_over() {
     s1=$(prom_value alert_bridge_vlm_duration_seconds_sum)
     c1=$(prom_value alert_bridge_vlm_duration_seconds_count)
     cpu=$(cut -d' ' -f1,2 "$RESULTS_DIR/cpu_$prefix.txt" 2>/dev/null || echo "0 0")
-    echo "$(python3 -c "s=$s1-$s0;c=$c1-$c0;print(f'{s/c:.3f}' if c>0 else '0')") $cpu"
+    local mean_val done_val
+    read -r mean_val done_val <<< "$(python3 -c "
+s, c, d = $s1 - $s0, $c1 - $c0, $duration
+print(f'{s/c:.3f}' if c > 0 else '0', f'{c/d:.1f}' if d > 0 else '0')")"
+    echo "$mean_val $cpu $done_val"
 }
 
 sample_gauge_max() {
@@ -429,8 +437,8 @@ ts_030() {
     for variant in 1 "$PROCESSES"; do
         prepare_run "$variant" false "$STUB_DELAY" || { record_result TS-030 FAIL "AB startup (processes=$variant)"; return; }
         for rate in $RAMP_RATES; do
-            read -r mean cavg cmax <<< "$(vlm_mean_over "$rate" "$RAMP_SECONDS" "P${variant}R${rate}")"
-            print_status "info" "processes=$variant rate=$rate/s vlm_mean=${mean}s cpu_avg=${cavg}% cpu_max=${cmax}%"
+            read -r mean cavg cmax done_per_s <<< "$(vlm_mean_over "$rate" "$RAMP_SECONDS" "P${variant}R${rate}")"
+            print_status "info" "processes=$variant rate=$rate/s completed=${done_per_s}/s vlm_mean=${mean}s cpu_avg=${cavg}% cpu_max=${cmax}%"
             if [ "$variant" = "1" ]; then
                 single_means+=("$mean"); single_cpu+=("$cavg")
             else

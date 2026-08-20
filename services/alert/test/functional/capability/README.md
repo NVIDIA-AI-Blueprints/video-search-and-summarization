@@ -37,7 +37,7 @@ instance uses more than the ~1 core a single GIL-bound process can reach.
 
 | Check | Setup | Pass criteria |
 |---|---|---|
-| TS-030 | rate ramp (10/20/40/80/160 msg/s), NIM stub 0.2s, `max_vlm_concurrent=60`, 1 process vs N | at the first rate where the single process inflates, N processes are still flat and faster; and somewhere in the ramp N processes exceed one core |
+| TS-030 | rate ramp (10/20/40/80/160 msg/s), NIM stub 0.2s, `max_vlm_concurrent=60`, 1 process vs N. Each step reports `completed=N/s`, the throughput actually achieved — not the injected rate, which stops being a result once a configuration saturates | at the first rate where the single process inflates, N processes are still flat and faster; and somewhere in the ramp N processes exceed one core |
 | TS-031 | N processes, `SIGKILL` one child | the supervisor logs the exit and stops the instance: every remaining child is reaped and the parent exits, leaving no orphan holding a consumer-group slot |
 | TS-032 | N processes, 60 msg/s overload, `batch_commit` off then on | no shortfall against the produced count in either mode (batched commit may add duplicates, never losses) |
 | TS-033 | N processes, `SIGKILL` one child mid-flight, `batch_commit` off then on | `batch_commit: false` never replays, and nothing is persisted that was never admitted. Loss counts are reported, not gated — `alert_bridge_events_after_dedup_total` counts admission to dispatch, not completion, and one dead child now stops the instance, so in-flight work in *every* child is lost rather than only the dead one's |
