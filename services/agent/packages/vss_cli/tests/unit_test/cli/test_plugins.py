@@ -68,6 +68,12 @@ def test_search_is_registered_through_the_public_contract() -> None:
     assert "search" in names
 
 
+def test_memory_is_registered_through_the_public_contract() -> None:
+    """The cross-group memory domain mounts through the same lazy registry."""
+    names = {ref.name for ref in plugins.discover()}
+    assert "memory" in names
+
+
 def test_summary_is_read_without_importing_the_group(monkeypatch: pytest.MonkeyPatch) -> None:
     """Summaries are raw entry-point values, so prose round-trips intact."""
     boom = _FakeEntryPoint("acme", "acme:GROUP", dist="acme-vss", payload=AssertionError("imported!"))
