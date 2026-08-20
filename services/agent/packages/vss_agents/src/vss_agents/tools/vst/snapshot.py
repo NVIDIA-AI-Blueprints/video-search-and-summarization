@@ -41,6 +41,8 @@ from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
 from vss_agents.tools.vst.utils import build_overlay_config
 from vss_agents.tools.vst.utils import get_stream_id
+from vss_agents.tools.vst.utils import normalize_vst_origin
+from vss_agents.tools.vst.utils import resolve_vst_internal_url
 from vss_agents.utils.retry import create_retry_strategy
 
 logger = logging.getLogger(__name__)
@@ -57,7 +59,7 @@ def build_screenshot_url(vst_external_url: str, stream_id: str, timestamp: str) 
     Returns:
         External screenshot URL string
     """
-    vst_external_url = vst_external_url.rstrip("/")
+    vst_external_url = normalize_vst_origin(vst_external_url)
     return f"{vst_external_url}/vst/api/v1/replay/stream/{stream_id}/picture?startTime={timestamp}"
 
 
@@ -171,8 +173,9 @@ async def get_snapshot_url(
             raise ValueError(f"Picture time is out of the video timeline {timeline_start} to {timeline_end}")
         timestamp_iso = picture_time.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
     query_params = urllib.parse.urlencode({"startTime": timestamp_iso})
-    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/replay/stream/{stream_id}/picture/url?{query_params}"
+    url = f"{vst_internal_url}/vst/api/v1/replay/stream/{stream_id}/picture/url?{query_params}"
 
     # Add overlay configuration for bounding boxes
     overlay_param = build_overlay_config(overlay_enabled)
@@ -212,7 +215,7 @@ async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGen
         )
 
         # Replace internal URL with external URL for client access
-        image_url = f"{config.vst_external_url}{urllib.parse.urlparse(image_url).path}"
+        image_url = f"{normalize_vst_origin(config.vst_external_url)}{urllib.parse.urlparse(image_url).path}"
 
         return VSTSnapshotOutput(image_url=image_url, stream_id=stream_id)
 

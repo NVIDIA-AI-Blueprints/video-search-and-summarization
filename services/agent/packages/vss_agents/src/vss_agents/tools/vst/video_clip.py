@@ -25,7 +25,6 @@ from collections.abc import AsyncGenerator
 import datetime
 import json
 import logging
-import os
 from typing import Literal
 import urllib.parse
 
@@ -43,6 +42,8 @@ from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
 from vss_agents.tools.vst.utils import build_overlay_config
 from vss_agents.tools.vst.utils import get_stream_id
+from vss_agents.tools.vst.utils import normalize_vst_origin
+from vss_agents.tools.vst.utils import resolve_vst_internal_url
 from vss_agents.tools.vst.utils import validate_video_url
 from vss_agents.utils.retry import create_retry_strategy
 
@@ -191,8 +192,7 @@ async def get_video_url(
     Returns:
         The video URL from VST.
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
 
     # Determine if we're using ISO timestamps or seconds offsets
     if isinstance(start_time, str) and isinstance(end_time, str):
@@ -249,7 +249,7 @@ async def get_video_url(
             "disableAudio": "true" if disable_audio else "false",
         }
     )
-    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{stream_id}/url?{query_params}"
+    url = f"{vst_internal_url}/vst/api/v1/storage/file/{stream_id}/url?{query_params}"
 
     # Add overlay configuration for bounding boxes
     overlay_param = build_overlay_config(overlay_enabled, object_ids)
@@ -299,7 +299,7 @@ async def vst_video_clip(config: VSTVideoClipConfig, _: Builder) -> AsyncGenerat
             disable_audio=not config.enable_audio,
         )
         await validate_video_url(video_clip_url)
-        ext_base = config.vst_external_url.rstrip("/")
+        ext_base = normalize_vst_origin(config.vst_external_url)
         path_only = urllib.parse.urlparse(video_clip_url).path
         video_clip_url = f"{ext_base}{path_only}"
         return VSTVideoClipOutput(video_url=video_clip_url, stream_id=stream_id)
