@@ -12,7 +12,7 @@ metadata:
 
 Do not use this skill for:
 
-- Standalone microservice deployment outside a compose profile — use the matching `vss-deploy-*` skill.
+- Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
 - Summarizing or querying a video once `lvs` is deployed — use `vss-summarize-video`.
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or `vss-deploy-profile` will run it as part of the credential gate.
 
