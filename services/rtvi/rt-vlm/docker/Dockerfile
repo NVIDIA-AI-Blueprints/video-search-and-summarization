@@ -342,6 +342,7 @@ RUN set -eu; \
 # Remove unneeded media libraries shipped under /usr and DALI-bundled FFmpeg
 # libraries under /opt/tritonserver (e.g. hashed shared objects inside the DALI wheel).
 RUN cd /usr && find . \( -name 'libavcodec*' -o -name 'libavfilter*' -o -name 'libmfx*' \
+        -o -name 'libgpm.so*' \
         -o -name 'libavif*' -o -name 'libgstmsdk*' \) -type f -delete \
     && find /opt/tritonserver/backends/dali \( -name 'libavcodec*' -o -name 'libavformat*' \
         -o -name 'libavfilter*' -o -name 'libavutil*' -o -name 'libavdevice*' \
