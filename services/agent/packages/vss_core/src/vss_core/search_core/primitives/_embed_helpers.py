@@ -57,48 +57,35 @@ _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 # =============================================================================
 
 
-def select_search_index(video_embed_index_wildcard: str) -> str:
-    """Return the embed index pattern to query, for any source type.
+def select_search_index(
+    source_type: str,
+    video_embed_index: str,
+    video_embed_index_wildcard: str,
+) -> str | list[str]:
+    """Resolve the embed index(es) to query for a source type.
 
-    Source-type partitioning is a positive document filter on ``sensor.type``
-    (see :func:`build_source_type_filter`), not index-name arithmetic, so both
-    ``video_file`` and ``rtsp`` query the same ``mdx-embed-filtered-*`` wildcard
-    and the ``sensor.type`` term does the separating.
+    Mirrors :func:`_attribute_helpers.resolve_index_by_source_type`:
 
-    This replaces the former ``video_file -> base`` / ``rtsp -> wildcard - base``
-    scheme, which inferred the partition from a discovered "uploads base" index
-    and silently inverted in stream-first / single-index deployments: a live-only
-    stack has exactly one embed index, so ``wildcard - base`` excluded the only
-    index holding data and ``rtsp`` returned nothing.
+    - ``video_file`` -> the pinned uploads anchor ``video_embed_index``.
+    - ``rtsp``       -> ``[wildcard, "-" + video_embed_index]``.
+
+    ``video_embed_index`` MUST be the pinned uploads anchor
+    (``mdx-embed-filtered-2025-01-01``), never a value discovered from the live
+    index inventory: an ``rtsp`` query subtracts exactly the base, so a
+    live-dated base would exclude the very data being searched. A ``video_file``
+    query against an absent anchor is handled downstream as an empty uploads
+    partition (see :meth:`EmbedSearch.run`).
     """
-    return video_embed_index_wildcard
+    if source_type == "video_file":
+        return video_embed_index
+    if source_type == "rtsp":
+        return [video_embed_index_wildcard, "-" + video_embed_index]
+    raise ValueError(f"Unsupported source_type {source_type!r}; expected 'video_file' or 'rtsp'.")
 
 
 # =============================================================================
 # ES query construction
 # =============================================================================
-
-
-# The RT-Embed publisher records each document's media kind at ingest as
-# ``sensor.type`` ("Camera" for live RTSP, "Video" for an uploaded file). These
-# are the only two values the ``source_type`` request field maps onto.
-_SOURCE_TYPE_TO_SENSOR_TYPE = {"rtsp": "Camera", "video_file": "Video"}
-
-
-def build_source_type_filter(source_type: str) -> dict[str, Any]:
-    """Build the ES term filter selecting documents by media source type.
-
-    Filters positively on the document's own ``sensor.type`` field, which is
-    what partitions embed results by source. The clause is always present, so
-    every embed query is partitioned; an unrecognized ``source_type`` raises
-    (mirroring :func:`_attribute_helpers.resolve_index_by_source_type`) rather
-    than silently dropping the partition. Callers pass a validated Literal, so
-    this is a defensive guard.
-    """
-    sensor_type = _SOURCE_TYPE_TO_SENSOR_TYPE.get(source_type)
-    if sensor_type is None:
-        raise ValueError(f"Unsupported source_type {source_type!r}; expected 'video_file' or 'rtsp'.")
-    return {"term": {"sensor.type.keyword": sensor_type}}
 
 
 def build_description_filter(description: str | None) -> dict[str, Any] | None:
@@ -178,18 +165,14 @@ def build_es_query(
     filters: list[dict[str, Any]] = []
     for clause in (
         build_video_sources_filter(inp.video_sources, inp.source_type),
-        build_source_type_filter(inp.source_type),
         build_description_filter(inp.description),
         build_timestamp_filter(inp.timestamp_start, inp.timestamp_end),
     ):
         if clause is not None:
             filters.append(clause)
 
-    # A source-type clause is always present (build_source_type_filter maps the
-    # required ``source_type`` Literal to a term), so ``filters`` is never empty
-    # and ``has_filters`` is always true: every embed query overfetches (k =
-    # top_k * 5). That is intended: the term is a top-level filter beside the
-    # nested kNN and can discard hits, so the extra candidates protect ``top_k``.
+    # Overfetch only when a filter or a positive similarity threshold may discard
+    # retrieved hits; an unfiltered query fetches exactly ``top_k``.
     k_value = compute_k_value(
         inp.top_k,
         default_max_results=default_max_results,
@@ -212,8 +195,8 @@ def build_es_query(
         }
     }
 
-    # ``filters`` is always non-empty (source-type clause above), so there is no
-    # unfiltered embed query to build: the kNN always sits beside a filter.
+    if not filters:
+        return {"query": nested_query, "size": k_value}
     filter_clause = {"bool": {"must": filters}} if len(filters) > 1 else filters[0]
     return {
         "query": {"bool": {"must": [nested_query], "filter": [filter_clause]}},

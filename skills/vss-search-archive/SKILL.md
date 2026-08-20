@@ -106,8 +106,9 @@ index inventory for source-type selection.
    `embed` and `fusion` use the sensor ID; `attribute` and `object` use the
    name. The CLI matches this value literally and does no name↔ID conversion.
    Set `--source-type video_file` for uploads or `--source-type rtsp` for live
-   streams. This partitions by media kind, independently of the identifier and
-   of the index inventory, so it is correct regardless of ingestion order.
+   streams. This selects the index partition for that media kind from a fixed
+   uploads anchor (not a discovered index), independently of the identifier, so
+   it is correct regardless of ingestion order.
 
 3. Decompose the request before choosing a path; do not pick by surface form.
    `run embed` accepts any sentence, so being one sentence is not evidence for

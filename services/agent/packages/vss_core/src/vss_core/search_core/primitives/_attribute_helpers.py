@@ -105,9 +105,10 @@ def resolve_index_by_source_type(
     - ``video_file`` -> ``base_index`` unchanged.
     - ``rtsp``       -> ``[wildcard_pattern, "-" + base_index]``.
 
-    Unlike the embed path (which partitions positively on ``sensor.type``),
-    behavior and raw documents carry only ``sensor.id`` (no media-kind field), so
-    source partitioning still relies on index-name subtraction. For that to be
+    The embed path uses the identical subtraction
+    (:func:`_embed_helpers.select_search_index`); behavior and raw documents carry
+    only ``sensor.id`` (no media-kind field), so source partitioning relies on
+    index-name subtraction here too. For that to be
     correct, ``base_index`` MUST be the pinned uploads anchor
     (``mdx-behavior-2025-01-01`` / ``mdx-raw-2025-01-01``: the write-side contract
     in ``video_delete.py`` and the ``SearchRuntime`` defaults), never a value

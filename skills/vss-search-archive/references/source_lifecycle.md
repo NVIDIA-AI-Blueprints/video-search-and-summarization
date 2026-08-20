@@ -43,13 +43,11 @@ RTVI_CV_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rtvi_cv.url') || 
 RTVI_VLM_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er \
   '.services.rt_vlm.url // empty') || RTVI_VLM_URL=
 resolve_search_indexes() {
-  # Source type is a document property, not an index name: embed docs carry
-  # `sensor.type`, and behavior/raw are partitioned by a pinned uploads anchor.
-  # So readiness counts query the family wildcard and let the sensor-id filter
-  # below scope the result. Never resolve a single date-stamped index
-  # (`sort | first`): in a mixed deployment that is the `2025-01-01` uploads
-  # anchor, so a live stream whose docs sit in today's index would never satisfy
-  # readiness.
+  # Readiness must count a live stream's docs wherever they land, so it queries
+  # the family wildcard and lets the sensor-id filter below scope the result.
+  # Never resolve a single date-stamped index (`sort | first`): in a mixed
+  # deployment that is the `2025-01-01` uploads anchor, so a live stream whose
+  # docs sit in today's index would never satisfy readiness.
   EMBED_INDEX="mdx-embed-filtered-*"
   BEHAVIOR_INDEX="mdx-behavior-*"
   RAW_INDEX="mdx-raw-*"
