@@ -27,6 +27,8 @@ services:
     environment:
     - HOST_IP=${HOST_IP}
     - VST_MCP_URL=${VST_MCP_URL}
+    - VST_INTERNAL_URL=${VST_INTERNAL_URL:-http://vst-ingress:${VST_PORT:-30888}}
+    - ELASTIC_SEARCH_ENDPOINT=${ELASTIC_SEARCH_ENDPOINT:-http://elasticsearch:${VSS_ES_PORT:-9200}}
     - VSS_AGENT_HOST=${VSS_AGENT_HOST}
     - VSS_VA_MCP_PORT=${VSS_VA_MCP_PORT}
     - VSS_ES_PORT=${VSS_ES_PORT}
