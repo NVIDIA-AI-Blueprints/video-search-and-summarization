@@ -470,6 +470,9 @@ async def run_agent() -> int:
     eval_skill = _require("EVAL_SKILL")
     eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
     eval_platform = os.environ.get("EVAL_PLATFORM", "")
+    # The workflow exports this alongside EVAL_SPEC_PATH; the renderer writes
+    # `$SCRATCH/pr-<spec>.md` and the benchmark step globs for exactly that.
+    eval_spec_stem = os.environ.get("EVAL_SPEC_STEM", "") or "spec"
     manual = not pr_number
 
     if not AGENTS_MD.exists():
@@ -566,10 +569,32 @@ locally-patched adapter in this leg) → generate the dataset → select a
 `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
 run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
 never background it; the wrapper holds the per-box lock while Harbor runs)
-→ gather results →
-{post_step} (§ Result comment format). Do NOT touch any other spec or skill.
+→ render the comment with ONE command (§ Result comment format):
 
-End with `DONE: N/N specs passed; <optional summary>` after posting the result, or
+    python3 .github/skill-eval/leg_report.py \
+      --results-root "$RES" --spec-path "{eval_spec_path}" \
+      --platform "{eval_platform}" --head-sha "{pr_head}" \
+      --summary-json "$RES/leg-summary.json" \
+      --out "$SCRATCH/pr-{eval_spec_stem}.md"
+
+  where RES=/tmp/skill-eval/results/{os.environ.get("EVAL_SLUG", "")}/{run_id}
+  and SCRATCH=/tmp/skill-eval/{run_id} (RUN-scoped, not leg-scoped: the
+  benchmark step globs `$SCRATCH/pr-*.md`, so writing the body anywhere
+  else means benchmark.md finds nothing).
+  DO NOT read the results tree, trajectories or judge.json yourself and DO
+  NOT rebuild the table by hand — the renderer owns the format, and doing it
+  by hand is what used to cost ~114s of rediscovery per leg.
+→ {post_step}, posting `$SCRATCH/pr-{eval_spec_stem}.md` verbatim
+  (`gh pr comment --body-file`).
+Do NOT touch any other spec or skill.
+
+Read `$RES/leg-summary.json` for the verdict. The leg passed only if every
+entry in `steps[]` has `state == "recorded-pass"`; `recorded-fail`,
+`no-verdict`, `not-run` and `ambiguous` all mean it did not. A non-empty
+`collection_errors` also means it did not.
+
+End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
+<the failing steps and their states>` when it did not, or
 `BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
 

@@ -785,126 +785,52 @@ viewer; box-side session history is at `$HOME/.claude-archive/<ts>/`
 One comment per `(spec, platform)` leg. Your leg posts **its own** single
 comment for the one platform it ran (`EVAL_PLATFORM`) — it does **not**
 wait for or aggregate the spec's other platforms: those run as separate
-parallel legs this job cannot see. A two-platform spec therefore yields
-two independent comments, one per platform.
+parallel legs this job cannot see.
 
-**Where the comment goes:** on a PR run (`PR_NUMBER` set) post it with
-`gh pr comment`. On a **manual sweep** (`PR_NUMBER` empty —
-`workflow_dispatch`) there is no PR: append the exact same markdown to
-`$GITHUB_STEP_SUMMARY` instead (see § "Manual full-sweep mode").
-
-```markdown
-## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
-
-Head: `<short-sha>` · platform `<platform>` · spec `<spec-sha>`
-First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
-
-| Platform | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
-|---|---|---|---|---|---|---|---|
-| L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | 23 | 8.4k | 156k | [trace](…) |
-
-For multi-step specs, render one row per step and mark
-prior-fail-skips explicitly:
-
-| Platform | Step | Query | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
-|---|---|---|---|---|---|---|---|---|---|
-| L40S | step-1 | Deploy alerts (VLM real-time) | ✅ 1.0 (6/6) | 1.0 | 11m 12s | 18 | 6.1k | 98k | [trace](…) |
-| L40S | step-2 | Add warehouse_sample via NVStreamer | ❌ 0.2 (1/5) | 0.2 | 3m 04s | 12 | 4.2k | 41k | [trace](…) |
-| L40S | step-3 | Query incidents | ⏭️ skipped (prior-step fail, step-2 reward=0.2) | — | — | — | — | — | — |
-| L40S | step-4 | … | ⏭️ skipped | — | — | — | — | — | — |
-
-A `⏭️ skipped` row means the dispatch loop short-circuited after
-the previous step's reward < 1.0. The step was not run — its
-checks would have asserted state that was never set up. Read the
-prior step's trace to see the actual failure.
-
-### Extracting per-trial metrics
-
-For each completed trial under `$RES/<date>/<trial>/`, populate the new
-columns by reading the trajectory's `final_metrics` block (or falling
-back to the streaming usage blocks if `final_metrics` is missing because
-the trial crashed mid-run):
+**You do not build this comment.** `leg_report.py` owns the format, reads
+the results tree once and writes both the markdown and a machine-readable
+summary:
 
 ```bash
-TRAJ="$RES/<date>/<trial>/agent/trajectory.json"
-
-# Turns = count of assistant messages (one per agent reasoning step)
-jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
-
-# Step 1 — decide which extraction path to use. `final_metrics`
-# is written when the trial completes cleanly; crashed-mid-run
-# trials have it missing or null. Branch explicitly so a missing
-# block doesn't silently render as "0 tokens" (indistinguishable
-# from a clean trial that happened to have zero uncached input,
-# which is technically possible).
-if jq -e 'has("final_metrics") and (.final_metrics.modelUsage != null)' "$TRAJ" >/dev/null; then
-  # Step 2a — canonical path: sum across every model entry.
-  # Some trials exercise more than one model (e.g. a vision model
-  # alongside the main reasoning model); `to_entries[0]` would
-  # silently drop them.
-  PROMPT_TOK=$(jq -r '[.final_metrics.modelUsage | to_entries[].value.inputTokens // 0] | add // 0' "$TRAJ")
-
-  # Cached tokens (cache read + cache creation are both "cached"
-  # for our purposes — they're the warm context the prompt reused).
-  CACHED_TOK=$(jq -r '
-    [.final_metrics.modelUsage | to_entries[].value
-     | (.cacheReadInputTokens // 0) + (.cacheCreationInputTokens // 0)] | add // 0
-  ' "$TRAJ")
-else
-  # Step 2b — fallback: sum per-message `usage` blocks from the
-  # stream. `| add` on an empty array evaluates to null, not 0;
-  # guard each field with `// 0` so a trial that crashed before
-  # any assistant message renders 0s, not nulls.
-  read PROMPT_TOK CACHED_TOK < <(jq -r '
-    [.steps[].message | fromjson | select(.type=="assistant") | .message.usage] as $u
-    | ($u | map(.input_tokens // 0) | add // 0) as $in
-    | ($u | map((.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)) | add // 0) as $cached
-    | "\($in) \($cached)"
-  ' "$TRAJ")
-fi
-
-# Duration: trial start/end times — use Harbor's result.json which has
-# `trial_started_at` / `trial_finished_at` (ISO 8601). Compute the diff
-# in seconds; render as `<m>m <s>s` for under an hour, `<h>h <m>m` for
-# over.
-jq -r '[.trial_started_at, .trial_finished_at] | @tsv' \
-  "$RES/<date>/<trial>/result.json"
+RES="/tmp/skill-eval/results/${EVAL_SLUG}/${GITHUB_RUN_ID}"
+python3 .github/skill-eval/leg_report.py \
+  --results-root "$RES" --spec-path "$EVAL_SPEC_PATH" \
+  --platform "$EVAL_PLATFORM" --head-sha "$PR_HEAD_SHA" \
+  --summary-json "$RES/leg-summary.json" \
+  --out "$SCRATCH/pr-${EVAL_SPEC_STEM}.md"
 ```
 
-Render tokens with k/M suffixes — `8400` → `8.4k`, `5_178_086` → `5.2M`.
-Round to 1 decimal. Output tokens are intentionally not shown per
-trial (almost always a small fraction of input + cached; if you need
-the breakdown, look at the trace). The "Prompt tok" column is the
-uncached input — what's actually billed at the full input rate. The
-"Cached tok" column is read + creation combined — what the cache hit
-on, billed at the much lower cache rate.
+The body goes to `$SCRATCH`, not `$RES`: the benchmark step globs
+`$SCRATCH/pr-*.md` (see the run-scoped paths above), so writing it anywhere
+else leaves `benchmark.md` empty. Post that file verbatim (`gh pr comment
+--body-file`, or append to `$GITHUB_STEP_SUMMARY` on a manual sweep). Exit
+codes: `0` rendered, `2` no trials under the results root, `3` the spec was
+named but unusable.
 
-For a `⏭️ skipped` step, write `—` (em-dash) in all four metric
-columns — there's no trial to extract from.
+This replaced ~126 lines of prose that described the table layout and the
+`jq` needed to pull turns and token counts out of each trajectory. Every leg
+re-read and re-implemented that from scratch, which measured at p50 114 s
+across a median of 11 read-only tool calls. Do not reintroduce it: if the
+format needs to change, change `leg_report.py` and its tests.
 
-### Failing checks
+### Reading the verdict
 
-- **RTXPRO6000BW** — `grep -E '^HARDWARE_PROFILE=L40S$' $HOME/…/.env` returned Permission denied (see [trace](…))
+`leg-summary.json` is versioned (`schema`) and carries one entry per step in
+`steps[]`, each with a `state`:
 
-### Suggestions
+| state | meaning |
+|---|---|
+| `recorded-pass` | reward exactly 1.0, no exception, judge absent or unanimous |
+| `recorded-fail` | ran and did not pass |
+| `no-verdict` | ran, no reward recorded |
+| `not-run` | the spec declares this step and no trial exists |
+| `ambiguous` | evidence is contradictory or unreadable — never treat as a pass |
 
-> (concatenate non-null `suggestion` fields from each failing trial's
-> `$RES/<date>/<trial>/suggestions.json`; omit the
-> section entirely if all are null)
-
-<sub>Generated by the skills-eval agent. Adapter/verifier changes
-required to make this PR evaluable were raised as bot PRs targeting
-the source PR's branch (linked above where applicable) — the
-skills-eval agent never commits to `skills/` and never runs trials
-against locally-synthesized adapters. Trial datasets/results live in
-this leg's workflow artifact
-`skills-eval-results-pr-<N>-<skill>__<spec>-<run_id>.tar.gz`.</sub>
-```
-
-Use `gh pr comment $PR_NUMBER --body-file "$SCRATCH/pr-<spec>.md"`. Never
-post a partial batch. If you posted a blocker earlier in the run
-(`missing_probe`, `env_blocker`), the final results comment is still
-separate; don't conflate the two.
+The leg passed only if **every** entry is `recorded-pass` and
+`collection_errors` is empty. Each entry also carries `reward`, `judge`
+(`absent`/`valid`/`unreadable`), `passed`/`total`, `exception`, `attempts`,
+`attempt_path` and `any_attempt_undated`, so nothing requires parsing the
+rendered markdown.
 
 ## Failure modes
 
