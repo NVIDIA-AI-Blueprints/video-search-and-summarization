@@ -55,8 +55,12 @@ DESIGN CONSTRAINTS, each paid for by a previous incident:
   `_reset_docker_runtime` wipes the box between trials, so nothing may be left
   there.
 
-The declared-versus-observed comparison is the point: `declared_gpu_count` comes
-from the spec and travels in the sidecar next to what the GPUs actually did.
+The declared-versus-observed comparison is the point: `declared_gpu_count`
+travels in the sidecar next to what the GPUs actually did. It is paired with
+`gpu_count_source`, because an absent declaration resolves to 1 and would
+otherwise be indistinguishable from a spec that asked for exactly one GPU --
+"declared 1, used 1" and "nobody said, used 1" are different findings, and only
+the first is a spec worth leaving alone.
 """
 
 from __future__ import annotations
@@ -100,6 +104,19 @@ CSV_HEADER = (
 # trace. Do not raise the rate because you can: a 2h leg already yields ~1440
 # rows for a 2-GPU box, and the collector aggregates them anyway.
 INTERVAL_SEC = _int_env("EVAL_GPU_TRACE_INTERVAL", 10)
+
+# Where the declared count came from, because the number alone cannot say.
+# `run_leg.pool_candidates` resolves an ABSENT `gpu_count` to 1, so a sidecar
+# reading `declared_gpu_count: 1` may mean "the spec asked for one GPU" or "the
+# spec said nothing and one is the default" -- and 15 of the 50 platform entries
+# in `skills/*/evals/` say nothing (plan_matrix.DEFAULT_GPU_COUNT). Collapsing
+# those two into the same number quietly weakens the comparison this module
+# exists for: "declared 1, used 1" is a spec doing exactly what it asked for,
+# while "defaulted to 1, used 1" says only that nobody ever stated a
+# requirement. An allowlist rather than a free string, for the same reason the
+# CSV has one: this value is written into a published artifact.
+GPU_COUNT_SOURCES = ("spec", "default")
+GPU_COUNT_SOURCE_FALLBACK = "default"
 
 # A row is accepted only if it has exactly these 7 fields, the first parses as
 # an nvidia-smi timestamp and the rest are numeric (or the literal [N/A] that
@@ -269,6 +286,7 @@ def trace(
     step: int = 1,
     chain: str = "",
     declared_gpu_count: int | None = None,
+    gpu_count_source: str = GPU_COUNT_SOURCE_FALLBACK,
     skill: str = "",
     harbor_timeout_sec: int = 7800,
 ):
@@ -282,6 +300,12 @@ def trace(
     if not ENABLED or not instance:
         yield
         return
+
+    # Normalise before it can reach the artifact. A caller passing something
+    # unexpected gets the conservative reading -- "nobody stated a requirement"
+    # -- rather than an arbitrary string in a published file.
+    if gpu_count_source not in GPU_COUNT_SOURCES:
+        gpu_count_source = GPU_COUNT_SOURCE_FALLBACK
 
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     token = _token(run_id, spec_stem, platform, step, chain)
@@ -383,6 +407,7 @@ def trace(
                     run_id=run_id, skill=skill, spec_stem=spec_stem,
                     platform=platform, step=step, chain=chain,
                     declared_gpu_count=declared_gpu_count,
+                    gpu_count_source=gpu_count_source,
                     started_at=started_at)
 
 
@@ -491,11 +516,21 @@ def _finish(
     # Everything the collector needs to answer "declared versus observed"
     # without re-deriving it from paths. `instance` is the only fleet-side
     # identifier emitted; no IP, no hostname, no credentials.
+    # schema 2 adds `gpu_count_source`. Bumped rather than added silently: a
+    # reader that treats `declared_gpu_count` as a stated requirement is wrong
+    # for the defaulted case, and the version is how it finds out. Safe to bump
+    # because no schema-1 sidecar has ever been produced -- this module has not
+    # merged, so there is nothing in the artifact store to stay compatible with.
     sidecar = {
-        "schema": 1,
+        "schema": 2,
         "instance": instance,
 
         "declared_gpu_count": meta.get("declared_gpu_count"),
+        # "spec" -> the number above was stated. "default" -> it was inferred,
+        # and only the observed columns carry information.
+        "gpu_count_source": meta.get(
+            "gpu_count_source", GPU_COUNT_SOURCE_FALLBACK
+        ),
         "run_id": meta.get("run_id"),
         "skill": meta.get("skill"),
         "spec_stem": meta.get("spec_stem"),
