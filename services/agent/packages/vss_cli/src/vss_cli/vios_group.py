@@ -5,8 +5,9 @@
 Deliberately *not* a :class:`vss_cli.group.CommandGroup`. VIOS operations are
 not VSS processing: they run no model and produce no evidence, they resolve
 handles and mint URLs. So they mint no ``job_id``, write no memory record, and
-emit no completion marker, and the ``run``/``status``/``get``/``list`` grammar
-does not apply -- ``CommandGroup.cli()`` is final and would mount all four.
+emit no completion marker, and the job grammar does not apply: there is no
+``run``, no ``status``, no ``get``, and the ``list`` here lists *sensors*, not
+jobs. ``CommandGroup.cli()`` is final and would mount all four job verbs.
 
 What it keeps from the framework is the part that should be uniform: a missing
 backend is reported by :func:`vss_cli.group.require_services` with the same
@@ -15,7 +16,7 @@ wording every other group uses, and results leave through the same emitter.
 Six commands::
 
     vss vios list     [--type video|stream] [--sensor NAME]
-    vss vios timeline --sensor NAME [--start-time T --end-time T]
+    vss vios timeline --sensor NAME
     vss vios clip     --sensor NAME [--start-time T --end-time T]
     vss vios snapshot --sensor NAME [--at T]
     vss vios add      --type video|stream SOURCE [--name NAME]
@@ -106,8 +107,12 @@ def _timeline(ctx: Any, values: dict[str, Any]) -> Result:
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
-    start, end = _run(vios.get_timeline(ref.stream_id, origin))
-    return Result(body=_with_ref(ref, {"start_time": start, "end_time": end}))
+    # The envelope across every recorded segment. Reporting only the first
+    # would understate what is on disk for a stream that recorded in bursts.
+    span = _run(vios.get_timelines_map(origin)).get(ref.stream_id)
+    if span is None:
+        return Result(body=_with_ref(ref, {"start_time": None, "end_time": None, "recorded": False}))
+    return Result(body=_with_ref(ref, {"start_time": span[0], "end_time": span[1], "recorded": True}))
 
 
 def _clip(ctx: Any, values: dict[str, Any]) -> Result:
@@ -129,8 +134,9 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
             vst_internal_url=origin,
         )
     )
-    # Echo the window actually served: it may be the segment boundary rather
-    # than what was asked for, and a citation needs the one that was used.
+    # Echo the window this command resolved -- the segment bounds when none was
+    # given. VIOS does not report the window it actually served, so this is the
+    # requested range, not a confirmation of the bytes behind the URL.
     return Result(body=_with_ref(ref, {"media_url": url, "start_time": start, "end_time": end, "kind": "clip"}))
 
 
@@ -157,6 +163,8 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
         sensor_id = _run(vios.add_stream(origin, source, name))
         return Result(body={"name": name, "sensor_id": sensor_id, "type": "stream", "added": True})
 
+    if values.get("name"):
+        raise click.UsageError("--name applies to --type stream; a video's filename becomes its sensor name")
     path = pathlib.Path(source)
     result = _run(vios.upload_media(origin, path))
     return Result(
@@ -176,6 +184,11 @@ def _delete(ctx: Any, values: dict[str, Any]) -> Result:
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
+    if ref.kind == "unknown":
+        return Result(
+            body={"error": f"VIOS reports no url for {ref.name!r}, so its provenance is unknown", "name": ref.name},
+            exit=Exit.INVALID_INPUT,
+        )
     if ref.kind != values["type"]:
         # Refusing beats deleting the wrong thing: --type is the caller saying
         # what they believe this is, and a mismatch means one of us is wrong.

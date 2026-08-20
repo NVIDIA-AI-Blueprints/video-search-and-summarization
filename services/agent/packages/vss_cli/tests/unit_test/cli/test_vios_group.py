@@ -183,9 +183,73 @@ def test_an_assumed_main_stream_is_reported(
     def fake_run(coro: Any) -> Any:
         coro.close()
         calls.append(coro)
-        return _Assumed() if len(calls) == 1 else ("2026-08-01T12:00:00Z", "2026-08-01T12:01:00Z")
+        return _Assumed() if len(calls) == 1 else {"s-1": ("2026-08-01T12:00:00Z", "2026-08-01T12:01:00Z")}
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
     body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
 
     assert body["main_stream_assumed"] is True
+
+
+def test_timeline_reports_the_envelope_across_every_segment(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reporting only the first segment understates what is on disk."""
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()
+        return {"s-1": ("2026-08-01T12:00:00Z", "2026-08-01T18:30:00Z")}
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
+
+    assert body["start_time"] == "2026-08-01T12:00:00Z"
+    assert body["end_time"] == "2026-08-01T18:30:00Z"
+    assert body["recorded"] is True
+
+
+def test_timeline_says_so_when_nothing_was_recorded(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        return _Ref() if len(calls) == 1 else {}
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
+
+    assert body["recorded"] is False
+    assert body["start_time"] is None
+
+
+def test_upload_rejects_a_name_flag_it_would_have_ignored(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = CliRunner().invoke(cli, ["add", "--type", "video", "/tmp/x.mp4", "--name", "other"])
+
+    assert result.exit_code != 0
+    assert "--name applies to --type stream" in result.output
+
+
+def test_delete_refuses_an_unknown_provenance(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VIOS gave no url, so neither teardown flow is known to be right."""
+
+    class _Unknown(_Ref):
+        kind = "unknown"
+        url = ""
+
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Unknown())[1])
+
+    result = CliRunner().invoke(cli, ["delete", "--type", "video", "--sensor", "cam"])
+
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "provenance is unknown" in result.stdout

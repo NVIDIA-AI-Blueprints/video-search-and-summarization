@@ -40,6 +40,7 @@ import urllib.parse
 import aiohttp
 
 from vss_core._foundation.errors import BackendUnreachableError
+from vss_core._foundation.errors import LibraryError
 from vss_core._foundation.retry import create_retry_strategy
 from vss_core._foundation.sanitize import quote_path_segment
 from vss_core._foundation.time import iso8601_to_datetime
@@ -629,6 +630,19 @@ class VSTClient:
 # delete or a timeline read, only one lands here.
 
 
+class VIOSInvalidInputError(LibraryError):
+    """A caller error: a bad name, a missing file, an ambiguous handle.
+
+    Separate from :class:`VSTError` so the CLI can exit 2 rather than 3 --
+    "you asked for something impossible" and "VIOS is unreachable" need
+    different responses from whatever is driving the CLI.
+    """
+
+
+class VIOSNotFoundError(LibraryError):
+    """No sensor answers to the given name or id (exit 5)."""
+
+
 #: Uploaded filenames become the sensor's name, so they are the addressable
 #: handle. VIOS rejects whitespace outright; the rest of this is convention.
 _FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -647,10 +661,6 @@ class SensorRef:
     #: True when no stream was flagged isMain and the first was taken instead.
     main_stream_assumed: bool = False
 
-    @property
-    def has_timeline(self) -> bool:
-        return bool(self.url)
-
 
 def classify_source(url: str) -> str:
     """Provenance of a sensor, read from its stream URL.
@@ -661,13 +671,17 @@ def classify_source(url: str) -> str:
     `type` field (documented on `record/streams` but not emitted by current
     VIOS source).
     """
+    if not url:
+        # VIOS gave us no url, so we cannot tell. Saying "video" here would
+        # send `delete --type video` down the wrong teardown flow.
+        return "unknown"
     return "stream" if url.lower().startswith(("rtsp://", "rtsps://")) else "video"
 
 
 def validate_media_name(filename: str) -> None:
     """Reject a filename VIOS would refuse, before spending the upload on it."""
     if not _FILENAME_RE.match(filename):
-        raise VSTError(
+        raise VIOSInvalidInputError(
             f"invalid media name {filename!r}: the filename becomes the sensor name, so it must "
             f"start alphanumeric and contain only letters, digits, dot, dash or underscore "
             f"(no whitespace)"
@@ -731,15 +745,16 @@ def _pick_stream(streams: list[dict[str, object]], sensor_name: str) -> tuple[di
     an assumed main is reported to the caller.
     """
     if not streams:
-        raise VSTError(f"sensor {sensor_name!r} has no streams")
+        raise VIOSNotFoundError(f"sensor {sensor_name!r} has no streams")
     main = [s for s in streams if s.get("isMain")]
     if len(main) == 1:
         return main[0], False
     if len(streams) == 1:
         return streams[0], True
     ids = ", ".join(str(s.get("streamId", "?")) for s in streams)
-    raise VSTError(
-        f"sensor {sensor_name!r} has {len(streams)} streams and none is flagged isMain; address one explicitly: {ids}"
+    raise VIOSInvalidInputError(
+        f"sensor {sensor_name!r} has {len(streams)} streams and none is flagged isMain; "
+        f"re-run with --sensor set to one of these streamIds: {ids}"
     )
 
 
@@ -764,17 +779,37 @@ async def resolve_sensor(
     by_name = [s for s in sensors if s.get("name") == handle]
     if len(by_name) > 1:
         ids = ", ".join(str(s.get("sensorId", "?")) for s in by_name)
-        raise VSTError(f"{len(by_name)} sensors are named {handle!r}; re-run addressing one by id: {ids}")
+        raise VIOSInvalidInputError(f"{len(by_name)} sensors are named {handle!r}; re-run addressing one by id: {ids}")
+
     match = by_name[0] if by_name else next((s for s in sensors if s.get("sensorId") == handle), None)
+    wanted_stream = ""
     if match is None:
-        raise LookupError(f"no VIOS sensor named {handle!r} (and no sensor with that id)")
+        # Last resort: a streamId. _pick_stream tells an ambiguous caller to
+        # address one explicitly, so the resolver has to accept what it asked for.
+        for sensor in sensors:
+            candidate = str(sensor.get("sensorId") or "")
+            if not candidate:
+                continue
+            try:
+                entries = await _sensor_streams(vst_internal_url, candidate, timeout_seconds)
+            except VSTError:
+                continue
+            if any(str(entry.get("streamId") or "") == handle for entry in entries):
+                match, wanted_stream = sensor, handle
+                break
+    if match is None:
+        raise VIOSNotFoundError(f"no VIOS sensor named {handle!r} (and no sensor or stream with that id)")
 
     sensor_id = str(match.get("sensorId") or "")
     name = str(match.get("name") or handle)
     if not sensor_id:
         raise VSTError(f"VIOS reported sensor {name!r} with no sensorId")
 
-    stream, assumed = _pick_stream(await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds), name)
+    entries = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
+    if wanted_stream:
+        stream, assumed = next(e for e in entries if str(e.get("streamId") or "") == wanted_stream), False
+    else:
+        stream, assumed = _pick_stream(entries, name)
     stream_id = str(stream.get("streamId") or "")
     if not stream_id:
         raise VSTError(f"VIOS reported a stream for {name!r} with no streamId")
@@ -804,25 +839,40 @@ async def list_media(
         sensor_id = str(sensor.get("sensorId") or "")
         name = str(sensor.get("name") or "")
         if not sensor_id:
-            logger.warning("Skipping VIOS sensor with no sensorId: %s", name or "<unnamed>")
+            # POST-uploaded sources sometimes report an empty sensorId. Say so
+            # in the row rather than dropping the sensor from the listing.
+            rows.append(
+                {
+                    "name": name,
+                    "sensor_id": "",
+                    "stream_id": "",
+                    "type": "unknown",
+                    "state": sensor.get("state"),
+                    "url": "",
+                    "is_main": False,
+                    "has_timeline": bool(sensor.get("isTimelinePresent")),
+                    "error": "VIOS reported no sensorId",
+                }
+            )
             continue
-        try:
-            streams = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
-        except VSTError as exc:  # one bad sensor must not blank the whole listing
-            logger.warning("Skipping streams for %s: %s", name or sensor_id, exc)
-            continue
+        # Deliberately not caught: if VIOS cannot answer, `list` must fail with
+        # exit 3, never return a short list that reads as "these are all of them".
+        streams = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
         for stream in streams:
             stream_url = str(stream.get("url") or "")
+            stream_id = str(stream.get("streamId") or "")
             row = {
                 "name": name,
                 "sensor_id": sensor_id,
-                "stream_id": str(stream.get("streamId") or ""),
+                "stream_id": stream_id,
                 "type": classify_source(stream_url),
                 "state": sensor.get("state"),
                 "url": stream_url,
                 "is_main": bool(stream.get("isMain")),
                 "has_timeline": bool(sensor.get("isTimelinePresent")),
             }
+            if not stream_id:
+                row["error"] = "VIOS reported a stream with no streamId"
             if kind is None or row["type"] == kind:
                 rows.append(row)
     return rows
@@ -882,10 +932,14 @@ async def add_stream(
             except Exception as e:
                 raise VSTError(f"Error parsing sensor/add response: {e}") from e
     except _VST_BOUNDARY_ERRORS as e:
-        raise VSTError("Failed to add sensor after retrying transport errors", e) from e
+        raise VSTError("Failed to reach VIOS while adding the sensor", e) from e
     sensor_id = result.get("sensorId") or result.get("id") if isinstance(result, dict) else None
     if not sensor_id:
-        raise VSTError(f"VIOS sensor/add response carried no sensorId: {result}")
+        # The sensor was created; VIOS just did not say what it called it
+        # (a documented quirk of some upload paths). Re-resolve by name rather
+        # than reporting a failure the caller would retry into a duplicate.
+        ref = await resolve_sensor(vst_internal_url, name, timeout_seconds)
+        return ref.sensor_id
     return str(sensor_id)
 
 
@@ -903,7 +957,7 @@ async def upload_media(
     """
     validate_media_name(path.name)
     if not path.is_file():
-        raise VSTError(f"no such file: {path}")
+        raise VIOSInvalidInputError(f"no such file: {path}")
     size = path.stat().st_size
     query = urllib.parse.urlencode({"timestamp": timestamp})
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{quote_path_segment(path.name)}?{query}"
@@ -929,7 +983,7 @@ async def upload_media(
                 except Exception as e:
                     raise VSTError(f"Error parsing upload response: {e}") from e
     except _VST_BOUNDARY_ERRORS as e:
-        raise VSTError("Failed to upload after retrying transport errors", e) from e
+        raise VSTError("Failed to reach VIOS while uploading", e) from e
     if not isinstance(result, dict):
         raise VSTError(f"Unexpected upload response shape: {type(result).__name__}")
     return result
@@ -960,7 +1014,7 @@ async def _delete(url: str, timeout_seconds: float, what: str) -> None:
                 return
             raise VSTError(f"VIOS {what} returned {response.status}: {_vios_error(await response.text())}")
     except _VST_BOUNDARY_ERRORS as e:
-        raise VSTError(f"Failed to {what} after retrying transport errors", e) from e
+        raise VSTError(f"Failed to reach VIOS during {what}", e) from e
 
 
 async def confirm_absent(
@@ -996,18 +1050,22 @@ async def delete_media(
     base = vst_internal_url.rstrip("/")
     steps: list[str] = []
 
+    # Read the recorded span BEFORE deleting the sensor: for an RTSP source the
+    # sensor delete can take the timeline with it, and then there is no way left
+    # to name the range whose recordings still occupy disk.
+    #
+    # The whole envelope, not one segment: a stream with several recorded
+    # segments would otherwise keep everything after the first while this
+    # function reported a confirmed cleanup.
+    timelines = await get_timelines_map(vst_internal_url, timeout_seconds=timeout_seconds)
+    span = timelines.get(ref.stream_id)
+
     if ref.kind == "stream":
         await _delete(f"{base}/vst/api/v1/sensor/{quote_path_segment(ref.sensor_id)}", timeout_seconds, "sensor delete")
         steps.append("sensor")
 
-    window = ""
-    try:
-        start, end = await get_timeline(ref.stream_id, vst_internal_url, timeout_seconds=timeout_seconds)
-        window = urllib.parse.urlencode({"startTime": start, "endTime": end})
-    except Exception as exc:  # no recordings is normal; nothing to reclaim
-        logger.info("No timeline for %s, skipping storage delete: %s", ref.name, exc)
-
-    if window:
+    if span is not None:
+        window = urllib.parse.urlencode({"startTime": span[0], "endTime": span[1]})
         await _delete(
             f"{base}/vst/api/v1/storage/file/{quote_path_segment(ref.stream_id)}?{window}",
             timeout_seconds,
@@ -1016,4 +1074,14 @@ async def delete_media(
         steps.append("storage")
 
     await confirm_absent(vst_internal_url, ref.name, timeout_seconds)
-    return {"name": ref.name, "sensor_id": ref.sensor_id, "type": ref.kind, "deleted": steps, "confirmed": True}
+    return {
+        "name": ref.name,
+        "sensor_id": ref.sensor_id,
+        "type": ref.kind,
+        "deleted": steps,
+        # No span means VIOS listed no recordings for this stream -- said
+        # plainly, because "nothing to reclaim" and "we could not tell" must
+        # not look the same. A failure to read the timelines raises instead.
+        "recordings": "removed" if span else "none",
+        "confirmed": True,
+    }

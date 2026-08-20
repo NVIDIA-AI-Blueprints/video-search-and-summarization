@@ -99,12 +99,11 @@ def test_classify_source_reads_the_stream_url() -> None:
     assert classify_source("rtsp://cam.local/stream1") == "stream"
     assert classify_source("rtsps://cam.local/stream1") == "stream"
     assert classify_source("/home/vst/streamer_videos/warehouse.mp4") == "video"
-    assert classify_source("") == "video"
 
 
 @pytest.mark.parametrize("bad", ["has space.mp4", "", "-leading.mp4", "sl/ash.mp4"])
 def test_upload_names_that_vios_would_reject_fail_locally(bad: str) -> None:
-    with pytest.raises(vios.VSTError, match="invalid media name"):
+    with pytest.raises(vios.VIOSInvalidInputError, match="invalid media name"):
         validate_media_name(bad)
 
 
@@ -160,16 +159,16 @@ async def test_duplicate_names_refuse_rather_than_guess(vios_http) -> None:
     configure, _, _ = vios_http
     configure(**_routes(sensors=[{"name": "dup", "sensorId": "a"}, {"name": "dup", "sensorId": "b"}], streams={}))
 
-    with pytest.raises(vios.VSTError, match="2 sensors are named"):
+    with pytest.raises(vios.VIOSInvalidInputError, match="2 sensors are named"):
         await vios.resolve_sensor(VST, "dup")
 
 
 @pytest.mark.asyncio
-async def test_unknown_handle_raises_lookup_error(vios_http) -> None:
+async def test_unknown_handle_is_a_not_found(vios_http) -> None:
     configure, _, _ = vios_http
     configure(**_routes(sensors=[{"name": "other", "sensorId": "a"}], streams={}))
 
-    with pytest.raises(LookupError, match="no VIOS sensor named"):
+    with pytest.raises(vios.VIOSNotFoundError, match="no VIOS sensor named"):
         await vios.resolve_sensor(VST, "absent")
 
 
@@ -209,7 +208,7 @@ async def test_multi_stream_with_no_main_flag_refuses_instead_of_taking_the_firs
         )
     )
 
-    with pytest.raises(vios.VSTError, match="none is flagged isMain"):
+    with pytest.raises(vios.VIOSInvalidInputError, match="none is flagged isMain"):
         await vios.resolve_sensor(VST, "cam")
 
 
@@ -296,7 +295,7 @@ async def test_confirm_absent_passes_when_the_name_is_gone(vios_http) -> None:
 async def test_deleting_an_uploaded_file_skips_the_sensor_call(vios_http, monkeypatch) -> None:
     configure, calls, _ = vios_http
     configure(**{"/sensor/list": [], "/storage/file/": (200, {})})
-    monkeypatch.setattr(vios, "get_timeline", _fake_timeline)
+    monkeypatch.setattr(vios, "get_timelines_map", _fake_spans)
 
     ref = vios.SensorRef(name="w", sensor_id="w_0", stream_id="w-stream", url="/videos/w.mp4", kind="video")
     result = await vios.delete_media(VST, ref)
@@ -309,7 +308,7 @@ async def test_deleting_an_uploaded_file_skips_the_sensor_call(vios_http, monkey
 async def test_deleting_an_rtsp_sensor_stops_recording_then_reclaims_storage(vios_http, monkeypatch) -> None:
     configure, calls, _ = vios_http
     configure(**{"/sensor/list": [], "/sensor/r1": (200, {}), "/storage/file/": (200, {})})
-    monkeypatch.setattr(vios, "get_timeline", _fake_timeline)
+    monkeypatch.setattr(vios, "get_timelines_map", _fake_spans)
 
     ref = vios.SensorRef(name="r", sensor_id="r1", stream_id="r-stream", url="rtsp://c/1", kind="stream")
     result = await vios.delete_media(VST, ref)
@@ -325,11 +324,153 @@ async def test_delete_treats_404_as_the_goal_state(vios_http, monkeypatch) -> No
     """Storage deletion can cascade the registration away before the paired call."""
     configure, _, _ = vios_http
     configure(**{"/sensor/list": [], "/sensor/r1": (404, {}), "/storage/file/": (404, {})})
-    monkeypatch.setattr(vios, "get_timeline", _fake_timeline)
+    monkeypatch.setattr(vios, "get_timelines_map", _fake_spans)
 
     ref = vios.SensorRef(name="r", sensor_id="r1", stream_id="r-stream", url="rtsp://c/1", kind="stream")
     assert (await vios.delete_media(VST, ref))["confirmed"] is True
 
 
-async def _fake_timeline(*_args: object, **_kw: object) -> tuple[str, str]:
-    return "2026-08-01T12:00:00.000Z", "2026-08-01T12:01:00.000Z"
+async def _fake_spans(*_args: object, **_kw: object) -> dict[str, tuple[str, str]]:
+    return {
+        "w-stream": ("2026-08-01T12:00:00.000Z", "2026-08-01T12:01:00.000Z"),
+        "r-stream": ("2026-08-01T12:00:00.000Z", "2026-08-01T12:01:00.000Z"),
+    }
+
+
+# ------------------------------------------- regressions found in code review
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_every_recorded_segment_not_just_the_first(vios_http, monkeypatch) -> None:
+    """A burst-recorded stream must not keep everything after segment one."""
+    configure, calls, _ = vios_http
+    configure(**{"/sensor/list": [], "/sensor/r1": (200, {}), "/storage/file/": (200, {})})
+
+    async def spans(*_a: object, **_k: object) -> dict[str, tuple[str, str]]:
+        return {"r-stream": ("2026-08-01T12:00:00.000Z", "2026-08-01T18:30:00.000Z")}
+
+    monkeypatch.setattr(vios, "get_timelines_map", spans)
+
+    ref = vios.SensorRef(name="r", sensor_id="r1", stream_id="r-stream", url="rtsp://c/1", kind="stream")
+    result = await vios.delete_media(VST, ref)
+
+    storage = next(c for c in calls if c.startswith("DELETE") and "/storage/file/" in c)
+    assert "startTime=2026-08-01T12%3A00%3A00.000Z" in storage
+    assert "endTime=2026-08-01T18%3A30%3A00.000Z" in storage
+    assert result["recordings"] == "removed"
+
+
+@pytest.mark.asyncio
+async def test_delete_propagates_a_timeline_read_failure(vios_http, monkeypatch) -> None:
+    """ "Could not read the timelines" must never be reported as a clean delete."""
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [], "/sensor/r1": (200, {}), "/storage/file/": (200, {})})
+
+    async def boom(*_a: object, **_k: object) -> dict[str, tuple[str, str]]:
+        raise vios.VSTError("VIOS timelines API returned status 503")
+
+    monkeypatch.setattr(vios, "get_timelines_map", boom)
+
+    ref = vios.SensorRef(name="r", sensor_id="r1", stream_id="r-stream", url="rtsp://c/1", kind="stream")
+    with pytest.raises(vios.VSTError, match="503"):
+        await vios.delete_media(VST, ref)
+
+
+@pytest.mark.asyncio
+async def test_delete_says_plainly_when_there_was_nothing_recorded(vios_http, monkeypatch) -> None:
+    configure, calls, _ = vios_http
+    configure(**{"/sensor/list": [], "/sensor/r1": (200, {})})
+
+    async def empty(*_a: object, **_k: object) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(vios, "get_timelines_map", empty)
+
+    ref = vios.SensorRef(name="r", sensor_id="r1", stream_id="r-stream", url="rtsp://c/1", kind="stream")
+    result = await vios.delete_media(VST, ref)
+
+    assert result["recordings"] == "none"
+    assert result["deleted"] == ["sensor"]
+    assert not any("/storage/file/" in c for c in calls if c.startswith("DELETE"))
+
+
+@pytest.mark.asyncio
+async def test_list_fails_rather_than_reporting_a_short_list(vios_http) -> None:
+    """A streams outage must not read as "this deployment has no sensors"."""
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "cam", "sensorId": "cam-id"}], "/sensor/cam-id/streams": (503, {})})
+
+    with pytest.raises(vios.VSTError, match="503"):
+        await vios.list_media(VST)
+
+
+@pytest.mark.asyncio
+async def test_a_sensor_with_no_id_is_reported_not_dropped(vios_http) -> None:
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "orphan", "sensorId": ""}]})
+
+    rows = await vios.list_media(VST)
+
+    assert len(rows) == 1
+    assert rows[0]["error"] == "VIOS reported no sensorId"
+
+
+def test_a_missing_url_is_unknown_provenance_not_video() -> None:
+    """Guessing "video" would send delete down the wrong teardown flow."""
+    assert classify_source("") == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_a_stream_id_resolves_when_the_name_and_sensor_id_both_miss(vios_http) -> None:
+    """_pick_stream tells callers to address a stream explicitly; honour it."""
+    configure, _, _ = vios_http
+    configure(
+        **_routes(
+            sensors=[{"name": "cam", "sensorId": "cam-id"}],
+            streams={
+                "cam-id": [
+                    {"streamId": "sub-a", "url": "rtsp://x/a"},
+                    {"streamId": "sub-b", "url": "rtsp://x/b"},
+                ]
+            },
+        )
+    )
+
+    ref = await vios.resolve_sensor(VST, "sub-b")
+
+    assert ref.stream_id == "sub-b"
+    assert ref.name == "cam"
+
+
+@pytest.mark.asyncio
+async def test_ambiguity_and_absence_carry_different_error_types(vios_http) -> None:
+    """Exit 2 for "you were ambiguous", exit 5 for "it is not here"."""
+    configure, _, routes = vios_http
+    configure(**_routes(sensors=[{"name": "dup", "sensorId": "a"}, {"name": "dup", "sensorId": "b"}], streams={}))
+    with pytest.raises(vios.VIOSInvalidInputError):
+        await vios.resolve_sensor(VST, "dup")
+
+    routes.clear()
+    configure(**{"/sensor/list": []})
+    with pytest.raises(vios.VIOSNotFoundError):
+        await vios.resolve_sensor(VST, "absent")
+
+
+@pytest.mark.asyncio
+async def test_add_stream_recovers_the_id_when_vios_omits_it(vios_http) -> None:
+    """The sensor exists; retrying on a false failure would duplicate it."""
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/sensor/add": {},
+            "/sensor/list": [{"name": "dock", "sensorId": "dock-uuid"}],
+            "/sensor/dock-uuid/streams": [{"streamId": "dock-uuid", "isMain": True, "url": "rtsp://c/1"}],
+        }
+    )
+
+    assert await vios.add_stream(VST, "rtsp://c/1", "dock") == "dock-uuid"
+
+
+def test_a_bad_filename_is_a_caller_error_not_a_backend_outage() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError):
+        validate_media_name("has space.mp4")
