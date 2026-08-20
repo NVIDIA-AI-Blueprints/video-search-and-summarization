@@ -166,6 +166,8 @@ ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/
 
 RUN mkdir -p /tmp/huggingface
 
+# Apply DeepStream's rtpjitterbuffer fix for RTSP streams while the APT package
+# index is still available to its build script.
 RUN --mount=type=bind,source=docker/requirements_apt.txt,target=/tmp/requirements_apt.txt \
     --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
     sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list \
@@ -173,6 +175,7 @@ RUN --mount=type=bind,source=docker/requirements_apt.txt,target=/tmp/requirement
     && apt install -y --no-install-recommends $(cat /tmp/requirements_apt.txt) \
     && packagekit_packages="$(dpkg-query -W -f='${binary:Package}\n' packagekit packagekit-tools 2>/dev/null || true)" \
     && if [ -n "$packagekit_packages" ]; then apt-get purge -y --auto-remove $packagekit_packages; fi \
+    && /opt/nvidia/deepstream/deepstream/update_rtpmanager.sh \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/lib/*-linux-gnu/gstreamer-1.0/libgstaudioparsers.so \
         /usr/lib/*-linux-gnu/gstreamer-1.0/libgstfaad.so \
@@ -233,30 +236,18 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             91; \
     fi
 
-# Copy vendored DeepStream runtime patches. The iGPU base uses its R39 Jetson
-# decoder plugin, while SBSA needs the generic aarch64 replacement.
-RUN --mount=type=bind,source=docker/binaries/,target=/tmp/binaries \
-    if [ "$TARGETARCH" = "amd64" ]; then \
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
         mkdir -p /opt/nvidia/rtvi/warmup_streams && \
         cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
         cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h265.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
         rm -rf /opt/nvidia/deepstream/deepstream/samples/ && \
         rm -rf /opt/nvidia/deepstream/deepstream/sources/ && \
         rm -rd /opt/nvidia/deepstream/deepstream/bin && \
-        rm -rf /opt/nvidia/deepstream/deepstream/service-maker/sources/ && \
-        cp /tmp/binaries/amd64/libgstrtpmanager.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/ && \
-        cp /tmp/binaries/amd64/libgstrtsp.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/ && \
-        cp /tmp/binaries/amd64/libgstvideoparsersbad.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/; \
+        rm -rf /opt/nvidia/deepstream/deepstream/service-maker/sources/; \
     else \
         mkdir -p /opt/nvidia/rtvi/warmup_streams && \
         cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
-        cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h265.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
-        cp /tmp/binaries/arm64/libgstrtpmanager.so /usr/lib/aarch64-linux-gnu/gstreamer-1.0/ && \
-        cp /tmp/binaries/arm64/libgstrtsp.so /usr/lib/aarch64-linux-gnu/gstreamer-1.0/ && \
-        cp /tmp/binaries/arm64/libgstvideoparsersbad.so /usr/lib/aarch64-linux-gnu/gstreamer-1.0/ && \
-        if [ "$ARM_PLATFORM" = "sbsa" ]; then \
-            cp /tmp/binaries/arm64/libgstnvvideo4linux2.so /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/; \
-        fi; \
+        cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h265.mp4 /opt/nvidia/rtvi/warmup_streams/; \
     fi
 
 # Avoid warnings about missing plugins
@@ -283,13 +274,11 @@ RUN rm -f /usr/lib/x86_64-linux-gnu/gstreamer-1.0/deepstream/libnvdsgst_udp.so &
 
 RUN --mount=type=bind,source=docker/binaries/,target=/tmp/binaries \
     if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
-        mkdir -p /opt/nvidia/rtvi/lib /opt/nvidia/rtvi/gst-plugins && \
+        mkdir -p /opt/nvidia/rtvi/lib && \
         cp /tmp/binaries/igpu/libnvbufsurface.so /opt/nvidia/rtvi/lib/libnvbufsurface.so && \
         cp /tmp/binaries/igpu/libnvbufsurface.so /opt/nvidia/rtvi/lib/libnvbufsurface.so.1.0.0 && \
         cp /tmp/binaries/igpu/libnvbufsurftransform.so /opt/nvidia/rtvi/lib/libnvbufsurftransform.so && \
-        cp /tmp/binaries/igpu/libnvbufsurftransform.so /opt/nvidia/rtvi/lib/libnvbufsurftransform.so.1.0.0 && \
-        cp /tmp/binaries/igpu/libgstnvvideo4linux2.so /opt/nvidia/rtvi/gst-plugins/ && \
-        chmod 755 /opt/nvidia/rtvi/gst-plugins/libgstnvvideo4linux2.so; \
+        cp /tmp/binaries/igpu/libnvbufsurftransform.so /opt/nvidia/rtvi/lib/libnvbufsurftransform.so.1.0.0; \
     fi
 
 RUN --mount=type=bind,from=generate-requirements,source=/tmp/python/requirements.txt,target=/tmp/requirements.txt \
@@ -335,8 +324,8 @@ RUN --mount=type=bind,src=src/cpp/nvdec_get_count,target=/tmp/nvdec_get_count \
 # Install GStreamer SEI metadata Python bindings (copy from build stage)
 COPY --from=video_sei_metadata_builder /build/video_sei_metadata/gst_video_sei_meta*.so /usr/local/lib/python3.12/dist-packages/
 
-# For ARM (SBSA and iGPU): Copy libgstnvdsseimeta.so from pre-built binaries
-# This library is required for GStreamer SEI metadata support
+# The ARM DeepStream base does not provide this library. It is required by the
+# GStreamer SEI metadata Python binding built above.
 RUN if [ "$TARGETARCH" = "arm64" ]; then mkdir -p /opt/nvidia/deepstream/deepstream/lib; fi
 COPY docker/binaries/igpu/libgstnvdsseimeta.so /tmp/libgstnvdsseimeta.so
 RUN if [ "$TARGETARCH" = "arm64" ]; then \

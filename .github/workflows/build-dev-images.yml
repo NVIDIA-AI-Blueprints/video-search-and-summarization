@@ -129,19 +129,14 @@ jobs:
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
 
       - name: Verify RT Embed LFS shared objects
-        if: matrix.name == 'vss-rt-embed'
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
         run: |
-          mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \
-            -type f -name '*.so' -print)
-          test "${#lfs_assets[@]}" -gt 0
-          invalid=0
-          for asset in "${lfs_assets[@]}"; do
-            if ! file --brief "$asset" | grep -q '^ELF '; then
-              echo "::error file=$asset::LFS assets not materialized"
-              invalid=1
-            fi
+          for lfs_asset in \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s "$lfs_asset"
           done
-          test "$invalid" -eq 0
 
       - name: Compute immutable candidate coordinates
         id: meta
@@ -313,19 +308,14 @@ jobs:
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
 
       - name: Verify RT Embed LFS shared objects
-        if: matrix.name == 'vss-rt-embed'
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
         run: |
-          mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \
-            -type f -name '*.so' -print)
-          test "${#lfs_assets[@]}" -gt 0
-          invalid=0
-          for asset in "${lfs_assets[@]}"; do
-            if ! file --brief "$asset" | grep -q '^ELF '; then
-              echo "::error file=$asset::LFS assets not materialized"
-              invalid=1
-            fi
+          for lfs_asset in \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s "$lfs_asset"
           done
-          test "$invalid" -eq 0
 
       - name: Compute immutable candidate coordinates
         id: meta

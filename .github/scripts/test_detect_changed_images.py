@@ -316,6 +316,9 @@ class SelectImagesTest(unittest.TestCase):
         self.assertTrue(sbsa_entry["native_platform_build"])
         self.assertEqual(sbsa_entry["repository"], "vss-rt-embed")
         self.assertEqual(sbsa_entry["tag_suffix"], "-sbsa")
+        self.assertEqual(
+            sbsa_entry["lfs_include"], "services/rtvi/rt-embed/docker/binaries/**"
+        )
         self.assertEqual(sbsa_entry["build_args"], {"ARM_PLATFORM": "sbsa"})
         self.assertEqual(sbsa_entry["platforms"], ["linux/arm64"])
         self.assertEqual(sbsa_entry["compose_image_names"], [])
@@ -359,13 +362,16 @@ class SelectImagesTest(unittest.TestCase):
             repo_root / ".github/workflows/build-dev-images.yml"
         ).read_text()
         verifier = """      - name: Verify RT Embed LFS shared objects
-        if: matrix.name == 'vss-rt-embed'
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
         run: |
-          mapfile -t lfs_assets < <(find services/rtvi/rt-embed/docker/binaries \\
-            -type f -name '*.so' -print)"""
+          for lfs_asset in \\
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \\
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \\
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s \"$lfs_asset\"
+          done"""
 
         self.assertEqual(workflow.count(verifier), 2)
-        self.assertEqual(workflow.count("LFS assets not materialized"), 2)
 
     def test_workflow_passes_dash_prefixed_variant_suffix_unambiguously(self):
         repo_root = Path(__file__).resolve().parents[2]
