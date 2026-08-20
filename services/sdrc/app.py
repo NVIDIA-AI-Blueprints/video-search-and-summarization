@@ -3207,6 +3207,14 @@ def readdStreams(podName, pod_spec):
                 if podInfoItm['podName'] == podName:
                     for spec in json_spec:
                         data = redisMsging.getMessageValue(spec)
+                        if data is None:
+                            app.logger.error(
+                                "readdStreams: cached spec on pod %s is missing the %s field; "
+                                "skipping this stream, continuing with remaining streams",
+                                podInfoItm.get("podName"),
+                                app.config["WDM_EVENT_OBJECT_FIELD"],
+                            )
+                            continue
                         try:
                             resp = pc.add(
                                 podInfo=podInfoItm, configData=spec
@@ -3215,7 +3223,7 @@ def readdStreams(podName, pod_spec):
                             app.logger.exception(
                                 "readd failed with an unexpected exception for stream %s on pod %s; "
                                 "continuing with remaining streams",
-                                data.get(app.config["WDM_WL_ID_FIELD"]),
+                                data.get(app.config["WDM_WL_ID_FIELD"], "unknown"),
                                 podInfoItm.get("podName"),
                             )
                             resp = None
