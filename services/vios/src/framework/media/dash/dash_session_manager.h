@@ -31,6 +31,8 @@
 #include <thread>
 #include <unordered_map>
 
+class CommonVideoSource;
+
 struct DashStartResult
 {
     bool success = false;
@@ -61,6 +63,13 @@ public:
 
     void setDeviceManager(std::shared_ptr<nv_vms::DeviceManager> deviceManager);
     DashStartResult start(const std::string& streamId);
+
+    // Replay sessions are never shared.  Two viewers of the same recording can
+    // sit at different points in it, so each one gets its own packager, its own
+    // output directory and its own playhead.
+    DashStartResult startReplay(const std::string& streamId, const std::string& startTime,
+                                const std::string& endTime);
+    bool controlReplay(const std::string& viewerId, const std::string& action, const std::string& value);
     bool stopViewer(const std::string& viewerId);
     std::optional<DashStartResult> status(const std::string& viewerId);
     DashAssetResult resolveAsset(const std::string& streamToken, const std::string& fileName);
@@ -79,6 +88,14 @@ private:
         std::string streamToken;
         std::string mediaUrl;
         std::shared_ptr<DashPackagerConsumer> packager;
+        // Replay only: the recorded source feeding the packager, and the window
+        // it was opened for.  Live sessions are fed by StreamMonitor instead
+        // and leave this null.
+        bool replay = false;
+        std::string startTime;
+        std::string endTime;
+        std::shared_ptr<CommonVideoSource> source;
+        bool paused = false;
         std::set<std::string> viewerIds;
         std::chrono::steady_clock::time_point lastActivity;
         // Latches once the session has produced its preroll window.  Counting
@@ -96,7 +113,10 @@ private:
     mutable std::mutex m_mutex;
     std::condition_variable m_wakeup;
     std::weak_ptr<nv_vms::DeviceManager> m_deviceManager;
+    // Live sessions are keyed by stream because every viewer of a camera shares
+    // one packager.  Replay sessions cannot be, so they are owned by token.
     std::unordered_map<std::string, std::shared_ptr<Session>> m_sessionsByStream;
+    std::unordered_map<std::string, std::shared_ptr<Session>> m_replaySessionsByToken;
     std::unordered_map<std::string, std::weak_ptr<Session>> m_sessionsByToken;
     std::unordered_map<std::string, std::weak_ptr<Session>> m_sessionsByViewer;
     std::thread m_reaperThread;
