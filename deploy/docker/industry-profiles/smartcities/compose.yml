@@ -128,7 +128,17 @@ services:
     volumes:
       - calibration-toolkit-alerts:/calibration/server/data:rw
     container_name: mdx-calibration-toolkit
-    command: "deploy.sh 8003"
+    command:
+        - -c
+        - |
+          python3 - <<'PY'
+          import glob
+          for p in glob.glob('/usr/local/lib/python3.*/dist-packages/calibration/server/frontend/static/js/main*.js'):
+              s = open(p, encoding='utf-8', errors='surrogateescape').read()
+              open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s.replace('"weekly"', '"3.64"'))
+          PY
+          exec deploy.sh 8003
+    entrypoint: ["/bin/bash"]
 
   vss-video-analytics-ui-smartcities:
     image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
