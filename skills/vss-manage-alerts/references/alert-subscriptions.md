@@ -80,7 +80,8 @@ VST_API_BASE="${VST}/vst/api/v1"
 **3. Do NOT route through the VSS Agent `/generate` endpoint under any circumstance. Workflow D MUST call Alert Bridge directly at `$AB/api/v1/realtime`. If Alert Bridge is unreachable, abort and report the connectivity error — do not fall back to `/generate`.
 
 **4. Payload must include `sensor_id` as the UUID from VIOS:**
-- Run `vss vios list --type stream` and read the row whose `name` matches.
+- Run `vss vios list --type stream` and read the row whose `name` matches. (CLI bootstrap
+  and exit codes: `services/agent/packages/vss_cli/AGENTS.md`.)
 - Take its `sensor_id`. Read it from that listing — never build it from the name: an
   auto-discovered source's `sensorId` can carry a `_N` suffix, and an uploaded one is a
   fresh UUID.

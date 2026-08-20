@@ -303,7 +303,8 @@ Hand off to `/vss-manage-video-io-storage` to:
 
    ```bash
    # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
-   # Omit the window to take the whole covering segment; the response echoes what was served.
+   # Omit the window to take the whole covering segment; the response echoes what it resolved.
+   # CLI bootstrap and exit codes: services/agent/packages/vss_cli/AGENTS.md
    vss vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>] | jq -r .media_url
    ```
 

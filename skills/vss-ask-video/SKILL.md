@@ -160,14 +160,10 @@ When using VST/VIOS, **you MUST list VST sensors before resolving a clip URL.** 
 even when the user names the sensor explicitly, even when the user asserts the video is already
 uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
 
-> **Running the CLI.** `vss` ships in the VSS checkout; run it from there. Endpoints come from
-> the deployment `vss configure` recorded, so none of these commands take a host or port.
->
-> ```bash
-> VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-> alias vss='uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss'
-> vss configure --base-url "${VSS_PUBLIC_URL}"   # once per deployment
-> ```
+> **Running the CLI.** Bootstrap, `vss configure`, exit codes and the sensor-resolution
+> rules live in [`vss` AGENTS.md](../../services/agent/packages/vss_cli/AGENTS.md) — read it once rather than per skill. In short:
+> run `vss` from the VSS checkout, `vss configure --base-url "${VSS_PUBLIC_URL}"` once per
+> deployment, and no command afterwards takes a host or port.
 
 1. List sensors:
    ```bash
