@@ -63,16 +63,11 @@ if TYPE_CHECKING:
 _JOB_DOMAIN = "search"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-#: Index families the deployment reports. Discovery (`vss configure` reads ES
-#: `_cat/indices`) confirms the raw family exists to enable frame lookups -- it
-#: does NOT pick a base or a wildcard (both are pinned `SearchRuntime` defaults);
-#: see :func:`_runtime_from`. The embed/behavior entries are kept only to document
-#: the families the deployment reports.
-_INDEX_PREFIXES = {
-    "video_embed_index": "mdx-embed-filtered-",
-    "behavior_index": "mdx-behavior-",
-    "frames_index": "mdx-raw-",
-}
+#: Prefix of the raw family. Its presence in the recorded inventory is the one
+#: thing discovery (`vss configure` reads ES `_cat/indices`) decides: whether
+#: frame-level lookups are enabled. Bases and wildcards are pinned
+#: `SearchRuntime` defaults, never discovered; see :func:`_runtime_from`.
+_RAW_INDEX_PREFIX = "mdx-raw-"
 
 
 class _Common(BaseModel):
@@ -259,8 +254,10 @@ def _deployment_or_raise() -> config_mod.Deployment:
 def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | None = None) -> Any:
     """Build a SearchRuntime from the recorded deployment.
 
-    Every endpoint and index here was reported by a backend, not typed by a
-    caller -- which is the point of `vss configure`.
+    Every endpoint here was reported by a backend, not typed by a caller -- the
+    point of `vss configure`. Indices are not: bases and wildcards are pinned
+    `SearchRuntime` defaults, and only the raw family's presence is read, to
+    enable frame lookups.
 
     Nothing is required *here*: the framework has already checked the action's
     declared :attr:`~vss_cli.group.Action.requires` against the deployment, so
@@ -299,7 +296,7 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     # lookups when the raw family exists, pinned to the raw uploads anchor;
     # otherwise ``frames_index`` stays ``None`` and frame-level lookups are off.
     available = es_service.indices if es_service else []
-    if any(i.startswith(_INDEX_PREFIXES["frames_index"]) for i in available):
+    if any(i.startswith(_RAW_INDEX_PREFIX) for i in available):
         kwargs["frames_index"] = RAW_INDEX_ANCHOR
 
     kwargs.update(tuning or {})
