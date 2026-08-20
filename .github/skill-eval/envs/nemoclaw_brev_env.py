@@ -13,6 +13,7 @@ from envs.brev_env import BrevEnvironment, _run_brev_exec
 logger = logging.getLogger(__name__)
 
 _SETUP_KEYS = (
+    "SKILLS_EVAL_HARNESS",
     "EVAL_AGENT",
     "SKILLS_EVAL_PROVIDER",
     "SKILLS_EVAL_MODEL",
