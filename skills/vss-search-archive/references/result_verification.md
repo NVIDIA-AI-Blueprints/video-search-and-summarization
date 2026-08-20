@@ -47,7 +47,7 @@ mapfile -t MAPPED_BOUNDS < <(
   uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev python - \
     "${HIT_START}" "${HIT_END}" "${TIMELINE_START}" "${TIMELINE_END}" <<'PY'
 import sys
-from vss_core.vst import map_interval_to_timeline
+from vss_core.vios import map_interval_to_timeline
 
 for value in map_interval_to_timeline(*sys.argv[1:]):
     print(value)

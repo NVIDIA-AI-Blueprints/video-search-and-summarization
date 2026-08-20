@@ -11,8 +11,8 @@ point outside the recording and VST answers
 
 from __future__ import annotations
 
-from vss_core.vst import map_interval_to_timeline
-from vss_core.vst import map_timestamp_to_timeline
+from vss_core.vios import map_interval_to_timeline
+from vss_core.vios import map_timestamp_to_timeline
 
 TL_START = "2026-07-18T04:15:21.640Z"
 TL_END = "2026-07-18T04:18:51.640Z"
