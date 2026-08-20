@@ -317,7 +317,9 @@ inference call failed with a 401 from `api.openai.com`). Pick one:
   `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`).
 - **OpenAI-compatible endpoint** — set `VLM_MODEL_TO_USE=openai-compat`, and set both
   `VIA_VLM_ENDPOINT` (there is no default endpoint) and `OPENAI_API_KEY` or
-  `VIA_VLM_API_KEY` to a real credential.
+  `RTVI_VLM_API_KEY` (falls back to `NGC_CLI_API_KEY`) to a real credential.
+  Note: set `RTVI_VLM_API_KEY` on the host — Compose maps it to the container's
+  `VIA_VLM_API_KEY`; setting `VIA_VLM_API_KEY` on the host has no effect.
 
 Logs will show the ports the services are running at. The LVS API defaults to port `38111`.
 
