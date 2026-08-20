@@ -29,6 +29,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Literal
 
 from vss_core._foundation.time import datetime_to_iso8601
 from vss_core._foundation.time import iso8601_instants_match
@@ -58,7 +59,8 @@ _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 
 def select_search_index(
-    source_type: str,
+    source_type: Literal["video_file", "rtsp"],
+    *,
     video_embed_index: str,
     video_embed_index_wildcard: str,
 ) -> str | list[str]:
@@ -171,8 +173,6 @@ def build_es_query(
         if clause is not None:
             filters.append(clause)
 
-    # Overfetch only when a filter or a positive similarity threshold may discard
-    # retrieved hits; an unfiltered query fetches exactly ``top_k``.
     k_value = compute_k_value(
         inp.top_k,
         default_max_results=default_max_results,

@@ -98,8 +98,14 @@ class EmbedSearch:
         """Execute the embed search and return ranked results."""
         inp.validate_semantics()
 
-        search_index = helpers.select_search_index(inp.source_type, self._index, self._index_wildcard)
-        logger.info(f"Embed search: index={search_index} source_type={inp.source_type} query={scrub_log(inp.query)}")
+        search_index = helpers.select_search_index(
+            inp.source_type,
+            video_embed_index=self._index,
+            video_embed_index_wildcard=self._index_wildcard,
+        )
+        logger.info(
+            f"Embed search: index(es)={search_index} source_type={inp.source_type} query={scrub_log(inp.query)}"
+        )
 
         with TimeMeasure("embed_search: generate query embedding"):
             query_embedding = await self._generate_query_embedding(inp)
@@ -112,10 +118,9 @@ class EmbedSearch:
             try:
                 response = await self._search(search_index, search_query)
             except IndexNotFoundError:
-                # Graceful-empty only for the pinned uploads anchor (video_file
-                # against a stack with no ingested files); parity with the
-                # behavior/object paths. Any other missing index is a real fault
-                # and still raises.
+                # Empty uploads partition (video_file, no files ingested), not a
+                # fault; any other missing index raises. Gated on the anchor: see
+                # the SearchRuntime base fields and _attribute_helpers parity.
                 if search_index != VIDEO_EMBED_INDEX_ANCHOR:
                     raise
                 logger.warning(

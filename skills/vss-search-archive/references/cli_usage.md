@@ -106,7 +106,7 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 | 2 | invalid input (unknown flag, bad value) |
 | 3 | backend unreachable |
 | 4 | configuration — not configured, foreign config, or a required service absent |
-| 5 | not found — a searched index does not exist (nothing ingested yet) |
+| 5 | not found: a searched index that is not the uploads anchor is missing (an absent anchor returns exit 0 with empty results) |
 
 Search automatically attempts bounded visual verification through
 `vss_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
@@ -121,9 +121,11 @@ Only when every displayed hit is `unverified` may the host ask whether the user
 wants them checked through the separate `vss-ask-video` workflow. If even one
 hit is `confirmed` or `rejected`, do not offer or invoke that fallback.
 
-Index names and model ids come from `vss configure show`. Never pass or infer an
-index and never read `ELASTIC_SEARCH_INDEX`; it names only the embedding index
-and must not be reused as the behavior or raw index.
+Model ids come from `vss configure show`; the CLI never accepts an index. Bases
+and family wildcards are pinned, and host-side ES checks use the family
+wildcards. Never pass or infer an index and never read `ELASTIC_SEARCH_INDEX`; it
+names only the embedding index and must not be reused as the behavior or raw
+index.
 
 Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.

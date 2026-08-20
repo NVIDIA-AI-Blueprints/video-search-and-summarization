@@ -21,13 +21,22 @@ _UUID = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
 
 
 def test_select_index_video_file_uses_pinned_base():
-    assert h.select_search_index("video_file", "mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-*") == (
-        "mdx-embed-filtered-2025-01-01"
+    assert (
+        h.select_search_index(
+            "video_file",
+            video_embed_index="mdx-embed-filtered-2025-01-01",
+            video_embed_index_wildcard="mdx-embed-filtered-*",
+        )
+        == "mdx-embed-filtered-2025-01-01"
     )
 
 
 def test_select_index_rtsp_subtracts_base_from_wildcard():
-    assert h.select_search_index("rtsp", "mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-*") == [
+    assert h.select_search_index(
+        "rtsp",
+        video_embed_index="mdx-embed-filtered-2025-01-01",
+        video_embed_index_wildcard="mdx-embed-filtered-*",
+    ) == [
         "mdx-embed-filtered-*",
         "-mdx-embed-filtered-2025-01-01",
     ]
@@ -35,7 +44,11 @@ def test_select_index_rtsp_subtracts_base_from_wildcard():
 
 def test_select_index_unknown_source_type_raises():
     with pytest.raises(ValueError, match="Unsupported source_type"):
-        h.select_search_index("bogus", "mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-*")
+        h.select_search_index(
+            "bogus",
+            video_embed_index="mdx-embed-filtered-2025-01-01",
+            video_embed_index_wildcard="mdx-embed-filtered-*",
+        )
 
 
 # (escaping + video_sources filter now live in _internal/es_filters.py and are

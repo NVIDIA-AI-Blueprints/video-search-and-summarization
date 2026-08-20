@@ -391,6 +391,18 @@ def _is_attribute_excluded(
 # =============================================================================
 
 
+def _is_absent_uploads_anchor(index: str | list[str]) -> bool:
+    """Whether a NotFound target is the pinned uploads anchor (an empty uploads
+    partition, no files ingested) rather than a real fault.
+
+    Gated on equality with the anchor constant, not "is concrete": a customized
+    or genuinely-broken base still raises, and an ``rtsp`` wildcard list is never
+    equal. Overriding the base off the anchor therefore costs graceful-empty (see
+    the ``SearchRuntime`` base fields).
+    """
+    return index == BEHAVIOR_INDEX_ANCHOR
+
+
 async def _search_behavior(
     index: str | list[str],
     query_embedding: list[float],
@@ -421,13 +433,7 @@ async def _search_behavior(
     try:
         response = await es.search(index=search_index_str, body=search_query)
     except ESNotFoundError as e:
-        # Graceful-empty only for the pinned uploads anchor: its absence means no
-        # files were ingested (an empty uploads partition, not a fault), so return
-        # no candidates. Gate on equality with the anchor -- not on "is concrete"
-        # -- so a customized or genuinely-broken behavior base still raises rather
-        # than silently returning []. An ``rtsp`` target is a wildcard list (never
-        # equal), and an unmatched wildcard yields empty rather than a 404 anyway.
-        if index == BEHAVIOR_INDEX_ANCHOR:
+        if _is_absent_uploads_anchor(index):
             logger.warning(
                 f"Uploads anchor index '{index}' does not exist (no files ingested); "
                 f"returning no {source_type} candidates."
@@ -632,12 +638,7 @@ async def _fetch_object_embedding(
     try:
         response = await es.search(index=search_index_str, body=query)
     except ESNotFoundError as e:
-        # Mirror the graceful-empty contract in :func:`_search_behavior`, gated on
-        # equality with the pinned uploads anchor (not "is concrete"): its absence
-        # means no files were ingested, so return an empty seed vector. A
-        # customized or genuinely-broken base, or an ``rtsp`` wildcard list, is
-        # never equal and still raises as a real fault.
-        if behavior_index == BEHAVIOR_INDEX_ANCHOR:
+        if _is_absent_uploads_anchor(behavior_index):
             logger.warning(
                 f"Uploads anchor index '{behavior_index}' does not exist (no files ingested); "
                 f"no object embedding to fetch."

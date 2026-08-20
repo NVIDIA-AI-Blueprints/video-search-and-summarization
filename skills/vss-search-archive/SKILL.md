@@ -81,9 +81,10 @@ one exits 4.
 
 For deployment readiness, ingestion, fixture cleanup, index checks, RTSP, or
 deletion, read [source lifecycle](references/source_lifecycle.md) completely
-before acting. Re-running `vss configure` after ingestion refreshes the recorded
-service snapshot and is good practice, though search no longer depends on the
-index inventory for source-type selection.
+before acting. Re-run `vss configure` after the first ingestion: the recorded
+raw family is what enables frame-level lookups (it gates `frames_index`, which
+attribute and fusion need for frame enrichment). Only source-type selection is
+independent of the index inventory.
 
 ## Mandatory search workflow
 
@@ -115,9 +116,9 @@ index inventory for source-type selection.
    embed. Separate each specific detectable property (`white jacket`, `red hard
    hat`) from the actions/relations only embeddings capture, then choose:
 
-   - a detectable property is present → `run fusion` (even within one sentence)
+   - a detectable property plus an action or relation is present → `run fusion` (even within one sentence)
    - free-text intent with no detectable property → `run embed`
-   - detectable properties only, no action/relation → `run attribute`
+   - detectable properties only, no action or relation → `run attribute`
    - explicit tracked object IDs → `run object`
 
    `--attribute` is for specific detectable properties, not generic nouns or

@@ -98,7 +98,11 @@ class SearchRuntime:
     # ``video_delete.py`` hardcodes the same three names as its cleanup targets.
     # This is a write-side contract: the base must NOT be discovered from the live
     # index inventory, or a live-dated index can masquerade as the uploads base and
-    # invert ``rtsp`` source-type selection.
+    # invert ``rtsp`` source-type selection. The absent-anchor graceful-empty for
+    # ``video_file`` is gated on these exact constants (see
+    # ``_is_absent_uploads_anchor`` / ``EmbedSearch.run``), so overriding
+    # ``behavior_index`` or ``video_embed_index`` turns a fresh-stack ``video_file``
+    # search from an empty result into exit 5.
     behavior_index: str = BEHAVIOR_INDEX_ANCHOR
     behavior_index_wildcard: str = "mdx-behavior-*"
     # The embed read path selects ``video_file`` -> this anchor and ``rtsp`` ->

@@ -175,9 +175,12 @@ class _MockSearchServices:
         self._send_json(handler, {"error": f"unexpected {method} {path}"}, status=404)
 
     def _search_response_for(self, path: str, body: Any) -> dict[str, Any]:
-        # Embed targets the family (`mdx-embed-filtered-*` for rtsp, the
-        # date-anchored index for video_file), so match by family prefix.
-        if "mdx-embed-filtered" in path:
+        # Embed targets the pinned anchor (video_file) or the wildcard minus that
+        # anchor (rtsp); match those two exactly so a wrong index is not absorbed.
+        if path in (
+            "/mdx-embed-filtered-2025-01-01/_search",
+            "/mdx-embed-filtered-*,-mdx-embed-filtered-2025-01-01/_search",
+        ):
             return self.search_response
         if isinstance(body, dict) and body.get("query", {}).get("term", {}).get("object.id.keyword") is not None:
             return _object_embedding_response()
