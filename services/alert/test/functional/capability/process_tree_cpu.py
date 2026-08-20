@@ -62,7 +62,40 @@ def matching_pids(pattern):
             continue
         if pattern in cmdline and SELF not in cmdline:
             pids.append(int(entry))
-    return pids
+
+    # Descendants count too, or this measures a supervisor and calls it the
+    # workload. Children inherited the parent's argv under fork and matched
+    # the pattern themselves; spawned children are re-exec'd as
+    # "python -c from multiprocessing.spawn import spawn_main ..." and match
+    # nothing, which reports a busy N-process instance as ~0% CPU.
+    tree = _children_by_parent()
+    seen = set(pids)
+    queue = list(pids)
+    while queue:
+        for child in tree.get(queue.pop(), ()):
+            if child not in seen:
+                seen.add(child)
+                queue.append(child)
+    seen.discard(os.getpid())
+    return sorted(seen)
+
+
+def _children_by_parent():
+    """ppid -> [pid] for every live process, read from /proc/<pid>/stat."""
+    tree = {}
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            # The comm field can contain spaces and parentheses, so split on
+            # the last ") " rather than tokenising the whole line.
+            with open(f"/proc/{entry}/stat") as handle:
+                fields = handle.read().rsplit(") ", 1)[1].split()
+            ppid = int(fields[1])
+        except (OSError, IndexError, ValueError):
+            continue
+        tree.setdefault(ppid, []).append(int(entry))
+    return tree
 
 
 def cpu_ticks(pid):

@@ -59,6 +59,10 @@ VERDICT="$SCRIPT_DIR/ts030_verdict.py"
 AB_PATTERN="enhance_alert_with_vlm.py"
 SIM_PATTERNS="${SIM_PATTERNS:-elastic_sim.py,vst_sim.py,nim_stub_server.py}"
 SIM_SATURATED_PCT="${SIM_SATURATED_PCT:-85}"
+# The VSS sim is not referenced by this suite's config (VLM -> NIM stub :18081,
+# VST -> :30888, ES -> :9200), but ensure_stack still gates startup on it.
+# Overridable so a host that already has something on 8080 can still run.
+VSS_SIM_PORT="${VSS_SIM_PORT:-8080}"
 
 PROCESSES="${PROCESSES:-4}"
 PARTITIONS="${PARTITIONS:-8}"
@@ -79,6 +83,11 @@ while [ $# -gt 0 ]; do
         *) echo "Unknown option: $1"; exit 2 ;;
     esac
 done
+
+# Alert Bridge resolves relative config paths (alert_type_config_file,
+# config.yaml) against the CWD, so it has to run from the service root. Every
+# path this script uses is absolute, so moving there is safe.
+cd "$REPO_ROOT" || exit 1
 
 mkdir -p "$PID_DIR" "$RESULTS_DIR"
 
@@ -166,14 +175,14 @@ ensure_stack() {
         python3 "$REPO_ROOT/test/sim_scripts/vst/vst_sim.py" > "$PID_DIR/vst_sim.log" 2>&1 &
         echo $! > "$PID_DIR/vst_sim.pid"
     fi
-    if ! curl -sf http://127.0.0.1:8080/models >/dev/null 2>&1; then
-        python3 "$REPO_ROOT/test/sim_scripts/vss/vss_sim.py" > "$PID_DIR/vss_sim.log" 2>&1 &
+    if ! curl -sf "http://127.0.0.1:$VSS_SIM_PORT/models" >/dev/null 2>&1; then
+        VSS_SIM_PORT="$VSS_SIM_PORT" python3 "$REPO_ROOT/test/sim_scripts/vss/vss_sim.py" > "$PID_DIR/vss_sim.log" 2>&1 &
         echo $! > "$PID_DIR/vss_sim.pid"
     fi
 
     wait_for_sim "Elastic sim" http://127.0.0.1:9200/health "$PID_DIR/elastic_sim.log" || exit 1
     wait_for_sim "VST sim" http://127.0.0.1:30888/status "$PID_DIR/vst_sim.log" || exit 1
-    wait_for_sim "VSS sim" http://127.0.0.1:8080/models "$PID_DIR/vss_sim.log" || exit 1
+    wait_for_sim "VSS sim" "http://127.0.0.1:$VSS_SIM_PORT/models" "$PID_DIR/vss_sim.log" || exit 1
 }
 
 # Kill by pattern, not by PID file: a stub orphaned by an earlier run keeps
@@ -618,6 +627,18 @@ ts_033() {
         prepare_run "$PROCESSES" "$batch" 2 || { failed=1; detail="$detail batch_commit=$batch: startup;"; break; }
 
         local d0; d0=$(prom_value alert_bridge_events_after_dedup_total)
+        # The instance being measured is about to be killed and its scrape
+        # endpoint dies with it, so reading the counter afterwards returns the
+        # prom_value 0 default -- which made admitted 0 and in_flight_lost
+        # negative. Sample while it is alive and keep the last value.
+        local dfile="$RESULTS_DIR/after_dedup_$batch.txt"
+        : > "$dfile"
+        ( while :; do
+              v=$(prom_value alert_bridge_events_after_dedup_total)
+              [ -n "$v" ] && [ "$v" != "0" ] && echo "$v" > "$dfile"
+              sleep 0.5
+          done ) &
+        local dpoll=$!
         python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
             --num-sensors "$PARTITIONS" --rate 20 --duration 20 --unique \
             --sensor-prefix "TS033K$batch" > "$RESULTS_DIR/injector_TS033K_$batch.log" 2>&1 &
@@ -629,6 +650,7 @@ ts_033() {
         if [ -z "$victim" ]; then
             failed=1; detail="$detail batch_commit=$batch: no pipeline child to kill;"
             kill $inj 2>/dev/null || true
+            kill $dpoll 2>/dev/null || true
             continue
         fi
         kill -9 "$victim" 2>/dev/null || true
@@ -646,11 +668,14 @@ ts_033() {
         done
         if [ "$stopped" -ne 1 ]; then
             failed=1; detail="$detail batch_commit=$batch: instance still running ${waited}s after the kill;"
+            kill $dpoll 2>/dev/null || true
             continue
         fi
 
         local d1 admitted docs committed
-        d1=$(prom_value alert_bridge_events_after_dedup_total)
+        kill $dpoll 2>/dev/null || true
+        d1=$(cat "$dfile" 2>/dev/null)
+        [ -z "$d1" ] && d1=$d0
         admitted=$(python3 -c "print(int(round(float('$d1') - float('$d0'))))")
         docs=$(count_es_docs "$ES_HOST")
         # Offsets commit at read, so anything read is charged to the instance
