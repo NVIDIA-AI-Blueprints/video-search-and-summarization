@@ -390,9 +390,11 @@ guessing the separator (`warehouse-sample` vs `warehouse_sample`) filters on a v
 does not exist — which returns `count: 0`, not an error.
 
 ```bash
-# 1. candidate names, from the source of truth (match the user's wording case-insensitively)
+# 1. candidate names, from the source of truth. -F matches the wording literally: without it
+#    a `.` or `[` in what the user typed is read as a pattern, which quietly matches a
+#    different camera or errors out and reads back as "no such sensor".
 MATCHES=$(curl -sf "$VST_API_BASE/sensor/list" \
-  | jq -r '.[] | .name' | grep -i -- "<user's wording, e.g. warehouse>")
+  | jq -r '.[] | .name' | grep -Fi -- "<user's wording, e.g. warehouse>")
 # Stop unless exactly one name matched — anything else is a question for the user, not a guess
 [ "$(printf '%s\n' "$MATCHES" | grep -c .)" = 1 ] || { printf '%s\n' "$MATCHES"; exit 1; }
 NAME="$MATCHES"
