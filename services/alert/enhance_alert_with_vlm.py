@@ -2728,7 +2728,16 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
 
     ready_events = [_pipeline_mp_context().Event() for _ in range(process_count)]
     if on_ready is not None:
-        _announce_when_all_ready(ready_events, on_ready)
+        def announce_with_fleet_state() -> None:
+            # Published before the line rather than on the next poll: the two
+            # run off different clocks -- readiness fires the moment the last
+            # child signals, the gauges are refreshed by the supervisor loop --
+            # so anything reacting to the line would otherwise read a ready
+            # count of zero for up to one poll interval.
+            publish_fleet_state()
+            on_ready()
+
+        _announce_when_all_ready(ready_events, announce_with_fleet_state)
 
     _pipeline_supervisor = ProcessSupervisor(
         count=process_count,

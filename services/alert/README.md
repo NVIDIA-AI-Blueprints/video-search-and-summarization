@@ -288,6 +288,16 @@ alert_agent:
   forces a rebalance, the survivors keep whatever work they had, and whatever
   caused the exit is still there. It also reported success on the way out, so
   a crash-looping deployment read as a clean finish.
+- **A rebalance drains before it hands a partition over.** Dedup state is held
+  in the process that made it, so a member still finishing a cohort while
+  another starts one for the same sensor can publish twice. The outgoing
+  member waits for what it owes on the partitions being taken away, bounded at
+  15 s so it cannot overrun the poll interval and lose its place in the group.
+  This closes an overlap, not a durability gap: offsets are committed when
+  records are read, so a process that dies loses what it held regardless.
+  Watch `alert_bridge_rebalance_drains_total{outcome="timed_out"}` — the bound
+  has been exercised against a stubbed backend, where a drain finished in
+  under half a second, and a real VLM is slower by orders of magnitude.
 - **Metrics aggregate automatically.** Children inherit
   `PROMETHEUS_MULTIPROC_DIR` and the parent scrapes with
   `MultiProcessCollector`, so `:9081` stays the single endpoint. Counters and

@@ -17,9 +17,11 @@
 # Multi-core scaling suite for alert_agent.processes, on the no-GPU simulators.
 #
 #   TS-030  rate ramp, 1 process vs N: CPU past one core, VLM latency flat
-#   TS-031  killed child is restarted and its partitions resume
+#   TS-031  a killed child stops the whole instance, leaving no orphan behind
 #   TS-032  no message loss under overload, with and without kafka.batch_commit
-#   TS-033  crash/replay semantics per commit mode, measured across a hard kill
+#   TS-033  crash semantics per commit mode, measured across a hard kill
+#   TS-034  prompts seeded once up front; readiness trails the last assignment
+#   TS-035  the fleet gauges agree with the processes and partitions in play
 #
 # Two harness properties are load-bearing and are asserted, not assumed:
 #   * the topic must have >= PROCESSES partitions, otherwise effective
@@ -759,17 +761,25 @@ ts_035() {
 
     # Throughput alone hides degraded capacity, so these have to be right at
     # rest before they are worth anything under load.
-    local configured alive ready assigned
-    configured=$(prom_value alert_bridge_pipeline_processes_configured)
-    alive=$(prom_value alert_bridge_pipeline_processes_alive)
-    ready=$(prom_value alert_bridge_pipeline_processes_ready)
-    assigned=$(prom_value alert_bridge_assigned_partitions)
+    #
+    # Polled rather than read once: readiness is announced the moment the last
+    # child signals, while the gauges are refreshed on the supervisor's poll,
+    # so a single scrape straight after the readiness line races the two.
+    local configured alive ready assigned waited=0
+    while [ $waited -lt 30 ]; do
+        configured=$(prom_value alert_bridge_pipeline_processes_configured)
+        alive=$(prom_value alert_bridge_pipeline_processes_alive)
+        ready=$(prom_value alert_bridge_pipeline_processes_ready)
+        assigned=$(prom_value alert_bridge_assigned_partitions)
+        [ "${ready:-0}" = "$PROCESSES.0" ] || [ "${ready:-0}" = "$PROCESSES" ] && break
+        sleep 1; waited=$((waited+1))
+    done
 
     # Every source partition is held exactly once across the instance.
     local want_partitions; want_partitions=$(kafka_topic_partitions_total)
 
     local detail="configured=$configured alive=$alive ready=$ready \
-assigned=$assigned/$want_partitions processes=$PROCESSES"
+assigned=$assigned/$want_partitions processes=$PROCESSES converged_after=${waited}s"
 
     if python3 -c "
 import sys
