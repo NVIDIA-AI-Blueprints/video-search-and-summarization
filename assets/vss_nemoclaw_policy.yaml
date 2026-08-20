@@ -34,8 +34,25 @@ network_policies:
         rules:
           - allow: { method: GET, path: "/**" }
           - allow: { method: POST, path: "/**" }
+      - host: platform.claude.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/v1/oauth/**" }
+          - allow: { method: POST, path: "/v1/oauth/**" }
+    # OpenShell enforces on the kernel-trusted /proc/<pid>/exe. A global npm
+    # install resolves to the package launcher rather than the bin/claude shim,
+    # and the CLI may surface as the Node runtime instead.
     binaries:
       - { path: /usr/local/bin/claude }
+      - { path: /usr/bin/claude }
+      - { path: /tmp/npm-global/bin/claude }
+      - { path: /tmp/npm-global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe }
+      - { path: /home/linuxbrew/.linuxbrew/bin/claude }
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
 
   github:
     name: github
@@ -46,17 +63,17 @@ network_policies:
       - host: api.github.com
         port: 443
         access: full
+    # The sandbox base image apt-installs git but not gh.
     binaries:
-      - { path: /usr/bin/gh }
       - { path: /usr/bin/git }
 
-  clawhub:
-    name: clawhub
+  # Named clawhub_assets, not clawhub: presets merge into the live policy by
+  # policy name and override on collision, so reusing `clawhub` would replace
+  # the base policy's clawhub.ai entry (which carries allow_encoded_slash for
+  # @scope%2Fname package paths) instead of adding to it.
+  clawhub_assets:
+    name: clawhub_assets
     endpoints:
-      - host: clawhub.ai
-        port: 443
-        access: full
-        tls: skip
       - host: registry.clawhub.ai
         port: 443
         protocol: rest
@@ -74,45 +91,6 @@ network_policies:
           - allow: { method: GET, path: "/**" }
     binaries:
       - { path: /usr/local/bin/openclaw }
-      - { path: /usr/local/bin/node }
-
-  openclaw_api:
-    name: openclaw_api
-    endpoints:
-      - host: openclaw.ai
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        tls: terminate
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-    binaries:
-      - { path: /usr/local/bin/openclaw }
-      - { path: /usr/local/bin/node }
-
-  openclaw_docs:
-    name: openclaw_docs
-    endpoints:
-      - host: docs.openclaw.ai
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        tls: terminate
-        rules:
-          - allow: { method: GET, path: "/**" }
-    binaries:
-      - { path: /usr/local/bin/openclaw }
-
-  npm_registry:
-    name: npm_registry
-    endpoints:
-      - host: registry.npmjs.org
-        port: 443
-        access: full
-    binaries:
-      - { path: /usr/local/bin/openclaw }
-      - { path: /usr/local/bin/npm }
       - { path: /usr/local/bin/node }
 
   telegram:
