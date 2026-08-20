@@ -404,11 +404,19 @@ mean the wording is ambiguous (`warehouse_sample` and `warehouse_sample_2` both 
 different camera, and its count looks exactly as valid as the right one. Feeding all of them
 to the query is worse, because the joined value matches nothing and reads back as `count: 0`.
 
-Fall back to an unfiltered `/incidents` response only when VIOS is unavailable — its
-`sensorId` values are the same strings. That response is **not** an answer on its own: its
-`count`/`total` covers every sensor in the store, so count the documents whose `sensorId`
-equals the sensor asked about and report that, saying the name could not be confirmed
-against VIOS.
+Fall back to an unfiltered `/incidents` response only when VIOS is unavailable. It carries
+the same strings, so the values already in it are the candidate list —
+`jq -r '.incidents[].sensorId' | sort -u` — and the rule above applies to them unchanged:
+exactly one match with the user's wording is the sensor, several is a question for the user,
+none means you cannot answer. Never reconstruct the identity by guessing case or separators;
+the point of this fallback is that the stored strings are in front of you.
+
+That response is **not** an answer on its own: its `count`/`total` covers every sensor in the
+store, so count only the documents carrying the matched value, and say the name could not be
+confirmed against VIOS. This list is weaker than VIOS in one way worth stating to the user:
+it only contains sensors that have **produced** incidents. When nothing matches, you cannot
+tell "this sensor has no incidents" from "that is not its stored name" — report that
+ambiguity instead of reporting `0`.
 
 ```bash
 # 2. query — run ONE of these two, never both: the unscoped call answers a different
