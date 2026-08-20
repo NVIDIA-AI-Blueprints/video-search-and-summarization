@@ -58,7 +58,7 @@ services:
           - vss-configurator
     environment:
       ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
-      PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/$CONFIGURATOR_CONFIG_FILE
+      PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/
       NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs
       RECOMPUTE_BEV_CENTERS_ENABLED: false
