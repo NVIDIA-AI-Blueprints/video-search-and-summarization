@@ -107,7 +107,8 @@ class TestStartAndStop:
 
     def test_stop_reports_each_child_to_the_exit_hook(self):
         seen = []
-        supervisor = _supervisor(Spawner(), count=2, on_exit=seen.append)
+        supervisor = _supervisor(Spawner(), count=2,
+                                 on_exit=lambda p, expected: seen.append(p))
         supervisor.start()
         supervisor.stop()
         assert len(seen) == 2
@@ -186,7 +187,8 @@ class TestAnyExitFailsTheInstance:
     def test_every_child_is_reported_to_the_exit_hook_exactly_once(self):
         seen = []
         spawn = Spawner()
-        supervisor = _supervisor(spawn, count=3, poll_interval=0.01, on_exit=seen.append)
+        supervisor = _supervisor(spawn, count=3, poll_interval=0.01,
+                                 on_exit=lambda p, expected: seen.append(p))
         supervisor.start()
         supervisor.processes[1].die(exitcode=1)
 
@@ -285,6 +287,73 @@ class TestFleetStateIsReported:
         assert supervisor.shutdown_requested is False
         supervisor.request_shutdown()
         assert supervisor.shutdown_requested is True
+
+
+class TestExitReasonSurvivesTeardown:
+    """A crash must not be reported as a shutdown.
+
+    Tearing down sets the shutdown flag before reaping, so anything reading it
+    afterwards saw every exit as one that had been asked for -- including the
+    crash that started the teardown, which is the one case the distinction
+    exists for.
+    """
+
+    @staticmethod
+    def _reasons(request_shutdown: bool):
+        seen = []
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=2, poll_interval=0.01,
+                                 on_exit=lambda p, expected: seen.append(expected))
+        supervisor.start()
+        if request_shutdown:
+            supervisor.request_shutdown()
+            supervisor.run()
+        else:
+            supervisor.processes[0].die(exitcode=1)
+            with pytest.raises(SupervisedProcessError):
+                supervisor.run()
+        return seen
+
+    def test_a_crash_is_reported_as_unexpected(self):
+        assert self._reasons(request_shutdown=False) == [False, False]
+
+    def test_an_asked_for_stop_is_reported_as_expected(self):
+        assert self._reasons(request_shutdown=True) == [True, True]
+
+
+class TestAFailedSpawnLeavesNothingRunning:
+    """A child started before the failure must not be left behind.
+
+    It would keep its consumer-group slot and stall the partitions it holds
+    until the group next rebalances, with nothing supervising it.
+    """
+
+    @staticmethod
+    def _failing_spawner(fail_at):
+        spawn = Spawner()
+        original = spawn.__call__
+
+        def spawning(index):
+            if index == fail_at:
+                raise RuntimeError("no more processes")
+            return original(index)
+        return spawn, spawning
+
+    def test_the_earlier_children_are_reaped(self):
+        spawn, spawning = self._failing_spawner(fail_at=2)
+        supervisor = _supervisor(spawning, count=4, stop_timeout=0.0)
+
+        with pytest.raises(RuntimeError, match="no more processes"):
+            supervisor.start()
+
+        assert len(spawn.spawned) == 2
+        assert all(p.terminated or p.killed for p in spawn.spawned)
+
+    def test_the_failure_is_not_swallowed(self):
+        _, spawning = self._failing_spawner(fail_at=0)
+        supervisor = _supervisor(spawning, count=2, stop_timeout=0.0)
+        with pytest.raises(RuntimeError):
+            supervisor.run()
 
 
 if __name__ == "__main__":

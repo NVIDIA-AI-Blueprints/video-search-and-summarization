@@ -47,7 +47,7 @@ class ProcessSupervisor:
         self,
         count: int,
         spawn: Callable[[int], Any],
-        on_exit: Optional[Callable[[Any], None]] = None,
+        on_exit: Optional[Callable[[Any, bool], None]] = None,
         on_poll: Optional[Callable[[], None]] = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         stop_timeout: float = DEFAULT_STOP_TIMEOUT,
@@ -73,7 +73,21 @@ class ProcessSupervisor:
         return self._shutdown.is_set()
 
     def start(self) -> None:
-        self._processes = [self._spawn(index) for index in range(self._count)]
+        """Start every child, registering each one the moment it exists.
+
+        Built one at a time and recorded as it goes: a comprehension only
+        assigns once it finishes, so a spawn that failed partway left the
+        children already started running with nothing tracking them, and the
+        teardown that followed saw an empty list.
+        """
+        self._processes = []
+        try:
+            for index in range(self._count):
+                self._processes.append(self._spawn(index))
+        except Exception:
+            logger.error("Spawning pipeline process failed; stopping the ones already started")
+            self.stop()
+            raise
 
     def run(self) -> None:
         """Block until shutdown is requested, or a child exits on its own."""
@@ -120,6 +134,9 @@ class ProcessSupervisor:
 
     def stop(self) -> None:
         """Terminate every child, escalating to kill after ``stop_timeout``."""
+        # Read before the flag is set, or every exit reported from here looks
+        # like one that was asked for -- including the crash that got us here.
+        expected = self._shutdown.is_set()
         self._shutdown.set()
         processes, self._processes = self._processes, []
         for process in processes:
@@ -133,12 +150,12 @@ class ProcessSupervisor:
                 logger.warning("Pipeline process %s did not stop gracefully, killing", process.pid)
                 process.kill()
                 process.join()
-            self._notify_exit(process)
+            self._notify_exit(process, expected)
 
-    def _notify_exit(self, process: Any) -> None:
+    def _notify_exit(self, process: Any, expected: bool) -> None:
         if self._on_exit is None:
             return
         try:
-            self._on_exit(process)
+            self._on_exit(process, expected)
         except Exception:
             logger.debug("Pipeline process exit hook failed", exc_info=True)

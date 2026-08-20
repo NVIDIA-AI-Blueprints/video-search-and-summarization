@@ -2557,16 +2557,11 @@ def _start_prometheus_metrics_server(port: int) -> None:
     start_prometheus_server(port)
 
 
-def _on_pipeline_process_exit(process: Optional[Any]) -> None:
+def _on_pipeline_process_exit(process: Optional[Any], expected: bool) -> None:
     """Record the exit, then drop the dead child's metric shards."""
     from metrics.recorder import inc_pipeline_process_exit
-    inc_pipeline_process_exit("shutdown" if _shutdown_requested() else "unexpected")
+    inc_pipeline_process_exit("shutdown" if expected else "unexpected")
     _mark_prometheus_process_dead(process)
-
-
-def _shutdown_requested() -> bool:
-    supervisor = _pipeline_supervisor
-    return bool(supervisor is not None and supervisor.shutdown_requested)
 
 
 def _mark_prometheus_process_dead(process: Optional[Any]) -> None:
