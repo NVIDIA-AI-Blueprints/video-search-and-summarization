@@ -867,7 +867,7 @@ async def list_media(
                     "stream_id": "",
                     "type": "unknown",
                     "state": sensor.get("state"),
-                    "url": "",
+                    "source": "",
                     "is_main": False,
                     "has_timeline": bool(sensor.get("isTimelinePresent")),
                     "error": "VIOS reported no sensorId",
@@ -886,7 +886,11 @@ async def list_media(
                 "stream_id": stream_id,
                 "type": classify_source(stream_url),
                 "state": sensor.get("state"),
-                "url": stream_url,
+                # VIOS's own reference: an RTSP URL for a camera, a path inside
+                # the VIOS container for an uploaded file. Not a handle you can
+                # fetch -- `clip` and `snapshot` mint those, because addressing
+                # recorded media needs a time window.
+                "source": stream_url,
                 "is_main": bool(stream.get("isMain")),
                 "has_timeline": bool(sensor.get("isTimelinePresent")),
             }
