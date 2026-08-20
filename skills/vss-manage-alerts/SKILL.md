@@ -286,7 +286,7 @@ call to "create" one.
 
 1. Check if the sensor is in VIOS via `vss-manage-video-io-storage`'s `GET /sensor/list` (idempotent — don't blindly `POST /sensor/add`).
 2. If missing, onboard via that skill's `POST /sensor/add`. The CV pipeline auto-picks up the stream once registered and online.
-3. Confirm online: `curl -s "$VST_API_BASE/sensor/<sensorId>/status" | jq .`
+3. Confirm online: `vss vios list --type stream --sensor <name> | jq -r '.sensors[].state'`
 4. Verified alerts land in Elasticsearch (`mdx-vlm-alerts-*`, Behavior Analytics → `alert-bridge` verification per `alert_type_config.json`). This store has **no REST query endpoint** — Workflow C's `/incidents` covers real-time incident-kind results only; inspect these CV behavior-alert verdicts via **Workflow B**'s interim ES probe.
 
 A static-CV-pipeline alert on a VLM-only deployment is a mode mismatch — see the routing table above.

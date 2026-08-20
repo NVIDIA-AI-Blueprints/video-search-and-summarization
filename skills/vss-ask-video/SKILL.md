@@ -160,9 +160,18 @@ When using VST/VIOS, **you MUST list VST sensors before resolving a clip URL.** 
 even when the user names the sensor explicitly, even when the user asserts the video is already
 uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
 
+> **Running the CLI.** `vss` ships in the VSS checkout; run it from there. Endpoints come from
+> the deployment `vss configure` recorded, so none of these commands take a host or port.
+>
+> ```bash
+> VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+> alias vss='uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss'
+> vss configure --base-url "${VSS_PUBLIC_URL}"   # once per deployment
+> ```
+
 1. List sensors:
    ```bash
-   curl -sf --max-time 5 "${VST_API_BASE}/sensor/list" | jq '.[].name'
+   vss vios list --type video | jq -r '.sensors[].name'
    ```
 
 2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,
@@ -173,16 +182,13 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new
    sensor appears:
    ```bash
-   # filename: must not contain whitespace
-   # timestamp: ISO 8601 UTC — default 2025-01-01T00:00:00.000Z if user did not specify
-   curl -s -X PUT "${VST_API_BASE}/storage/file/<filename>?timestamp=<timestamp>" \
-     -H "Content-Type: application/octet-stream" \
-     -H "Content-Length: <file_size_in_bytes>" \
-     --upload-file /path/to/<filename> | jq .
+   # The filename becomes the sensor name, so it must have no whitespace; the CLI
+   # rejects a non-conforming name before spending the upload on it.
+   vss vios add --type video /path/to/<filename>
    ```
-   See `/vss-manage-video-io-storage` for full upload semantics (v1 vs v2, conflict handling,
-   delete flow). In interactive runs, confirm with the user before uploading. **Never** issue an
-   unconditional PUT without first running the sensor-list check above.
+   See `/vss-manage-video-io-storage` for the REST-level upload semantics (v1 vs v2, conflict
+   handling, delete flow). In interactive runs, confirm with the user before uploading. **Never**
+   upload without first running the sensor-list check above.
 
 ---
 
@@ -226,41 +232,29 @@ Then go straight to Step 2 — **skip the Sensor check**.
 
 When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage`: confirm the
 named `<sensor-id>` exists (the *Sensor check* above — required on this path), then run the block
-below **verbatim**. It reads the recorded range from `/timelines` and passes it to `/url` in one
-go, so the two required parameters cannot be dropped or invented: a bare `/url` returns an **empty
-body**, and a window that is not in the recording returns `VMSNoDataError`.
+below **verbatim**. `vss vios clip` resolves the sensor by name, reads the recorded range, and
+mints the clip URL in one call, so the two required parameters cannot be dropped or invented: a
+bare `/url` returns an **empty body**, and a window that is not in the recording returns
+`VMSNoDataError`. It also normalises the URL VIOS returns (a doubled scheme, a bare `/storage`
+path, or a `localhost` host the VLM's container cannot reach) and warms the lazy render, all of
+which this skill used to do by hand.
 
 ```bash
-SENSOR_NAME='<the sensor id / filename stem the question named>'
-_VST="${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}"
-# Resolve the streamId every time — a later question is a fresh run with no STREAM_ID in hand, and
-# sensor/list carries sensorId + name but NOT streamId, so read it from the sensor's streams.
-if [ -z "${STREAM_ID:-}" ]; then
-  _SID="$(curl -sf "${_VST}/sensor/list" | jq -r --arg n "$SENSOR_NAME" 'map(select(.name==$n))[0].sensorId // empty' 2>/dev/null)"
-  [ -n "$_SID" ] || { echo "no sensor named '${SENSOR_NAME}' — upload it first (Sensor check), do NOT answer from a local copy"; exit 1; }
-  STREAM_ID="$(curl -sf "${_VST}/sensor/${_SID}/streams" | jq -r '(if type=="array" then (map(select(.isMain)) + .)[0].streamId else .streamId end) // empty' 2>/dev/null)"
-  [ -n "$STREAM_ID" ] || { echo "sensor '${SENSOR_NAME}' has no stream, do NOT answer from a local copy"; exit 1; }
-fi
-for _ in $(seq 1 15); do          # timelines populate asynchronously after an upload
-  TL="$(curl -sf "${_VST}/storage/${STREAM_ID}/timelines" || echo '')"
-  [ "$(printf '%s' "${TL:-[]}" | jq -r 'if type=="array" then length else 0 end' 2>/dev/null)" -gt 0 ] && break
-  sleep 2
-done
-# Take BOTH ends from one segment: /url rejects a window that spans a gap (VMSInternalError).
-START="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].startTime // empty' 2>/dev/null)"
-END="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].endTime // empty' 2>/dev/null)"
-[ -n "$START" ] && [ -n "$END" ] || { echo "no VST timeline for ${STREAM_ID} — do NOT guess a window and do NOT answer from a local copy"; exit 1; }
-VIDEO_URL="$(curl -sf "${_VST}/storage/file/${STREAM_ID}/url?startTime=${START}&endTime=${END}&container=mp4&disableAudio=true" | jq -r '.videoUrl // empty')"
-[ -n "$VIDEO_URL" ] || { echo "empty videoUrl — do NOT fall back to base64/local file on Path B"; exit 1; }
-# VIOS /url may hand back a doubled scheme, a bare /storage path, or a localhost host that does not
-# reach VST from inside the VLM's container. Reduce to a path and restore the VIOS route — the same
-# compat mapping /vss-generate-video-report applies, so this holds on Kubernetes and Docker alike.
-CLIP_PATH="${VIDEO_URL#*://}"; CLIP_PATH="${CLIP_PATH#*://}"
-case "$CLIP_PATH" in /*) ;; *) CLIP_PATH="/${CLIP_PATH#*/}" ;; esac
-VIDEO_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}${CLIP_PATH#/vst}"
-for _ in 1 2 3; do curl -sf -o /dev/null --max-time 60 "$VIDEO_URL" && break || sleep 3; done  # warm the lazy render (GET; HEAD 404s)
+SENSOR_NAME='<the sensor name / filename stem the question named>'
+
+# One call: name → sensorId → main streamId → recorded range → normalised, warmed clip URL.
+# Endpoints come from the deployment `vss configure` recorded; this command takes none.
+CLIP=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
+  vss vios clip --sensor "${SENSOR_NAME}") || {
+  echo "vss vios clip failed for '${SENSOR_NAME}' — do NOT answer from a local copy" >&2; exit 1; }
+
+VIDEO_URL=$(printf '%s' "${CLIP}" | jq -er '.media_url')
+CLIP_START=$(printf '%s' "${CLIP}" | jq -r '.start_time')
+CLIP_END=$(printf '%s' "${CLIP}" | jq -r '.end_time')
+# The window it actually served, which may be the segment boundary rather than what was asked for.
+CLIP_SECONDS=$(( $(date -u -d "${CLIP_END}" +%s) - $(date -u -d "${CLIP_START}" +%s) ))
+[ "${CLIP_SECONDS}" -gt 0 ] || CLIP_SECONDS=15
 VST_SOURCED=1                     # marks this run as Path B
-CLIP_SECONDS="${CLIP_SECONDS:-15}"   # endTime − startTime; default 15
 ```
 
 Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
