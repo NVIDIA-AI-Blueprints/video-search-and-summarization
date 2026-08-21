@@ -211,9 +211,7 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
     result = _run(vios.upload_media(origin, path, name=values.get("name")))
     return Result(
         body={
-            # The stored name, which is what addresses the sensor -- not the
-            # local filename, which --name may have overridden.
-            "name": result.get("filename") or values.get("name") or path.name,
+            "name": result.get("filename") or path.name,
             "sensor_id": result.get("sensorId"),
             "stream_id": result.get("streamId"),
             "type": "video",

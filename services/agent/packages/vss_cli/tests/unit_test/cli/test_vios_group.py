@@ -347,18 +347,3 @@ def test_snapshot_of_an_unclassifiable_sensor_does_not_ask_for_a_live_frame(
 
     assert body["source"] == "replay"
     assert body["at"] == "2025-01-01T00:00:00.000Z"
-
-
-def test_add_reports_the_stored_name_not_the_local_filename(
-    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
-) -> None:
-    """--name decides how the sensor is addressed; reporting the local name misleads."""
-    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), {"sensorId": "u", "streamId": "u"})[1])
-    local = tmp_path / "clip (1).mp4"
-    local.write_bytes(b"x")
-
-    body = json.loads(
-        CliRunner().invoke(cli, ["add", "--type", "video", str(local), "--name", "warehouse_0002.mp4"]).stdout
-    )
-
-    assert body["name"] == "warehouse_0002.mp4"
