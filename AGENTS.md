@@ -31,18 +31,32 @@ vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli 
 
 vss --version
 ```
+**What matters is provenance, not the form.** Run the `vss` that belongs to the
+checkout you are testing. These are the same file — `uv run --project X` execs
+`X/.venv/bin/vss` — so either is fine:
 
-**`--extra cli` is required** — the base meta-package does not pull the
-`nvidia-vss-cli` distribution that provides the `vss` executable.
+```bash
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss …
+"${VSS_REPO_ROOT}/services/agent/.venv/bin/vss" …        # after a sync
+```
 
-**Use this form, not a globally installed `vss`.** The skill evals reject one
-explicitly — *"the `--extra cli` flag is required; a globally installed `vss` is
-not an acceptable substitute"* — because a `vss` on `PATH` can come from any
-checkout and nothing in the trace says which. Do not run it through
-`docker exec`, `kubectl exec`, or a pod shell either: it is a client, and it
-talks to the deployment over the ingress like any other client.
+The difference is that `uv run` syncs first, so the environment is guaranteed to
+match the lockfile; calling the path directly assumes someone already synced it
+with the right extras. If `vss --version` reports a build you did not expect,
+that is why.
 
-Working on the CLI itself, where a `vss` on `PATH` is convenient:
+What is *not* fine is a `vss` from `PATH` — `~/.local/bin/vss`, pipx, `uv tool
+install`. It can come from any checkout and nothing in the trace says which, so
+a result cannot be attributed to the code under test. The skill evals reject one
+outright: *"a globally installed `vss` is not an acceptable substitute"*. Those
+checks also match the `uv run --project` string literally, so use that exact
+form in an eval run.
+
+Do not run it through `docker exec`, `kubectl exec`, or a pod shell either: it
+is a client, and it talks to the deployment over the ingress like any other
+client.
+
+Working on the CLI itself, or wanting `vss` on `PATH` for a session:
 
 ```bash
 cd "${VSS_REPO_ROOT}/services/agent"

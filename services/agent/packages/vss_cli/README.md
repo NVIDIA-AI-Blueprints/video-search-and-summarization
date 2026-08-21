@@ -4,34 +4,43 @@ The host-side entry point to a deployed VSS stack. Runs beside a deployment, not
 inside it: no NAT, no torch, no GPU, no agent framework. One process per call,
 JSON on stdout, typed exit codes.
 
-Driving this from an agent or a skill? Read [AGENTS.md](AGENTS.md) — it is the
-single source for the workflow, so individual skills do not restate it.
+Driving this from an agent or a skill? The bootstrap and the cross-cutting
+contract are in [AGENTS.md at the repository root](../../../../AGENTS.md);
+per-command detail is in [AGENTS.md](AGENTS.md) beside this file.
 
 ## Run it
 
-**Agents and skills use the project-local form.** It pins the CLI to a known
-checkout, which is why the skill evals require it and reject a globally
-installed `vss` outright:
+Run the `vss` that belongs to this checkout. These are the same file — `uv run
+--project X` execs `X/.venv/bin/vss`:
 
 ```bash
-uv run --project services/agent --no-dev --extra cli vss --help
+cd services/agent
+uv run --no-dev --extra cli vss --help     # syncs, then runs
+./.venv/bin/vss --help                     # after a sync
 ```
 
 `--extra cli` is required: the base meta-package does not pull the
 `nvidia-vss-cli` distribution that provides the `vss` executable.
 
-## Install (human development)
+A `vss` from `PATH` — `~/.local/bin/vss`, pipx, `uv tool install` — is a
+different matter: it can come from any checkout, so a result cannot be
+attributed to the code under test. The skill evals reject one outright and
+match the `uv run --project` form literally.
 
-For working on the CLI itself, where a `vss` on `PATH` is convenient:
+## Set up for development
+
+The venv lives at `services/agent/.venv`, created by `uv sync` from that
+directory. `uv venv` elsewhere makes an unrelated empty one.
 
 ```bash
-uv venv --python 3.13
-source .venv/bin/activate
-uv pip install -e "services/agent/packages/vss_core" -e "services/agent/packages/vss_cli"
-vss --version
+cd services/agent
+uv sync --frozen --no-dev --group cli-dev --extra cli   # runtime + test tooling
+source .venv/bin/activate                                # optional; puts vss on PATH
 ```
 
-Do not use this form in a skill or an eval run — see [AGENTS.md](AGENTS.md#bootstrap).
+Sync once with that superset, then pass `--no-sync` to later `uv run` calls. A
+bare `uv run --no-dev --extra cli` re-resolves to exactly the runtime spec and
+**removes pytest**, turning the next test run into collection errors.
 
 ## Point it at a deployment
 
