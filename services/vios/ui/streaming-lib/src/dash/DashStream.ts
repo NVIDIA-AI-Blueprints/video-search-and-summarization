@@ -23,6 +23,10 @@ const MANIFEST_RETRY_DELAY_MS = 1_000;
 export interface DashStreamConfig {
     endpoint: string;
     streamId: string;
+    // Supplying a window selects replay: the recording between these times is
+    // packaged instead of the live edge.  Live sessions leave both unset.
+    startTime?: string;
+    endTime?: string;
     videoElement: HTMLVideoElement;
     liveDelaySeconds?: number;
     initialBufferSeconds?: number;
@@ -43,6 +47,8 @@ export class DashStream {
     private firstFrameReported = false;
     private videoElement: HTMLVideoElement | null = null;
     private firstFrameListener: (() => void) | null = null;
+    // Remembered so the session is released through the same API that created it.
+    private replay = false;
 
     private async waitForManifest(manifestUrl: string): Promise<void> {
         const deadline = Date.now() + MANIFEST_READY_TIMEOUT_MS;
@@ -68,7 +74,16 @@ export class DashStream {
 
     public async start(config: DashStreamConfig): Promise<DashStartResponse> {
         await this.stop(config.endpoint, config.streamId);
-        const startUrl = new URL('/vst/api/v1/live/dash/start', config.endpoint).toString();
+        this.replay = Boolean(config.startTime);
+        const startPath = this.replay ? '/vst/api/v1/replay/dash/start' : '/vst/api/v1/live/dash/start';
+        const startUrl = new URL(startPath, config.endpoint).toString();
+        const requestBody: Record<string, string> = { streamId: config.streamId };
+        if (this.replay) {
+            requestBody.startTime = config.startTime as string;
+            if (config.endTime) {
+                requestBody.endTime = config.endTime;
+            }
+        }
         const response = await fetch(startUrl, {
             method: 'POST',
             credentials: 'include',
@@ -76,7 +91,7 @@ export class DashStream {
                 'Content-Type': 'application/json',
                 streamid: config.streamId,
             },
-            body: JSON.stringify({ streamId: config.streamId }),
+            body: JSON.stringify(requestBody),
         });
         if (!response.ok) {
             throw new Error(`DASH start failed (${response.status}): ${await response.text()}`);
@@ -166,7 +181,8 @@ export class DashStream {
         const viewerId = this.viewerId;
         this.viewerId = '';
         try {
-            await fetch(new URL('/vst/api/v1/live/dash/stop', endpoint).toString(), {
+            const stopPath = this.replay ? '/vst/api/v1/replay/dash/stop' : '/vst/api/v1/live/dash/stop';
+            await fetch(new URL(stopPath, endpoint).toString(), {
                 method: 'POST',
                 credentials: 'include',
                 keepalive: true,

@@ -17,6 +17,10 @@
 
 #include <ctime>
 #include <iomanip>
+#include <map>
+#include <set>
+#include <unordered_map>
+#include <mutex>
 #include <sstream>
 #include <string_view>
 #include "DashHttpHandler.h"
@@ -90,6 +94,173 @@ uint32_t readBigEndianUint32(const std::string& data, size_t offset)
            | (static_cast<uint32_t>(static_cast<unsigned char>(data[offset + 2])) << 8U)
            | static_cast<uint32_t>(static_cast<unsigned char>(data[offset + 3]));
 }
+
+
+// The muxer can only start a segment on a keyframe, so the segments it writes
+// are not the uniform length the SegmentTemplate duration advertises: on a
+// re-encoded replay stream roughly every other one holds a single frame.  The
+// only trustworthy length is the one recorded in the fragment itself, so it is
+// read from tfhd/trun rather than assumed.
+uint64_t fragmentDurationTicks(const std::string& body)
+{
+    const size_t trun = body.find("trun");
+    if (trun == std::string::npos || trun + 12 > body.size())
+    {
+        return 0;
+    }
+    const uint32_t trunFlags = readBigEndianUint32(body, trun + 4) & 0x00FFFFFFU;
+    const uint32_t sampleCount = readBigEndianUint32(body, trun + 8);
+    if (sampleCount == 0)
+    {
+        return 0;
+    }
+
+    if ((trunFlags & 0x000100U) != 0U)
+    {
+        // Per-sample durations are present; they are the exact answer.
+        size_t offset = trun + 12;
+        if ((trunFlags & 0x000001U) != 0U)
+        {
+            offset += 4; // data_offset
+        }
+        if ((trunFlags & 0x000004U) != 0U)
+        {
+            offset += 4; // first_sample_flags
+        }
+        size_t stride = 4;
+        if ((trunFlags & 0x000200U) != 0U) { stride += 4; }
+        if ((trunFlags & 0x000400U) != 0U) { stride += 4; }
+        if ((trunFlags & 0x000800U) != 0U) { stride += 4; }
+        uint64_t total = 0;
+        for (uint32_t index = 0; index < sampleCount; ++index)
+        {
+            if (offset + 4 > body.size())
+            {
+                return 0;
+            }
+            total += readBigEndianUint32(body, offset);
+            offset += stride;
+        }
+        return total;
+    }
+
+    // Otherwise every sample lasts tfhd.default_sample_duration.
+    const size_t tfhd = body.find("tfhd");
+    if (tfhd == std::string::npos || tfhd + 12 > body.size())
+    {
+        return 0;
+    }
+    const uint32_t tfhdFlags = readBigEndianUint32(body, tfhd + 4) & 0x00FFFFFFU;
+    if ((tfhdFlags & 0x000008U) == 0U)
+    {
+        return 0;
+    }
+    size_t offset = tfhd + 12; // past version/flags and track_ID
+    if ((tfhdFlags & 0x000001U) != 0U) { offset += 8; }
+    if ((tfhdFlags & 0x000002U) != 0U) { offset += 4; }
+    return static_cast<uint64_t>(readBigEndianUint32(body, offset)) * sampleCount;
+}
+
+uint64_t readFragmentDuration(const std::filesystem::path& file)
+{
+    std::ifstream input(file, std::ios::binary);
+    if (!input)
+    {
+        return 0;
+    }
+    const std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    return fragmentDurationTicks(body);
+}
+
+// Caches the measured length of every segment a session has produced, keyed by
+// its output directory.  Entries outlive the files themselves: retention
+// deletes old segments, but their durations are still needed to place the
+// segments that follow them on the timeline.
+class SegmentDurations
+{
+public:
+    static SegmentDurations& instance()
+    {
+        static SegmentDurations durations;
+        return durations;
+    }
+
+    // Measures anything not seen before and returns every known segment.  Only
+    // segments the muxer has finished are considered: a segment is complete
+    // once its successor exists, which is when the muxer closed it.
+    std::map<uint64_t, uint64_t> refresh(const std::filesystem::path& directory)
+    {
+        std::set<uint64_t> present;
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+        {
+            if (ec)
+            {
+                break;
+            }
+            const std::string name = entry.path().filename().string();
+            if (entry.path().extension() != ".mp4" || name.rfind("video_", 0) != 0)
+            {
+                continue;
+            }
+            const size_t underscore = name.rfind('_');
+            const size_t extension = name.rfind(".mp4");
+            if (underscore == std::string::npos || extension == std::string::npos)
+            {
+                continue;
+            }
+            try
+            {
+                present.insert(std::stoull(name.substr(underscore + 1, extension - underscore - 1)));
+            }
+            catch (const std::exception&)
+            {
+            }
+        }
+
+        const std::string key = directory.string();
+        std::lock_guard<std::mutex> lock(m_mutex);
+        std::map<uint64_t, uint64_t>& known = m_durations[key];
+        for (const uint64_t number : present)
+        {
+            if (known.count(number) != 0 || present.count(number + 1) == 0)
+            {
+                continue;
+            }
+            const uint64_t ticks = readFragmentDuration(directory / ("video_0_" + std::to_string(number) + ".mp4"));
+            if (ticks > 0)
+            {
+                known[number] = ticks;
+            }
+        }
+        return known;
+    }
+
+    // Decode time at which a segment starts: the sum of everything before it.
+    // A segment whose length was never measured falls back to the nominal one
+    // so a gap in the cache cannot shift the whole timeline.
+    uint64_t startTicks(const std::filesystem::path& directory, uint64_t number, uint64_t nominalTicks)
+    {
+        const std::map<uint64_t, uint64_t> known = refresh(directory);
+        uint64_t total = 0;
+        for (uint64_t index = 1; index < number; ++index)
+        {
+            const auto entry = known.find(index);
+            total += entry != known.end() ? entry->second : nominalTicks;
+        }
+        return total;
+    }
+
+    void forget(const std::filesystem::path& directory)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_durations.erase(directory.string());
+    }
+
+private:
+    std::mutex m_mutex;
+    std::unordered_map<std::string, std::map<uint64_t, uint64_t>> m_durations;
+};
 
 uint32_t mediaTimescale(const std::filesystem::path& mediaPath)
 {
@@ -195,7 +366,12 @@ bool sendFile(struct mg_connection* connection, const DashAssetResult& asset, bo
                     // silently compresses the timeline for any other setting.
                     const uint64_t segmentTicks = static_cast<uint64_t>(
                         std::max(1, GET_CONFIG().dash_segment_duration_sec)) * mediaTimescale(asset.path);
-                    const uint64_t time = (number - 1) * segmentTicks;
+                    // Segments are only as long as the muxer could make them,
+                    // so the decode time is the sum of what came before rather
+                    // than a multiple of the nominal duration; otherwise the
+                    // timeline claims media the segments do not contain.
+                    const uint64_t time = SegmentDurations::instance().startTicks(
+                        asset.path.parent_path(), number, segmentTicks);
                     const size_t value = tfdt + 8;
                     const size_t width = version == 1 ? 8 : 4;
                     if (value + width <= body.size())

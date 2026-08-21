@@ -414,26 +414,27 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
     }
 
     // The recorded pipeline stamps every encoded frame with the same value, so
-    // the source timeline never advances.  mp4mux rejects the whole stream on
-    // the first buffer it cannot place ("Could not multiplex stream. Buffer has
-    // no PTS"), so the branch switches to arrival time the moment it sees the
-    // source is unusable.  Frames arrive at playback rate, which is exactly the
-    // timeline a dynamic manifest needs.
-    if (m_config.useArrivalTimestamps)
+    // the source timeline never advances and mp4mux rejects the stream on the
+    // first buffer it cannot place.  Wall-clock arrival is not a substitute:
+    // it follows encoder pacing, and a large IDR takes long enough to encode
+    // that the gap around it reads as a whole segment, which makes the muxer
+    // cut a segment holding nothing but that keyframe.  A recording has a known
+    // constant frame rate, so the timeline is built from the frame index.
+    if (m_config.synthesizeTimestamps)
     {
-        timeline.useArrivalClock = true;
+        timeline.synthesize = true;
     }
-    if (!timeline.useArrivalClock)
+    if (!timeline.synthesize)
     {
         if (!GST_CLOCK_TIME_IS_VALID(rawPts))
         {
-            timeline.useArrivalClock = true;
+            timeline.synthesize = true;
         }
         else if (timeline.lastRawValid && rawPts <= timeline.lastRaw)
         {
-            LOG(warning) << "DASH source timestamps are not advancing; using arrival time for "
+            LOG(warning) << "DASH source timestamps are not advancing; synthesising a timeline for "
                          << m_config.streamToken << endl;
-            timeline.useArrivalClock = true;
+            timeline.synthesize = true;
         }
         else
         {
@@ -443,16 +444,14 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
     }
 
     GstClockTime pts = 0;
-    if (timeline.useArrivalClock)
+    GstClockTime duration = GST_CLOCK_TIME_NONE;
+    if (timeline.synthesize)
     {
-        const auto now = std::chrono::steady_clock::now();
-        if (!timeline.arrivalStarted)
-        {
-            timeline.arrivalStart = now;
-            timeline.arrivalStarted = true;
-        }
-        pts = static_cast<GstClockTime>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(now - timeline.arrivalStart).count());
+        const double frameRate = m_config.sourceFrameRate > 0.0 ? m_config.sourceFrameRate : 30.0;
+        const auto frameDuration = static_cast<GstClockTime>(GST_SECOND / frameRate);
+        pts = timeline.frameIndex * frameDuration;
+        duration = frameDuration;
+        ++timeline.frameIndex;
     }
     else
     {
@@ -480,6 +479,10 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
 
     GST_BUFFER_PTS(buffer) = pts;
     GST_BUFFER_DTS(buffer) = pts;
+    if (GST_CLOCK_TIME_IS_VALID(duration))
+    {
+        GST_BUFFER_DURATION(buffer) = duration;
+    }
 
     const GstFlowReturn flow = gst_app_src_push_buffer(GST_APP_SRC(appsrc), buffer);
     return flow == GST_FLOW_OK;
@@ -527,9 +530,67 @@ void DashPackagerConsumer::onFrame(FrameParams& params)
     }
 }
 
-void DashPackagerConsumer::onFrame(std::shared_ptr<RawFrameParams> /*frameData*/)
+void DashPackagerConsumer::onFrame(std::shared_ptr<RawFrameParams> frameData)
 {
-    // V1 packages encoded frames delivered by StreamMonitor.
+    // The replay path hands over the recording's own encoded frames, so this
+    // callback carries a compressed access unit rather than a decoded picture.
+    // Decoded frames belong to the overlay pipeline and are not ours.
+    if (!frameData || frameData->m_isYuvBuffer)
+    {
+        return;
+    }
+    // Producers either hand over their own pointer or a mapped GstBuffer.
+    const uint8_t* data = frameData->m_buffer != nullptr
+        ? frameData->m_buffer
+        : static_cast<const uint8_t*>(frameData->m_map.data);
+    const size_t size = frameData->m_map.size > 0 ? static_cast<size_t>(frameData->m_map.size) : 0;
+    if (data == nullptr || size == 0)
+    {
+        return;
+    }
+    if (m_state.load() != DashPackagerState::Running)
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_videoAppsrc == nullptr)
+    {
+        return;
+    }
+
+    // Recordings store H.264 as length prefixed AVC with the parameter sets in
+    // codec_data, not as the byte-stream the live path delivers.  Taking the
+    // caps from the sample rather than assuming a format is what lets the same
+    // packager serve both.
+    if (!m_sourceCapsSet && frameData->m_sample != nullptr)
+    {
+        if (GstCaps* caps = gst_sample_get_caps(frameData->m_sample))
+        {
+            gst_app_src_set_caps(GST_APP_SRC(m_videoAppsrc), caps);
+            m_sourceCapsSet = true;
+            gchar* description = gst_caps_to_string(caps);
+            LOG(info) << "DASH source caps for " << m_config.streamToken << ": "
+                      << (description != nullptr ? description : "unknown") << endl;
+            g_free(description);
+        }
+    }
+
+    if (m_config.startEpochMs > 0 && frameData->pts > 0 && frameData->pts < m_config.startEpochMs)
+    {
+        return;
+    }
+    // pts is milliseconds since the epoch and keeps rising across file
+    // boundaries, which is what makes a window spanning several recordings one
+    // continuous timeline.
+    const GstClockTime rawPts = frameData->pts > 0
+        ? static_cast<GstClockTime>(frameData->pts) * GST_MSECOND
+        : GST_CLOCK_TIME_NONE;
+    const bool pushed = pushFrame(m_videoAppsrc, data, size, rawPts, m_videoTimeline);
+    if (!pushed)
+    {
+        LOG(warning) << "DASH replay frame dropped for " << m_config.streamToken << endl;
+    }
 }
 
 bool DashPackagerConsumer::hasError() const
