@@ -489,6 +489,7 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
     if (config.isDashPlayback() && !config.getOverlay().enabled && m_decoder && getDashConsumer())
     {
         m_decoder->setConsumer(config.getPeerId(), getDashConsumer());
+        m_decoder->setLatencyDropExempt(config.getPeerId());
         LOG(info) << "✅ Complete Pipeline: [Decoder (parse only)] → [DASH packager]" << endl;
         return;
     }
@@ -604,6 +605,16 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
         LOG(info) << "   📐 TransformSink frame size configured" << endl;
     }
     
+    /* A DASH sink reads segments well behind the live edge, so it must not lose
+    ** frames to the interactive latency drop.  The decoder is pooled and shared
+    ** with WebRTC viewers, so the exemption is recorded against this peer's sink
+    ** only and leaves every other viewer's behaviour untouched. */
+    if (config.isDashPlayback() && m_decoder)
+    {
+        m_decoder->setLatencyDropExempt(config.getPeerId());
+        LOG(info) << "   DASH sink exempted from live latency frame drop" << endl;
+    }
+
     LOG(info) << "==========================================" << endl;
     LOG(info) << "🎉 SINGLE STREAM PIPELINE SETUP COMPLETE" << endl;
     LOG(info) << "==========================================" << endl;

@@ -206,6 +206,9 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::pair <std::string, std::string> getUrlPath_internal();
         void setConsumer(const string& peerid, std::shared_ptr<IMediaDataConsumer> consumer);
         void setConsumerReady(const string& peerid, bool is_ready = true);
+        /* Exempt one sink from the live latency frame drop (DASH sinks). */
+        void setLatencyDropExempt(const string& peerid, bool exempt = true);
+        [[nodiscard]] bool hasLatencyExemptSink();
         std::shared_ptr<NvEncoderVideoConsumer> getConsumer(const string& media_type);
         void addFrameTs(int64_t ts);
         void setEOS();
@@ -263,6 +266,10 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         ** without overlay the pipeline neither decodes nor encodes.
         */
         bool                    m_dashPassthrough {false};
+        /* True for any DASH session, with or without an overlay.  DASH is a
+        ** buffered pull protocol: the player fetches segments seconds behind the
+        ** edge, so completeness matters where interactive latency does not.
+        */
         /* Pacing state for passthrough playback. */
         uint64_t                m_passthroughFirstPtsMs {0};
         std::chrono::steady_clock::time_point m_passthroughStart{};

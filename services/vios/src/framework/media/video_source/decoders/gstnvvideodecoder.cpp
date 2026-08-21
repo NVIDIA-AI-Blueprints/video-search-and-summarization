@@ -306,6 +306,33 @@ void GstNvVideoDecoder::setConsumer(const string& peerid, std::shared_ptr<IMedia
     LOG(info) << "Sink list size = " << m_videoSinkList.size() << " for " << m_uri << endl;
 }
 
+void GstNvVideoDecoder::setLatencyDropExempt(const string& peerid, bool exempt)
+{
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    auto it = m_videoSinkList.find(peerid);
+    if (it != m_videoSinkList.end())
+    {
+        it->second->m_latencyDropExempt = exempt;
+    }
+    else
+    {
+        LOG(warning) << "Cannot set latency drop exemption, no sink for " << peerid << endl;
+    }
+}
+
+bool GstNvVideoDecoder::hasLatencyExemptSink()
+{
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    for (const auto& entry : m_videoSinkList)
+    {
+        if (entry.second && entry.second->m_latencyDropExempt)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void GstNvVideoDecoder::setConsumerReady(const string& peerid, bool is_ready)
 {
     /* search peer in map to set start play flag */
@@ -2269,8 +2296,8 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
     // through; every other DASH replay session can.
     const bool overlayRequested = (opts.find("overlay") != opts.end() && opts.at("overlay") == "true")
                                   || (opts.find("overlayBbox") != opts.end() && opts.at("overlayBbox") == "true");
-    m_dashPassthrough = (opts.find("dash") != opts.end() && opts.at("dash") == "dash")
-                        && !overlayRequested && m_recordedPlayback && !m_isImageCapture;
+    const bool dashSession = (opts.find("dash") != opts.end() && opts.at("dash") == "dash");
+    m_dashPassthrough = dashSession && !overlayRequested && m_recordedPlayback && !m_isImageCapture;
     LOG(info) << "Is this HLS playback? " << m_hlsPlayback << endl;
     LOG(info) << "Is this DASH passthrough? " << m_dashPassthrough << endl;
     LOG(info) << "Is this Composite playback? " << m_compositePlayback << endl;
@@ -3403,10 +3430,21 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
         GST_BUFFER_PTS (gstBuffer) = pts * 1000;
     }
 
+    bool frameIsLate = false;
     if(m_recordedPlayback == false && m_sensorType != SENSOR_TYPE_NVSTREAM)
     {
         /* Live playback case */
-        if (GET_CONFIG().enable_frame_drop && GET_CONFIG().enable_mega_simulation == false && m_godsEyeView == false)
+        /* Frames a viewer would see too late are withheld to keep interactive
+        ** latency low.  A DASH sink is not interactive: its player fetches
+        ** segments seconds behind the live edge, so withholding a frame only
+        ** punches a hole in a segment.  The frame is therefore discarded here
+        ** only when every attached sink is latency sensitive; otherwise it
+        ** travels on and the per-sink loop below skips the sensitive ones.
+        ** The decoder is pooled and shared, so this must never be decided from
+        ** decoder wide state.
+        */
+        if (GET_CONFIG().enable_frame_drop && GET_CONFIG().enable_mega_simulation == false
+            && m_godsEyeView == false)
         {
             uint64_t pts_millisec = pts/1000;
             uint64_t current_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -3415,10 +3453,14 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
                 uint64_t diff = current_time - pts_millisec;
                 if (diff > m_maxDecLatency)
                 {
-                    string stream_id                     = getStreamIdFromUrl(m_uri, "/live/");
-                    LOG(warning) << "appsink: Dropping frame Device Id = " << m_deviceId << " Stream Id = " << stream_id << " difference = " << diff << " PTS = " << pts_millisec << " and current Time = " << current_time << endl;
-                    gst_sample_unref (sample);
-                    return GST_FLOW_OK;
+                    frameIsLate = true;
+                    if (hasLatencyExemptSink() == false)
+                    {
+                        string stream_id                     = getStreamIdFromUrl(m_uri, "/live/");
+                        LOG(warning) << "appsink: Dropping frame Device Id = " << m_deviceId << " Stream Id = " << stream_id << " difference = " << diff << " PTS = " << pts_millisec << " and current Time = " << current_time << endl;
+                        gst_sample_unref (sample);
+                        return GST_FLOW_OK;
+                    }
                 }
             }
         }
@@ -3516,6 +3558,11 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
             /* Avoid sending frames to encoder
             ** till PLAY is not received for that peer id*/
             if (!sink->m_isSinkReady)
+            {
+                continue;
+            }
+            /* Late frame: withhold it from latency sensitive sinks only. */
+            if (frameIsLate && sink->m_latencyDropExempt == false)
             {
                 continue;
             }
