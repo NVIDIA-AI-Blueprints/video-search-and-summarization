@@ -80,6 +80,15 @@ keys track it; read them before merging configs.
 
 Service activation alone is never a Compose-definition change.
 
+> **Evaluation overlays are the one exception to the pruning rule, and they
+> sit outside this pass.** An overlay whose subject is the built stack itself
+> (`gym-eval`, [`services/gym.md`](services/gym.md), is the only one today)
+> contributes no owners and no peers to the closure. It is applied *after*
+> resolution and pruning finish, adding its own key to the resolved set and
+> removing none, so it cannot retain a service resolution decided to drop.
+> Everything above and below applies to the pre-overlay resolved set. If you
+> are not composing an evaluation overlay, this note does not apply to you.
+
 ## Clarification gate
 
 This gate is generic: it settles any resolution blocker the rules cannot,
@@ -304,7 +313,9 @@ Then verify:
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
 - Every retained service is transitively required by at least one requested
-  capability; no orphaned Foundation carryover survives the delta.
+  capability; no orphaned Foundation carryover survives the delta. Evaluate this
+  on the pre-overlay resolved set: an evaluation overlay's key is added after
+  resolution and is not required by any requested capability by construction.
 - A shared singleton owner resolves to exactly one variant, and every consumer
   config that keys on that owner's output (class-label taxonomy and casing,
   topic names) matches the resolved variant; no consumer filters on a taxonomy

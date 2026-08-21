@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Gym evaluation runner overlay. Compose this into a build AFTER resolution and
+# pruning have finished (see ../gym.md § Relationship to the delta contract):
+#
+#     docker compose --env-file <build>/override.env \
+#       -f <build>/compose.yml \
+#       -f <staged>/gym-eval-override.yml \
+#       config > <build>/resolved.yml
+#
+# Four properties here are load-bearing:
+#
+#   1. VSS_GYM_EVAL_TAG uses the fail-closed ${VAR:?message} form. A bare
+#      ${VAR} is NOT a gate: Compose substitutes an empty string and warns,
+#      yielding "…nemo-gym:" which fails only incidentally as a malformed
+#      reference. `:?` makes resolution fail with the message, which is the
+#      difference between a check and an accident. Every other value carries a
+#      plain default, because Compose interpolates BEFORE it filters on profiles.
+#
+#   2. A pure leaf. Nothing may depends_on it. Compose hard-errors with
+#      "depends on undefined service" when an active service depends on one
+#      excluded by profile filtering, and this one is excluded by default.
+#
+#   3. restart: "no". The runner is a job, not a service.
+#
+#   4. No command: yet. The image has no ENTRYPOINT and its Cmd is
+#      ["/bin/bash"], so with no command it starts, reads EOF and exits 0 — a
+#      container that looks deliberate and does nothing. The run lifecycle
+#      supplies the command; see ./run-lifecycle.md.
+#
+# Do NOT set the tag until the image gate in ./image-gate.md passes for it.
+services:
+  gym-eval:
+    image: ${VSS_GYM_EVAL_IMAGE:-nvcr.io/nvidia/eval-factory/nemo-gym}:${VSS_GYM_EVAL_TAG:?set only after the image gate in ./image-gate.md passes}
+    profiles: ["gym-eval"]
+    container_name: vss-gym-eval
+    restart: "no"
+    environment:
+      - VSS_GYM_EVAL_OUTPUT_DIR=${VSS_GYM_EVAL_OUTPUT_DIR:-/workspace/outputs}
+    volumes:
+      - ${VSS_DATA_DIR}/gym_eval:/workspace/outputs

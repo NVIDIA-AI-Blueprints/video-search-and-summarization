@@ -1,0 +1,262 @@
+# The eval-runner delta
+
+> ## ⚠ Status: this is the packaging target, and it has NOT been run
+>
+> **What has been verified** is the host workflow in [`run-lifecycle.md`](run-lifecycle.md): the Gym
+> CLI and the `vss_ask_video` resources server running on the host, scoring a VSS
+> deployment reachable at a published port. That path produced a real reward
+> against a live deployment and is what to use today.
+>
+> **What is described below** is the eventual packaging — the runner as a
+> `gym-eval` container composed into the Compose project. It cannot be exercised
+> yet: running it means pulling a `nemo-gym` image, and every tag checked so far
+> — `26.05` is the one with recorded evidence — is rejected by the image gate in
+> [`../gym.md`](../gym.md) for carrying royalty-bearing codec libraries. No
+> tag is known to pass; that is not the same as having checked them all, so run
+> the gate rather than assuming. A patch release is expected upstream.
+>
+> **Known gaps to close before this path is usable**, listed so nobody assumes
+> they are handled:
+>
+> - the runner service mounts only the output directory — it does not yet mount a
+>   Gym checkout or this server
+> - it passes no judge settings, which the server now requires at startup
+> - `vss_base_url` must become the agent's service name on the project network
+>   (`http://vss-agent:8000`), not the host default
+> - there are no `docker compose` commands here for invoking the two-phase
+>   lifecycle inside the container
+>
+> Treat the sections below as a design record. Do not follow them expecting a
+> working eval, and do not document them as working until a run says so.
+
+The Gym eval runner is added to a deployment as a **Delta Profile** on exactly
+one Foundation, using the composition rules in
+[`vss-build-vision-agent/references/composition.md`](../../composition.md).
+Read that file first; this one records only what is specific to the eval runner.
+
+**Nothing here is checked in.** The only writable location is `_builds/<name>/`,
+which is gitignored and is never a Compose profile. This skill adds no developer
+profile, no service to any shipped compose file, and nothing to
+`container-inventory.json` or `containers.env`.
+
+## Build artifact
+
+```
+_builds/<name>/
+├── override.env           # VSS_GYM_EVAL_OUTPUT_DIR (the runner's output dir,
+│                          # /workspace/outputs), COMPOSE_PROFILES, and the Foundation's
+│                          # CHECKED-IN values -- copied from its overrides.env,
+│                          # NOT its generated.env, so host-resolved values are
+│                          # absent (see the identity warning in ../SKILL.md).
+│                          # The image tag is deliberately NOT written here: it
+│                          # is fail-closed with no default and is supplied at
+│                          # run time, only after the image gate passes.
+├── compose.yml
+├── resolved.yml
+└── patches/
+    └── gym-eval.yml       # the runner service definition
+```
+
+`<name>` is a filesystem label, never a Compose profile key.
+
+## The delta
+
+Start from the Foundation's effective `COMPOSE_PROFILES` — read it from the
+profile's checked-in `overrides.env`, which is authoritative — and **add exactly
+one key**, `gym-eval`. Add nothing else and remove nothing.
+
+### Resolve the host placeholders when you copy it
+
+The checked-in `overrides.env` is a template. It ships **unresolved
+placeholders**:
+
+```
+VSS_APPS_DIR="/path/to/deploy/docker"
+VSS_DATA_DIR="/path/to/vss-apps-data"
+```
+
+Copy it to `_builds/<name>/override.env` and rewrite those to real absolute
+paths. Skip this and Compose cannot find the Foundation file, because the
+`-f "${VSS_APPS_DIR}/compose.yml"` above resolves against `/path/to/...`.
+
+**Rewrite them in place; do not strip and append.** Compose's dotenv loader
+resolves each entry against the shell environment and the entries parsed *so
+far*, never against later ones. `overrides.env` defines `VSS_APPS_DIR` before
+the entries that consume it — `VST_CONFIG_PATH`, `SDR_CONTROLLER_CONFIG_PATH` —
+so moving the definition to the end silently resolves those to an empty prefix.
+Nothing errors; the paths are just wrong.
+
+```bash
+sed -E \
+  -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${FOUNDATION_PROFILES},gym-eval|" \
+  -e "s|^VSS_APPS_DIR=.*|VSS_APPS_DIR=${VSS_APPS_DIR}|" \
+  -e "s|^VSS_DATA_DIR=.*|VSS_DATA_DIR=${VSS_DATA_DIR}|" \
+  "${FOUNDATION_ENV}" > "_builds/<name>/override.env"
+echo "VSS_GYM_EVAL_OUTPUT_DIR=/workspace/outputs" >> "_builds/<name>/override.env"
+```
+
+**Edit only the copy.** The checked-in `overrides.env` is never modified —
+resolving a placeholder there dirties the tree and changes the Foundation for
+everyone. Everything the delta needs lives under `_builds/<name>/`.
+
+**Run no deployment script while composing.** Composing a delta is a read of the
+Foundation, not a deployment of it. Do not run `dev-profile.sh`,
+`blueprint-deploy.sh`, or any `up`/configure helper to "prepare" or inspect the
+profile — they rewrite tracked files in place. Both
+`developer-profiles/dev-profile-<profile>/.env` and its `overrides.env` are
+checked in, so a single configure pass dirties the tree even when nothing is
+started. Read the profile's files directly instead; everything the delta needs
+is already in `overrides.env`.
+
+**Confirm the tree is clean before reporting done:**
+
+```bash
+git -C "<repo-root>" status --porcelain deploy/docker
+# Expect no output. Anything listed was modified by this run.
+```
+
+If that prints anything, restore it — `git -C "<repo-root>" checkout --
+deploy/docker` — and re-read this section before retrying. A delta composed on
+top of a modified Foundation is not a delta on that Foundation, so any
+comparison it feeds is void.
+
+That single-key rule is not tidiness. The comparison this skill supports is two
+eval harnesses scoring one identical stack, so any other divergence from the
+Foundation is a confound in every score reported — and a silent one, because
+nothing would fail.
+
+> ### ⚠ This is a deliberate exception to the general delta contract
+>
+> [`composition.md`](../../composition.md)
+> requires a delta to be **symmetric**: compute the forward closure from the
+> requested capabilities and *prune every Foundation service outside it*, with
+> validation rejecting "orphaned Foundation carryover". **This skill does the
+> opposite: it prunes nothing.**
+>
+> The reason is that pruning would destroy the thing being measured. An evaluation
+> overlay's "requested capability" is *the Foundation's own behaviour as
+> deployed*; a pruned stack is a different system, so its scores are not
+> comparable to the Foundation's and the comparison has no meaning. Pruning is
+> right when the goal is the smallest stack that satisfies a request; it is wrong
+> when the goal is to measure an existing one.
+>
+> **This exception is not yet recorded in the parent contract.** Until it is,
+> treat `composition.md`'s pruning rule as authoritative for every other delta and
+> this one as a documented departure. If the composition contract's owner rejects
+> the exception, this skill must change — not the contract silently.
+
+Composing the delta as *Foundation + one key* **preserves every Foundation
+service and adds only `gym-eval`** by construction, so the two service sets
+differ by exactly that runner. It does **not** make resolved values identical:
+see the identity warning in [`../gym.md`](../gym.md), because delta
+resolution does not read the Foundation's `generated.env`.
+
+`gym-eval` is a genuinely new service, so it uses its own service key as its
+self-profile. Do not derive an aggregate profile name and never invent a
+`bp_developer_*` name.
+
+## The runner service
+
+```yaml
+services:
+  gym-eval:
+    image: ${VSS_GYM_EVAL_IMAGE:-nvcr.io/nvidia/eval-factory/nemo-gym}:${VSS_GYM_EVAL_TAG:?set only after the image gate in SKILL.md passes}
+    profiles: ["gym-eval"]
+    container_name: vss-gym-eval
+    restart: "no"
+    environment:
+      - VSS_GYM_EVAL_OUTPUT_DIR=${VSS_GYM_EVAL_OUTPUT_DIR:-/workspace/outputs}
+    volumes:
+      - ${VSS_DATA_DIR}/gym_eval:/workspace/outputs
+```
+
+Four properties, each load-bearing:
+
+- **`VSS_GYM_EVAL_TAG` uses the fail-closed form `${VAR:?message}`.** A bare
+  `${VAR}` is *not* a gate: Compose substitutes an empty string and warns, which
+  yields `image: …nemo-gym:` and fails only incidentally, as a malformed
+  reference. `:?` makes resolution fail with the message, which is the difference
+  between a check and an accident. Every other value carries a plain default,
+  because Compose interpolates *before* it filters on profiles.
+- **A pure leaf.** Nothing may `depends_on` it. Compose hard-errors with
+  "depends on undefined service" when an active service depends on one excluded
+  by profile filtering.
+- **`restart: "no"`.** The runner is a job, not a service.
+- **No `command:` yet.** The image has no `ENTRYPOINT` and its `Cmd` is
+  `["/bin/bash"]`, so with no command it starts, reads EOF and exits 0 — a
+  container that looks deliberate and does nothing. The run lifecycle supplies the
+  command; see `references/run.md`.
+
+## Networking
+
+The runner joins the project network, so it reaches VSS by service name — for
+example `http://vss-agent:8000`. Do **not** copy `172.17.0.1` from the prototype
+runbook: that is the host bridge gateway, correct only when reaching a
+host-mode VSS from a container on the default bridge, and wrong inside the
+project network.
+
+## The Foundation's Compose entry point
+
+**Use the root `${VSS_APPS_DIR}/compose.yml`.** Not
+`developer-profiles/compose.yml`, and not the per-profile
+`developer-profiles/dev-profile-<name>/compose.yml`.
+
+Both of those are **fragments**. The lvs profile's services depend on others
+defined elsewhere — `kibana` lives in `services/infra/compose.yml` — and only the
+root file pulls the whole set in. Composing against a fragment fails with:
+
+```
+service "kibana-init-container-lvs" depends on undefined service "kibana"
+```
+
+That error names the delta, so it reads like delta drift. It is not: the bare
+Foundation fails the same way against the same fragment. Check the entry point
+before changing anything about the delta.
+
+Pair it with the profile's checked-in `overrides.env` as the env file. That file
+is authoritative for the service set, and without it Compose cannot resolve the
+`env_file:` paths the root file includes.
+
+## Writing resolved.yml
+
+`resolved.yml` is the fully-interpolated form, produced by letting Compose
+resolve the delta:
+
+```bash
+docker compose --env-file "_builds/<name>/override.env" \
+    -f "_builds/<name>/compose.yml" config > "_builds/<name>/resolved.yml"
+```
+
+**Redirect stdout only.** Compose writes the resolved YAML to stdout and its
+warnings — `The "MODE" variable is not set. Defaulting to a blank string.` and
+similar — to stderr. Capturing both with `&>` or `2>&1` prepends those warning
+lines to the file, and the result is no longer valid YAML: every later read of
+`resolved.yml` fails to parse, for a reason that is invisible unless you open
+the file. The warnings are expected and harmless; let them go to the terminal.
+
+## Verify before running
+
+```bash
+# The delta adds exactly one service to the Foundation.
+FOUNDATION_ENV="${VSS_APPS_DIR}/developer-profiles/dev-profile-<profile>/overrides.env"
+
+diff <(docker compose --env-file "${FOUNDATION_ENV}" \
+         -f "${VSS_APPS_DIR}/compose.yml" config --services | sort) \
+     <(docker compose --env-file _builds/<name>/override.env \
+         -f _builds/<name>/compose.yml config --services | sort)
+# Expect exactly one line: > gym-eval
+```
+
+`VSS_GYM_EVAL_TAG` must be set for either command to resolve — the runner's pin
+is fail-closed with no default. Before a tag has cleared the image gate, any
+syntactically valid placeholder works for a composition check that starts
+nothing.
+
+**Compose the delta without touching the checked-in tree.** Everything the delta
+needs is written under `_builds/<name>/`; nothing under `deploy/docker/` should
+be created, edited or regenerated to make composition succeed. If it seems
+necessary, the entry point or the env file is wrong — not the tree.
+
+If that diff shows anything else, the delta has drifted from its Foundation and
+any comparison run against it is invalid. Fix the delta rather than explaining
+the difference.

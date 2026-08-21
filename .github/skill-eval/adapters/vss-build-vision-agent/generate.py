@@ -62,7 +62,26 @@ from pathlib import Path
 # full IN-1 stack: RT-VLM in-process + SDRC + VIOS).
 # ---------------------------------------------------------------------------
 
+HARNESS_REPO_ROOT = "$HOME/video-search-and-summarization"
+
+_GYM_PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. Work "
+    "autonomously and do not pause for confirmation. This task is OFFLINE: "
+    "do not deploy anything, do not start a container, and do not pull an image."
+)
+
 PLATFORMS: dict[str, dict] = {
+    # Offline specs (the Gym evaluation overlay) need no GPU and no
+    # particular box; the spec declares gpu_count 0 and the coordinator
+    # picks whatever is free.
+    "ANY": {
+        "short_name":       "any",
+        "gpu_type":         "",
+        "gpu_count":        0,
+        "min_vram_per_gpu": 0,
+        "brev_search":      "",
+        "min_root_disk_gb": 0,
+    },
     # Primary target for vss-build-vision-agent IN-1
     # Key matches the spec's resources.platforms declaration ("RTXPRO6000BW")
     # and the platform naming convention shared by the VSS eval adapters.
@@ -159,6 +178,219 @@ def generate_test_script(step: int, spec_name: str) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Gym evaluation overlay gold solutions (references/services/gym/)
+#
+# These two specs are offline: no deployment, no GPU, platform ANY. Offline is
+# not the same as nothing to do -- the delta spec's checks assert build
+# artifacts that exist only once the delta is composed, and the gate spec's
+# checks assert a verdict that exists only once the gate has run. A solve
+# script that merely echoes cannot satisfy either.
+# ---------------------------------------------------------------------------
+
+_SOLVE_DELTA = r"""#!/bin/bash
+# Gold solution: compose the Gym evaluation delta exactly as
+# references/services/gym/compose-delta.md specifies. Nothing is pulled or started.
+set -euo pipefail
+
+REPO_ROOT="__REPO_ROOT__"
+export VSS_APPS_DIR="${REPO_ROOT}/deploy/docker"
+export VSS_DATA_DIR="${VSS_DATA_DIR:-${REPO_ROOT}/data}"
+# The runner's image pin is fail-closed (${VAR:?}) with deliberately no
+# default, so composition needs a tag even though nothing is pulled here.
+export VSS_GYM_EVAL_TAG="${VSS_GYM_EVAL_TAG:-gate-pending}"
+
+# The Foundation's Compose entry point is the ROOT deploy/docker/compose.yml.
+# Neither developer-profiles/compose.yml nor the per-profile file works: both
+# are fragments, and services the lvs profile depends on (kibana lives in
+# services/infra/compose.yml) are only pulled in by the root file. Pointing the
+# delta at a fragment yields "service kibana-init-container-lvs depends on
+# undefined service kibana" -- the profile-filtering hazard delta.md warns
+# about, and it fails identically for the bare Foundation, so a delta built on
+# a fragment would look broken when the fragment was the mistake.
+FOUNDATION_COMPOSE="${VSS_APPS_DIR}/compose.yml"
+FOUNDATION_ENV="${VSS_APPS_DIR}/developer-profiles/dev-profile-lvs/overrides.env"
+BUILD_DIR="${REPO_ROOT}/_builds/gym-eval-check"
+mkdir -p "${BUILD_DIR}/patches"
+
+# The Foundation's checked-in overrides.env is authoritative for its service
+# set. Add exactly one key; remove none.
+FOUNDATION_PROFILES=$(grep -E '^COMPOSE_PROFILES=' "${FOUNDATION_ENV}" \
+  | tail -1 | cut -d= -f2-)
+[ -n "${FOUNDATION_PROFILES}" ] || {
+    echo "no COMPOSE_PROFILES in ${FOUNDATION_ENV}"; exit 1; }
+
+cat > "${BUILD_DIR}/patches/gym-eval.yml" <<'YAML'
+services:
+  gym-eval:
+    image: ${VSS_GYM_EVAL_IMAGE:-nvcr.io/nvidia/eval-factory/nemo-gym}:${VSS_GYM_EVAL_TAG:?set only after the image gate passes}
+    profiles: ["gym-eval"]
+    container_name: vss-gym-eval
+    restart: "no"
+    environment:
+      - VSS_GYM_EVAL_OUTPUT_DIR=${VSS_GYM_EVAL_OUTPUT_DIR:-/workspace/outputs}
+    volumes:
+      - ${VSS_DATA_DIR}/gym_eval:/workspace/outputs
+YAML
+
+# The checked-in overrides.env ships unresolved host placeholders
+# (VSS_APPS_DIR="/path/to/deploy/docker", VSS_DATA_DIR="/path/to/vss-apps-data"),
+# so copying it verbatim yields an override.env that only works while this
+# script's own exports are in scope.
+#
+# Rewrite them IN PLACE. Stripping the keys and appending replacements at the
+# end looks equivalent and is not: Compose's dotenv loader resolves each entry
+# against the shell environment and the entries parsed SO FAR, never against
+# later ones. overrides.env defines VSS_APPS_DIR before the entries that
+# consume it (VST_CONFIG_PATH, SDR_CONTROLLER_CONFIG_PATH), so moving the
+# definition to the end silently resolves those to "/services/vios/configs"
+# with an empty prefix -- measured, not assumed. sed keeps the original line
+# positions, so the dependency order survives.
+sed -E \
+    -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${FOUNDATION_PROFILES},gym-eval|" \
+    -e "s|^VSS_APPS_DIR=.*|VSS_APPS_DIR=${VSS_APPS_DIR}|" \
+    -e "s|^VSS_DATA_DIR=.*|VSS_DATA_DIR=${VSS_DATA_DIR}|" \
+    "${FOUNDATION_ENV}" > "${BUILD_DIR}/override.env"
+
+# If a key was absent entirely there is nothing to position against, so append.
+for kv in "VSS_APPS_DIR=${VSS_APPS_DIR}" "VSS_DATA_DIR=${VSS_DATA_DIR}" \
+          "COMPOSE_PROFILES=${FOUNDATION_PROFILES},gym-eval"; do
+    grep -q "^${kv%%=*}=" "${BUILD_DIR}/override.env" \
+        || echo "${kv}" >> "${BUILD_DIR}/override.env"
+done
+echo "VSS_GYM_EVAL_OUTPUT_DIR=/workspace/outputs" >> "${BUILD_DIR}/override.env"
+
+cat > "${BUILD_DIR}/compose.yml" <<YAML
+include:
+  - ${FOUNDATION_COMPOSE}
+  - ${BUILD_DIR}/patches/gym-eval.yml
+YAML
+
+docker compose --env-file "${BUILD_DIR}/override.env" \
+    -f "${BUILD_DIR}/compose.yml" config > "${BUILD_DIR}/resolved.yml"
+
+for artifact in override.env compose.yml resolved.yml patches/gym-eval.yml; do
+    [ -f "${BUILD_DIR}/${artifact}" ] || {
+        echo "missing build artifact: ${BUILD_DIR}/${artifact}"; exit 1; }
+done
+
+# The delta adds exactly one service to the Foundation -- no more, none removed.
+DELTA=$(diff \
+    <(docker compose --env-file "${FOUNDATION_ENV}" \
+        -f "${FOUNDATION_COMPOSE}" config --services 2>/dev/null | sort) \
+    <(docker compose --env-file "${BUILD_DIR}/override.env" \
+        -f "${BUILD_DIR}/compose.yml" config --services 2>/dev/null | sort) \
+    | grep -E '^[<>]' || true)
+[ "${DELTA}" = "> gym-eval" ] || {
+    echo "delta drifted from its Foundation:"; echo "${DELTA}"; exit 1; }
+
+# Fail-closed pin: with the tag unset, resolution must fail AND say why.
+# Accepting any nonzero status would let an unrelated Compose error masquerade
+# as the gate working, which is the same fail-open shape this whole spec exists
+# to catch. `2>&1 >/dev/null` captures stderr only.
+if FAILCLOSED_ERR=$(env -u VSS_GYM_EVAL_TAG docker compose \
+        --env-file "${BUILD_DIR}/override.env" \
+        -f "${BUILD_DIR}/compose.yml" config --quiet 2>&1 >/dev/null); then
+    echo "runner tag is not fail-closed: config succeeded with VSS_GYM_EVAL_TAG unset"
+    exit 1
+fi
+case "${FAILCLOSED_ERR}" in
+    *VSS_GYM_EVAL_TAG*) ;;
+    *) echo "config failed with the tag unset, but not because of VSS_GYM_EVAL_TAG:"
+       echo "${FAILCLOSED_ERR}"; exit 1 ;;
+esac
+
+echo "Composed ${BUILD_DIR}: Foundation + gym-eval only, nothing started."
+"""
+
+_SOLVE_IMAGE_GATE = r"""#!/bin/bash
+# Gold solution: run the references/services/gym/image-gate.md gate against a tag that must be
+# rejected, and assert it rejects without pulling the image.
+set -uo pipefail
+
+REPO=nvidia/eval-factory/nemo-gym
+TAG=26.05
+
+run_gate() (
+    set -euo pipefail
+    TOK=$(curl -fsS "https://nvcr.io/proxy_auth?scope=repository:${REPO}:pull" \
+        | jq -er .token) || { echo "GATE FAIL: no registry token"; exit 1; }
+    AMD=$(curl -fsS -H "Authorization: Bearer $TOK" \
+        -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json" \
+        "https://nvcr.io/v2/${REPO}/manifests/${TAG}" \
+        | jq -r '.manifests[]? | select(.platform.architecture=="amd64" and .platform.os=="linux") | .digest' | head -1)
+    [ -n "$AMD" ] || { echo "GATE FAIL: no linux/amd64 manifest"; exit 1; }
+    CFG=$(curl -fsS -H "Authorization: Bearer $TOK" \
+        -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json" \
+        "https://nvcr.io/v2/${REPO}/manifests/${AMD}" | jq -r '.config.digest')
+    [ -n "$CFG" ] || { echo "GATE FAIL: no config blob digest"; exit 1; }
+    BLOB=$(curl -fsSL -H "Authorization: Bearer $TOK" \
+        "https://nvcr.io/v2/${REPO}/blobs/${CFG}") \
+        || { echo "GATE FAIL: config blob fetch failed"; exit 1; }
+    [ -n "$BLOB" ] || { echo "GATE FAIL: empty config blob"; exit 1; }
+    CREATED=$(echo "$BLOB" | jq -er '.created') \
+        || { echo "GATE FAIL: no .created"; exit 1; }
+    # `arrays` matches the production gate in SKILL.md. Without it, an object
+    # history yields a key count and iterable values, so an uninspectable image
+    # reads as clean -- the oracle must not be weaker than the gate it checks.
+    HIST_TOTAL=$(echo "$BLOB" | jq -er '.history | arrays | length') \
+        || { echo "GATE FAIL: .history absent or not an array"; exit 1; }
+    HIST_READABLE=$(echo "$BLOB" | jq -r '[.history[] | select(type=="object") | .created_by | select(type=="string" and length > 0)] | length')
+    [ "${HIST_TOTAL:-0}" -gt 0 ] || { echo "GATE FAIL: empty .history"; exit 1; }
+    [ "${HIST_READABLE:-0}" -eq "${HIST_TOTAL}" ] \
+        || { echo "GATE FAIL: history not inspectable"; exit 1; }
+    CODEC_LAYERS=$(echo "$BLOB" | jq -r '.history[].created_by // empty' \
+        | grep -cE 'ffmpeg|libav|x264|x265' || true)
+    echo "created: ${CREATED}"
+    echo "codec-installing layers: ${CODEC_LAYERS}"
+    if [ "${CODEC_LAYERS}" -ne 0 ]; then
+        echo "$BLOB" | jq -r '.history[].created_by // empty' \
+            | grep -E 'ffmpeg|libav|x264|x265' | head -1 \
+            | sed 's/^/matched layer: /' || true
+    fi
+    FIX_EPOCH=$(date -u -d '2026-08-12' +%s)
+    CREATED_EPOCH=$(date -u -d "${CREATED}" +%s) \
+        || { echo "GATE FAIL: unparseable .created"; exit 1; }
+    [ "${CREATED_EPOCH}" -ge "${FIX_EPOCH}" ] \
+        || { echo "GATE FAIL: build predates the codec-removal cutoff -- do not pull ${TAG}"; exit 1; }
+    [ "${CODEC_LAYERS}" -eq 0 ] \
+        || { echo "GATE FAIL: ${CODEC_LAYERS} codec layer(s) -- do not pull ${TAG}"; exit 1; }
+    echo "GATE PASS"
+)
+
+OUT=$(run_gate); RC=$?
+echo "${OUT}"
+
+# A rejection only counts if the gate actually READ the metadata. Every failure
+# branch prints "GATE FAIL", so without these markers an expired token, a
+# registry outage or a missing jq is indistinguishable from a correct verdict on
+# a codec-bearing image -- the oracle would report success for a run that
+# established nothing.
+for marker in '^created: ' '^codec-installing layers: ' '^matched layer: '; do
+    echo "${OUT}" | grep -q "${marker}" || {
+        echo "gate produced no '${marker}' line -- infrastructure failure, not a verdict"
+        exit 1; }
+done
+
+# This tag MUST be rejected, and for one of the two reasons the gate exists for.
+[ "${RC}" -ne 0 ] || { echo "gate accepted ${TAG}, which it must reject"; exit 1; }
+echo "${OUT}" | grep -qE 'GATE FAIL: (build predates|[0-9]+ layer\(s\) install codec|[0-9]+ codec)' || {
+    echo "gate failed, but not on provenance -- wrong reason:"; echo "${OUT}"; exit 1; }
+
+# ...and it must have reached that verdict on metadata alone. A docker CLI that
+# cannot list images proves nothing, so treat that as fatal rather than as
+# evidence of absence.
+DOCKER_IMAGES=$(docker images --format '{{.Repository}}') || {
+    echo "cannot list docker images -- cannot establish that nothing was pulled"
+    exit 1; }
+case "${DOCKER_IMAGES}" in
+    *nemo-gym*) echo "a nemo-gym image is present -- the gate must not pull"; exit 1 ;;
+esac
+
+echo "Gate correctly rejected ${TAG} without pulling it."
+"""
+
+
 def generate_solve_script(
     platform: str,
     build_profile: str,
@@ -232,7 +464,10 @@ def generate_task(
         build_profile = Path(spec_name).stem  # fallback to spec filename stem
 
     rendered_spec = _substitute_spec(spec, platform)
-    runtime_deploy = bool(spec.get("runtime_deploy", True))
+    # Gym overlay specs are offline: no deployment, no GPU. The adapter's
+    # default is a deploying profile build, which is the opposite.
+    _is_gym = Path(spec_name).stem.startswith("gym_")
+    runtime_deploy = False if _is_gym else bool(spec.get("runtime_deploy", True))
     judge_max_turns = int(spec.get("judge_max_turns", 60))
 
     # dataset group = spec stem (e.g. "profile_in_1_streaming_dense_captions")
@@ -247,11 +482,17 @@ def generate_task(
         # ---- instruction.md ------------------------------------------------
         # Note: spec.env notes and query are rendered ({{...}} substituted).
         lines = [
-            PREAMBLE,
+            PREAMBLE if not _is_gym else _GYM_PREAMBLE,
             "",
-            f"Use the `/vss-build-vision-agent` skill for the "
-            f"`{build_profile}` profile on `{platform}`. "
-            "Work from `$HOME/video-search-and-summarization` (the VSS repository root).",
+            (
+                "Use the `/vss-build-vision-agent` skill's Gym evaluation overlay "
+                "(`references/services/gym.md`). Work from "
+                "`$HOME/video-search-and-summarization` (the VSS repository root)."
+                if _is_gym else
+                f"Use the `/vss-build-vision-agent` skill for the "
+                f"`{build_profile}` profile on `{platform}`. "
+                "Work from `$HOME/video-search-and-summarization` (the VSS repository root)."
+            ),
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -269,6 +510,8 @@ def generate_task(
         # ---- task.toml -----------------------------------------------------
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         task_description = (
+            f"Gym evaluation overlay: {build_profile.removeprefix('gym_')}"
+            if _is_gym else
             f"Build+deploy {build_profile} profile"
             if runtime_deploy
             else f"Build {build_profile} profile"
@@ -338,9 +581,24 @@ def generate_task(
             raise ValueError(
                 f"expects[{idx}].artifact_expected must be a JSON boolean"
             )
-        (solution_dir / "solve.sh").write_text(
-            generate_solve_script(platform, build_profile, artifact_expected)
-        )
+        # The Gym overlay specs are offline and have their own oracles; the
+        # build-profile solve script assumes a deployment and cannot satisfy them.
+        _stem = Path(spec_name).stem
+        if _stem.startswith("gym_"):
+            if "delta" in _stem:
+                _solve = _SOLVE_DELTA.replace("__REPO_ROOT__", HARNESS_REPO_ROOT)
+            elif "image_gate" in _stem:
+                _solve = _SOLVE_IMAGE_GATE
+            else:
+                raise SystemExit(
+                    f"no gold solution for Gym spec '{_stem}' -- add one rather "
+                    f"than shipping a stub that cannot satisfy its checks"
+                )
+            (solution_dir / "solve.sh").write_text(_solve)
+        else:
+            (solution_dir / "solve.sh").write_text(
+                generate_solve_script(platform, build_profile, artifact_expected)
+            )
 
         # Bundle the build skill itself plus the service skills the spec may
         # need after generation.

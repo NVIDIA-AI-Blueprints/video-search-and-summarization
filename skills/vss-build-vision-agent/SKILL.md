@@ -39,6 +39,7 @@ metadata:
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
+| Evaluate, score, or benchmark a build with NeMo Gym, or compare Gym against VSS's own eval | [`references/services/gym.md`](references/services/gym.md) — an evaluation overlay applied **after** resolution, never a Q2b capability. Check the image gate before pulling anything. |
 | Warehouse or another industry profile | Stop: this skill currently covers developer examples only. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
@@ -84,6 +85,8 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 | **Alert verification** | Object detection with analytics and VLM event contextualization (RT-CV detection + behavior analytics + VLM verification + incidents) | `2d_cv` |
 
 These are **predefined developer profiles** — the skill keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (Stock mode, Step 5 exact match) and follows the shared build lifecycle (Steps 5–9). For Alerts, set the profile `MODE` per Q2a-mode.
+
+**Evaluate a build → Gym overlay.** After a build is deployed and ready, the user may want to score it. Offer: *"Want to evaluate this build with NeMo Gym? It scores the stack you just deployed and produces a reward per task."* On **yes**, follow [`references/services/gym.md`](references/services/gym.md). Do not compose it as a capability and do not re-run resolution — the deployed set is the thing being measured, so the overlay goes on top of what is already there. Today this lands on the verified host workflow, which needs no image; the containerised runner is blocked until a `nemo-gym` tag clears the image gate.
 
 **Customize a pre-built workflow → Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** and computing a **capability delta** on top of it (the profile itself is never modified — it is only the baseline). The stock build becomes a **Delta build**: the same `_builds/<name>/` machinery now carries the added/removed profile keys and any changed knobs.
 
