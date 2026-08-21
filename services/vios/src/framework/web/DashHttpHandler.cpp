@@ -500,6 +500,15 @@ constexpr int kDashReplayAvailabilityShiftSec = 6;
 // latency the player can hold.
 constexpr int kDashManifestRefreshSec = 1;
 
+// A live manifest with no time shift buffer depth describes an availability
+// window that starts when the session did and grows without bound, and a player
+// joining is entitled to start anywhere in it.  Chrome starts near the beginning
+// and is then as far behind live as the session is old - eighteen seconds on a
+// session barely a minute in, climbing - while Edge starts near the edge and
+// plays cleanly from the same manifest.  Publishing a bounded window makes the
+// live edge the only sensible place to start, so every player agrees.
+constexpr int kDashTimeShiftBufferDepthSec = 30;
+
 void setMinimumUpdatePeriod(std::string& manifest, int seconds)
 {
     const std::string key = "minimumUpdatePeriod=\"";
@@ -561,6 +570,22 @@ bool shiftAvailabilityStart(std::string& manifest, int seconds)
 // live edge.  Publishing the server's own time removes the external dependency
 // and makes every viewer agree on the same live edge.  "direct" is used rather
 // than "http-head" because it needs no extra request and no HEAD handler.
+void setTimeShiftBufferDepth(std::string& manifest, int seconds)
+{
+    if (manifest.find("timeShiftBufferDepth=") != std::string::npos)
+    {
+        return;
+    }
+    const std::string anchor = "type=\"dynamic\"";
+    const size_t at = manifest.find(anchor);
+    if (at == std::string::npos)
+    {
+        return;
+    }
+    const std::string attribute = " timeShiftBufferDepth=\"PT" + std::to_string(seconds) + "S\"";
+    manifest.insert(at + anchor.size(), attribute);
+}
+
 void addUtcTiming(std::string& manifest)
 {
     if (manifest.find("UTCTiming") != std::string::npos)
@@ -772,6 +797,13 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
         // and only needs the manifest again to notice structural changes.  Halving
         // the request rate costs nothing.
         setMinimumUpdatePeriod(manifest, kDashManifestRefreshSec);
+        // Live only.  A replay session publishes its whole recording window on
+        // purpose, so bounding it would cut the viewer off from the start of
+        // what they asked to watch.
+        if (!replay)
+        {
+            setTimeShiftBufferDepth(manifest, kDashTimeShiftBufferDepthSec);
+        }
         addUtcTiming(manifest);
         // dashsink leaves the first dynamic Period without @start.  Although
         // optional in the spec, dash.js 5 does not compose such a period into
