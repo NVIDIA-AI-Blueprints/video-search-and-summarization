@@ -37,7 +37,8 @@ const std::vector<ApiSpec> LIVE_API_SPEC = {
     {"/api/v1/live/streams"},
 
     {"/api/v1/live/dash/start",
-     {{"streamId", JsonType::String, true, Format::NOT_EMPTY}}},
+     {{"streamId", JsonType::String, true, Format::NOT_EMPTY},
+      {"overlay", JsonType::Object}}},
 
     {"/api/v1/live/dash/stop",
      {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},

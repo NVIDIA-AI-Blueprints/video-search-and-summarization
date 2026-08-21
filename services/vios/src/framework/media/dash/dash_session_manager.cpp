@@ -157,7 +157,21 @@ std::string DashSessionManager::createStreamToken(const std::string& streamId)
     return prefix + "-" + generate_uuid();
 }
 
-DashStartResult DashSessionManager::start(const std::string& streamId)
+bool dashOverlayRequested(const Json::Value& overlay)
+{
+    if (!overlay.isObject())
+    {
+        return false;
+    }
+    std::map<std::string, std::string, std::less<>> probe;
+    setOverlayOptsBasedOnJson(probe, overlay);
+    const auto enabled = probe.find("overlay");
+    const auto bbox = probe.find("overlayBbox");
+    return (enabled != probe.end() && enabled->second == "true")
+           || (bbox != probe.end() && bbox->second == "true");
+}
+
+DashStartResult DashSessionManager::start(const std::string& streamId, const Json::Value& overlay)
 {
     DashStartResult result;
     result.streamId = streamId;
@@ -238,6 +252,45 @@ DashStartResult DashSessionManager::start(const std::string& streamId)
         result.error = session->packager->lastError();
         return result;
     }
+
+    if (dashOverlayRequested(overlay))
+    {
+        // Drawing on a live stream needs its pixels, so this session owns a
+        // pipeline of its own rather than tapping the shared bitstream.
+        std::map<std::string, std::string, std::less<>> opts;
+        opts["streamId"] = streamId;
+        opts["sensorId"] = stream->sensorId;
+        opts["peerid"] = session->streamToken;
+        opts["codec"] = stream->settings.encoderValues.encoding;
+        opts["framerate"] = stream->settings.encoderValues.frameRate;
+        opts["dash"] = "dash";
+        setOverlayOptsBasedOnJson(opts, overlay);
+
+        session->replay = true;   // owns a pipeline, not shared by stream
+        session->source = std::make_shared<CommonVideoSource>(mediaUrl, opts, session->packager);
+        session->source->createConsumerPipeline();
+        session->source->setConsumerReady();
+        session->source->startStream();
+
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_replaySessionsByToken[session->streamToken] = session;
+            m_sessionsByToken[session->streamToken] = session;
+            result.viewerId = generate_uuid();
+            session->viewerIds.insert(result.viewerId);
+            m_sessionsByViewer[result.viewerId] = session;
+        }
+        result.success = true;
+        result.streamId = streamId;
+        result.streamToken = session->streamToken;
+        result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                     + session->streamToken + ".mpd";
+        result.state = session->packager->state();
+        LOG(info) << "Live DASH viewer started with overlay streamId=" << streamId
+                  << " state=" << stateString(result.state) << endl;
+        return result;
+    }
+
     std::string registrationUrl = mediaUrl;
     StreamMonitor::getInstance()->registerDataCallback(registrationUrl, session->packager);
 
