@@ -21,6 +21,7 @@ import shutil
 import time
 import uuid
 from argparse import ArgumentParser
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum, auto
@@ -182,6 +183,8 @@ class RequestInfo:
     # Results
     processed_chunk_list: list[PipelineChunkResult] = field(default_factory=list)
     response: list[PipelineChunkResult] = field(default_factory=list)
+    pending_file_chunks: deque = field(default_factory=deque, repr=False)
+    active_file_chunk_costs: dict[int, float] = field(default_factory=dict, repr=False)
 
     # Stream information
     is_live: bool = False
@@ -741,6 +744,34 @@ class RTVIStreamHandler:
             * 1024
             * 1024
         )
+        default_admission_mode = "off"
+        self._vlm_admission_mode = (
+            os.environ.get("RTVI_VLM_ADMISSION_MODE", default_admission_mode).strip().lower()
+        )
+        if self._vlm_admission_mode not in {"off", "bounded", "adaptive"}:
+            logger.warning(
+                "Invalid RTVI_VLM_ADMISSION_MODE=%r; using %s",
+                self._vlm_admission_mode,
+                default_admission_mode,
+            )
+            self._vlm_admission_mode = default_admission_mode
+
+        decoder_count = max(
+            1,
+            int(getattr(args, "num_decoders_per_gpu", 1) or 1)
+            * int(getattr(args, "num_gpus", 1) or 1),
+        )
+        configured_max_cost = _get_nonnegative_int_env("RTVI_VLM_ADMISSION_MAX_ACTIVE_COST", 0)
+        batch_size = int(getattr(args, "vlm_batch_size", 0) or decoder_count * 2)
+        self._vlm_admission_max_cost = float(
+            configured_max_cost or max(decoder_count, min(batch_size, decoder_count * 2))
+        )
+        self._vlm_admission_min_cost = 1.0
+        self._vlm_admission_target_cost = self._vlm_admission_max_cost
+        self._vlm_admission_active_cost = 0.0
+        self._vlm_admission_ready_requests: deque[str] = deque()
+        self._vlm_admission_ready_request_ids: set[str] = set()
+        self._vlm_admission_clean_completions = 0
 
         # Initialize generated-message output bus configuration.
         # MESSAGE_BUS is the startup source of truth: kafka, redis, or unset/empty.
@@ -2960,6 +2991,9 @@ class RTVIStreamHandler:
                 chunk_result.error,
             )
 
+        if self._vlm_admission_mode != "off":
+            self._complete_admitted_chunk(chunk_result, req_info)
+
         if req_info.is_live:
             live_stream_id = req_info.assets[0].asset_id
 
@@ -3073,6 +3107,188 @@ class RTVIStreamHandler:
                 # Non-streaming: deliver all chunks at once
                 self._process_output(req_info, False, req_info.processed_chunk_list)
 
+    def _estimate_file_chunk_cost(self, req_info: RequestInfo, chunk: ChunkInfo) -> float:
+        """Estimate decoded-frame pressure in 40-frame 640p equivalents."""
+        query = req_info.query
+        duration_sec = max((chunk.end_pts - chunk.start_pts) / 1e9, 0.001)
+        configured_frames = float(
+            query.num_frames_per_second_or_fixed_frames_chunk
+            or getattr(self._args, "num_frames_per_second_or_fixed_frames_chunk", 0)
+            or 1
+        )
+        if configured_frames < 0:
+            frame_count = max(float(req_info.video_fps or 1) * duration_sec, 1)
+        else:
+            frame_count = (
+                configured_frames * duration_sec
+                if query.use_fps_for_chunking
+                else configured_frames
+            )
+        width = int(query.vlm_input_width or getattr(self._args, "vlm_input_width", 0) or 640)
+        height = int(query.vlm_input_height or getattr(self._args, "vlm_input_height", 0) or 640)
+        return max(0.25, frame_count * width * height / (40 * 640 * 640))
+
+    def _file_admission_capacity_locked(self) -> float:
+        """Return file capacity after protecting unhealthy live streams."""
+        capacity = self._vlm_admission_target_cost
+        live_requests = [
+            req_info
+            for req_info in self._request_info_map.values()
+            if req_info.is_live and req_info.status == RequestInfo.Status.PROCESSING
+        ]
+        if not live_requests:
+            return capacity
+
+        live_latency = self._metrics._live_stream_chunk_latency_latest_value
+        live_deadlines = [
+            max(float(req_info.query.chunk_duration), 0.001)
+            for req_info in live_requests
+            if req_info.query
+        ]
+        if not live_deadlines:
+            return capacity
+        live_deadline = min(live_deadlines)
+        if live_latency >= live_deadline:
+            return 0.0
+        if live_latency >= live_deadline * 0.75:
+            return capacity * 0.5
+        return capacity
+
+    def _collect_file_dispatches_locked(self):
+        dispatches = []
+        capacity = self._file_admission_capacity_locked()
+        rounds_remaining = len(self._vlm_admission_ready_requests)
+        while self._vlm_admission_ready_requests and rounds_remaining > 0:
+            request_id = self._vlm_admission_ready_requests.popleft()
+            self._vlm_admission_ready_request_ids.discard(request_id)
+            req_info = self._request_info_map.get(request_id)
+            if (
+                req_info is None
+                or req_info.status != RequestInfo.Status.PROCESSING
+                or not req_info.pending_file_chunks
+            ):
+                rounds_remaining -= 1
+                continue
+
+            chunk, video_codec, decode_only, cost = req_info.pending_file_chunks[0]
+            fits = self._vlm_admission_active_cost + cost <= capacity
+            if not fits and self._vlm_admission_active_cost > 0:
+                self._vlm_admission_ready_requests.append(request_id)
+                self._vlm_admission_ready_request_ids.add(request_id)
+                rounds_remaining -= 1
+                continue
+            if not fits and capacity <= 0:
+                self._vlm_admission_ready_requests.appendleft(request_id)
+                self._vlm_admission_ready_request_ids.add(request_id)
+                break
+
+            req_info.pending_file_chunks.popleft()
+            req_info.active_file_chunk_costs[chunk.chunkIdx] = cost
+            self._vlm_admission_active_cost += cost
+            dispatches.append((req_info, chunk, video_codec, decode_only))
+            if req_info.pending_file_chunks:
+                self._vlm_admission_ready_requests.append(request_id)
+                self._vlm_admission_ready_request_ids.add(request_id)
+            rounds_remaining = len(self._vlm_admission_ready_requests)
+        return dispatches
+
+    def _submit_file_dispatches(self, dispatches) -> None:
+        for req_info, chunk, video_codec, decode_only in dispatches:
+            try:
+                self._vlm_pipeline.enqueue_chunk(
+                    chunk,
+                    lambda response, req_info=req_info: self._on_vlm_chunk_response(
+                        response, req_info
+                    ),
+                    req_info.query,
+                    req_info.request_id,
+                    video_codec,
+                    decode_only,
+                )
+            except Exception as exc:
+                logger.exception("Failed to enqueue admitted chunk %r", chunk)
+                self._on_vlm_chunk_response(
+                    PipelineChunkResult(chunk=chunk, error=str(exc)), req_info
+                )
+
+    def _dispatch_pending_file_chunks(self) -> None:
+        if self._vlm_admission_mode == "off":
+            return
+        with self._lock:
+            dispatches = self._collect_file_dispatches_locked()
+        self._submit_file_dispatches(dispatches)
+
+    def _observe_admission_result_locked(
+        self, chunk_result: PipelineChunkResult, req_info: RequestInfo
+    ) -> None:
+        if self._vlm_admission_mode != "adaptive":
+            return
+
+        queue_ratio = chunk_result.queue_time / max(chunk_result.processing_latency, 0.001)
+        congested = bool(chunk_result.error or chunk_result.decode_retry_count or queue_ratio > 0.5)
+        if congested:
+            old_target = self._vlm_admission_target_cost
+            self._vlm_admission_target_cost = max(
+                self._vlm_admission_min_cost,
+                self._vlm_admission_target_cost * 0.5,
+            )
+            self._vlm_admission_clean_completions = 0
+            if self._vlm_admission_target_cost != old_target:
+                logger.info(
+                    "Reduced VLM admission target from %.2f to %.2f: queue_ratio=%.2f, "
+                    "decode_retries=%d, live=%s, error=%s",
+                    old_target,
+                    self._vlm_admission_target_cost,
+                    queue_ratio,
+                    chunk_result.decode_retry_count,
+                    req_info.is_live,
+                    bool(chunk_result.error),
+                )
+            return
+
+        if queue_ratio >= 0.1:
+            self._vlm_admission_clean_completions = 0
+            return
+        self._vlm_admission_clean_completions += 1
+        if self._vlm_admission_clean_completions < max(
+            2, math.ceil(self._vlm_admission_target_cost)
+        ):
+            return
+        old_target = self._vlm_admission_target_cost
+        self._vlm_admission_target_cost = min(
+            self._vlm_admission_max_cost,
+            self._vlm_admission_target_cost + 1.0,
+        )
+        self._vlm_admission_clean_completions = 0
+        if self._vlm_admission_target_cost != old_target:
+            logger.info(
+                "Increased VLM admission target from %.2f to %.2f after clean completions",
+                old_target,
+                self._vlm_admission_target_cost,
+            )
+
+    def _complete_admitted_chunk(
+        self, chunk_result: PipelineChunkResult, req_info: RequestInfo
+    ) -> None:
+        with self._lock:
+            self._observe_admission_result_locked(chunk_result, req_info)
+            if not req_info.is_live and chunk_result.chunk:
+                if chunk_result.error:
+                    released_cost = sum(req_info.active_file_chunk_costs.values())
+                    req_info.active_file_chunk_costs.clear()
+                    req_info.pending_file_chunks.clear()
+                    self._vlm_admission_ready_request_ids.discard(req_info.request_id)
+                else:
+                    released_cost = req_info.active_file_chunk_costs.pop(
+                        chunk_result.chunk.chunkIdx, 0.0
+                    )
+                self._vlm_admission_active_cost = max(
+                    0.0, self._vlm_admission_active_cost - released_cost
+                )
+            dispatches = self._collect_file_dispatches_locked()
+
+        self._submit_file_dispatches(dispatches)
+
     def _trigger_query(self, req_info: RequestInfo, start_time: float = None):
         """Trigger a query on a file"""
         from utils.file_splitter import FileSplitter
@@ -3154,17 +3370,24 @@ class RTVIStreamHandler:
                 # Decode-only mode: we have saved response but need to decode for frame images
                 decode_only = bool(saved_response)
 
-                # No saved response, enqueue the chunk for normal VLM processing
-                self._vlm_pipeline.enqueue_chunk(
-                    chunk,
-                    lambda response, saved_response=saved_response, req_info=req_info: (
-                        self._on_vlm_chunk_response(saved_response or response, req_info)
-                    ),
-                    req_info.query,
-                    req_info.request_id,
-                    video_codec,
-                    decode_only,
-                )
+                if self._vlm_admission_mode == "off":
+                    self._vlm_pipeline.enqueue_chunk(
+                        chunk,
+                        lambda response, saved_response=saved_response, req_info=req_info: (
+                            self._on_vlm_chunk_response(saved_response or response, req_info)
+                        ),
+                        req_info.query,
+                        req_info.request_id,
+                        video_codec,
+                        decode_only,
+                    )
+                else:
+                    cost = self._estimate_file_chunk_cost(req_info, chunk)
+                    with self._lock:
+                        req_info.pending_file_chunks.append((chunk, video_codec, decode_only, cost))
+                        if req_info.request_id not in self._vlm_admission_ready_request_ids:
+                            self._vlm_admission_ready_requests.append(req_info.request_id)
+                            self._vlm_admission_ready_request_ids.add(req_info.request_id)
 
         nvtx_file_split_start = nvtx.start_range(
             message="File Splitting-" + str(req_info.request_id), color="blue"
@@ -3181,7 +3404,6 @@ class RTVIStreamHandler:
             on_new_chunk=lambda chunk: _on_new_chunk(chunk, saved_responses),
         ).split()
         nvtx.end_range(nvtx_file_split_start)
-
         # No chunks were created. Mark the request completed and trigger next query if queued
         if req_info.chunk_count == 0:
             req_info.status = RequestInfo.Status.SUCCESSFUL
@@ -3191,6 +3413,7 @@ class RTVIStreamHandler:
         req_info.nvtx_vlm_start = nvtx.start_range(
             message="VLM Pipeline-" + str(req_info.request_id), color="green"
         )
+        self._dispatch_pending_file_chunks()
 
     def query(
         self,
@@ -3935,6 +4158,24 @@ class RTVIStreamHandler:
         """
         self._cleanup_executor = executor
 
+    def release_idle_vlm_resources(self) -> bool:
+        """Release VLM allocator caches only when no request can race the reset."""
+        with self._lock:
+            if (
+                self._request_info_map
+                or self._live_streams_stopping
+                or self._live_streams_cleanup_required
+            ):
+                logger.info(
+                    "Skipping idle VLM resource release: requests=%d, stopping=%d, "
+                    "cleanup_required=%d",
+                    len(self._request_info_map),
+                    len(self._live_streams_stopping),
+                    len(self._live_streams_cleanup_required),
+                )
+                return False
+            return self._vlm_pipeline.release_idle_vlm_resources(wait_timeout_sec=30.0)
+
     def _safe_rmtree(self, path: str) -> None:
         """Remove a directory tree, ignoring FileNotFoundError.
 
@@ -4069,11 +4310,24 @@ class RTVIStreamHandler:
         checks = self._vlm_pipeline.get_health_status()
         is_healthy = all(check.healthy for check in checks)
         current_time = time.time()
+        with self._lock:
+            pending_chunks = sum(
+                len(req_info.pending_file_chunks) for req_info in self._request_info_map.values()
+            )
+            admission = {
+                "mode": self._vlm_admission_mode,
+                "active_cost": round(self._vlm_admission_active_cost, 2),
+                "target_cost": round(self._vlm_admission_target_cost, 2),
+                "max_cost": round(self._vlm_admission_max_cost, 2),
+                "pending_file_chunks": pending_chunks,
+                "ready_file_requests": len(self._vlm_admission_ready_request_ids),
+            }
         status = {
             "healthy": is_healthy,
             "timestamp": current_time,
             "uptime_seconds": current_time - self._start_time,
             "checks": checks,
+            "admission": admission,
         }
         return status
 

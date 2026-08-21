@@ -24,6 +24,7 @@ Task 5: fire-and-forget rmtree via dedicated cleanup executor.
 """
 
 import asyncio
+import queue
 import threading
 import time
 import types
@@ -35,9 +36,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from api_models.live_stream import DeleteLiveStreamsRequest
+from common.service_exception import ServiceException
 from server.rtvi_stream_handler import RequestInfo
 from server.rtvi_vlm_server import _await_file_release, _delete_live_streams_batch_impl
-from vlm_pipeline.vlm_pipeline import VlmPipeline
+from vlm_pipeline.vlm_pipeline import VlmPipeline, VlmProcess
 
 
 def _make_fake_live_asset(stream_handler, key: str):
@@ -137,6 +139,45 @@ def test_batch_delete_runs_in_parallel():
 
 
 @pytest.mark.no_gpu
+def test_blocking_batch_delete_releases_idle_vlm_resources():
+    asset_manager, stream_handler, executor, request, _ = _build_mocks(
+        num_streams=2, sleep_per_call=0.01
+    )
+    request.blocking = True
+    stream_handler.release_idle_vlm_resources.return_value = True
+
+    try:
+        response = asyncio.run(
+            _delete_live_streams_batch_impl(asset_manager, stream_handler, executor, request)
+        )
+    finally:
+        executor.shutdown(wait=True)
+
+    assert response.errors == []
+    stream_handler.release_idle_vlm_resources.assert_called_once_with()
+
+
+@pytest.mark.no_gpu
+def test_blocking_batch_delete_ignores_idle_release_failure():
+    asset_manager, stream_handler, executor, request, _ = _build_mocks(
+        num_streams=2, sleep_per_call=0.01
+    )
+    request.blocking = True
+    stream_handler.release_idle_vlm_resources.side_effect = RuntimeError("release failed")
+
+    try:
+        response = asyncio.run(
+            _delete_live_streams_batch_impl(asset_manager, stream_handler, executor, request)
+        )
+    finally:
+        executor.shutdown(wait=True)
+
+    assert response.errors == []
+    assert len(response.deleted) == 2
+    stream_handler.release_idle_vlm_resources.assert_called_once_with()
+
+
+@pytest.mark.no_gpu
 def test_batch_delete_preserves_error_shape():
     """Mixed successes and failures must yield the same error shape as the old loop."""
     # Build 4 assets: 2 happy, 1 non-live (ServiceException), 1 raises Exception.
@@ -184,16 +225,64 @@ def test_batch_delete_preserves_error_shape():
 
 
 @pytest.mark.no_gpu
-def test_batch_delete_rejects_asset_in_use_without_wait(monkeypatch):
-    """A stuck or active use_count returns ResourceInUse instead of deleting."""
+def test_batch_delete_deletes_live_stream_with_active_caption_request():
+    """``use_count == 1`` is the steady state for a live stream and must delete.
+
+    ``RTVIStreamHandler.generate_vlm_captions`` takes one asset lock per live
+    caption request and holds it for the request's whole lifetime, so every
+    live stream a benchmark wants to tear down has ``use_count >= 1``. A
+    server-layer ``use_count > 0`` gate therefore refused *every* delete, and
+    streams (with their EVS sessions) accumulated for the life of the process.
+
+    ``remove_rtsp_stream`` is the authority here: it raises 409 only when more
+    than one caption request is active and otherwise releases the
+    request-held lock itself.
+    """
+    asset_manager, stream_handler, executor, request, stream_id_uuids = _build_mocks(
+        num_streams=1, sleep_per_call=0.01
+    )
+    for asset in asset_manager._asset_map.values():
+        asset.use_count = 1
+
+    try:
+        resp = asyncio.run(
+            _delete_live_streams_batch_impl(asset_manager, stream_handler, executor, request)
+        )
+    finally:
+        executor.shutdown(wait=True)
+
+    assert resp.errors == []
+    assert resp.deleted == stream_id_uuids
+    stream_handler.remove_rtsp_stream.assert_called_once()
+    asset_manager.cleanup_asset.assert_called_once()
+
+
+@pytest.mark.no_gpu
+def test_batch_delete_surfaces_multi_subscriber_conflict_promptly(monkeypatch):
+    """Multiple caption requests must 409 immediately, not after a drain timeout.
+
+    ``use_count`` for a live stream equals the number of active caption
+    requests, so ``remove_rtsp_stream`` -- which reads the authoritative
+    request map under its own lock -- is what decides the conflict. The server
+    layer must not stall on a ``use_count``-based poll first; that count will
+    never drop while the subscribers are live.
+    """
     monkeypatch.setenv("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "30")
 
     asset_manager, stream_handler, executor, request, stream_id_uuids = _build_mocks(
         num_streams=1, sleep_per_call=0.01
     )
-    # Pin use_count > 1 so the poll loop would spin forever without a timeout.
     for asset in asset_manager._asset_map.values():
         asset.use_count = 2
+
+    def reject_multi_subscriber(asset, **kwargs):
+        raise ServiceException(
+            f"Cannot stop live stream {asset.asset_id} because 2 caption requests are active.",
+            "ResourceInUse",
+            409,
+        )
+
+    stream_handler.remove_rtsp_stream.side_effect = reject_multi_subscriber
 
     try:
         t0 = time.monotonic()
@@ -210,9 +299,8 @@ def test_batch_delete_rejects_asset_in_use_without_wait(monkeypatch):
     assert error["stream_id"] == str(stream_id_uuids[0])
     assert error["error_code"] == "ResourceInUse"
     assert error["status_code"] == 409
-    assert "currently being used" in error["error"]
-    assert elapsed < 1.0, f"Batch delete took {elapsed:.2f}s; expected immediate 409"
-    stream_handler.remove_rtsp_stream.assert_not_called()
+    assert "caption requests are active" in error["error"]
+    assert elapsed < 1.0, f"Batch delete took {elapsed:.2f}s; expected a prompt 409"
     asset_manager.cleanup_asset.assert_not_called()
 
 
@@ -280,6 +368,10 @@ def test_remove_live_stream_times_out_and_proceeds(monkeypatch, stream_handler):
     pipeline = stream_handler._vlm_pipeline
     # Bind the real method to the MagicMock so we exercise the production code path.
     pipeline.remove_live_stream = types.MethodType(VlmPipeline.remove_live_stream, pipeline)
+    pipeline._abort_live_stream_vlm_requests = types.MethodType(
+        VlmPipeline._abort_live_stream_vlm_requests,
+        pipeline,
+    )
     # Provide real lists for proc collections so the method can iterate them.
     pipeline._vlm_procs = [MagicMock()]
     pipeline._asr_procs = [MagicMock()]
@@ -295,10 +387,143 @@ def test_remove_live_stream_times_out_and_proceeds(monkeypatch, stream_handler):
     elapsed = time.monotonic() - t0
 
     assert 1.0 <= elapsed < 1.5, f"expected ~1s timeout, got {elapsed:.2f}s"
+    assert any(
+        call.args[0] == "abort-live-stream-requests"
+        for call in pipeline._vlm_procs[0].send_command.call_args_list
+    )
     assert pipeline._vlm_procs[0].send_command.call_args_list[-1].args[0] == "stop-drop-chunks"
     # Return value must match the measured drain, so callers can record
     # per-stream latency without racing on a shared attribute.
     assert drain_latency is not None and 1.0 <= drain_latency < 1.5
+
+
+@pytest.mark.no_gpu
+def test_forced_delete_eos_completes_with_dropped_chunks():
+    """Forced teardown must not wait for results that cancellation discarded."""
+    pipeline = object.__new__(VlmPipeline)
+    pipeline._processed_chunk_queue = queue.Queue()
+    pipeline._processed_chunk_queue_watcher_stop_event = threading.Event()
+    pipeline._live_stream_lock = threading.Lock()
+    pipeline.close_evs_sessions = MagicMock()
+
+    callback = MagicMock()
+    subscriber = VlmPipeline._LiveStreamSubscriber(on_chunk_result=callback)
+    stream_info = VlmPipeline._LiveStreamInfo(
+        subscribers={"request-a": subscriber},
+        abort_requested=True,
+    )
+    pipeline._live_stream_id_map = {"stream-a": stream_info}
+
+    watcher = threading.Thread(target=pipeline._watch_processed_chunk_queue)
+    watcher.start()
+    try:
+        pipeline._processed_chunk_queue.put(
+            {
+                "live_stream_ended": True,
+                "live_stream_id": "stream-a",
+                "total_chunks": 10,
+            }
+        )
+        deadline = time.monotonic() + 1
+        while not stream_info.all_chunks_processed and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        pipeline._processed_chunk_queue_watcher_stop_event.set()
+        watcher.join(timeout=2)
+
+    assert stream_info.end_of_stream is True
+    assert subscriber.num_chunks_processed == 0
+    assert subscriber.all_chunks_processed is True
+    assert stream_info.all_chunks_processed is True
+    assert callback.call_count == 1
+    assert callback.call_args.args[0].is_live_stream_ended is True
+
+
+@pytest.mark.no_gpu
+def test_forced_delete_marks_abort_before_stopping_decoder():
+    """EOS handling must see forced-cancel state before decoder shutdown."""
+    pipeline = object.__new__(VlmPipeline)
+    pipeline._live_stream_lock = threading.Lock()
+    stream_info = VlmPipeline._LiveStreamInfo(
+        all_chunks_processed=True,
+        gpu_id=0,
+    )
+    pipeline._live_stream_id_map = {"stream-a": stream_info}
+    pipeline._vlm_procs = [MagicMock()]
+    pipeline._asr_procs = [MagicMock()]
+    pipeline._decoder_procs = [MagicMock()]
+    pipeline._abort_live_stream_vlm_requests = MagicMock(return_value=0)
+    pipeline.close_evs_sessions = MagicMock()
+
+    abort_state_at_stop = []
+
+    def record_abort_state(command, **_kwargs):
+        """Capture whether forced-cancel state was set at decoder shutdown."""
+        if command == "stop-live-stream":
+            abort_state_at_stop.append(stream_info.abort_requested)
+
+    pipeline._decoder_procs[0].send_command.side_effect = record_abort_state
+
+    pipeline.remove_live_stream("stream-a", abort_inflight=True)
+
+    assert abort_state_at_stop == [True]
+
+
+@pytest.mark.no_gpu
+def test_vlm_process_aborts_requests_for_live_stream():
+    process = object.__new__(VlmProcess)
+    process._model = MagicMock()
+    process._model.abort_live_stream_requests.return_value = 3
+
+    aborted = process._handle_command("abort-live-stream-requests", stream_id="stream-a")
+
+    assert aborted == 3
+    process._model.abort_live_stream_requests.assert_called_once_with("stream-a")
+
+
+@pytest.mark.no_gpu
+def test_vlm_process_releases_idle_model_resources():
+    process = object.__new__(VlmProcess)
+    process._model = MagicMock()
+    process._model.release_idle_resources.return_value = True
+
+    assert process._handle_command("release-idle-resources") is True
+    process._model.release_idle_resources.assert_called_once_with(wait_timeout_sec=0.0)
+
+
+@pytest.mark.no_gpu
+def test_vlm_pipeline_requires_every_process_to_release_idle_resources():
+    pipeline = object.__new__(VlmPipeline)
+    successful = MagicMock()
+    successful.send_command.return_value = True
+    failed = MagicMock()
+    failed.send_command.side_effect = RuntimeError("release failed")
+    subsequent = MagicMock()
+    subsequent.send_command.return_value = True
+    pipeline._vlm_procs = [successful, failed, subsequent]
+
+    assert pipeline.release_idle_vlm_resources(wait_timeout_sec=12.0) is False
+    for proc in pipeline._vlm_procs:
+        proc.send_command.assert_called_once_with(
+            "release-idle-resources",
+            wait_timeout_sec=12.0,
+        )
+
+
+@pytest.mark.no_gpu
+def test_stream_handler_releases_resources_only_when_idle(stream_handler):
+    stream_handler._vlm_pipeline.release_idle_vlm_resources.return_value = True
+
+    assert stream_handler.release_idle_vlm_resources() is True
+    stream_handler._vlm_pipeline.release_idle_vlm_resources.assert_called_once_with(
+        wait_timeout_sec=30.0
+    )
+
+    stream_handler._request_info_map["active"] = MagicMock()
+    stream_handler._vlm_pipeline.release_idle_vlm_resources.reset_mock()
+
+    assert stream_handler.release_idle_vlm_resources() is False
+    stream_handler._vlm_pipeline.release_idle_vlm_resources.assert_not_called()
 
 
 @pytest.mark.no_gpu
@@ -505,6 +730,7 @@ def test_batch_delete_non_blocking_uses_drain_timeout(monkeypatch):
     assert resp.deleted == stream_ids
     assert resp.errors == []
     assert stream_handler.remove_rtsp_stream.call_args.kwargs["drain_timeout_sec"] == 12.5
+    assert stream_handler.remove_rtsp_stream.call_args.kwargs["abort_inflight"] is False
 
 
 @pytest.mark.no_gpu
@@ -526,6 +752,7 @@ def test_batch_delete_blocking_uses_blocking_timeout(monkeypatch):
     assert resp.deleted == stream_ids
     assert resp.errors == []
     assert stream_handler.remove_rtsp_stream.call_args.kwargs["drain_timeout_sec"] == 123.0
+    assert stream_handler.remove_rtsp_stream.call_args.kwargs["abort_inflight"] is True
 
 
 @pytest.mark.no_gpu
@@ -551,6 +778,7 @@ def test_batch_delete_drain_timeout_overrides_blocking_env(monkeypatch):
     assert resp.deleted == stream_ids
     assert resp.errors == []
     assert stream_handler.remove_rtsp_stream.call_args.kwargs["drain_timeout_sec"] == 7.5
+    assert stream_handler.remove_rtsp_stream.call_args.kwargs["abort_inflight"] is True
 
 
 @pytest.mark.no_gpu

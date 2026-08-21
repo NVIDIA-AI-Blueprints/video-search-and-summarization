@@ -118,6 +118,22 @@
       "tag_variables": ["VSS_RT_VLM_TAG"]
     },
     {
+      "name": "vss-rt-vlm-sbsa",
+      "repository": "vss-rt-vlm",
+      "tag_suffix": "-sbsa",
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "source_path": "services/rtvi/rt-vlm",
+      "context": "services/rtvi/rt-vlm",
+      "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+      "lfs_include": "services/rtvi/rt-vlm/docker/base/binaries/**,services/rtvi/rt-vlm/artifacts/vss-rt-vlm-3.3.0-26.07.4-*-evs-cython/**",
+      "build_args": {"ARM_PLATFORM": "sbsa"},
+      "platforms": ["linux/arm64"],
+      "compose_image_names": [],
+      "notes": "SBSA/DGX Spark arm64 variant of vss-rt-vlm. Publishes to the shared repository with a -sbsa tag suffix and is selected by the deployment SBSA tag override."
+    },
+    {
       "name": "vss-rt-embed",
       "strategy": "build",
       "ghcr_build": false,

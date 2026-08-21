@@ -25,6 +25,7 @@ import random
 import re
 import string
 import threading
+import time
 import traceback
 import uuid
 from typing import List, Optional
@@ -55,6 +56,7 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_MAX_NUM_BATCHED_TOKENS": "RTVI_VLLM_MAX_NUM_BATCHED_TOKENS",
     "VLLM_ENABLE_PREFIX_CACHING": "RTVI_VLLM_ENABLE_PREFIX_CACHING",
     "VLLM_ENFORCE_EAGER": "RTVI_VLLM_ENFORCE_EAGER",
+    "VLLM_CUDAGRAPH_MODE": "RTVI_VLLM_CUDAGRAPH_MODE",
     "VLLM_DISABLE_MM_PREPROCESSOR_CACHE": "RTVI_VLLM_DISABLE_MM_PREPROCESSOR_CACHE",
     "VLLM_MM_PROCESSOR_CACHE_GB": "RTVI_VLLM_MM_PROCESSOR_CACHE_GB",
     "VLLM_MM_ENCODER_ATTN_BACKEND": "RTVI_VLLM_MM_ENCODER_ATTN_BACKEND",
@@ -74,6 +76,9 @@ _RTVI_VLLM_ENV_ALIASES = {
 }
 
 _DEFAULT_VLLM_NUM_PREPROCESS_WORKERS = 16
+_VLLM_CUDAGRAPH_MODES = frozenset(
+    {"NONE", "PIECEWISE", "FULL", "FULL_DECODE_ONLY", "FULL_AND_PIECEWISE"}
+)
 # Legacy admission serializes frontend preprocessing so transient allocations do not overlap.
 _LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS = 1
 # Keep at most one c128 2K-equivalent wave of CUDA-IPC multimodal inputs resident
@@ -165,6 +170,22 @@ def _get_num_preprocess_workers() -> int:
             f"'{num_workers}' must be greater than or equal to 1"
         )
     return num_workers
+
+
+def _get_vllm_compilation_config() -> dict[str, str] | None:
+    raw_mode = (_get_rtvi_vllm_env("VLLM_CUDAGRAPH_MODE", "") or "").strip()
+    if not raw_mode:
+        return None
+    cudagraph_mode = raw_mode.upper()
+    if cudagraph_mode not in _VLLM_CUDAGRAPH_MODES:
+        supported = ", ".join(sorted(_VLLM_CUDAGRAPH_MODES))
+        raise ValueError(
+            f"Invalid value for VLLM_CUDAGRAPH_MODE: '{raw_mode}'; " f"expected one of: {supported}"
+        )
+    return {
+        "mode": "VLLM_COMPILE",
+        "cudagraph_mode": cudagraph_mode,
+    }
 
 
 def _get_adaptive_preprocess_config() -> AdaptivePreprocessConfig:
@@ -807,6 +828,18 @@ def _normalize_qwen3vl_tokenizer_config(model_path: str) -> None:
         logger.exception("Failed to normalize tokenizer_config at %s", cfg_path)
 
 
+def _empty_vllm_worker_cuda_cache(_worker):
+    """Release cached CUDA blocks in each vLLM worker process."""
+    torch.cuda.synchronize()
+    torch.cuda.ipc_collect()
+    torch.cuda.empty_cache()
+    free_bytes, total_bytes = torch.cuda.mem_get_info()
+    return {
+        "free_mib": free_bytes // (1024 * 1024),
+        "total_mib": total_bytes // (1024 * 1024),
+    }
+
+
 class VllmCompatible(BaseVlmModel):
     def _initialize_model(self, vlm_model_type="", **kwargs):
         """Initialize the VllmCompatible model"""
@@ -1045,6 +1078,7 @@ class VllmCompatible(BaseVlmModel):
                 if "enable_chunked_prefill" in _engine_supported_params:
                     engine_args_kwargs["enable_chunked_prefill"] = True
 
+                enforce_eager = False
                 if "enforce_eager" in _engine_supported_params:
                     enforce_eager = (
                         _get_rtvi_vllm_env("VLLM_ENFORCE_EAGER", "false").lower() == "true"
@@ -1052,6 +1086,25 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["enforce_eager"] = enforce_eager
                     if enforce_eager:
                         logger.info("VLLM enforce_eager enabled via VLLM_ENFORCE_EAGER")
+
+                compilation_config = _get_vllm_compilation_config()
+                if compilation_config:
+                    if enforce_eager:
+                        raise ValueError(
+                            "VLLM_CUDAGRAPH_MODE cannot be set when VLLM_ENFORCE_EAGER=true"
+                        )
+                    if "compilation_config" in _engine_supported_params:
+                        engine_args_kwargs["compilation_config"] = compilation_config
+                        logger.info(
+                            "VLLM CUDA graph mode override: %s",
+                            compilation_config["cudagraph_mode"],
+                        )
+                    else:
+                        logger.warning(
+                            "VLLM_CUDAGRAPH_MODE=%s ignored; installed vLLM does not support "
+                            "compilation_config",
+                            compilation_config["cudagraph_mode"],
+                        )
 
                 vlm_trust_remote_code = _get_vlm_trust_remote_code(self._model_architecture)
                 if "trust_remote_code" in _engine_supported_params:
@@ -1728,15 +1781,14 @@ class VllmCompatible(BaseVlmModel):
         if not request_ids:
             return 0
 
+        for request_future in request_futures:
+            request_future.cancel()
+
         abort_future = asyncio.run_coroutine_threadsafe(
             self._llm.abort(request_ids),
             self._event_loop,
         )
-        try:
-            abort_future.result(timeout=timeout_sec)
-        finally:
-            for request_future in request_futures:
-                request_future.cancel()
+        abort_future.result(timeout=timeout_sec)
         return len(request_ids)
 
     async def process_async_vllm(
@@ -1983,13 +2035,66 @@ class VllmCompatible(BaseVlmModel):
                 if len(self._cuda_mm_pending_submission_ids) >= preprocess_capacity:
                     return False
                 if (
-                    self._multimodal_preprocess_limiter is None
-                    or self._multimodal_preprocess_limiter.config.shadow_mode
-                ) and sum(
-                    self._cuda_mm_resident_units_by_request.values()
-                ) >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS:
+                    sum(self._cuda_mm_resident_units_by_request.values())
+                    >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS
+                ):
                     return False
         return len(self._inflight_req_ids) < self._max_batch_size
+
+    def release_idle_resources(self, wait_timeout_sec: float = 0.0):
+        """Release allocator caches after the service becomes fully idle.
+
+        The vLLM EngineCore owns a separate CUDA allocator. Clearing only the
+        RTVI process cache therefore leaves encoder and worker allocations
+        visible as used memory, which can make the live-stream admission guard
+        reject the next benchmark level even though no requests remain.
+        """
+        deadline = time.monotonic() + max(0.0, wait_timeout_sec)
+        while True:
+            with self._cuda_mm_residency_lock:
+                pending = bool(
+                    self._adaptive_preprocess_pending_submission_ids
+                    or self._cuda_mm_pending_submission_ids
+                    or self._cuda_mm_resident_units_by_request
+                )
+            with self._live_request_ids_lock:
+                live_requests = bool(self._live_request_ids or self._live_request_futures)
+            inflight = len(self._inflight_req_ids)
+            if not inflight and not pending and not live_requests:
+                break
+            if time.monotonic() >= deadline:
+                logger.info(
+                    "Skipping idle VLM resource release after %.1fs: inflight=%d, "
+                    "pending=%s, live_requests=%s",
+                    max(0.0, wait_timeout_sec),
+                    inflight,
+                    pending,
+                    live_requests,
+                )
+                return False
+            time.sleep(0.05)
+
+        async def _release_engine_resources():
+            import cloudpickle
+
+            await self._llm.reset_encoder_cache()
+            worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
+            return await self._llm.collective_rpc(worker_method, timeout=60.0)
+
+        worker_memory = asyncio.run_coroutine_threadsafe(
+            _release_engine_resources(), self._event_loop
+        ).result(timeout=90.0)
+        torch.cuda.synchronize()
+        torch.cuda.ipc_collect()
+        torch.cuda.empty_cache()
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+        logger.info(
+            "Released idle VLM resources: frontend_free=%d MiB/%d MiB, workers=%s",
+            free_bytes // (1024 * 1024),
+            total_bytes // (1024 * 1024),
+            worker_memory,
+        )
+        return True
 
     def warmup(self):
         """Warm up the model with dummy tensors to initialize CUDA kernels and memory."""

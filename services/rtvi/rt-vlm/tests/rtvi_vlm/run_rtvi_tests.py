@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -188,6 +188,8 @@ def main():
             "test_rtvi_client_cli.py",
             "test_media_file_info.py",
             "test_vlm_pipeline_live_subscribers.py",
+            "test_vllm_qwen3_cache_reuse_patch.py",
+            "test_delete_parallel.py",
         ]
         unit_paths = [os.path.join(os.path.dirname(__file__), test) for test in unit_tests]
         results["unit"] = run_pytest(

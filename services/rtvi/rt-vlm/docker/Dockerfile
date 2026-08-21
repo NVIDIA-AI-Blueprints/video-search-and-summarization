@@ -163,15 +163,6 @@ RUN --mount=from=sbsa-media-runtime,source=/,target=/tmp/sbsa-root,readonly \
         install -Dm755 "$source_plugin" /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvvideo4linux2.so; \
     fi
 
-# The Jetson SDK archive omits the two NvBuf runtime libraries required by pyds.
-# Use the portable iGPU copies rather than driver-mounted Tegra symlinks.
-COPY docker/base/binaries/igpu/libnvbufsurface.so docker/base/binaries/igpu/libnvbufsurftransform.so /tmp/igpu-nvbuf/
-RUN if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
-        ds_path=/opt/nvidia/deepstream/deepstream-9.1/lib \
-        && install -Dm755 /tmp/igpu-nvbuf/libnvbufsurface.so "$ds_path/libnvbufsurface.so" \
-        && install -Dm755 /tmp/igpu-nvbuf/libnvbufsurftransform.so "$ds_path/libnvbufsurftransform.so"; \
-    fi \
-    && rm -rf /tmp/igpu-nvbuf
 COPY --from=triton-cuda-runtime /usr/local/cuda/targets /tmp/triton-cuda-targets
 RUN set -e; if [ "$TARGETARCH" = "amd64" ]; then \
         cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnpp*.so* /usr/local/cuda/targets/x86_64-linux/lib/ \

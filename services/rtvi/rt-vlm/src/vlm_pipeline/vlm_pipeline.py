@@ -325,7 +325,7 @@ class DecoderProcess(ProcessBase):
         # transport is full, stage a host copy here and let one dispatcher wait
         # for the multiprocessing queue. The unsaturated CUDA-IPC path remains
         # direct.
-        self._live_output_handoff_queue = queue.Queue()
+        self._live_output_handoff_queue = queue.Queue(maxsize=self._num_decoders_per_gpu)
         self._live_output_handoff_pending = 0
         self._live_output_handoff_lock = Lock()
         self._dropped_live_handoff_stream_ids = set()
@@ -362,21 +362,15 @@ class DecoderProcess(ProcessBase):
                 self._live_output_handoff_pending -= 1
             self._live_output_handoff_queue.task_done()
             if not delivered:
+                # Preserve the completion count used by drain/EOS without
+                # retaining or forwarding frames from a deleted stream.
+                self._final_output_queue.put(
+                    {key: value for key, value in item.items() if key != "frames"}
+                )
                 del item
 
     def _enqueue_live_output(self, item, raw_transport_slots):
         """Enqueue without blocking a live callback that owns CUDA frames."""
-        if _contains_cuda_tensor(item.get("frames")) and (
-            self._output_queue.qsize() >= raw_transport_slots
-            or self._live_output_handoff_pending > 0
-        ):
-            item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
-            logger.debug(
-                "Spilled live decoded CUDA frames to CPU while the "
-                "%d-slot CUDA transport window was full",
-                raw_transport_slots,
-            )
-
         with self._live_output_handoff_lock:
             must_stage = self._live_output_handoff_pending > 0
             if not must_stage:
@@ -385,16 +379,32 @@ class DecoderProcess(ProcessBase):
                     return
                 except queue.Full:
                     pass
+            if self._live_output_handoff_pending >= raw_transport_slots:
+                item.pop("frames", None)
+                item["error"] = "Live decoder backlog exceeded the bounded decoder-to-VLM transport"
+                item["error_status_code"] = 503
+                self._final_output_queue.put(item)
+                logger.warning(
+                    "Dropped a live decoded chunk because the %d-slot host "
+                    "handoff queue was full",
+                    raw_transport_slots,
+                )
+                return
             self._live_output_handoff_pending += 1
 
-        if _contains_cuda_tensor(item.get("frames")):
-            item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
-            logger.debug(
-                "Spilled live decoded CUDA frames to CPU while the "
-                "%d-slot CUDA transport window was full",
-                raw_transport_slots,
-            )
-        self._live_output_handoff_queue.put(item)
+        try:
+            if _contains_cuda_tensor(item.get("frames")):
+                item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
+                logger.debug(
+                    "Spilled live decoded CUDA frames to CPU while the "
+                    "%d-slot CUDA transport window was full",
+                    raw_transport_slots,
+                )
+            self._live_output_handoff_queue.put(item)
+        except Exception:
+            with self._live_output_handoff_lock:
+                self._live_output_handoff_pending -= 1
+            raise
 
     def _warmup(self):
         chunk = ChunkInfo()
@@ -997,6 +1007,22 @@ class VlmProcess(ProcessBase):
                     kwargs["stream_id"],
                 )
                 return 0
+        if command == "release-idle-resources":
+            if not hasattr(self._model, "release_idle_resources"):
+                return False
+            try:
+                return bool(
+                    self._model.release_idle_resources(
+                        wait_timeout_sec=kwargs.get("wait_timeout_sec", 0.0)
+                    )
+                )
+            except Exception as ex:
+                logger.error(
+                    "Failed to release idle VLM resources: %s",
+                    ex,
+                    exc_info=True,
+                )
+                return False
 
     def _deinitialize(self):
         self._model = None
@@ -1535,6 +1561,7 @@ class VlmPipeline:
         end_of_stream: bool = False
         total_chunks_at_eos: int = 0
         all_chunks_processed: bool = False
+        abort_requested: bool = False
         gpu_id: int = -1
         decode_signature: tuple = field(default_factory=tuple)
 
@@ -1810,9 +1837,9 @@ class VlmPipeline:
                     lsinfo.total_chunks_at_eos = item["total_chunks"]
 
                     for subscriber in lsinfo.subscribers.values():
-                        if (
-                            not subscriber.all_chunks_processed
-                            and subscriber.num_chunks_processed
+                        if not subscriber.all_chunks_processed and (
+                            lsinfo.abort_requested
+                            or subscriber.num_chunks_processed
                             >= self._subscriber_expected_chunks_at_eos(
                                 subscriber,
                                 lsinfo.total_chunks_at_eos,
@@ -1962,6 +1989,26 @@ class VlmPipeline:
                 proc.send_command("close-evs-session", stream_id=stream_id)
             except Exception:
                 logger.debug("Failed to close EVS session for stream %s", stream_id, exc_info=True)
+
+    def release_idle_vlm_resources(self, wait_timeout_sec: float = 0.0) -> bool:
+        """Ask every VLM process to release caches while the pipeline is idle."""
+        released = bool(self._vlm_procs)
+        for proc in self._vlm_procs:
+            try:
+                proc_released = bool(
+                    proc.send_command(
+                        "release-idle-resources",
+                        wait_timeout_sec=wait_timeout_sec,
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "Idle VLM resource release command failed for one process",
+                    exc_info=True,
+                )
+                proc_released = False
+            released = proc_released and released
+        return released
 
     def abort_chunks(self, stream_id: str):
         for proc in self._decoder_procs + self._vlm_procs + self._asr_procs:
@@ -2290,8 +2337,12 @@ class VlmPipeline:
         if live_stream_lock:
             with live_stream_lock:
                 lsinfo = self._live_stream_id_map.get(live_stream_id)
+                if lsinfo and abort_inflight:
+                    lsinfo.abort_requested = True
         else:
             lsinfo = self._live_stream_id_map.get(live_stream_id)
+            if lsinfo and abort_inflight:
+                lsinfo.abort_requested = True
         if not lsinfo:
             return None
 

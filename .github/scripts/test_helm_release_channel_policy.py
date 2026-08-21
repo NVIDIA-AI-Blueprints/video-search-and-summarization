@@ -155,7 +155,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         managed = {
             image["name"]
             for image in inventory["images"]
-            if image.get("ghcr_build") is True
+            if image.get("ghcr_build") is True and not image.get("tag_suffix")
         }
         self.assertEqual(managed, set(HELM_VALUES))
 
