@@ -64,7 +64,11 @@ public:
     DashSessionManager& operator=(const DashSessionManager&) = delete;
 
     void setDeviceManager(std::shared_ptr<nv_vms::DeviceManager> deviceManager);
-    DashStartResult start(const std::string& streamId);
+    // Live without an overlay is fed straight from the stream monitor and
+    // touches no codec.  An overlay has to be burned into pixels, so such a
+    // session decodes, draws and re-encodes, and is not shared with viewers who
+    // asked for something different.
+    DashStartResult start(const std::string& streamId, const Json::Value& overlay = Json::Value());
 
     // Replay sessions are never shared.  Two viewers of the same recording can
     // sit at different points in it, so each one gets its own packager, its own
