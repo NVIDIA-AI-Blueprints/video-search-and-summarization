@@ -42,7 +42,11 @@ source "$P1_ROOT/shared/helpers.sh"
 
 export PID_DIR="${PID_DIR:-/tmp/alert_agent_p1_functional}"
 ES_HOST="${ES_HOST:-http://127.0.0.1:9200}"
-BOOTSTRAP="${BOOTSTRAP:-127.0.0.1:9092}"
+# Host port for the test broker. Parameterized so a host that already runs an
+# unrelated Kafka on 9092 can keep it: the suite creates topics and purges
+# consumer groups, so it must not share a broker it does not own.
+KAFKA_PORT="${KAFKA_PORT:-9092}"
+BOOTSTRAP="${BOOTSTRAP:-127.0.0.1:$KAFKA_PORT}"
 TOPIC="${TOPIC:-mdx-incidents}"
 BASE_CONFIG="$P1_ROOT/shared/config_base.yaml"
 CONSUMER_GROUP_BASE="${CONSUMER_GROUP_BASE:-alert-bridge-vlm-group-p1}"
@@ -53,7 +57,7 @@ CONSUMER_GROUP_BASE="${CONSUMER_GROUP_BASE:-alert-bridge-vlm-group-p1}"
 RUN_ID="$(date +%s)"
 CONSUMER_GROUP="${CONSUMER_GROUP_BASE}-${RUN_ID}"
 LEG=0
-KAFKA_CONTAINER="alert-agent-kafka-test"
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-alert-agent-kafka-test}"
 METRICS_URL="http://127.0.0.1:9081/metrics"
 RESULTS_DIR="$PID_DIR/scaling_results"
 INJECTOR="$SCRIPT_DIR/incident_stream_publisher.py"
@@ -108,22 +112,22 @@ record_result() {
 # ─── Stack management ────────────────────────────────────────────────────────
 
 ensure_kafka() {
-    if nc -z 127.0.0.1 9092 2>/dev/null; then return 0; fi
+    if nc -z 127.0.0.1 "$KAFKA_PORT" 2>/dev/null; then return 0; fi
     print_status "wait" "Starting Kafka container..."
     docker rm -f "$KAFKA_CONTAINER" 2>/dev/null || true
-    docker run -d --name "$KAFKA_CONTAINER" -p 9092:9092 \
+    docker run -d --name "$KAFKA_CONTAINER" -p "$KAFKA_PORT:$KAFKA_PORT" \
         -e KAFKA_BROKER_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller -e KAFKA_NODE_ID=1 \
         -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
         -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-        -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
-        -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+        -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:$KAFKA_PORT,CONTROLLER://0.0.0.0:9093 \
+        -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:$KAFKA_PORT \
         -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
         -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
         -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
         -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
         confluentinc/cp-kafka:7.5.0 >/dev/null
     local waited=0
-    while [ $waited -lt 60 ] && ! nc -z 127.0.0.1 9092 2>/dev/null; do sleep 1; waited=$((waited+1)); done
+    while [ $waited -lt 60 ] && ! nc -z 127.0.0.1 "$KAFKA_PORT" 2>/dev/null; do sleep 1; waited=$((waited+1)); done
     sleep 5
 }
 
@@ -138,7 +142,7 @@ kafka_topic_partitions_total() {
 
 topic_partitions() {
     docker exec "$KAFKA_CONTAINER" kafka-topics --describe \
-        --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null \
+        --bootstrap-server "localhost:$KAFKA_PORT" --topic "$1" 2>/dev/null \
         | awk -F'PartitionCount: ' 'NF>1 {split($2, a, /[ \t]/); print a[1]; exit}'
 }
 
@@ -146,10 +150,10 @@ ensure_partitions() {
     local topic="$1" wanted="$2"
     local have; have=$(topic_partitions "$topic")
     if [ -z "$have" ]; then
-        docker exec "$KAFKA_CONTAINER" kafka-topics --create --bootstrap-server localhost:9092 \
+        docker exec "$KAFKA_CONTAINER" kafka-topics --create --bootstrap-server "localhost:$KAFKA_PORT" \
             --topic "$topic" --partitions "$wanted" --replication-factor 1 >/dev/null 2>&1
     elif [ "$have" -lt "$wanted" ]; then
-        docker exec "$KAFKA_CONTAINER" kafka-topics --alter --bootstrap-server localhost:9092 \
+        docker exec "$KAFKA_CONTAINER" kafka-topics --alter --bootstrap-server "localhost:$KAFKA_PORT" \
             --topic "$topic" --partitions "$wanted" >/dev/null 2>&1
     fi
     have=$(topic_partitions "$topic")
@@ -227,13 +231,13 @@ purge_stale_consumer_groups() {
     # members, so this cannot disturb anything running.
     local groups purged=0 group
     groups=$(docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
-        --bootstrap-server localhost:9092 --list 2>/dev/null \
+        --bootstrap-server "localhost:$KAFKA_PORT" --list 2>/dev/null \
         | grep "^${CONSUMER_GROUP_BASE}" || true)
     [ -z "$groups" ] && return 0
     while read -r group; do
         [ -z "$group" ] && continue
         docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
-            --bootstrap-server localhost:9092 --delete --group "$group" >/dev/null 2>&1 \
+            --bootstrap-server "localhost:$KAFKA_PORT" --delete --group "$group" >/dev/null 2>&1 \
             && purged=$((purged + 1))
     done <<< "$groups"
     [ "$purged" -gt 0 ] && print_status "ok" "purged $purged stale consumer group(s) from earlier runs"
@@ -244,9 +248,9 @@ purge_stale_consumer_groups() {
 
 build_config() {
     # build_config OUT PROCESSES VLM_CAP BATCH_COMMIT
-    python3 - "$BASE_CONFIG" "$1" "$2" "$3" "$4" "$CONSUMER_GROUP" <<'PY'
+    python3 - "$BASE_CONFIG" "$1" "$2" "$3" "$4" "$CONSUMER_GROUP" "$BOOTSTRAP" <<'PY'
 import sys, yaml
-src, dst, processes, vlm_cap, batch_commit, group_id = sys.argv[1:7]
+src, dst, processes, vlm_cap, batch_commit, group_id, bootstrap = sys.argv[1:8]
 with open(src) as f:
     cfg = yaml.safe_load(f)
 aa = cfg.setdefault('alert_agent', {})
@@ -260,6 +264,8 @@ aio = aa.setdefault('async_io', {})
 aio['max_vlm_concurrent'] = int(vlm_cap)
 aio['max_vst_concurrent'] = int(vlm_cap)
 k = cfg.setdefault('kafka', {})
+# The base config pins 9092; follow whatever broker this run actually started.
+k['bootstrap_servers'] = bootstrap
 k['poll_timeout'] = 50
 k['max_poll_records'] = 50
 k['batch_commit'] = batch_commit == 'true'
