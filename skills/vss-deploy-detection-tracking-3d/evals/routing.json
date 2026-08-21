@@ -50,7 +50,7 @@
       ]
     },
     {
-      "query": "How do I deploy multi-view 3D tracking on the VSS warehouse stack with the rest of the warehouse blueprint?",
+      "query": "How do I deploy multi-view 3D tracking on the VSS warehouse stack with the rest of the warehouse blueprint? Also clarify how this differs from a generic MV3DT request.",
       "checks": [
         "The agent treats explicit warehouse intent as the exception and routes to vss-deploy-profile or warehouse compose guidance.",
         "The answer explains that generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT uses warehouse/profile deployment.",
