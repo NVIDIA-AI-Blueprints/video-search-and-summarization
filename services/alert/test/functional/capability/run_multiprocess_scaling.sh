@@ -366,12 +366,13 @@ reset_es() {
 
 # ─── Signal helpers ──────────────────────────────────────────────────────────
 
-prom_labelled_total() {
-    # Sum every labelled series of one counter. prom_value cannot read these:
-    # it compares field 1 to the metric name, and a labelled line carries
-    # name{label="..."} there.
+prom_labelled() {
+    # One labelled series of a counter, by exact label. prom_value cannot read
+    # these: it compares field 1 to the metric name, and a labelled line
+    # carries name{label="..."} there. Summing every label instead would count
+    # nothing_owed and timed_out as successful drains.
     curl -s "$METRICS_URL" 2>/dev/null \
-        | awk -v m="$1" 'index($1, m "{") == 1 {s += $2} END {print s + 0}'
+        | awk -v m="$1{$2}" '$1 == m {v = $2} END {print v + 0}'
 }
 
 prom_value() {
@@ -881,7 +882,8 @@ ts_036() {
     before_ready=$(prom_value alert_bridge_pipeline_processes_ready)
     # Summed across outcome labels: prom_value matches the bare metric name,
     # which a labelled series never presents in field 1.
-    local drains_before; drains_before=$(prom_labelled_total alert_bridge_rebalance_drains_total)
+    local drains_before; drains_before=$(prom_labelled alert_bridge_rebalance_drains_total 'outcome="drained"')
+    local timeouts_before; timeouts_before=$(prom_labelled alert_bridge_rebalance_drains_total 'outcome="timed_out"')
 
     # Under load, so the drain has something to wait for.
     python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
@@ -923,10 +925,10 @@ ts_036() {
     wait $inj 2>/dev/null || true
     drain_to_idle 120 || true
 
-    local drains_after; drains_after=$(prom_labelled_total alert_bridge_rebalance_drains_total)
+    local drains_after; drains_after=$(prom_labelled alert_bridge_rebalance_drains_total 'outcome="drained"')
     local after_assigned; after_assigned=$(prom_value alert_bridge_assigned_partitions)
-    local timed_out; timed_out=$(curl -s "$METRICS_URL" 2>/dev/null \
-        | awk '/alert_bridge_rebalance_drains_total\{outcome="timed_out"\}/ {print $2}')
+    local timeouts_after; timeouts_after=$(prom_labelled alert_bridge_rebalance_drains_total 'outcome="timed_out"')
+    local timed_out; timed_out=$(python3 -c "print(int(round(float('${timeouts_after:-0}') - float('${timeouts_before:-0}'))))")
 
     local verdict
     verdict=$(python3 - "$samples" "$before_assigned" "$before_ready" \
@@ -961,26 +963,26 @@ detail = (f"assigned {before_assigned:.0f}->{assigned_low:.0f}->{float(after_ass
 
 # Gated on what a rebalance must do regardless of how the coordinator splits
 # the partitions: this instance loses some, it drains them, and it recovers.
+# All of these are deterministic under the eager assignor in force here: it
+# revokes every partition from every member on any rebalance, and readiness
+# follows whether the coordinator has answered rather than whether this member
+# ended up with work. An earlier version made readiness and health optional on
+# the grounds that only some members lose partitions -- that was true of the
+# older "holds at least one" reading, and is not true now.
 ok = (assigned_low < before_assigned     # the gauge tracks the live assignment
       and recovered_assigned             # and comes back when they return
-      and drained > 0)                   # the drain actually ran
-detail += " ready_dropped=%s" % (ready_low < before_ready)
-
-# Readiness and health only move when a worker of THIS instance is among the
-# members left empty, and the assignor picks those by member id. Asserting on
-# them unconditionally makes the scenario fail on a coin toss. When they do
-# move, they must move together and recover.
-if ready_low < before_ready:
-    ok = ok and saw_503 and recovered_health
-elif saw_503:
-    ok = False
-    detail += " (health reported degraded while readiness held)"
+      and ready_low < before_ready       # readiness follows the revoke
+      and saw_503                        # health reports the degraded fleet
+      and recovered_health               # and recovers with it
+      and drained > 0)                   # a drain completed, not merely ran
 print(("PASS " if ok else "FAIL ") + detail)
 PY
 )
 
-    if [ "${timed_out:-0}" != "0" ] && [ -n "$timed_out" ]; then
-        verdict="$verdict timed_out=$timed_out"
+    if [ "${timed_out:-0}" -gt 0 ] 2>/dev/null; then
+        # The bound exists so a rebalance cannot outlive max.poll.interval.ms.
+        # Overrunning it is the failure this measures, not a footnote.
+        verdict="FAIL ${verdict#PASS } timed_out=$timed_out"
     fi
     case "$verdict" in
         PASS*) record_result TS-036 PASS "${verdict#PASS }" ;;
