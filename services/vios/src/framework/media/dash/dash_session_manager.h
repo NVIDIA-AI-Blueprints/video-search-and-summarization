@@ -27,6 +27,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <jsoncpp/json/json.h>
 #include <string>
 #include <vector>
 #include <thread>
@@ -68,8 +69,12 @@ public:
     // Replay sessions are never shared.  Two viewers of the same recording can
     // sit at different points in it, so each one gets its own packager, its own
     // output directory and its own playhead.
+    // An overlay has to be burned into pixels, so a session that asks for one
+    // is decoded, drawn on and re-encoded; without it the recording's own
+    // bitstream is republished untouched.
     DashStartResult startReplay(const std::string& streamId, const std::string& startTime,
-                                const std::string& endTime);
+                                const std::string& endTime,
+                                const Json::Value& overlay = Json::Value());
     bool controlReplay(const std::string& viewerId, const std::string& action, const std::string& value);
     bool stopViewer(const std::string& viewerId);
     std::optional<DashStartResult> status(const std::string& viewerId);
