@@ -65,14 +65,19 @@ Working on the CLI itself, or wanting `vss` on `PATH` for a session:
 
 ```bash
 cd "${VSS_REPO_ROOT}/services/agent"
-uv sync --frozen --no-dev --group cli-dev --extra cli   # runtime + test tooling
-source .venv/bin/activate
+uv sync --frozen --extra cli        # runtime + dev tooling
+source .venv/bin/activate           # optional; puts vss on PATH
 ```
 
-Sync once with that superset and then pass `--no-sync` to later `uv run` calls.
-A bare `uv run --project … --no-dev --extra cli` re-resolves the environment to
-exactly the runtime spec and **removes pytest**, which turns the next test run
-into a wall of collection errors.
+Sync once, then pass `--no-sync` to later `uv run` calls. A bare
+`uv run --project … --no-dev --extra cli` re-resolves the environment to exactly
+the runtime spec and **removes pytest**, which turns the next test run into a
+wall of collection errors.
+
+For the NAT-free lane specifically — the property the CLI's value rests on, and
+what CI checks — use `uv sync --frozen --no-dev --group cli-dev --extra cli`.
+That group is test tooling with no `nvidia-nat` in it, so it catches an import
+that should not be there.
 
 ### No deployment yet?
 

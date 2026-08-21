@@ -34,13 +34,17 @@ directory. `uv venv` elsewhere makes an unrelated empty one.
 
 ```bash
 cd services/agent
-uv sync --frozen --no-dev --group cli-dev --extra cli   # runtime + test tooling
-source .venv/bin/activate                                # optional; puts vss on PATH
+uv sync --frozen --extra cli        # runtime + dev tooling
+source .venv/bin/activate           # optional; puts vss on PATH
 ```
 
-Sync once with that superset, then pass `--no-sync` to later `uv run` calls. A
-bare `uv run --no-dev --extra cli` re-resolves to exactly the runtime spec and
+Sync once, then pass `--no-sync` to later `uv run` calls. A bare
+`uv run --no-dev --extra cli` re-resolves to exactly the runtime spec and
 **removes pytest**, turning the next test run into collection errors.
+
+CI runs the NAT-free lane instead — `uv sync --frozen --no-dev --group cli-dev
+--extra cli` — whose group carries no `nvidia-nat`, so an import that should not
+be there fails there rather than passing locally.
 
 ## Point it at a deployment
 
