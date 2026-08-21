@@ -583,6 +583,7 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
                 "openshell",
                 "rtx-pro-6000",
                 "gpu-rtxpro6000bw",
+                "openshell-rtxpro6000-active",
                 "gpus-1",
             ],
         )
@@ -598,6 +599,7 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
                 "openshell",
                 "rtx-pro-6000",
                 "gpu-rtxpro6000bw",
+                "openshell-rtxpro6000-active",
                 "gpus-1",
             ],
         )
@@ -618,6 +620,7 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
                 "openshell",
                 "rtx-pro-6000",
                 "gpu-rtxpro6000bw",
+                "openshell-rtxpro6000-active",
                 "gpus-2",
             ],
         )
