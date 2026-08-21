@@ -32,6 +32,7 @@ class NvCompositor;
 class VideoWebRTCSender;
 class NativeStreamProducer;
 class IMediaDataProducer;
+class IMediaDataConsumer;
 #ifdef AARCH64_PLATFORM
 class NvIPCProducer;
 #endif
@@ -56,6 +57,11 @@ public:
     virtual std::shared_ptr<GstNvVideoDecoder> getDecoder() const = 0;
     virtual std::shared_ptr<NvEncoderVideoConsumer> getEncoder() const { return m_encoder; }
     virtual std::shared_ptr<WebrtcSinkConsumer> getWebrtcConsumer() const { return m_webrtcConsumer; }
+
+    // The DASH packager is created and owned by the DASH session, not by the
+    // builder, so it is injected before the pipeline is built.
+    void setDashConsumer(std::shared_ptr<IMediaDataConsumer> consumer) { m_dashConsumer = std::move(consumer); }
+    std::shared_ptr<IMediaDataConsumer> getDashConsumer() const { return m_dashConsumer; }
     virtual std::shared_ptr<NvLLOverlay> getOverlay() const { return m_overlay; }
     virtual std::shared_ptr<NvLLTransform> getTransform() const { return m_transform; }
     virtual std::shared_ptr<NvLLTransform> getTransformSink() const { return m_transformSink; }
@@ -71,6 +77,12 @@ public:
 #endif
 
 protected:
+    // Every branch of the pipeline ends in the same place, and DASH differs
+    // from WebRTC only in which object that is.  Resolving the terminal
+    // consumer here keeps the branch structure identical for both.
+    std::shared_ptr<IMediaDataConsumer> getSinkConsumer(const PipelineConfiguration& config) const;
+
+
     void createCommonComponents(const PipelineConfiguration& config);
     void destroyCommonComponents();
     void setupOverlay(const PipelineConfiguration& config);
@@ -86,6 +98,7 @@ protected:
 
 private:
     // Common pipeline components
+    std::shared_ptr<IMediaDataConsumer> m_dashConsumer = nullptr;
     std::shared_ptr<NvEncoderVideoConsumer> m_encoder = nullptr;
     std::shared_ptr<NvLLOverlay> m_overlay = nullptr;
     std::shared_ptr<NvLLTransform> m_transform = nullptr;

@@ -41,8 +41,20 @@ void CommonVideoSource::getDecodeStats(LatencyStats& stats)
 
 // Implementation of CommonVideoSource constructor and destructor
 CommonVideoSource::CommonVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts)
+    : CommonVideoSource(uri, opts, nullptr)
+{
+}
+
+CommonVideoSource::CommonVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts,
+                                     std::shared_ptr<IMediaDataConsumer> dashConsumer)
     : m_pipelineManager(std::make_shared<PipelineManager>()), m_config(uri, opts)
 {
+    // Registered before createPipeline below, which is what wires the terminal
+    // consumer for every branch of the pipeline.
+    if (dashConsumer != nullptr)
+    {
+        m_pipelineManager->setDashConsumer(std::move(dashConsumer));
+    }
     // Initialize core state from configuration
     m_uri = uri;
     m_recordedPlayback = m_config.isRecordedPlayback();
@@ -406,7 +418,7 @@ void CommonVideoSource::setDecoderConsumerPipeline()
         {
             if (encoder && webrtcConsumer) {
                 overlay->setConsumer(encoder);
-                encoder->setConsumer(webrtcConsumer);
+                encoder->setConsumer(resolveSinkConsumer(webrtcConsumer));
                 LOG(info) << "Add consumer gstdecoder->LLTransform->LLOverlay->nvEncoder" << endl;
             }
         }
@@ -414,7 +426,7 @@ void CommonVideoSource::setDecoderConsumerPipeline()
         {
             if (transformSink && webrtcConsumer) {
                 overlay->setConsumer(transformSink);
-                transformSink->setConsumer(webrtcConsumer);
+                transformSink->setConsumer(resolveSinkConsumer(webrtcConsumer));
                 LOG(info) << "Add consumer gstdecoder->LLTransform->LLOverlay->LLTransformSink" << endl;
             }
         }
@@ -428,7 +440,7 @@ void CommonVideoSource::setDecoderConsumerPipeline()
             if (transform && encoder && webrtcConsumer) {
                 m_gstdecoder->setConsumer(m_peerid, transform);
                 transform->setConsumer(encoder);
-                encoder->setConsumer(webrtcConsumer);
+                encoder->setConsumer(resolveSinkConsumer(webrtcConsumer));
                 LOG(info) << "Add consumer gstdecoder->LLTransform->nvEncoder" << endl;
             }
         }
@@ -436,7 +448,7 @@ void CommonVideoSource::setDecoderConsumerPipeline()
         {
             if (transformSink && webrtcConsumer) {
                 m_gstdecoder->setConsumer(m_peerid, transformSink);
-                transformSink->setConsumer(webrtcConsumer);
+                transformSink->setConsumer(resolveSinkConsumer(webrtcConsumer));
                 LOG(info) << "Add consumer gstdecoder->LLTransformSink" << endl;
             }
         }
@@ -446,6 +458,19 @@ void CommonVideoSource::setDecoderConsumerPipeline()
 
 void CommonVideoSource::createConsumerPipeline()
 {
+    // DASH passthrough has no chain to build: the decoder parses the recording
+    // and hands it to the packager.  Rebuilding the standard chain here would
+    // put the transform back in front of the packager and feed it compressed
+    // frames it cannot use.
+    if (m_config.isDashPlayback() && !m_config.getOverlay().enabled && m_gstdecoder != nullptr
+        && m_pipelineManager != nullptr && m_pipelineManager->getDashConsumer() != nullptr)
+    {
+        m_gstdecoder->setConsumer(m_peerid, m_pipelineManager->getDashConsumer());
+        m_gstdecoder->setConsumerReady(m_peerid);
+        LOG(info) << "DASH passthrough: decoder feeds the packager directly" << endl;
+        return;
+    }
+
     if (m_compositePlayback)
     {
         auto compositor = m_pipelineManager->getCompositor();
@@ -516,7 +541,7 @@ void CommonVideoSource::createConsumerPipeline()
                 if (transform && encoder && webrtcConsumer) {
                     m_gstdecoder->setConsumer(m_peerid, transform);
                     transform->setConsumer(encoder);
-                    encoder->setConsumer(webrtcConsumer);
+                    encoder->setConsumer(resolveSinkConsumer(webrtcConsumer));
                     LOG(info) << "Add consumer gstdecoder->LLTransform->nvEncoder" << endl;
                 } else {
                     LOG(error) << "Pipeline components not properly initialized for NV V4L2 encoding" << endl;
@@ -526,7 +551,7 @@ void CommonVideoSource::createConsumerPipeline()
             {
                 if (transformSink && webrtcConsumer) {
                     m_gstdecoder->setConsumer(m_peerid, transformSink);
-                    transformSink->setConsumer(webrtcConsumer);
+                    transformSink->setConsumer(resolveSinkConsumer(webrtcConsumer));
                     LOG(info) << "Add consumer gstdecoder->LLTransformSink" << endl;
                 } else {
                     LOG(error) << "Pipeline components not properly initialized for standard encoding" << endl;
@@ -872,6 +897,27 @@ std::string CommonVideoSource::getBuffer()
 {
     auto imageEncoder = m_pipelineManager->getImageEncoder();
     return imageEncoder ? imageEncoder->getImageBuffer() : std::string{};
+}
+
+std::shared_ptr<IMediaDataConsumer> CommonVideoSource::resolveSinkConsumer(
+    const std::shared_ptr<IMediaDataConsumer>& webrtcConsumer) const
+{
+    if (m_config.isDashPlayback() && m_pipelineManager != nullptr)
+    {
+        if (std::shared_ptr<IMediaDataConsumer> dashConsumer = m_pipelineManager->getDashConsumer())
+        {
+            return dashConsumer;
+        }
+    }
+    return webrtcConsumer;
+}
+
+void CommonVideoSource::setDashConsumer(std::shared_ptr<IMediaDataConsumer> dashConsumer)
+{
+    if (m_pipelineManager != nullptr)
+    {
+        m_pipelineManager->setDashConsumer(std::move(dashConsumer));
+    }
 }
 
 void CommonVideoSource::setBitstreamConsumer(std::shared_ptr<IMediaDataConsumer> bitstreamConsumer)

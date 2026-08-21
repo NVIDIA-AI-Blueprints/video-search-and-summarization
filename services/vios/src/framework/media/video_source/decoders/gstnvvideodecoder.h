@@ -16,6 +16,7 @@
  */
 
 #pragma once
+#include <chrono>
 #include "logger.h"
 
 #include <string.h>
@@ -149,6 +150,20 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         bool setFileAndUpdatePipelineState (bool first_time = false);
         gint64 getNextFile ();
         GstFlowReturn processNewSampleFromSink(GstElement * appsink);
+        /* Passthrough counterpart: the sample holds a compressed access unit
+        ** rather than a decoded surface, so none of the decode bookkeeping in
+        ** processNewSampleFromSink applies.
+        */
+        /* Passthrough counterpart of processNewSampleFromSink: the sample holds
+        ** a compressed access unit rather than a decoded surface.
+        */
+        GstFlowReturn processEncodedSampleFromSink(GstElement * appsink);
+        /* Hands one encoded access unit to the registered consumers. */
+        void dispatchEncodedBuffer (GstBuffer* buffer, GstCaps* caps);
+        /* Timestamp the passthrough segment is anchored to, so running time
+        ** starts at zero and the sink can pace on the clock.
+        */
+        guint64 passthroughAnchorNs () const;
         GstFlowReturn processJpegImageFromSink(GstElement *appsink);
         void setSourceFrameSize(uint32_t w, uint32_t h);
         friend gboolean busWatch (GstBus *bus, GstMessage *message, gpointer data);
@@ -191,6 +206,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::pair <std::string, std::string> getUrlPath_internal();
         void setConsumer(const string& peerid, std::shared_ptr<IMediaDataConsumer> consumer);
         void setConsumerReady(const string& peerid, bool is_ready = true);
+        /* Exempt one sink from the live latency frame drop (DASH sinks). */
+        void setLatencyDropExempt(const string& peerid, bool exempt = true);
+        [[nodiscard]] bool hasLatencyExemptSink();
+        /* True while any consumer is still attached to this decoder. */
+        [[nodiscard]] bool hasAttachedConsumers();
         std::shared_ptr<NvEncoderVideoConsumer> getConsumer(const string& media_type);
         void addFrameTs(int64_t ts);
         void setEOS();
@@ -244,6 +264,17 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         unsigned int            m_port {0};
         bool                    m_recordedPlayback;
         bool                    m_hlsPlayback;
+        /* DASH republishes the recording's own bitstream, so for a session
+        ** without overlay the pipeline neither decodes nor encodes.
+        */
+        bool                    m_dashPassthrough {false};
+        /* True for any DASH session, with or without an overlay.  DASH is a
+        ** buffered pull protocol: the player fetches segments seconds behind the
+        ** edge, so completeness matters where interactive latency does not.
+        */
+        /* Pacing state for passthrough playback. */
+        uint64_t                m_passthroughFirstPtsMs {0};
+        std::chrono::steady_clock::time_point m_passthroughStart{};
         bool                    m_compositePlayback {false};
         bool                    m_compositeShowSensorName {false};
         GstElement*             m_pipeline = nullptr;

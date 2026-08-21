@@ -234,12 +234,12 @@ void CompositePipelineBuilder::buildCompositorPipeline(const PipelineConfigurati
     if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true) {
         m_compositor->setConsumer(getTransform());
         getTransform()->setConsumer(getEncoder());
-        getEncoder()->setConsumer(getWebrtcConsumer());
+        getEncoder()->setConsumer(getSinkConsumer(config));
         LOG(info) << "   🔗 [Compositor] → [Transform] → [HW Encoder] → [WebRTC Consumer]" << endl;
         LOG(info) << "✅ Compositor Pipeline: Using Hardware Encoding" << endl;
     } else {
         m_compositor->setConsumer(getTransformSink());
-        getTransformSink()->setConsumer(getWebrtcConsumer());
+        getTransformSink()->setConsumer(getSinkConsumer(config));
         LOG(info) << "   🔗 [Compositor] → [TransformSink] → [WebRTC Consumer]" << endl;
         LOG(info) << "✅ Compositor Pipeline: Using Software Encoding" << endl;
     }

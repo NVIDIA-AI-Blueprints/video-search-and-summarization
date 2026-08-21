@@ -48,6 +48,10 @@ public:
     PipelineManager();
     ~PipelineManager() = default;
 
+    // Must be called before createPipeline: the builder reads it while wiring
+    // the terminal consumer.
+    void setDashConsumer(std::shared_ptr<IMediaDataConsumer> consumer);
+    std::shared_ptr<IMediaDataConsumer> getDashConsumer() const { return m_dashConsumer; }
     void createPipeline(const PipelineConfiguration& config);
     void destroyPipeline();
     void startPipeline();
@@ -79,5 +83,6 @@ private:
     std::unique_ptr<PipelineBuilder> createBuilder(const PipelineConfiguration& config);
     
     std::unique_ptr<PipelineBuilder> m_builder;
+    std::shared_ptr<IMediaDataConsumer> m_dashConsumer;
     bool m_isComposite = false;
 };

@@ -177,6 +177,14 @@ void SingleStreamPipelineBuilder::buildStandardPipeline(const PipelineConfigurat
         else if (config.getSensorType() == SENSOR_TYPE_MMS_ONVIF) {
             m_decoder->setNeedSharedStream();
         }
+        // A dedicated decoder on a live source is fed by the stream monitor, and
+        // a decoder only registers itself as a consumer of that producer when it
+        // is marked as needing the shared stream.  Without this it starts,
+        // reports success and then sits at zero frames for good.
+        else if (config.isLivePlayback() && !config.isHlsPlayback()) {
+            m_decoder->setNeedSharedStream();
+            LOG(info) << "Dedicated live decoder registered for the shared stream" << endl;
+        }
     } else {
         LOG(info) << "Using decoder pool for live streaming" << endl;
         DecoderPool* pool = DecoderPool::getInstance();
@@ -248,7 +256,17 @@ void SingleStreamPipelineBuilder::destroyPipeline()
         // BUT destructor won't run while StreamMonitor holds the reference!
         // SOLUTION: Call destroy() explicitly BEFORE final cleanup to break the cycle.
         // IMPORTANT: Do NOT clear producer before destroy() - destroy_internal() needs it to unregister from StreamMonitor!
-        if (m_decoder) {
+        // A pooled decoder is shared by every viewer of the camera: the other
+        // DASH sessions drawing an overlay and every WebRTC viewer alike.  This
+        // session's consumer was removed in phase 1, so destroying the decoder
+        // now, while others are still attached, would tear the pipeline out from
+        // under them and freeze their video.  It is destroyed once nothing is
+        // left on it, which is when the circular reference above actually needs
+        // breaking.
+        if (m_decoder && !wasNewDecoder && m_decoder->hasAttachedConsumers()) {
+            LOG(info) << "Pooled decoder still has consumers; leaving it running" << endl;
+        }
+        else if (m_decoder) {
             try {
                 m_decoder->destroy(true);
             } catch (const std::exception& e) {
@@ -482,6 +500,18 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
     }
     
     // Regular pipeline setup (non-image capture)
+    // DASH without an overlay republishes the recording's own bitstream: the
+    // decoder parses it and hands it straight to the packager.  Nothing is
+    // decoded, transformed or encoded, which also preserves the recording's
+    // GOP so segments fall where the manifest says they do.
+    if (config.isDashPlayback() && !config.getOverlay().enabled && m_decoder && getDashConsumer())
+    {
+        m_decoder->setConsumer(config.getPeerId(), getDashConsumer());
+        m_decoder->setLatencyDropExempt(config.getPeerId());
+        LOG(info) << "✅ Complete Pipeline: [Decoder (parse only)] → [DASH packager]" << endl;
+        return;
+    }
+
     LOG(info) << "🎬 REGULAR VIDEO PIPELINE SETUP" << endl;
     LOG(info) << "==========================================" << endl;
     
@@ -504,14 +534,14 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
             if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true) {
                 if (getEncoder() && getWebrtcConsumer()) {
                     getOverlay()->setConsumer(getEncoder());
-                    getEncoder()->setConsumer(getWebrtcConsumer());
+                    getEncoder()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "   🔗 [Overlay] → [HW Encoder] → [WebRTC Consumer]" << endl;
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [Transform] → [Overlay] → [HW Encoder] → [WebRTC]" << endl;
                 }
             } else {
                 if (getTransformSink() && getWebrtcConsumer()) {
                     getOverlay()->setConsumer(getTransformSink());
-                    getTransformSink()->setConsumer(getWebrtcConsumer());
+                    getTransformSink()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "   🔗 [Overlay] → [TransformSink] → [WebRTC Consumer]" << endl;
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [Transform] → [Overlay] → [TransformSink] → [WebRTC]" << endl;
                 }
@@ -524,13 +554,13 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
                 if (getTransform() && getEncoder() && getWebrtcConsumer()) {
                     m_decoder->setConsumer(config.getPeerId(), getTransform());
                     getTransform()->setConsumer(getEncoder());
-                    getEncoder()->setConsumer(getWebrtcConsumer());
+                    getEncoder()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [Transform] → [HW Encoder] → [WebRTC]" << endl;
                 }
             } else {
                 if (getTransformSink() && getWebrtcConsumer()) {
                     m_decoder->setConsumer(config.getPeerId(), getTransformSink());
-                    getTransformSink()->setConsumer(getWebrtcConsumer());
+                    getTransformSink()->setConsumer(getSinkConsumer(config));
                     LOG(info) << "✅ Complete Pipeline: [Decoder] → [TransformSink] → [WebRTC]" << endl;
                 }
             }
@@ -593,6 +623,16 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
         LOG(info) << "   📐 TransformSink frame size configured" << endl;
     }
     
+    /* A DASH sink reads segments well behind the live edge, so it must not lose
+    ** frames to the interactive latency drop.  The decoder is pooled and shared
+    ** with WebRTC viewers, so the exemption is recorded against this peer's sink
+    ** only and leaves every other viewer's behaviour untouched. */
+    if (config.isDashPlayback() && m_decoder)
+    {
+        m_decoder->setLatencyDropExempt(config.getPeerId());
+        LOG(info) << "   DASH sink exempted from live latency frame drop" << endl;
+    }
+
     LOG(info) << "==========================================" << endl;
     LOG(info) << "🎉 SINGLE STREAM PIPELINE SETUP COMPLETE" << endl;
     LOG(info) << "==========================================" << endl;

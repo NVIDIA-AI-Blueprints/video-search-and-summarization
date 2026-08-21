@@ -92,6 +92,12 @@ public:
     }
 
     CommonVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts);
+
+    // The pipeline is built in the constructor, so a DASH packager has to be
+    // supplied here: setting it afterwards would arrive after the terminal
+    // consumer has already been wired to the WebRTC sink.
+    CommonVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts,
+                      std::shared_ptr<IMediaDataConsumer> dashConsumer);
     virtual ~CommonVideoSource(); // Custom destructor for pimpl-like pattern
 
     CommonVideoSource(const CommonVideoSource &) = delete;
@@ -124,6 +130,16 @@ public:
     
     // Configuration and integration methods
     void setBitstreamConsumer(std::shared_ptr<IMediaDataConsumer> bitstreamConsumer);
+
+    // Terminates the pipeline in a DASH packager rather than the WebRTC sink.
+    // Must be called before startStream() so the builder sees it while wiring.
+    void setDashConsumer(std::shared_ptr<IMediaDataConsumer> dashConsumer);
+
+    // createConsumerPipeline() re-wires the same chains the builder already
+    // built, so it has to make the same DASH-or-WebRTC choice; otherwise it
+    // silently replaces the packager with the WebRTC sink.
+    std::shared_ptr<IMediaDataConsumer> resolveSinkConsumer(
+        const std::shared_ptr<IMediaDataConsumer>& webrtcConsumer) const;
 
     // Legacy methods for backward compatibility - prefer PipelineManager methods
     void resetConsumerAndDestroyDecoderIfRequired();

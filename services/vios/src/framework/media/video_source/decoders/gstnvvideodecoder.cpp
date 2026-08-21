@@ -27,6 +27,8 @@
 #include <gst/app/gstappsrc.h>
 #include <gst/app/gstappsink.h>
 #include "gstnvvideodecoder.h"
+#include <map>
+#include <thread>
 #include "modules/video_coding/include/video_error_codes.h"
 #include "config.h"
 #include "storage_management.h"
@@ -176,6 +178,16 @@ static GstElement* make_floor_map_nv_converter()
 /* called when the appsink notifies us that there is a new buffer ready for
  * processing */
 static GstFlowReturn
+on_new_encoded_sample_from_sink (GstElement * appsink, GstNvVideoDecoder* nvVideoDecoder)
+{
+    if (nvVideoDecoder != nullptr)
+    {
+        return nvVideoDecoder->processEncodedSampleFromSink(appsink);
+    }
+    return GST_FLOW_ERROR;
+}
+
+static GstFlowReturn
 on_new_sample_from_sink (GstElement * appsink, GstNvVideoDecoder* nvVideoDecoder)
 {
    if (nvVideoDecoder)
@@ -292,6 +304,39 @@ void GstNvVideoDecoder::setConsumer(const string& peerid, std::shared_ptr<IMedia
         m_videoSinkList[peerid] = sink;
     }
     LOG(info) << "Sink list size = " << m_videoSinkList.size() << " for " << m_uri << endl;
+}
+
+void GstNvVideoDecoder::setLatencyDropExempt(const string& peerid, bool exempt)
+{
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    auto it = m_videoSinkList.find(peerid);
+    if (it != m_videoSinkList.end())
+    {
+        it->second->m_latencyDropExempt = exempt;
+    }
+    else
+    {
+        LOG(warning) << "Cannot set latency drop exemption, no sink for " << peerid << endl;
+    }
+}
+
+bool GstNvVideoDecoder::hasAttachedConsumers()
+{
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    return !m_videoSinkList.empty();
+}
+
+bool GstNvVideoDecoder::hasLatencyExemptSink()
+{
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    for (const auto& entry : m_videoSinkList)
+    {
+        if (entry.second && entry.second->m_latencyDropExempt)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void GstNvVideoDecoder::setConsumerReady(const string& peerid, bool is_ready)
@@ -1105,7 +1150,10 @@ int GstNvVideoDecoder::create_internal()
     gst_pad_add_probe(sinkpad, GST_PAD_PROBE_TYPE_EVENT_BOTH, pad_cb, (void*)this, nullptr);
     gst_object_unref(sinkpad);
 
-    if(!g_signal_connect (m_sink, "new-sample", G_CALLBACK (on_new_sample_from_sink), (void*)this))
+    if(!g_signal_connect (m_sink, "new-sample",
+                          m_dashPassthrough ? G_CALLBACK (on_new_encoded_sample_from_sink)
+                                            : G_CALLBACK (on_new_sample_from_sink),
+                          (void*)this))
     {
         LOG(error) << "Error in g_signal_connect of new-sample" << endl;
         goto failure;
@@ -1120,12 +1168,18 @@ failure:
     return -1;
 }
 
+
 int GstNvVideoDecoder::create_recorded_internal()
 {
     MEASURE_FUNCTION_EXECUTION_TIME_WITH_TAG(m_peerid)
     GstPad* sinkpad = nullptr;
     GstBus* bus = nullptr;
     GstElement* demuxer    = nullptr;
+    // The element that sits between the demuxer and the appsink.  Normally the
+    // decode bin; for DASH passthrough it is a parser, so the recording's own
+    // bitstream reaches the sink untouched.
+    GstElement* decodeStage = nullptr;
+    GstElement* passthroughQueue = nullptr;
     m_error = false;
 
     LOG (info) << "Creating Gstreamer decode pipeline"  << m_uri << endl;
@@ -1200,29 +1254,111 @@ int GstNvVideoDecoder::create_recorded_internal()
             demuxer = createDemuxerForContainer(container);
         }
     }
-    m_nvDecodeBin.reset(new NvDecodeBin(this, m_codec));
-    m_decodeBin = m_nvDecodeBin->create(m_isImageCapture);
-    if (!m_decodeBin)
+    if (m_dashPassthrough)
     {
-        LOG (error) << "Gstreamer element m_decodeBin creation failed" << endl;
-        return -1;
+        /* No decode and no re-encode: DASH republishes the recording's own
+        ** access units, so the bitstream only has to be parsed on its way to
+        ** the sink.  Keeping the parameter sets in band lets the packager mux
+        ** without knowing anything about the source container.
+        */
+        const char* parserName = iequals(m_codec, "H265") ? "h265parse" : "h264parse";
+        decodeStage = gst_element_factory_make (parserName, nullptr);
+        if (!decodeStage)
+        {
+            LOG (error) << "Gstreamer element " << parserName << " creation failed" << endl;
+            return -1;
+        }
+        g_object_set (G_OBJECT (decodeStage), "config-interval", -1, nullptr);
+        LOG (info) << "DASH passthrough: bitstream is parsed only, no decode or encode" << endl;
+    }
+    else
+    {
+        m_nvDecodeBin.reset(new NvDecodeBin(this, m_codec));
+        m_decodeBin = m_nvDecodeBin->create(m_isImageCapture);
+        if (!m_decodeBin)
+        {
+            LOG (error) << "Gstreamer element m_decodeBin creation failed" << endl;
+            return -1;
+        }
+        decodeStage = m_decodeBin;
     }
 
-    if (!m_pipeline || !m_source || !demuxer || !m_decodeBin || !m_sink)
+    if (!m_pipeline || !m_source || !demuxer || !decodeStage || !m_sink)
     {
         LOG (error) << "Gstreamer element creation failed" << endl;
         goto failure;
     }
     /* Add Elements in pipeline */
-    gst_bin_add_many (GST_BIN (m_pipeline), m_source, demuxer, m_decodeBin, m_sink, nullptr);
+    gst_bin_add_many (GST_BIN (m_pipeline), m_source, demuxer, decodeStage, m_sink, nullptr);
 
-    if (!gst_element_link_many (m_decodeBin, m_sink, nullptr))
+    if (m_dashPassthrough)
+    {
+        /* A queue between the parser and the sink is what the decoded path gets
+        ** for free from decodebin: it puts the sink on its own thread.  Without
+        ** it the source, the parser and the sink all run on one thread, and the
+        ** sink cannot wait for a buffer to come due without stopping the source
+        ** that would deliver it.
+        */
+        passthroughQueue = gst_element_factory_make ("queue", nullptr);
+        if (passthroughQueue == nullptr)
+        {
+            LOG (error) << "Gstreamer element queue creation failed" << endl;
+            goto failure;
+        }
+        /* Bounded by time so a fast reader cannot buffer the whole recording in
+        ** memory; the source simply waits once the queue is full.
+        */
+        g_object_set (G_OBJECT (passthroughQueue),
+                      "max-size-buffers", (guint)0,
+                      "max-size-bytes", (guint)0,
+                      "max-size-time", (guint64)(2 * GST_SECOND),
+                      nullptr);
+        gst_bin_add (GST_BIN (m_pipeline), passthroughQueue);
+
+        /* Recordings store AVC with the parameter sets in codec_data.  Forcing
+        ** the parser to emit a byte stream with the sets in band means the
+        ** packager receives one format regardless of how the source stored it.
+        */
+        GstCaps* parsedCaps = gst_caps_new_simple ("video/x-h264",
+                                                   "stream-format", G_TYPE_STRING, "byte-stream",
+                                                   "alignment", G_TYPE_STRING, "au", nullptr);
+        const gboolean linked = gst_element_link_filtered (decodeStage, passthroughQueue, parsedCaps)
+                                && gst_element_link (passthroughQueue, m_sink);
+        gst_caps_unref (parsedCaps);
+        if (!linked)
+        {
+            LOG (error) << "Elements could not be linked for DASH passthrough" << endl;
+            goto failure;
+        }
+    }
+    else if (!gst_element_link_many (decodeStage, m_sink, nullptr))
     {
         LOG (error) << "Elements could not be linked" << endl;
         goto failure;
     }
 
-    if(m_isImageCapture || m_isCloudStream)
+    /* Passthrough carries the recording's own epoch timestamps, which are
+    ** decades ahead of the pipeline clock; a synchronising sink would wait for
+    ** them to come due and deliver almost nothing.  The packager places the
+    ** frames on the media timeline itself, so the sink just hands them over as
+    ** they are read.
+    */
+    if (m_dashPassthrough)
+    {
+        /* Synchronising is what paces the read at the recording's own rate, so
+        ** segments are published as they are watched rather than as fast as the
+        ** file can be read.  It works here because the queue above gives this
+        ** sink its own thread: waiting for a buffer to come due no longer stops
+        ** the source that produces the next one.
+        */
+        g_object_set (G_OBJECT (m_sink),
+                      "emit-signals", TRUE,
+                      "sync", TRUE,
+                      "max-buffers", (guint)4,
+                      "drop", FALSE,
+                      nullptr);
+    }
+    else if(m_isImageCapture || m_isCloudStream)
     {
         g_object_set (G_OBJECT (m_sink), "emit-signals", TRUE, "sync", FALSE, nullptr);
     }
@@ -1239,7 +1375,7 @@ int GstNvVideoDecoder::create_recorded_internal()
 
     if (m_isCloudStream || m_isImageCapture)
     {
-        if (!gst_element_link_many (demuxer, m_decodeBin, nullptr))
+        if (!gst_element_link_many (demuxer, decodeStage, nullptr))
         {
             LOG(error) << "Error in linking demuxer and decodebin in hardware decode pipeline" << endl;
             goto failure;
@@ -1247,7 +1383,7 @@ int GstNvVideoDecoder::create_recorded_internal()
     }
     else
     {
-        if (!g_signal_connect (G_OBJECT (demuxer), "pad-added", G_CALLBACK (on_pad_added), m_decodeBin))
+        if (!g_signal_connect (G_OBJECT (demuxer), "pad-added", G_CALLBACK (on_pad_added), decodeStage))
         {
             LOG(error) << "Error in g_signal_connect of pad-added" << endl;
             goto failure;
@@ -1276,7 +1412,10 @@ int GstNvVideoDecoder::create_recorded_internal()
     /* Add probe to query width and height of video stream */
     gst_pad_add_probe(sinkpad, GST_PAD_PROBE_TYPE_EVENT_BOTH, pad_cb, (void*)this, nullptr);
     gst_object_unref(sinkpad);
-    if(!g_signal_connect (m_sink, "new-sample", G_CALLBACK (on_new_sample_from_sink), (void*)this))
+    if(!g_signal_connect (m_sink, "new-sample",
+                          m_dashPassthrough ? G_CALLBACK (on_new_encoded_sample_from_sink)
+                                            : G_CALLBACK (on_new_sample_from_sink),
+                          (void*)this))
     {
         LOG(error) << "Error in g_signal_connect of new-sample" << endl;
         goto failure;
@@ -1437,13 +1576,23 @@ bool GstNvVideoDecoder::pause()
 
 void GstNvVideoDecoder::initial_seek()
 {
-    if (m_isImageCapture)
+    if (m_isImageCapture && m_nvDecodeBin)
     {
         m_nvDecodeBin->m_monitoFramesInProbe = true;
     }
     if (m_isCloudStream || m_isImageCapture)
     {
         // Seek will be handled by Producer pipeline
+        return;
+    }
+    if (m_dashPassthrough && m_startTimeFirstFile == 0)
+    {
+        /* The window starts at the beginning of the first recording, so there is
+        ** nothing to seek to.  The flushing seek is not harmless here: without a
+        ** decoder in the chain it leaves the pipeline in a state the source does
+        ** not recover from, and no media is produced at all.
+        */
+        LOG(info) << "DASH passthrough: no initial seek needed" << endl;
         return;
     }
     gst_element_set_state (m_pipeline, GST_STATE_PAUSED);
@@ -1459,6 +1608,15 @@ void GstNvVideoDecoder::initial_seek()
             gst_element_get_state(m_pipeline, &current, &pending, 2*GST_SECOND);
         }
     }
+    else if (m_dashPassthrough)
+    {
+        /* Trick mode asks the pipeline to skip everything but key frames, which
+        ** is right for a decoder scrubbing through a file and wrong here: the
+        ** packager has to republish every frame of the recording.
+        */
+        gstSeekFlags = (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT);
+        getstate_internal();
+    }
     else
     {
         gstSeekFlags = (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_TRICKMODE);
@@ -1466,7 +1624,11 @@ void GstNvVideoDecoder::initial_seek()
     }
     gint64 position = 0;
     position = (startTime * GST_SECOND) / 1000;
-    m_nvDecodeBin->waitForAllPadsCreation();
+    // Passthrough builds no decode bin, so there are no decoder pads to wait on.
+    if (m_nvDecodeBin)
+    {
+        m_nvDecodeBin->waitForAllPadsCreation();
+    }
     if (m_fileNameArray.size() == 1 && m_endTimeLastFile)
     {
         gint64 stopTime = m_endTimeLastFile;
@@ -2136,7 +2298,14 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
         m_codec = opts.at("codec");
     }
     LOG(info) << "Is this recorded playback? " << m_recordedPlayback << endl;
+    // Overlay has to burn boxes into pixels, so it cannot pass the bitstream
+    // through; every other DASH replay session can.
+    const bool overlayRequested = (opts.find("overlay") != opts.end() && opts.at("overlay") == "true")
+                                  || (opts.find("overlayBbox") != opts.end() && opts.at("overlayBbox") == "true");
+    const bool dashSession = (opts.find("dash") != opts.end() && opts.at("dash") == "dash");
+    m_dashPassthrough = dashSession && !overlayRequested && m_recordedPlayback && !m_isImageCapture;
     LOG(info) << "Is this HLS playback? " << m_hlsPlayback << endl;
+    LOG(info) << "Is this DASH passthrough? " << m_dashPassthrough << endl;
     LOG(info) << "Is this Composite playback? " << m_compositePlayback << endl;
 
     if (!m_recordedPlayback && m_debug_logging_live && !m_deviceId.empty())
@@ -2304,7 +2473,10 @@ void GstNvVideoDecoder::updateDecoderElement ()
     LOG(info) << "Updating Decoder Element" << endl;
     /* Update the decoder element in NvDecodeBin Class */
     m_forceResetEnc = true;
-    m_nvDecodeBin->updateDecoderElement (m_playBackSpeed);
+    if (m_nvDecodeBin)
+    {
+        m_nvDecodeBin->updateDecoderElement (m_playBackSpeed);
+    }
 }
 
 gint64 GstNvVideoDecoder::getNextFile ()
@@ -3066,6 +3238,83 @@ bool GstNvVideoDecoder::checkSinksStatus ()
         return false;
     }
 }
+/* DASH passthrough delivery.  The sample carries a compressed access unit, so
+** none of the surface, stride or resolution bookkeeping of the decoded path
+** applies; the frame is handed to the consumers exactly as the recording
+** stored it.
+*/
+guint64 GstNvVideoDecoder::passthroughAnchorNs () const
+{
+    /* The recordings begin at the first file's start; the requested window may
+    ** begin later, and the packager trims the difference.
+    */
+    if (!m_fileNameArray.empty())
+    {
+        return (guint64) m_fileNameArray[0].m_startTime * GST_MSECOND;
+    }
+    return 0;
+}
+
+GstFlowReturn GstNvVideoDecoder::processEncodedSampleFromSink(GstElement * appsink)
+{
+    /* A blocking pull is the documented pattern inside new-sample and is safe
+    ** here: the queue ahead of this sink gives it its own thread, so waiting
+    ** never stops the source that produces the next buffer.
+    */
+    GstSample* sample = gst_app_sink_pull_sample (GST_APP_SINK (appsink));
+    if (sample == nullptr)
+    {
+        return GST_FLOW_OK;
+    }
+    if (m_isSeeking == true)
+    {
+        gst_sample_unref (sample);
+        return GST_FLOW_OK;
+    }
+    GstBuffer* buffer = gst_sample_get_buffer (sample);
+    if (buffer != nullptr)
+    {
+        dispatchEncodedBuffer (buffer, gst_sample_get_caps (sample));
+    }
+    gst_sample_unref (sample);
+    return GST_FLOW_OK;
+}
+
+void GstNvVideoDecoder::dispatchEncodedBuffer (GstBuffer* buffer, GstCaps* caps)
+{
+    if (buffer == nullptr)
+    {
+        return;
+    }
+
+    std::shared_ptr<RawFrameParams> frame = std::make_shared<RawFrameParams>();
+    frame->m_gstBuffer = buffer;
+    if (!gst_buffer_map (buffer, &frame->m_map, GST_MAP_READ))
+    {
+        frame->m_gstBuffer = nullptr;
+        LOG(error) << "DASH passthrough: failed to map the encoded buffer" << endl;
+        return;
+    }
+    /* The frame owns this sample: RawFrameParams unmaps the buffer and releases
+    ** the sample in its destructor, so nothing is unmapped or unreffed here.
+    ** The sample exists only so a consumer can read the negotiated caps.
+    */
+    frame->m_sample = (caps != nullptr) ? gst_sample_new (buffer, caps, nullptr, nullptr) : nullptr;
+    frame->m_isYuvBuffer = false;
+    frame->m_buffer = frame->m_map.data;
+    frame->pts = GST_BUFFER_PTS_IS_VALID (buffer)
+                 ? (int64_t) (GST_BUFFER_PTS (buffer) / 1000000) : -1;
+
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    for (auto& entry : m_videoSinkList)
+    {
+        if (entry.second != nullptr && entry.second->m_consumer != nullptr)
+        {
+            entry.second->m_consumer->onFrame (frame);
+        }
+    }
+}
+
 GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
 {
     GstSample *sample = nullptr;
@@ -3187,10 +3436,21 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
         GST_BUFFER_PTS (gstBuffer) = pts * 1000;
     }
 
+    bool frameIsLate = false;
     if(m_recordedPlayback == false && m_sensorType != SENSOR_TYPE_NVSTREAM)
     {
         /* Live playback case */
-        if (GET_CONFIG().enable_frame_drop && GET_CONFIG().enable_mega_simulation == false && m_godsEyeView == false)
+        /* Frames a viewer would see too late are withheld to keep interactive
+        ** latency low.  A DASH sink is not interactive: its player fetches
+        ** segments seconds behind the live edge, so withholding a frame only
+        ** punches a hole in a segment.  The frame is therefore discarded here
+        ** only when every attached sink is latency sensitive; otherwise it
+        ** travels on and the per-sink loop below skips the sensitive ones.
+        ** The decoder is pooled and shared, so this must never be decided from
+        ** decoder wide state.
+        */
+        if (GET_CONFIG().enable_frame_drop && GET_CONFIG().enable_mega_simulation == false
+            && m_godsEyeView == false)
         {
             uint64_t pts_millisec = pts/1000;
             uint64_t current_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -3199,10 +3459,14 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
                 uint64_t diff = current_time - pts_millisec;
                 if (diff > m_maxDecLatency)
                 {
-                    string stream_id                     = getStreamIdFromUrl(m_uri, "/live/");
-                    LOG(warning) << "appsink: Dropping frame Device Id = " << m_deviceId << " Stream Id = " << stream_id << " difference = " << diff << " PTS = " << pts_millisec << " and current Time = " << current_time << endl;
-                    gst_sample_unref (sample);
-                    return GST_FLOW_OK;
+                    frameIsLate = true;
+                    if (hasLatencyExemptSink() == false)
+                    {
+                        string stream_id                     = getStreamIdFromUrl(m_uri, "/live/");
+                        LOG(warning) << "appsink: Dropping frame Device Id = " << m_deviceId << " Stream Id = " << stream_id << " difference = " << diff << " PTS = " << pts_millisec << " and current Time = " << current_time << endl;
+                        gst_sample_unref (sample);
+                        return GST_FLOW_OK;
+                    }
                 }
             }
         }
@@ -3300,6 +3564,11 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
             /* Avoid sending frames to encoder
             ** till PLAY is not received for that peer id*/
             if (!sink->m_isSinkReady)
+            {
+                continue;
+            }
+            /* Late frame: withhold it from latency sensitive sinks only. */
+            if (frameIsLate && sink->m_latencyDropExempt == false)
             {
                 continue;
             }

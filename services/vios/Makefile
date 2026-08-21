@@ -114,6 +114,10 @@ OVERLAY_SRCS := \
 	src/framework/media/metadata/LiveMetadataStore.cpp \
 	src/framework/media/metadata/ElasticMetadataStore.cpp
 
+# Serves live DASH manifests/segments; needs DashSessionManager from libnvvideo_source.
+DASH_SRCS := \
+	src/framework/web/DashHttpHandler.cpp
+
 PREBUILT_DIR=prebuilts/$(arch)/
 PREBUILT_ARCH=prebuilts/$(arch)/
 
@@ -179,6 +183,7 @@ CPPFLAGS += \
 			-I $(TOP)/src/framework/media/video_source/decoders \
 			-I $(TOP)/src/framework/media/video_source/encoders \
 			-I $(TOP)/src/framework/media/video_source/senders \
+			-I $(TOP)/src/framework/media/dash \
 			-I $(TOP)/src/framework/media/video_source/producers \
 			-I $(TOP)/src/framework/media/media_utils \
 			-I $(TOP)/src/framework/media/overlays \
@@ -294,7 +299,7 @@ UNIFIED_STORAGE_LIBS = $(UNIFIED_STORAGE_READER_LIB) $(UNIFIED_STORAGE_WRITER_LI
 
 ifeq ($(MODULE), )
 # MODULE not set, that means buils all modules
-SRCS += $(MEDIA_PIPELINE_SRCS) $(OVERLAY_SRCS)
+SRCS += $(MEDIA_PIPELINE_SRCS) $(OVERLAY_SRCS) $(DASH_SRCS)
 
 
 ifeq ($(arch),x86_64)
@@ -343,7 +348,7 @@ ifeq ($(MODULE), storage)
 endif # storage
 
 ifeq ($(MODULE), livestream)
-    SRCS += $(MEDIA_PIPELINE_SRCS) $(OVERLAY_SRCS)
+    SRCS += $(MEDIA_PIPELINE_SRCS) $(OVERLAY_SRCS) $(DASH_SRCS)
     CPPFLAGS += -D LIVE_STREAM_MODULE \
                 -I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/boringssl/src/include
 
@@ -383,7 +388,7 @@ endif
 endif # streambridge
 
 ifeq ($(MODULE), streamprocessing)
-    SRCS += $(MEDIA_PIPELINE_SRCS) $(OVERLAY_SRCS)
+    SRCS += $(MEDIA_PIPELINE_SRCS) $(OVERLAY_SRCS) $(DASH_SRCS)
 
 ifeq ($(arch),x86_64)
     MODULE_TARGET := $(GRPC_TARGET)

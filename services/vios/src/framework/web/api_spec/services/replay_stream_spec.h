@@ -36,6 +36,29 @@ To define APIs:
 const std::vector<ApiSpec> REPLAY_API_SPEC = {
     {"/api/v1/replay/streams"},
 
+    {"/api/v1/replay/dash/start",
+     {{"streamId", JsonType::String, true, Format::NOT_EMPTY},
+      {"startTime", JsonType::String, true, Format::NOT_EMPTY},
+      {"endTime", JsonType::String},
+      {"overlay", JsonType::Object}}},
+
+    {"/api/v1/replay/dash/stop",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    {"/api/v1/replay/dash/status",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    {"/api/v1/replay/dash/pause",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    {"/api/v1/replay/dash/resume",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    {"/api/v1/replay/dash/seek",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY},
+      {"action", JsonType::String},
+      {"value", JsonType::String}}},
+
     {"/api/v1/replay/stream/query"},
 
     {"/api/v1/replay/stream/start",

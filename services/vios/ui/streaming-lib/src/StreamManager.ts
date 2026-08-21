@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import { DashStream } from './dash/DashStream';
 import 'webrtc-adapter';
 import NvWebsocket from './websocket/WebSocket';
 import NvWebRTC from './webrtc/WebRTC';
@@ -56,6 +57,13 @@ export interface AppConfig {
     /** Set VST webSocket endpoint. It should be format ws(s)://<ip>:<port>/<path> */
     vstWebsocketEndpoint: string;
 
+    /**
+     * Base HTTP(S) endpoint used by pull based protocols such as DASH, which
+     * fetch their manifest and segments over HTTP and never use the websocket.
+     * Derived from vstWebsocketEndpoint when omitted.
+     */
+    vstHttpEndpoint?: string;
+
     /** Enable-disable console logs for library. */
     enableLogs?: boolean;
 
@@ -96,6 +104,7 @@ export interface AppConfig {
 
 /** Stream manager class. Inbound and Outbound streams are controlled through this class */
 export default class StreamManager {
+    private dashStream: DashStream | null = null;
     private websocket: NvWebsocket | null = null;
     private webrtc: NvWebRTC | null = null;
     private timerInterval: NodeJS.Timeout | null = null;
@@ -139,6 +148,13 @@ export default class StreamManager {
 
     public startStreaming(streamConfig: StreamConfig): void {
         logger.info('[STREAM_MANAGER] Start streaming process initiated.');
+        // DASH is pulled over HTTP by the player itself, so it needs neither the
+        // signalling websocket nor a peer connection.  Handle it here and return,
+        // so callers get one entry point for every delivery protocol.
+        if (streamConfig?.options?.streamType === 'dash') {
+            void this.startDashStreaming(streamConfig);
+            return;
+        }
         // TODO: Read verserion from package.json
         this.streamConfig = streamConfig;
         if (streamConfig) {
@@ -209,6 +225,13 @@ export default class StreamManager {
 
     /** Stop streaming and do cleanup. */
     public async stopStreaming(): Promise<void> {
+        if (this.dashStream) {
+            const dash = this.dashStream;
+            this.dashStream = null;
+            await dash.stop(this.getHttpEndpoint(), this.streamConfig?.streamId);
+            this.appConfig.closeCallback?.();
+            return;
+        }
         logger.info('[STREAM_MANAGER] Stop streaming called by application.');
         this.isUserInitiatedStop = true;
 
@@ -266,6 +289,59 @@ export default class StreamManager {
                 quality: 'auto',
             },
         };
+    }
+
+
+    /** Resolve the HTTP base for pull based protocols. */
+    private getHttpEndpoint(): string {
+        if (this.appConfig.vstHttpEndpoint) {
+            return this.appConfig.vstHttpEndpoint;
+        }
+        const websocketEndpoint = this.appConfig.vstWebsocketEndpoint || '';
+        try {
+            const url = new URL(websocketEndpoint);
+            url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+            url.pathname = '/';
+            url.search = '';
+            return url.toString().replace(/\/$/, '');
+        } catch {
+            return websocketEndpoint.replace(/^ws/, 'http');
+        }
+    }
+
+    private async startDashStreaming(streamConfig: StreamConfig): Promise<void> {
+        this.streamConfig = { ...this.streamConfig, ...streamConfig } as StreamConfig;
+        const videoElement = document.getElementById(
+            this.appConfig.inboundStreamVideoElementId,
+        ) as HTMLVideoElement | null;
+        if (!videoElement || !streamConfig.streamId) {
+            logger.error('[STREAM_MANAGER] DASH needs a video element and a stream ID.');
+            this.appConfig.errorCallback?.(ErrorTypes.INBOUND_STREAM_ERROR);
+            return;
+        }
+        const dash = new DashStream();
+        this.dashStream = dash;
+        try {
+            await dash.start({
+                endpoint: this.getHttpEndpoint(),
+                streamId: streamConfig.streamId,
+                // Present for a replay request, absent for live.
+                startTime: streamConfig.startTime,
+                endTime: streamConfig.endTime,
+                overlay: streamConfig.options?.overlay as Record<string, unknown> | undefined,
+                videoElement,
+                onFirstFrame: () => this.appConfig.firstFrameReceivedCallback?.(),
+                onError: (message: string) => {
+                    logger.error(`[STREAM_MANAGER] DASH playback error: ${message}`);
+                    this.appConfig.errorCallback?.(ErrorTypes.INBOUND_STREAM_ERROR);
+                },
+            });
+            this.appConfig.onStreamStatusUpdate?.({ error: false, state: StreamState.PLAYING });
+        } catch (error) {
+            logger.error(`[STREAM_MANAGER] DASH start failed: ${String(error)}`);
+            this.dashStream = null;
+            this.appConfig.errorCallback?.(ErrorTypes.INBOUND_STREAM_ERROR);
+        }
     }
 
     public getConfig(): AppConfig {
