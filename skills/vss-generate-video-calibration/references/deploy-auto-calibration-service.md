@@ -106,7 +106,7 @@ echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --passwo
 
 ### Step 2 — (Optional) Stage the VGGT model
 
-Skip this step unless the user explicitly asks for VGGT-refined output.
+Skip this step unless the user explicitly asks for VGGT-refined output. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
 
 **2a. Accept the model license** (one-time, manual): visit https://huggingface.co/facebook/VGGT-1B-Commercial and click "Agree and access repository".
 

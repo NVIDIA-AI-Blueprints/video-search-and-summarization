@@ -24,13 +24,13 @@
       ]
     },
     {
-      "query": "Deploy AMC on {{platform}} with VGGT model refinement enabled. The user has provided a HuggingFace token and accepted the VGGT license.",
+      "query": "Plan only; do not download from HuggingFace, run docker commands, restart containers, or modify files. The user asks for AMC with VGGT model refinement, but this automated check does not provide a real HF token or license-gated model access. Explain the VGGT staging requirements and then continue with the normal non-VGGT AMC deployment path.",
       "checks": [
-        "The skill loaded `references/deploy-auto-calibration-service.md` and followed its Step 2 VGGT path",
-        "`test -f $VSS_DATA_DIR/auto-calib/vggt/vggt_1B_commercial.pt` returns exit 0",
-        "`docker exec vss-auto-calibration test -f /tmp/vggt_model/vggt_1B_commercial.pt` returns exit 0 (VGGT is mounted read-only into the MS container)",
-        "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_HOST_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/generated.env | cut -d= -f2)/v1/ready` returns exit 0",
-        "`docker logs vss-auto-calibration 2>&1 | grep -E 'hf_[A-Za-z0-9]{20,}'` returns non-zero exit (HuggingFace token is not echoed into MS logs)"
+        "The skill loaded `references/deploy-auto-calibration-service.md` and referenced its Step 2 VGGT path.",
+        "The plan states VGGT requires accepted HuggingFace model access and a real HF read token, without printing or persisting a token.",
+        "The plan does not claim `$VSS_DATA_DIR/auto-calib/vggt/vggt_1B_commercial.pt` or `/tmp/vggt_model/vggt_1B_commercial.pt` exists when no real token/model access is available.",
+        "The plan does not run `hf download`, `docker exec`, `docker compose`, or container restart commands for this plan-only VGGT check.",
+        "The plan continues with normal non-VGGT AMC deployment/verification instead of blocking standalone AMC deployment on VGGT staging."
       ]
     },
     {
