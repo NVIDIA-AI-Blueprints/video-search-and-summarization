@@ -74,9 +74,13 @@ nvidia-smi >/dev/null 2>&1 || {
   exit 1
 }
 
-ENCODER_QUERY="$(nvidia-smi --query-gpu=encoder.stats.sessionCount --format=csv,noheader,nounits 2>/dev/null || true)"
+# AMC MS compose assigns GPU device 0 by default. If the compose device is
+# customized, set AMC_GPU_DEVICE to the same index before running this preflight.
+AMC_GPU_DEVICE="${AMC_GPU_DEVICE:-0}"
+echo "AMC GPU device: ${AMC_GPU_DEVICE}"
+ENCODER_QUERY="$(nvidia-smi -i "${AMC_GPU_DEVICE}" --query-gpu=encoder.stats.sessionCount --format=csv,noheader,nounits 2>/dev/null || true)"
 if ! printf '%s\n' "${ENCODER_QUERY}" | awk 'BEGIN { ok=0 } /^[[:space:]]*[0-9]+[[:space:]]*$/ { ok=1 } END { exit ok ? 0 : 1 }'; then
-  echo "ERROR: AMC calibration requires NVENC hardware encoder support on the calibration host." >&2
+  echo "ERROR: AMC calibration requires NVENC hardware encoder support on the selected AMC GPU (${AMC_GPU_DEVICE})." >&2
   echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
   exit 1
 fi
