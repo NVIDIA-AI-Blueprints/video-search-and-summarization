@@ -11,8 +11,8 @@ deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-ag
 deploy/docker/services/alert/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
 deploy/docker/services/analytics/behavior-analytics/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics:develop-latest
 deploy/docker/services/analytics/video-analytics-api/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
-deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.3.0-2
-deploy/docker/services/auto-calibration/ui/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.3.0-2
+deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.3.0-3
+deploy/docker/services/auto-calibration/ui/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.3.0-3
 deploy/docker/services/configurators/vss-configurator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-configurator:develop-latest
 deploy/docker/services/infra/compose.yml alpine:3.24.1
 deploy/docker/services/infra/compose.yml arizephoenix/phoenix:19.8.0
@@ -73,6 +73,7 @@ deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blue
 deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
 deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
 deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
+deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
