@@ -42,10 +42,17 @@ class TestResolveProcessCount:
         # templated count arrives as a string. Only the spelling is relaxed.
         assert resolve_process_count({"alert_agent": {"processes": " 6 "}}) == 6
 
-    @pytest.mark.parametrize("value", [0, -1, True, 2.5, "many", ""])
+    @pytest.mark.parametrize("value", [0, -1, True, 2.5, "many", "", 65, 1000, "65"])
     def test_invalid_values_fail_startup(self, value):
         with pytest.raises(ValueError):
             resolve_process_count({"alert_agent": {"processes": value}})
+
+    def test_the_upper_bound_itself_is_allowed(self):
+        # The bound catches a typo, so it must not reject the largest count an
+        # operator could legitimately have asked for.
+        assert resolve_process_count(
+            {"alert_agent": {"processes": process_scaling.MAX_PROCESS_COUNT}}
+        ) == process_scaling.MAX_PROCESS_COUNT
 
 
 class TestAutoIsGone:
@@ -58,7 +65,7 @@ class TestAutoIsGone:
 
     @pytest.mark.parametrize("value", ["auto", "AUTO", " auto "])
     def test_auto_is_rejected(self, value):
-        with pytest.raises(ValueError, match="positive integer"):
+        with pytest.raises(ValueError, match="between 1 and 64"):
             resolve_process_count({"alert_agent": {"processes": value}})
 
     def test_the_error_says_what_bounds_the_count(self):

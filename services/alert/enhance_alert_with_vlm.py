@@ -1153,6 +1153,11 @@ class AnomalyEnhancer(
         """
 
         video_url = None
+        # Every admission this frame owns. The batch arrives with one; a batch
+        # carrying several messages takes one more per message, because a
+        # single admission is released by whichever message finishes first and
+        # a drain would then pass over the rest while they were still running.
+        admissions = [admission]
         try:
             # logger.info("Processing batch of size %s", len(messages), extra={
             #     "worker_id": worker_id,
@@ -1280,6 +1285,11 @@ class AnomalyEnhancer(
             total_messages = len(messages)
             inc_events_after_dedup(total_messages, messages=messages)
             for idx, message in enumerate(messages, start=1):
+                if idx == 1:
+                    message_admission = admission
+                else:
+                    message_admission = admission.split() if admission is not None else None
+                    admissions.append(message_admission)
                 event_type = 'alert' if is_alert(message) else 'incident'
                 if self.async_io_enabled or getattr(self, 'pipeline_mode', None) == PIPELINE_MODE_EVENT_LOOP:
                     logger.debug(f"Queueing {event_type} message {idx}/{total_messages} for async dispatch")
@@ -1291,7 +1301,7 @@ class AnomalyEnhancer(
                     kafka_consumed_at,
                     kafka_published_at,
                     worker_assigned_at=worker_assigned_at,
-                    admission=admission,
+                    admission=message_admission,
                 )
 
         except Exception as e:
@@ -1307,8 +1317,9 @@ class AnomalyEnhancer(
             # limiter, filtered, or finished inline. The dispatched case marks
             # the admission transferred and its completion callback releases
             # instead, so a drain waits for exactly the work still outstanding.
-            if admission is not None and not admission.transferred:
-                admission.release()
+            for held in admissions:
+                if held is not None and not held.transferred:
+                    held.release()
 
     def _process_media_passthrough(self, worker_id: int, messages: List[Dict[str, Any]]) -> None:
         """
@@ -2640,12 +2651,16 @@ def _exit_when_parent_dies(parent_pid: int) -> None:
     An orphaned child keeps its consumer-group membership, which stalls the
     partitions it owns and blocks the next run's offset reset. Linux-only;
     elsewhere teardown relies solely on the supervisor.
+
+    SIGKILL rather than SIGTERM: there is no supervisor left to escalate, and
+    a SIGTERM here lands in a graceful shutdown that drains in-flight work for
+    as long as it takes -- so the orphan holds the very slot this releases.
     """
     try:
         import ctypes
 
         PR_SET_PDEATHSIG = 1
-        result = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+        result = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
     except Exception:
         logger.debug("PR_SET_PDEATHSIG unavailable on this platform", exc_info=True)
         return
@@ -2787,22 +2802,28 @@ def _start_pipeline_process(config_path: str, index: int, process_count: int,
 
 
 def _announce_when_all_ready(ready_events: List[Any], on_ready: Callable[[], None],
+                             on_timeout: Optional[Callable[[], None]] = None,
                              timeout: float = READINESS_TIMEOUT_SECONDS) -> None:
     """Call ``on_ready`` once every child has joined the consumer group.
 
     Bounded so the wait cannot outlive the run silently, and never announced
     on expiry: a partially-joined instance leaves partitions unowned, and
-    saying otherwise is what this whole path exists to prevent.
+    saying otherwise is what this whole path exists to prevent. ``on_timeout``
+    ends the run instead of leaving it there: the partitions the missing child
+    would own stay unowned until something reassigns them, and only a restart
+    does -- so a container that sits in this state is a silent outage.
     """
     def wait() -> None:
         deadline = time.monotonic() + timeout
         for index, event in enumerate(ready_events):
             if not event.wait(max(0.0, deadline - time.monotonic())):
                 logger.error(
-                    "Pipeline process %d was not ready within %.0fs; the instance "
-                    "stays unready and its partitions may be unowned",
+                    "Pipeline process %d was not ready within %.0fs; stopping "
+                    "the instance so its partitions can be reassigned",
                     index, timeout,
                 )
+                if on_timeout is not None:
+                    on_timeout()
                 return
         on_ready()
 
@@ -2827,6 +2848,14 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
         )
 
     ready_events = [_pipeline_mp_context().Event() for _ in range(process_count)]
+    readiness_failed = threading.Event()
+
+    def on_readiness_timeout() -> None:
+        readiness_failed.set()
+        supervisor = _pipeline_supervisor
+        if supervisor is not None:
+            supervisor.request_shutdown()
+
     if on_ready is not None:
         def announce_with_fleet_state() -> None:
             # Published before the line rather than on the next poll: the two
@@ -2837,7 +2866,8 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
             publish_fleet_state()
             on_ready()
 
-        _announce_when_all_ready(ready_events, announce_with_fleet_state)
+        _announce_when_all_ready(ready_events, announce_with_fleet_state,
+                                 on_timeout=on_readiness_timeout)
 
     _pipeline_supervisor = ProcessSupervisor(
         count=process_count,
@@ -2849,9 +2879,19 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
         watch=watch,
     )
     try:
+        # Re-checked here because the watchdog can expire between the two
+        # statements, when there was no supervisor yet to ask to stop.
+        if readiness_failed.is_set():
+            _pipeline_supervisor.request_shutdown()
         _pipeline_supervisor.run()
     finally:
         _pipeline_supervisor = None
+
+    if readiness_failed.is_set():
+        raise RuntimeError(
+            f"pipeline processes were not all ready within "
+            f"{READINESS_TIMEOUT_SECONDS:.0f}s"
+        )
 
 
 def setup_signal_handlers(fastapi_process):
@@ -2928,21 +2968,44 @@ if __name__ == "__main__":
     enhancer = None
     exit_code = 0
 
+    def start_service_endpoints():
+        """Bind the metrics port and bring the API child up.
+
+        Assigns the child to ``fastapi_process`` before anything else can
+        raise, so a failure past this point still has something to tear down.
+        """
+        global fastapi_process
+
+        enforce_log_level(args.config)
+
+        # Start Prometheus metrics server in main process (where metrics are recorded).
+        if PROMETHEUS_ENABLED:
+            # Materialize every labelled-counter series at value 0 before
+            # the first scrape (C15). Counters are monotonic so inc(0) is
+            # a no-op numerically, but it transforms "series absent" into
+            # "series present with value 0" — which is what operators and
+            # ``rate()`` queries actually expect from a freshly-started
+            # process.
+            warm_startup_labels()
+
+            prometheus_port = int(os.getenv("PROMETHEUS_PORT", 9081))
+            try:
+                _start_prometheus_metrics_server(prometheus_port)
+                logger.info(f"Prometheus metrics server started on port {prometheus_port}")
+            except OSError as e:
+                logger.error(f"Failed to start Prometheus server on port {prometheus_port}: {e}")
+                logger.warning("Continuing without Prometheus metrics endpoint")
+
+        fastapi_process = _pipeline_mp_context().Process(
+            target=start_fastapi, args=(os.getpid(),), name="ab-fastapi"
+        )
+        fastapi_process.start()
+        logger.info("FastAPI server started in separate process")
+
+        # Setup signal handlers for graceful shutdown
+        setup_signal_handlers(fastapi_process)
+
     try:
-        # Initialize and start the anomaly processing loop in main process.
-        # Construction happens *before* we bind the Prometheus HTTP port
-        # (C15): the constructor writes to ``ASYNC_SINK_IN_FLIGHT`` and
-        # populates other internal state that scrapes should see from
-        # the very first response. Binding the port before this finished
-        # left a sub-second window where a scrape returned a half-filled
-        # registry, and — worse — where ``absent_over_time(...)`` alerts
-        # could fire on every process restart.
-        #
-        # If the constructor raises, we intentionally fall through to
-        # the outer ``except`` without ever binding the Prometheus
-        # port: a failed boot should NOT expose a "healthy" metrics
-        # endpoint.
-        #
         # With alert_agent.processes > 1 the parent owns no pipeline at
         # all: each child builds its own enhancer, and therefore its own
         # consumers, event loop and clients. The parent must never
@@ -2962,6 +3025,13 @@ if __name__ == "__main__":
             set_pipeline_process_counts(process_count, 0, 0)
 
         if multi_process:
+            # The endpoints come up before the validation below, which blocks
+            # for as long as it takes the source topics to appear. Binding
+            # after it left port 9080 unanswered for exactly the window the
+            # wait exists to cover, so a startup probe killed the container
+            # before the topics it was waiting for could be created.
+            start_service_endpoints()
+
             # Everything a wrong multi-process configuration would only reveal
             # later is checked here, in the parent, before a single child is
             # forked: a bad value must fail the container rather than
@@ -2988,36 +3058,12 @@ if __name__ == "__main__":
             seed_prompt_store(args.config)
 
         if not multi_process:
+            # Constructed before the metrics port binds (C15): the constructor
+            # populates state that scrapes should see from the very first
+            # response, and a boot that fails here must never expose a
+            # "healthy" metrics endpoint.
             enhancer = AnomalyEnhancer(args.config)
-        enforce_log_level(args.config)
-
-        # Start Prometheus metrics server in main process (where metrics are recorded).
-        if PROMETHEUS_ENABLED:
-            # Materialize every labelled-counter series at value 0 before
-            # the first scrape (C15). Counters are monotonic so inc(0) is
-            # a no-op numerically, but it transforms "series absent" into
-            # "series present with value 0" — which is what operators and
-            # ``rate()`` queries actually expect from a freshly-started
-            # process.
-            warm_startup_labels()
-
-            prometheus_port = int(os.getenv("PROMETHEUS_PORT", 9081))
-            try:
-                _start_prometheus_metrics_server(prometheus_port)
-                logger.info(f"Prometheus metrics server started on port {prometheus_port}")
-            except OSError as e:
-                logger.error(f"Failed to start Prometheus server on port {prometheus_port}: {e}")
-                logger.warning("Continuing without Prometheus metrics endpoint")
-
-        # Start the FastAPI server in a separate process
-        fastapi_process = _pipeline_mp_context().Process(
-            target=start_fastapi, args=(os.getpid(),), name="ab-fastapi"
-        )
-        fastapi_process.start()
-        logger.info("FastAPI server started in separate process")
-
-        # Setup signal handlers for graceful shutdown
-        setup_signal_handlers(fastapi_process)
+            start_service_endpoints()
 
         if os.environ.get("VLM_WARMUP_ENABLED", "true").lower() != "false":
             video_path = WARMUP_VIDEO if os.path.isfile(WARMUP_VIDEO) else "warmup/test.mp4"

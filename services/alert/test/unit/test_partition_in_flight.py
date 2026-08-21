@@ -229,5 +229,42 @@ class TestTheDrainBudgetIsPerRebalance:
         assert time.monotonic() - started < 1.0
 
 
+class TestSplit:
+    """A stage that fans one accepted message out to several.
+
+    Handing the same admission to each of them meant the first completion
+    released the whole group, so a drain could pass over work still running.
+    """
+
+    def test_each_split_is_counted_separately(self):
+        tracker = PartitionInFlight()
+        first = tracker.accept(P0)
+        second = first.split()
+        assert tracker.in_flight(P0) == 2
+
+        first.release()
+        assert tracker.in_flight(P0) == 1, "one release cleared both"
+        second.release()
+        assert tracker.in_flight(P0) == 0
+
+    def test_a_drain_waits_for_the_split(self):
+        tracker = PartitionInFlight()
+        first = tracker.accept(P0)
+        second = first.split()
+        first.release()
+        assert tracker.drain([P0], timeout=0.1) is False
+        second.release()
+        assert tracker.drain([P0], timeout=0.1) is True
+
+    def test_splitting_an_untracked_admission_stays_untracked(self):
+        # A batch with no partition key produces admissions that count
+        # nothing; a split of one must not start counting.
+        tracker = PartitionInFlight()
+        split = tracker.accept(None).split()
+        assert tracker.total() == 0
+        split.release()
+        assert tracker.total() == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

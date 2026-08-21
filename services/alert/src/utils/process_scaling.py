@@ -32,8 +32,15 @@ DEFAULT_PROCESS_COUNT = 1
 PARTITION_WAIT_SECONDS = 300.0
 PARTITION_POLL_SECONDS = 5.0
 
+# An instance is bounded by its source partitions long before it reaches this,
+# so a larger value is a typo rather than an intent. Catching it here costs one
+# comparison; letting it through forks that many pipelines, each with its own
+# consumers and event loop, before anything notices.
+MAX_PROCESS_COUNT = 64
+
 _ERROR = (
-    "alert_agent.processes must be a positive integer, got {value!r}. "
+    "alert_agent.processes must be an integer between 1 and "
+    f"{MAX_PROCESS_COUNT}, got {{value!r}}. "
     "Pick a count deliberately: it must not exceed the source partition "
     "count, and every process beyond it would idle."
 )
@@ -145,7 +152,7 @@ def topics_short_of_processes(sizes: Dict[str, int], process_count: int) -> Dict
 
 
 def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
-    """Return the number of pipeline processes to run (>= 1).
+    """Return the number of pipeline processes to run (1..``MAX_PROCESS_COUNT``).
 
     A positive integer only. Deriving it from the CPU count read well but hid
     the constraint that actually binds: parallelism is capped by the source
@@ -167,7 +174,7 @@ def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
         except ValueError:
             raise ValueError(_ERROR.format(value=raw))
 
-    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_PROCESS_COUNT:
         raise ValueError(_ERROR.format(value=raw))
 
     return raw

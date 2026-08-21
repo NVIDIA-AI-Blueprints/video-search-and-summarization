@@ -276,11 +276,33 @@ with open(dst, 'w') as f:
 PY
 }
 
+# Pipeline children re-exec as ``multiprocessing.spawn``, so their command line
+# no longer carries the script name and a pattern match walks straight past
+# them. Walking the parent link finds them instead -- but only while the parent
+# is still alive, because init adopts them the moment it is gone.
+collect_descendants() {
+    local child
+    for child in $(pgrep -P "$1" 2>/dev/null); do
+        echo "$child"
+        collect_descendants "$child"
+    done
+}
+
+kill_descendants() {
+    local pid
+    for pid in $1; do kill -9 "$pid" 2>/dev/null || true; done
+}
+
 stop_ab() {
+    local ab_pid descendants=""
+    ab_pid=$(cat "$PID_DIR/alert_bridge.pid" 2>/dev/null)
+    [ -n "$ab_pid" ] && descendants=$(collect_descendants "$ab_pid")
+
     stop_alert_bridge_local "$PID_DIR"
     # Children run with daemon=False and outlive a hard-killed parent, keeping
     # consumer-group membership and blocking the next offset reset.
     pkill -9 -f "$AB_PATTERN" 2>/dev/null || true
+    kill_descendants "$descendants"
     local waited=0
     while [ $waited -lt 15 ] && { nc -z 127.0.0.1 9080 2>/dev/null || nc -z 127.0.0.1 9081 2>/dev/null; }; do
         sleep 1; waited=$((waited+1))
@@ -854,9 +876,14 @@ start_secondary_ab() {
 }
 
 stop_secondary_ab() {
-    local pid; pid=$(cat "$PID_DIR/secondary.pid" 2>/dev/null)
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null
+    local pid descendants=""
+    pid=$(cat "$PID_DIR/secondary.pid" 2>/dev/null)
+    if [ -n "$pid" ]; then
+        descendants=$(collect_descendants "$pid")
+        kill "$pid" 2>/dev/null
+    fi
     pkill -9 -f "secondary_config.yaml" 2>/dev/null || true
+    kill_descendants "$descendants"
     rm -f "$PID_DIR/secondary.pid"
 }
 

@@ -61,6 +61,15 @@ class Admission:
         self._released = False
         self.transferred = False
 
+    def split(self) -> "Admission":
+        """Take a second admission for the same partition.
+
+        For a stage that turns one accepted message into several. Reusing this
+        one for all of them would let the first completion clear the group, so
+        a drain could finish over work that was still running.
+        """
+        return self._tracker.accept(self.key)
+
     def transfer(self) -> "Admission":
         """Hand ownership to a completion callback that outlives this call."""
         self.transferred = True

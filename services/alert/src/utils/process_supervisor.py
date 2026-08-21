@@ -160,6 +160,11 @@ class ProcessSupervisor:
         expected = self._shutdown.is_set()
         self._shutdown.set()
         processes, self._processes = self._processes, []
+        # Sampled before the terminate below, because a process this call
+        # stops has an exit somebody asked for whatever brought us here. Only
+        # one that was already gone exited on its own; applying the single
+        # flag to all of them reported one crash as ``count`` unexpected exits.
+        exited_alone = {id(p): not p.is_alive() for p in processes}
         # Watched processes are torn down with the rest, but reported through
         # their own owner rather than the pipeline exit hook.
         for extra in self._watch:
@@ -176,7 +181,7 @@ class ProcessSupervisor:
                 logger.warning("Pipeline process %s did not stop gracefully, killing", process.pid)
                 process.kill()
                 process.join()
-            self._notify_exit(process, expected)
+            self._notify_exit(process, expected or not exited_alone[id(process)])
 
         # Watched processes get the same escalation. A terminate they ignore
         # would otherwise leave the endpoint holding its port after the

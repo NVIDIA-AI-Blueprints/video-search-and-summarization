@@ -158,6 +158,16 @@ class TestInstanceReadiness:
             threading.Event().wait(0.5)
         assert any("not ready within" in r.getMessage() for r in caplog.records)
 
+    def test_expiry_ends_the_run(self):
+        # A permanently unready instance leaves the missing child's partitions
+        # unowned, and only a restart reassigns them -- so the wait expiring
+        # has to bring the container down rather than log and carry on.
+        import threading
+        expired = threading.Event()
+        entry._announce_when_all_ready([threading.Event()], lambda: None,
+                                       on_timeout=expired.set, timeout=0.1)
+        assert expired.wait(2), "the readiness timeout did not end the run"
+
 
 class TestSeedingHappensBeforeAnyChild:
     """The prompt store is written by the supervisor, not by a child.

@@ -314,11 +314,29 @@ class TestExitReasonSurvivesTeardown:
                 supervisor.run()
         return seen
 
-    def test_a_crash_is_reported_as_unexpected(self):
-        assert self._reasons(request_shutdown=False) == [False, False]
+    def test_only_the_process_that_crashed_is_reported_as_unexpected(self):
+        # The survivor stopped because teardown terminated it, so its exit was
+        # asked for. Applying the one flag to both reported a single crash as
+        # ``count`` unexpected exits, which is what the metric is read for.
+        assert self._reasons(request_shutdown=False) == [False, True]
 
     def test_an_asked_for_stop_is_reported_as_expected(self):
         assert self._reasons(request_shutdown=True) == [True, True]
+
+    def test_every_crash_is_counted_when_several_die_together(self):
+        seen = []
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=3, poll_interval=0.01,
+                                 on_exit=lambda p, expected: seen.append(expected))
+        supervisor.start()
+        supervisor.processes[0].die(exitcode=1)
+        supervisor.processes[1].die(exitcode=1)
+        with pytest.raises(SupervisedProcessError):
+            supervisor.run()
+        # Two exited on their own and only the third was terminated by the
+        # teardown: crediting the survivor's exit to the crash would overcount,
+        # and crediting the two crashes to the shutdown would lose them.
+        assert seen == [False, False, True]
 
 
 class TestAFailedSpawnLeavesNothingRunning:
