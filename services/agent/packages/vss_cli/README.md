@@ -10,41 +10,37 @@ per-command detail is in [AGENTS.md](AGENTS.md) beside this file.
 
 ## Run it
 
-Run the `vss` that belongs to this checkout. These are the same file — `uv run
---project X` execs `X/.venv/bin/vss`:
+```bash
+cd services/agent
+uv run --no-dev --extra cli vss --help
+```
+
+`uv run` syncs `services/agent/.venv` on first use. `--extra cli` is required —
+the base meta-package does not pull the `nvidia-vss-cli` distribution that
+provides the executable — and `--no-dev` keeps it to the CLI's runtime
+(256 MB, no `nvidia-nat`) rather than the agent stack (630 MB).
+
+Driving a deployment from a skill or an agent? Read
+[AGENTS.md at the repository root](../../../../AGENTS.md) — it is the one place
+the bootstrap, `vss configure` and the exit-code contract are written down.
+
+## Develop
 
 ```bash
 cd services/agent
-uv run --no-dev --extra cli vss --help     # syncs, then runs
-./.venv/bin/vss --help                     # after a sync
+uv sync --frozen --extra cli
+uv run --no-sync pytest packages/vss_cli/tests packages/vss_core/tests -q
 ```
 
-`--extra cli` is required: the base meta-package does not pull the
-`nvidia-vss-cli` distribution that provides the `vss` executable.
+Development needs the test tooling, so this one keeps the default group.
 
-A `vss` from `PATH` — `~/.local/bin/vss`, pipx, `uv tool install` — is a
-different matter: it can come from any checkout, so a result cannot be
-attributed to the code under test. The skill evals reject one outright and
-match the `uv run --project` form literally.
+Keep `--no-sync` after that first sync, and note it works the other way too:
+the `--no-dev` run above re-resolves to the runtime spec and drops pytest. The
+two specs share one `.venv`, so pick the one matching what you are doing and
+stay on it.
 
-## Set up for development
-
-The venv lives at `services/agent/.venv`, created by `uv sync` from that
-directory. `uv venv` elsewhere makes an unrelated empty one.
-
-```bash
-cd services/agent
-uv sync --frozen --extra cli        # runtime + dev tooling
-source .venv/bin/activate           # optional; puts vss on PATH
-```
-
-Sync once, then pass `--no-sync` to later `uv run` calls. A bare
-`uv run --no-dev --extra cli` re-resolves to exactly the runtime spec and
-**removes pytest**, turning the next test run into collection errors.
-
-CI runs the NAT-free lane instead — `uv sync --frozen --no-dev --group cli-dev
---extra cli` — whose group carries no `nvidia-nat`, so an import that should not
-be there fails there rather than passing locally.
+CI additionally runs a NAT-free lane (`--no-dev --group cli-dev`) to prove the
+CLI imports nothing from the agent stack.
 
 ## Point it at a deployment
 

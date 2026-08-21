@@ -23,74 +23,32 @@ That is the whole contract; there is no SDK, server, or session to manage.
 
 ### Setup
 
-Requires [`uv`](https://docs.astral.sh/uv/) and Python ≥3.13,<3.15.
-
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT" >&2; exit 1; }
-
-# A function, not an alias: bash does not expand aliases in non-interactive
-# shells, and neither survives into a separate command invocation.
 vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
-
 vss --version
 ```
-**What matters is provenance, not the form.** Run the `vss` that belongs to the
-checkout you are testing. These are the same file — `uv run --project X` execs
-`X/.venv/bin/vss` — so either is fine:
 
-```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss …
-"${VSS_REPO_ROOT}/services/agent/.venv/bin/vss" …        # after a sync
-```
+A function rather than an alias — aliases are not expanded in non-interactive
+shells. **`--extra cli` is required**: without it the CLI is not installed and
+there is no `vss` to run. **`--no-dev` matters too**: it is what keeps the
+environment to the CLI's runtime — 256 MB with no `nvidia-nat` — where the
+default group pulls the agent stack and 630 MB you have no use for.
 
-The difference is that `uv run` syncs first, so the environment is guaranteed to
-match the lockfile; calling the path directly assumes someone already synced it
-with the right extras. If `vss --version` reports a build you did not expect,
-that is why.
-
-What is *not* fine is a `vss` from `PATH` — `~/.local/bin/vss`, pipx, `uv tool
-install`. It can come from any checkout and nothing in the trace says which, so
-a result cannot be attributed to the code under test. The skill evals reject one
-outright: *"a globally installed `vss` is not an acceptable substitute"*. Those
-checks also match the `uv run --project` string literally, so use that exact
-form in an eval run.
-
-Do not run it through `docker exec`, `kubectl exec`, or a pod shell either: it
-is a client, and it talks to the deployment over the ingress like any other
-client.
-
-Working on the CLI itself, or wanting `vss` on `PATH` for a session:
-
-```bash
-cd "${VSS_REPO_ROOT}/services/agent"
-uv sync --frozen --extra cli        # runtime + dev tooling
-source .venv/bin/activate           # optional; puts vss on PATH
-```
-
-Sync once, then pass `--no-sync` to later `uv run` calls. A bare
-`uv run --project … --no-dev --extra cli` re-resolves the environment to exactly
-the runtime spec and **removes pytest**, which turns the next test run into a
-wall of collection errors.
-
-For the NAT-free lane specifically — the property the CLI's value rests on, and
-what CI checks — use `uv sync --frozen --no-dev --group cli-dev --extra cli`.
-That group is test tooling with no `nvidia-nat` in it, so it catches an import
-that should not be there.
+Use that checkout's `vss` — not one from `PATH`, and not through `docker exec`
+or `kubectl exec`. It is a client that reaches the deployment over the ingress,
+and a binary of unknown provenance cannot be attributed to the code under test.
+The skill evals reject a globally installed one outright.
 
 ### No deployment yet?
 
 The CLI talks to a **running** stack; it does not stand one up. If there is
 nothing to configure against:
 
-- [`/vss-build-vision-agent`](skills/vss-build-vision-agent/SKILL.md) — pick the
-  capabilities you need (dense captioning, detection, search, alerting,
-  summarization) and it composes, configures and deploys a profile for them,
-  stock or a custom combination. Start here when you are deciding *what* to run.
-- [`/vss-deploy-profile`](skills/vss-deploy-profile/SKILL.md) — deploy, verify,
-  debug or tear down a **named** profile (`base`, `search`, `lvs`, `alerts`,
-  warehouse, edge). Start here when you already know which one you want.
+[`/vss-build-vision-agent`](skills/vss-build-vision-agent/SKILL.md) takes the
+capabilities you name — dense captioning, detection, search, alerting,
+summarization — and composes, configures and deploys a stack for them, stock or
+a custom combination.
 
 Then `vss configure --base-url <origin>` against what came up.
 
