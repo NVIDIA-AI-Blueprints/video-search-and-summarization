@@ -200,11 +200,11 @@ class TestAwaitSourcePartitions:
 
     def test_returns_the_count_when_it_is_already_known(self, monkeypatch):
         self._counts(monkeypatch, [16])
-        assert await_source_partitions({}, required=4) == 16
+        assert sum(await_source_partitions({}, required=4).values()) == 16
 
     def test_waits_out_topics_that_do_not_exist_yet(self, monkeypatch):
         seen = self._counts(monkeypatch, [None, None, 8])
-        assert await_source_partitions({}, required=8, interval=0.01) == 8
+        assert sum(await_source_partitions({}, required=8, interval=0.01).values()) == 8
         assert seen == [None, None, 8]
 
     def test_rejects_more_processes_than_partitions(self, monkeypatch):
@@ -222,7 +222,7 @@ class TestAwaitSourcePartitions:
 
     def test_equal_counts_are_allowed(self, monkeypatch):
         self._counts(monkeypatch, [8])
-        assert await_source_partitions({}, required=8) == 8
+        assert sum(await_source_partitions({}, required=8).values()) == 8
 
     def test_gives_up_when_the_topics_never_appear(self, monkeypatch):
         self._counts(monkeypatch, [None])

@@ -241,6 +241,10 @@ def _degraded_workers() -> Optional[str]:
         _DEGRADED_CACHE.update(at=now, value=degraded)
         return degraded
     except Exception:
+        # Cached like any other answer: a shard that keeps failing to parse
+        # would otherwise remove the gate entirely, and every request would
+        # re-read every shard on the most frequently polled endpoint there is.
+        _DEGRADED_CACHE.update(at=now, value=None)
         logger.debug("Could not read pipeline readiness from metrics", exc_info=True)
     return None
 

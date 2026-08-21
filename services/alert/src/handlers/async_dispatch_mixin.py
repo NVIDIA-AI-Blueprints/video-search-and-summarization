@@ -243,11 +243,13 @@ class AsyncDispatchMixin:
         ``_process_single_message`` stamp its own, keeps
         ``WORKER_QUEUE_WAIT_DURATION`` comparable across modes.
 
-        The per-partition count is taken and released here, in one place,
-        because this is the only point every mode passes through. Counting
-        where messages are scheduled instead would leak on every message
-        dropped by dedup or the rate limiter between there and here, and a
-        leaked count means a rebalance drain waits out its whole timeout.
+        The admission is taken by the caller and released by whoever ends up
+        owning the message: a dispatched message marks it transferred and its
+        completion callback releases, while every other way out -- inline
+        processing, a fallback, a submit that failed -- leaves it untransferred
+        for the caller's ``finally``. A release added here as well would
+        double-count, and one omitted there leaves a drain waiting out its
+        whole timeout.
         """
         mode = _effective_mode(self)
         if mode == PIPELINE_MODE_SYNC:

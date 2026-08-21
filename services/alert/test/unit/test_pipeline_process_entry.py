@@ -256,6 +256,12 @@ class TestReadinessTracksTheLiveAssignment:
         enhancer = MagicMock()
         enhancer.source.assigned_partition_count.return_value = held
         enhancer.source.is_ready.return_value = ready
+        # Bound for real: the gauge and the drain budget live on the enhancer
+        # so a single-process instance gets them too, and a mock here would
+        # let that wiring rot unnoticed.
+        enhancer._publish_assignment_state = (
+            lambda: entry.AnomalyEnhancer._publish_assignment_state(enhancer)
+        )
         return enhancer
 
     def test_holding_partitions_is_ready(self):
@@ -318,6 +324,12 @@ class TestReadinessWaitsForStartupToFinish:
         enhancer = MagicMock()
         enhancer.source.assigned_partition_count.return_value = held
         enhancer.source.is_ready.return_value = ready
+        # Bound for real: the gauge and the drain budget live on the enhancer
+        # so a single-process instance gets them too, and a mock here would
+        # let that wiring rot unnoticed.
+        enhancer._publish_assignment_state = (
+            lambda: entry.AnomalyEnhancer._publish_assignment_state(enhancer)
+        )
         return enhancer
 
     def test_an_assignment_before_startup_finishes_does_not_raise_it(self):

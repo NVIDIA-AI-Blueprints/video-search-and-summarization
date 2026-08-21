@@ -185,8 +185,12 @@ def await_source_partitions(
     required: int,
     timeout: float = PARTITION_WAIT_SECONDS,
     interval: float = PARTITION_POLL_SECONDS,
-) -> int:
-    """Block until the source topics exist, then return their total partitions.
+) -> Dict[str, int]:
+    """Block until the source topics exist, then return their partitions per topic.
+
+    Per topic rather than summed, because that is the shape of the constraint:
+    each topic is assigned independently, so a caller given only the total
+    would report headroom that raising the process count cannot use.
 
     Raises ``RuntimeError`` if they never appear or carry fewer partitions
     than ``required``. Waiting rather than reading once is what lets the same
@@ -214,7 +218,7 @@ def await_source_partitions(
                     f"partition count on the topics named; with N replicas the "
                     f"constraint is replicas x processes <= partitions, per topic."
                 )
-            return total
+            return sizes
 
         if time.monotonic() >= deadline:
             raise RuntimeError(

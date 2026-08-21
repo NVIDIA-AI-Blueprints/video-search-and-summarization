@@ -229,6 +229,44 @@ class TestTheDrainBudgetIsPerRebalance:
         assert time.monotonic() - started < 1.0
 
 
+class TestTheBudgetIsReopenedInEveryDeployment:
+    """The reset used to live only on the multi-process path.
+
+    The revoke hook is installed for every deployment, so a single-process
+    instance drains too -- and with nothing reopening the budget its first
+    rebalance spent it for good, leaving every later drain to give up at once
+    and report a timeout it had never waited for.
+    """
+
+    @staticmethod
+    def _enhancer(ready=True, held=1):
+        from unittest.mock import MagicMock
+        import enhance_alert_with_vlm as entry
+
+        enhancer = MagicMock()
+        enhancer.source.is_ready.return_value = ready
+        enhancer.source.assigned_partition_count.return_value = held
+        enhancer._rebalance_drain_deadline = time.monotonic() + 5
+        entry.AnomalyEnhancer._publish_assignment_state(enhancer)
+        return enhancer
+
+    def test_a_decided_assignment_closes_the_spent_budget(self):
+        assert self._enhancer(ready=True)._rebalance_drain_deadline is None
+
+    def test_an_undecided_assignment_leaves_it_open(self):
+        # Still mid-rebalance: the budget bounds the whole of it.
+        assert self._enhancer(ready=False)._rebalance_drain_deadline is not None
+
+    def test_every_deployment_registers_the_hook(self):
+        # The single-process path never called set_assignment_change_hook, so
+        # the reset above was unreachable there.
+        import inspect
+        import enhance_alert_with_vlm as entry
+
+        source = inspect.getsource(entry.AnomalyEnhancer.__init__)
+        assert "set_assignment_change_hook" in source
+
+
 class TestSplit:
     """A stage that fans one accepted message out to several.
 

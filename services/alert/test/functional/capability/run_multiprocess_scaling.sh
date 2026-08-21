@@ -296,6 +296,12 @@ kill_descendants() {
 stop_ab() {
     local ab_pid descendants=""
     ab_pid=$(cat "$PID_DIR/alert_bridge.pid" 2>/dev/null)
+    # A scenario where the parent is meant to exit on its own leaves the pid
+    # file behind holding a dead pid. Walking that pid once it has been reused
+    # would kill an unrelated process tree, so check whose it is first.
+    if [ -n "$ab_pid" ] && ! ps -o command= -p "$ab_pid" 2>/dev/null | grep -q "$AB_PATTERN"; then
+        ab_pid=""
+    fi
     [ -n "$ab_pid" ] && descendants=$(collect_descendants "$ab_pid")
 
     stop_alert_bridge_local "$PID_DIR"
@@ -303,6 +309,7 @@ stop_ab() {
     # consumer-group membership and blocking the next offset reset.
     pkill -9 -f "$AB_PATTERN" 2>/dev/null || true
     kill_descendants "$descendants"
+    rm -f "$PID_DIR/alert_bridge.pid"
     local waited=0
     while [ $waited -lt 15 ] && { nc -z 127.0.0.1 9080 2>/dev/null || nc -z 127.0.0.1 9081 2>/dev/null; }; do
         sleep 1; waited=$((waited+1))

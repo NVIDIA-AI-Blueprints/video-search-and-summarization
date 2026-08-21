@@ -308,13 +308,16 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
         assert self._shared(False) is False
 
     @staticmethod
-    def _validate(shared, mode="event_loop", processes=4):
+    def _validate(shared, mode="event_loop", processes=4, source_type=None,
+                  max_poll_interval_ms=None):
         from enhance_alert_with_vlm import validate_multi_process_config
-        validate_multi_process_config(
-            {"persistence": {"enabled": shared},
-             "alert_agent": {"pipeline_mode": mode}},
-            processes,
-        )
+        config = {"persistence": {"enabled": shared},
+                  "alert_agent": {"pipeline_mode": mode}}
+        if source_type is not None:
+            config["event_bridge"] = {"sourceType": source_type}
+        if max_poll_interval_ms is not None:
+            config["kafka"] = {"max_poll_interval_ms": max_poll_interval_ms}
+        validate_multi_process_config(config, processes)
 
     def test_a_shared_store_is_accepted(self):
         self._validate(shared=True)
@@ -330,3 +333,21 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
     def test_the_mode_is_checked_too(self):
         with pytest.raises(ValueError, match="requires pipeline_mode"):
             self._validate(shared=True, mode="sync")
+
+    def test_a_non_kafka_source_is_refused(self):
+        # Otherwise the partition wait spends its whole budget and then fails
+        # with a message about Kafka topics the deployment does not have.
+        with pytest.raises(ValueError, match="sourceType='kafka'"):
+            self._validate(shared=True, source_type="redis_stream")
+
+    def test_an_absent_source_type_still_means_kafka(self):
+        self._validate(shared=True, source_type=None)
+
+    def test_a_poll_interval_shorter_than_the_drain_is_refused(self):
+        # The drain runs inside the rebalance callback, so outlasting the poll
+        # interval costs the member its place and starts another rebalance.
+        with pytest.raises(ValueError, match="max_poll_interval_ms"):
+            self._validate(shared=True, max_poll_interval_ms=10000)
+
+    def test_the_default_poll_interval_leaves_room_for_the_drain(self):
+        self._validate(shared=True, max_poll_interval_ms=60000)

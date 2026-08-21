@@ -105,7 +105,7 @@ from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
-from utils.partition_in_flight import PartitionInFlight
+from utils.partition_in_flight import DEFAULT_DRAIN_TIMEOUT, PartitionInFlight
 from utils.process_scaling import await_source_partitions, resolve_process_count
 from utils.process_supervisor import ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
@@ -185,6 +185,22 @@ def validate_multi_process_config(config: dict, process_count: int) -> None:
     only by starting the program, so the refusals, their wording and the fact
     that they fire before anything is spawned were all unverified.
     """
+    source_type = str(
+        (config.get("event_bridge", {}) or {}).get("sourceType", "kafka")
+    ).lower()
+    if source_type != "kafka":
+        # Caught here rather than by the partition wait, which reads Kafka
+        # metadata and would spend its whole budget before failing with a
+        # message about topics the deployment does not have. The parallelism
+        # also has no basis without partitions: nothing would give each process
+        # a disjoint set of sensors, so their dedup state would diverge.
+        raise ValueError(
+            f"alert_agent.processes={process_count} requires "
+            f"event_bridge.sourceType='kafka', got {source_type!r}. Work is "
+            f"split across processes by partition assignment, which only a "
+            f"Kafka source provides."
+        )
+
     if not _alert_config_store_is_shared(config):
         raise ValueError(
             f"alert_agent.processes={process_count} requires shared "
@@ -193,6 +209,20 @@ def validate_multi_process_config(config: dict, process_count: int) -> None:
             f"initialise one the workers will read: each would build its own "
             f"copy and they would drift apart. Enable persistence, or run a "
             f"single process."
+        )
+
+    poll_interval_ms = (config.get("kafka", {}) or {}).get("max_poll_interval_ms")
+    if poll_interval_ms is not None and float(poll_interval_ms) <= DEFAULT_DRAIN_TIMEOUT * 1000:
+        # A drain runs on the consume thread inside the rebalance callback, so
+        # one that outlasts the poll interval costs the member its place and
+        # starts another rebalance -- worse than the overlap it exists to
+        # prevent, and self-perpetuating under load.
+        raise ValueError(
+            f"kafka.max_poll_interval_ms={poll_interval_ms} is not longer than "
+            f"the {DEFAULT_DRAIN_TIMEOUT:.0f}s rebalance drain. The drain runs "
+            f"inside the rebalance callback, so the member would be evicted "
+            f"mid-drain and trigger another rebalance. Raise "
+            f"max_poll_interval_ms above {DEFAULT_DRAIN_TIMEOUT * 1000:.0f}."
         )
 
     mode = pipeline_mode_from_config(config)
@@ -316,6 +346,14 @@ class AnomalyEnhancer(
         # a poll interval that does not.
         self._rebalance_drain_deadline: Optional[float] = None
         self.source.set_revoke_hook(self._drain_revoked_partitions)
+        # Registered here rather than only in the multi-process entry point,
+        # because the revoke hook above is installed for every deployment: a
+        # single-process instance drains too, and without this its budget
+        # stayed spent after the first rebalance, so every later drain gave up
+        # at once and reported a timeout it had never waited for. The
+        # multi-process path replaces this with a hook that also signals the
+        # supervisor.
+        self.source.set_assignment_change_hook(self._publish_assignment_state)
         self.sink = EventBridgeFactory.create_sink(self.config)
 
         # Get source type for logging
@@ -933,6 +971,19 @@ class AnomalyEnhancer(
             lambda _f, released_id=worker_id: self.worker_queue.put(released_id)
         )
 
+    def _publish_assignment_state(self) -> None:
+        """Republish what this process holds, and reopen the drain budget.
+
+        Runs whenever an assignment is decided or taken away, in every
+        deployment shape. The budget is closed for the rebalance that is over,
+        so the next one starts with the whole of it.
+        """
+        from metrics.recorder import set_assigned_partitions
+
+        set_assigned_partitions(self.source.assigned_partition_count())
+        if self.source.is_ready():
+            self._rebalance_drain_deadline = None
+
     def _drain_revoked_partitions(self, partitions) -> None:
         """Finish what is owed on partitions about to move to another member.
 
@@ -946,7 +997,6 @@ class AnomalyEnhancer(
         so a process that is killed loses whatever it held regardless.
         """
         from metrics.recorder import inc_rebalance_drain
-        from utils.partition_in_flight import DEFAULT_DRAIN_TIMEOUT
 
         if self._rebalance_drain_deadline is None:
             # Opened by the first revoke of a rebalance and closed when the
@@ -1284,12 +1334,16 @@ class AnomalyEnhancer(
 
             total_messages = len(messages)
             inc_events_after_dedup(total_messages, messages=messages)
+            # Taken before the loop, not as each message is reached: message 1
+            # is handed to a dispatcher that releases on another thread, so a
+            # split taken afterwards could admit against a partition whose
+            # count had already fallen to zero.
+            admissions.extend(
+                admission.split() if admission is not None else None
+                for _ in messages[1:]
+            )
             for idx, message in enumerate(messages, start=1):
-                if idx == 1:
-                    message_admission = admission
-                else:
-                    message_admission = admission.split() if admission is not None else None
-                    admissions.append(message_admission)
+                message_admission = admission if idx == 1 else admissions[idx - 1]
                 event_type = 'alert' if is_alert(message) else 'incident'
                 if self.async_io_enabled or getattr(self, 'pipeline_mode', None) == PIPELINE_MODE_EVENT_LOOP:
                     logger.debug(f"Queueing {event_type} message {idx}/{total_messages} for async dispatch")
@@ -2605,7 +2659,9 @@ def start_fastapi(parent_pid: Optional[int] = None):
     if parent_pid is not None:
         # Same contract as the pipeline workers: an orphaned API child would
         # keep answering on the health port for an instance that is gone.
-        _exit_when_parent_dies(parent_pid)
+        # SIGTERM, because uvicorn turns it into a bounded connection drain --
+        # unlike a pipeline child, it has no unbounded work to finish.
+        _exit_when_parent_dies(parent_pid, signal.SIGTERM)
     try:
         port = int(os.getenv("FASTAPI_PORT", 9080))
         logger.info(f"Starting Alert Bridge FastAPI server on port {port}...")
@@ -2645,22 +2701,24 @@ def _mark_prometheus_process_dead(process: Optional[Any]) -> None:
         logger.debug("Failed to mark Prometheus child process dead", exc_info=True)
 
 
-def _exit_when_parent_dies(parent_pid: int) -> None:
+def _exit_when_parent_dies(parent_pid: int, sig: int = signal.SIGKILL) -> None:
     """Ask the kernel to signal this child when the supervisor disappears.
 
     An orphaned child keeps its consumer-group membership, which stalls the
     partitions it owns and blocks the next run's offset reset. Linux-only;
     elsewhere teardown relies solely on the supervisor.
 
-    SIGKILL rather than SIGTERM: there is no supervisor left to escalate, and
-    a SIGTERM here lands in a graceful shutdown that drains in-flight work for
-    as long as it takes -- so the orphan holds the very slot this releases.
+    SIGKILL by default: there is no supervisor left to escalate, and a SIGTERM
+    to a pipeline child lands in a graceful shutdown that drains in-flight work
+    for as long as it takes -- so the orphan holds the very slot this releases.
+    The API child passes SIGTERM instead, where it means a bounded connection
+    drain rather than an unbounded one.
     """
     try:
         import ctypes
 
         PR_SET_PDEATHSIG = 1
-        result = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
+        result = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, sig)
     except Exception:
         logger.debug("PR_SET_PDEATHSIG unavailable on this platform", exc_info=True)
         return
@@ -2707,13 +2765,10 @@ def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
     it is given some back it is serving nothing -- the health endpoint and the
     fleet gauge both have to say so.
     """
-    from metrics.recorder import set_assigned_partitions
-
-    held = enhancer.source.assigned_partition_count()
-    set_assigned_partitions(held)
-    if enhancer.source.is_ready():
-        # The rebalance is over; the next one starts a fresh budget.
-        enhancer._rebalance_drain_deadline = None
+    # The gauge and the drain budget are the same in every deployment shape,
+    # so they are handled by the enhancer; only the supervisor signalling
+    # below is particular to running under one.
+    enhancer._publish_assignment_state()
     # Decided, not non-empty. With more group members than a topic has
     # partitions a member legitimately owns none of it -- the documented
     # replicas x processes > partitions rollout -- and requiring work here
@@ -2816,11 +2871,16 @@ def _announce_when_all_ready(ready_events: List[Any], on_ready: Callable[[], Non
     def wait() -> None:
         deadline = time.monotonic() + timeout
         for index, event in enumerate(ready_events):
-            if not event.wait(max(0.0, deadline - time.monotonic())):
+            granted = max(0.0, deadline - time.monotonic())
+            if not event.wait(granted):
+                # The budget covers the fleet, so a child reached late gets
+                # whatever its peers left. Reporting the whole budget here sent
+                # operators after a child that had in fact been given seconds.
                 logger.error(
-                    "Pipeline process %d was not ready within %.0fs; stopping "
-                    "the instance so its partitions can be reassigned",
-                    index, timeout,
+                    "Pipeline process %d was not ready within its %.0fs of the "
+                    "%.0fs startup budget; stopping the instance so its "
+                    "partitions can be reassigned",
+                    index, granted, timeout,
                 )
                 if on_timeout is not None:
                     on_timeout()
@@ -2968,16 +3028,38 @@ if __name__ == "__main__":
     enhancer = None
     exit_code = 0
 
-    def start_service_endpoints():
-        """Bind the metrics port and bring the API child up.
+    def start_api_child():
+        """Bring the API child up, and take ownership of shutdown signals.
 
-        Assigns the child to ``fastapi_process`` before anything else can
-        raise, so a failure past this point still has something to tear down.
+        Assigns ``fastapi_process`` as soon as the child exists, so a failure
+        anywhere past this point still has something to tear down.
         """
         global fastapi_process
 
-        enforce_log_level(args.config)
+        fastapi_process = _pipeline_mp_context().Process(
+            target=start_fastapi, args=(os.getpid(),), name="ab-fastapi"
+        )
+        fastapi_process.start()
+        logger.info("FastAPI server started in separate process")
 
+        # Setup signal handlers for graceful shutdown
+        setup_signal_handlers(fastapi_process)
+
+    def require_api_child_alive():
+        """Fail before committing to work that a dead endpoint would waste.
+
+        Nothing watches the child until the supervisor starts, and on the
+        single-process path nothing watches it at all -- so a port that was
+        already taken would otherwise surface only after the instance had
+        joined the consumer group and begun reading.
+        """
+        if fastapi_process is not None and not fastapi_process.is_alive():
+            raise RuntimeError(
+                f"the API child exited during startup "
+                f"(exitcode={fastapi_process.exitcode})"
+            )
+
+    def bind_metrics_port():
         # Start Prometheus metrics server in main process (where metrics are recorded).
         if PROMETHEUS_ENABLED:
             # Materialize every labelled-counter series at value 0 before
@@ -2996,15 +3078,6 @@ if __name__ == "__main__":
                 logger.error(f"Failed to start Prometheus server on port {prometheus_port}: {e}")
                 logger.warning("Continuing without Prometheus metrics endpoint")
 
-        fastapi_process = _pipeline_mp_context().Process(
-            target=start_fastapi, args=(os.getpid(),), name="ab-fastapi"
-        )
-        fastapi_process.start()
-        logger.info("FastAPI server started in separate process")
-
-        # Setup signal handlers for graceful shutdown
-        setup_signal_handlers(fastapi_process)
-
     try:
         # With alert_agent.processes > 1 the parent owns no pipeline at
         # all: each child builds its own enhancer, and therefore its own
@@ -3014,7 +3087,9 @@ if __name__ == "__main__":
         pipeline_config = AnomalyEnhancer.load_config(args.config)
         process_count = resolve_process_count(pipeline_config)
         source_partitions = None
+        source_partition_sizes = None
         multi_process = process_count > 1
+        enforce_log_level(args.config)
 
         if multi_process and PROMETHEUS_ENABLED:
             # Published before anything else so the endpoint can tell "no
@@ -3024,13 +3099,15 @@ if __name__ == "__main__":
             from metrics.recorder import set_pipeline_process_counts
             set_pipeline_process_counts(process_count, 0, 0)
 
+        # Before anything that blocks: the wait for topic metadata below, and
+        # the enhancer constructor, which contends on Elasticsearch for tens of
+        # seconds. Starting the endpoint after either left port 9080 answering
+        # nothing for exactly that window, so a startup probe killed the
+        # container before the work it was waiting on could finish.
+        start_api_child()
+
         if multi_process:
-            # The endpoints come up before the validation below, which blocks
-            # for as long as it takes the source topics to appear. Binding
-            # after it left port 9080 unanswered for exactly the window the
-            # wait exists to cover, so a startup probe killed the container
-            # before the topics it was waiting for could be created.
-            start_service_endpoints()
+            bind_metrics_port()
 
             # Everything a wrong multi-process configuration would only reveal
             # later is checked here, in the parent, before a single child is
@@ -3046,7 +3123,14 @@ if __name__ == "__main__":
             # same check hold on both deployment paths: Compose starts this
             # only after the topic-init container completes, while on
             # Kubernetes the topics come from a Job that races this Deployment.
-            source_partitions = await_source_partitions(pipeline_config, process_count)
+            source_partition_sizes = await_source_partitions(pipeline_config, process_count)
+            source_partitions = sum(source_partition_sizes.values())
+
+            # Checked before the seeding and the fork, so a dead endpoint costs
+            # the wait above and nothing more -- rather than being noticed on
+            # the supervisor's first poll, after N children have joined the
+            # group and started reading.
+            require_api_child_alive()
 
             # Seed the prompt store here, before a child exists to consume
             # against it. Only the seeding process wrote it before, and it
@@ -3061,9 +3145,10 @@ if __name__ == "__main__":
             # Constructed before the metrics port binds (C15): the constructor
             # populates state that scrapes should see from the very first
             # response, and a boot that fails here must never expose a
-            # "healthy" metrics endpoint.
+            # "healthy" metrics endpoint. The API child is already up; it keeps
+            # its own registry, so it is not bound by this.
             enhancer = AnomalyEnhancer(args.config)
-            start_service_endpoints()
+            bind_metrics_port()
 
         if os.environ.get("VLM_WARMUP_ENABLED", "true").lower() != "false":
             video_path = WARMUP_VIDEO if os.path.isfile(WARMUP_VIDEO) else "warmup/test.mp4"
@@ -3092,10 +3177,14 @@ if __name__ == "__main__":
             logger.info("Starting anomaly processing loop...")
 
         if multi_process:
+            # Per topic, not the sum: each topic is assigned independently, so
+            # the sum reads as headroom that raising the count cannot use.
             logger.info(
-                "Pipeline running across %d processes over %d partitions",
+                "Pipeline running across %d processes over %s",
                 process_count,
-                source_partitions,
+                ", ".join(f"{topic}={size}" for topic, size in sorted(
+                    (source_partition_sizes or {}).items())) or
+                f"{source_partitions} partitions",
             )
             run_multi_process_pipeline(os.path.abspath(args.config), process_count,
                                        on_ready=announce_ready,
@@ -3108,6 +3197,7 @@ if __name__ == "__main__":
             # which is a larger change than this review round.
             if not enhancer.source.await_ready():
                 raise RuntimeError("source could not join the consumer group")
+            require_api_child_alive()
             announce_ready()
             enhancer.process_anomalies()
 
