@@ -18,8 +18,8 @@ imagePullSecrets:
 
 replicas: 1
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+  tag: "3.3.0-26.08.1"
   pullPolicy: IfNotPresent
 port: 8000
 service:
@@ -53,9 +53,10 @@ dshm:
   enabled: true
   sizeLimit: "16Gi"
 clearCachedEnginesOnStart: false
-kafkaEnabled: true
-kafkaTopic: "mdx-embed"
 kafkaBootstrapServers: ""
+messageBus: "kafka"
+messageBusTopic: "mdx-embed"
+errorBus: "kafka"
 # Wait for Kafka before starting the workload (busybox nc). Set enabled: false for standalone
 # installs where no broker exists yet.
 waitForKafka:
@@ -65,6 +66,16 @@ redisPort: "6379"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
 modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
 modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+remoteEmbedEndpoint: ""
+remoteEmbedEndpointModelName: "nvidia/cosmos-embed1"
+remoteEmbedEndpointApiKey: ""
+# Optional: pull REMOTE_EMBED_ENDPOINT_API_KEY from an existing Kubernetes secret.
+# Prefer this over remoteEmbedEndpointApiKey for authenticated CE1 NIM endpoints.
+remoteEmbedEndpointApiKeySecret:
+  name: ""
+  key: "REMOTE_EMBED_ENDPOINT_API_KEY"
+remoteEmbedEndpointTimeoutSec: "300"
+remoteEmbedEndpointBatchSize: "64"
 logLevel: "INFO"
 enableOtelMonitoring: false
 enableRedisErrorMessages: false
@@ -83,6 +94,24 @@ installProprietaryCodes: false
 rtspReconnectionInterval: "5"
 rtspReconnectionMaxAttempts: "10"
 rtspReconnectionWindow: "60"
+assetDownloadConnectTimeout: "10"
+assetDownloadTotalTimeout: "300"
+# Max HTTP/data-URI asset download size in GB (ASSET_DOWNLOAD_MAX_FILE_SIZE_GB). Increase for large corpus videos.
+assetDownloadMaxFileSizeGb: 8
+# Comma-separated domains where RTVI Embed should skip TLS certificate verification
+# for asset downloads. This weakens TLS trust; use only for controlled, trusted
+# internal endpoints with self-signed or otherwise unverifiable certificates.
+assetDownloadSslSkipVerifyDomains: ""
+assetDownloadMaxRedirects: "0"
+assetDownloadAuthTokens: ""
+# Optional: pull ASSET_DOWNLOAD_AUTH_TOKENS from an existing Kubernetes secret.
+# Prefer this over assetDownloadAuthTokens for non-empty authorization headers.
+assetDownloadAuthTokensSecret:
+  name: ""
+  key: "ASSET_DOWNLOAD_AUTH_TOKENS"
+fileUrlAllowedDirs: ""
+maxAssetStorageSizeGb: ""
+assetMaxAgeHours: "0"
 startupProbe:
   initialDelaySeconds: 240
   periodSeconds: 30

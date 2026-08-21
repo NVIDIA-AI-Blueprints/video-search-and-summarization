@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +32,7 @@ class NvCompositor;
 class VideoWebRTCSender;
 class NativeStreamProducer;
 class IMediaDataProducer;
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 class NvIPCProducer;
 #endif
 
@@ -54,16 +54,19 @@ public:
     
     // Common getters for pipeline components
     virtual std::shared_ptr<GstNvVideoDecoder> getDecoder() const = 0;
-    virtual std::shared_ptr<NvEncoderVideoConsumer> getEncoder() const = 0;
-    virtual std::shared_ptr<WebrtcSinkConsumer> getWebrtcConsumer() const = 0;
-    virtual std::shared_ptr<NvLLOverlay> getOverlay() const = 0;
-    virtual std::shared_ptr<NvLLTransform> getTransform() const = 0;
-    virtual std::shared_ptr<NvLLTransform> getTransformSink() const = 0;
-    virtual std::shared_ptr<ImageEnc> getImageEncoder() const = 0;
+    virtual std::shared_ptr<NvEncoderVideoConsumer> getEncoder() const { return m_encoder; }
+    virtual std::shared_ptr<WebrtcSinkConsumer> getWebrtcConsumer() const { return m_webrtcConsumer; }
+    virtual std::shared_ptr<NvLLOverlay> getOverlay() const { return m_overlay; }
+    virtual std::shared_ptr<NvLLTransform> getTransform() const { return m_transform; }
+    virtual std::shared_ptr<NvLLTransform> getTransformSink() const { return m_transformSink; }
+    virtual std::shared_ptr<ImageEnc> getImageEncoder() const { return m_imageEncoder; }
     virtual std::shared_ptr<NvCompositor> getCompositor() const = 0;
     virtual std::shared_ptr<VideoWebRTCSender> getVideoSender() const = 0;
     virtual std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const = 0;
-#ifdef JETSON_PLATFORM
+    // IPC producer path is aarch64-only (gstnvipcproducer is not built for x86) and is
+    // exercised at runtime only when isJetsonPlatform(). Present on all aarch64 targets
+    // so one build serves both Orin and Thor/SBSA.
+#ifdef AARCH64_PLATFORM
     virtual std::shared_ptr<NvIPCProducer> getIPCProducer() const = 0;
 #endif
 
@@ -81,6 +84,7 @@ protected:
     void setupDecoderWithProducer(std::shared_ptr<GstNvVideoDecoder> decoder, const std::string& url, const PipelineConfiguration& config);
     void clearDecoderProducer(std::shared_ptr<GstNvVideoDecoder> decoder, const PipelineConfiguration& config);
 
+private:
     // Common pipeline components
     std::shared_ptr<NvEncoderVideoConsumer> m_encoder = nullptr;
     std::shared_ptr<NvLLOverlay> m_overlay = nullptr;

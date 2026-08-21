@@ -222,9 +222,9 @@ def _non_empty_str() -> ValueValidator:
 
 APP_VALUE_VALIDATORS: dict[str, ValueValidator] = {
     # Behavior / object processing
+    "behaviorEmitOnce": _bool(),
     "behaviorMaxPoints": _int(min=1),
     "behaviorStateEndToleranceSec": _float(min=0.0),
-    "behaviorStateTimeout": _int(min=0),
     "behaviorStateValidInterval": _int(min=0),
     "behaviorTimeThreshold": _datetime_iso8601_z(),
     "behaviorWatermarkSec": _int(min=0),
@@ -235,9 +235,9 @@ APP_VALUE_VALIDATORS: dict[str, ValueValidator] = {
     "incidentObjectTtl": _int(min=0),
     "stateManagementFilter": _json_list_of_str(),
     "imageLocationMode": _enum("center", "bottom_center"),
+    "roiEventDetectionMode": _enum("coordinate", "bbox"),
     "in3dMode": _bool(),
     "advancedOverlay": _bool(),
-    "inSimulationMode": _bool(),
 
     # Trajectory / map matching
     "trajGeoCoordEnable": _bool(),
@@ -251,20 +251,29 @@ APP_VALUE_VALIDATORS: dict[str, ValueValidator] = {
     "mapMatchingMaxPoints": _int(min=1),
 
     # Incidents
+    # ``...Threshold`` (violation duration) and ``...ExpirationWindow`` (gap
+    # tolerance) are both seconds, compared against float durations by
+    # ``FrameStateMgmt``, so sub-second values are legal -- only the FOV object
+    # count is an integer.
+    #
+    # The expiration window floor is 0.1s: a window of 0 closes every run at the
+    # next frame, so each run spans one frame and lasts 0s -- an incident per
+    # frame, or none at all. 0.1s is also about one frame period at 10fps, below
+    # which a single dropped frame breaks the run.
     "proximityViolationIncidentEnable": _bool(),
-    "proximityViolationIncidentThreshold": _int(min=1),
-    "proximityViolationIncidentExpirationWindow": _int(min=1),
+    "proximityViolationIncidentThreshold": _float(min=0.0),
+    "proximityViolationIncidentExpirationWindow": _float(min=0.1),
     "restrictedAreaViolationIncidentEnable": _bool(),
-    "restrictedAreaViolationIncidentThreshold": _int(min=1),
-    "restrictedAreaViolationIncidentExpirationWindow": _int(min=1),
+    "restrictedAreaViolationIncidentThreshold": _float(min=0.0),
+    "restrictedAreaViolationIncidentExpirationWindow": _float(min=0.1),
     "confinedAreaViolationIncidentEnable": _bool(),
-    "confinedAreaViolationIncidentThreshold": _int(min=1),
-    "confinedAreaViolationIncidentExpirationWindow": _int(min=1),
+    "confinedAreaViolationIncidentThreshold": _float(min=0.0),
+    "confinedAreaViolationIncidentExpirationWindow": _float(min=0.1),
     "fovCountViolationIncidentEnable": _bool(),
-    "fovCountViolationIncidentThreshold": _int(min=1),
+    "fovCountViolationIncidentThreshold": _float(min=0.0),
     "fovCountViolationIncidentObjectThreshold": _int(min=1),
     "fovCountViolationIncidentObjectType": _non_empty_str(),
-    "fovCountViolationIncidentExpirationWindow": _int(min=1),
+    "fovCountViolationIncidentExpirationWindow": _float(min=0.1),
 }
 
 

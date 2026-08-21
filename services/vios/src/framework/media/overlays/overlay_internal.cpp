@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,7 @@
 #include "network_utils.h"
 #include "nvhwdetection.h"
 #include "cudaLoader.h"
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
 #include "utils.h"
 #endif
 #include "nvbufsurface.h"
@@ -29,6 +29,7 @@
 #include "vst_common.h"
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <opencv2/opencv.hpp>
 #include <fstream>
 #include <sstream>
@@ -62,6 +63,20 @@ constexpr const char* ANALYTICS_API_GET_ROI_STATS = "/api/v2/metrics/occupancy/r
 constexpr int ARROW_SIZE_SCALE_PARAMETER = 10;
 constexpr int DEFAULT_FONT_SIZE = 12;
 constexpr int DEFAULT_FONT_SIZE_COORDINATES = 5;
+
+static int GetBboxDebugFontSize(const OverlayBBoxParams& overlay)
+{
+    if (overlay.m_bboxDebugFontSize > 0)
+    {
+        return overlay.m_bboxDebugFontSize;
+    }
+    if (GET_CONFIG().bbox_debug_font_size > 0)
+    {
+        return GET_CONFIG().bbox_debug_font_size;
+    }
+    return DEFAULT_FONT_SIZE_COORDINATES;
+}
+
 constexpr int MAX_CLASSES = 15;
 constexpr float DEFAULT_ELLIPSE_SCALE_FACTOR = 1.5f;
 constexpr float DEFAULT_ELLIPSE_HEIGHT_FACTOR = 0.5f;
@@ -85,11 +100,20 @@ Point interpolateCoordinate(int x, int y, int oldWidth, int oldHeight, int newWi
 
 static int interpolateFontSize(int oldWidth, int newWidth)
 {
-    if(oldWidth <= 0 || newWidth <=0)
+    // DEFAULT_FONT_SIZE is tuned for 1080p. Scale it to the actual drawing
+    // width so the text is proportional at every resolution (smaller on
+    // low-res streams, larger on 4K). Previously this scaled by
+    // newWidth/oldWidth (source->output ratio), which returned the full 1080p
+    // size whenever source width == output width - e.g. a 640-wide stream kept
+    // font size 12 and looked oversized. Prefer the drawing (output) width;
+    // fall back to the source width if the output width is unknown.
+    int drawWidth = (newWidth > 0) ? newWidth : oldWidth;
+    if (drawWidth <= 0)
     {
         return DEFAULT_FONT_SIZE;
     }
-    return (DEFAULT_FONT_SIZE * newWidth) / oldWidth;
+    int font_size = (DEFAULT_FONT_SIZE * drawWidth) / WIDTH_1080p;
+    return (font_size > 0) ? font_size : 1;
 }
 
 // Function to convert box3d to corners3d
@@ -730,7 +754,7 @@ void NvLLOverlayInternal::draw_bbox_id_cuosd(const Point& left_top, const Point&
     const int bottom = right_bottom.y;
     const int right = right_bottom.x;
 
-    OSD_TextParams* text_params = static_cast<OSD_TextParams*>(malloc(sizeof(OSD_TextParams)));
+    OSD_TextParams* text_params = g_new0(OSD_TextParams, 1);
     if (!text_params)
     {
         LOG(error) << "Failed to allocate OSD_TextParams for bbox id" << endl;
@@ -738,17 +762,15 @@ void NvLLOverlayInternal::draw_bbox_id_cuosd(const Point& left_top, const Point&
     }
 
     const string text = object_id;
-    char* cstr = static_cast<char*>(calloc(text.size() + 1, sizeof(char)));
+    char* cstr = strdup(text.c_str());
     if (cstr)
     {
-        strncpy(cstr, text.c_str(), text.size());
-        cstr[text.size()] = '\0';
         text_params->text = cstr;
     }
     else
     {
         LOG(error) << "Failed to allocate memory for overlay object id text" << endl;
-        free(text_params);
+        g_free(text_params);
         return;
     }
 
@@ -932,32 +954,28 @@ int NvLLOverlayInternal::draw_3d_bbox(const vector<Point2D>& corners2d, const st
         clamp_point(x1, y1, m_sourceWidth, m_sourceHeight);
         clamp_point(x2, y2, m_sourceWidth, m_sourceHeight);
 
-        OSD_LineParams* line_params = (OSD_LineParams*)malloc(sizeof(OSD_LineParams));
-        if (line_params)
+        OSD_LineParams line_params{};
+        Point start = interpolateCoordinate(x1, y1, m_sourceWidth, m_sourceHeight, m_width, m_height);
+        Point end = interpolateCoordinate(x2, y2, m_sourceWidth, m_sourceHeight, m_width, m_height);
+        line_params.pos_x0 = start.x;
+        line_params.pos_y0 = start.y;
+        line_params.pos_x1 = end.x;
+        line_params.pos_y1 = end.y;
+
+        OSD_ColorParams output_color = {0,0,0,0};
+        if (override_color.alpha != 0)
         {
-            Point start = interpolateCoordinate(x1, y1, m_sourceWidth, m_sourceHeight, m_width, m_height);
-            Point end = interpolateCoordinate(x2, y2, m_sourceWidth, m_sourceHeight, m_width, m_height);
-            line_params->pos_x0 = start.x;
-            line_params->pos_y0 = start.y;
-            line_params->pos_x1 = end.x;
-            line_params->pos_y1 = end.y;
-
-            OSD_ColorParams output_color = {0,0,0,0};
-            if (override_color.alpha != 0)
-            {
-                output_color = override_color;
-            }
-            else
-            {
-                if (!get_color_from_label(obj_type.c_str(), box_params->m_overlay.m_colorCode, &output_color))
-                {
-                    output_color = {0,0,0,0};
-                }
-            }
-
-            draw_line_cuosd(line_params, box_params, context, buffer, output_color);
-            free(line_params);
+            output_color = override_color;
         }
+        else
+        {
+            if (!get_color_from_label(obj_type.c_str(), box_params->m_overlay.m_colorCode, &output_color))
+            {
+                output_color = {0,0,0,0};
+            }
+        }
+
+        draw_line_cuosd(&line_params, box_params, context, buffer, output_color);
     }
 
     if (box_params->m_overlay.m_enableBboxId && !object_id.empty())
@@ -996,12 +1014,9 @@ int NvLLOverlayInternal::draw_3d_bbox(const vector<Point2D>& corners2d, const st
         OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
         if (text_params != nullptr)
         {
-            // Use safe strncpy with explicit bounds checking
-            char* cstr = (char*)calloc(label_text.size() + 1, sizeof(char));
+            char* cstr = strdup(label_text.c_str());
             if (cstr != nullptr)
             {
-                strncpy(cstr, label_text.c_str(), label_text.size());
-                cstr[label_text.size()] = '\0';  // Guarantee null termination
                 text_params->text = cstr;
             }
             else
@@ -1013,7 +1028,7 @@ int NvLLOverlayInternal::draw_3d_bbox(const vector<Point2D>& corners2d, const st
             Point text_pos = interpolateCoordinate(text_x, text_y, m_sourceWidth, m_sourceHeight, m_width, m_height);
             text_params->pos_x = text_pos.x;
             text_params->pos_y = text_pos.y;
-            text_params->font_size = DEFAULT_FONT_SIZE_COORDINATES;
+            text_params->font_size = GetBboxDebugFontSize(box_params->m_overlay);
             text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
             // Use same color as the box lines
@@ -1229,7 +1244,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
         }
 
         /* Assign bounding box coordinates */
-        OSD_RectParams* rect_params = (OSD_RectParams*)malloc(sizeof(OSD_RectParams));
+        OSD_RectParams* rect_params = g_new0(OSD_RectParams, 1);
         Point left_top = {}, right_bottom = {};
         if (rect_params)
         {
@@ -1288,16 +1303,13 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
             int bottom = right_bottom.y;
 
             // Display coordinates above each bbox.
-            OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params = g_new0(OSD_TextParams, 1);
             if (text_params)
             {
                 string text = to_string(left) + "    " + to_string(top);
-                // Use safe strncpy with explicit bounds checking
-                char* cstr = (char*)calloc(text.size() + 1, sizeof(char));
+                char* cstr = strdup(text.c_str());
                 if (cstr)
                 {
-                    strncpy(cstr, text.c_str(), text.size());
-                    cstr[text.size()] = '\0';  // Guarantee null termination
                     text_params->text = cstr;
                 }
                 else
@@ -1308,7 +1320,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
 
                 text_params->pos_x = left;
                 text_params->pos_y = top;
-                text_params->font_size = DEFAULT_FONT_SIZE_COORDINATES;
+                text_params->font_size = GetBboxDebugFontSize(box_params->m_overlay);
                 text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
                 text_params->border_color = (OSD_ColorParams){255,255,255,255};
@@ -1329,22 +1341,19 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
 
             // Display retail name & confidence under bbox.
             {
-                OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+                OSD_TextParams* text_params = g_new0(OSD_TextParams, 1);
                 if (text_params)
                 {
                     string text = obj_type + "    " + to_string(confidence);
-                    // Use safe strncpy with explicit bounds checking
-                    char* cstr = (char*)calloc(text.size() + 1, sizeof(char));
+                    char* cstr = strdup(text.c_str());
                     if (cstr)
                     {
-                        strncpy(cstr, text.c_str(), text.size());
-                        cstr[text.size()] = '\0';  // Guarantee null termination
                         text_params->text = cstr;
                     }
 
                     text_params->pos_x = left;
                     text_params->pos_y = bottom;
-                    text_params->font_size = DEFAULT_FONT_SIZE_COORDINATES;
+                    text_params->font_size = GetBboxDebugFontSize(box_params->m_overlay);
                     text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
                     text_params->border_color = (OSD_ColorParams){255,255,255,255};
@@ -1499,7 +1508,8 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
         if (box_params->m_overlay.m_proximityAnimation == "circleOnly" ||
             box_params->m_overlay.m_proximityAnimation == "circleAndLine")
         {
-            OSD_CircleParams* circle_params = (OSD_CircleParams*)malloc(sizeof(OSD_CircleParams));
+            auto circle_params_owner = std::make_unique<OSD_CircleParams>();
+            OSD_CircleParams* circle_params = circle_params_owner.get();
             if (circle_params)
             {
                 // Use the bottom face center for the circle
@@ -1553,19 +1563,15 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                 {
                     if (buffer)
                     {
-                        GET_OSD_INSTANCE()->gst_buffer_add_cu_osd_meta(buffer, OSD_CIRCLE, circle_params);
+                        GET_OSD_INSTANCE()->gst_buffer_add_cu_osd_meta(buffer, OSD_CIRCLE, circle_params_owner.release());
                     }
                     else
                     {
                         OsdMeta meta;
                         meta.meta_type = OSD_CIRCLE;
-                        meta.params = (void*)circle_params;
+                        meta.params = (void*)circle_params_owner.release();
                         GET_OSD_INSTANCE()->osd_add_metadata(context, &meta);
                     }
-                }
-                else
-                {
-                    free(circle_params);
                 }
             }
         }
@@ -1574,7 +1580,8 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
         if (box_params->m_overlay.m_proximityAnimation == "ellipseOnly" ||
             box_params->m_overlay.m_proximityAnimation == "ellipseAndLine")
         {
-            OSD_EllipseParams* ellipse_params = (OSD_EllipseParams*)malloc(sizeof(OSD_EllipseParams));
+            auto ellipse_params_owner = std::make_unique<OSD_EllipseParams>();
+            OSD_EllipseParams* ellipse_params = ellipse_params_owner.get();
             if (ellipse_params)
             {
                 // Check if we have bbox3d coordinates in the original JSON
@@ -1818,19 +1825,15 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                         }
                         if (buffer)
                         {
-                            GET_OSD_INSTANCE()->gst_buffer_add_cu_osd_meta(buffer, OSD_ELLIPSE, ellipse_params);
+                            GET_OSD_INSTANCE()->gst_buffer_add_cu_osd_meta(buffer, OSD_ELLIPSE, ellipse_params_owner.release());
                         }
                         else
                         {
                             OsdMeta meta;
                             meta.meta_type = OSD_ELLIPSE;
-                            meta.params = (void*)ellipse_params;
+                            meta.params = (void*)ellipse_params_owner.release();
                             GET_OSD_INSTANCE()->osd_add_metadata(context, &meta);
                         }
-                    }
-                    else
-                    {
-                        free(ellipse_params);
                     }
                 }
             }
@@ -1891,8 +1894,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                 if (entrantStates.find(entrantId) != entrantStates.end())
                 {
                     // Draw line between bottom face centers
-                    OSD_LineParams* line_params = (OSD_LineParams*)malloc(sizeof(OSD_LineParams));
-                    if (line_params)
+                    OSD_LineParams line_params{};
                     {
                         // Use the bottom face centers for both proximity and entrant objects
                         Point start = interpolateCoordinate(state.second.centerX, state.second.centerY,
@@ -1900,10 +1902,10 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                         Point end = interpolateCoordinate(entrantStates[entrantId].centerX, entrantStates[entrantId].centerY,
                                                         m_sourceWidth, m_sourceHeight, m_width, m_height);
 
-                        line_params->pos_x0 = start.x;
-                        line_params->pos_y0 = start.y;
-                        line_params->pos_x1 = end.x;
-                        line_params->pos_y1 = end.y;
+                        line_params.pos_x0 = start.x;
+                        line_params.pos_y0 = start.y;
+                        line_params.pos_x1 = end.x;
+                        line_params.pos_y1 = end.y;
 
                         // Use white color for the line
                         OSD_ColorParams lineColor = OSD_COLOR_WHITE;
@@ -1914,11 +1916,10 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                         }
                         else
                         {
-                            free(line_params);
                             continue;
                         }
 
-                        draw_line_cuosd(line_params, box_params, context, buffer, lineColor, 1);
+                        draw_line_cuosd(&line_params, box_params, context, buffer, lineColor, 1);
 
                         // Calculate the distance between objects in 2D space
                         float dx = state.second.centerX - entrantStates[entrantId].centerX;
@@ -1938,12 +1939,9 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                         OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
                         if (text_params != nullptr)
                         {
-                            // Use safe strncpy with explicit bounds checking
-                            char* cstr = (char*)calloc(distance_text.size() + 1, sizeof(char));
+                            char* cstr = strdup(distance_text.c_str());
                             if (cstr != nullptr)
                             {
-                                strncpy(cstr, distance_text.c_str(), distance_text.size());
-                                cstr[distance_text.size()] = '\0';  // Guarantee null termination
                                 text_params->text = cstr;
                             }
                             else
@@ -1973,8 +1971,6 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                                 GET_OSD_INSTANCE()->osd_add_metadata(context, &meta);
                             }
                         }
-                        free (line_params);
-                        line_params = nullptr;
                     }
                 }
             }
@@ -2115,12 +2111,12 @@ bool process_tripwire_stats(const string &sensorName, const string &tripwireId, 
     return true;
 }
 
-bool NvLLOverlayInternal::doDraw (void* data, GstMetaUnion *meta, int64_t pts)
+bool NvLLOverlayInternal::doDraw (unsigned char* data, GstMetaUnion *meta, int64_t pts)
 {
     bool ret = false;
     if (m_useId)
     {
-        ret = processOsdSinkPadBufferProbeStreamer(data, meta->vstMeta);
+        ret = processOsdSinkPadBufferProbeStreamer(data, meta->vstMeta());
     }
     ret = processOsdSinkPadBufferProbe(data, meta, pts);
     return ret;
@@ -2160,7 +2156,7 @@ void NvLLOverlayInternal::readTripwire()
         std::map<string, Tripwire>::iterator it;
         Point p;
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         Resolution resolution;
         resolution = GET_CONFIG().webrtc_out_default_resolution;
         if (!resolution.empty() || NvHwDetection::getInstance()->m_useNvV4l2Enc == false)
@@ -2182,7 +2178,7 @@ void NvLLOverlayInternal::readTripwire()
                 {
                     if (tripwire.wires[j])
                     {
-                        free(tripwire.wires[j]);
+                        delete tripwire.wires[j];
                         tripwire.wires[j] = nullptr;
                     }
                 }
@@ -2190,7 +2186,7 @@ void NvLLOverlayInternal::readTripwire()
                 {
                     if (tripwire.endpoints[j])
                     {
-                        free(tripwire.endpoints[j]);
+                        delete tripwire.endpoints[j];
                         tripwire.endpoints[j] = nullptr;
                     }
                 }
@@ -2198,7 +2194,7 @@ void NvLLOverlayInternal::readTripwire()
                 {
                     if (tripwire.direction[j])
                     {
-                        free(tripwire.direction[j]);
+                        delete tripwire.direction[j];
                         tripwire.direction[j] = nullptr;
                     }
                 }
@@ -2224,15 +2220,15 @@ void NvLLOverlayInternal::readTripwire()
                     tripwire.direction_count = tripwire.endpoints_count = tripwire.wires_count = 0;
                     for (uint32_t j = 0; j < MAX_LINES; j++)
                     {
-                        tripwire.wires[j] = (OSD_LineParams *)malloc(sizeof(OSD_LineParams));
+                        tripwire.wires[j] = new OSD_LineParams();
                     }
                     for (uint32_t j = 0; j < MAX_POINTS; j++)
                     {
-                        tripwire.endpoints[j] = (OSD_PointParams *)malloc(sizeof(OSD_PointParams));
+                        tripwire.endpoints[j] = new OSD_PointParams();
                     }
                     for (uint32_t j = 0; j < MAX_ARROWS; j++)
                     {
-                        tripwire.direction[j] = (OSD_ArrowParams *)malloc(sizeof(OSD_ArrowParams));
+                        tripwire.direction[j] = new OSD_ArrowParams();
                     }
 
                     Json::Value wire = tripwire_details[i].get("wire", Json::Value::null);
@@ -2385,13 +2381,12 @@ void NvLLOverlayInternal::drawTripwire(GstBuffer* buffer)
         }
         if (tripwire.stats.size())
         {
-            OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params = g_new0(OSD_TextParams, 1);
             if (text_params != nullptr)
             {
-                char* cstr = (char*)malloc(tripwire.stats.size() + 1);
+                char* cstr = strdup(tripwire.stats.c_str());
                 if (cstr != nullptr)
                 {
-                    strcpy(cstr, tripwire.stats.c_str());
                     text_params->text = cstr;
                 }
 
@@ -2457,7 +2452,7 @@ void NvLLOverlayInternal::readRoi()
         std::map<string, Roi>::iterator it;
         Point p;
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         Resolution resolution;
         resolution = GET_CONFIG().webrtc_out_default_resolution;
         if (!resolution.empty() || NvHwDetection::getInstance()->m_useNvV4l2Enc == false)
@@ -2478,7 +2473,7 @@ void NvLLOverlayInternal::readRoi()
                 {
                     if (roi.lines[j])
                     {
-                        free(roi.lines[j]);
+                        delete roi.lines[j];
                         roi.lines[j] = nullptr;
                     }
                 }
@@ -2486,7 +2481,7 @@ void NvLLOverlayInternal::readRoi()
                 {
                     if (roi.endpoints[j])
                     {
-                        free(roi.endpoints[j]);
+                        delete roi.endpoints[j];
                         roi.endpoints[j] = nullptr;
                     }
                 }
@@ -2512,11 +2507,11 @@ void NvLLOverlayInternal::readRoi()
                     roi.lines_count = roi.endpoints_count = 0;
                     for (uint32_t j = 0; j < MAX_LINES; j++)
                     {
-                        roi.lines[j] = (OSD_LineParams *)malloc(sizeof(OSD_LineParams));
+                        roi.lines[j] = new OSD_LineParams();
                     }
                     for (uint32_t j = 0; j < MAX_POINTS; j++)
                     {
-                        roi.endpoints[j] = (OSD_PointParams *)malloc(sizeof(OSD_PointParams));
+                        roi.endpoints[j] = new OSD_PointParams();
                     }
                     Json::Value roi_coord = roi_details[i].get("coordinates", Json::Value::null);
                     if (roi_details[i].get("id", Json::Value::null) != Json::Value::null)
@@ -2664,13 +2659,12 @@ void NvLLOverlayInternal::drawRoi(GstBuffer* buffer)
         }
         if (roi.stats.size())
         {
-            OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params = g_new0(OSD_TextParams, 1);
             if (text_params != nullptr)
             {
-                char* cstr = (char*)malloc(roi.stats.size() + 1);
+                char* cstr = strdup(roi.stats.c_str());
                 if (cstr != nullptr)
                 {
-                    strcpy(cstr, roi.stats.c_str());
                     text_params->text = cstr;
                 }
 
@@ -3395,18 +3389,18 @@ void NvLLOverlayInternal::readCalibrationData()
     }
 }
 
-bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUnion *union_meta, int64_t pts)
+bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (unsigned char* buffer, GstMetaUnion *union_meta, int64_t pts)
 {
     GstNvIpcMeta* ipc_meta = nullptr;
     GstNvVstMeta* vst_meta = nullptr;
     void* meta = nullptr;
     if (GET_CONFIG().enable_ipc_path && m_enableBbox)
     {
-        meta = ipc_meta = union_meta->ipcMeta;
+        meta = ipc_meta = union_meta->ipcMeta();
     }
     else
     {
-        meta = vst_meta = union_meta->vstMeta;
+        meta = vst_meta = union_meta->vstMeta();
     }
 
 #ifdef USE_CUOSD
@@ -3416,19 +3410,19 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
         LOG(info) << "Could not get libs" << endl;
         return false;
     }
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     // Running in CPU mode
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         if (!m_cpuCtx)
         {
-            m_cpuCtx = new OsdCpuDataContext();
+            m_cpuCtx = std::make_unique<OsdCpuDataContext>();
         }
         m_cpuCtx->width = m_width;
         m_cpuCtx->height = m_height;
-        m_cpuCtx->data = &buffer;
+        m_cpuCtx->data = reinterpret_cast<void**>(&buffer);
         m_cpuCtx->size = (m_width * m_height * 3) / 2;
-        ip_buffer = (OsdCpuDataContext *)m_cpuCtx;
+        ip_buffer = m_cpuCtx.get();
     }
 #endif
     string frameTimestamp;
@@ -3493,7 +3487,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
                 Point left_top = {}, right_bottom = {};
 
                 /* Assign bounding box coordinates */
-                OSD_RectParams* rect_params = (OSD_RectParams*)malloc(sizeof(OSD_RectParams));
+                OSD_RectParams* rect_params = g_new0(OSD_RectParams, 1);
 
                 if (rect_params)
                 {
@@ -3537,7 +3531,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
 
     if (m_enableSensorNameText)
     {
-        OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params = g_new0(OSD_TextParams, 1);
         if (text_params != nullptr)
         {
             char* cstr = (char*)malloc(m_sensorName.size() + 1);
@@ -3762,8 +3756,9 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
             }
 
             /* Now set the offsets where the string should appear */
-            text_params->pos_x = std::min(10, m_width);
-            text_params->pos_y = std::min(900, m_height-100);
+            const Point dbg_pos = interpolateCoordinate(10, 900, WIDTH_1080p, HEIGHT_1080p, m_width, m_height);
+            text_params->pos_x = dbg_pos.x;
+            text_params->pos_y = dbg_pos.y;
             text_params->font_size = font_size;
             text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
@@ -3799,8 +3794,9 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
                 }
 
                 /* Now set the offsets where the string should appear */
-                text_params_latency->pos_x = std::min(10, m_width);
-                text_params_latency->pos_y = std::min(900 + (3 * font_size), m_height - 100 + (3 * font_size));
+                const Point lat_pos = interpolateCoordinate(10, 900, WIDTH_1080p, HEIGHT_1080p, m_width, m_height);
+                text_params_latency->pos_x = lat_pos.x;
+                text_params_latency->pos_y = lat_pos.y + (3 * font_size);
                 text_params_latency->font_size = font_size;
                 text_params_latency->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
@@ -3841,7 +3837,7 @@ Json::Value NvLLOverlayInternal::getMetadata(int64_t frameTS)
     return metadata;
 }
 
-bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, GstNvVstMeta *meta)
+bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (unsigned char* buffer, GstNvVstMeta *meta)
 {
 #ifdef USE_CUOSD
     void *ip_buffer = buffer;
@@ -3850,19 +3846,19 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
         LOG(info) << "Could not get libs" << endl;
         return false;
     }
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     // Running in CPU mode
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         if (!m_cpuCtx)
         {
-            m_cpuCtx = new OsdCpuDataContext();
+            m_cpuCtx = std::make_unique<OsdCpuDataContext>();
         }
         m_cpuCtx->width = m_width;
         m_cpuCtx->height = m_height;
-        m_cpuCtx->data = &buffer;
+        m_cpuCtx->data = reinterpret_cast<void**>(&buffer);
         m_cpuCtx->size = (m_width * m_height * 3) / 2;
-        ip_buffer = (OsdCpuDataContext *)m_cpuCtx;
+        ip_buffer = m_cpuCtx.get();
     }
 #endif
 
@@ -4031,9 +4027,10 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
                 text_params->text = cstr;
             }
 
-            /* Now set the offsets where the string should appe ar */
-            text_params->pos_x = std::min(10, m_width);
-            text_params->pos_y = std::min(900, m_height-100);
+            /* Now set the offsets where the string should appear */
+            const Point dbg_pos = interpolateCoordinate(10, 900, WIDTH_1080p, HEIGHT_1080p, m_width, m_height);
+            text_params->pos_x = dbg_pos.x;
+            text_params->pos_y = dbg_pos.y;
             text_params->font_size = interpolateFontSize(m_sourceWidth, m_width);
             text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
@@ -4096,7 +4093,7 @@ NvOsdLibs::NvOsdLibs()
     , error(false)
 {
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libllosd.so");
     handle_nvCuLib = dlopen(lib_path, RTLD_LAZY);
     if (!handle_nvCuLib)
@@ -4129,7 +4126,7 @@ NvOsdLibs::NvOsdLibs()
         osd_global_destroy = (osd_global_destroy_t) dlsym (handle_nvCuLib, "osd_global_destroy");
         DL_ERROR_EXIT
     }
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libgstcuosdmeta.so");
     handle_nvCuosdmetaLib = dlopen(lib_path, RTLD_LAZY);
     if (!handle_nvCuosdmetaLib)
@@ -4185,9 +4182,7 @@ void NvLLOverlayInternal::updateIPCStreamResolution(int width, int height)
     m_ipcSourceHeight = height;
 }
 
-NvLLOverlayInternal::NvLLOverlayInternal()
-{
-}
+NvLLOverlayInternal::NvLLOverlayInternal() = default;
 
 void NvLLOverlayInternal::enableOverlay(OverlayParams& params, bool use_frameid, bool wait_for_es_query)
 {
@@ -4211,13 +4206,34 @@ void NvLLOverlayInternal::enableOverlay(OverlayParams& params, bool use_frameid,
     m_sensorName = params.m_sensorName;
     m_bboxParams.m_searchParams = inData;
     m_bboxParams.m_isLive = params.m_isLive;
+    // Sanity-clamp the fps used to derive the bbox match tolerance. Stream
+    // settings can carry implausible values (e.g. a legacy sensor with
+    // STREAM_FRAMERATE=1000), which would otherwise yield a ~1ms window and drop
+    // most boxes. A real sensor here is <= 120 fps; fall back to the default
+    // outside that range. This only affects the fps->tolerance math, not the
+    // stored m_frameRate used elsewhere.
+    double toleranceFps = params.m_frameRate;
+    if (!(toleranceFps > 0.1 && toleranceFps <= 120.0))
+    {
+        LOG(warning) << "Overlay: implausible frameRate " << params.m_frameRate
+                     << " fps for sensor " << params.m_sensorName
+                     << "; using " << DEFAULT_VIDEO_FRAME_RATE
+                     << " fps for bbox tolerance" << endl;
+        toleranceFps = DEFAULT_VIDEO_FRAME_RATE;
+    }
     m_bboxParams.m_timestampTolerance = GET_CONFIG().bbox_tolerance_ms * 1000;
     if (m_bboxParams.m_timestampTolerance == 0)
     {
-        m_bboxParams.m_timestampTolerance = uint((1.0 / params.m_frameRate) * 1000) * 1000;
+        m_bboxParams.m_timestampTolerance = uint((1.0 / toleranceFps) * 1000) * 1000;
     }
     m_bboxParams.m_frameSize = params.m_frameSize;
     m_bboxParams.m_frameRate = params.m_frameRate;
+    LOG(info) << "Overlay bbox match: sensor=" << params.m_sensorName
+              << " frameRate=" << params.m_frameRate << " fps (tolerance fps="
+              << toleranceFps << ")"
+              << ", bbox_tolerance_ms(config)=" << GET_CONFIG().bbox_tolerance_ms
+              << ", effective tolerance=" << (m_bboxParams.m_timestampTolerance / 1000)
+              << " ms" << endl;
     m_bboxParams.m_overlay = params.m_bboxParams;
     m_enableBbox = params.m_bboxParams.m_enableBbox;
     m_enablePose = params.m_bboxParams.m_enablePose;
@@ -4252,13 +4268,27 @@ void NvLLOverlayInternal::enableOverlay(OverlayParams& params, bool use_frameid,
         {
             if (m_enableBbox || m_enablePose || m_enableHalos)
             {
-                m_replayMetadataStore->fetchMetadata();
+                if (m_isWaitForESQuery)
+                {
+                    // Download (transcode) path: frames are produced far faster
+                    // than real time. Eagerly prefetch the whole range async so
+                    // the metadata queue never starves (bbox flicker). This
+                    // overlaps the ES fetch with pipeline construction instead of
+                    // blocking on a single 300-row batch.
+                    m_replayMetadataStore->startPrefetch();
+                }
+                else
+                {
+                    // Recorded playback / webrtc replay / vod: unchanged - real
+                    // time playback keeps the async refill ahead on its own.
+                    m_replayMetadataStore->fetchMetadata();
+                }
             }
         }
     }
     if (GET_CONFIG().enable_gem_drawing)
     {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         m_enableTripwire = params.m_bboxParams.m_enableTripwire;
         m_enableRoi = params.m_bboxParams.m_enableROI;
         if (m_enableTripwire && !m_readTripwireThread.joinable())
@@ -4326,15 +4356,15 @@ NvLLOverlayInternal::NvLLOverlayInternal(OverlayParams& params,
                         bool use_frameid, bool wait_for_es_query)
 {
     m_metadataStore = metadataStore;
-    bool enable_cpu_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
-    osd_ctx = GET_OSD_INSTANCE()->osd_init(enable_cpu_mode, g_gpuIndex);
+    bool enable_cpu_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
+    osd_ctx = GET_OSD_INSTANCE()->osd_init(enable_cpu_mode, getGpuIndex());
 
     enableOverlay(params, use_frameid, wait_for_es_query);
 }
 
 NvLLOverlayInternal::~NvLLOverlayInternal()
 {
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     m_metaWait.signal();
 #endif
     if (GET_CONFIG().enable_gem_drawing)
@@ -4360,7 +4390,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (tripwire.wires[j])
                 {
-                    free(tripwire.wires[j]);
+                    delete tripwire.wires[j];
                     tripwire.wires[j] = nullptr;
                 }
             }
@@ -4368,7 +4398,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (tripwire.endpoints[j])
                 {
-                    free(tripwire.endpoints[j]);
+                    delete tripwire.endpoints[j];
                     tripwire.endpoints[j] = nullptr;
                 }
             }
@@ -4376,7 +4406,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (tripwire.direction[j])
                 {
-                    free(tripwire.direction[j]);
+                    delete tripwire.direction[j];
                     tripwire.direction[j] = nullptr;
                 }
             }
@@ -4389,7 +4419,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (roi.lines[j])
                 {
-                    free(roi.lines[j]);
+                    delete roi.lines[j];
                     roi.lines[j] = nullptr;
                 }
             }
@@ -4397,7 +4427,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (roi.endpoints[j])
                 {
-                    free(roi.endpoints[j]);
+                    delete roi.endpoints[j];
                     roi.endpoints[j] = nullptr;
                 }
             }
@@ -4426,12 +4456,8 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
         GET_OSD_INSTANCE()->osd_destroy((OsdContext_t)osd_ctx);
         osd_ctx = nullptr;
     }
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-    if (m_cpuCtx)
-    {
-        delete m_cpuCtx;
-        m_cpuCtx = nullptr;
-    }
+#if !defined(AARCH64_PLATFORM)
+    m_cpuCtx.reset();
 #endif
     m_calibrationData.clear();
     activeObjectCorners.clear();
@@ -4443,8 +4469,8 @@ bool NvLLOverlayInternal::isOverlayEnabled()
 {
     bool is_overlay = m_enableBbox || m_enableTripwire || m_enableRoi
                      || m_enableSensorNameText || m_enablePose || m_enableHalos;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
-    bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+#if defined(AARCH64_PLATFORM)
+    bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
     return !is_sw_mode && is_overlay;
 #else
     return is_overlay;
@@ -4469,7 +4495,8 @@ GstPadProbeReturn osd_sink_pad_buffer_probe (GstPad* pad, GstPadProbeInfo* info,
         }
         /* Get vst metadata of the buffer */
         GstNvVstMeta *meta;
-        meta = meta_union.vstMeta = GST_NV_VST_META_GET (buffer);
+        meta = GST_NV_VST_META_GET (buffer);
+        meta_union.setVstMeta(meta);
         if (meta)
         {
             /* ms for live playback from onFrame */
@@ -4483,9 +4510,9 @@ GstPadProbeReturn osd_sink_pad_buffer_probe (GstPad* pad, GstPadProbeInfo* info,
 
         if (overlay->m_useId)
         {
-            ret = overlay->processOsdSinkPadBufferProbeStreamer(buffer, meta);
+            ret = overlay->processOsdSinkPadBufferProbeStreamer((unsigned char *)buffer, meta);
         }
-        ret = overlay->processOsdSinkPadBufferProbe(buffer, &meta_union, frameTS);
+        ret = overlay->processOsdSinkPadBufferProbe((unsigned char *)buffer, &meta_union, frameTS);
         return (ret == true) ? GST_PAD_PROBE_OK : GST_PAD_PROBE_REMOVE;
     }
     return GST_PAD_PROBE_REMOVE;
@@ -4501,8 +4528,9 @@ GstElement* NvLLOverlayInternal::create()
     overlay_bin = gst_bin_new ("nvoverlay");
     bool isLive = false;
     GstElement* latency_queue = nullptr;
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-    GstElement *converter2 = nullptr, *filter2 = nullptr, *converter1 = nullptr, *filter1 = nullptr;
+    GstElement *converter2 = nullptr, *filter2 = nullptr;
+#if !defined(AARCH64_PLATFORM)
+    GstElement *converter1 = nullptr, *filter1 = nullptr;
 #endif
     SearchParams inData = m_bboxParams.m_searchParams;
     if (inData.m_start_time.empty())
@@ -4519,7 +4547,7 @@ GstElement* NvLLOverlayInternal::create()
         g_object_set (G_OBJECT (latency_queue), "max-size-buffers", 0, "max-size-time", 0, "max-size-bytes", 0, "min-threshold-time", 100000000, nullptr);
     }
 #ifdef USE_CUOSD
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     GstRegistry *registry;
     registry = gst_registry_get();
     gst_registry_scan_path(registry, "prebuilts/aarch64/gst-plugins");
@@ -4528,11 +4556,11 @@ GstElement* NvLLOverlayInternal::create()
 #endif
     m_filter    = gst_element_factory_make ("capsfilter", nullptr);
 
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     /* SW path creates overlay_bin as follows :
      * videoconvert ! video/x-raw, format=RGBA ! cuosd ! video/x-raw, format=RGBA ! videoconvert ! video/x-raw, format=I420
      */
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         converter2 = gst_element_factory_make ("videoconvert", nullptr);
         filter2 = gst_element_factory_make ("capsfilter", nullptr);
@@ -4546,7 +4574,18 @@ GstElement* NvLLOverlayInternal::create()
      */
     else if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
     {
+#else
+    /* Jetson iGPU without NVENC (e.g. Orin Nano) uses HW Dec + SW Enc. The SW
+     * encoder needs system-memory raw video, but the Tegra overlay emits NVMM,
+     * so append nvvideoconvert/nvvidconv -> system I420 inside the overlay bin.
+     */
+    if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
+    {
+#endif
         converter2 = gst_element_factory_make ("nvvideoconvert", nullptr);
+#if defined(AARCH64_PLATFORM)
+        if (!converter2) converter2 = gst_element_factory_make ("nvvidconv", nullptr);
+#endif
         filter2 = gst_element_factory_make ("capsfilter", nullptr);
 
         if (!converter2 || !filter2)
@@ -4555,14 +4594,13 @@ GstElement* NvLLOverlayInternal::create()
                         << " nvvideoconvert(converter2): " << (converter2 ? "OK" : "NULL")
                         << ", capsfilter(filter2): " << (filter2 ? "OK" : "NULL")
                         << ", use_software_path: " << GET_CONFIG().use_software_path
-                        << ", g_isGpuPresent: " << g_isGpuPresent
+                        << ", isGpuPresent(): " << isGpuPresent()
                         << ", m_useNvV4l2Enc: " << NvHwDetection::getInstance()->m_useNvV4l2Enc
                         << endl;
             return nullptr;
         }
         gst_bin_add_many (GST_BIN (overlay_bin), converter2, filter2, nullptr);
     }
-#endif
 
     if (!overlay_bin || !m_nvosd || !m_filter )
     {
@@ -4572,17 +4610,17 @@ GstElement* NvLLOverlayInternal::create()
     gst_bin_add_many (GST_BIN (overlay_bin), m_nvosd, m_filter, nullptr);
 
 #ifdef USE_CUOSD
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+#if !defined(AARCH64_PLATFORM)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         g_object_set (G_OBJECT (m_nvosd), "enable-cpu-mode" , true, nullptr);
     }
     else
     {
-        g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , g_gpuIndex, nullptr);
+        g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , getGpuIndex(), nullptr);
     }
 #else
-    g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , g_gpuIndex, nullptr);
+    g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , getGpuIndex(), nullptr);
 #endif
     if (!gst_element_link (m_nvosd, m_filter))
     {
@@ -4591,10 +4629,21 @@ GstElement* NvLLOverlayInternal::create()
     }
 #endif
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
-    source_pad = gst_element_get_static_pad (m_filter, "src");
+#if defined(AARCH64_PLATFORM)
+    if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
+    {
+        if (!gst_element_link_many (m_filter, converter2, filter2, nullptr))
+        {
+            LOG (error) << "After Converter Elements could not be linked" << endl;
+        }
+        source_pad = gst_element_get_static_pad (filter2, "src");
+    }
+    else
+    {
+        source_pad = gst_element_get_static_pad (m_filter, "src");
+    }
 #else
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         if (!gst_element_link_many (converter1, filter1, m_nvosd, nullptr))
         {
@@ -4635,14 +4684,14 @@ GstElement* NvLLOverlayInternal::create()
 #ifdef USE_CUOSD
     if(isLive)
     {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         if (!gst_element_link (latency_queue, m_nvosd))
         {
             LOG (error) << "Queue Element could not be linked" << endl;
             return nullptr;
         }
 #else
-        if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+        if (GET_CONFIG().use_software_path || isGpuPresent() == false)
         {
             if (!gst_element_link (latency_queue, converter1))
             {
@@ -4663,10 +4712,10 @@ GstElement* NvLLOverlayInternal::create()
     }
     else
     {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         sink_pad = gst_element_get_static_pad (m_nvosd, "sink");
 #else
-        if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+        if (GET_CONFIG().use_software_path || isGpuPresent() == false)
         {
             sink_pad = gst_element_get_static_pad (converter1, "sink");
         }
@@ -4691,10 +4740,10 @@ GstElement* NvLLOverlayInternal::create()
     }
 
     GstCaps *caps_filter  = nullptr;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     caps_filter = gst_caps_from_string ("video/x-raw(memory:NVMM),format=NV12");
 #else
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         caps_filter = gst_caps_from_string ("video/x-raw,format=RGBA");
     }
@@ -4705,8 +4754,8 @@ GstElement* NvLLOverlayInternal::create()
 #endif
     g_object_set (G_OBJECT (m_filter), "caps", caps_filter, nullptr);
     gst_caps_unref (caps_filter);
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+#if !defined(AARCH64_PLATFORM)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         GstCaps *caps_filter1  = nullptr;
         caps_filter1 = gst_caps_from_string ("video/x-raw,format=RGBA");
@@ -4721,6 +4770,13 @@ GstElement* NvLLOverlayInternal::create()
     {
         GstCaps *caps_filter2  = nullptr;
         caps_filter2 = gst_caps_from_string ("video/x-raw,format=I420");
+        g_object_set (G_OBJECT (filter2), "caps", caps_filter2, nullptr);
+        gst_caps_unref (caps_filter2);
+    }
+#else
+    if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
+    {
+        GstCaps *caps_filter2 = gst_caps_from_string ("video/x-raw,format=I420");
         g_object_set (G_OBJECT (filter2), "caps", caps_filter2, nullptr);
         gst_caps_unref (caps_filter2);
     }
@@ -5051,10 +5107,10 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
                             OSD_COLOR_GREEN
                             };
 
-    const size_t bone_colors_count = sizeof(bone_colors) / sizeof(bone_colors[0]);
+    const size_t bone_colors_count = std::size(bone_colors);
 
     // Validate idx_bones array - ensure all indices are within bounds
-    const int num_bones = sizeof(idx_bones) / (2 * sizeof(idx_bones[0]));
+    const int num_bones = static_cast<int>(std::size(idx_bones) / 2);
     for (int i = 0; i < num_bones * 2; i++)
     {
         if (idx_bones[i] >= numKeyPoints)
@@ -5206,15 +5262,12 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
     {
         Point text_pos = interpolateCoordinate(x, y, m_sourceWidth, m_sourceHeight, m_width, m_height);
 
-        OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params = g_new0(OSD_TextParams, 1);
         if (text_params)
         {
-            // Use safe strncpy with explicit bounds checking
-            char* cstr = (char*)calloc(action_label.size() + 1, sizeof(char));
+            char* cstr = strdup(action_label.c_str());
             if (cstr)
             {
-                strncpy(cstr, action_label.c_str(), action_label.size());
-                cstr[action_label.size()] = '\0';  // Guarantee null termination
                 text_params->text = cstr;
             }
             else
@@ -5229,7 +5282,7 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
 
             // Add error checking for strdup
             const char* font_type_str = GET_CONFIG().overlay_text_font_type.c_str();
-            text_params->font_type = strdup(font_type_str);
+            text_params->font_type = g_strdup(font_type_str);
             if (!text_params->font_type)
             {
                 LOG(error) << "Failed to duplicate font type string" << endl;
@@ -5259,9 +5312,9 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
                 // Clean up if we failed to allocate text
                 if (text_params->font_type)
                 {
-                    free(text_params->font_type);
+                    g_free(text_params->font_type);
                 }
-                free(text_params);
+                g_free(text_params);
             }
         }
         else
@@ -5279,7 +5332,7 @@ void NvLLOverlayInternal::draw_ellipse_around_2d_bbox(const Point& left_top, con
     right   = right_bottom.x;
     bottom  = right_bottom.y;
 
-    OSD_EllipseParams* ellipse_params = (OSD_EllipseParams*)malloc(sizeof(OSD_EllipseParams));
+    OSD_EllipseParams* ellipse_params = g_new0(OSD_EllipseParams, 1);
     if (ellipse_params)
     {
         // Calculate the midpoint of the bottom line of the 2D box

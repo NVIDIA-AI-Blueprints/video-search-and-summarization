@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,15 +18,18 @@
 #pragma once
 
 #include "notification_manager.h"
+#include <memory>
 #include <string>
 #include <mutex>
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
 #include <librdkafka/rdkafka.h>
 #endif
 
 using namespace nv_vms;
 
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
+struct KafkaLibHandle;
+
 typedef rd_kafka_conf_t* (*rd_kafka_conf_new_t) (void);
 typedef rd_kafka_conf_res_t (*rd_kafka_conf_set_t) (rd_kafka_conf_t*, const char*, const char*, char*, size_t);
 typedef void (*dr_msg_cb_t) (rd_kafka_t*, const rd_kafka_message_t*, void*);
@@ -49,15 +52,15 @@ public:
     virtual ~NvKafka();
 
 private:
-    static NvKafka* _instance;
+    static std::unique_ptr<NvKafka> _instance;
     bool m_error;
     std::string m_topic_vms_event;
     std::string m_kafkaServerEndpoint;
     std::string m_message;
     std::mutex m_messageLock;
 
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-    void* m_kafkaHandle;
+#if !defined(AARCH64_PLATFORM)
+    KafkaLibHandle* m_kafkaHandle;
     rd_kafka_conf_new_t rd_kafka_conf_new;
     rd_kafka_conf_set_t rd_kafka_conf_set;
     rd_kafka_conf_set_dr_msg_cb_t rd_kafka_conf_set_dr_msg_cb;

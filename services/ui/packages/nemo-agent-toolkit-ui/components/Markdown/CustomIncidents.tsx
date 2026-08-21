@@ -9,7 +9,7 @@
 
 import React, { memo, useState, useMemo } from 'react';
 import { IconChevronDown, IconChevronUp, IconPlayerPlay, IconCopy } from '@tabler/icons-react';
-import { VideoModal, copyToClipboard, formatTimestamp } from '@aiqtoolkit-ui/common';
+import { VideoModal, copyToClipboard, formatTimestamp } from 'common';
 
 // Constants
 const INITIAL_VISIBLE_COUNT = 3;

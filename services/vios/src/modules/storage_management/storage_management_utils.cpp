@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +40,7 @@
 #include <cerrno>
 #include <mutex>
 
-constexpr int64_t DEFAULT_START_TIME_EPOCH = 1735689600000;
+constexpr int64_t DEFAULT_START_TIME_EPOCH = 1735689600000; // 2025-01-01T00:00:00.000Z
 
 // Temp video storage path constants are now defined in storage_management.h
 
@@ -68,6 +68,9 @@ static void createMainStreamForFirstUpload(shared_ptr<StreamInfo> stream, shared
 static void createSubsequentStream(shared_ptr<StreamInfo> stream, shared_ptr<SensorInfo> sensor, const vector<SensorStreamsDBColumns>& existingStreams, Json::Value& response);
 static void updateStreamUrls(shared_ptr<StreamInfo> stream, shared_ptr<SensorInfo> sensor, const string& rtsp_url, shared_ptr<DeviceManager> deviceMngr, const vector<SensorStreamsDBColumns>& existingStreams);
 
+// Opaque handle type for a dynamically loaded shared library
+struct SharedLibraryHandle;
+
 // Function pointer types for dynamic loading
 typedef nv_vms::VideoSegmentExtractor* (*CreateVideoSegmentExtractor_t)();
 typedef void (*DestroyVideoSegmentExtractor_t)(nv_vms::VideoSegmentExtractor*);
@@ -78,7 +81,7 @@ typedef bool (*IsExtractorAvailable_t)(nv_vms::VideoSegmentExtractor*);
 // Dynamic VideoSegmentExtractor loader class
 class DynamicVideoSegmentExtractor {
 private:
-    void* m_handle;
+    SharedLibraryHandle* m_handle;
     CreateVideoSegmentExtractor_t m_createFunc;
     DestroyVideoSegmentExtractor_t m_destroyFunc;
     ExtractSegmentStreamCopy_t m_extractFunc;
@@ -87,7 +90,7 @@ private:
     nv_vms::VideoSegmentExtractor* m_instance;
 
     // Secure library loading function with path validation
-    void* tryLoadLibrary(const char* lib_path)
+    SharedLibraryHandle* tryLoadLibrary(const char* lib_path)
     {
         if (!lib_path || lib_path[0] == '\0')
         {
@@ -143,7 +146,7 @@ private:
             LOG(error) << "Failed to load library " << resolved_path << ": " << dlerror() << endl;
         }
 
-        return handle;
+        return static_cast<SharedLibraryHandle*>(handle);
     }
 
 public:
@@ -156,11 +159,16 @@ public:
         cleanup();
     }
 
+    DynamicVideoSegmentExtractor(const DynamicVideoSegmentExtractor&) = delete;
+    DynamicVideoSegmentExtractor& operator=(const DynamicVideoSegmentExtractor&) = delete;
+    DynamicVideoSegmentExtractor(DynamicVideoSegmentExtractor&&) = delete;
+    DynamicVideoSegmentExtractor& operator=(DynamicVideoSegmentExtractor&&) = delete;
+
     bool initialize() {
         // Try to load the VideoSegmentExtractor library following vstmodule.cpp pattern
         const char* lib_path;
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libvideosegmentextractor.so");
         m_handle = tryLoadLibrary(lib_path);
         if (!m_handle) {
@@ -336,7 +344,7 @@ typedef struct {
 /* ---------------------------------------------------------------------------
 **  Civet mg_form_data_handler callback
 ** -------------------------------------------------------------------------*/
-int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data)
+int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data) // NOSONAR
 {
     struct FileData* data = (FileData *) user_data;
     if(!data)
@@ -413,7 +421,8 @@ int field_found(const char *key, const char *filename, char *path, size_t pathle
 	return MG_FORM_FIELD_STORAGE_GET;
 }
 
-int field_get(const char *key, const char *value, size_t valuelen, void *user_data)
+/* Parameter types are fixed by the civetweb mg_form_data_handler::field_get callback. */
+int field_get(const char *key, const char *value, size_t valuelen, void *user_data) // NOSONAR
 {
 	if ((key != nullptr) && (key[0] == '\0'))
     {
@@ -486,9 +495,8 @@ int field_get(const char *key, const char *value, size_t valuelen, void *user_da
 	return 0;
 }
 
-int field_stored(const char *path, long long file_size, void *user_data)
+int field_stored(const char *path, long long file_size, FileData *data)
 {
-    struct FileData* data = (FileData *) user_data;
     if(!data)
     {
         LOG(error) << "FileData is NULL" << endl;
@@ -1100,8 +1108,22 @@ VmsErrorCode addFile(std::shared_ptr<DeviceManager> deviceMngr,
         LOG(info) << "Sending camera_proxy event for file-based sensor: " << sensor->id << endl;
         vst_common::notifySensorStatusEvent(SensorStatusProxy, sensor);
 
+        std::string httpFileUrl {EMPTY_STRING};
+        StorageManagement* storageMngr = GET_STORAGE_MNGT();
+        if (storageMngr != nullptr)
+        {
+            httpFileUrl = storageMngr->generateUploadedFullFileUrl(sensor->id);
+        }
+        if (httpFileUrl.empty())
+        {
+            LOG(warning) << "Using the internal file path for camera_streaming because URL generation failed for sensor: "
+                         << sensor->id << endl;
+        }
+
+        const int64_t fileStartTimeMs = data.get("fileStartTimeMs", 0).asInt64();
+
         LOG(info) << "Sending camera_streaming event for file-based sensor: " << sensor->id << endl;
-        vst_common::notifySensorStatusEvent(SensorStatusStreaming, sensor);
+        vst_common::notifySensorStatusEvent(SensorStatusStreaming, sensor, httpFileUrl, fileStartTimeMs);
     }
     
     return VmsErrorCode::NoError;
@@ -1436,7 +1458,10 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
         }
 
         //assign form handler callbacks
-        struct mg_form_data_handler fdh = {field_found, field_get, field_stored, (void *)&data};
+        auto field_stored_cb = [](const char *path, long long file_size, void *user_data) {
+            return field_stored(path, file_size, static_cast<FileData *>(user_data));
+        };
+        struct mg_form_data_handler fdh = {field_found, field_get, field_stored_cb, (void *)&data};
 
         mg_handle_form_request(conn, &fdh);
     }
@@ -1861,7 +1886,7 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
             ", deviceType:" << deviceMngr->getDeviceType() << endl;
 
         // Add B-frame presence flag to stream data for database storage
-        if (enable_transcode != NULL && strcmp(enable_transcode, "true") == 0)
+        if (enable_transcode != nullptr && strcmp(enable_transcode, "true") == 0)
         {
             is_bframesPresent = false;
             LOG(info) << "B-frames presence flag disabled due to transcoding" << endl;
@@ -2001,6 +2026,12 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
             in["framerate"] = enc_params.m_outframeRate;
         }
 
+        // Use the documented default when the upload provides no start time.
+        const uint64_t uploadStartTimeMs =
+            (is_user_provided_timestamp && timestampValue.isUInt64() && timestampValue.asUInt64() > 0)
+                ? timestampValue.asUInt64() : static_cast<uint64_t>(DEFAULT_START_TIME_EPOCH);
+        in["fileStartTimeMs"] = static_cast<Json::UInt64>(uploadStartTimeMs);
+
         result = addFile(deviceMngr, req, in, out);
         // addFile sets out["mergedExisting"] iff it took the merge path, in
         // which case out["streamId"] identifies the just-merged stream.
@@ -2073,11 +2104,9 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
                         return VmsErrorCode::InvalidParameterError;
                     }
 
-                    uint64_t end_time_value = 0;
                     uint64_t timestamp_ms = 0;
                     double duration_sec = stringToDouble(in["duration"].asString(), 0.0);
                     row.duration_value = duration_sec > 0.0 ? static_cast<uint64_t>(duration_sec * 1000.0 + 0.5) : 0;
-                    uint64_t duration_ms = static_cast<uint64_t>(row.duration_value);
                     try
                     {
                         timestamp_ms = timestampValue.asUInt64();
@@ -2092,24 +2121,11 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
                         return VmsErrorCode::InvalidParameterError;
                     }
 
-                    // If timestamp is user provided, use it as start time
-                    if (is_user_provided_timestamp)
+                    row.start_time_value = uploadStartTimeMs;
+                    if (row.start_time_value != timestamp_ms)
                     {
-                        row.start_time_value = timestamp_ms;
-                    }
-                    else
-                    {
-                        end_time_value = timestamp_ms;
-                        if (duration_ms > 0 && end_time_value > duration_ms)
-                        {
-                            row.start_time_value = end_time_value - duration_ms;
-                        }
-                        else
-                        {
-                            // Set 01-Jan-2025 as start time for unknown duration
-                            row.start_time_value = DEFAULT_START_TIME_EPOCH;
-                            LOG(warning) << "Duration is 0, setting start time to " << convertEpocToISO8601_2(DEFAULT_START_TIME_EPOCH * 1000) << endl;
-                        }
+                        LOG(warning) << "Upload stated no start time, anchoring the recording at "
+                                     << convertEpocToISO8601_2(DEFAULT_START_TIME_EPOCH * 1000) << endl;
                     }
 
                     row.filepath_value = data.m_mediaFilePath == EMPTY_STRING ? filePath : data.m_mediaFilePath;
@@ -3218,4 +3234,3 @@ Json::Value convertCloudListResultToJson(const nv_vms::CloudListResult& result)
 
     return json;
 }
-

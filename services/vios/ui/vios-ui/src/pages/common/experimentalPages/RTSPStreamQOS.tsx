@@ -14,13 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import useVSTUIStore from '../../../services/StateManagement';
 import SensorSelector from '../../../components/sensorSelector/SingleSensorSelector';
 import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { Grid2 as Grid, Box, Button, Paper, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { Sensor } from '../../../interfaces/interfaces';
-import ReactApexChart from 'react-apexcharts';
+import ReactApexChart from '../../../components/charts/ApexChart';
 import { ApexOptions } from 'apexcharts';
 import nvAxios from '../../../services/Axios';
 import config from '../../../config';
@@ -100,7 +101,7 @@ const RTSPStreamQOS = () => {
                     });
                 }
             } catch (error) {
-                console.error('Error fetching QoS data:', error);
+                LOG.error('Error fetching QoS data:', error);
             }
         };
 

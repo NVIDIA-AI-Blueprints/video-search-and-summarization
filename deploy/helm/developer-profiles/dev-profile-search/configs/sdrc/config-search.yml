@@ -46,3 +46,4 @@ k8s-workload-streamprocessing:
   ENVOY_REQUEST_TIMEOUT: "30"
   ENVOYROUTEHEADER: streamid
   WDM_WL_CONFIG_PORT: "30001"
+  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false

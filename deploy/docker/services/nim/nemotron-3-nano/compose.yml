@@ -15,7 +15,7 @@
 
 services:
   nemotron-3-nano-init:
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     container_name: llm-nim-init
     profiles:
     - llm_local_nemotron-3-nano
@@ -34,6 +34,10 @@ services:
     shm_size: 16GB
     ports:
      - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
@@ -70,6 +74,10 @@ services:
     shm_size: 16GB
     ports:
      - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:

@@ -23,7 +23,7 @@ in warehouse, retail, and hospital environments.
 
 Package Information:
 - Name: spatialai-data-utils
-- Version: 2.0.1 (with optional suffix from VERSION_SUFFIX env var)
+- Version: 2.0.2 (with optional suffix from VERSION_SUFFIX env var)
 - Python: >=3.11
 - License: Apache-2.0
 
@@ -65,7 +65,7 @@ import os
 
 from setuptools import setup
 
-_BASE_VERSION = "2.0.1"
+_BASE_VERSION = "2.0.2"
 
 suffix = os.getenv("VERSION_SUFFIX", "")
 version = _BASE_VERSION + suffix

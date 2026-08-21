@@ -17,8 +17,8 @@
 enabled: false
 global: {}
 image:
-  repository: postgres
-  tag: 17.9-alpine
+  repository: docker.io/library/postgres
+  tag: 17.10-alpine
   pullPolicy: IfNotPresent
 replicas: 1
 # Args for postgres process (config file and socket dir)
@@ -41,7 +41,7 @@ postgresCm:
 initContainer:
   fixPermissions:
     enabled: true
-    image: busybox:1.37.0
+    image: docker.io/library/busybox:1.37.0
     runAsUser: 0
 securityContext:
   runAsUser: 1000
@@ -63,8 +63,8 @@ tolerations: []
 livenessProbe:
   exec:
     command: ["/bin/sh", "-c", "pg_isready -h localhost -U \"$POSTGRES_USER\""]
-  failureThreshold: 3
-  initialDelaySeconds: 30
+  failureThreshold: 10
+  initialDelaySeconds: 120
   periodSeconds: 20
   successThreshold: 1
   timeoutSeconds: 2

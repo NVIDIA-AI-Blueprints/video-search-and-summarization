@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -104,6 +104,8 @@ public:
     explicit ClipReaderProducer(const ClipReaderConfig& cfg);
     virtual ~ClipReaderProducer();
 
+    using IMediaDataProducer::registerConsumer;
+
     void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer,
                           const std::string& identifier = "") override;
     void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer,
@@ -122,8 +124,8 @@ public:
     void onError(std::function<void(const std::string& /*errorMsg*/, int /*errorCode*/)> cb) override;
 
     // Expose internal handles for advanced debug if needed
-    void* getGstPipeline() const { return mPipeline; }
-    void* getReaderSrc() const { return mReaderSrc; }
+    GstElement* getGstPipeline() const { return mPipeline; }
+    GstElement* getReaderSrc() const { return mReaderSrc; }
     const std::string& logPrefix() const { return mLogPrefix; }
 
     // Used by appsink collect probe (post-seek buffer queue)
@@ -141,6 +143,10 @@ private:
     bool shouldUseGiosrcForGrowingFile() const;  // Check if giosrc pipeline should be used
     bool linkElements();
     bool applySeek();
+    /* Preroll buffers are only dropped while a pending seek would replace them.
+    ** applySeek() runs solely for seek_start_ms > 0, so a clip starting at the
+    ** head of the file must keep its preroll buffers, first keyframe included. */
+    bool skipUntilSeekDone() const { return mCfg.seek_start_ms > 0 && !mSeekDone.load(); }
     bool play();
     void teardown();
     void attachBusHandlers();
@@ -227,7 +233,7 @@ private:
     // Returns true if retry was posted or already in progress.
     bool postRetryPipeline(bool isError, const std::string& errorMsg);
 
-    static void process_retry_message(std::shared_ptr<EventLoopData> data, void* parent);
+    void processRetryMessage(const std::shared_ptr<EventLoopData>& data);
 
     // Cap retries for premature EOS gaps (separate from empty-stream retries)
     std::atomic<int> mPrematureEosRetryCount{0};

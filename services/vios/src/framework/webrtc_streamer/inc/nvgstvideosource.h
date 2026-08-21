@@ -30,19 +30,19 @@
  * functionality like video broadcasting to sinks. It delegates pipeline management
  * to CommonVideoSource to maintain proper separation of concerns.
  */
-class NvGstVideoSource : public rtc::VideoSourceInterface<webrtc::VideoFrame>
+class NvGstVideoSource : public webrtc::VideoSourceInterface<webrtc::VideoFrame>
 {
 public:
     NvGstVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts);
     virtual ~NvGstVideoSource();
 
     // WebRTC VideoSourceInterface implementation
-    void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const rtc::VideoSinkWants &wants) override;
-    void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink) override;
+    void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const webrtc::VideoSinkWants &wants) override;
+    void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink) override;
     void RequestRefreshFrame() override;
 
     // WebRTC-specific methods
-    void OnSinkWantsChanged(const rtc::VideoSinkWants& wants);
+    void OnSinkWantsChanged(const webrtc::VideoSinkWants& wants);
     
     // Pipeline management delegation methods
     void getDecodeStats(LatencyStats& stats)
@@ -131,7 +131,7 @@ public:
     std::shared_ptr<NvCompositor> getCompositor() const { return m_commonVideoSource.getCompositor(); }
     std::shared_ptr<VideoWebRTCSender> getVideoSender() const { return m_commonVideoSource.getVideoSender(); }
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const { return m_commonVideoSource.getNativeStreamProducer(); }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> getIPCProducer() const { return m_commonVideoSource.getIPCProducer(); }
 #endif
 
@@ -145,5 +145,5 @@ private:
     void setupWebRTCIntegration();
     
     CommonVideoSource m_commonVideoSource;
-    rtc::VideoBroadcaster m_broadcaster;
+    webrtc::VideoBroadcaster m_broadcaster;
 };

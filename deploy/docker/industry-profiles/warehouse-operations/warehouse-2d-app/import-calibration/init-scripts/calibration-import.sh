@@ -18,7 +18,7 @@
 set -euo pipefail
 
 readonly MAX_IMAGE_UPLOAD_COUNT=20
-video_analytics_api_url="http://localhost:8081"
+video_analytics_api_url="${VIDEO_ANALYTICS_API_URL:-http://vss-video-analytics-api:8081}"
 
 ############################
 ## function: exit_with_msg

@@ -1,0 +1,292 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Warehouse MV3DT standalone: RT-DETR + NvMultiObjectTracker + bundled configs + NGC file sources.
+
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") }}
+{{- $sw := .Values.standaloneWarehouse }}
+{{- $mv3dt := $sw.mv3dt | default dict }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-mv3dt
+spec:
+  serviceName: {{ include "vss-rtvi-cv.headlessServiceName" . }}
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "vss-rtvi-cv.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vss-rtvi-cv.selectorLabels" . | nindent 8 }}
+      annotations:
+        vss-rtvi-cv.profileMode: standalone-mv3dt
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $ips := .Values.imagePullSecrets | default .Values.global.imagePullSecrets }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName | quote }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.downloadNgcAppData }}
+        - name: wait-for-ngc-app-data
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for NGC warehouse app data..."
+              elapsed=0
+              timeout={{ .Values.downloadNgcAppDataWaitSeconds | default 3600 }}
+              until test -f /models-data/vss-warehouse-app-data/.ngc-extracted; do
+                if test "${elapsed}" -ge "${timeout}"; then
+                  echo "[ERROR] Timeout waiting for NGC extract marker (${timeout}s)"
+                  exit 1
+                fi
+                echo "... still waiting (${elapsed}s)"
+                sleep 10
+                elapsed=$((elapsed + 10))
+              done
+              echo "NGC app data is ready."
+          volumeMounts:
+            - name: models
+              mountPath: /models-data
+        {{- else }}
+        - name: wait-for-warehouse-videos
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for bundled videos under /models-data/vss-warehouse-app-data/videos ..."
+              elapsed=0
+              timeout={{ .Values.downloadNgcAppDataWaitSeconds | default 3600 }}
+              until test -d /models-data/vss-warehouse-app-data/videos; do
+                if test "${elapsed}" -ge "${timeout}"; then
+                  echo "[ERROR] Timeout: mount NGC data or enable downloadNgcAppData"
+                  exit 1
+                fi
+                sleep 10
+                elapsed=$((elapsed + 10))
+              done
+          volumeMounts:
+            - name: models
+              mountPath: /models-data
+        {{- end }}
+        - name: ensure-mv3dt-engine-dirs
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /opt/storage/BodyPose3DNet
+              chmod 0777 /opt/storage /opt/storage/BodyPose3DNet
+              echo "[INFO] MV3DT engine directories ready."
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+        {{- if eq ($sw.streamType | default "none") "kafka" }}
+        - name: wait-for-kafka
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              kafka_bootstrap={{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+              kafka_bootstrap="${kafka_bootstrap%%,*}"
+              kafka_host="${kafka_bootstrap%%:*}"
+              kafka_port="${kafka_bootstrap##*:}"
+              if [ "${kafka_host}" = "${kafka_port}" ]; then
+                kafka_port=9092
+              fi
+              echo "Waiting for Kafka at ${kafka_host}:${kafka_port}..."
+              until nc -z "${kafka_host}" "${kafka_port}"; do
+                echo "Kafka not ready yet, waiting..."
+                sleep 5
+              done
+              echo "Kafka is ready."
+        {{- end }}
+        {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
+        - name: mv3dt-config-init
+          image: {{ include "vss-rtvi-cv.configInitImage" . }}
+          imagePullPolicy: {{ $mv3dt.dynamicCameraConfig.configInit.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CALIBRATION_API_URL
+              value: {{ $mv3dt.dynamicCameraConfig.calibrationApiUrl | quote }}
+            - name: CAM_INFO_OUTPUT_DIR
+              value: /tmp/camInfo
+            - name: PUB_SUB_OUTPUT_DIR
+              value: /tmp/generated
+            - name: CALIBRATION_WAIT_TIMEOUT
+              value: {{ $mv3dt.dynamicCameraConfig.waitTimeoutSeconds | default 3600 | quote }}
+            - name: MQTT_HOST
+              value: {{ include "vss-rtvi-cv.mv3dtMqttHost" . | quote }}
+            - name: MQTT_PORT
+              value: {{ $mv3dt.mqttPort | default "1883" | quote }}
+          volumeMounts:
+            - name: mv3dt-caminfo
+              mountPath: /tmp/camInfo
+            - name: generated
+              mountPath: /tmp/generated
+        {{- end }}
+      containers:
+        - name: vss-rtvi-cv
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+          workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
+          command:
+            - bash
+            - /startup-script/ds-start-mv3dt.sh
+          {{- if .Values.httpPort }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.httpPort }}
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 40
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          {{- end }}
+          env:
+            - name: INSTANCE_ID
+              value: {{ $mv3dt.instanceId | default "0" | quote }}
+            - name: DS_HTTP_PORT
+              value: {{ .Values.httpPort | quote }}
+            - name: BATCH_SIZE
+              value: {{ $mv3dt.batchSize | default "4" | quote }}
+            - name: MAX_BATCH_SIZE
+              value: {{ $mv3dt.maxBatchSize | default "4" | quote }}
+            - name: MQTT_HOST
+              value: {{ include "vss-rtvi-cv.mv3dtMqttHost" . | quote }}
+            - name: MQTT_PORT
+              value: {{ $mv3dt.mqttPort | default "1883" | quote }}
+            - name: STREAM_TYPE
+              value: {{ $sw.streamType | default "kafka" | quote }}
+            - name: KAFKA_BOOTSTRAP
+              value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+            - name: REDIS_HOST
+              value: {{ include "vss-rtvi-cv.mv3dtRedisHost" . | quote }}
+            - name: REDIS_PORT
+              value: {{ $mv3dt.redisPort | default "6379" | quote }}
+            - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+              value: {{ $mv3dt.deepstreamEnableSensorIdExtraction | default "0" | quote }}
+            - name: MV3DT_DYNAMIC_CAMERA_CONFIG
+              value: {{ ($mv3dt.dynamicCameraConfig | default dict).enabled | default false | quote }}
+            - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
+              value: {{ .Values.gstEnableCustomParserModifications | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: {{ .Values.otelSdkDisabled | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otelServiceName | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://localhost:4318"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            {{- if .Values.downloadModelsFromNgc }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | quote }}
+                  key: {{ .Values.ngcApiKeySecretKey | quote }}
+            - name: MODELS_MANIFEST_PATH
+              value: "/startup-script/models-download.json"
+            - name: MODELS_DEST_ROOT
+              value: "/opt/storage"
+            - name: STORAGE_UID
+              value: {{ (.Values.ngcDownload.storageUid | default 1001) | quote }}
+            - name: STORAGE_GID
+              value: {{ (.Values.ngcDownload.storageGid | default 1001) | quote }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "auto"
+            - name: DOWNLOAD_MODELS_SCRIPT
+              value: "/startup-script/download-models.sh"
+            {{- else }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "never"
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+            - name: startup-script
+              mountPath: /startup-script
+              readOnly: true
+            - name: mv3dt-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
+              readOnly: true
+            - name: mv3dt-caminfo
+              mountPath: /tmp/camInfo
+              readOnly: true
+            - name: generated
+              mountPath: /tmp/generated
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+
+        - name: generated
+          emptyDir: {}
+        - name: startup-script
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-start
+            defaultMode: 493
+        - name: mv3dt-cfg
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt
+            defaultMode: 420
+        {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
+        - name: mv3dt-caminfo
+          emptyDir: {}
+        {{- else }}
+        - name: mv3dt-caminfo
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-caminfo
+            defaultMode: 420
+        {{- end }}
+{{- end }}

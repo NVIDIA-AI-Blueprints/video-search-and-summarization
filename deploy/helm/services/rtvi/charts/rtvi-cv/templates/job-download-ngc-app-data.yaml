@@ -15,7 +15,7 @@
 #
 # Downloads NGC registry *resource* (videos + models bundle) into the shared -models PVC.
 
-{{- if and .Values.enabled .Values.downloadNgcAppData (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d")) }}
+{{- if and .Values.enabled .Values.downloadNgcAppData (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d") (eq .Values.profileMode "standalone-mv3dt")) }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -25,7 +25,9 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   backoffLimit: 3
-  ttlSecondsAfterFinished: 600
+  {{- with .Values.downloadNgcAppDataJob.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   template:
     spec:
       restartPolicy: OnFailure

@@ -24,97 +24,15 @@ video analytics api  -- upsert -->  mdx-notification  -- broadcast -->  behavior
                                                                 AppConfig.invalidate_caches()
                                                                               |
                                                                               v
-                                                                Read-at-use consumers see
-                                                                new values on next read.
+                                                                Consumers that read config at
+                                                                use time pick up new values on
+                                                                their next read.
 ```
 
 Two flows:
 
 - **Flow A** (`upsert`): operator updates config via the video analytics api → broadcast to all replicas → each applies, publishes `ack`.
 - **Flow B** (`request-config` → `upsert-all`): behavior-analytics asks the video analytics api for the latest verified config at startup → it replies with a payload tagged for that specific replica.
-
----
-
-## Consumer classification (how your code reads config)
-
-When you add a class that reads `self.config.X`, decide which of these patterns you want — it determines whether dynamic updates reach you automatically.
-
-### Read-at-use (preferred)
-
-Store the `AppConfig` reference, read values **inside method bodies** at call time:
-
-```python
-class StateMgmtBase:
-    def __init__(self, config: AppConfig, calibration: CalibrationBase) -> None:
-        self.config = config             # reference, not value
-
-    def some_method(self):
-        if not self.config.in_simulation_mode:   # read-at-use
-            ...
-```
-
-**Behavior under dynamic updates:** `ConfigApplier.apply(...)` mutates `config.app` then calls `config.invalidate_caches()`. The next read returns the new value. **No additional code needed.**
-
-### Per-call value-capture (rotates within seconds)
-
-Pass values into a sub-object that's reconstructed on every call:
-
-```python
-class StateMgmt:
-    def _create_trajectory(self, ...) -> TrajectoryE:
-        return TrajectoryE(
-            smooth_window_size=self.config.traj_smooth_window_size,  # value passed in
-            ...
-        )
-```
-
-**Behavior under dynamic updates:** new sub-objects pick up the new value; pre-existing ones keep the old value until naturally rotated. The stale window is bounded by sub-object lifetime — for trajectories that's one frame batch per object, which is acceptable.
-
-### Captured-at-`__init__` (restart-required)
-
-Capture a value into an attribute at `__init__` time:
-
-```python
-class CollisionDetection:
-    def __init__(self, config: CollisionDetectionConfig, ...) -> None:
-        self.config = config           # CAPTURED reference -- no AppConfig view
-```
-
-**Behavior under dynamic updates:** the captured value stays stale forever — `invalidate_caches()` clears AppConfig's caches, but the value already copied into `self.config` (or any other captured attribute) doesn't get refreshed.
-
-**This is supported but not auto-refreshed.** Operators must restart the process to pick up changes to these fields. There is no in-process reload mechanism — none of the consumers shipping today require one. If you want a value to take effect at runtime, refactor to read-at-use (`self.config.X` inside the method that uses it). The validator's allowlist (see below) explicitly excludes the names known to be captured-at-`__init__` so operators don't silently believe an update landed.
-
----
-
-## Refactoring captured-at-`__init__` → read-at-use
-
-If your class currently captures a value at `__init__`, the typical refactor is:
-
-```python
-# Before (captured-at-__init__):
-class MyConsumer:
-    def __init__(self, config: AppConfig) -> None:
-        self.config = config
-        self.threshold = self.config.behavior_water_mark   # captured value
-
-    def process(self, items):
-        return [x for x in items if x.score < self.threshold]
-
-# After (read-at-use):
-class MyConsumer:
-    def __init__(self, config: AppConfig) -> None:
-        self.config = config
-
-    def process(self, items):
-        return [x for x in items if x.score < self.config.behavior_water_mark]  # read at use-time
-```
-
-For sub-config consumers (those that take e.g. `CollisionDetectionConfig` instead of `AppConfig`), you have two options:
-
-1. **Refactor to take `AppConfig`** and re-derive the sub-config inside the method that needs it. Most flexible.
-2. **Accept that this consumer is restart-only** and document it. Make sure the affected names are NOT in the validator's allowlist.
-
-Test that a mutation followed by `config.invalidate_caches()` causes the next read of your method to return the new value.
 
 ---
 
@@ -217,7 +135,7 @@ Workers are separate processes (multiprocessing). Each has its own `AppConfig` a
 - **Main**: a single `ConfigListener` consumes `mdx-notification`, validates, atomically writes a file into `CONFIG_DIR`, applies on its local `AppConfig`, and acks.
 - **Each worker**: a `ConfigFileMonitor` watches `CONFIG_DIR` and applies the same file via its own `ConfigApplier`.
 
-This keeps Kafka consumer count at one per main process (multi-replica fan-out still works because each main has a unique `_config_replica_tag = uuid.uuid4().hex` Kafka group suffix) while every worker still picks up updates without going across the wire.
+This keeps Kafka consumer count at one per main process (multi-replica fan-out still works because each main has a unique `_config_listener_replica_tag = uuid.uuid4().hex` Kafka group suffix) while every worker still picks up updates without going across the wire.
 
 ---
 
@@ -228,7 +146,7 @@ The validator runs in both main (on inbound notifications) and workers (defense-
 1. **Shape** — payload must be a JSON object (`dict`). Anything else is wholesale `failure`.
 2. **Scope** — only `app` and `sensors` are mutable top-level keys. Other keys (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`, `inference`) become per-section rejections — they don't short-circuit, valid `app` / `sensors` items still apply.
 3. **Per-item shape** — each `(name, value)` entry must have a non-empty string `name` and a string `value`.
-4. **Allowlist** — `name` must appear in `ALLOWED_APP_KEYS` (for `app[*]`) or `ALLOWED_SENSOR_KEYS` (for `sensors[*].configs[*]`). Names outside the allowlist are rejected with `"not allowlisted for dynamic update"` so operators don't silently expect a captured-at-`__init__` key to take effect.
+4. **Allowlist** — `name` must appear in `ALLOWED_APP_KEYS` (for `app[*]`) or `ALLOWED_SENSOR_KEYS` (for `sensors[*].configs[*]`). Names outside the allowlist are rejected with `"not allowlisted for dynamic update"`, so a key that could only take effect after a restart fails loudly instead of appearing to apply.
 5. **Value** — the string `value` must satisfy the per-key rule registered in `config_value_validators.py` (type / range / enum / Pydantic schema for JSON-encoded sub-configs). Names absent from the rule registry pass unconditionally so future allowlist additions degrade safely.
 6. **Per-sensor all-or-nothing** — if any item under a sensor's `configs` rejects, the entire sensor entry is dropped (other sensors are unaffected).
 
@@ -250,37 +168,10 @@ Note the deliberate split between "zero items in input" (success no-op) and "ite
 
 ## Known limitations and gotchas
 
-1. **Per-call value-capture has a brief stale window** — sub-objects constructed before the upsert keep their original parameters until naturally rotated. For trajectories that's one frame batch per object; acceptable in practice.
-2. **Captured-at-`__init__` consumers require a restart.** A few classes capture config values into instance attributes at `__init__` (e.g. `CollisionDetection` taking `CollisionDetectionConfig`, `SpaceAnalyzer` taking `SpaceAnalyticsConfig`, the embedding downsamplers taking `VideoEmbeddingConfig`, Smart City app's `anomalyCollisionDetection`). For these, dynamic-config updates land in `AppConfig` but do *not* propagate — operators must restart the process. The allowlist explicitly excludes the affected names so the validator rejects them with `"not allowlisted for dynamic update"` rather than letting them silently no-op.
+1. **An applied update can take one batch to show up** — sub-objects constructed before the upsert keep their original parameters until naturally rotated. For trajectories that's one frame batch per object; acceptable in practice.
+2. **Some keys need a restart, and the validator says so.** A few classes read their config once, into instance attributes, when they are constructed (e.g. `CollisionDetection` taking `CollisionDetectionConfig`, `SpaceAnalyzer` taking `SpaceAnalyticsConfig`, the embedding downsamplers taking `VideoEmbeddingConfig`, Smart City app's `anomalyCollisionDetection`). For these, dynamic-config updates land in `AppConfig` but do *not* propagate — operators must restart the process. The allowlist explicitly excludes the affected names so the validator rejects them with `"not allowlisted for dynamic update"` rather than letting them silently no-op.
 3. **`request-config` failure mode** — if the video analytics api is unreachable at startup, the listener continues with the disk-baseline config after `bootstrap_timeout`. Configs are still consumable through Flow A once the video analytics api comes back online.
 4. **Bootstrap is additive** — items present in main's existing config that the bootstrap reply does not mention are preserved. Removing items via bootstrap is intentionally not supported (would require a separate `delete` event type).
-5. **Cache invalidation is process-wide** — `AppConfig.invalidate_caches()` calls `cache_clear()` on the `@cache`-wrapped instance methods, which are class-level descriptors. Clearing them affects every `AppConfig` instance in the process, not just the one the applier mutated. In production each main / worker process holds exactly one `AppConfig`, so this is the intended behavior. Tests that construct multiple `AppConfig` instances in one process should be aware that an `invalidate_caches()` on one instance will evict cached values on the others too. (`@cached_property` values are per-instance and are unaffected by this caveat.)
 
 ---
 
-## Testing approach
-
-Test files live under `video-search-and-summarization/services/analytics/behavior-analytics/`:
-
-| Layer | Test file | What to add |
-|---|---|---|
-| Cache invalidation | `tests/unit/mdx/analytics/core/schema/test_config.py::TestAppConfig` | Test that mutating + `invalidate_caches()` flips a cached property's value. |
-| Validator | `tests/unit/mdx/analytics/core/transform/config/test_config_validator.py` | Test new error paths or status transitions. |
-| Per-key value rules | `tests/unit/mdx/analytics/core/transform/config/test_config_value_validators.py` | Test new entries in `APP_VALUE_VALIDATORS` / `SENSOR_VALUE_VALIDATORS`. |
-| Applier (mutator) | `tests/unit/mdx/analytics/core/transform/config/test_config_applier.py` | Test new mutation paths if you change `set_app_config` / `set_sensor_config`. |
-| Outgoing envelopes | `tests/unit/mdx/analytics/core/transform/config/test_config_publisher.py` | Test new `event.type` shapes if you add one. |
-| Listener dispatch | `tests/unit/mdx/analytics/core/transform/config/test_config_listener.py` | Test new event-type routing. |
-| Worker file monitor | `tests/unit/mdx/analytics/core/transform/config/test_config_monitor.py` | Test new file-handling paths. |
-| End-to-end | `tests/integration/dynamic_config/dynamic_config_e2e.py` | Add a scenario for new wire-level behavior. See its README. |
-
-Aim for 100% line + branch coverage on new code under `src/mdx/analytics/core/transform/config/`. The six modules there are at 100% today — keep that bar.
-
----
-
-## Where to find canonical examples
-
-All paths below are under `video-search-and-summarization/services/analytics/behavior-analytics/`:
-
-- Read-at-use consumer: `src/mdx/analytics/core/stream/state/behavior/state_management_base.py` (just stores the `AppConfig` reference; reads at use-time).
-- Per-call value-capture: `src/mdx/analytics/core/stream/state/behavior/state_management_e.py::_create_trajectory` (passes values into a per-call sub-object).
-- Captured-at-`__init__` (restart-required) consumers: `src/mdx/analytics/core/transform/detection/collision_detection.py`, `src/mdx/analytics/core/utils/space_utilization.py::SpaceAnalyzer`, `src/mdx/analytics/core/stream/state/video_embedding/downsampling/`. Their config keys are intentionally absent from the validator's allowlist.

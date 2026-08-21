@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -166,15 +166,18 @@ int NvImageEncode::create(int width, int height)
     m_filtersrc       = gst_element_factory_make ("capsfilter"    , nullptr);
     m_filter    = gst_element_factory_make ("capsfilter", nullptr);
     m_scale    = gst_element_factory_make ("videoscale", nullptr);
-#ifndef JETSON_PLATFORM
-    m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
-#else
-    /* Found crash with nvjpegenc on below Rosie version. So using jpegenc
-    * Rosie Version  : 64,  L4T BSP Version: R35.1.0,  JetPack Version: 5.0.2 */
+    if (!isJetsonPlatform())
+    {
+        m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
+    }
+    else
+    {
+        /* Found crash with nvjpegenc on below Rosie version. So using jpegenc
+        * Rosie Version  : 64,  L4T BSP Version: R35.1.0,  JetPack Version: 5.0.2 */
 
-    //m_image_encoder   = gst_element_factory_make ("nvjpegenc", nullptr);
-    m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
-#endif
+        //m_image_encoder   = gst_element_factory_make ("nvjpegenc", nullptr);
+        m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
+    }
     m_sink      = gst_element_factory_make ("appsink", nullptr);
 
     if (!m_source || !m_filtersrc || !m_scale || !m_filter || !m_image_encoder || !m_sink)
@@ -292,7 +295,7 @@ void NvImageEncode::onFrame(const unsigned char *buffer, ssize_t size)
     /* Map the Gst Buffer to write the data */
     gst_buffer_map (gstbuffer, &map, GST_MAP_WRITE);
 
-    memcpy (map.data, (uint8_t*)buffer, size);
+    memcpy (map.data, buffer, size);
     map.size = size;
 
     /* Unmap the Gst Buffer */

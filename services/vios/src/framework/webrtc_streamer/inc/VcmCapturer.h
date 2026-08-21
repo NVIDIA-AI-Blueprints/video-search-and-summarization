@@ -30,7 +30,7 @@
 #include "media/base/video_broadcaster.h"
 #include "logger.h"
 
-class VcmCapturer : public rtc::VideoSinkInterface<webrtc::VideoFrame>,  public rtc::VideoSourceInterface<webrtc::VideoFrame> {
+class VcmCapturer : public webrtc::VideoSinkInterface<webrtc::VideoFrame>,  public webrtc::VideoSourceInterface<webrtc::VideoFrame> {
  public:
   static VcmCapturer* Create(const std::string & videourl, const std::map<std::string, std::string> & opts) {
 	std::unique_ptr<VcmCapturer> vcm_capturer(new VcmCapturer());
@@ -134,14 +134,14 @@ class VcmCapturer : public rtc::VideoSinkInterface<webrtc::VideoFrame>,  public 
 	} 
   }
 
-  void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const rtc::VideoSinkWants& wants) override {
+  void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const webrtc::VideoSinkWants& wants) override {
 	m_broadcaster.AddOrUpdateSink(sink, wants);
   }
 
-  void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) override {
+  void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink) override {
 	m_broadcaster.RemoveSink(sink);
   }
 
-  rtc::scoped_refptr<webrtc::VideoCaptureModule> m_vcm;
-  rtc::VideoBroadcaster m_broadcaster;
+  webrtc::scoped_refptr<webrtc::VideoCaptureModule> m_vcm;
+  webrtc::VideoBroadcaster m_broadcaster;
 };

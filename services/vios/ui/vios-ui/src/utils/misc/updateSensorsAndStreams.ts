@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,13 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from './Logger';
 import nvAxios from '../../services/Axios';
 import config from '../../config';
 import useVSTUIStore from '../../services/StateManagement';
 import { logError, logInfo } from './Logs';
 import { isNil } from 'lodash';
 import streamsToJSONConvertor from './streamsJSONConvertor';
-import { Sensor, SensorStatus, StorageSizes, SensorStorageSize } from '../../interfaces/interfaces';
+import { ApiErrors, RecordStatus, Sensor, SensorStatus, StorageSizes, SensorStorageSize } from '../../interfaces/interfaces';
 
 // Interface for stream data (used by both replay and live)
 interface StreamData {
@@ -41,6 +42,18 @@ interface StreamData {
 
 const CAMERA_UNAUTHORIZED_ERROR = 'CameraUnauthorizedError';
 const NO_ERROR = 'NoError';
+
+// Settled result of one of the dashboard API calls
+type SettledApiResult = PromiseSettledResult<{ data: unknown }>;
+
+// Description of a stream service (replay or live) whose sensors have to be refreshed
+interface StreamService {
+    isAvailable: boolean;
+    name: string;
+    streamName: string;
+    url: string;
+    setSensors: (sensors: Sensor[]) => void;
+}
 
 // Helper function to create API error object
 const createApiError = (error: unknown): { timestamp: number; error: string; hasError: boolean } => ({
@@ -104,15 +117,241 @@ const createSensorFromStream = (
     };
 };
 
+// Helper function to record a failed API call
+const reportApiFailure = (endpoint: keyof ApiErrors, message: string, reason: unknown): void => {
+    useVSTUIStore.getState().setApiError(endpoint, createApiError(reason));
+    logError(message, reason);
+};
+
+// Helper function to process sensor status - this is critical for other operations
+const processSensorStatus = (result: SettledApiResult): Record<string, SensorStatus> => {
+    if (result.status === 'rejected') {
+        reportApiFailure('sensorStatus', 'Failed to fetch sensor status:', result.reason);
+        return {};
+    }
+
+    const sensorStatus = result.value.data as Record<string, SensorStatus>;
+    useVSTUIStore.setState({ sensorStatus });
+    useVSTUIStore.getState().setApiError('sensorStatus', clearApiError());
+    logInfo('Successfully updated sensor status');
+    return sensorStatus;
+};
+
+// Helper function to process recording status only if adapter type is 'vst'
+const processRecordingStatus = (result: SettledApiResult, vstAdaptorType: string): void => {
+    if (vstAdaptorType === 'streamer') {
+        useVSTUIStore.getState().setApiError('recordingStatus', clearApiError());
+        return;
+    }
+
+    if (result.status === 'rejected') {
+        reportApiFailure('recordingStatus', 'Failed to fetch recording status:', result.reason);
+        useVSTUIStore.setState({ recordingStatus: {} });
+        return;
+    }
+
+    useVSTUIStore.setState({ recordingStatus: (result.value.data || {}) as Record<string, RecordStatus> });
+    useVSTUIStore.getState().setApiError('recordingStatus', clearApiError());
+    logInfo('Successfully updated recording status');
+};
+
+const isRemovedSensor = (device: Sensor): boolean => Object.prototype.hasOwnProperty.call(device, 'state') && device.state === 'removed';
+
+// Helper function to process the sensor service sensors, returning the tags of every listed sensor
+const processSensorList = (result: SettledApiResult, currentSensorStatus: Record<string, SensorStatus>): Record<string, string> => {
+    const sensorTagsById: Record<string, string> = {};
+
+    if (result.status === 'rejected') {
+        reportApiFailure('sensorList', 'Failed to fetch sensor list:', result.reason);
+        return sensorTagsById;
+    }
+
+    const sensorListData = result.value.data as Sensor[] | null | undefined;
+    if (isNil(sensorListData) || sensorListData.length === 0) {
+        return sensorTagsById;
+    }
+
+    sensorListData.forEach((device: Sensor) => {
+        if (device.sensorId && device.tags) {
+            sensorTagsById[device.sensorId] = device.tags;
+        }
+    });
+
+    // Filter out removed sensors
+    const activeSensors = sensorListData.filter((device: Sensor) => !isRemovedSensor(device));
+
+    const removedSensors = sensorListData.filter((device: Sensor) => isRemovedSensor(device));
+    useVSTUIStore.setState({ removedSensors });
+
+    // Create sensor service sensors with streamId = sensorId (main stream)
+    const sensorServiceSensors = activeSensors.map((device: Sensor) => {
+        const sensorStatus = currentSensorStatus[device.sensorId];
+
+        let isAuthorized = false;
+        let isError = true;
+
+        if (sensorStatus) {
+            isAuthorized = sensorStatus.errorCode !== CAMERA_UNAUTHORIZED_ERROR;
+            isError = sensorStatus.errorCode !== NO_ERROR;
+        }
+
+        // For main stream, streamId equals sensorId
+        return {
+            ...device,
+            isAuthorized,
+            isError,
+            streamId: device.sensorId,
+            isMain: true,
+        };
+    });
+
+    useVSTUIStore.getState().setSensorServiceSensors(sensorServiceSensors);
+    useVSTUIStore.getState().setApiError('sensorList', clearApiError());
+    logInfo(`Successfully updated ${sensorServiceSensors.length} sensor service sensors`);
+
+    return sensorTagsById;
+};
+
+// Helper function to create one sensor object for each stream (main + sub-streams)
+const buildSensorsFromStreams = (
+    streamsData: Record<string, StreamData[]>[],
+    currentSensorStatus: Record<string, SensorStatus>,
+    serviceAvailability: { sensorManagement: boolean },
+    sensorTagsById: Record<string, string>
+): Sensor[] => {
+    const sensors: Sensor[] = [];
+
+    streamsData.forEach((sensorStreams: Record<string, StreamData[]>) => {
+        const sensorId = Object.keys(sensorStreams)[0];
+
+        sensorStreams[sensorId].forEach((stream: StreamData) => {
+            sensors.push(createSensorFromStream(sensorId, stream, currentSensorStatus, serviceAvailability, sensorTagsById));
+        });
+    });
+
+    return sensors;
+};
+
+// Helper function to refresh the sensors of a stream service (replay or live)
+const updateStreamServiceSensors = async (
+    service: StreamService,
+    currentSensorStatus: Record<string, SensorStatus>,
+    serviceAvailability: { sensorManagement: boolean },
+    sensorTagsById: Record<string, string>
+): Promise<void> => {
+    if (!service.isAvailable) {
+        service.setSensors([]);
+        logInfo(`${service.name} service not available`);
+        return;
+    }
+
+    try {
+        logInfo(`${service.name} service is available. Fetching ${service.streamName} streams.`);
+        const response = await nvAxios.get(service.url);
+        const streamsData = response.data as Record<string, StreamData[]>[] | null | undefined;
+
+        if (isNil(streamsData) || streamsData.length === 0) {
+            service.setSensors([]);
+            logInfo(`No ${service.streamName} streams available`);
+            return;
+        }
+
+        const sensors = buildSensorsFromStreams(streamsData, currentSensorStatus, serviceAvailability, sensorTagsById);
+        service.setSensors(sensors);
+        logInfo(`Successfully created ${sensors.length} ${service.streamName} service sensors`);
+    } catch (error) {
+        logError(`Failed to fetch ${service.streamName} streams:`, error);
+        service.setSensors([]);
+    }
+};
+
+// Helper function to process streams
+const processStreams = (result: SettledApiResult): void => {
+    if (result.status === 'rejected') {
+        reportApiFailure('streams', 'Failed to fetch sensor streams:', result.reason);
+        return;
+    }
+
+    const streamsData = result.value.data as Record<string, StreamData[]>[] | null | undefined;
+    if (isNil(streamsData) || streamsData.length === 0) {
+        return;
+    }
+
+    logInfo('sensor/streams', streamsData);
+    const parsedStreams = streamsToJSONConvertor(streamsData);
+    useVSTUIStore.setState({ streams: parsedStreams.sensors });
+    useVSTUIStore.getState().setApiError('streams', clearApiError());
+    logInfo('Successfully updated sensor streams');
+};
+
+// Helper function to transform MMS response format to match VST format
+const transformMmsStorageSizes = (storageSizeData: Record<string, unknown>): StorageSizes => {
+    const transformedData: StorageSizes = {
+        total: {
+            remainingStorageDays: 0,
+            sizeInMegabytes: 0,
+            totalAvailableStorageSize: 0,
+            totalDiskCapacity: 0,
+        },
+    };
+
+    Object.entries(storageSizeData).forEach(([streamId, timelines]) => {
+        if (Array.isArray(timelines)) {
+            const sensorData: SensorStorageSize = {
+                sizeInMegabytes: 0,
+                state: 'active',
+                timelines: timelines.map((timeline: { endTime: string; startTime: string }) => ({
+                    endTime: timeline.endTime,
+                    startTime: timeline.startTime,
+                    sizeInMegabytes: 0,
+                })),
+            };
+            transformedData[streamId] = sensorData;
+        }
+    });
+
+    return transformedData;
+};
+
+// Helper function to process storage size
+const processStorageSize = (result: SettledApiResult, vstAdaptorType: string): void => {
+    if (result.status === 'rejected') {
+        reportApiFailure('storageSize', 'Failed to fetch storage sizes:', result.reason);
+
+        // Clear loading state even on error for MMS
+        if (vstAdaptorType === 'mms') {
+            useVSTUIStore.getState().setIsLoadingTimelines(false);
+        }
+        return;
+    }
+
+    const storageSizeData = result.value.data;
+    if (isNil(storageSizeData)) {
+        return;
+    }
+
+    logInfo('storage/size', storageSizeData);
+
+    if (vstAdaptorType === 'mms') {
+        useVSTUIStore.setState({ storageSizes: transformMmsStorageSizes(storageSizeData as Record<string, unknown>) });
+        useVSTUIStore.getState().setIsLoadingTimelines(false);
+    } else {
+        useVSTUIStore.setState({ storageSizes: storageSizeData as StorageSizes });
+    }
+
+    useVSTUIStore.getState().setApiError('storageSize', clearApiError());
+    logInfo('Successfully updated storage sizes');
+};
+
 // Function to update sensors
 export const updateSensorsAndStreams = async () => {
     try {
-        const vstAdaptorType = useVSTUIStore.getState().vstAdaptorType;
-        console.log('vstAdaptorType', vstAdaptorType);
+        const vstAdaptorType = useVSTUIStore.getState().vstAdaptorType ?? 'vst';
+        LOG.info('vstAdaptorType', vstAdaptorType);
 
         // Check all services availability
         const serviceAvailability = await useVSTUIStore.getState().checkAllServicesAvailability();
-        console.log('Services Available:', serviceAvailability);
+        LOG.info('Services Available:', serviceAvailability);
 
         // Set loading state for MMS timeline fetch
         if (vstAdaptorType === 'mms') {
@@ -138,249 +377,51 @@ export const updateSensorsAndStreams = async () => {
         // Extract results with error handling for each API call
         const [sensorListResult, sensorStatusResult, recordStatusResult, streamsResult, storageSizeResult] = results;
 
-        // Process sensor status - this is critical for other operations
-        let currentSensorStatus: Record<string, SensorStatus> = {};
-        if (sensorStatusResult.status === 'fulfilled') {
-            currentSensorStatus = sensorStatusResult.value.data;
-            useVSTUIStore.setState({ sensorStatus: currentSensorStatus });
-            useVSTUIStore.getState().setApiError('sensorStatus', clearApiError());
-            logInfo('Successfully updated sensor status');
-        } else {
-            const error = createApiError(sensorStatusResult.reason);
-            useVSTUIStore.getState().setApiError('sensorStatus', error);
-            logError('Failed to fetch sensor status:', sensorStatusResult.reason);
-        }
-
-        // Process recording status only if adapter type is 'vst'
-        if (vstAdaptorType !== 'streamer') {
-            if (recordStatusResult.status === 'fulfilled') {
-                const recordStatus = recordStatusResult.value.data || {};
-                useVSTUIStore.setState({ recordingStatus: recordStatus });
-                useVSTUIStore.getState().setApiError('recordingStatus', clearApiError());
-                logInfo('Successfully updated recording status');
-            } else {
-                const error = createApiError(recordStatusResult.reason);
-                useVSTUIStore.getState().setApiError('recordingStatus', error);
-                logError('Failed to fetch recording status:', recordStatusResult.reason);
-                useVSTUIStore.setState({ recordingStatus: {} });
-            }
-        } else {
-            useVSTUIStore.getState().setApiError('recordingStatus', clearApiError());
-        }
+        const currentSensorStatus = processSensorStatus(sensorStatusResult);
+        processRecordingStatus(recordStatusResult, vstAdaptorType);
 
         // ===================================================================
         // 1. SENSOR SERVICE SENSORS (from /api/v1/sensor/list)
         // ===================================================================
-        const sensorTagsById: Record<string, string> = {};
-        if (sensorListResult.status === 'fulfilled') {
-            const sensorListData = sensorListResult.value.data;
-            if (!isNil(sensorListData) && sensorListData.length > 0) {
-                sensorListData.forEach((device: Sensor) => {
-                    if (device.sensorId && device.tags) {
-                        sensorTagsById[device.sensorId] = device.tags;
-                    }
-                });
-                // Filter out removed sensors
-                const activeSensors = sensorListData.filter(
-                    (device: Sensor) => !(Object.prototype.hasOwnProperty.call(device, 'state') && device.state === 'removed')
-                );
-
-                const removedSensors = sensorListData.filter(
-                    (device: Sensor) => Object.prototype.hasOwnProperty.call(device, 'state') && device.state === 'removed'
-                );
-                useVSTUIStore.setState({ removedSensors });
-
-                // Create sensor service sensors with streamId = sensorId (main stream)
-                const sensorServiceSensors = activeSensors.map((device: Sensor) => {
-                    const sensorStatus = currentSensorStatus[device.sensorId];
-
-                    let isAuthorized = false;
-                    let isError = true;
-
-                    if (sensorStatus) {
-                        isAuthorized = sensorStatus.errorCode !== CAMERA_UNAUTHORIZED_ERROR;
-                        isError = sensorStatus.errorCode !== NO_ERROR;
-                    }
-
-                    // For main stream, streamId equals sensorId
-                    return {
-                        ...device,
-                        isAuthorized,
-                        isError,
-                        streamId: device.sensorId,
-                        isMain: true,
-                    };
-                });
-
-                useVSTUIStore.getState().setSensorServiceSensors(sensorServiceSensors);
-                useVSTUIStore.getState().setApiError('sensorList', clearApiError());
-                logInfo(`Successfully updated ${sensorServiceSensors.length} sensor service sensors`);
-            }
-        } else {
-            const error = createApiError(sensorListResult.reason);
-            useVSTUIStore.getState().setApiError('sensorList', error);
-            logError('Failed to fetch sensor list:', sensorListResult.reason);
-        }
+        const sensorTagsById = processSensorList(sensorListResult, currentSensorStatus);
 
         // ===================================================================
         // 2. REPLAY SERVICE SENSORS (from /api/v1/replay/streams)
         // ===================================================================
-        if (serviceAvailability.replay) {
-            try {
-                logInfo('Replay service is available. Fetching replay streams.');
-                const replayStreamsResponse = await nvAxios.get(`${config.replayStreamEndpoint}/api/v1/replay/streams`);
-                const replayStreamsData = replayStreamsResponse.data;
-
-                if (!isNil(replayStreamsData) && replayStreamsData.length > 0) {
-                    const replayServiceSensors: Sensor[] = [];
-
-                    replayStreamsData.forEach((sensorStreams: Record<string, StreamData[]>) => {
-                        const sensorId = Object.keys(sensorStreams)[0];
-                        const streams = sensorStreams[sensorId];
-
-                        // Create one sensor object for each stream (main + sub-streams)
-                        streams.forEach((stream: StreamData) => {
-                            const sensor = createSensorFromStream(
-                                sensorId,
-                                stream,
-                                currentSensorStatus,
-                                serviceAvailability,
-                                sensorTagsById
-                            );
-                            replayServiceSensors.push(sensor);
-                        });
-                    });
-
-                    useVSTUIStore.getState().setReplayServiceSensors(replayServiceSensors);
-                    logInfo(`Successfully created ${replayServiceSensors.length} replay service sensors`);
-                } else {
-                    useVSTUIStore.getState().setReplayServiceSensors([]);
-                    logInfo('No replay streams available');
-                }
-            } catch (replayError) {
-                logError('Failed to fetch replay streams:', replayError);
-                useVSTUIStore.getState().setReplayServiceSensors([]);
-            }
-        } else {
-            useVSTUIStore.getState().setReplayServiceSensors([]);
-            logInfo('Replay service not available');
-        }
+        await updateStreamServiceSensors(
+            {
+                isAvailable: serviceAvailability.replay,
+                name: 'Replay',
+                streamName: 'replay',
+                url: `${config.replayStreamEndpoint}/api/v1/replay/streams`,
+                setSensors: useVSTUIStore.getState().setReplayServiceSensors,
+            },
+            currentSensorStatus,
+            serviceAvailability,
+            sensorTagsById
+        );
 
         // ===================================================================
         // 3. LIVE SERVICE SENSORS (from /api/v1/live/streams)
         // ===================================================================
-        if (serviceAvailability.liveStream) {
-            try {
-                logInfo('Live stream service is available. Fetching live streams.');
-                const liveStreamsResponse = await nvAxios.get(`${config.liveStreamEndpoint}/api/v1/live/streams`);
-                const liveStreamsData = liveStreamsResponse.data;
-
-                if (!isNil(liveStreamsData) && liveStreamsData.length > 0) {
-                    const liveServiceSensors: Sensor[] = [];
-
-                    liveStreamsData.forEach((sensorStreams: Record<string, StreamData[]>) => {
-                        const sensorId = Object.keys(sensorStreams)[0];
-                        const streams = sensorStreams[sensorId];
-
-                        // Create one sensor object for each stream (main + sub-streams)
-                        streams.forEach((stream: StreamData) => {
-                            const sensor = createSensorFromStream(
-                                sensorId,
-                                stream,
-                                currentSensorStatus,
-                                serviceAvailability,
-                                sensorTagsById
-                            );
-                            liveServiceSensors.push(sensor);
-                        });
-                    });
-
-                    useVSTUIStore.getState().setLiveServiceSensors(liveServiceSensors);
-                    logInfo(`Successfully created ${liveServiceSensors.length} live service sensors`);
-                } else {
-                    useVSTUIStore.getState().setLiveServiceSensors([]);
-                    logInfo('No live streams available');
-                }
-            } catch (liveError) {
-                logError('Failed to fetch live streams:', liveError);
-                useVSTUIStore.getState().setLiveServiceSensors([]);
-            }
-        } else {
-            useVSTUIStore.getState().setLiveServiceSensors([]);
-            logInfo('Live stream service not available');
-        }
+        await updateStreamServiceSensors(
+            {
+                isAvailable: serviceAvailability.liveStream,
+                name: 'Live stream',
+                streamName: 'live',
+                url: `${config.liveStreamEndpoint}/api/v1/live/streams`,
+                setSensors: useVSTUIStore.getState().setLiveServiceSensors,
+            },
+            currentSensorStatus,
+            serviceAvailability,
+            sensorTagsById
+        );
 
         // ===================================================================
         // OTHER API RESULTS (streams, storage size)
         // ===================================================================
-
-        // Process streams
-        if (streamsResult.status === 'fulfilled') {
-            const streamsData = streamsResult.value.data;
-            if (!isNil(streamsData) && streamsData.length > 0) {
-                logInfo('sensor/streams', streamsData);
-                const parsedStreams = streamsToJSONConvertor(streamsData);
-                useVSTUIStore.setState({ streams: parsedStreams.sensors });
-                useVSTUIStore.getState().setApiError('streams', clearApiError());
-                logInfo('Successfully updated sensor streams');
-            }
-        } else {
-            const error = createApiError(streamsResult.reason);
-            useVSTUIStore.getState().setApiError('streams', error);
-            logError('Failed to fetch sensor streams:', streamsResult.reason);
-        }
-
-        // Process storage size
-        if (storageSizeResult.status === 'fulfilled') {
-            const storageSizeData = storageSizeResult.value.data;
-            if (!isNil(storageSizeData)) {
-                logInfo('storage/size', storageSizeData);
-
-                // Transform MMS response format to match VST format
-                if (vstAdaptorType === 'mms') {
-                    const transformedData: StorageSizes = {
-                        total: {
-                            remainingStorageDays: 0,
-                            sizeInMegabytes: 0,
-                            totalAvailableStorageSize: 0,
-                            totalDiskCapacity: 0,
-                        },
-                    };
-
-                    Object.entries(storageSizeData).forEach(([streamId, timelines]) => {
-                        if (Array.isArray(timelines)) {
-                            const sensorData: SensorStorageSize = {
-                                sizeInMegabytes: 0,
-                                state: 'active',
-                                timelines: timelines.map((timeline: { endTime: string; startTime: string }) => ({
-                                    endTime: timeline.endTime,
-                                    startTime: timeline.startTime,
-                                    sizeInMegabytes: 0,
-                                })),
-                            };
-                            transformedData[streamId] = sensorData;
-                        }
-                    });
-
-                    useVSTUIStore.setState({ storageSizes: transformedData });
-                    useVSTUIStore.getState().setIsLoadingTimelines(false);
-                } else {
-                    useVSTUIStore.setState({ storageSizes: storageSizeData });
-                }
-
-                useVSTUIStore.getState().setApiError('storageSize', clearApiError());
-                logInfo('Successfully updated storage sizes');
-            }
-        } else {
-            const error = createApiError(storageSizeResult.reason);
-            useVSTUIStore.getState().setApiError('storageSize', error);
-            logError('Failed to fetch storage sizes:', storageSizeResult.reason);
-
-            // Clear loading state even on error for MMS
-            if (vstAdaptorType === 'mms') {
-                useVSTUIStore.getState().setIsLoadingTimelines(false);
-            }
-        }
+        processStreams(streamsResult);
+        processStorageSize(storageSizeResult, vstAdaptorType);
 
         // Log summary
         const successCount = results.filter(result => result.status === 'fulfilled').length;

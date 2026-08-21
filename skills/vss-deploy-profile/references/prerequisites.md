@@ -1,12 +1,7 @@
----
-name: vss-prerequisites
-description: Check VSS system prerequisites — GPU driver, Docker, NVIDIA Container Toolkit, and NGC access. Use when troubleshooting a deploy failure, after a system change, or to verify the system is ready for VSS.
----
-
 # VSS Prerequisites Check
 <a id="preflight"></a>
 
-Verifies system readiness for any VSS developer profile. For NGC CLI setup specifically, use the `ngc` skill.
+Verifies system readiness for any VSS developer profile. For NGC CLI setup specifically, see [`ngc.md`](ngc.md).
 
 ## Preflight — quick reference
 
@@ -60,7 +55,7 @@ fi
 
 ## When to Use
 
-Use this skill when:
+Use this reference when:
 
 - A VSS deploy failed and you need to diagnose why
 - User asks to verify GPU, Docker, or system setup
@@ -131,10 +126,11 @@ sudo sysctl --system
 ## Network addressing — HOST_IP / EXTERNAL_IP
 <a id="addressing"></a>
 
-VST and the NIMs bind *all* host interfaces under host networking (nginx
-`listen 30888`), so these vars don't bind anything — they only choose which host
-address clients **dial** (`VST_INGRESS_ENDPOINT=${HOST_IP}:30888/vst`,
-`VLM_BASE_URL=http://${HOST_IP}:…`; UI/report links use `EXTERNAL_IP`).
+VST and the NIMs bind their configured container ports; host-published port
+conflicts are handled through the `*_HOST_PORT` overrides. Internal VST defaults
+live in `services/vios/vst.env` (`VST_INTERNAL_URL=http://vst-ingress:30888`,
+`VST_INGRESS_ENDPOINT=vst-ingress:30888/vst`), while model URLs and UI/report
+links still use `HOST_IP` / `EXTERNAL_IP` where those clients dial the host.
 
 **`HOST_IP` — the in-cluster dial address.** Must be reachable from the docker
 bridge (VLM→VST), the host-net agent, and (since `EXTERNAL_IP` inherits it) LAN
@@ -182,7 +178,7 @@ user will browse from, ask before setting `EXTERNAL_IP`.**
 Pick `HOST_IP` / `EXTERNAL_IP` first — see [Network addressing](#addressing).
 
 VSS runs a mixed network topology: VST and `vss-agent` use host networking, but
-the VLM/LLM NIMs run on the `mdx_default` Docker bridge. The agent hands the VLM a
+the VLM/LLM NIMs run on the Compose Docker bridge (`<project>_default`, default `vss_default`). The agent hands the VLM a
 `http://$HOST_IP:30888/...` VST URL, so the bridge must reach host ports. If `ufw`
 is active it blocks the bridge subnet by default — the VLM then can't download
 clips and `video_understanding` returns HTTP 500 (`fetch_video_async TimeoutError`).
@@ -194,18 +190,18 @@ ranges); **do not disable ufw**:
 ```bash
 if sudo ufw status 2>/dev/null | grep -q "Status: active"; then
   sudo ufw allow from 172.17.0.0/16   # docker default bridge
-  sudo ufw allow from 172.18.0.0/16   # mdx_default (first compose bridge)
+  sudo ufw allow from 172.18.0.0/16   # vss_default (first compose bridge, unless COMPOSE_PROJECT_NAME is changed)
   sudo ufw reload
 fi
 ```
 
-If `mdx_default` already exists and landed on a different subnet (multiple Docker
-stacks on the host), allow that one instead:
-`docker network inspect mdx_default -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
+If the Compose project network already exists and landed on a different subnet
+(multiple Docker stacks on the host), allow that one instead:
+`docker network inspect "${COMPOSE_PROJECT_NAME:-vss}_default" -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
 (Same step `warehouse.md` documents for Brev; applies to any ufw-active host.)
 
 **Browser access from another machine.** The bridge rule above only lets *containers*
-reach the host — it does **not** open ports to other devices. The `HAPROXY_PORT`
+reach the host — it does **not** open ports to other devices. The `HAPROXY_HOST_PORT`
 ingress (default `7777`) reverse-proxies the UI, agent API, and VST, so a single
 allow covers all three:
 
@@ -215,7 +211,7 @@ sudo ufw allow 7777/tcp        # HAProxy ingress — fronts UI + agent + VST. Or
 sudo ufw reload
 ```
 
-`nvstreamer` is the exception — its port (`31000`, host-networked) is **not** behind
+`nvstreamer` is the exception — its host-published port (`NVSTREAMER_HTTP_HOST_PORT`, default `31000`) is **not** behind
 the ingress, so reaching its UI / RTSP directly needs its own allow:
 
 ```bash

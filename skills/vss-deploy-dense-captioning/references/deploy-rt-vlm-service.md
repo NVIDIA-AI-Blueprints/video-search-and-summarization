@@ -3,15 +3,15 @@
 ## 1. Overview
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
-**Image (default multiarch: x86 / Jetson-Tegra / non-Spark non-SBSA)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1`
-**Image (Spark / GB10 / SBSA / Grace)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa`
+**Image (default multiarch: x86 / Jetson-Tegra / non-Spark non-SBSA)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`
+**Image (Spark / GB10 / SBSA / Grace)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2-sbsa`
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
 
 Derive `<compose-default>` from the checked-out
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
-hardcoding it in commands. The current `develop` compose default is
-`3.2.1`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All other
+hardcoding it in commands. The current compose default is
+`3.3.0-26.08.2`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All other
 platforms use the normal multiarch tag.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
@@ -39,6 +39,12 @@ live-authoritative schema — see §16.
   (`docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` must succeed)
 - **Git LFS** (HF-backed models)
 - **≥ 50 GB disk** for image + 20–80 GB for model weights on first run
+- **CPU**: ≥ 8 cores recommended. The vLLM scheduler, RTSP decoder, and FastAPI server all need CPU headroom.
+- **RAM**: ≥ 32 GB. Model weights live in VRAM but vLLM keeps significant CPU-side state for batch + scheduler.
+- **Container resource requirements (set in the upstream compose, do NOT override):**
+  - `shm_size: '16gb'` — required for vLLM IPC. Source: `real-time-vlm.rst` § Sample docker-compose.yml line 278.
+  - `ulimits: { memlock: { soft: -1, hard: -1 }, stack: 67108864 }` — required for vLLM page-locked allocations. Source: lines 378–382.
+  - `ipc: host` — required so vLLM shared-memory IPC reaches the host kernel SHM segment. Source: line 383.
 - **Kafka on host** reachable at `${HOST_IP}:9092` (compose does NOT bundle Kafka)
 - **Sibling NIM compose** providing the VLM backend: rtvi-vlm `depends_on`
   `cosmos-reason1-7b` / `cosmos-reason2-8b` / `qwen3-vl-8b-instruct`, all
@@ -77,7 +83,7 @@ echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 # Run the Step 0a tag-selection snippet in the standalone copy flow below, then
 # verify pull access for the exact image this compose will use.
 : "${RTVI_VLM_IMAGE_TAG:?Run Step 0a below to set RTVI_VLM_IMAGE_TAG first}"
-docker pull "nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG}"
+docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG}"
 ```
 
 > ⚠ **`docker compose pull` fails on standalone deployments** (recent Docker
@@ -163,7 +169,7 @@ sudo -n chown 1001:1001 ./rtvi-logs || {
 | Host var | Required | Compose default | Notes |
 |---|---|---|---|
 | `RTVI_VLM_PORT` | **YES** (`${RTVI_VLM_PORT?}` strict) | — | Host REST API port |
-| `HOST_IP` | **YES (effectively)** | — | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | optional | `kafka:29092` | Override for an external broker, for example `host.docker.internal:9092`. |
 | `VSS_DATA_DIR` | **YES (effectively)** | — | Interpolated into VST clip-storage bind mount; no fallback |
 | `NGC_CLI_API_KEY` | **YES for documented pull / local NGC model path** | — | `docker login nvcr.io`, image pull, and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` | optional / backend-dependent | `${NGC_CLI_API_KEY}` fallback in compose | RT-VLM bearer auth or non-NGC backend auth; does not replace `NGC_CLI_API_KEY` for registry pulls |
@@ -181,12 +187,12 @@ The most important host-side variables use the `RTVI_VLM_*` or `RTVI_VLLM_*`
 prefix and are rewritten to canonical container-side names by compose.
 
 Minimum standalone openai-compatible deployment using the documented image pull:
-`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`,
+`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `VSS_DATA_DIR`,
 `RTVI_VLM_ENDPOINT`, and `VLM_NAME`. Add `RTVI_VLM_API_KEY` when the remote
 backend or RT-VLM bearer policy requires a token different from the NGC key.
 
 Minimum standalone self-hosted Cosmos deployment:
-`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`,
+`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `VSS_DATA_DIR`,
 `RTVI_VLM_MODEL_TO_USE`, and `RTVI_VLM_MODEL_PATH`.
 
 ## 8. Optional / Feature-Flag Environment Variables
@@ -237,7 +243,7 @@ Set `RTVI_VLM_MODEL_TO_USE` in `rtvi-vlm.env` to select the backend. After any c
 
 ```bash
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
+  --profile rtvi-vlm up -d --force-recreate rtvi-vlm
 ```
 
 If Docker requires elevated privileges, use `sudo -n docker compose ...` and
@@ -309,6 +315,12 @@ NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 locally-served vLLM-compatible model. Reference:
 https://docs.nvidia.com/vss/latest/real-time-vlm.html#hugging-face-models-locally
 
+**VRAM scaling note:** the 8B Cosmos Reason models (Options C) need ~16–20 GB
+VRAM. The **30B Qwen3-VL** (validated below) needs significantly more — **≥ 48 GB
+VRAM recommended, often multi-GPU** via `VSS_NUM_GPUS_PER_VLM_PROC` /
+`NUM_GPUS` for tensor-parallel vLLM. Plan GPU allocation accordingly when
+selecting this option.
+
 ```bash
 # rtvi-vlm.env — authenticate via HF_TOKEN env var:
 RTVI_VLM_MODEL_TO_USE=vllm-compatible
@@ -366,13 +378,13 @@ plain `docker compose up` — `--profile <name>` is required.
 | Profile | Intended use |
 |---|---|
 | `bp_wh_2d` | Warehouse/base 2D profile |
-| `bp_developer_alerts_2d_vlm` | Alerts blueprint (2D, VLM-only) |
+| `rtvi-vlm` | Alerts blueprint (2D, VLM-only) |
 | `bp_developer_alerts_2d_cv` | Alerts (2D + CV) |
 | `bp_developer_base_2d_IGX-THOR` | Base 2D on IGX Thor |
 | `bp_developer_base_2d_AGX-THOR` | Base 2D on AGX Thor |
 | `bp_developer_lvs_2d` | LVS 2D profile |
 
-Generic VLM workflow → `bp_developer_alerts_2d_vlm`.
+Generic VLM workflow → `rtvi-vlm`.
 
 ```bash
 # Step 0. Get compose (copy from checkout, or fetch the same path from VSS_REF)
@@ -518,7 +530,7 @@ fi
 
 # Step 3. Validate the standalone compose before creating containers.
 docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm config --quiet
+  --profile rtvi-vlm config --quiet
 
 # Step 4. NGC auth. Pipe the key from the user shell; do not rely on sudo
 # preserving environment variables.
@@ -526,18 +538,22 @@ docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
 printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login nvcr.io -u '$oauthtoken' --password-stdin
 
 # Step 5. Pull image directly (docker compose pull fails on standalone — see §4)
-docker_cmd pull "nvcr.io/nvidia/vss-core/vss-rt-vlm:${VLM_TAG}"
+docker_cmd pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${VLM_TAG}"
 
 # Step 6. Bring up — plain `up` (no profile) starts nothing
 docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm up -d
+  --profile rtvi-vlm up -d
 
 # Step 7. Wait for healthy — start_period is 1200s (20 MIN) on first boot.
 #         Model weight download + vLLM warmup can take the full window.
 #         Do NOT kill as "stuck" before 20 minutes have elapsed.
+#
+#         Warm-cache restart (rtvi-hf-cache + rtvi-ngc-model-cache preserved across
+#         `down` without -v) completes in ~55 seconds. IN-1 reference reruns
+#         logged 54s and 56s in this window.
 until [ "$(docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
   | jq -r 'if length > 0 then ([.[].Health] | all(. == "healthy")) else false end')" = "true" ]; do
-  echo "waiting for rtvi-vlm… (up to 20 minutes on first run)"
+  echo "waiting for rtvi-vlm… (~55s warm-cache, up to 20 minutes on first run)"
   sleep 15
 done
 
@@ -556,15 +572,15 @@ cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}
 
 # Resolved compose (audit; --no-interpolate keeps ${VAR} literal — no secrets leaked)
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm config --no-interpolate
+  --profile rtvi-vlm config --no-interpolate
 
 # Validation only
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm config --quiet && echo "compose valid"
+  --profile rtvi-vlm config --quiet && echo "compose valid"
 
 # Create containers + pull + volumes, but don't start
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm up --no-start
+  --profile rtvi-vlm up --no-start
 
 # Cleanup
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down
@@ -642,14 +658,14 @@ once the service is up):
 
 | Symptom | Root cause | Fix |
 |---|---|---|
-| `docker compose up` starts nothing | `--profile` not specified | Add `--profile bp_developer_alerts_2d_vlm` (§12) |
+| `docker compose up` starts nothing | `--profile` not specified | Add `--profile rtvi-vlm` (§12) |
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `rtvi-vlm.env` |
 | Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo -n chown` reports that a password is required or fails in an agent session | Host path ownership requires user privileges and passwordless sudo is unavailable | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `sudo -n docker ...` reports that a password is required | Docker requires elevated privileges, but the agent cannot satisfy an interactive sudo prompt | Prefer adding the user to the docker group, enable passwordless sudo for Docker, or have the host owner run the printed Docker command manually. Do not retry with interactive sudo. |
 | `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. | Remove the `depends_on` block from the local compose copy (§12 step 0b). Only needed for standalone deploys without the full met-blueprints project. |
-| `docker compose pull` → `invalid compose project` | Same `depends_on` validation runs before pull | Use `docker pull nvcr.io/nvidia/vss-core/vss-rt-vlm:<tag>` directly (§4) |
+| `docker compose pull` → `invalid compose project` | Same `depends_on` validation runs before pull | Use `docker pull nvcr.io/nvstaging/vss-core/vss-rt-vlm:<tag>` directly (§4) |
 | `docker compose pull --no-deps` → `unknown flag: --no-deps` | Compose 2.38 does not support `--no-deps` on `pull` | Use direct `docker pull` (§4), or strip `depends_on` and validate before `up` (§12 step 0b). |
 | `password is empty` on Docker login | `$NGC_CLI_API_KEY` is not set in the invoking shell, or a previous sudo shell dropped the environment | Export `NGC_CLI_API_KEY` in the user shell and pipe it through the §12 Docker wrapper: `printf '%s' "$NGC_CLI_API_KEY" \| docker_cmd login nvcr.io -u '$oauthtoken' --password-stdin` |
 | `unauthorized` on `docker compose pull` | Missing NGC auth or no org access | `docker login nvcr.io` with a key that has `nvidia/vss-core` access |
@@ -684,10 +700,10 @@ Named volumes survive both. Re-download only if `MODEL_PATH` changes.
 cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}"
 
 # Keep named volumes (model caches preserved)
-docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile rtvi-vlm down
 
 # WIPES model caches (20–80 GB re-download)
-docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down -v
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile rtvi-vlm down -v
 
 # Remove locally-pulled image
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down --rmi local
@@ -730,15 +746,10 @@ docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down --rmi
   `docker_cmd` wrapper and pipe secrets through
   stdin (`printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login ...`). Never let
   `sudo` prompt interactively in an agent session.
-- **External Kafka required**: `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` — if
-  `HOST_IP` isn't set, the container tries `:9092` and fails.
-  `host.docker.internal` is wired via `extra_hosts` as an alternative value.
+- **Kafka broker default**: `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=kafka:29092`. Override it for an external broker, for example `host.docker.internal:9092`.
 - **`VSS_DATA_DIR` required**: no default on the bind mount. Without it the
   mount spec expands to garbage.
-- **Kafka startup order matters for validation**: when `RTVI_VLM_KAFKA_ENABLED=true`,
-  start Kafka with an advertised `${HOST_IP}:9092` listener before RT-VLM. If the
-  broker was missing or its listener changed after RT-VLM started, run
-  `docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm`.
+- **Kafka startup order matters for validation**: start the broker before RT-VLM. For the default `kafka:29092` address, the broker must be reachable on the Compose network; for an external broker, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to its container-reachable address before starting RT-VLM.
 - **Host-var rewrite convention**: most host-side vars use `RTVI_VLM_*` or
   `RTVI_VLLM_*` and rewrite to canonical names inside the container.
 - **`VLM_MODEL_TO_USE=openai-compat` by default**: this stack expects a sibling

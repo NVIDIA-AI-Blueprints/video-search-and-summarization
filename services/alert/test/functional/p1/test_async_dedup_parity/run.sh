@@ -14,8 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Test: Async Redis Dedup Parity
-# Description: Compare sync vs async Redis dedup behavior (same duplicate input should index exactly one document).
+# Test: Async Dedup Parity
+# Description: Compare sync vs thread_bridge vs event_loop dedup behavior
+#              (same duplicate input should index exactly one document).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,6 +37,8 @@ mkdir -p "$PID_DIR"
 
 ASYNC_CONFIG="$PID_DIR/${TEST_NAME}_async_config.yaml"
 build_async_external_io_config "$BASE_CONFIG" "$ASYNC_CONFIG"
+EVENT_LOOP_CONFIG="$PID_DIR/${TEST_NAME}_event_loop_config.yaml"
+build_event_loop_config "$BASE_CONFIG" "$EVENT_LOOP_CONFIG"
 
 if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
     export PATH="$REPO_ROOT/venv/bin:$PATH"
@@ -45,8 +48,9 @@ reset_mode_state() {
     local today
     today=$(date -u +%Y-%m-%d)
 
-    redis-cli -h 127.0.0.1 -p 6379 FLUSHALL >/dev/null 2>&1 || true
-    docker exec alert-agent-redis-test redis-cli FLUSHALL >/dev/null 2>&1 || true
+    # Dedup state is in-process and resets when the Alert Bridge process is
+    # restarted between modes; confirmed-verdict markers live in ES.
+    curl -sf -X DELETE "$ES_HOST/ab-confirmed-verdicts" >/dev/null 2>&1 || true
 
     curl -sf -X DELETE "$ES_HOST/mdx-vlm-incidents-$today" >/dev/null 2>&1 || true
     curl -sf -X DELETE "$ES_HOST/mdx-vlm-alerts-$today" >/dev/null 2>&1 || true
@@ -139,9 +143,11 @@ PY
 
 SYNC_ADDED=0
 ASYNC_ADDED=0
+EVENT_LOOP_ADDED=0
 
 run_dedup_mode "sync" "$BASE_CONFIG" "ASYNC_DEDUP_SYNC_SENSOR" "p1_${TEST_NAME}_sync_fixed" SYNC_ADDED
 run_dedup_mode "async" "$ASYNC_CONFIG" "ASYNC_DEDUP_ASYNC_SENSOR" "p1_${TEST_NAME}_async_fixed" ASYNC_ADDED
+run_dedup_mode "event_loop" "$EVENT_LOOP_CONFIG" "ASYNC_DEDUP_EVENT_LOOP_SENSOR" "p1_${TEST_NAME}_event_loop_fixed" EVENT_LOOP_ADDED
 
 if [ "$SYNC_ADDED" -ne 1 ]; then
     print_status "fail" "FAIL: Sync baseline expected 1 doc, got $SYNC_ADDED"
@@ -153,10 +159,10 @@ if [ "$ASYNC_ADDED" -ne 1 ]; then
     exit 1
 fi
 
-if [ "$SYNC_ADDED" -ne "$ASYNC_ADDED" ]; then
-    print_status "fail" "FAIL: Dedup parity mismatch (sync=$SYNC_ADDED async=$ASYNC_ADDED)"
+if [ "$EVENT_LOOP_ADDED" -ne 1 ]; then
+    print_status "fail" "FAIL: Event-loop mode expected 1 doc, got $EVENT_LOOP_ADDED"
     exit 1
 fi
 
-print_status "ok" "PASS: Redis dedup parity confirmed (sync=$SYNC_ADDED async=$ASYNC_ADDED)"
+print_status "ok" "PASS: Dedup parity confirmed (sync=$SYNC_ADDED async=$ASYNC_ADDED event_loop=$EVENT_LOOP_ADDED)"
 exit 0

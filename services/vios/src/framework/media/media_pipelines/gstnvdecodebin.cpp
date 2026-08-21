@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,15 +19,16 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include "mm_utils.h"
+#include "utils.h"
 #include "nvhwdetection.h"
 #include "gstnvvideodecoder.h"
 
-#define GST_DEBUG_PROBE_BUFFER_COUNT 10
-#define DECODER_EXTRA_SURFACES 6
-#define CUDA_DEC_MEM_TYPE_DEVICE 0
-#define MAX_PADS_WAIT_TIMEOUT 5s
-#define MAX_IMAGE_WIDTH  3840
-#define MAX_IMAGE_HEIGHT 2160
+constexpr int  GST_DEBUG_PROBE_BUFFER_COUNT = 10;
+constexpr gint DECODER_EXTRA_SURFACES       = 6;
+constexpr gint CUDA_DEC_MEM_TYPE_DEVICE     = 0;
+constexpr auto MAX_PADS_WAIT_TIMEOUT        = std::chrono::seconds(5);
+constexpr int  MAX_IMAGE_WIDTH              = 3840;
+constexpr int  MAX_IMAGE_HEIGHT             = 2160;
 
 namespace
 {
@@ -306,14 +307,14 @@ GstPadProbeReturn NvDecodeBin::padProbeCB (GstPad * pad, GstPadProbeInfo * info)
     /* remove unlinks automatically */
     gst_bin_remove (GST_BIN (m_decodeBin), m_decoder);
     m_decoder = nullptr;
-    gchar *element_name;
+    const gchar *element_name;
     if (m_useNvV4l2Dec == false || m_playBackSpeed < 0)
     {
-        element_name = (gchar *)SW_AV_DECODER;
+        element_name = SW_AV_DECODER;
     }
     else
     {
-        element_name = (gchar *)NV_V4L2_DECODER;
+        element_name = NV_V4L2_DECODER;
     }
     m_decoder = gst_element_factory_make (element_name, nullptr);
     LOG(info) << "Selecting decoder element: " << element_name << endl;
@@ -334,10 +335,11 @@ GstPadProbeReturn NvDecodeBin::padProbeCB (GstPad * pad, GstPadProbeInfo * info)
         ** The value 6 is set to match the buffers allocated in Encoder class
         */
         g_object_set (G_OBJECT (m_decoder), "num-extra-surfaces", DECODER_EXTRA_SURFACES  , nullptr);
-#ifndef JETSON_PLATFORM 
+        if (!isJetsonPlatform())
+        {
         g_object_set (G_OBJECT (m_decoder), "cudadec-memtype"   , CUDA_DEC_MEM_TYPE_DEVICE, nullptr);
-        g_object_set (G_OBJECT (m_decoder), "gpu-id"   , g_gpuIndex, nullptr);
-#endif
+        g_object_set (G_OBJECT (m_decoder), "gpu-id"   , getGpuIndex(), nullptr);
+        }
     }
 
     gst_element_set_state (m_decoder, GST_STATE_PLAYING);
@@ -379,13 +381,16 @@ dbin_element_added (GstElement * dbin, GstElement * element, gpointer data)
     {
         if (!strcmp ((GST_OBJECT_NAME (factory)), NV_V4L2_DECODER))
         {
-    #ifndef JETSON_PLATFORM 
+            if (!isJetsonPlatform())
+            {
             g_object_set (G_OBJECT (element), "num-extra-surfaces", DECODER_EXTRA_SURFACES  , nullptr);
             g_object_set (G_OBJECT (element), "cudadec-memtype"   , CUDA_DEC_MEM_TYPE_DEVICE, nullptr);
-            g_object_set (G_OBJECT (element), "gpu-id"   , g_gpuIndex, nullptr);
-    #else
+            g_object_set (G_OBJECT (element), "gpu-id"   , getGpuIndex(), nullptr);
+            }
+            else
+            {
             g_object_set (G_OBJECT (element), "num-extra-surfaces", 10, nullptr);
-    #endif
+            }
             // Apply low-latency mode based on B-frame presence from stream config
             if (GET_CONFIG().enable_dec_low_latency_mode)
             {
@@ -400,11 +405,14 @@ dbin_element_added (GstElement * dbin, GstElement * element, gpointer data)
                 if (!hasBframes)
                 {
                     LOG(info) << "B-frames NOT present (from stream config), enabling low-latency decoder mode" << endl;
-#ifndef JETSON_PLATFORM
+                    if (!isJetsonPlatform())
+                    {
                     g_object_set(G_OBJECT(element), "low-latency-mode", true, nullptr);
-#else
+                    }
+                    else
+                    {
                     g_object_set(G_OBJECT(element), "disable-dpb", true, nullptr);
-#endif
+                    }
                 }
                 else
                 {
@@ -529,10 +537,6 @@ GstElement* NvDecodeBin::create(bool is_image_capture)
 
     if (m_useNvV4l2Dec == true)
     {
-#ifdef JETSON_PLATFORM
-        Resolution resolution;
-        resolution = GET_CONFIG().webrtc_out_default_resolution;
-#endif
         /* Adding seperate CB for HW mode, as we need to set properties of HW decoder */
         g_signal_connect (G_OBJECT(m_decoder), "element-added", G_CALLBACK (dbin_element_added), this);
     }

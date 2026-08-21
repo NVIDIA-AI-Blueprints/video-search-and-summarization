@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,20 +41,14 @@ namespace nv_vms
     public:
         static Sqlite *getInstance()
         {
-            if (m_instance == nullptr)
+            static Sqlite instance;
+            static bool initialized = false;
+            if (!initialized)
             {
-                m_instance = new Sqlite;
-                assert(m_instance->connect() == 0);
+                assert(instance.connect() == 0);
+                initialized = true;
             }
-            return m_instance;
-        }
-        static void destroy()
-        {
-            if (m_instance)
-            {
-                delete m_instance;
-                m_instance = nullptr;
-            }
+            return &instance;
         }
 
         // IDatabaseInterface mandatory
@@ -165,7 +159,8 @@ namespace nv_vms
             const std::string& deviceId, const std::string& streamId,
             int64_t startTimeMs, int64_t endTimeMs,
             const std::string& fileType = "",
-            const std::string& containerFormat = "") override;
+            const std::string& containerFormat = "",
+            const std::string& configHash = "") override;
         int updateTempFileExpiry(
             const std::string& filePath, int64_t newExpiryTimestamp) override;
 
@@ -182,7 +177,6 @@ namespace nv_vms
 
     private:
         sqlite3 *m_db;
-        static Sqlite *m_instance;
         bool m_connected;
     };
 

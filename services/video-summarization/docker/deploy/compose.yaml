@@ -263,7 +263,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
       KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-logstash-vlm-es-writer}
-      KAFKA_TOPIC: ${KAFKA_TOPIC:-mdx-vlm-captions}
+      MESSAGE_BUS_TOPIC: ${MESSAGE_BUS_TOPIC:-mdx-vlm-captions}
       KAFKA_STRUCTURED_SUMMARY_TOPIC: ${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
       ES_HOST: elasticsearch
       ES_PORT: '9200'
@@ -308,7 +308,7 @@ services:
 
   # ── RTVI VLM service (profile-gated: only starts when COMPOSE_PROFILES includes "rtvi") ──
   rtvi-vlm:
-    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1}
+    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2}
     container_name: rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
@@ -355,7 +355,9 @@ services:
       # the consumer-expected topic.
       KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-      KAFKA_TOPIC: ${KAFKA_TOPIC:-mdx-vlm-captions}
+      MESSAGE_BUS: ${MESSAGE_BUS:-kafka}
+      MESSAGE_BUS_TOPIC: ${MESSAGE_BUS_TOPIC:-mdx-vlm-captions}
+      ERROR_BUS: ${ERROR_BUS:-kafka}
       ENABLE_REDIS_ERROR_MESSAGES: false
       ENABLE_REQUEST_PROFILING: ${ENABLE_REQUEST_PROFILING:-false}
       VIA_SKIP_PIPELINE_WARMUP: ${VIA_SKIP_PIPELINE_WARMUP:-0}

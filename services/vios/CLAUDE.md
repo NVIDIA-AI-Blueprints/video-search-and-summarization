@@ -47,14 +47,11 @@
 
 ```
 /vios-deployment build                               # build stream-processor + nvstreamer containers from source
-/vios-deployment build --target scaled               # build scaled microservices + nvstreamer containers from source
 /vios-deployment deploy                              # deploy stream-processor (default; "VST"/"VIOS" = stream-processor)
 /vios-deployment deploy --target nvstreamer          # deploy NVStreamer only
 /vios-deployment deploy --target all                 # deploy NVStreamer + stream-processor
-/vios-deployment deploy --target scaled              # deploy scaled microservices
-/vios-deployment deploy --target all --with-minio    # full stack with MinIO
 /vios-deployment stop                                # stop all services
-/vios-deployment stop --target vios                  # stop VIOS only
+/vios-deployment stop --target vst                   # stop VIOS only (alias: vios)
 /vios-deployment stop --target nvstreamer            # stop NVStreamer only
 /vios-deployment status                              # show running containers and their status
 ```
@@ -91,6 +88,9 @@ The shared skills and guides live in `.claude/sqa/`.
 | `/build-help` | Get the exact `build.sh` command for any build scenario |
 | `/bdd-test` | Write feature files and pytest-bdd steps for a new feature |
 | `/ui-test` | Run playwright-based UI tests against a running VIOS instance |
+| `/vst-ui-dev` | Full development loop for the VST web client (`ui/vios-ui`, package `vst-ui-ts`): plan, implement, lint/format, dev server, commit, PR |
+| `/ui-dev-server` | Configure the backend endpoint in `ui/vios-ui/src/config.tsx`, install deps, and start the Vite dev server |
+| `/update-vst-ui` | Build the VST UI (`ui/vios-ui`) and deploy the static assets into the vios tree (`deployment/scaling/ingress/vst-ui` and `webroot`), then commit |
 | `/setup-maas-mcp` | Install NVIDIA MaaS MCP servers (GitLab, Jira, Confluence, etc.) |
 | `/review-mr [<MR-URL-or-IID>]` | Fetch all MR review comments, verify each against the codebase, fix valid issues, and post a reply to every comment |
 
@@ -142,7 +142,6 @@ test/gtests/     Google Test unit tests
 test/bdd_tests/  Python BDD tests (pytest-bdd + Gherkin)
 deployment/      Kubernetes Helm charts and UCF deployment configs
 cicd_files/      CI/CD scripts, Dockerfiles per arch
-mcp/             MCP gateway (Python)
 ```
 
 ### Module System
@@ -238,6 +237,10 @@ Adaptors are loaded dynamically via `adaptor_loader.cpp`. Use `/new-adaptor` ski
 ### Git Workflow
 
 Git conventions live in **`/vios-git`** (`.claude/commands/vios-git.md`). Consult it before any branch, commit, or MR.
+
+### Git LFS
+
+`services/vios/` tracks selected files with Git LFS; see `.gitattributes` for paths such as `LICENSE.3rdparty`, prebuilt `*.so` and `*.a` files, bundled UI `*.js` files, and `*.tar.gz` archives. When adding an LFS-tracked notice or another LFS file that CI source jobs must read, ensure `.gitattributes` tracks it and add its path to the `git lfs pull --include=` list in `.github/workflows/ci.yml` (the **Fetch required LFS source notices** step). CI intentionally leaves other `services/vios/**` LFS objects as pointer stubs in the source artifact.
 
 ---
 

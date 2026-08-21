@@ -8,7 +8,7 @@ detection**: the server lower-cases each chunk's VLM response and checks for the
 **`"yes"` or `"true"`**. If either appears, the server builds an incident protobuf
 (`isAnomaly=True`, `info["triggerPhrase"]=<matched tokens>`, `info["verdict"]="confirmed"`)
 and publishes it to `KAFKA_INCIDENT_TOPIC` in addition to the normal caption message on
-`KAFKA_TOPIC`. Per <https://docs.nvidia.com/vss/latest/real-time-vlm.html>.
+`MESSAGE_BUS_TOPIC`. Per <https://docs.nvidia.com/vss/latest/real-time-vlm.html>.
 
 **Recommended prompt pattern** (from the docs):
 ```
@@ -43,7 +43,7 @@ response to the caller and Kafka records for downstream message-bus consumers.
   ```
 
 **Kafka publish** (when `KAFKA_ENABLED=true`):
-- Every caption → **`KAFKA_TOPIC`** with header `message_type: vision_llm`
+- Every caption → **`MESSAGE_BUS_TOPIC`** with header `message_type: vision_llm`
   and `info["incidentDetected"] = "true"|"false"`.
 - Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`**
   with header `message_type: incident`.
@@ -66,23 +66,22 @@ Source-backed topic sets:
 
 Always confirm the live container before validating Kafka, because these env vars
 are fixed at RT-VLM container start. In a full VSS alerts real-time profile, the
-Kafka container is `mdx-kafka`; use that exact container name in consumer
-commands and final proof snippets. Do not shorten it to `kafka`, even if another
-container with that name exists. Run this shared setup once before the topic
-checks and consumer snippets below:
+Kafka container is `kafka`; use that exact container name in consumer commands
+and final proof snippets. Run this shared setup once before the topic checks and
+consumer snippets below:
 ```bash
 if [ -z "${KAFKA_CONTAINER:-}" ]; then
-  if docker ps --format '{{.Names}}' | grep -qx mdx-kafka; then
+  if docker ps --format '{{.Names}}' | grep -qx kafka; then
+    KAFKA_CONTAINER=kafka
+  elif docker ps --format '{{.Names}}' | grep -qx mdx-kafka; then
     KAFKA_CONTAINER=mdx-kafka
   elif docker ps --format '{{.Names}}' | grep -qx rtvi-vlm-kafka; then
     KAFKA_CONTAINER=rtvi-vlm-kafka
-  elif docker ps --format '{{.Names}}' | grep -qx kafka; then
-    KAFKA_CONTAINER=kafka
   else
     KAFKA_CONTAINER=rtvi-vlm-kafka
   fi
 fi
-CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
+CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv MESSAGE_BUS_TOPIC 2>/dev/null || true)}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
 ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
 CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
@@ -99,7 +98,7 @@ kafka_cli() {
   ' sh "$@"
 }
 
-docker exec vss-rtvi-vlm printenv KAFKA_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC 2>/dev/null || true
+docker exec vss-rtvi-vlm printenv MESSAGE_BUS_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC 2>/dev/null || true
 printf 'Kafka container: %s\n' "$KAFKA_CONTAINER"
 ```
 
@@ -114,11 +113,7 @@ done
 
 ### Standalone Kafka Listener Setup
 
-The RT-VLM compose does not bundle Kafka. For standalone tests, start an
-equivalent broker before starting RT-VLM. The critical requirement is that the
-broker advertises the same `${HOST_IP}:9092` value that RT-VLM uses for
-`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`.
-
+The RT-VLM compose expects `kafka:29092` by default. For standalone tests, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to an address reachable from the RT-VLM container (for example `host.docker.internal:9092`), then ensure the broker advertises that same address.
 First choose how Kafka should be provided:
 
 - **Use existing Kafka** if a broker is already running and the user confirms it
@@ -206,7 +201,7 @@ elif [ "$port_status" = "2" ]; then
 fi
 
 # If Docker Hub rate-limits apache/kafka with HTTP 429, set:
-#   KAFKA_IMAGE=confluentinc/cp-kafka:8.2.0
+#   KAFKA_IMAGE=confluentinc/cp-kafka:8.3.0
 case "$KAFKA_IMAGE" in
   apache/kafka:*)
     docker run -d --name "$KAFKA_CONTAINER" \
@@ -245,7 +240,7 @@ case "$KAFKA_IMAGE" in
       "$KAFKA_IMAGE"
     ;;
   *)
-    echo "Unsupported KAFKA_IMAGE=$KAFKA_IMAGE; use apache/kafka:4.1.1 or confluentinc/cp-kafka:8.2.0"
+    echo "Unsupported KAFKA_IMAGE=$KAFKA_IMAGE; use apache/kafka:4.1.1 or confluentinc/cp-kafka:8.3.0"
     exit 1
     ;;
 esac
@@ -297,14 +292,11 @@ for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
 done
 ```
 
-The standalone RT-VLM compose sets `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; a
-`rtvi-vlm.env` value named `KAFKA_BOOTSTRAP_SERVERS` is ignored unless you edit the
-compose. If Kafka was not reachable when RT-VLM started, or if you changed the
-broker advertised listener, restart/recreate RT-VLM before checking offsets:
+The RT-VLM compose maps `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to the container-side `KAFKA_BOOTSTRAP_SERVERS`, defaulting to `kafka:29092`. Set the prefixed host variable in `rtvi-vlm.env` before recreating RT-VLM when using an external broker.
 
 ```bash
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
+  --profile rtvi-vlm up -d --force-recreate rtvi-vlm
 ```
 
 Then consume bounded, metadata-only samples from all three topics. `--timeout-ms`
@@ -327,11 +319,11 @@ done
 ```
 
 For a full VSS alerts real-time profile, the incident-topic proof should include
-`mdx-kafka` explicitly. Skip this block for standalone RT-VLM; use the
+`kafka` explicitly. Skip this block for standalone RT-VLM; use the
 `kafka_cli` consumer above instead.
 
 ```bash
-docker exec mdx-kafka kafka-console-consumer \
+docker exec kafka kafka-console-consumer \
   --bootstrap-server 127.0.0.1:9092 \
   --topic "${INCIDENT_TOPIC:-mdx-vlm-incidents}" \
   --from-beginning \

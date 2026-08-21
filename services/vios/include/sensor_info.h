@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -93,7 +93,7 @@ struct Resolution
     string height;
 
     void operator=(const string& value);
-    bool operator==(const Resolution& res);
+    bool operator==(const Resolution& res) const;
     bool empty() const;
     string getString() const;
     int getPixels() const;
@@ -138,16 +138,24 @@ struct HashingAlgorithmInfo
     std::string algorithm;  // e.g., "SHA-256"/"MD5,SHA-256"/"MD5"
 };
 
+// Opaque, typed stand-in for a libcurl easy handle (libcurl declares CURL as void)
+struct CurlEasyHandle;
+
 class ClientSession
 {
     public:
         virtual ~ClientSession();
         ClientSession();
 
-        CURL* getCurlClient();
+        ClientSession(const ClientSession&) = delete;
+        ClientSession& operator=(const ClientSession&) = delete;
+        ClientSession(ClientSession&&) = delete;
+        ClientSession& operator=(ClientSession&&) = delete;
+
+        CurlEasyHandle* getCurlClient();
         std::shared_ptr<NvSoap> getNvSoap();
     protected:
-        CURL* m_curl;
+        CurlEasyHandle* m_curl;
         std::shared_ptr<NvSoap> m_nvsoap;
 };
 
@@ -327,7 +335,6 @@ struct SensorPosition
     string fieldOfView;
     string depth;
     SensorPosition();
-    void operator=(const SensorPosition& pos);
     void printInfo();
 };
 

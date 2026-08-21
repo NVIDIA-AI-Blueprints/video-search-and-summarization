@@ -1,6 +1,6 @@
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"consumer": {
 			"autoOffsetReset": "latest",
 			"enableAutoCommit": false,
@@ -171,6 +171,10 @@
 		{
 			"name": "mapMatchingClasses",
 			"value": "[\"Car\",\"Truck\",\"Bus\",\"Motorcycle\",\"Bicycle\",\"Scooter\",\"Emergency Vehicle\",\"Vehicle\",\"Person\"]"
+		},
+		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
 			"name": "behaviorWatermarkSec",

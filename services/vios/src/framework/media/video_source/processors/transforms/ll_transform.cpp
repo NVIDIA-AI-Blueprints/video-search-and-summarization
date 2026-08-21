@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#include <new>
 
 #include "ll_transform.h"
 #include "logger.h"
@@ -40,16 +42,17 @@ void NvLLTransform::setOriginalFrameSize(int w, int h)
     m_height = h;
     m_sourceWidth = w;
     m_sourceHeight = h;
-#ifdef JETSON_PLATFORM
-    /* Update the overlay resolution when out-resolution is not specified and enc is present */
-    Resolution resolution;
-    resolution = GET_CONFIG().webrtc_out_default_resolution;
-    if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+    if (isJetsonPlatform())
     {
-        m_width = w;
-        m_height = h;
+        /* Update the overlay resolution when out-resolution is not specified and enc is present */
+        Resolution resolution;
+        resolution = GET_CONFIG().webrtc_out_default_resolution;
+        if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+        {
+            m_width = w;
+            m_height = h;
+        }
     }
-#endif
 }
 
 void NvLLTransform::setIPCMeta ()
@@ -97,10 +100,10 @@ NvLLTransform::~NvLLTransform ()
     {
         if (m_swSurf->surfaceList != nullptr)
         {
-            free(m_swSurf->surfaceList);
+            delete m_swSurf->surfaceList;
             m_swSurf->surfaceList = nullptr;
         }
-        free(m_swSurf);
+        delete m_swSurf;
         m_swSurf = nullptr;
     }
     LOG(info) << "Exit " << __METHOD_NAME__ <<  endl;
@@ -226,7 +229,7 @@ void NvLLTransform::doTransformTask()
         GstNvVstMeta *meta = nullptr;
         GstNvIpcMeta *ipc_meta = nullptr;
         int64_t pts = 0;
-        bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+        bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
         bool is_error = false;
         int ret = 0;
 
@@ -279,7 +282,13 @@ void NvLLTransform::doTransformTask()
                 }
                 if (sink_frame->m_gstBuffer)
                 {
-#ifdef JETSON_PLATFORM
+                    if (isJetsonPlatform())
+                    {
+                    // The IPC-meta path (GST_NV_IPC_META_GET -> gst_nv_ipc_meta_api_get_type)
+                    // is aarch64-only; the defining lib (libnvdsgst_ipcmeta) exists only for
+                    // aarch64, so compile-gate it out on x86 (isJetsonPlatform() is false there
+                    // anyway).
+#ifdef AARCH64_PLATFORM
                     if (GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
                         ipc_meta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
@@ -287,6 +296,12 @@ void NvLLTransform::doTransformTask()
                     }
                     else
 #endif
+                    {
+                        meta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
+                        pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
+                    }
+                    }
+                    else
                     {
                         meta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
@@ -311,7 +326,7 @@ void NvLLTransform::doTransformTask()
             }
             else if (!sink_frame->m_sample)
             {
-                ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, (void **)&ip_surf);
+                ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, &ip_surf);
                 if (ret < 0)
                 {
                     LOG(error) << "NvBufSurfaceFromFd failed" << endl;
@@ -363,7 +378,7 @@ void NvLLTransform::doTransformTask()
             {
                 if (!is_sw_mode)
                 {
-                    ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, (void **)&dst_surf);
+                    ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, &dst_surf);
                     if (ret < 0)
                     {
                         LOG(error) << "NvBufSurfaceFromFd failed" << endl;
@@ -373,15 +388,15 @@ void NvLLTransform::doTransformTask()
 
                     // Perform transform based on config
                     NvBufSurfTransformConfigParams config_params;
-                    config_params.gpu_id       = g_gpuIndex;
+                    config_params.gpu_id       = getGpuIndex();
                     config_params.compute_mode = NvBufSurfTransformCompute_Default;
                     config_params.cuda_stream  = nullptr;
                     NvBufWrapper::getInstance()->NvBufSurfTransformSetSessionParams (&config_params);
 
-                    NvBufSurfTransformRect *src_rect = nullptr, *dst_rect = nullptr;
+                    NvBufSurfTransformRect src_rect_storage = {};
+                    NvBufSurfTransformRect dst_rect_storage = {};
+                    NvBufSurfTransformRect *src_rect = &src_rect_storage, *dst_rect = &dst_rect_storage;
                     NvBufSurfTransformParams transform_params = {0};
-                    src_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-                    dst_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
                     src_rect->top                       = 0;
                     src_rect->left                      = 0;
                     src_rect->width                     = sink_frame->m_sourceWidth;
@@ -400,13 +415,9 @@ void NvLLTransform::doTransformTask()
                     if (transform_error != NvBufSurfTransformError_Success)
                     {
                         LOG(error) << "Transform failure" << endl;
-                        free (dst_rect);
-                        free (src_rect);
                         is_error = true;
                         goto error;
                     }
-                    free (dst_rect);
-                    free (src_rect);
                 }
 
                 if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true || (m_consumer && m_consumer->getConsumerType() != ConsumerType::webrtcConsumer))
@@ -427,7 +438,7 @@ void NvLLTransform::doTransformTask()
                         {
                             // case 1.2 hw mode full
                             frame_data->m_fd            = fd_index_pair.first;
-                            frame_data->m_fdWrapperObj  = new std::shared_ptr<fdWrapper>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, fd_index_pair.second));
+                            frame_data->m_fdWrapperObj = std::make_unique<std::shared_ptr<fdWrapper>>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, fd_index_pair.second));
                             frame_data->m_sourceWidth   = sink_frame->m_targetWidth;
                             frame_data->m_sourceHeight  = sink_frame->m_targetHeight;
                         }
@@ -468,11 +479,11 @@ void NvLLTransform::doTransformTask()
                 else
                 {
                     // case 2 enc not present
-                    rtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new rtc::RefCountedObject<webrtc::I420Buffer>(sink_frame->m_targetWidth, sink_frame->m_targetHeight));
+                    webrtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new webrtc::RefCountedObject<webrtc::I420Buffer>(sink_frame->m_targetWidth, sink_frame->m_targetHeight));
 
                     if (is_sw_mode) // Input is sw buffer
                     {
-                        rtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new rtc::RefCountedObject<webrtc::I420Buffer>(m_width, m_height));
+                        webrtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new webrtc::RefCountedObject<webrtc::I420Buffer>(m_width, m_height));
 
                         /* Use src stride from frame_data when set (decoder output), else use width (contiguous) */
                         const int src_stride_y = (sink_frame->m_srcStrideY > 0) ? sink_frame->m_srcStrideY : m_width;
@@ -570,14 +581,14 @@ void NvLLTransform::doTransformTask()
                         // Create the NvBufSurface for webrtc SW buffer storage
                         if (!m_swSurf)
                         {
-                            m_swSurf = (NvBufSurface *) calloc (1, sizeof(NvBufSurface));
+                            m_swSurf = new (std::nothrow) NvBufSurface{};
                             if (!m_swSurf)
                             {
                                 LOG(error) << "Allocate SW surface failed" << endl;
                                 is_error = true;
                                 goto error;
                             }
-                            m_swSurf->surfaceList = (NvBufSurfaceParams *) calloc (1, sizeof(NvBufSurfaceParams));
+                            m_swSurf->surfaceList = new (std::nothrow) NvBufSurfaceParams{};
                             if (!m_swSurf->surfaceList)
                             {
                                 LOG(error) << "Allocate SW surfaceList failed" << endl;

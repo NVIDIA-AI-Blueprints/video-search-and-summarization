@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import concurrent.futures
+import hashlib
 import json
 import logging
 import multiprocessing
@@ -170,7 +171,15 @@ def download_single_file_from_storage_streaming(
     :rtype: str | None
     """
     try:
-        safe_filename = file_key.replace("/", "_").replace("\\", "_")
+        # Derive a collision-safe staging filename from the full object key.
+        # Flattening separators (e.g. "a/b" -> "a_b") can collide across
+        # distinct keys ("a/b" vs "a_b"), causing concurrent downloads to
+        # overwrite each other in the shared temp_dir. Hash the exact key
+        # instead; the filename is only an opaque staging name (the file is
+        # later read back and concatenated), so we keep the original extension
+        # purely for readability.
+        _, ext = os.path.splitext(file_key)
+        safe_filename = hashlib.sha256(file_key.encode("utf-8")).hexdigest() + ext
         temp_file_path = os.path.join(temp_dir, safe_filename)
 
         storage_client.download_file(

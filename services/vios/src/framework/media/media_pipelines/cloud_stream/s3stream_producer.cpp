@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -300,17 +300,10 @@ CloudStreamProducer::CloudStreamProducer(const std::string& streamId,
 CloudStreamProducer::~CloudStreamProducer()
 {
     try {
-        stop();
+        CloudStreamProducer::stop();
 
-        if (m_streamInfo) {
-            delete m_streamInfo;
-            m_streamInfo = nullptr;
-        }
-
-        if (m_seekData) {
-            delete m_seekData;
-            m_seekData = nullptr;
-        }
+        m_streamInfo.reset();
+        m_seekData.reset();
 
         LOG(info) << "CloudStreamProducer destroyed for stream: " << m_streamId << endl;
     } catch (const std::exception& e) {
@@ -388,7 +381,7 @@ bool CloudStreamProducer::start()
     }
 
     // Initialize seek data
-    m_seekData = new SeekData{m_pipeline, m_startTime, m_endTime, false, false};
+    m_seekData = std::make_unique<SeekData>(SeekData{m_pipeline, m_startTime, m_endTime, false, false});
 
     // Set pipeline to PAUSED first (for preroll and seeking and then play in asyncDone callback)
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PAUSED);
@@ -659,10 +652,10 @@ bool CloudStreamProducer::createSingleSegmentPipeline()
     }
 
     // Setup stream info for pad-added callback
-    m_streamInfo = new StreamInfo{0, 0, 0.0, this};
+    m_streamInfo = std::make_unique<StreamInfo>(StreamInfo{0, 0, 0.0, this});
 
     // Connect demux pad-added signal for dynamic linking
-    g_signal_connect(m_demux, "pad-added", G_CALLBACK(onPadAdded), m_streamInfo);
+    g_signal_connect(m_demux, "pad-added", G_CALLBACK(onPadAdded), m_streamInfo.get());
 
     // Connect appsink new-sample signal
     g_signal_connect(m_appsink, "new-sample", G_CALLBACK(onNewSample), this);
@@ -877,7 +870,7 @@ bool CloudStreamProducer::createMultiSegmentPipeline()
     }
 
     // Setup stream info for first demuxer (to extract framerate/resolution)
-    m_streamInfo = new StreamInfo{0, 0, 0.0, this};
+    m_streamInfo = std::make_unique<StreamInfo>(StreamInfo{0, 0, 0.0, this});
     if (!m_demuxers.empty()) {
         g_signal_connect(m_demuxers[0], "notify::n-video-streams",
             G_CALLBACK(+[](GObject* /*object*/, GParamSpec* /*pspec*/, gpointer userData) {
@@ -885,7 +878,7 @@ bool CloudStreamProducer::createMultiSegmentPipeline()
                 if (info && info->producer) {
                     LOG(info) << "Demuxer detected video streams" << endl;
                 }
-            }), m_streamInfo);
+            }), m_streamInfo.get());
     }
 
     // Connect appsink new-sample signal
@@ -1040,9 +1033,7 @@ bool CloudStreamProducer::createLocalFilePipeline()
                         failCount++;
                     }
 
-                    if (downloadCallback) {
-                        downloadCallback(filePair.first, result);
-                    }
+                    downloadCallback(filePair.first, result);
                 });
             }
             // Wait for all downloads to complete
@@ -1206,7 +1197,7 @@ bool CloudStreamProducer::createLocalFilePipeline()
                 GstPad* concatSinkPad;  // Pre-requested pad
             };
 
-            SegmentLinkData* linkData = new SegmentLinkData{this, i, concatSinkPads[i]};
+            auto linkData = std::make_unique<SegmentLinkData>(SegmentLinkData{this, i, concatSinkPads[i]});
 
             g_signal_connect_data(demuxer, "pad-added",
                 G_CALLBACK(+[](GstElement* src, GstPad* newPad, gpointer userData) {
@@ -1240,8 +1231,8 @@ bool CloudStreamProducer::createLocalFilePipeline()
 
                     g_free(padName);
                 }),
-                linkData,
-                +[](gpointer data, GClosure* /*closure*/) { delete static_cast<SegmentLinkData*>(data); },
+                linkData.release(),
+                +[](gpointer data, GClosure* /*closure*/) { std::unique_ptr<SegmentLinkData>(static_cast<SegmentLinkData*>(data)); },
                 (GConnectFlags)0);
         } else {
             // Single file: connect directly to parser
@@ -1311,7 +1302,7 @@ bool CloudStreamProducer::createLocalFilePipeline()
     }
 
     // Setup stream info
-    m_streamInfo = new StreamInfo{0, 0, 0.0, this};
+    m_streamInfo = std::make_unique<StreamInfo>(StreamInfo{0, 0, 0.0, this});
 
     // Monitor concat's active-pad to track which file is currently playing
     if (m_concat) {
@@ -2035,7 +2026,7 @@ gboolean CloudStreamProducer::busWatch(GstBus* bus, GstMessage* msg, gpointer us
 
         case GST_MESSAGE_ASYNC_DONE: {
             // Pipeline is prerolled and ready for seeking
-            SeekData* seekData = producer->m_seekData;
+            SeekData* seekData = producer->m_seekData.get();
             if (!seekData->seekDone && seekData->pausedStateReached) {
                 LOG(info) << "Pipeline ready for seeking" << endl;
 

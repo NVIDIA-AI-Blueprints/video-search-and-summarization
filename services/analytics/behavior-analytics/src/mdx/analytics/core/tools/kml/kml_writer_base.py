@@ -18,7 +18,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from lxml import etree
 from pykml.factory import KML_ElementMaker as KML
 
-from mdx.analytics.core.schema.trajectory.trajectory_e import TrajectoryE
+from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
 
 
 class KmlWriterBase:
@@ -58,7 +58,7 @@ class KmlWriterBase:
         return float(Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
     def writeOriginal1(
-        self, trajectories: dict[tuple[str, str], TrajectoryE], filename: str, summary: bool = False
+        self, trajectories: dict[tuple[str, str], Trajectory], filename: str, summary: bool = False
     ) -> None:
         """
         Write trajectories to a KML file with basic information.
@@ -70,7 +70,7 @@ class KmlWriterBase:
         4. Adds points at trajectory starts
         5. Saves the KML file
 
-        :param dict[tuple[str, str], TrajectoryE] trajectories: Dictionary of trajectories to write.
+        :param dict[tuple[str, str], Trajectory] trajectories: Dictionary of trajectories to write.
         :param str filename: Path to the output KML file.
         :param bool summary: Whether to use summary mode (affects naming).
         :return: None
@@ -109,7 +109,7 @@ class KmlWriterBase:
         print(f"File created: {filename}")
 
     def writeOriginal(
-        self, trajectories: dict[tuple[str, str], TrajectoryE], filename: str, summary: bool = False
+        self, trajectories: dict[tuple[str, str], Trajectory], filename: str, summary: bool = False
     ) -> None:
         """
         Write trajectories to a KML file with detailed information.
@@ -122,7 +122,7 @@ class KmlWriterBase:
         5. Includes speed, distance, and time information
         6. Saves the KML file
 
-        :param dict[tuple[str, str], TrajectoryE] trajectories: Dictionary of trajectories to write.
+        :param dict[tuple[str, str], Trajectory] trajectories: Dictionary of trajectories to write.
         :param str filename: Path to the output KML file.
         :param bool summary: Whether to use summary mode (affects naming and information display).
         :return: None
@@ -165,7 +165,7 @@ class KmlWriterBase:
         print(f"File created: {filename}")
 
     def writeOriginalAndSmoothed(
-        self, trajectories: dict[tuple[str, str], TrajectoryE], filename: str, summary: bool = False
+        self, trajectories: dict[tuple[str, str], Trajectory], filename: str, summary: bool = False
     ) -> None:
         """
         Write both original and smoothed trajectories to a KML file.
@@ -178,7 +178,7 @@ class KmlWriterBase:
         5. Includes detailed trajectory information
         6. Saves the KML file
 
-        :param dict[tuple[str, str], TrajectoryE] trajectories: Dictionary of trajectories to write.
+        :param dict[tuple[str, str], Trajectory] trajectories: Dictionary of trajectories to write.
         :param str filename: Path to the output KML file.
         :param bool summary: Whether to use summary mode (affects naming and information display).
         :return: None

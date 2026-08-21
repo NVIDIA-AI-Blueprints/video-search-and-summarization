@@ -1044,7 +1044,7 @@ See `spatialai_data_utils/core/cameras/bev.py` for programmatic usage.
 - Tripwire/ROI `groups` fields (automatically filled to match cluster assignments)
 
 ### 2. Visualization Image
-**Filename**: `map_plotted_{output_suffix}.png`
+**Filename**: `calibration_clustered_map.png`
 
 **Shows:**
 - Overhead map

@@ -56,14 +56,14 @@ gpuProfiles:
       NIM_LOW_MEMORY_MODE: "1"
       NIM_MAX_MODEL_LEN: "128000"
       NIM_MAX_NUM_SEQS: "4"
+    nemotron3:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.7"
-      NIM_GPU_MEMORY_UTILIZATION: "0.7"
-      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
+      NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
@@ -75,6 +75,8 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
       NIM_MAX_MODEL_LEN: "128000"
       NIM_LOW_MEMORY_MODE: "1"
+    nemotron3:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.8"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.8"
@@ -82,9 +84,7 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
       MAX_JOBS: "4"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.8"
       NIM_GPU_MEMORY_UTILIZATION: "0.8"
-      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.8"
       NIM_MAX_MODEL_LEN: "32768"
       NIM_MAX_NUM_SEQS: "4"
       MAX_JOBS: "4"
@@ -100,14 +100,14 @@ gpuProfiles:
       NIM_LOW_MEMORY_MODE: "1"
       NIM_MAX_MODEL_LEN: "128000"
       NIM_MAX_NUM_SEQS: "4"
+    nemotron3:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.7"
-      NIM_GPU_MEMORY_UTILIZATION: "0.7"
-      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
+      NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
@@ -117,6 +117,7 @@ gpuProfiles:
   # ConfigMaps are intentionally empty.
   OTHER:
     nemotron: {}
+    nemotron3: {}
     cosmos: {}
     cosmos3: {}
 
@@ -146,6 +147,42 @@ nemotron:
   storage:
     pvc:
       # Leave empty to inherit global.storageClass
+      storageClass: ""
+      size: "50Gi"
+
+  metrics:
+    enabled: false
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  nodeSelector: {}
+
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+nemotron3:
+  enabled: false
+  fullnameOverride: ""
+
+  image:
+    repository: nvcr.io/nim/nvidia/nemotron-3-nano
+    tag: "2.0.3"
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    limits:
+      nvidia.com/gpu: "1"
+    requests:
+      nvidia.com/gpu: "1"
+
+  storage:
+    pvc:
       storageClass: ""
       size: "50Gi"
 
@@ -278,9 +315,7 @@ cosmos3:
   # Imported from <cosmos3-fullname>-nim-env ConfigMap into NIMService.spec.env.
   # Missing keys are ignored (optional: true).
   envConfigMapKeys:
-    - NIM_KVCACHE_PERCENT
     - NIM_GPU_MEMORY_UTILIZATION
-    - NIM_PASSTHROUGH_ARGS
     - NIM_MAX_MODEL_LEN
     - NIM_MAX_NUM_SEQS
     - MAX_JOBS

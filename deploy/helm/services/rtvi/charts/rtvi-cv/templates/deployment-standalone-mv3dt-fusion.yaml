@@ -1,0 +1,92 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") .Values.standaloneWarehouse.mv3dt.fusion.enabled }}
+{{- $sw := .Values.standaloneWarehouse }}
+{{- $mv3dt := $sw.mv3dt | default dict }}
+{{- $fusion := $mv3dt.fusion | default dict }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-mv3dt-fusion
+  labels:
+    app.kubernetes.io/name: vss-rtvi-cv-mv3dt-fusion
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-rtvi-cv-mv3dt-fusion
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-rtvi-cv-mv3dt-fusion
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $ips := .Values.imagePullSecrets | default .Values.global.imagePullSecrets }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mv3dt-fusion
+          image: {{ include "vss-rtvi-cv.fusionImage" . }}
+          imagePullPolicy: {{ $fusion.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: BROKER_TYPE
+              value: {{ $sw.streamType | default "kafka" | quote }}
+            - name: KAFKA_BOOTSTRAP
+              value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+            - name: REDIS_HOST
+              value: {{ include "vss-rtvi-cv.mv3dtRedisHost" . | quote }}
+            - name: REDIS_PORT
+              value: {{ $mv3dt.redisPort | default "6379" | quote }}
+            - name: RAW_TOPIC
+              value: {{ $fusion.rawTopic | default "mdx-raw" | quote }}
+            - name: FUSED_TOPIC
+              value: {{ $fusion.fusedTopic | default "mdx-bev" | quote }}
+            - name: SENSOR_TIMEOUT_MS
+              value: {{ $fusion.sensorTimeoutMs | default "100" | quote }}
+            - name: MAX_EXPECTED_SENSORS
+              value: {{ $fusion.maxExpectedSensors | default $mv3dt.maxBatchSize | default "4" | quote }}
+            - name: BUFFER_DURATION_S
+              value: {{ $fusion.bufferDurationS | default "2.0" | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: {{ $.Values.otelSdkDisabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://localhost:4318"
+          readinessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - import os, sys; sys.exit(0 if os.path.exists("/tmp/fusion_ready") else 1)
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - import os, sys; sys.exit(0 if os.path.exists("/tmp/fusion_ready") else 1)
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          {{- with $fusion.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

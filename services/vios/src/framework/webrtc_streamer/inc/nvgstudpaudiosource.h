@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,7 +63,8 @@ class AudioDataConsumer : public IMediaDataConsumer
             m_freq = freq;
             m_bitsPerSample = bitsPerSample;
         }
-        void onFrame(FrameParams& params)
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override
         {
             uint16_t segment_length       = m_freq / 100;
             uint16_t total_segment_length = m_channel * segment_length;

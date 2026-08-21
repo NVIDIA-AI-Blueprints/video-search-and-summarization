@@ -1,0 +1,174 @@
+-- SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+-- http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+
+function envoy_on_request(request_handle)
+  local default_wl_object_name = {{ wl.wl_obj_name | tojson }}
+  -- Per-workload settings baked from config.yml at template render time
+  -- (generate_envoy_config_xds_mw.py). Edit the workload's NOHEADERTARGETROUTE
+  -- / ENVOY_ROUTE_HEADER in config.yml + re-run the generator to change them;
+  -- the runtime env vars are no longer consulted for these values.
+  local nh_enabled = {{ wl.noheadertargetroute | tojson }}
+  local nh_cluster = {{ wl.headerless_cluster_name | tojson }}
+  local route_h = {{ wl.envoy_route_header | tojson }}
+  local function wdm_query_param(path, key)
+    if path == nil or path == "" then return nil end
+    local q = string.match(path, "%?([^#]*)")
+    if q == nil then return nil end
+    for pair in string.gmatch(q, "[^&]+") do
+      local k, v = string.match(pair, "^([^=]*)=(.*)$")
+      if k == key and v ~= nil and v ~= "" then
+        v = string.gsub(v, "%%(%x%x)", function(hex)
+          return string.char(tonumber(hex, 16))
+        end)
+        return string.gsub(v, "+", " ")
+      end
+    end
+    return nil
+  end
+  do
+    local path_hdr = request_handle:headers():get(":path") or ""
+    local qh = request_handle:headers()
+    -- Envoy: replace() adds the header if it does not exist (same as add()).
+    qh:replace("X-WL-OBJECT-NAME", default_wl_object_name)
+    local qsid = wdm_query_param(path_hdr, route_h)
+    if qsid ~= nil then
+      if qh:get(route_h) == nil then qh:add(route_h, qsid) end
+      if qh:get(route_h) == nil then
+        qh:add(route_h, qsid)
+      end
+    end
+  end
+  request_handle:logInfo("lua filter envoy_on_request called")
+  local podName = nil
+  local upstream_cluster_set = false
+  -- WDM_CLUSTER_TYPE controls how upstream-cluster names are composed for
+  -- non-grpc / non-websocket traffic. "docker" preserves the legacy
+  -- "<podName>-<podName>" naming used by the Docker generator; any other
+  -- value (e.g. "k8s", "k8s-headless") collapses to a flat "<podName>".
+  local cluster_type = os.getenv("WDM_CLUSTER_TYPE")
+  do
+    local path_add = ";/usr/local/share/lua/5.2/?.lua;/usr/local/share/lua/5.2/?/init.lua;/usr/local/lib/lua/5.2/?.lua;/usr/local/lib/lua/5.2/?/init.lua;/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua;/usr/local/lib/lua/5.1/?.lua;/usr/local/lib/lua/5.1/?/init.lua"
+    if package.path and not package.path:find(path_add, 1, true) then
+      package.path = package.path .. path_add
+    end
+    local cpath_add = ";/usr/local/lib/lua/5.1/?.so;/usr/local/lib/lua/5.1/loadall.so"
+    if package.cpath and not package.cpath:find(cpath_add, 1, true) then
+      package.cpath = package.cpath .. cpath_add
+    end
+  end
+  local redis_ok, redis, err = pcall(require, "redis")
+  if not redis_ok then
+    request_handle:logWarn("lua: redis require failed: "..tostring(err))
+  elseif not redis then
+    request_handle:logWarn("lua: redis module is nil")
+  else
+    request_handle:logInfo("lua: redis module loaded")
+    local redis_host = os.getenv("WDM_WL_REDIS_SERVER") or "nil"
+    local redis_port = os.getenv("WDM_WL_REDIS_PORT") or "nil"
+    request_handle:logInfo("lua: connecting to redis "..tostring(redis_host)..":"..tostring(redis_port))
+    local conn_ok, client_or_err = pcall(redis.connect, redis_host, redis_port)
+    if not conn_ok then
+      request_handle:logWarn("lua: redis connect failed: "..tostring(client_or_err))
+    elseif not client_or_err or type(client_or_err) ~= "table" then
+      request_handle:logWarn("lua: redis client is nil or invalid: "..tostring(client_or_err))
+    else
+      local client = client_or_err
+      request_handle:logInfo("lua: redis connected")
+      local wlObjectName = request_handle:headers():get("X-WL-OBJECT-NAME")
+      local stream_id_header = route_h
+      local id = request_handle:headers():get(stream_id_header)
+      request_handle:logInfo("lua: stream_id_header="..tostring(stream_id_header).." id="..tostring(id).." wlObjectName="..tostring(wlObjectName))
+      if wlObjectName == nil then
+        request_handle:logInfo("lua: skip lookup wlObjectName nil")
+      elseif id == nil or id == "" then
+        -- NOHEADERTARGETROUTE=true (per-workload, baked in above): route
+        -- header-less requests directly to THIS workload's own static
+        -- cluster (nh_cluster = headerless_service_<slug>). The cluster is
+        -- emitted by envoy_config_xds_mw.yaml.j2 only for workloads that
+        -- opted in, populated from this workload's HEADERLESS_SERVICE_ENDPOINTS
+        -- so header-less traffic stays scoped to the listener that received
+        -- it. No -grpc/-websocket suffix is appended; one cluster per
+        -- workload handles all its header-less traffic.
+        if nh_enabled and nh_cluster ~= nil and nh_cluster ~= "" then
+          request_handle:headers():replace("upstream-cluster", nh_cluster)
+          upstream_cluster_set = true
+          request_handle:logInfo("lua: id nil, NOHEADERTARGETROUTE=true, upstream-cluster="..nh_cluster)
+        else
+          request_handle:logInfo("lua: id nil, NOHEADERTARGETROUTE not set, skip pod lookup (request will 503 unless route accepts)")
+        end
+      else
+        podName = client:hget(wlObjectName, id)
+        request_handle:logInfo("lua: hget("..tostring(wlObjectName)..","..tostring(id)..") => podName="..tostring(podName))
+        if podName == nil then
+          request_handle:logInfo("lua: stream id not in Redis, no pod mapping")
+        else
+          local podDNS = client:hget(wlObjectName.."-pod", podName)
+          request_handle:logInfo("lua: hget("..tostring(wlObjectName).."-pod,"..tostring(podName)..") => podDNS="..tostring(podDNS))
+          if podDNS == nil then
+            request_handle:logInfo("lua: pod not in -pod map, will use podName as cluster")
+          end
+        end
+      end
+    end
+  end
+  if upstream_cluster_set then
+    request_handle:logInfo("lua: upstream-cluster already set ("..tostring(request_handle:headers():get("upstream-cluster"))..") skip suffix logic")
+  elseif podName == nil or podName == "" then
+    request_handle:logInfo("lua: no podName, upstream-cluster unchanged (default route)")
+  else
+    request_handle:logInfo("lua: setting upstream-cluster for podName="..tostring(podName))
+    if request_handle:headers():get("Sec-WebSocket-Key") ~= nil then
+      if cluster_type == 'docker' then
+        request_handle:headers():replace("upstream-cluster", podName.."-"..podName..'-websocket')
+        request_handle:logInfo("lua: upstream-cluster set to "..podName.."-"..podName..'-websocket'.." (cluster_type="..tostring(cluster_type)..")")
+      else
+        request_handle:headers():replace("upstream-cluster", podName..'-websocket')
+        request_handle:logInfo("lua: upstream-cluster set to "..podName..'-websocket'.." (cluster_type=docker)")
+      end
+    else
+      local message_encoding_header = request_handle:headers():get("content-type")
+      if message_encoding_header ~= 'application/grpc' then
+        if cluster_type == 'docker' then
+          request_handle:headers():replace("upstream-cluster", podName.."-"..podName)
+          request_handle:logInfo("lua: upstream-cluster set to "..podName.."-"..podName.." (cluster_type=docker)")
+        else
+          request_handle:headers():replace("upstream-cluster", podName)
+          request_handle:logInfo("lua: upstream-cluster set to "..tostring(podName).." (cluster_type="..tostring(cluster_type)..")")
+        end
+      else
+        if cluster_type == 'docker' then
+          request_handle:headers():replace("upstream-cluster", podName.."-"..podName..'-grpc')
+          request_handle:logInfo("lua: upstream-cluster set to "..podName.."-"..podName..'-grpc'.." (cluster_type="..tostring(cluster_type)..")")
+        else
+          request_handle:headers():replace("upstream-cluster", podName..'-grpc')
+          request_handle:logInfo("lua: upstream-cluster set to "..podName..'-grpc'.." (cluster_type="..tostring(cluster_type)..")")
+        end
+      end
+    end
+  end
+  -- Re-run route matching so :path routes see upstream-cluster set above (e.g. /hello + stream-id).
+  -- clearRouteCache is only available on newer Envoy builds; pcall it so older
+  -- builds (e.g. the Envoy embedded in sdr-mw-l) don't error out the request.
+  if type(request_handle.clearRouteCache) == "function" then
+    pcall(function() request_handle:clearRouteCache() end)
+  end
+end
+function envoy_on_response(response_handle)
+  -- Cross-origin dashboard (e.g. :5002) → WebSocket :19000; 101 upgrade should include ACAO.
+  response_handle:headers():replace("access-control-allow-origin", "*")
+  response_handle:headers():replace("access-control-allow-methods", "GET, POST, OPTIONS")
+  response_handle:headers():replace("access-control-allow-headers", "*")
+  response_handle:headers():replace("access-control-expose-headers", "*")
+end

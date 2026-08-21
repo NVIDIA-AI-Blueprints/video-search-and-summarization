@@ -282,7 +282,7 @@ functions:
     backend: es_caption
     top_k: 5
     backend_config:
-      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://${HOST_IP}:9200}
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://elasticsearch:9200}
       index: default_*                                  # per-stream `default_<stream_id>` indices
       default_doc_type: raw_events
       api_key: ""

@@ -14,14 +14,18 @@ Developers and engineers who need to search archived video content using natural
 ### Deployment Geography for Use: <br>
 Global <br>
 
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Environment-dependent; No for ordinary local search] <br>
+**Credential Type(s):** [Deployment/operator credential when required] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
+
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Discovery Modes](references/discovery_modes.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA AI Blueprints: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -31,13 +35,13 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 task in the NVSkills-Eval external profile on the astra-sandbox environment. <br>
+Evaluated against 1 evaluation task in the NVSkills-Eval external profile (astra-sandbox environment). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -62,13 +66,14 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 100% (+75%) | 97% (+43%) |
-| Discoverability | 1 | 100% (+75%) | 89% (+39%) |
-| Effectiveness | 1 | 68% (+44%) | 62% (+26%) |
-| Efficiency | 1 | 94% (+72%) | 81% (+39%) |
+| Correctness | 1 | 100% (+75%) | 71% (+47%) |
+| Discoverability | 1 | 88% (+62%) | 84% (+48%) |
+| Effectiveness | 1 | 62% (+38%) | 50% (+26%) |
+| Efficiency | 1 | 71% (+48%) | 83% (+47%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+Current skill: 3.4.0. Published benchmark below: 3.3.0; it must not be treated
+as validation of the current operational workflow until rerun. <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

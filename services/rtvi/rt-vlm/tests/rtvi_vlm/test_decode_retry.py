@@ -335,6 +335,29 @@ def test_failed_seek_playthrough_only_when_pipeline_is_before_target(monkeypatch
 
 
 @pytest.mark.no_gpu
+def test_gst_property_setter_skips_properties_missing_on_jetson(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline.video_file_frame_getter import _set_gst_property_if_supported
+
+    class FakeElement:
+        def __init__(self):
+            self.values = {}
+
+        def find_property(self, name):
+            return object() if name == "extract-sei-type5-data" else None
+
+        def set_property(self, name, value):
+            self.values[name] = value
+
+    element = FakeElement()
+
+    assert not _set_gst_property_if_supported(element, "gpu-id", 0)
+    assert _set_gst_property_if_supported(element, "extract-sei-type5-data", True)
+    assert element.values == {"extract-sei-type5-data": True}
+
+
+@pytest.mark.no_gpu
 def test_late_file_frame_after_cache_handoff_is_dropped(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
 
@@ -355,6 +378,112 @@ def test_late_file_frame_after_cache_handoff_is_dropped(monkeypatch):
     assert fgetter._append_file_frame_to_cache("frame", 2.34)
     assert fgetter._cached_frames == ["frame"]
     assert fgetter._cached_frames_pts == [2.34]
+
+
+@pytest.mark.no_gpu
+def test_handle_cuda_oom_records_err_msg_and_drops_cached_frames(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+    monkeypatch.delenv("RTVI_ENABLE_CUDA_OOM_RECOVERY", raising=False)
+
+    from vlm_pipeline import video_file_frame_getter as frame_getter_module
+    from vlm_pipeline.video_file_frame_getter import VideoFileFrameGetter
+
+    fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    fgetter._err_msg = None
+    fgetter._err_msg_lock = threading.Lock()
+    fgetter._file_frame_cache_lock = threading.Lock()
+    fgetter._cached_frames = ["frame-a", "frame-b"]
+    fgetter._cached_frames_pts = [0.0, 1.0]
+    fgetter._live_stream_frame_selectors_lock = threading.Lock()
+    fgetter._live_stream_frame_selectors = {}
+
+    loop_quits = []
+    fgetter._loop = SimpleNamespace(
+        is_running=lambda: True,
+        quit=lambda: loop_quits.append(True),
+    )
+
+    monkeypatch.setattr(frame_getter_module.torch.cuda, "empty_cache", lambda: None)
+
+    exc = torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 56.00 MiB.")
+    msg = fgetter._handle_cuda_oom(exc, "preprocessing decoded chunk frames")
+
+    assert "CUDA out of memory while preprocessing decoded chunk frames" in msg
+    assert "Reduce frame sampling rate" in msg
+    assert fgetter._err_msg == msg
+    assert fgetter._cached_frames == []
+    assert fgetter._cached_frames_pts == []
+    assert loop_quits == [True]
+
+    later_msg = fgetter._handle_cuda_oom(
+        torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 12.00 MiB."),
+        "copying decoded frame to CUDA cache",
+    )
+    assert later_msg != msg
+    assert fgetter._err_msg == msg
+
+
+@pytest.mark.no_gpu
+def test_handle_cuda_oom_preserves_live_selectors_when_requested(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+    monkeypatch.delenv("RTVI_ENABLE_CUDA_OOM_RECOVERY", raising=False)
+
+    from vlm_pipeline import video_file_frame_getter as frame_getter_module
+    from vlm_pipeline.video_file_frame_getter import VideoFileFrameGetter
+
+    fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    fgetter._err_msg = None
+    fgetter._err_msg_lock = threading.Lock()
+    fgetter._file_frame_cache_lock = threading.Lock()
+    fgetter._cached_frames = None
+    fgetter._cached_frames_pts = None
+    fgetter._live_stream_frame_selectors_lock = threading.Lock()
+
+    other_selector_data = SimpleNamespace(cached_frames=["other-frame"])
+    fgetter._live_stream_frame_selectors = {"other-fs": other_selector_data}
+
+    fgetter._loop = SimpleNamespace(is_running=lambda: False, quit=lambda: None)
+    monkeypatch.setattr(frame_getter_module.torch.cuda, "empty_cache", lambda: None)
+
+    fgetter._handle_cuda_oom(
+        torch.OutOfMemoryError("CUDA out of memory."),
+        "preprocessing live stream chunk frames",
+        clear_live_selectors=False,
+    )
+
+    assert other_selector_data.cached_frames == ["other-frame"]
+
+
+@pytest.mark.no_gpu
+def test_handle_cuda_oom_recovery_can_be_disabled(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+    monkeypatch.setenv("RTVI_ENABLE_CUDA_OOM_RECOVERY", "false")
+
+    from vlm_pipeline.video_file_frame_getter import VideoFileFrameGetter
+
+    fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    fgetter._err_msg = None
+    fgetter._err_msg_lock = threading.Lock()
+    fgetter._file_frame_cache_lock = threading.Lock()
+    fgetter._cached_frames = ["frame-a"]
+    fgetter._cached_frames_pts = [0.0]
+    fgetter._live_stream_frame_selectors_lock = threading.Lock()
+    fgetter._live_stream_frame_selectors = {}
+
+    loop_quits = []
+    fgetter._loop = SimpleNamespace(
+        is_running=lambda: True,
+        quit=lambda: loop_quits.append(True),
+    )
+
+    exc = torch.OutOfMemoryError("CUDA out of memory.")
+    with pytest.raises(torch.OutOfMemoryError, match="CUDA out of memory"):
+        fgetter._handle_cuda_oom(exc, "preprocessing decoded chunk frames")
+
+    assert fgetter._err_msg is None
+    assert fgetter._cached_frames == ["frame-a"]
+    assert fgetter._cached_frames_pts == [0.0]
+    assert loop_quits == []
 
 
 @pytest.mark.no_gpu

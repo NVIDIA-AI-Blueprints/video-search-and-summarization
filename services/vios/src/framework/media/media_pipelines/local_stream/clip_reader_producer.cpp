@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -343,9 +343,15 @@ static void link_demuxer_to_queues(GstElement* demuxer,
         GstCaps* caps = gst_pad_get_current_caps(new_pad);
         if (!caps) caps = gst_pad_query_caps(new_pad, nullptr);
         gchar* caps_str = caps ? gst_caps_to_string(caps) : g_strdup("<none>");
-        bool is_video = (caps_str && (g_str_has_prefix(caps_str, "video/x-h264") ||
-                                      g_str_has_prefix(caps_str, "video/x-h265")));
-        bool is_audio = (caps_str && g_str_has_prefix(caps_str, "audio"));
+        bool is_video = false;
+        bool is_audio = false;
+        if (caps_str)
+        {
+            const bool is_h264 = g_str_has_prefix(caps_str, "video/x-h264");
+            const bool is_h265 = g_str_has_prefix(caps_str, "video/x-h265");
+            is_video = is_h264 || is_h265;
+            is_audio = g_str_has_prefix(caps_str, "audio");
+        }
 
         LOG(info) << getLogPrefix(c->owner)
                   << "ClipReaderProducer (giosrc): pad-added with caps: " << caps_str << endl;
@@ -479,7 +485,8 @@ static bool hasVclNalInBuffer(const uint8_t* data, size_t size, bool is_h265, bo
 
 ClipReaderProducer::ClipReaderProducer(const ClipReaderConfig& cfg)
 : mCfg(cfg)
-, m_recoveryEventLoop(std::make_unique<EventLoop>("clip_reader_retry", &ClipReaderProducer::process_retry_message))
+, m_recoveryEventLoop(std::make_unique<EventLoop>("clip_reader_retry",
+      [this](std::shared_ptr<EventLoopData> data) { processRetryMessage(data); }))
 {
 #if CLIP_READER_GIOSRC_EXTRA_DEBUG
     const char* env = std::getenv("VST_CLIP_READER_GIOSRC_DEBUG");
@@ -508,7 +515,7 @@ ClipReaderProducer::ClipReaderProducer(const ClipReaderConfig& cfg)
 ClipReaderProducer::~ClipReaderProducer()
 {
     try {
-        stop();
+        ClipReaderProducer::stop();
         teardown();
         LOG(info) << mLogPrefix << "~ClipReaderProducer destructor" << endl;
     } catch (const std::exception& e) {
@@ -885,8 +892,6 @@ bool ClipReaderProducer::start()
     if (mRunning.load()) return true;
     if (!gst_is_initialized()) { gst_init(nullptr, nullptr); }
 
-    m_recoveryEventLoop->setParent(this);
-
     // Save original seek_start_ms before any retries can modify it
     mOriginalSeekStartMs.store(mCfg.seek_start_ms);
 
@@ -1090,7 +1095,7 @@ bool ClipReaderProducer::buildPipeline()
         if (appsink_sink)
         {
             gst_pad_add_probe(appsink_sink, GST_PAD_PROBE_TYPE_BUFFER,
-                              appsink_collect_probe_cb, this, NULL);
+                              appsink_collect_probe_cb, this, nullptr);
             gst_object_unref(appsink_sink);
         }
     }
@@ -1669,41 +1674,40 @@ bool ClipReaderProducer::postRetryPipeline(bool isError, const std::string& erro
     return true;
 }
 
-void ClipReaderProducer::process_retry_message(std::shared_ptr<EventLoopData> data, void* parent)
+void ClipReaderProducer::processRetryMessage(const std::shared_ptr<EventLoopData>& data)
 {
-    ClipReaderProducer* producer = static_cast<ClipReaderProducer*>(parent);
-    if (!producer || !data)
+    if (!data)
     {
-        LOG(error) << "ClipReaderProducer::process_retry_message: null producer or data" << endl;
+        LOG(error) << "ClipReaderProducer::processRetryMessage: null data" << endl;
         return;
     }
 
     // Clear mRetryInProgress and notify BEFORE any pipeline operations so stop() can proceed
     // without racing with retryPipeline() (avoids stop() tearing down a freshly rebuilt pipeline
     // concurrently with the retry callback).
-    producer->mRetryInProgress.store(false);
-    producer->mRetrySync.signal();
+    mRetryInProgress.store(false);
+    mRetrySync.signal();
 
     bool isError = data->m_inData["isError"].asBool();
     std::string errorMsg = data->m_inData["errorMsg"].asString();
 
-    bool ok = producer->retryPipeline();
+    bool ok = retryPipeline();
     if (!ok)
     {
         if (isError)
         {
-            if (producer->mRunning.load())
+            if (mRunning.load())
             {
-                producer->notifyErrorOnce(errorMsg, 1);
+                notifyErrorOnce(errorMsg, 1);
             }
         }
         else
         {
-            if (producer->mRunning.load())
+            if (mRunning.load())
             {
-                LOG(warning) << producer->mLogPrefix << "ClipReaderProducer: Retry failed, truncated clip" << endl;
-                producer->mRunning.store(false);
-                producer->notifyFinishedOnce();
+                LOG(warning) << mLogPrefix << "ClipReaderProducer: Retry failed, truncated clip" << endl;
+                mRunning.store(false);
+                notifyFinishedOnce();
             }
         }
     }
@@ -1973,8 +1977,10 @@ GstFlowReturn ClipReaderProducer::handleVideoSampleSplitmux(GstSample* sample)
     }
     frame->pts = GST_BUFFER_PTS_IS_VALID(buffer) ? (GST_BUFFER_PTS(buffer)/1000000) : -1;
 
-    // Skip preroll frames until seek completes.
-    if (!mSeekDone.load())
+    // Skip preroll frames until seek completes. A seek is only applied when
+    // seek_start_ms > 0; without one the preroll buffers are the head of the
+    // file (including its first keyframe) and must not be dropped.
+    if (skipUntilSeekDone())
     {
         return GST_FLOW_OK;
     }
@@ -2152,8 +2158,8 @@ GstFlowReturn ClipReaderProducer::handleVideoSampleGiosrc(GstSample* sample)
         // sample, and gst_caps_unref's m_caps.
         return GST_FLOW_OK;
     }
-    // Skip preroll frames until seek completes.
-    if (!mSeekDone.load())
+    // Skip preroll frames until seek completes (see handleVideoSampleSplitmux).
+    if (skipUntilSeekDone())
     {
         return GST_FLOW_OK;
     }

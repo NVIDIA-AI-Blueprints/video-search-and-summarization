@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,7 +17,9 @@
 
 #pragma once
 
-#ifndef JETSON_PLATFORM
+// CudaLoader wraps the CUDA driver/runtime for the discrete-GPU (Thor/SBSA/x86)
+// path. It is compiled on every platform in the unified aarch64 build but only
+// instantiated at runtime when !isJetsonPlatform().
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
@@ -25,11 +27,15 @@ typedef CUresult (*cuInit_t) (unsigned int);
 typedef CUresult (*cuDeviceGet_t) (CUdevice*, int);
 typedef CUresult (*cuCtxGetCurrent_t) (CUcontext*);
 typedef cudaError_t (*cudaSetDevice_t) (int);
+
+// Opaque stand-in for the dlopen() handle, so the handles are typed instead of
+// raw void*. Only ever held and passed back to dlsym()/dlclose().
+struct SharedLibraryHandle;
+
 class CudaLoader
 {
 public:
     static CudaLoader* getInstance();
-    static void deleteInstance();
 
     cuInit_t cuInit;
     cuDeviceGet_t cuDeviceGet;
@@ -39,12 +45,10 @@ public:
     bool isError()  { return m_error; }
 
 private:
-    static CudaLoader* m_instance;
     bool m_error;
-    void* m_handleCuda;
-    void* m_handleCudart;
+    SharedLibraryHandle* m_handleCuda;
+    SharedLibraryHandle* m_handleCudart;
 
     CudaLoader();
     ~CudaLoader();
 };
-#endif

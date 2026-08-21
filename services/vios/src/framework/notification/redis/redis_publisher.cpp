@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,24 +28,20 @@
 
 using namespace std;
 
-NvRedis* NvRedis::_instance = nullptr;
+std::unique_ptr<NvRedis> NvRedis::_instance = nullptr;
 
 NvRedis* NvRedis::getInstance()
 {
     if (_instance == nullptr)
     {
-        _instance = new NvRedis();
+        _instance.reset(new NvRedis());
     }
-    return _instance;
+    return _instance.get();
 }
 
 void NvRedis::deleteInstance()
 {
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    _instance.reset();
 }
 
 NvRedis::NvRedis()
@@ -58,17 +54,17 @@ NvRedis::NvRedis()
 {
     const char* lib_path;
     // Temporary solution to load libnvds_logger in memory
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_logger.so");
-    m_redisHandle = dlopen(lib_path, RTLD_LAZY);
+    m_redisHandle = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_redisHandle)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_logger.so");
-        m_redisHandle = dlopen(lib_path, RTLD_LAZY);
+        m_redisHandle = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvds_logger.so");
-    m_redisHandle = dlopen(lib_path, RTLD_LAZY);
+    m_redisHandle = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_redisHandle)
     {
@@ -76,17 +72,17 @@ NvRedis::NvRedis()
         goto error;
     }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_redis_proto.so");
-    m_handle_redis_proto = dlopen(lib_path, RTLD_LAZY);
+    m_handle_redis_proto = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handle_redis_proto)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_redis_proto.so");
-        m_handle_redis_proto = dlopen(lib_path, RTLD_LAZY);
+        m_handle_redis_proto = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvds_redis_proto.so");
-    m_handle_redis_proto = dlopen(lib_path, RTLD_LAZY);
+    m_handle_redis_proto = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
 #endif
 
     if (!m_handle_redis_proto)
@@ -159,6 +155,7 @@ NvRedis::~NvRedis()
 void NvRedis::redis_init()
 {
     string payload_key;
+    char redis_config_file[] = REDIS_CONFIG_FILE;
     m_topic_vms_event = GET_CONFIG().message_broker_topic;
     m_redisEndpoint = getRedisServerEndpoint();
 
@@ -180,8 +177,8 @@ void NvRedis::redis_init()
     }
 
     LOG(info) << "Radis server address:port= " << m_redisEndpoint << endl;
-    m_conn_handle = nvds_msgapi_connect((char*)m_redisEndpoint.c_str(),
-                                        nullptr, (char*)REDIS_CONFIG_FILE);
+    m_conn_handle = nvds_msgapi_connect(m_redisEndpoint.data(),
+                                        nullptr, redis_config_file);
     if (!m_conn_handle)
     {
         LOG(error) << "Redis Connect failed. Exiting" << endl;
@@ -226,7 +223,7 @@ bool NvRedis::sendToRedis(std::string& payload)
         return false;
     }
 
-    int ret = nvds_msgapi_send(m_conn_handle, (char*)m_topic_vms_event.c_str(),
+    int ret = nvds_msgapi_send(m_conn_handle, m_topic_vms_event.data(),
                             (const uint8_t*) payload.c_str(), payload.size());
     if(ret == 0)
     {

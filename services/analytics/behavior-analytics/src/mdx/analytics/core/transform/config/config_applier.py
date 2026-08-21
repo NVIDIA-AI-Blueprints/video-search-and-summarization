@@ -36,10 +36,45 @@ next access. Consumers that capture config values at ``__init__`` still
 require a process restart -- by design.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from mdx.analytics.core.schema.config import AppConfig
+
+logger = logging.getLogger(__name__)
+
+
+# Keys whose change alters what the pipeline *does*, not just a number it carries.
+#
+# An applied update is otherwise invisible: the value lands in AppConfig and the next read at
+# use-time picks it up, with nothing in the log to correlate against a change in the output stream.
+# When someone later asks why the behavior topic went quiet, or why incidents stopped, the answer is
+# often an upsert that landed hours earlier. These get their consequence spelled out at INFO so the
+# log carries the "why", not just the "what".
+#
+# Deliberately not exhaustive -- a key absent from here still logs its old -> new transition, it just
+# does not claim to explain the effect. Add an entry when the effect is not obvious from the name.
+MAJOR_APP_KEY_IMPACT: dict[str, str] = {
+    "behaviorEmitOnce":
+        "changes when behaviors are written: 'true' holds each track and writes it once, "
+        "behaviorStateValidInterval seconds after it goes quiet; 'false' writes every batch. "
+        "Switching off hands over anything still held, once.",
+    "behaviorStateValidInterval":
+        "sets how long a track may be silent before it is considered ended -- and so, under "
+        "behaviorEmitOnce, how long before its behavior is emitted.",
+    "stateManagementFilter":
+        "changes which object types are tracked at all; types outside the filter produce no "
+        "behaviors, events or incidents.",
+    "proximityViolationIncidentEnable":
+        "turns proximity incidents on/off.",
+    "restrictedAreaViolationIncidentEnable":
+        "turns restricted-area incidents on/off.",
+    "confinedAreaViolationIncidentEnable":
+        "turns confined-area incidents on/off.",
+    "fovCountViolationIncidentEnable":
+        "turns FOV-count incidents on/off.",
+}
 
 
 # Wire-format outcome of an apply attempt, used by the listener to construct
@@ -112,8 +147,40 @@ class ConfigApplier:
         :return: None
         """
         for item in applied_app:
-            self._config.set_app_config(item["name"], item["value"])
+            name, new_value = item["name"], item["value"]
+            # Read before writing so the log can show the transition, not just the destination.
+            old_value = self._config.get_app_config(name)
+            self._config.set_app_config(name, new_value)
+            self._log_app_change(name, old_value, new_value)
+
         for sensor in applied_sensors:
             for item in sensor["configs"]:
                 self._config.set_sensor_config(item["name"], item["value"], sensor_id=sensor["id"])
+                logger.info(
+                    f"Dynamic config applied: sensor '{sensor['id']}' {item['name']} -> '{item['value']}'")
+
         self._config.invalidate_caches()
+
+    @staticmethod
+    def _log_app_change(name: str, old_value: str, new_value: str) -> None:
+        """
+        Record one applied ``app`` item, and what it means when that is not obvious.
+
+        A re-applied identical value is logged at debug: bootstrap replays the whole config on every
+        restart, so treating those as changes would bury the real ones.
+
+        :param str name: Config key.
+        :param str old_value: Value before the write (empty string if the key was absent).
+        :param str new_value: Value after the write.
+        :return: None
+        """
+        if old_value == new_value:
+            logger.debug(f"Dynamic config: {name} unchanged ('{new_value}')")
+            return
+
+        origin = f"'{old_value}' -> '{new_value}'" if old_value else f"set to '{new_value}' (was unset)"
+        impact = MAJOR_APP_KEY_IMPACT.get(name)
+        if impact:
+            logger.info(f"Dynamic config applied: {name} {origin} -- {impact}")
+        else:
+            logger.info(f"Dynamic config applied: {name} {origin}")

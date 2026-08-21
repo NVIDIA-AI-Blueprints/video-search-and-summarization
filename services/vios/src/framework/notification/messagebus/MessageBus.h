@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,8 +33,8 @@
 
 using namespace std;
 using namespace nv_vms;
-#define MESSAGE_BUS_CLEANUP_INTERVAL 20000
-#define MESSAGE_BUS_REQUEST_TIMEOUT 10
+constexpr int MESSAGE_BUS_CLEANUP_INTERVAL = 20000;
+constexpr double MESSAGE_BUS_REQUEST_TIMEOUT = 10.0;
 
 class MessageBus : public IDataChannelListener
 {
@@ -45,7 +45,7 @@ public:
         GET_DATA_CHANNEL()->registerListener(this);
         auto messageBusCleanupInterval = std::chrono::milliseconds(MESSAGE_BUS_CLEANUP_INTERVAL);
         m_watchdog = make_unique<Bosma::Scheduler>(1);
-        m_watchdog->interval(messageBusCleanupInterval, [=]()
+        m_watchdog->interval(messageBusCleanupInterval, [this]()
                             { messageBusCleanupTask(); });
     }
     ~MessageBus()

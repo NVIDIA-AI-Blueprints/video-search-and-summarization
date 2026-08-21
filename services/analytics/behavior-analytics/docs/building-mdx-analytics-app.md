@@ -49,8 +49,9 @@ import logging
 
 from mdx.analytics.core.app.app_base import BaseApp
 from mdx.analytics.core.schema.config import AppConfig
+from mdx.analytics.core.schema.models import Behavior
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtEWithTripwire
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.stream.state.frame.frame_state_management import FrameStateMgmt
 from mdx.analytics.core.transform.event.roi_event import ROIEvent
 from mdx.analytics.core.transform.event.tripwire_event import TripwireEvent
@@ -64,7 +65,8 @@ logger = logging.getLogger(__name__)
 - `BaseApp`: The core application class that provides infrastructure for source/sink management
 - `AppConfig`: Configuration management for application settings
 - `schema_pb2`: Protocol buffer definitions for frame and message structures
-- `StateMgmtEWithTripwire`: Enhanced state management that tracks objects and detects tripwire interactions
+- `Behavior`: The internal behavior model — also what ROI/tripwire events are, before `write_events` converts them
+- `StateMgmt`: Behavior state management for cartesian and image coordinates; one `process_batch` call per batch
 - `ROIEvent` and `TripwireEvent`: Event generators for spatial analytics
 - `schema_util`: Utilities for converting between different data formats
 - `BatchStats`: Performance tracking for processing batches
@@ -80,7 +82,7 @@ class Analytics2DApp(BaseApp):
         super().__init__(config, calibration_path)
         
         # Initialize state management with tripwire support
-        self.state_mgmt = StateMgmtEWithTripwire(self.config, self.calibration)
+        self.state_mgmt = StateMgmt(self.config, self.calibration)
         self.frame_state_mgmt = FrameStateMgmt(self.config)
         
         # Initialize event processors
@@ -101,7 +103,7 @@ class Analytics2DApp(BaseApp):
 ```
 
 **Key Components:**
-- **State Management**: `StateMgmtEWithTripwire` tracks object positions over time and detects when objects cross tripwires
+- **State Management**: `StateMgmt` tracks object positions over time and returns the trip states that tripwire/ROI detection needs
 - **Event Processors**: Handle ROI entry/exit and tripwire crossing events
 - **Worker Registration**: Uses `register_processor()` to set up parallel processing pipelines
 
@@ -164,22 +166,41 @@ def create_behaviors(self, frames: list[nvSchema.Frame], stats: BatchStats) -> N
     updated_messages = [self.calibration.transform(msg) for msg in batch_messages]
     updated_messages_map = messages_to_map(updated_messages)
 
-    behaviors: list[nvSchema.Behavior] = []
-    events: list[nvSchema.Event] = []
+    # One call per batch. State management owns the per-key loop, because deciding which tracks
+    # have fallen silent is only sound once every message in the batch has been applied.
+    behavior_batch = self.state_mgmt.process_batch(updated_messages_map)
 
-    for sensor_id, msgs in updated_messages_map.items():
-        behavior, trip = self.state_mgmt.update_behavior(message_key=sensor_id, messages=msgs)
-        if behavior:
-            behaviors.append(behavior)
-        if trip:
-            events.extend(self.tripwire_event.get_events(trip))
-            events.extend(self.roi_event.get_events(trip))
+    # Events are Behavior objects on this path; write_events converts them to protobuf.
+    events: list[Behavior] = []
+    for trip in behavior_batch.trip_behaviors:
+        events.extend(self.tripwire_event.get_events(trip))
+        events.extend(self.roi_event.get_events(trip))
 
-    logger.info("Batch %s - Created %d behavior(s)", stats.batch_id, len(behaviors))
+    logger.info("Batch %s - Created %d behavior(s)", stats.batch_id, len(behavior_batch.active_behaviors))
     logger.info("Batch %s - Created %d event(s)", stats.batch_id, len(events))
 
-    self.write_behaviors(behaviors)
+    self.write_behaviors(behavior_batch.behaviors_to_write)
     self.write_events(events)
+```
+
+`BehaviorBatch` carries three lists:
+
+| Field | Contents |
+|---|---|
+| `active_behaviors` | One per track this batch updated. Feed these to detection, and **enrich them in place** — replacing the objects would not reach what gets written. |
+| `trip_behaviors` | Short-window states for tripwire / ROI detection. Produced only for sensors whose calibration defines a tripwire or an ROI, since those are the only things a trip is tested against — an app started without a calibration file gets none. Always empty in geographic coordinates, which does not track trips. |
+| `behaviors_to_write` | What to write to the behavior stream. The emission policy is already resolved, so an app never needs to know whether `behaviorEmitOnce` is set. |
+
+With `behaviorEmitOnce` enabled, add a shutdown flush so tracks that were still live are
+written when the app stops:
+
+```python
+def close(self) -> None:
+    pending = self.state_mgmt.flush_behaviors()
+    if pending:
+        logger.info("Flushing %d pending behavior(s) before shutdown.", len(pending))
+        self.write_behaviors(pending)
+    super().close()
 ```
 
 **Process Flow:**
@@ -220,8 +241,9 @@ The `run()` function handles:
 
 The `mdx.analytics.core.app.app_runner.run()` function supports these arguments:
 
-- `--config`: Path to the application configuration JSON file
-- `--calibration`: Path to the calibration configuration JSON file
+- `--config`: Path to the application configuration JSON file (required)
+- `--calibration`: Path to the calibration configuration JSON file (optional; enables dynamic calibration when omitted)
+- `--log`: Path to the logging config JSON file (optional; default `configs/logging_config.json`)
 
 ### Run from the command line
 

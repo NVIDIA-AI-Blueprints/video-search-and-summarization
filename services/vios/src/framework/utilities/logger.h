@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +27,7 @@
 #include <sstream>
 #include <streambuf>
 #include <atomic>
+#include <memory>
 #include <string.h>
 
 #include "utils.h"
@@ -64,7 +65,7 @@ enum Level {
 
 struct CoutToString
 {
-    CoutToString( std::streambuf * new_buffer ) 
+    explicit CoutToString( std::streambuf * new_buffer )
         : old( std::cout.rdbuf( new_buffer ) )
     { }
 
@@ -92,11 +93,7 @@ class Logger {
 
         ~Logger ()
         {
-            if (m_redirect)
-            {
-                delete m_redirect;
-                m_redirect = nullptr;
-            }
+            m_redirect.reset();
             m_stringBuffer.clear();
             m_fileStream.close ();
             m_qosStream.close();
@@ -114,7 +111,7 @@ class Logger {
         /* here user's file logging preference will be stored */
         bool m_enableFileLog;
 
-        CoutToString *m_redirect;
+        std::unique_ptr<CoutToString> m_redirect;
         std::stringstream m_stringBuffer;
         std::mutex m_LogLock;
 
@@ -264,18 +261,21 @@ class Logger {
             return m_logStream.str();
         }
 #endif
-        void log_qos(string format, ...)
+        void log_qos(string text)
         {
-            va_list args;
+            m_qosStream << text;
+            m_qosStream.flush();
+        }
+
+        template <typename... Args>
+        void log_qos(string format, Args... args)
+        {
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
 
-            // retrieve the variable arguments
-            va_start(args, format.c_str());
-            
             // Safe formatted output with bounds checking and null termination
-            int written = vsnprintf(buffer, max_len, format.c_str(), args);
-            
+            int written = snprintf(buffer, max_len, format.c_str(), args...);
+
             // Ensure null termination and handle potential truncation
             if (written >= max_len)
             {
@@ -284,27 +284,30 @@ class Logger {
             else if (written < 0)
             {
                 buffer[0] = '\0';  // Handle encoding error
-                LOG(error) << "Error in vsnprintf" << endl;
+                LOG(error) << "Error in snprintf" << endl;
             }
 
             m_qosStream << buffer;
             m_qosStream.flush();
-
-            va_end(args);
         }
 
-        void log_color(string color, string format, ...)
+        template <typename... Args>
+        void log_color(string color, string format, Args... args)
         {
-            va_list args;
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
 
-            // retrieve the variable arguments
-            va_start(args, format.c_str());
-            
             // Safe formatted output with bounds checking and null termination
-            int written = vsnprintf(buffer, max_len, format.c_str(), args);
-            
+            int written;
+            if constexpr (sizeof...(args) == 0)
+            {
+                written = snprintf(buffer, max_len, "%s", format.c_str());
+            }
+            else
+            {
+                written = snprintf(buffer, max_len, format.c_str(), args...);
+            }
+
             // Ensure null termination and handle potential truncation
             if (written >= max_len)
             {
@@ -332,7 +335,6 @@ class Logger {
                     std::cout << buffer << endl;
                 }
             }
-            va_end(args);
         }
 };
 } // nv_logger

@@ -8,6 +8,14 @@ Dependency-related pull requests receive two related GitHub checks:
 
 Both checks run automatically. Do not manually edit the generated PR comment.
 
+> **Transitional on `develop`.** License Diff still **fails** when the diff is
+> non-empty, and that failure is still a real signal — get OSRB approval for the
+> touched lockfile/manifest paths from
+> `@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers`, as before. OSRB Review runs
+> alongside it and posts its verdict, but it does not yet replace License Diff as
+> the gate. Expect both signals until that changes. On `main`, License Diff has
+> already been downgraded to a notice and OSRB Review is the gate.
+
 ## What developers should do
 
 ### License Diff reports no reviewable changes

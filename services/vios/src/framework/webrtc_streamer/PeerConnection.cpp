@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,24 +17,29 @@
 
 #include "PeerConnection.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
+#include "api/create_modular_peer_connection_factory.h"
+#include "api/enable_media.h"
+#include "api/audio/builtin_audio_processing_builder.h"
+#include "api/environment/environment_factory.h"
+#include "api/field_trials.h"
+#include "api/set_remote_description_observer_interface.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "rtc_base/ssl_adapter.h"
 #include "modules/audio_device/include/fake_audio_device.h"
 #include "rtc_base/ref_counted_object.h"
+#include "api/make_ref_counted.h"
 
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_decoder_factory_template.h"
 #include "api/video_codecs/video_decoder_factory_template_libvpx_vp8_adapter.h"
-#include "api/video_codecs/video_decoder_factory_template_open_h264_adapter.h"
 #include "api/video_codecs/video_decoder_factory_template_libnv_adapter.h"
 #include "api/video_codecs/video_decoder_factory_template_libnv_passthrough_adapter.h"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
-#include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template_libnv_passthrough_adapter.h"
 
 #include "CapturerFactory.h"
@@ -83,26 +88,82 @@ struct PeerOutData : public EventLoopOutData
     nv_vms::VmsErrorCode m_error;
 };
 
+namespace {
+
+bool JsonObjectGetString(const Json::Value& in, const char* key, std::string* out) {
+  if (!out || !key || !in.isObject() || !in.isMember(key)) {
+    return false;
+  }
+  const Json::Value& v = in[key];
+  if (!v.isString()) {
+    return false;
+  }
+  *out = v.asString();
+  return true;
+}
+
+bool JsonObjectGetInt(const Json::Value& in, const char* key, int* out) {
+  if (!out || !key || !in.isObject() || !in.isMember(key)) {
+    return false;
+  }
+  const Json::Value& v = in[key];
+  if (!v.isInt() && !v.isUInt()) {
+    return false;
+  }
+  *out = v.asInt();
+  return true;
+}
+
+// Bridges SetRemoteDescriptionObserverInterface to existing SetSessionDescriptionObserver.
+class RemoteSetObserverAdapter : public webrtc::SetRemoteDescriptionObserverInterface {
+ public:
+  explicit RemoteSetObserverAdapter(
+      webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> inner)
+      : inner_(std::move(inner)) {}
+
+  static webrtc::scoped_refptr<webrtc::SetRemoteDescriptionObserverInterface> Create(
+      webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> inner) {
+    return webrtc::make_ref_counted<RemoteSetObserverAdapter>(std::move(inner));
+  }
+
+  void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override {
+    if (!inner_) {
+      return;
+    }
+    if (error.ok()) {
+      inner_->OnSuccess();
+    } else {
+      inner_->OnFailure(std::move(error));
+    }
+  }
+
+ private:
+  webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> inner_;
+};
+
+}  // namespace
+
 webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencies(
-    rtc::scoped_refptr<webrtc::AudioDeviceModule> audioDeviceModule,
-    rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderfactory,
-    rtc::Thread* signalingThread, rtc::Thread* workerThread,
+    webrtc::scoped_refptr<webrtc::AudioDeviceModule> audioDeviceModule,
+    webrtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderfactory,
+    webrtc::Thread* signalingThread, webrtc::Thread* workerThread,
     std::unordered_map<std::string, std::string>& opts)
 {
     webrtc::PeerConnectionFactoryDependencies dependencies;
     dependencies.network_thread = nullptr;
     dependencies.worker_thread = workerThread;
     dependencies.signaling_thread = signalingThread;
-    dependencies.call_factory = webrtc::CreateCallFactory();
-    dependencies.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
-    dependencies.event_log_factory = absl::make_unique<webrtc::RtcEventLogFactory>(dependencies.task_queue_factory.get());
+    dependencies.env =
+        webrtc::CreateEnvironment(
+            std::make_unique<webrtc::FieldTrials>("WebRTC-SynchronousDestructors/Enabled/"),
+            webrtc::CreateDefaultTaskQueueFactory());
+    dependencies.event_log_factory = absl::make_unique<webrtc::RtcEventLogFactory>();
 
-    cricket::MediaEngineDependencies mediaDependencies;
-    mediaDependencies.task_queue_factory = dependencies.task_queue_factory.get();
-    mediaDependencies.adm = std::move(audioDeviceModule);
-    mediaDependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
-    mediaDependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-    mediaDependencies.audio_processing = webrtc::AudioProcessingBuilder().Create();
+    dependencies.adm = std::move(audioDeviceModule);
+    dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
+    dependencies.audio_decoder_factory = audioDecoderfactory;
+    dependencies.audio_processing_builder =
+        std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
 
     bool enc_passthrough = false;
     if(opts.find("quality") != opts.end())
@@ -137,94 +198,73 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
     if (NvHwDetection::getInstance()->m_useNvV4l2Enc || enc_passthrough)
     {
         LOG(info) << "using LibNvPassthroughVideoEncoderTemplateAdapter" << endl;
-        mediaDependencies.video_encoder_factory = std::make_unique<
+        dependencies.video_encoder_factory = std::make_unique<
             webrtc::VideoEncoderFactoryTemplate<webrtc::LibNvPassthroughVideoEncoderTemplateAdapter>>();
     }
     else
     {
-        if (use_inbuilt_encoder.empty() == false)
+        if (use_inbuilt_encoder.empty() == false && !iequals(use_inbuilt_encoder, "vp8"))
         {
-            if (iequals(use_inbuilt_encoder, "h264"))
-            {
-                LOG(info) << "using OpenH264EncoderTemplateAdapter" << endl;
-                mediaDependencies.video_encoder_factory = std::make_unique<
-                        webrtc::VideoEncoderFactoryTemplate<webrtc::OpenH264EncoderTemplateAdapter>>();
-            }
-            else if (iequals(use_inbuilt_encoder, "vp8"))
-            {
-                LOG(info) << "using LibvpxVp8EncoderTemplateAdapter" << endl;
-                mediaDependencies.video_encoder_factory = std::make_unique<
-                        webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
-            }
-            else
-            {
-                LOG(warning) << "Provided encoder value is wrong, Using default h264 encoder" << endl;
-                LOG(info) << "using OpenH264EncoderTemplateAdapter" << endl;
-                mediaDependencies.video_encoder_factory = std::make_unique<
-                        webrtc::VideoEncoderFactoryTemplate<webrtc::OpenH264EncoderTemplateAdapter>>();
-            }
+            LOG(warning) << "WebRTC H264 encoder is disabled; using VP8 encoder" << endl;
+        }
+        LOG(info) << "using LibvpxVp8EncoderTemplateAdapter" << endl;
+        dependencies.video_encoder_factory = std::make_unique<
+            webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
+    }
+
+    if (isJetsonPlatform())
+    {
+        if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
+            && NvHwDetection::getInstance()->m_useNvV4l2Enc)
+        {
+            LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
+            dependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
         }
         else
         {
-            LOG(info) << "using OpenH264EncoderTemplateAdapter" << endl;
-            mediaDependencies.video_encoder_factory = std::make_unique<
-                webrtc::VideoEncoderFactoryTemplate<webrtc::OpenH264EncoderTemplateAdapter>>();
+            LOG(info) << "using LibvpxVp8DecoderTemplateAdapter" << endl;
+            dependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
+        }
+    }
+    else
+    {
+        bool dec_passthrough = false;
+        if(opts.find("decoder_factory") != opts.end())
+        {
+            dec_passthrough = opts.at("decoder_factory") == DECODER_FACTORY_PASS_THROUGH ? true : false;
+        }
+        if (dec_passthrough)
+        {
+            LOG(info) << "using LibNvPassthroughVideoDecoderTemplateAdapter" << endl;
+            dependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvPassthroughVideoDecoderTemplateAdapter>>();
+        }
+        else if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
+            && NvHwDetection::getInstance()->m_useNvV4l2Enc)
+        {
+            LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
+            dependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
+        }
+        else
+        {
+            LOG(info) << "using LibvpxVp8DecoderTemplateAdapter" << endl;
+            dependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
         }
     }
 
-#ifdef JETSON_PLATFORM
-    if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
-        && NvHwDetection::getInstance()->m_useNvV4l2Enc)
-    {
-        LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
-    }
-    else
-    {
-        LOG(info) << "using vp8 and h264 decoder" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
-                                                webrtc::OpenH264DecoderTemplateAdapter>>();
-    }
-#else
-    bool dec_passthrough = false;
-    if(opts.find("decoder_factory") != opts.end())
-    {
-        dec_passthrough = opts.at("decoder_factory") == DECODER_FACTORY_PASS_THROUGH ? true : false;
-    }
-    if (dec_passthrough)
-    {
-        LOG(info) << "using LibNvPassthroughVideoDecoderTemplateAdapter" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvPassthroughVideoDecoderTemplateAdapter>>();
-    }
-    else if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
-        && NvHwDetection::getInstance()->m_useNvV4l2Enc)
-    {
-        LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
-    }
-    else
-    {
-        LOG(info) << "using vp8 and h264 decoder" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
-                                                webrtc::OpenH264DecoderTemplateAdapter>>();
-    }
-#endif
-
-    dependencies.media_engine = cricket::CreateMediaEngine(std::move(mediaDependencies));
+    webrtc::EnableMedia(dependencies);
 
     return dependencies;
 }
 
-void process_pc_message(std::shared_ptr<EventLoopData> data, void* parent)
+void process_pc_message(std::shared_ptr<EventLoopData> data, PeerConnection* peer)
 {
     shared_ptr<PeerData> in_data = std::static_pointer_cast<PeerData>(data);
     shared_ptr<PeerOutData> out_data = std::static_pointer_cast<PeerOutData>(data->m_outResult);
-    PeerConnection* peer = static_cast <PeerConnection*>(parent);
     if (in_data == nullptr || peer == nullptr)
     {
         LOG(error) << "Received null in data" << endl;
@@ -382,14 +422,15 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
                                 const std::string& peerid,
                                 const webrtc::PeerConnectionInterface::RTCConfiguration & config,
                                 std::unordered_map<std::string, std::string>& opts)
-            : m_signalingThread(rtc::Thread::Create())
-            , m_workerThread(rtc::Thread::Create())
+            : m_signalingThread(webrtc::Thread::Create())
+            , m_workerThread(webrtc::Thread::Create())
             , m_peerConnectionManager(peerConnectionManager)
             , m_peerid(peerid)
             , m_deleting(false)
             , m_publishFilter(std::string(".*"))
             , m_audioDecoderfactory(webrtc::CreateBuiltinAudioDecoderFactory())
-            , m_eventLoop("peerconnection_event_loop", process_pc_message)
+            , m_eventLoop("peerconnection_event_loop",
+                          [this](std::shared_ptr<EventLoopData> data) { process_pc_message(data, this); })
             , m_deviceManager(m_peerConnectionManager->getDeviceManager())
             , m_prevTimestamp(0)
             , m_prevBytesReceived(0)
@@ -441,7 +482,7 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
         else
         {
             LOG(info) << "Data channel created successfully" << endl;
-            rtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel = dataChannelCreationResult.MoveValue();
+            webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel = dataChannelCreationResult.MoveValue();
             if (m_deviceManager != nullptr)
             {
                 GET_DATA_CHANNEL()->addChannelObserver(m_deviceManager->getDeviceId(), dataChannel);
@@ -449,8 +490,7 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
         }
     }
 
-    m_statsCallback = rtc::make_ref_counted<PeerConnectionStatsCollectorCallback>();
-    m_eventLoop.setParent(this);
+    m_statsCallback = webrtc::make_ref_counted<PeerConnectionStatsCollectorCallback>();
 }
 
 PeerConnection::~PeerConnection()
@@ -475,9 +515,9 @@ PeerConnection::~PeerConnection()
     m_pc = nullptr;
     m_peer_connection_factory = nullptr;
     m_workerThread->BlockingCall([this] {
-        auto* fakeAdm = static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get());
+        std::unique_ptr<webrtc::FakeAudioDeviceModule> fakeAdm(
+            static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get()));
         m_audioDeviceModule = nullptr;
-        delete fakeAdm;
     });
 }
 
@@ -660,9 +700,9 @@ VmsErrorCode PeerConnection::addIceCandidate(const std::string &peerid,
         return VmsErrorCode::NoError;
     }
 
-    if (!rtc::GetStringFromJsonObject(jmessage, kCandidateSdpMidName, &sdp_mid) ||
-        !rtc::GetIntFromJsonObject(jmessage, kCandidateSdpMlineIndexName, &sdp_mlineindex) ||
-        !rtc::GetStringFromJsonObject(jmessage, kCandidateSdpName, &sdp))
+    if (!JsonObjectGetString(jmessage, kCandidateSdpMidName, &sdp_mid) ||
+        !JsonObjectGetInt(jmessage, kCandidateSdpMlineIndexName, &sdp_mlineindex) ||
+        !JsonObjectGetString(jmessage, kCandidateSdpName, &sdp))
     {
         LOG(warning) << "Can't parse received message:" << jmessage << endl;
     }
@@ -676,7 +716,7 @@ VmsErrorCode PeerConnection::addIceCandidate(const std::string &peerid,
         }
         else
         {
-            rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = this->getRtcPeerConnection();
+            webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = this->getRtcPeerConnection();
             if (rtcPeerConnection)
             {
                 if (!isRemoteDescriptionSet())
@@ -716,7 +756,7 @@ VmsErrorCode PeerConnection::setAnswer(const Json::Value &jmessage, Json::Value&
 
     std::string type;
     std::string sdp;
-    if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
+    if (!JsonObjectGetString(jmessage, kSessionDescriptionTypeName, &type) || !JsonObjectGetString(jmessage, kSessionDescriptionSdpName, &sdp))
     {
         LOG(warning) << "Can't parse received message.";
         SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, answer, "Can't parse received message.")
@@ -724,7 +764,15 @@ VmsErrorCode PeerConnection::setAnswer(const Json::Value &jmessage, Json::Value&
     }
     else
     {
-        webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(type, sdp, nullptr));
+        const std::optional<webrtc::SdpType> sdp_type = webrtc::SdpTypeFromString(type);
+        if (!sdp_type.has_value())
+        {
+            LOG(warning) << "Invalid session description type: " << type;
+            SET_VMS_ERROR2(VmsErrorCode::VMSInternalError, answer, "Invalid session description type.")
+            return VmsErrorCode::VMSInternalError;
+        }
+        std::unique_ptr<webrtc::SessionDescriptionInterface> session_description =
+            webrtc::CreateSessionDescription(*sdp_type, sdp);
         if (!session_description)
         {
             LOG(warning) << "Can't parse received session description message.";
@@ -736,9 +784,11 @@ VmsErrorCode PeerConnection::setAnswer(const Json::Value &jmessage, Json::Value&
             if (m_pc)
             {
                 std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
-                std::string sdp;
-                rtc::scoped_refptr<SetSessionDescriptionObserver> remoteSessionObserver(SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise,sdp));
-                m_pc->SetRemoteDescription(remoteSessionObserver.get(), session_description);
+                std::string out_sdp;
+                webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
+                    SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
+                m_pc->SetRemoteDescription(std::move(session_description),
+                    RemoteSetObserverAdapter::Create(remoteSessionObserver));
                 // waiting for remote description
                 std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
                 if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
@@ -776,10 +826,10 @@ bool PeerConnection::removeAudioTrack(std::string peerid)
 {
     bool removed = false;
     /* Remove Audio Track in case of recorded playback request */
-    std::vector<rtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = m_pc->GetSenders();
+    std::vector<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = m_pc->GetSenders();
     for (auto stream : senders)
     {
-        if (stream->media_type() == cricket::MediaType::MEDIA_TYPE_AUDIO)
+        if (stream->media_type() == webrtc::MediaType::AUDIO)
         {
             if(m_pc->RemoveTrackOrError(stream).ok())
             {
@@ -830,8 +880,8 @@ void PeerConnection::processRemoteCandidatesFromCache()
 }
 
 VmsErrorCode
-PeerConnection::addAudioTrack(rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource
-                            , rtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource
+PeerConnection::addAudioTrack(webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource
+                            , webrtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource
                             , std::string peerid, std::string video
                             , std::map<std::string, std::string, std::less<>> opts, Json::Value &value)
 {
@@ -855,7 +905,7 @@ PeerConnection::addAudioTrack(rtc::scoped_refptr<webrtc::VideoTrackSourceInterfa
     if (audioSource)
     {
         m_streamMap[peerid] = std::make_pair(videoSource, audioSource);
-        rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track = nullptr;
+        webrtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track = nullptr;
         audio_track = m_peer_connection_factory->CreateAudioTrack(peerid + "_audio", audioSource.get());
         if ((audio_track) && (!m_pc->AddTrack(audio_track, {peerid}).ok()))
         {
@@ -959,15 +1009,15 @@ PeerConnection::toggleStream(const Json::Value& req_info, const Json::Value &in,
         return VmsErrorCode::InvalidParameterError;
     }
 
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, value);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     /* If usecase of replay playback */
     if (video.find("startTime") != string::npos && sensor->type != SENSOR_TYPE_MMS_ONVIF)
     {
@@ -1195,7 +1245,7 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
     std::string type;
     std::string sdp;
     Json::Value jmessage = in.get("sessionDescription", EMPTY_STRING);
-    if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
+    if (!JsonObjectGetString(jmessage, kSessionDescriptionTypeName, &type) || !JsonObjectGetString(jmessage, kSessionDescriptionSdpName, &sdp))
     {
         LOG(warning) << "Can't parse received message.";
         SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, answer, "Can't parse received message")
@@ -1209,7 +1259,15 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
             sdp = addWebrtcBitrateToSDP(in, sdp);
         }
         // set remote offer
-        webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(type, sdp, nullptr));
+        const std::optional<webrtc::SdpType> sdp_type = webrtc::SdpTypeFromString(type);
+        if (!sdp_type.has_value())
+        {
+            LOG(warning) << "Invalid session description type: " << type;
+            SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, answer, "Invalid session description type.")
+            return VmsErrorCode::InvalidParameterError;
+        }
+        std::unique_ptr<webrtc::SessionDescriptionInterface> session_description =
+            webrtc::CreateSessionDescription(*sdp_type, sdp);
         if (!session_description)
         {
             LOG(warning) << "Can't parse received session description message.";
@@ -1217,9 +1275,11 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
         else
         {
             std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
-            std::string sdp;
-            rtc::scoped_refptr<SetSessionDescriptionObserver> remoteSessionObserver(SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise,sdp));
-            m_pc->SetRemoteDescription(remoteSessionObserver.get(), session_description);
+            std::string out_sdp;
+            webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
+                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
+            m_pc->SetRemoteDescription(std::move(session_description),
+                RemoteSetObserverAdapter::Create(remoteSessionObserver));
             // waiting for remote description
             std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
             if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
@@ -1271,19 +1331,20 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
         rtcoptions.offer_to_receive_audio = 1;
         std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
         std::string sdp;
-        m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+        m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
         // waiting for answer
         std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
         if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
         {
             // answer with the created answer
-            webrtc::SessionDescriptionInterface *descInterface = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+            const webrtc::SessionDescriptionInterface *descInterface = localfuture.get();
             if (descInterface)
             {
                 if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
                 {
-                    string sdpLite = m_observer->getSdpWithIceLite(descInterface, m_peerid, m_clientPublicIpAddr);
+                    std::unique_ptr<webrtc::SessionDescriptionInterface> liteDesc = descInterface->Clone();
+                    string sdpLite = m_observer->getSdpWithIceLite(liteDesc.get(), m_peerid, m_clientPublicIpAddr);
                     if (sdpLite.empty() == false)
                     {
                         sdp = sdpLite;
@@ -1312,7 +1373,7 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
 VmsErrorCode PeerConnection::getPeerConnectionList(Json::Value& content)
 {
     // get local SDP
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = getRtcPeerConnection();
+    webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = getRtcPeerConnection();
     if ((rtcPeerConnection) && (rtcPeerConnection->local_description()))
     {
         content["pc_state"] = (int)(rtcPeerConnection->peer_connection_state());
@@ -1324,12 +1385,12 @@ VmsErrorCode PeerConnection::getPeerConnectionList(Json::Value& content)
         content["sdp"] = sdp;
 
         Json::Value streams;
-        std::vector<rtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = rtcPeerConnection->GetSenders();
+        std::vector<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = rtcPeerConnection->GetSenders();
         for (auto localStream : senders)
         {
             if (localStream != nullptr)
             {
-                rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> mediaTrack = localStream->track();
+                webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> mediaTrack = localStream->track();
                 if (mediaTrack) {
                     Json::Value track;
                     track["kind"] = mediaTrack->kind();
@@ -1404,8 +1465,8 @@ void PeerConnection::startPlayback(const std::string &peerId)
     AudioVideoPair pair = audio_video_pair_it->second;
     LOG(verbose) << "Video Source Found " << pair.first.get() << endl;
 
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource(pair.first);
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource(pair.first);
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     /* TODO MMS Phase 2: Need to revisit during MMS Phase 2 support */
     if(m_deviceManager->getDeviceType() == TYPE_VST || m_deviceManager->getDeviceType() == TYPE_MMS)
     {
@@ -1445,15 +1506,15 @@ PeerConnection::controlStream(const std::string action, const std::string &peerI
     std::string seek_value = data.get("seek_value", EMPTY_STRING).asString();
     std::string mediaSessionId = data.get("mediaSessionId", EMPTY_STRING).asString();
 
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, value);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     /* TODO MMS Phase 2: Need to revisit during MMS Phase 2 support */
     if(m_deviceManager->getDeviceType() == TYPE_VST || m_deviceManager->getDeviceType() == TYPE_MMS)
     {
@@ -1527,15 +1588,15 @@ PeerConnection::getCurrentPosition(const std::string &peerId, Json::Value& data,
 
     std::string mediaSessionId = data.get("mediaSessionId", EMPTY_STRING).asString();
 
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, response);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     // For server type VST
     TrackSource<NvGstVideoCapturer>* gst_video = static_cast<TrackSource<NvGstVideoCapturer>*>(videoSourceInterface);
     if (gst_video != nullptr)
@@ -1565,15 +1626,15 @@ PeerConnection::getStatus(const string peerId, const string mediaSessionId,
     }
     LOG(verbose) << "PEER ID: " << peerId << endl;
 
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, response);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     /* TODO MMS Phase 2: Need to revisit during MMS Phase 2 support */
     if(m_deviceManager->getDeviceType() == TYPE_VST || m_deviceManager->getDeviceType() == TYPE_MMS)
     {
@@ -1609,15 +1670,15 @@ VmsErrorCode
 PeerConnection::getMetadataLastFrame(const std::string &mediaSessionId,
                                     Json::Value& response, const bool metadata)
 {
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, response);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     string sensorName = "", search_key = "";
     string sensorId;
     uint64_t ts = 0;
@@ -1776,15 +1837,15 @@ PeerConnection::getMetadataLastFrame(const std::string &mediaSessionId,
 VmsErrorCode
 PeerConnection::getStartTime(const std::string &mediaSessionId, Json::Value& response)
 {
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, response);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     if (m_deviceManager->getDeviceType() == TYPE_VST || m_deviceManager->getDeviceType() == TYPE_MMS)
     {
         TrackSource<NvGstVideoCapturer>* gst_video = dynamic_cast<TrackSource<NvGstVideoCapturer>*>(videoSourceInterface);
@@ -1804,15 +1865,15 @@ PeerConnection::getStartTime(const std::string &mediaSessionId, Json::Value& res
 VmsErrorCode
 PeerConnection::getDurationStream(const std::string &mediaSessionId, Json::Value& response)
 {
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, response);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     if (m_deviceManager->getDeviceType() == TYPE_VST || m_deviceManager->getDeviceType() == TYPE_MMS)
     {
         TrackSource<NvGstVideoCapturer>* gst_video = dynamic_cast<TrackSource<NvGstVideoCapturer>*>(videoSourceInterface);
@@ -1861,7 +1922,7 @@ void PeerConnection::removeTracks(const Json::Value &in)
     std::string mediaSessionId = in.get("mediaSessionId", EMPTY_STRING).asString();
     if (m_pc.get())
     {
-        std::vector<rtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = m_pc->GetSenders();
+        std::vector<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = m_pc->GetSenders();
         for (auto stream : senders)
         {
             std::vector<std::string> streamVector = stream->stream_ids();
@@ -1903,7 +1964,7 @@ void PeerConnection::removeTracks(const Json::Value &in)
 **  get the capturer from its URL
 ** ---------------------------------------------------------------------------
 */
-rtc::scoped_refptr<webrtc::VideoTrackSourceInterface>
+webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>
 PeerConnection::CreateVideoSource(const std::string &videourl, const std::map<std::string, std::string, std::less<>> &opts)
 {
     LOG(verbose) << "videourl:" << videourl;
@@ -1911,7 +1972,7 @@ PeerConnection::CreateVideoSource(const std::string &videourl, const std::map<st
     return CapturerFactory::CreateVideoSource(videourl, opts, m_publishFilter, m_peer_connection_factory);
 }
 
-rtc::scoped_refptr<webrtc::AudioSourceInterface>
+webrtc::scoped_refptr<webrtc::AudioSourceInterface>
 PeerConnection::CreateAudioSource(const std::string &audiourl, const std::map<std::string, std::string, std::less<>> &opts)
 {
     LOG(verbose) << "audiourl:" << audiourl;
@@ -2075,6 +2136,20 @@ VmsErrorCode PeerConnection::AddCompositorStreams(
             opts["overlaySensorPosY"] = urlParameters["overlaySensorPosY"];
         }
     }
+    // Live video wall with overlay needs the same fallback as a normal live
+    // stream.  Guarded on start/end time like AddStreams(): a replay compositor
+    // request must not block setup on a network fetch.
+    if (startTime.empty() && endTime.empty())
+    {
+        const bool requireCalibration = opts.find("overlay") != opts.end() && opts.at("overlay") == "true";
+        const bool requireFloorMap = opts.find("gods_eye_view") != opts.end() && opts.at("gods_eye_view") == "true";
+        if ((requireCalibration || requireFloorMap) &&
+            !VmsConfigManager::getInstance()->ensureOverlayAssetsForLiveRequest(requireCalibration, requireFloorMap))
+        {
+            LOG(warning) << "WebRTC live overlay assets are still unavailable after fallback download attempt" << endl;
+        }
+    }
+
     if (CreateAndAddTrack(video, opts, is_audio_required, streamLabel, nullptr, response) == -1)
     {
         return VmsErrorCode::VMSInternalError;
@@ -2399,6 +2474,22 @@ PeerConnection::AddStreams(unordered_map<string, string> urlParameters,
     {
         opts["peerid"] = peerid;
     }
+
+    // A live overlay request may arrive after the analytics service becomes
+    // available, even if the startup asset download failed.  Retry only the
+    // assets this request needs and keep stream setup bounded by the
+    // config-manager fallback timeout.
+    if (startTime.empty() && endTime.empty())
+    {
+        const bool requireCalibration = opts.find("overlay") != opts.end() && opts.at("overlay") == "true";
+        const bool requireFloorMap = opts.find("gods_eye_view") != opts.end() && opts.at("gods_eye_view") == "true";
+        if ((requireCalibration || requireFloorMap) &&
+            !VmsConfigManager::getInstance()->ensureOverlayAssetsForLiveRequest(requireCalibration, requireFloorMap))
+        {
+            LOG(warning) << "WebRTC live overlay assets are still unavailable after fallback download attempt" << endl;
+        }
+    }
+
     if (CreateAndAddTrack(video, opts, is_audio_required, streamLabel, stream_info, response) == -1)
     {
         return VmsErrorCode::VMSInternalError;
@@ -2425,18 +2516,19 @@ VmsErrorCode PeerConnection::createOffer(const Json::Value& in, Json::Value &off
     std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
     std::string sdp;
 
-    m_pc->CreateOffer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+    m_pc->CreateOffer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
     std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
     if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
     {
         // answer with the created offer
-        webrtc::SessionDescriptionInterface *desc = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+        const webrtc::SessionDescriptionInterface *desc = localfuture.get();
         if (desc)
         {
             if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
             {
-                string sdpLite = m_observer->getSdpWithIceLite(desc, m_peerid, m_clientPublicIpAddr);
+                std::unique_ptr<webrtc::SessionDescriptionInterface> mutableDesc = desc->Clone();
+                string sdpLite = m_observer->getSdpWithIceLite(mutableDesc.get(), m_peerid, m_clientPublicIpAddr);
                 if (sdpLite.empty() == false)
                 {
                     sdp = sdpLite;
@@ -2517,8 +2609,8 @@ PeerConnection::CreateAndAddTrack(string video, std::map<string, string, std::le
                                 , bool is_audio_required, string streamLabel
                                 , shared_ptr<StreamInfo> stream_info, Json::Value& response)
 {
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource = nullptr;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource = nullptr;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource = nullptr;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource = nullptr;
     try
     {
         videoSource = this->CreateVideoSource(video, opts);
@@ -2563,14 +2655,14 @@ PeerConnection::CreateAndAddTrack(string video, std::map<string, string, std::le
     if (it != m_streamMap.end())
     {
         AudioVideoPair pair = it->second;
-        rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource(pair.first);
+        webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource(pair.first);
         if (!videoSource)
         {
             LOG(error) << "Cannot create capturer video:" << video << endl;
         }
         else
         {
-            rtc::scoped_refptr<webrtc::VideoTrackInterface> video_track;
+            webrtc::scoped_refptr<webrtc::VideoTrackInterface> video_track;
             video_track = m_peer_connection_factory->CreateVideoTrack(videoSource, streamLabel + "_video");
             if ((video_track) && (!m_pc->AddTrack(video_track, {streamLabel}).ok()))
             {
@@ -2584,14 +2676,14 @@ PeerConnection::CreateAndAddTrack(string video, std::map<string, string, std::le
         }
         if(is_audio_required)
         {
-            rtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource(pair.second);
+            webrtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource(pair.second);
             if (!audioSource)
             {
                 LOG(error) << "Cannot create capturer audio:" << video << endl;
             }
             else
             {
-                rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track;
+                webrtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track;
                 audio_track = m_peer_connection_factory->CreateAudioTrack(streamLabel + "_audio", audioSource.get());
                 if ((audio_track) && (!m_pc->AddTrack(audio_track, {streamLabel}).ok()))
                 {
@@ -2672,8 +2764,8 @@ PeerConnection::getAudioVideoPair(std::map<std::string, AudioVideoPair, std::les
 
 VmsErrorCode
 PeerConnection::getMediaSources(const std::string &mediaSessionId,
-                                rtc::scoped_refptr<webrtc::VideoTrackSourceInterface>& videoSource,
-                                rtc::scoped_refptr<webrtc::AudioSourceInterface>& audioSource,
+                                webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>& videoSource,
+                                webrtc::scoped_refptr<webrtc::AudioSourceInterface>& audioSource,
                                 Json::Value& response)
 {
     std::map<std::string, AudioVideoPair, std::less<>>::iterator audio_video_pair_it;
@@ -2784,15 +2876,15 @@ VmsErrorCode PeerConnection::streamSettings(const std::string &peerId,
                                             Json::Value& response)
 {
     std::string mediaSessionId = data.get("mediaSessionId", EMPTY_STRING).asString();
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
-    rtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource;
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface>      audioSource;
     VmsErrorCode ret = getMediaSources(mediaSessionId, videoSource, audioSource, response);
     if (ret != VmsErrorCode::NoError)
     {
         return ret;
     }
 
-    rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
+    webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource.get());
     /* TODO MMS Phase 2: Need to revisit during MMS Phase 2 support */
     if(m_deviceManager->getDeviceType() == TYPE_VST || m_deviceManager->getDeviceType() == TYPE_MMS)
     {
@@ -2832,7 +2924,7 @@ VmsErrorCode PeerConnection::setOffer(const Json::Value& in, Json::Value& answer
     std::string type;
     std::string sdp;
     Json::Value jmessage = in.get("sessionDescription", EMPTY_STRING);
-    if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
+    if (!JsonObjectGetString(jmessage, kSessionDescriptionTypeName, &type) || !JsonObjectGetString(jmessage, kSessionDescriptionSdpName, &sdp))
     {
         LOG(warning) << "Can't parse received message.";
         SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, answer, "Can't parse received message")
@@ -2846,7 +2938,15 @@ VmsErrorCode PeerConnection::setOffer(const Json::Value& in, Json::Value& answer
         //     sdp = addWebrtcBitrateToSDP(in, sdp);
         // }
         // set remote offer
-        webrtc::SessionDescriptionInterface *session_description(webrtc::CreateSessionDescription(type, sdp, nullptr));
+        const std::optional<webrtc::SdpType> sdp_type = webrtc::SdpTypeFromString(type);
+        if (!sdp_type.has_value())
+        {
+            LOG(warning) << "Invalid session description type: " << type;
+            SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, answer, "Invalid session description type.")
+            return VmsErrorCode::InvalidParameterError;
+        }
+        std::unique_ptr<webrtc::SessionDescriptionInterface> session_description =
+            webrtc::CreateSessionDescription(*sdp_type, sdp);
         if (!session_description)
         {
             LOG(warning) << "Can't parse received session description message.";
@@ -2854,9 +2954,11 @@ VmsErrorCode PeerConnection::setOffer(const Json::Value& in, Json::Value& answer
         else
         {
             std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
-            std::string sdp;
-            rtc::scoped_refptr<SetSessionDescriptionObserver> remoteSessionObserver(SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise,sdp));
-            m_pc->SetRemoteDescription(remoteSessionObserver.get(), session_description);
+            std::string out_sdp;
+            webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
+                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
+            m_pc->SetRemoteDescription(std::move(session_description),
+                RemoteSetObserverAdapter::Create(remoteSessionObserver));
             // waiting for remote description
             std::future<const webrtc::SessionDescriptionInterface *> remotefuture = remotepromise.get_future();
             if (remotefuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
@@ -2884,19 +2986,20 @@ VmsErrorCode PeerConnection::getAnswer(const Json::Value& in, Json::Value& answe
     rtcoptions.offer_to_receive_audio = 1;
     std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
     std::string sdp;
-    m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+    m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
     // waiting for answer
     std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
     if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
     {
         // answer with the created answer
-        webrtc::SessionDescriptionInterface *descInterface = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+        const webrtc::SessionDescriptionInterface *localDesc = localfuture.get();
+        std::unique_ptr<webrtc::SessionDescriptionInterface> descInterface = localDesc ? localDesc->Clone() : nullptr;
         if (descInterface)
         {
             if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
             {
-                string sdpLite = m_observer->getSdpWithIceLite(descInterface, m_peerid, m_clientPublicIpAddr);
+                string sdpLite = m_observer->getSdpWithIceLite(descInterface.get(), m_peerid, m_clientPublicIpAddr);
                 if (sdpLite.empty() == false)
                 {
                     sdp = sdpLite;

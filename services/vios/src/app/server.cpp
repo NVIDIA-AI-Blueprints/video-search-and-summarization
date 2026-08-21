@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -66,7 +66,7 @@ void signal_handler( int signal_num )
 
 int VmsServer::startGLoop()
 {
-    m_gmainLoopTask = async::spawn([=]
+    m_gmainLoopTask = async::spawn([this]
     {
         m_gmainLoop.run();
         LOG(info) << "Exiting from Main GLoop...." << endl;
@@ -111,8 +111,8 @@ static bool isDeprecatedApi(const string &api)
 
 int VmsServer::initialize()
 {
-    g_hostIp = getHostIP();
-    LOG(info) << "Host Ip = " << g_hostIp << endl;
+    setHostIpAddress(getHostIP());
+    LOG(info) << "Host Ip = " << getHostIpAddress() << endl;
 
     m_moduleLoader = ModuleLoader::getInstance();
     if (m_moduleLoader == nullptr)
@@ -361,16 +361,21 @@ Json::Value VmsServer::getAPIInfo()
 
 void VmsServer::checkLibsSanity ()
 {
-#if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
+#if !defined(SENSOR_MODULE)
     NvBufWrapper::getInstance();
-#ifdef JETSON_PLATFORM
-    if (!GET_OSD_INSTANCE()->isError())
+    if (isJetsonPlatform())
     {
-        GET_OSD_INSTANCE()->osd_global_init();
+        if (!GET_OSD_INSTANCE()->isError())
+        {
+            GET_OSD_INSTANCE()->osd_global_init();
+        }
     }
-#else
-    CudaLoader::getInstance();
-#endif
+    else
+    {
+        CudaLoader::getInstance();
+    }
+    // Overlay assets download at startup for all non-sensor modules (Jetson + x86).
+    nv_vms::VmsConfigManager::getInstance()->downloadOverlayAssets();
 #endif
 }
 
@@ -429,7 +434,7 @@ void VmsServer::handleRestAPIs()
         return VmsErrorCode::NoError;
     };
 
-    m_func["/api/version"] = [=](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
+    m_func["/api/version"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
         out["type"] =  m_deviceManager->getDeviceType();
         if(m_deviceManager->getDeviceType() == TYPE_VST)
@@ -488,12 +493,13 @@ VmsServer::~VmsServer()
     DecoderPool::getInstance()->removeStreams();
     VideoSenderPool::getInstance()->removeStreams();
     UdpClientPool::getInstance()->clear();
-#ifdef JETSON_PLATFORM
-    if (!GET_OSD_INSTANCE()->isError())
+    if (isJetsonPlatform())
     {
-        GET_OSD_INSTANCE()->osd_global_destroy();
+        if (!GET_OSD_INSTANCE()->isError())
+        {
+            GET_OSD_INSTANCE()->osd_global_destroy();
+        }
     }
-#endif
 #endif
 
 #ifdef USE_GRPC_SERVER
@@ -519,12 +525,13 @@ VmsServer::~VmsServer()
     m_moduleLoader->deInitialize();
 
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
-#ifdef JETSON_PLATFORM
-    if (!GET_OSD_INSTANCE()->isError())
+    if (isJetsonPlatform())
     {
-        GET_OSD_INSTANCE()->osd_global_destroy();
+        if (!GET_OSD_INSTANCE()->isError())
+        {
+            GET_OSD_INSTANCE()->osd_global_destroy();
+        }
     }
-#endif
 #endif
     LOG(info) << "Exited VMS Server" << endl;
   } catch (const std::exception& e) {

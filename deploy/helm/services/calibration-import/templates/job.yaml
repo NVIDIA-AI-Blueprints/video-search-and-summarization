@@ -1,0 +1,159 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.enabled }}
+{{- $image := .Values.image | default dict }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "calibration-import.fullname" . }}
+  labels:
+    {{- include "calibration-import.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  backoffLimit: {{ .Values.backoffLimit | default 5 }}
+  template:
+    metadata:
+      labels:
+        {{- include "calibration-import.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: {{ .Values.restartPolicy | default "OnFailure" }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: calibration-import
+          image: "{{ $image.repository | default "docker.io/library/alpine" }}:{{ $image.tag | default "3.24.1" }}"
+          imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - /bin/sh
+            - -c
+            - sh {{ .Values.scripts.mountPath | default "/opt/scripts" }}/import-resources.sh
+          env:
+            - name: API_URL
+              value: {{ .Values.apiUrl | default "http://vss-video-analytics-api:8081" | quote }}
+            - name: CALIBRATION_FILE
+              value: {{ .Values.calibrationFile | default "/opt/vss/calibration.json" | quote }}
+            - name: CALIBRATION_SOURCE_TYPE
+              value: {{ .Values.calibrationSourceType | default "" | quote }}
+            - name: CALIBRATION_FILE_SOURCE
+              value: {{ .Values.calibrationFileSource | default "" | quote }}
+            - name: IMAGES_DIR
+              value: {{ .Values.imagesDir | default "/opt/vss/images" | quote }}
+            - name: IMAGE_SOURCE_TYPE
+              value: {{ .Values.imageSourceType | default "" | quote }}
+            - name: IMAGE_METADATA_FILE_SOURCE
+              value: {{ .Values.imageMetadataFileSource | default "" | quote }}
+            - name: IMAGE_BASE_SOURCE
+              value: {{ .Values.imageBaseSource | default "" | quote }}
+            - name: APP_DATA_MARKER_FILE
+              value: {{ .Values.appDataMarkerFile | default "" | quote }}
+            - name: MAX_RETRIES
+              value: {{ .Values.maxRetries | default 120 | quote }}
+            - name: SLEEP_SECONDS
+              value: {{ .Values.sleepSeconds | default 2 | quote }}
+            - name: REQUIRE_CALIBRATION
+              value: {{ .Values.requireCalibration | default false | quote }}
+            - name: REQUIRE_IMAGES
+              value: {{ .Values.requireImages | default false | quote }}
+            - name: NGC_ORG
+              value: {{ .Values.ngcOrg | default "" | quote }}
+            - name: NGC_TEAM
+              value: {{ .Values.ngcTeam | default "" | quote }}
+            {{- if .Values.ngcApiKeySecretName }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName }}
+                  key: {{ .Values.ngcApiKeySecretKey | default "NGC_CLI_API_KEY" }}
+            {{- end }}
+            - name: AWS_ACCESS_KEY_ID
+            {{- if .Values.awsAccessKeyIDSecretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.awsAccessKeyIDSecretName }}
+                  key: {{ .Values.awsAccessKeyIDSecretKey | default "AWS_ACCESS_KEY_ID" }}
+            {{- else }}
+              value: {{ .Values.awsAccessKeyID | default "" | quote }}
+            {{- end }}
+            - name: AWS_SECRET_ACCESS_KEY
+            {{- if .Values.awsSecretAccessKeySecretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.awsSecretAccessKeySecretName }}
+                  key: {{ .Values.awsSecretAccessKeySecretKey | default "AWS_SECRET_ACCESS_KEY" }}
+            {{- else }}
+              value: {{ .Values.awsSecretAccessKey | default "" | quote }}
+            {{- end }}
+            - name: AWS_REGION
+              value: {{ .Values.awsRegion | default "" | quote }}
+            - name: AWS_ENDPOINT_URL
+              value: {{ .Values.awsEndpointUrl | default "" | quote }}
+            - name: STORAGE_REST_URL
+              value: {{ .Values.storageRestUrl | default "" | quote }}
+            - name: STORAGE_AUTHORIZATION
+            {{- if .Values.storageAuthorizationSecretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storageAuthorizationSecretName }}
+                  key: {{ .Values.storageAuthorizationSecretKey | default "STORAGE_AUTHORIZATION" }}
+            {{- else }}
+              value: {{ .Values.storageAuthorization | default "" | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: scripts
+              mountPath: {{ .Values.scripts.mountPath | default "/opt/scripts" }}
+              readOnly: true
+            {{- if .Values.dataPvcClaimName }}
+            - name: calibration-data
+              mountPath: {{ .Values.dataMountPath | default "/opt/vss" }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "calibration-import.scriptsConfigMapName" . }}
+            defaultMode: 493
+        {{- if .Values.dataPvcClaimName }}
+        - name: calibration-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.dataPvcClaimName }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

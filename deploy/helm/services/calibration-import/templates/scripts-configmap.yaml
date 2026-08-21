@@ -1,0 +1,275 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.enabled (not .Values.scripts.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "calibration-import.scriptsConfigMapName" . }}
+  labels:
+    {{- include "calibration-import.labels" . | nindent 4 }}
+data:
+  import-resources.sh: |
+    #!/bin/sh
+    set -eu
+
+    ensure_tools() {
+      missing=""
+      for tool in curl jq sed; do
+        if ! command -v "${tool}" >/dev/null 2>&1; then
+          missing="${missing} ${tool}"
+        fi
+      done
+      if [ -n "${missing}" ] && command -v apk >/dev/null 2>&1; then
+        apk add --no-cache ${missing} >/dev/null
+      fi
+      for tool in curl jq sed; do
+        if ! command -v "${tool}" >/dev/null 2>&1; then
+          echo "[calibration-import] required tool not found: ${tool}" >&2
+          exit 1
+        fi
+      done
+    }
+
+    wait_for_file() {
+      path="$1"
+      label="$2"
+      i=0
+      while [ ! -f "${path}" ]; do
+        i=$((i + 1))
+        if [ "${i}" -ge "${MAX_RETRIES}" ]; then
+          echo "[calibration-import] timed out waiting for ${label}: ${path}" >&2
+          exit 1
+        fi
+        sleep "${SLEEP_SECONDS}"
+      done
+    }
+
+    wait_for_api() {
+      i=0
+      until [ "$(curl -o /dev/null --silent --head --write-out '%{http_code}' "${API_URL}/livez" || true)" = "200" ]; do
+        i=$((i + 1))
+        if [ "${i}" -ge "${MAX_RETRIES}" ]; then
+          echo "[calibration-import] timed out waiting for ${API_URL}/livez" >&2
+          exit 1
+        fi
+        sleep "${SLEEP_SECONDS}"
+      done
+    }
+
+    normalize_url() {
+      url="$1"
+      case "${url}" in
+        https://github.com/*/blob/*)
+          printf '%s\n' "${url}" | sed -E 's#^https://github.com/([^/]+)/([^/]+)/blob/([^/]+)/(.*)$#https://raw.githubusercontent.com/\1/\2/\3/\4#'
+          ;;
+        *)
+          printf '%s\n' "${url}"
+          ;;
+      esac
+    }
+
+    storage_rest_download() {
+      source_path="$1"
+      output_file_path="$2"
+      file_name="$3"
+
+      if [ -z "${STORAGE_REST_URL}" ]; then
+        echo "[calibration-import] STORAGE_REST_URL is required for storage-rest downloads" >&2
+        exit 1
+      fi
+
+      resolved_path="${source_path}"
+      case "${source_path}" in
+        s3://*)
+          without_scheme="${source_path#s3://}"
+          bucket="${without_scheme%%/*}"
+          key=""
+          if [ "${bucket}" != "${without_scheme}" ]; then
+            key="${without_scheme#*/}"
+          fi
+          if [ -n "${AWS_ENDPOINT_URL}" ]; then
+            base_url="${AWS_ENDPOINT_URL%/}/${bucket}"
+          else
+            if [ -z "${AWS_REGION}" ]; then
+              echo "[calibration-import] AWS_REGION must be set for s3:// storage-rest downloads without AWS_ENDPOINT_URL" >&2
+              exit 1
+            fi
+            base_url="https://${bucket}.s3.${AWS_REGION}.amazonaws.com"
+          fi
+          if [ -n "${key}" ]; then
+            resolved_path="${base_url}/${key}"
+          else
+            resolved_path="${base_url}"
+          fi
+          ;;
+        gs://*)
+          without_scheme="${source_path#gs://}"
+          bucket="${without_scheme%%/*}"
+          key=""
+          if [ "${bucket}" != "${without_scheme}" ]; then
+            key="${without_scheme#*/}"
+          fi
+          base_url="https://storage.googleapis.com/${bucket}"
+          if [ -n "${key}" ]; then
+            resolved_path="${base_url}/${key}"
+          else
+            resolved_path="${base_url}"
+          fi
+          ;;
+      esac
+
+      encoded_path="$(printf '%s' "${resolved_path}" | jq -sRr @uri)"
+      request_url="${STORAGE_REST_URL%/}/v1alpha/fileobject/by-address/${encoded_path}"
+      i=1
+      while [ "${i}" -le "${MAX_RETRIES}" ]; do
+        echo "[calibration-import] downloading ${file_name} via storage-rest attempt ${i}/${MAX_RETRIES}"
+        set -- -sS -L --connect-timeout 60 --retry 0 -w "%{http_code}" -o "${output_file_path}"
+        if [ -n "${STORAGE_AUTHORIZATION}" ]; then
+          set -- "$@" -H "Authorization: ${STORAGE_AUTHORIZATION}"
+        fi
+        http_code="$(curl "$@" "${request_url}")" || true
+        if [ "${http_code}" = "200" ] && [ -s "${output_file_path}" ]; then
+          return 0
+        fi
+        echo "[calibration-import] storage-rest download issue for ${file_name} HTTP ${http_code}"
+        rm -f "${output_file_path}"
+        sleep "${SLEEP_SECONDS}"
+        i=$((i + 1))
+      done
+      echo "[calibration-import] failed to download ${file_name} via storage-rest" >&2
+      exit 1
+    }
+
+    download_file() {
+      source_path="$1"
+      output_file_path="$2"
+      file_name="$3"
+      source_type="$4"
+
+      if [ -z "${source_type}" ]; then
+        case "${source_path}" in
+          http://*|https://*) source_type="https" ;;
+          s3://*) source_type="s3" ;;
+          gs://*) source_type="gcs" ;;
+          *) source_type="local" ;;
+        esac
+      fi
+
+      mkdir -p "$(dirname "${output_file_path}")"
+      case "${source_type}" in
+        ""|"local")
+          if [ -n "${source_path}" ] && [ "${source_path}" != "${output_file_path}" ]; then
+            cp "${source_path}" "${output_file_path}"
+          fi
+          ;;
+        "http-server"|"https"|"http")
+          url="$(normalize_url "${source_path}")"
+          echo "[calibration-import] downloading ${file_name} from ${url}"
+          curl --fail --show-error --location "${url}" -o "${output_file_path}"
+          ;;
+        "s3"|"aws")
+          if [ -n "${STORAGE_REST_URL}" ]; then
+            storage_rest_download "${source_path}" "${output_file_path}" "${file_name}"
+          else
+            aws s3 cp "${source_path}" "${output_file_path}" --no-verify-ssl
+          fi
+          ;;
+        "gcs"|"gs")
+          storage_rest_download "${source_path}" "${output_file_path}" "${file_name}"
+          ;;
+        "ngc")
+          if [ -z "${NGC_CLI_API_KEY}" ] || [ -z "${NGC_ORG}" ]; then
+            echo "[calibration-import] NGC_CLI_API_KEY and NGC_ORG are required for ngc downloads" >&2
+            exit 1
+          fi
+          token_url="https://authn.nvidia.com/token?service=ngc&scope=group/ngc:${NGC_ORG}"
+          if [ -n "${NGC_TEAM}" ]; then
+            token_url="${token_url}&scope=group/ngc:${NGC_ORG}/${NGC_TEAM}"
+          fi
+          token="$(curl -s -u "\$oauthtoken:${NGC_CLI_API_KEY}" -H 'Accept:application/json' "${token_url}" | jq -r '.token')"
+          curl --fail --show-error --location \
+            -H "Authorization: Bearer ${token}" \
+            -H "Content-Type: application/json" \
+            "${source_path}" -o "${output_file_path}"
+          ;;
+        *)
+          echo "[calibration-import] invalid source type: ${source_type}" >&2
+          exit 1
+          ;;
+      esac
+    }
+
+    download_resources() {
+      if [ -n "${CALIBRATION_FILE_SOURCE}" ]; then
+        download_file "${CALIBRATION_FILE_SOURCE}" "${CALIBRATION_FILE}" "calibration.json" "${CALIBRATION_SOURCE_TYPE}"
+      fi
+
+      if [ -n "${IMAGE_METADATA_FILE_SOURCE}" ]; then
+        download_file "${IMAGE_METADATA_FILE_SOURCE}" "${IMAGES_DIR}/imageMetadata.json" "imageMetadata.json" "${IMAGE_SOURCE_TYPE}"
+      fi
+
+      if [ -n "${IMAGE_BASE_SOURCE}" ] && [ -f "${IMAGES_DIR}/imageMetadata.json" ]; then
+        for file_name in $(jq -r '.images[].fileName' "${IMAGES_DIR}/imageMetadata.json"); do
+          if [ ! -f "${IMAGES_DIR}/${file_name}" ]; then
+            download_file "${IMAGE_BASE_SOURCE%/}/${file_name}" "${IMAGES_DIR}/${file_name}" "${file_name}" "${IMAGE_SOURCE_TYPE}"
+          fi
+        done
+      fi
+    }
+
+    upload_calibration() {
+      if [ -f "${CALIBRATION_FILE}" ]; then
+        echo "[calibration-import] uploading calibration file ${CALIBRATION_FILE}"
+        curl --fail --show-error -X POST "${API_URL}/config/upload-file/calibration" \
+          --form configFiles=@"${CALIBRATION_FILE}"
+      elif [ "${REQUIRE_CALIBRATION}" = "true" ]; then
+        echo "[calibration-import] calibration file not found: ${CALIBRATION_FILE}" >&2
+        exit 1
+      else
+        echo "[calibration-import] skipping calibration JSON import; ${CALIBRATION_FILE} not found"
+      fi
+    }
+
+    upload_images() {
+      metadata_file="${IMAGES_DIR}/imageMetadata.json"
+      if [ ! -f "${metadata_file}" ]; then
+        if [ "${REQUIRE_IMAGES}" = "true" ]; then
+          echo "[calibration-import] image metadata not found: ${metadata_file}" >&2
+          exit 1
+        fi
+        echo "[calibration-import] skipping calibration image import; ${metadata_file} not found"
+        return
+      fi
+
+      form_args=""
+      for file_name in $(jq -r '.images[].fileName' "${metadata_file}"); do
+        if [ -f "${IMAGES_DIR}/${file_name}" ]; then
+          form_args="${form_args} --form images=@${IMAGES_DIR}/${file_name}"
+        else
+          echo "[calibration-import] image listed in metadata not found: ${IMAGES_DIR}/${file_name}"
+        fi
+      done
+
+      if [ -n "${form_args}" ]; then
+        echo "[calibration-import] uploading calibration images from ${IMAGES_DIR}"
+        sh -c "curl --fail --show-error -X POST ${API_URL}/config/calibration/images ${form_args} --form imageMetadata=@${metadata_file}"
+      elif [ "${REQUIRE_IMAGES}" = "true" ]; then
+        echo "[calibration-import] no image files from ${metadata_file} were found" >&2
+        exit 1
+      else
+        echo "[calibration-import] no image files from ${metadata_file} were found"
+      fi
+    }
+
+    ensure_tools
+    wait_for_api
+    if [ "${APP_DATA_MARKER_FILE}" != "" ]; then
+      echo "[calibration-import] waiting for app-data marker ${APP_DATA_MARKER_FILE}"
+      wait_for_file "${APP_DATA_MARKER_FILE}" "NGC app-data extraction"
+    fi
+    download_resources
+    upload_calibration
+    upload_images
+    echo "[calibration-import] done"
+{{- end }}

@@ -1,8 +1,11 @@
 {
   "skills": [
     "vss-search-archive",
-    "vss-deploy-profile"
+    "vss-deploy-profile",
+    "vss-ask-video"
   ],
+  "profile": "search",
+  "deploy_mode": "remote-all",
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
@@ -12,66 +15,98 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **search** profile on `{{platform}}` via `/vss-deploy-profile -p search`. Run autonomously.\n\n**Environment & prerequisites:** A **full-remote deployed VSS search profile** (deploy mode = `remote-all` \u2014 LLM and VLM both via remote launchpad endpoints, no local NIMs; Cosmos Embed1 still runs locally on the GPU, so the profile requires a GPU host even in remote-all). Run on ONE platform only \u2014 the search answers come from Cosmos Embed1 and Elasticsearch, which are hardware-agnostic and the LLM/VLM run remotely, so fanning out discovers nothing new. Pinned to `RTXPRO6000BW` with `gpu_count: 2` (operator allocation). Required: VSS agent reachable at http://localhost:8000/docs (OpenAPI visible), VST reachable at http://localhost:30888/vst/api/v1, Elasticsearch reachable at http://localhost:9200, the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 7777 per current Brev secure-link convention \u2014 see skills/vss-deploy-profile/references/brev.md), AND all sample videos downloaded from ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.2.0 then extracted with tar -xzvf then pre-ingested using the agent video ingest handshake (`POST /api/v1/videos` \u2192 chunked VST upload URL \u2192 `POST /api/v1/videos/{sensorId}/complete`) according to the `File upload — universal three-step flow` section of the SKILL.md, before running these checks.",
+      "scenario": "deploy-search-profile",
+      "query": "Deploy the VSS **search** profile on `{{platform}}` via `/vss-deploy-profile -p search -m remote-all`. Set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`; after local Agent and VST health succeeds, validate `services/agent/pyproject.toml` and run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run --help`. On Brev, provide `BREV_ENV_ID` and the platform-provided `BREV_LINK_DOMAIN` to the deployment workflow before it writes `generated.env`; do not invent a hostname. After deployment is complete, use the bundled `skills/vss-search-archive/scripts/select_brev_origin.sh` to make the single public-origin decision. Do not issue curl against the public candidate yourself. Its public request disables redirects and accepts the public origin only for HTTP 200 plus JSON `type: vst` and a nonempty string `version`; otherwise consume its host-reachable fallback. Record that final origin with `vss configure --base-url`, require `vss-rtvi-vlm` to be running, and require its bounded `/v1/models` response to contain a nonempty served model list. Do not download or ingest sample media in this step.",
       "checks": [
-        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0"
+        "The search profile was deployed in `remote-all` mode; `curl -sf --max-time 15 http://localhost:8000/health` and the project-local `vss search run --help` command both returned exit 0 from the validated checkout, with `vss-agent` and `redis` running",
+        "The public-origin decision made exactly one public-candidate VST request, through the bundled `select_brev_origin.sh`; the agent issued no public-candidate curl itself. That request disabled redirects and accepted only HTTP 200 plus JSON `type: vst` and a nonempty string `version`; otherwise the selector returned the exact host-reachable origin. `vss configure` recorded the selected origin, and the agent neither edited `VST_EXTERNAL_URL` nor looped on routing. Compose activity that belongs to the initial `/vss-deploy-profile` workflow is deployment, not a routing violation",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returned exit 0, including in `remote-all` mode where RT-VLM remains the local media-processing proxy",
+        "A bounded request to the configured RT-VLM `/v1/models` endpoint returned a nonempty served model list, and no sample bundle was downloaded or video ingested during this deployment-only step"
       ]
     },
     {
-      "query": "Find all instances of forklifts in the airport video. Agent backend is on localhost.",
+      "scenario": "ingest-search-fixtures",
+      "query": "The search profile is already deployed, healthy, configured, and must not be deployed or recreated in this step. Ingest the two search fixtures. Read the existing origin from `vss configure show`; fail rather than running `docker compose`, restarting containers, changing routing, or invoking `/vss-deploy-profile` if that prepared deployment is unavailable. At the start of this ingestion step, initialize one bounded source-setup deadline using the vss-search-archive lifecycle recipe. Make ingestion idempotent: list VST, Agent-delete exact or deduplicated `warehouse_sample`, `warehouse-ladder`, or legacy `sample-warehouse-ladder` remnants that are present, and wait for absence. Download and extract the pinned `nvidia/vss-developer/dev-profile-sample-data:3.2.0` bundle into a fresh temporary directory and derive both upload inputs only from that extraction; do not reuse a host copy. Ingest only `warehouse_sample.mp4` and `sample-warehouse-ladder.mp4` through the Agent-backed three-step workflow, consistently uploading the ladder bytes as `warehouse-ladder.mp4`, and validate each separate `/complete` response. Re-run `vss configure` after ingestion because indexes are lazy. Poll until VST lists both canonical sources with resolved UUIDs, embedding documents exist under `sensor.id.keyword=<UUID>` for both, behavior documents exist under `sensor.id.keyword=warehouse-ladder`, and raw documents exist under `sensorId.keyword=warehouse-ladder`. Require the distinct configured indexes `mdx-embed-filtered-2025-01-01`, `mdx-behavior-2025-01-01`, and `mdx-raw-2025-01-01`. Logs are diagnostics only. If the bounded ingestion deadline expires, print diagnostics and fail without redeploying, restarting, resetting the deadline, or re-ingesting.",
       "checks": [
-        "The agent listed the available video sources via a `GET http://localhost:30888/vst/api/v1/sensor/list` call (per the vss-manage-video-io-storage skill's guidance on resolving unknown source names) before attempting any search",
-        "The agent's final reply explicitly acknowledges that no `airport` video is registered in VST and asks the user to clarify which source to search or to ingest the airport video first \u2014 it did NOT silently fall back to a similar-sounding registered source (e.g. the warehouse video) and did NOT fabricate search hits for a video it never queried",
-        "The agent did NOT start the video ingest handshake (`POST /api/v1/videos` or `POST /api/v1/videos/{sensorId}/complete`) during this step \u2014 ingesting a video on the user's behalf is an explicit opt-in action"
+        "The trajectory reused the healthy deployment and origin recorded by `vss configure show`; it did not invoke `/vss-deploy-profile`, `docker compose up`, restart or recreate containers, edit routing, or reset deployment state during fixture ingestion",
+        "Before upload the agent listed through the configured origin's VST route and Agent-deleted matching remnants only when present; it downloaded and extracted the pinned `nvidia/vss-developer/dev-profile-sample-data:3.2.0` bundle into a fresh temporary directory, and the upload paths demonstrably came from that extraction rather than a cached host file. It ingested only the extracted `warehouse_sample.mp4` and `sample-warehouse-ladder.mp4` bytes through the Agent-backed three-step workflow, used `warehouse-ladder.mp4` consistently for the ladder upload, validated each `/complete` response, and never called deprecated `PUT /api/v1/videos-for-search/{filename}`",
+        "Fixture ingestion used one bounded source-setup deadline with finite request timeouts and no deadline reset, redeploy, restart, or re-ingest recovery loop. Bounded logs and other read-only diagnostics were allowed, but could not replace the VST and index readiness checks",
+        "A bounded VST source listing returned both `warehouse_sample` and canonical `warehouse-ladder` with resolved sensor UUIDs, and `vss configure show` reported the distinct exact embedding, behavior, and raw indexes",
+        "The embedding index contained documents for both resolved UUIDs under `sensor.id.keyword`; the behavior index contained documents for `warehouse-ladder` under `sensor.id.keyword`; and the raw index contained documents for `warehouse-ladder` under `sensorId.keyword`"
       ]
     },
     {
-      "query": "Find all instances of forklifts in the sample warehouse video. Agent backend is on localhost.",
+      "query": "Find all instances of forklifts in the airport video. The Docker search profile and evaluation fixtures are already prepared on this host.",
       "checks": [
-        "The agent issued exactly one `POST http://localhost:8000/generate` call AND no parallel calls with separate underlying embed / attribute endpoints",
-        "The POST /generate request body contained an `input_message` field whose value paraphrases or contains `forklifts` \u2014 not a different user query, not a paraphrase that dropped the object noun",
-        "The /generate response returned HTTP 200 with a body that contains a non-empty array of search hits (each hit has similarity score and timestamped clip metadata)",
-        "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers \u2014 not a raw JSON dump, not a chat-style bullet list",
-        "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the /generate response \u2014 no fabricated timestamps, no paraphrased similarity scores",
-        "Every screenshot_url / clip_url cited in the agent's final report matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...) \u2014 otherwise the user cannot open them from outside the Brev box",
-        "Each search result in the report displays a critic result outcome column, and also a criteria column listing all evaluation criteria relevant to that result (formatted with \u2713 for true and \u2717 for false).",
-        "The agent's final reply includes a `Verification Step` offer at the end of the report, telling the user that screenshots can be downloaded and inspected \u2014 it does NOT silently download screenshots without opt-in",
-        "The agent did NOT start the video ingest handshake (`POST /api/v1/videos` or `POST /api/v1/videos/{sensorId}/complete`) during this step, it considered the video was in the system already"
+        "The agent successfully listed available video sources from the prepared Docker deployment using the configured origin's VST route before attempting search",
+        "Because no registered source matched `airport`, the agent did not invoke `vss search run`, substitute another source, deploy, redeploy, or start an ingestion handshake",
+        "The final reply explicitly stated that no `airport` video was registered, listed the available registered sources, and asked the user to clarify the source or explicitly request ingestion"
       ]
     },
     {
-      "query": "Find a person wearing a white jacket climbing a ladder in sample-warehouse-ladder. Agent backend is on localhost. You are pre-authorized to run the Verification Step autonomously, without asking for confirmation.",
+      "query": "Find up to three instances of forklifts in the registered sample warehouse source `warehouse_sample`. Resolve its exact sensor ID from VST, then use `vss search run embed` with `--query forklifts`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. The Docker search profile and evaluation fixtures are already prepared on this host.",
       "checks": [
-        "The agent issued exactly one `POST http://localhost:8000/generate` call AND no parallel calls with separate underlying embed / attribute endpoints",
-        "The POST /generate request body contained an `input_message` that preserves both halves of the fused query \u2014 it contains the appearance attribute (`white jacket`) AND the action (`climbing a ladder`) \u2014 the agent did NOT silently drop one half to simplify the search",
-        "The /generate response returned HTTP 200 with a body that contains a non-empty array of search hits (each hit has similarity score and timestamped clip metadata)",
-        "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers \u2014 not a raw JSON dump, not a chat-style bullet list",
-        "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the /generate response \u2014 no fabricated timestamps, no paraphrased similarity scores",
-        "Every screenshot_url / clip_url cited in the agent's final report matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...) \u2014 otherwise the user cannot open them from outside the Brev box",
-        "The agent did NOT pause to re-ask the user for consent before running the Verification Step \u2014 the query pre-authorized it, so the agent proceeded autonomously to download and inspect screenshots instead of re-offering the `Verification Step` as an opt-in",
-        "The trajectory shows the agent running curl against each `screenshot_url` returned in the /generate response to save it under `/tmp/`, AND then reading the saved image file with its image-inspection capability \u2014 a well-formed download is not sufficient, the agent must actually look at the pixels",
-        "The agent's final `Video Search Results` report includes, for every inspected hit, an explicit verdict (confirmed match / rejected / uncertain) grounded in the screenshot content \u2014 not just the raw similarity score echoed from /generate"
+        "Before search, the agent listed sources through the configured origin's VST route and resolved the explicitly requested `warehouse_sample` to its exact registered name and nonempty sensor ID",
+        "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run embed` command from the validated checkout, relying on the deployment recorded by `vss configure`; it passed no endpoint, index, or model flags, and did not use `--search-mode`, `--deployment`, `--profile`, `--base-url`, a container/pod shell, or `/api/v1/search`",
+        "The command completed successfully, passed the forklift query explicitly with `--query` rather than as a positional argument, passed the resolved sensor ID with `--video-source`, selected the upload partition with `--source-type video_file`, bounded results with `--top-k 3`, and returned a non-empty `data` array",
+        "The final reply clearly summarized every hit's source, start time, end time, similarity score, screenshot or clip URL, and exact CLI `verification.result` (`confirmed`, `rejected`, or `unverified`) instead of dumping raw JSON; no particular heading or prose layout was required",
+        "Because the configured RT-VLM reported a nonempty served-model list, the CLI made one bounded critic attempt for every returned forklift hit. Every hit serialized a `verification` object with result `confirmed`, `rejected`, or `unverified`; confirmed and rejected results had a nonempty `criteria_met` object containing only boolean values. A well-formed technical or semantic `unverified` result remained valid evidence of an attempted critic path",
+        "Every cited media URL used the same scheme, host, and effective port as the origin recorded by `vss configure`, which is the origin the host CLI stamps into `screenshot_url`; the recorded Brev public HTTPS origin was required when its setup probe succeeded, while the exact recorded host-reachable origin was accepted only when setup's single bounded public probe failed and the agent explicitly labeled the media URLs host-local. A bounded GET could report media unavailability, but did not invalidate an otherwise successful retrieval result",
+        "The report distinguished retrieval similarity from the CLI critic verdict, did not inspect screenshot pixels, offered a `Verification Step` only if every hit in the nonempty displayed result set remained `unverified`, and did not deploy, redeploy, or ingest during this step"
       ]
     },
     {
-      "query": "Find a neon-pink monster truck in the ingested sample warehouse video. Agent backend is on localhost.",
+      "query": "Return up to three candidates for a person wearing a white jacket climbing a ladder in `warehouse-ladder`. Resolve its exact sensor ID from VST, then use `vss search run fusion` with `--query \"person climbing a ladder\"`, `--attribute \"white jacket\"`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. Report the default CLI critic result for every hit. The Docker search profile and evaluation fixtures are already prepared on this host.",
       "checks": [
-        "The agent issued a `POST http://localhost:8000/generate` call with `input_message` containing `neon-pink monster truck` (or an equivalent paraphrase) \u2014 it did NOT refuse the query up front",
-        "The /generate response returned zero hits because this object is not present in the video (i.e. the embed stage found nothing or the default-enabled critic rejected the low-confidence candidates). The agent did NOT claim success, did NOT fabricate matches, and did NOT silently return an empty report \u2014 per the skill's mandatory workflow, zero matches trigger the troubleshooting loop",
-        "The agent's final reply explicitly acknowledges the zero-hit outcome and explains why (e.g. the query may be too specific, the object may not be present, or suggests the user loosen the query / lower similarity threshold) \u2014 per the troubleshooting.md guidance"
+        "Before search, the agent listed sources through the configured origin's VST route and resolved `warehouse-ladder` to its exact registered name and nonempty sensor ID",
+        "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run fusion` command from the validated checkout, relying on the deployment recorded by `vss configure`; it passed no endpoint, index, or model flags and did not use `--search-mode`, `--decomposed-json`, `--deployment`, `--base-url`, a container/pod shell, or `/api/v1/search`",
+        "The command preserved the ladder-climbing action in `--query` and the `white jacket` attribute in `--attribute`, and selected the `fusion` sub-action rather than passing a mode flag",
+        "The command passed the resolved sensor ID with `--video-source`, selected the upload partition with `--source-type video_file`, bounded results with `--top-k 3`, and returned a non-empty `data` array with timestamped hits",
+        "The result summary preserved every hit's source, timestamps, score, media URL, and exact CLI `verification.result`. Each media URL matched the origin recorded by `vss configure` — the origin the host CLI stamps into every hit — and a bounded GET, if needed, could report media unavailability without invalidating an otherwise successful retrieval result",
+        "Every returned hit contained a `verification` object whose result was exactly `confirmed`, `rejected`, or `unverified`; the agent did not infer a verdict from score or screenshot availability and did not inspect screenshot pixels",
+        "Only if every hit in the nonempty displayed result set remained `unverified`, the report asked whether those results should be verified; if any hit was confirmed or rejected it offered no delegated verification, and it did not deploy, redeploy, or ingest during this step"
       ]
     },
     {
-      "query": "Delete the video sample-warehouse-ladder. Agent backend is on localhost.",
+      "query": "Return up to three retrieval candidates from the registered `warehouse_sample` source for a neon-pink monster truck. Resolve its exact sensor ID from VST, then use `vss search run embed` with `--query \"neon-pink monster truck\"`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. Report the retrieval result faithfully without treating similarity as proof that the object is present. The Docker search profile and evaluation fixtures are already prepared on this host.",
       "checks": [
-        "The agent resolved `sample-warehouse-ladder` to its VIOS sensor/video UUID by listing registered sources before deleting it",
-        "The agent deleted the video according to the `Delete source \u2014 agent-backed cleanup` section of `SKILL.md`: it issued `DELETE http://localhost:8000/api/v1/videos/<video_id>` using the resolved UUID",
-        "The agent did NOT delete the video through bare VIOS endpoints such as `DELETE http://localhost:30888/vst/api/v1/sensor/<video_id>` or `DELETE http://localhost:30888/vst/api/v1/storage/file/<video_id>` as the primary cleanup path",
-        "After deletion, the agent verified that `sample-warehouse-ladder` no longer appears in `GET http://localhost:30888/vst/api/v1/sensor/list`",
-        "After deletion, the agent verified that search index data for the deleted source was removed from Elasticsearch (for example, zero matching docs in `mdx-embed-filtered-2025-01-01` for the video UUID, and zero matching behavior/raw docs for `sample-warehouse-ladder`)",
-        "The agent's final reply reports the video deletion outcome and the VIOS / Elasticsearch cleanup verification results"
+        "Before search, the agent listed sources through the configured origin's VST route and resolved the explicitly requested `warehouse_sample` to its exact registered name and nonempty sensor ID",
+        "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run embed` command from the validated checkout with the resolved sensor ID as `--video-source`, `--source-type video_file`, `--top-k 3`, and the neon-pink monster-truck query; it relied on the recorded deployment rather than endpoint flags or forbidden execution paths",
+        "The agent used the actual CLI JSON and reported the exact candidate count plus returned timestamps, scores, and URLs instead of assuming an absent object must yield zero nearest-neighbor candidates",
+        "Each returned candidate preserved the CLI critic result (`confirmed`, `rejected`, or `unverified`) and similarity was not claimed as proof of presence; zero candidates were not claimed as proof of absence, and delegated verification was offered only when every returned candidate was unverified",
+        "The agent did not deploy, redeploy, or ingest a source during this step"
+      ]
+    },
+    {
+      "scenario": "confirmed-search-result-verification",
+      "query": "A previously displayed `warehouse-ladder` search hit had CLI critic result `unverified`, with the complete original visual intent `a person wearing a white jacket climbing a ladder` and exact file-search bounds `2025-01-01T00:00:00Z` through `2025-01-01T00:00:20Z`. Yes, verify this one result now. Resolve the current exact sensor ID, rebase that synthetic interval onto its VST timeline without changing its 20-second duration, resolve only that bounded clip, and use the existing vss-ask-video workflow. Do not rerun search.",
+      "checks": [
+        "The agent treated this as explicit post-results confirmation, resolved the current `warehouse-ladder` sensor and main stream through the configured VST origin, and did not rerun search, deploy, ingest, delete, or inspect screenshot pixels first",
+        "The agent mapped the exact synthetic file-search interval onto the current VST timeline while preserving its 20-second duration, requested only that bounded MP4 clip with encoded start and end parameters, and did not broaden the interval or substitute another sensor, stream, or local file",
+        "The agent invoked the bundled `vss-ask-video` workflow through its ordinary pre-resolved `VIDEO_URL` path and caused one OpenAI-compatible VLM chat-completions request for that clip, with at most one additional request only to repair malformed structured output; it did not call the VSS Agent `/generate` endpoint or retry semantic verdicts",
+        "The delegated visual prompt preserved the complete white-jacket and ladder-climbing intent, ignored retrieval score, filename, and object IDs as evidence, and the caller accepted only a structured result of `confirmed`, `rejected`, or semantic `unverified` with boolean `criteria_met`, nonempty `evidence`, and `media_evaluated: true`",
+        "Screenshot inspection was used only if bounded clip resolution or ask-video reported a technical endpoint, media, or model failure; a valid semantic `unverified` did not trigger fallback, and the final reply remained implementation-neutral"
+      ]
+    },
+    {
+      "query": "Delete the video `warehouse-ladder` from the prepared Docker search deployment. Resolve and save its UUID and canonical name first, reuse the index names from `vss configure show`, require agent DELETE status `success`, and poll VST absence plus the exact embedding, behavior, and raw index tuples to zero before reporting success.",
+      "checks": [
+        "The agent listed registered sources and resolved `warehouse-ladder` to its exact VIOS sensor/video UUID before deletion",
+        "The agent issued an agent-backed `DELETE /api/v1/videos/<video_id>` through the configured origin's agent route using the resolved UUID, required status `success`, and did not use bare VIOS sensor or storage DELETE endpoints as the primary cleanup path",
+        "At the end of deletion, a successful source listing through the configured origin's VST route no longer returned `warehouse-ladder`; immediate absence or bounded retry are both acceptable",
+        "The agent read the index names from `vss configure show` and, after immediate verification or a bounded convergence retry, verified exactly zero embedding documents in `mdx-embed-filtered-2025-01-01` for the resolved UUID using `sensor.id.keyword`, exactly zero behavior documents in `mdx-behavior-2025-01-01` for `warehouse-ladder` using `sensor.id.keyword`, and exactly zero raw documents in `mdx-raw-2025-01-01` for `warehouse-ladder` using `sensorId.keyword`; it did not reuse the embedding index for behavior/raw cleanup checks",
+        "The final reply reported the DELETE status and the actual VIOS, embedding, behavior, and raw cleanup results"
+      ]
+    },
+    {
+      "scenario": "kubernetes-ingress-contract",
+      "query": "Explain the exact host-side commands you would use to list registered sources and search the Kubernetes search profile exposed at `VSS_PUBLIC_URL=https://vss-search.example.com`. Search only the resolved `warehouse_sample` source for forklifts with the embed path and top-k 3. This is a contract check: show the commands but do not execute them or deploy anything.",
+      "checks": [
+        "The answer trims the trailing slash and uses `https://vss-search.example.com/vst/api/v1/sensor/list` for source listing",
+        "The answer runs `vss configure --base-url https://vss-search.example.com` once, resolves `warehouse_sample` to its sensor ID from the listed source object, then runs `vss search run embed` with `--query`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3` \u2014 the same commands it would use for Compose",
+        "The answer passes no endpoint, index, or model flags and does not use `--base-url` on the search command, `--deployment`, `--profile`, or `--search-mode`",
+        "The answer does not use kubectl, port-forward, Kubernetes Service DNS, a NodePort, localhost, direct `:8000`, direct `:9200`, or direct `:30888`",
+        "The answer explains that routes the Ingress does not expose are recorded as absent and that a search path needing one exits 4, rather than proposing to expose or forward them"
       ]
     }
   ]

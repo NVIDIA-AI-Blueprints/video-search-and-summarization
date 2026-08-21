@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,9 +20,9 @@
 #include "Websocket.h"
 #include "utils.h"
 
-#define SENSOR_MONITOR_THREAD_COUNT 1
-#define SENSOR_MONITOR_INTERVAL 20
-#define DATA_CHANNEL_WAIT_TIME 10000
+constexpr unsigned int SENSOR_MONITOR_THREAD_COUNT = 1;
+constexpr unsigned int SENSOR_MONITOR_INTERVAL = 20;
+constexpr unsigned int DATA_CHANNEL_WAIT_TIME = 10000;
 #define CHECK_VALUE_IF_ERROR_RETURN(v, l, u)                                          \
     if (!(v.empty() || l.empty() || u.empty()) && valueWithinRange(v, l, u) == false) \
     {                                                                                 \
@@ -40,12 +40,12 @@
 
 extern "C" ISensorControlInterface *createObject()
 {
-    return new RemoteDevice;
+    return std::make_unique<RemoteDevice>().release();
 }
 
 extern "C" void destroyObject(RemoteDevice *object)
 {
-    delete object;
+    std::unique_ptr<RemoteDevice> deleter(object);
 }
 
 static void fillEncoderSettingsOptions(const Json::Value &jsettings, VideoEncoderConfigurationsOptions& settings);
@@ -65,7 +65,7 @@ int RemoteDevice::connect()
     LOG(verbose) << __PRETTY_FUNCTION__ << endl;
     std::chrono::seconds monitorInterval(SENSOR_MONITOR_INTERVAL);
     m_sensorStatusMonitoring = make_unique<Bosma::Scheduler>(SENSOR_MONITOR_THREAD_COUNT);
-    m_sensorStatusMonitoring->interval(monitorInterval, [=]() {
+    m_sensorStatusMonitoring->interval(monitorInterval, [this]() {
         syncSensorStatus();
     });
     return 0;
@@ -75,7 +75,7 @@ void RemoteDevice::syncSensorStatus()
 {
     std::vector<shared_ptr<SensorInfo>>::iterator it;
     set<pair<string, string>> remoteIds;
-    for (auto sensor : m_cacheSensorList)
+    for (auto sensor : cacheSensorList())
     {
         if (sensor.get() && sensor->isRemoteSensor)
         {
@@ -89,7 +89,7 @@ void RemoteDevice::syncSensorStatus()
     m_dataChannelTasks.clear();
     for (const auto& remoteId : remoteIds)
     {
-        m_dataChannelTasks.push_back(async::spawn([=]() -> void
+        m_dataChannelTasks.push_back(async::spawn([this, remoteId]() -> void
         {
             syncSensorStatus(remoteId);
         }));
@@ -150,7 +150,7 @@ void RemoteDevice::syncSensorStatus(pair<string, string> sensorInfo)
     response = object->m_response;
     if (response.isObject())
     {
-        for (auto sensor : m_cacheSensorList)
+        for (auto sensor : cacheSensorList())
         {
             if (sensor.get() && sensor->id == sensorInfo.first)
             {

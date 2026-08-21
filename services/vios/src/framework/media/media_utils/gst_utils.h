@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -228,14 +228,17 @@ class GstTranscode : public GstNvElements
         string m_inAudioCaps;
     } TranscodeParam;
 
-    GstTranscode()
-    {
-    }
+    GstTranscode() = default;
 
     ~GstTranscode()
     {
         LOG(info) << "Destroying GstTranscode" << endl;
     }
+
+    GstTranscode(const GstTranscode&) = delete;
+    GstTranscode& operator=(const GstTranscode&) = delete;
+    GstTranscode(GstTranscode&&) = default;
+    GstTranscode& operator=(GstTranscode&&) = default;
 
     bool transcode (TranscodeParam params);
 
@@ -295,7 +298,9 @@ int getFrameCountForFile  (std::string& file_path, const string& codec);
 GstClockTime getMediaFileDuration (const std::string& file_path);
 GstClockTime fixMediaFileAndGetDuration (const std::string& file_path);
 bool isRecordedFileExist(const string& sensorId, const int64_t& epochStartTime, const int64_t& epochEndTime);
-Json::Value getRTSPStreamDetails (const string &url, std::string& codec,  std::vector<std::vector<uint8_t>> sps_pps_idr_frames);
+// timeoutSec: bus wait in seconds; 0 keeps the built-in 10s default
+Json::Value getRTSPStreamDetails (const string &url, std::string& codec,  std::vector<std::vector<uint8_t>> sps_pps_idr_frames,
+                                  int timeoutSec = 0);
 
 // Container format detection and demuxer/muxer selection utilities
 string detectContainerFormatFromFile(const string& filePath);
@@ -312,7 +317,7 @@ bool muxElementaryStream(const std::string& elementaryFilePath, const std::strin
 class GstDummyUdpPipeline
 {
 public:
-    GstDummyUdpPipeline() {}
+    GstDummyUdpPipeline() = default;
     ~GstDummyUdpPipeline();
     static GstDummyUdpPipeline* getInstance();
     static void deleteInstance();
@@ -321,7 +326,7 @@ public:
     void stopAllUdpPipelines();
 
 private:
-    static GstDummyUdpPipeline*                                          m_instance;
+    static std::unique_ptr<GstDummyUdpPipeline>                          m_instance;
     std::mutex                                                      m_pipelineMapMutex;
     std::unordered_map<std::string, std::shared_ptr<gstElements> >  m_udpPipelines;
 

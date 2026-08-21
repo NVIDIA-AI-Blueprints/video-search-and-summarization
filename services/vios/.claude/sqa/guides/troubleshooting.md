@@ -67,9 +67,97 @@ sudo systemctl start docker
 sudo usermod -aG docker $USER && newgrp docker
 ```
 
-### Deployment script prompts hang in --auto mode
+### Deployment script prompts hang in non-interactive mode
 
-The script falls back to prompts when it cannot auto-detect values (e.g., multiple network interfaces). Pass `--port <IP>` explicitly to override host IP detection.
+The new `oneclick_dc_deployment.py` is non-interactive by default for its own prompts. Two remaining places can still ask for input:
+
+1. **Multiple network interfaces detected** — pass `--host <IP>` explicitly to override host IP detection.
+2. **Sudo password prompt during sysctl tuning** — the script applies host network buffer tuning (`net.core.rmem_max`, etc.) on every `deploy`. If the host requires a password for `sudo` and the script is running with stdin not connected to a TTY (agent/CI/piped), it would have hung historically — now it **auto-skips with a warning** instead. To silence the warning, pass `--skip-sysctl` explicitly. To actually apply the tuning, either:
+   - Run interactively, OR
+   - Pre-prime sudo with `sudo -v` in the same shell before invoking the script (credential cache stays valid for ~5 min by default), OR
+   - Apply the four sysctl values manually via `/etc/sysctl.d/`. The script's idempotent check will then no-op on the next deploy without invoking sudo at all.
+
+   To decide upfront which of those branches you're in (without invoking sudo) run the static pre-flight probe — it returns `status=skip|passwordless|needs_password` in one line:
+   ```bash
+   python3 oneclick_dc_deployment.py preflight-sysctl
+   ```
+
+If the buffers are already at or above the targets (e.g., after a previous successful deploy), the script skips sudo entirely on re-deploys.
+
+---
+
+### Deploy exits immediately with `manifest unknown` after a local build
+
+The tag flags override the **tag** only, not the repository. A locally built
+image lives under a different repository than the registry path pinned in
+`compose.env`, so compose resolves to a registry reference that has no such tag
+and **no containers start**.
+
+Add the repository overrides (`--image-registry`, `--nvstreamer-image`, or the
+per-service `--*-image` flags) alongside the tag flags — see
+`skills/deployment/deploy.md` Step 1b-i.
+
+### UI build fails during npm install (missing build tool reported)
+
+Restricted outbound access can break a dependency's post-install fetch, aborting
+the install so a later build tool appears missing. The reported error names the
+tool, not the network. Check egress and prefer an internal mirror — see
+`skills/build/build-containers.md`.
+
+---
+
+## BDD Failures Caused by Missing or Stale Test Data
+
+**Always rule these out before reporting a product defect.**
+
+### Symptom: `file_download` / `webrtc` / replay tests fail on a fresh deployment
+
+A newly deployed stack has no sensors and no recordings. The suite's own
+prerequisite (`scripts/stream_prerequisite.py`) is best-effort — on a native run
+it cannot find clips (`/app/test_videos` exists only inside the BDD container
+image), logs a warning, and lets the session continue against an **empty
+system**. Failures then look like defects but are missing data.
+
+Fix: run `skills/testing/run-bdd-tests.md` **Step 0** (set `TEST_VIDEOS_DIR`,
+seed NVStreamer, scan, verify recordings). Ask the user for clips if none exist.
+
+Quick check — is anything recorded at all?
+
+```bash
+curl -s "<BASE_URL>/vst/api/v1/storage/file/list" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('segments:', sum(len(v) for v in d.values() if isinstance(v,list)))"
+```
+
+The payload is a **dict keyed by sensor id**, not a list — parsing it as a list
+reports `0` on a perfectly healthy system.
+
+### Symptom: suite runs for a very long time, or times out
+
+Recordings accumulate across deployments because `stop` without `--clean` keeps
+the VST volume. Suites that poll every stream with a per-stream wait (see the
+`max_wait` / `parallelism` values in `config.json`) scale with the amount of
+stored data, so a long-lived volume can push a single test well past its
+expected duration.
+
+Fix: if the user wants a clean slate, `python3 oneclick_dc_deployment.py stop
+all --clean`, redeploy, reseed. Confirm first — `--clean` deletes recordings
+irreversibly. If they want the existing deployment kept, narrow the test scope
+instead and note the pre-existing data in the report.
+
+### Symptom: NVStreamer upload rejected
+
+```
+HTTP 422 UnprocessableEntityError: Video encode format not supported: mpeg4
+```
+
+Correct validation, not a defect. NVStreamer accepts H.264 / H.265; exclude the
+clip and continue.
+
+### Symptom: offline / bad-state sensors reported as defects
+
+Orphaned sensors from earlier runs persist when data is not wiped. Per
+`AGENT.md`, clean the baseline before asserting system health; never score
+leftover test artifacts as product FAIL.
 
 ---
 
@@ -164,8 +252,15 @@ Then restart sensor-ms so it reloads: `docker restart sensor-ms`.
 
 **Option B — stage a backing file so the stream resolves:**
 ```bash
-cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/<existing_file>.mp4 \
-   /tmp/nvstreamer_auto_deploy/nvstreamer-1/<missing_file>.mp4
+# Copy any valid clip already served by this NVStreamer instance over the
+# missing filename. If the instance has no clips, upload one first (PUT
+# /vst/api/v1/storage/file/<name>) or ask the user for a directory of valid
+# video files. Sample clips are no longer shipped in the repo -- they are baked
+# into the BDD test image at /app/test_videos.
+# Preserve the missing file's original extension (.mp4/.mkv/.ts); the source
+# clip should use the same container so the stream plays.
+cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/<existing_clip>.<ext> \
+   /tmp/nvstreamer_auto_deploy/nvstreamer-1/<missing_file>.<ext>
 ```
 NVStreamer picks up new files without a restart.
 
@@ -176,24 +271,6 @@ If SDR logs show `wl_d is None` for a sensor event, SDR received a `camera_add`/
 ---
 
 ## BDD Test Issues
-
-### MCP gateway tests all fail with `ConnectError` to `localhost:8001`
-
-`test/bdd_tests/config.json` has `api.base_url` pointing to `localhost:30888`. The MCP URL is derived from this at fixture setup, so it resolves to `localhost:8001` instead of the real host.
-
-The deploy and test skills now auto-sync this file. If it still happens, run manually:
-```bash
-python3 - <<EOF
-import json
-with open("test/bdd_tests/config.json") as f:
-    config = json.load(f)
-config["api"]["base_url"] = "<BASE_URL>"
-with open("test/bdd_tests/config.json", "w") as f:
-    json.dump(config, f, indent=2)
-EOF
-```
-
----
 
 ### All tests fail with `ConnectionRefusedError`
 
@@ -219,9 +296,9 @@ The required VIOS module was not built or deployed. For example, RTSP tests need
 Usually leftover state from a previous failed run.
 ```bash
 # Clean test state by restarting VIOS containers (without --fresh-start to preserve data)
-cd "$(git rev-parse --show-toplevel)/deployment"
-python3 oneclick_dc_deployment_for_dev.py stop && \
-python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
+cd "$(git rev-parse --show-toplevel)/services/vios/deployment/stream-processing"
+python3 oneclick_dc_deployment.py stop && \
+python3 oneclick_dc_deployment.py deploy --force
 ```
 
 ### Poetry command not found

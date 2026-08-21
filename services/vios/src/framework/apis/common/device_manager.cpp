@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -57,12 +57,15 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
             ,enable_gem_drawing(false)
             ,analytic_server_address("localhost:30080/emdat")
             ,calibration_file_path("")
+            ,calibration_file_endpoint("")
             ,calibration_mode("synthetic")
             ,use_camera_groups(true)
             ,enable_recentering(true)
             ,floor_map_file_path("")
+            ,floormap_image_endpoint("")
             ,overlay_3d_sensor_name("")
             ,overlay_text_font_type(DEFAULT_CUOSD_FONT_TYPE)
+            ,bbox_debug_font_size(0)
             ,bbox_tolerance_ms(0)
             ,enable_overlay_skip_frame(false)
             ,sensor_discovery_timeout(10)
@@ -208,6 +211,7 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
             ,mega_simulation_delay_max_ms (5000)
             ,mega_simulation_base_time("")
             ,default_file_expiry_minutes(DEFAULT_FILE_EXPIRY_MINUTES)
+            ,disable_url_caching(false)
             ,ingress_endpoint(DEFAULT_INGRESS_ENDPOINT)
             ,use_webrtc_hw_dec(true)
             ,recorder_enable_frame_drop (true)
@@ -311,10 +315,12 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
         LOG2(info) << "\tFrame Drop Enabled: "<< enable_frame_drop << endl;
         LOG2(info) << "\tVideo Metadata Server URL: " << video_metadata_server << endl;
         LOG2(info) << "\tCalibration File Path: " << calibration_file_path << endl;
+        LOG2(info) << "\tCalibration File Endpoint: " << calibration_file_endpoint << endl;
         LOG2(info) << "\tCalibration Mode: " << calibration_mode << endl;
         LOG2(info) << "\tUse Camera Groups: " << use_camera_groups << endl;
         LOG2(info) << "\tEnable Recentering: " << enable_recentering << endl;
         LOG2(info) << "\tFloor Map File Path: " << floor_map_file_path << endl;
+        LOG2(info) << "\tFloor Map Image Endpoint: " << floormap_image_endpoint << endl;
         LOG2(info) << "\t3D Overlay Sensor Name: " << overlay_3d_sensor_name << endl;
         LOG2(info) << "\tVideo Metadata Max results fetched: " << video_metadata_query_batch_size_num_frames << endl;
         LOG2(info) << "\tBbox tolerance in millisec: " << bbox_tolerance_ms << endl;
@@ -382,20 +388,22 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
         LOG2(info) << "\tRemote VST address: " << remote_vst_address << endl;
         LOG2(info) << "\tEnable latency logging: "<< enable_latency_logging << endl;
         LOG2(info) << "\tWebRTC Out Encode Fallback Mechanism (software/pass_through): "<< webrtc_out_encode_fallback_option << endl;
-#ifdef JETSON_PLATFORM
-        LOG2(info) << "\tEnable IPC Path: "<< enable_ipc_path << endl;
-        LOG2(info) << "\tIPC Socket Path: "<< ipc_socket_path << endl;
-        LOG2(info) << "\tIPC Src Buffer Timestamp Copy: "<< ipc_src_buffer_timestamp_copy << endl;
-        LOG2(info) << "\tIPC Src Connection Attempts: "<< ipc_src_connection_attempts << endl;
-        LOG2(info) << "\tIPC Src Connection Interval: "<< ipc_src_connection_interval_us << endl;
-        LOG2(info) << "\tIPC Sink Buffer Timestamp Copy: "<< ipc_sink_buffer_timestamp_copy << endl;
-        LOG2(info) << "\tIPC Sink Buffer Copy: "<< ipc_sink_buffer_copy << endl;
-#endif
+        if (isJetsonPlatform())
+        {
+            LOG2(info) << "\tEnable IPC Path: "<< enable_ipc_path << endl;
+            LOG2(info) << "\tIPC Socket Path: "<< ipc_socket_path << endl;
+            LOG2(info) << "\tIPC Src Buffer Timestamp Copy: "<< ipc_src_buffer_timestamp_copy << endl;
+            LOG2(info) << "\tIPC Src Connection Attempts: "<< ipc_src_connection_attempts << endl;
+            LOG2(info) << "\tIPC Src Connection Interval: "<< ipc_src_connection_interval_us << endl;
+            LOG2(info) << "\tIPC Sink Buffer Timestamp Copy: "<< ipc_sink_buffer_timestamp_copy << endl;
+            LOG2(info) << "\tIPC Sink Buffer Copy: "<< ipc_sink_buffer_copy << endl;
+        }
         LOG2(info) << "\tEnable MEGA Simulation: "<< enable_mega_simulation << endl;
         LOG2(info) << "\tMEGA Simulation Min Delay: "<< mega_simulation_delay_min_ms << endl;
         LOG2(info) << "\tMEGA Simulation Max Delay: "<< mega_simulation_delay_max_ms << endl;
         LOG2(info) << "\tMEGA Simulation Base Time: "<< mega_simulation_base_time << endl;
         LOG2(info) << "\tDefault file expiry minutes: "<< default_file_expiry_minutes << endl;
+        LOG2(info) << "\tDisable URL caching: "<< disable_url_caching << endl;
         LOG2(info) << "\tDefault ingress endpoint: "<< ingress_endpoint << endl;
         LOG2(info) << "\tUse Webrtc HW decoder: "<< use_webrtc_hw_dec << endl;
         LOG2(info) << "\tEnable frame drop in Stream Recorder: "<< recorder_enable_frame_drop << endl;
@@ -465,7 +473,7 @@ DeviceManager::~DeviceManager()
 
     clearSensorList();
 
-    destroyControlObject_t delObject = (destroyControlObject_t) m_sensorControlobjectPair.second;
+    destroyControlObject_t delObject = m_sensorControlobjectPair.second;
     if (m_sensorControlobjectPair.first != nullptr && delObject != nullptr)
     {
         delObject(m_sensorControlobjectPair.first);
@@ -1748,12 +1756,13 @@ StreamInfo::StreamInfo (): live_url("")
         }
 
         // Add IPC URL if enabled
-#ifdef JETSON_PLATFORM
-        if (GET_CONFIG().enable_ipc_path)
+        if (isJetsonPlatform())
         {
-            stream_info["ipc_url"] = "ipc://" + GET_CONFIG().ipc_socket_path + id;
+            if (GET_CONFIG().enable_ipc_path)
+            {
+                stream_info["ipc_url"] = "ipc://" + GET_CONFIG().ipc_socket_path + id;
+            }
         }
-#endif
 
         // Stream metadata
         metadata["resolution"] = settings.encoderValues.resolution.getString();
@@ -1796,7 +1805,7 @@ void Resolution::operator=(const string& value)
     }
 }
 
-bool Resolution::operator==(const Resolution& res)
+bool Resolution::operator==(const Resolution& res) const
 {
     if (res.width.empty() || res.height.empty())
     {
@@ -1877,16 +1886,6 @@ SensorPosition::SensorPosition():origin(std::make_pair("",""))
                      , fieldOfView("")
                      , depth("")
 {
-}
-
-void SensorPosition::operator=(const SensorPosition& pos)
-{
-    origin = pos.origin;
-    geoLocation = pos.geoLocation;
-    coordinates = pos.coordinates;
-    direction = pos.direction;
-    fieldOfView = pos.fieldOfView;
-    depth = pos.depth;
 }
 
 void SensorPosition::printInfo()

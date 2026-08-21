@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,6 +24,9 @@
 #include "health_probes.h"
 #include <filesystem>
 
+using namespace std;
+using namespace nv_vms;
+
 #define LIVE_API "/api/v1/live/stream/*"
 
 extern "C" void* createPeerConnectionLiveManagerObject()
@@ -33,13 +36,12 @@ extern "C" void* createPeerConnectionLiveManagerObject()
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
     std::shared_ptr<PeerConnectionManager> pcm = std::make_shared<PeerConnectionManager>("live", audioLayer, publishFilter, deviceManager);
 
-    return static_cast<void*>(static_cast<IVstModule*>(new LivePeerConnection(pcm, deviceManager)));
+    return static_cast<void*>(static_cast<IVstModule*>(std::make_unique<LivePeerConnection>(pcm, deviceManager).release()));
 }
 
 extern "C" void deletePeerConnectionLiveManagerObject(IVstModule* object)
 {
-    LivePeerConnection* pcm_live = static_cast<LivePeerConnection*>(object);
-    delete pcm_live;
+    std::unique_ptr<LivePeerConnection>(static_cast<LivePeerConnection*>(object));
 }
 
 LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> peerConnectionManager,
@@ -106,6 +108,12 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
 
 	m_func["/api/v1/live/stream/add"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         string url = in.get("url", EMPTY_STRING).asString();
         string id = in.get("id", EMPTY_STRING).asString();
 
@@ -316,6 +324,12 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
     };
     m_func["/api/v1/live/stream/swap"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         VmsErrorCode ret;
         const string protocol = in.get("protocol", EMPTY_STRING).asString();
         const string startTime = in.get("startTime", EMPTY_STRING).asString();
@@ -336,6 +350,12 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
     };
     m_func["/api/v1/live/stream/stats"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         if (GET_CONFIG().enable_perf_logging == false)
         {
             LOG(error) << "Stream stats not enabled";
@@ -390,10 +410,22 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
     };
     m_func["/api/v1/live/version"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         return getVersion(req_info, in, out);
     };
     m_func["/api/v1/live/help"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         return getLiveHelp(req_info, in, out);
     };
     m_func["/v1/live"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
@@ -635,7 +667,7 @@ VmsErrorCode LivePeerConnection::handleLiveConfiguration(const Json::Value &req_
         response["enableGstDebugProbes"] = config.enable_gst_debug_probes;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
         response["enableDecLowLatencyMode"] = config.enable_dec_low_latency_mode;
         response["analyticServerAddress"] = config.analytic_server_address;

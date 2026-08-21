@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button as KaizenButton } from '@nvidia/foundations-react-core';
-import { VideoModal, VideoModalTooltip } from '@aiqtoolkit-ui/common';
+import { VideoModal, VideoModalTooltip } from 'common';
 
 export interface SearchVideoModalProps {
   isOpen: boolean;
@@ -27,14 +27,12 @@ export const SearchVideoModal: React.FC<SearchVideoModalProps> = ({
 }) => {
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
   const [paused, setPaused] = useState(false);
-  const [pauseTime, setPauseTime] = useState(0);
   const handleVideoRef = useCallback((node: HTMLVideoElement | null) => {
     setVideoElement(node);
   }, []);
 
   useEffect(() => {
     setPaused(false);
-    setPauseTime(0);
   }, [isOpen, videoUrl]);
 
   useEffect(() => {
@@ -47,9 +45,8 @@ export const SearchVideoModal: React.FC<SearchVideoModalProps> = ({
     };
   }, [videoElement, searchByImageOverlay]);
 
-  const handleVideoPause = useCallback((currentTime: number) => {
+  const handleVideoPause = useCallback(() => {
     setPaused(true);
-    setPauseTime(currentTime);
   }, []);
 
   const handleVideoPlay = useCallback(() => {
@@ -57,8 +54,13 @@ export const SearchVideoModal: React.FC<SearchVideoModalProps> = ({
   }, []);
 
   const handleSearchByImageClick = useCallback(() => {
-    if (onSearchByImageRequest) onSearchByImageRequest(pauseTime);
-  }, [onSearchByImageRequest, pauseTime]);
+    if (!onSearchByImageRequest || !videoElement) return;
+    // Read the live playback position instead of a value cached on pause:
+    // scrubbing an already-paused video fires `seeked`, never `pause`, so a
+    // cached offset would point at the previously paused frame.
+    const currentTime = videoElement.currentTime;
+    onSearchByImageRequest(Number.isFinite(currentTime) ? currentTime : 0);
+  }, [onSearchByImageRequest, videoElement]);
 
   const showSearchByImageButton =
     searchByImageEnabled && paused && !searchByImageOverlay && !!onSearchByImageRequest;

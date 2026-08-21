@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  imagePullSecrets: []
+  useReleaseNamePrefix: false
+
+enabled: false
+
+nameOverride: ""
+fullnameOverride: ""
+name: ""
+useReleaseNamePrefix: null
+
+replicas: 1
+
+image:
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
+  tag: develop-latest
+  pullPolicy: IfNotPresent
+
+init:
+  enabled: true
+  streamType: kafka
+  kafkaHost: kafka-kafka
+  kafkaPort: "9092"
+  redisHost: redis
+  redisPort: "6379"
+  maxRetries: 60
+  retryIntervalSeconds: 2
+  image:
+    repository: docker.io/library/busybox
+    tag: "1.37.0"
+    pullPolicy: IfNotPresent
+
+command: []
+args: []
+
+port: 5001
+serviceType: ClusterIP
+service:
+  type: ""
+
+env: []
+
+readinessPath: /readyz
+readinessInitialDelaySeconds: 20
+
+configMounts: []
+
+data:
+  enabled: false
+  existingClaim: ""
+  mountPath: /opt/data
+  seedConfigMapName: ""
+  seedOptional: false
+
+resources: {}
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,37 +1,76 @@
 [
   {
-    "id": "mv3dt-route-and-env",
-    "question": "Deploy RTVI-CV-3D (MV3DT) on the bundled sample dataset.",
+    "id": "mv3dt-default-standalone-routing",
+    "question": "Deploy MV3DT on my calibrated 4-camera MP4 dataset. Which skill and deployment path should be used? Do not run anything.",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "Loads vss-deploy-detection-tracking-3d, recognizes the sample dataset ships calibration in-tree (no calibration run needed), and configures MODE=mv3dt with BP_PROFILE=bp_wh_kafka (or bp_wh_redis) — not bp_wh_auto_calib, and not the full warehouse blueprint from vss-deploy-profile.",
+    "ground_truth": "Generic MV3DT requests route to the standalone RT-CV-3D skill. The workflow uses services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml, generates configs from calibration.json, stages INPUT_MODE=file, defaults to bundled mosquitto+kafka, and does not use warehouse compose files.",
     "expected_behavior": [
-      "Loads the vss-deploy-detection-tracking-3d skill rather than the vss-deploy-profile warehouse reference.",
-      "Sets MODE=mv3dt and BP_PROFILE to bp_wh_kafka or bp_wh_redis; does not fabricate MODE values or use bp_wh_auto_calib.",
-      "Notes the sample dataset ships calibration in-tree, so no calibration run is needed.",
+      "Loads vss-deploy-detection-tracking-3d for generic MV3DT intent.",
+      "Identifies the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
+      "Uses bundled broker mode, but for file input runs bundled resource preflight before config generation/staging, starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
+      "Reports resolved runtime images only from docker compose config --images and does not hardcode a runtime image version.",
+      "Does not mention warehouse compose as the deployment path.",
       "Does not print plaintext API tokens."
     ]
   },
   {
-    "id": "mv3dt-profile-size-overlays",
-    "question": "I'm deploying MV3DT and want bounding-box overlays on the VST video wall. Which profile should I use?",
+    "id": "mv3dt-sample-dataset-standalone",
+    "question": "Run MV3DT on the sample dataset / 4-cam example dataset. Which workflow should be used? Do not run anything.",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "Recommends the extended profile (MINIMAL_PROFILE=\"\") because overlays require the ELK + video-analytics-api + import-calibration services to be populated; explains that minimal mode shows raw streams without overlays and that there is no minimal-plus-ELK middle path.",
+    "ground_truth": "Sample MV3DT requests route to the standalone RT-CV-3D skill. The workflow uses NGC warehouse app-data for models/videos, repo sample calibration.json and Top.png for calibration and BEV map, generated transforms.yml, INPUT_MODE=file, NUM_CAMS=4, bundled brokers, saved grid video, and saved fused BEV output. It does not use warehouse blueprint compose unless the user explicitly asks for the full warehouse stack.",
     "expected_behavior": [
-      "Chooses the extended profile (MINIMAL_PROFILE empty) for overlays.",
-      "Explains overlays need Elasticsearch / video-analytics-api, which minimal mode omits.",
-      "Does not claim a 'minimal + ELK only' middle path exists."
+      "Loads vss-deploy-detection-tracking-3d and the sample-dataset reference.",
+      "Uses the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
+      "Resolves existing app-data or asks for/downloads the NGC warehouse app-data resource without printing NGC keys.",
+      "Validates the exact sample model files required by runtime configs before launch.",
+      "Uses sample videos from warehouse-4cams-20mx20m-synthetic and sample camera ids Camera, Camera_01, Camera_02, Camera_03.",
+      "Uses the repo sample calibration.json and Top.png, then generates transforms.yml for BEV_DATASET_PATH.",
+      "Runs bundled resource preflight before config generation/staging and asserts the staged Kafka sink matches the selected KAFKA_BOOTSTRAP.",
+      "Plans saved perception grid and saved fused BEV by default for the finite file run.",
+      "Uses a same-session BEV recorder launch for finite file runs and verifies the recorder survives until perception starts.",
+      "Does not route to vss-deploy-profile or use warehouse compose commands."
     ]
   },
   {
-    "id": "mv3dt-calibration-chain-videos",
-    "question": "Run MV3DT on my own 4-camera warehouse videos. I don't have calibration yet.",
-    "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "Routes to the videos flow, detects that calibration is missing, and chains to vss-generate-video-calibration to produce it; lands the output at the MV3DT calibration mount path before deploying.",
+    "id": "mv3dt-warehouse-explicit-exception",
+    "question": "I want warehouse MV3DT as part of the full warehouse blueprint with the rest of the warehouse services. Which skill should handle that?",
+    "expected_skill": "vss-deploy-profile",
+    "ground_truth": "Explicit warehouse MV3DT requests route away from the standalone RT-CV-3D skill to the warehouse/profile deployment skill and warehouse compose files.",
     "expected_behavior": [
-      "Identifies the videos data source and checks for calibration on disk.",
-      "Chains to vss-generate-video-calibration when calibration is missing.",
-      "Lands calibration at the warehouse-mv3dt-app calibration/sample-data/<dataset> path before deploying.",
-      "Deploys MV3DT only after calibration is in place."
+      "Routes explicit warehouse-blueprint MV3DT intent to vss-deploy-profile or the warehouse deployment references.",
+      "Explains that vss-deploy-detection-tracking-3d is the default for standalone MV3DT but not for combined warehouse deployment.",
+      "Does not instruct the user to use the standalone compose file for the full warehouse blueprint.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "mv3dt-external-broker-basic-path",
+    "question": "Deploy RTVI-CV-3D but use MQTT broker broker.example.com:1883 and Kafka kafka.example.com:19092. Do not deploy yet.",
+    "expected_skill": "vss-deploy-detection-tracking-3d",
+    "ground_truth": "The standalone skill supports the basic external host:port broker path: validate endpoints, generate MQTT pub/sub config with MQTT_BROKERS, launch compose without bundled broker profiles, and verify Kafka against the external bootstrap. TLS/auth variants remain delegated to README.",
+    "expected_behavior": [
+      "Collects and validates MQTT_HOST, MQTT_PORT, and KAFKA_BOOTSTRAP.",
+      "Runs MQTT_BROKERS=broker.example.com:1883 ./scripts/generate-configs.sh.",
+      "Verifies generated pub_sub_info_config.yml contains broker.example.com:1883.",
+      "Uses external-broker Compose mode without COMPOSE_PROFILES=mosquitto,kafka, while preserving file-mode baseline and BEV-prestart ordering when the input is file.",
+      "Requires mdx-raw and mdx-bev to be describable on the external Kafka bootstrap before launch.",
+      "Uses configured KAFKA_BOOTSTRAP for mdx-raw/mdx-bev offset verification.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "mv3dt-missing-calibration-handoff",
+    "question": "Run rtvi-cv-3d on my synchronized cam_*.mp4 files, but I do not have calibration yet. Walk me through the order without running anything.",
+    "expected_skill": "vss-deploy-detection-tracking-3d",
+    "ground_truth": "The skill identifies missing calibration, hands off to vss-generate-video-calibration first, requires successful AMC export, validates camera-only calibration sensors, returns to standalone config generation, staging, bundled broker mode, file-mode support-service/baseline ordering, and verification.",
+    "expected_behavior": [
+      "Chains to vss-generate-video-calibration because calibration is missing.",
+      "Does not ignore a failed AMC export_calibration POST or silently reuse an old calibration.json.",
+      "Validates exported calibration JSON using camera-only sensors with safe unique ids.",
+      "Resolves BEV_DATASET_PATH only after map.png and transforms.yml are both present.",
+      "Uses standalone compose and bundled brokers for the deployment plan.",
+      "Does not mention warehouse calibration mount paths.",
+      "Does not print plaintext API tokens."
     ]
   }
 ]

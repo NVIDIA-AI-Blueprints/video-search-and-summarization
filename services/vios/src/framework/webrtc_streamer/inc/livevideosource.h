@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -50,12 +50,12 @@
 #include "media/video_source/processors/transforms/ll_transform.h"
 #include "media/video_source/senders/webrtc_sink_consumer.h"
 
-#define H265_NAL_IDR_RADL     19
-#define H265_NAL_IDR_LP       20
-#define H265_NAL_VPS          32
-#define H265_NAL_SPS          33
-#define H265_NAL_PPS          34
-#define H265_NAL_PREFIX_SEI   39
+inline constexpr int H265_NAL_IDR_RADL   = 19;
+inline constexpr int H265_NAL_IDR_LP     = 20;
+inline constexpr int H265_NAL_VPS        = 32;
+inline constexpr int H265_NAL_SPS        = 33;
+inline constexpr int H265_NAL_PPS        = 34;
+inline constexpr int H265_NAL_PREFIX_SEI = 39;
 
 template <typename T>
 class VideoSource : public T::Callback
@@ -101,8 +101,14 @@ public:
 
     virtual ~VideoSource()
     {
-        this->Stop();
-        LOG(info) << __func__ << endl;
+        try {
+            this->Stop();
+            LOG(info) << __func__ << endl;
+        } catch (const std::exception& e) {
+            try { LOG(error) << "Exception in ~VideoSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+        } catch (...) {
+            try { LOG(error) << "Unknown exception in ~VideoSource" << endl; } catch (...) { (void)std::current_exception(); }
+        }
     }
     void Start()
     {
@@ -372,14 +378,13 @@ public:
     }
 
     uint64_t m_resume_time_in_epoch;
-private:
-    char        m_stop = 0;
-    Environment m_env;
-
 protected:
-    T m_liveclient;
+    T& getLiveClient() { return m_liveclient; }
 
 private:
+    EventLoopWatchVariable m_stop{0};
+    Environment m_env;
+    T m_liveclient;
     std::thread                        m_capturethread;
     std::vector<uint8_t>               m_cfg;
     std::map<std::string, std::string, std::less<>> m_media;
@@ -394,7 +399,7 @@ private:
 };
 
 template <typename T>
-class LiveVideoSource : public rtc::VideoSourceInterface<webrtc::VideoFrame>, public VideoSource<T>
+class LiveVideoSource : public webrtc::VideoSourceInterface<webrtc::VideoFrame>, public VideoSource<T>
 {
 public:
     LiveVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts) :
@@ -627,8 +632,8 @@ public:
         return m_sensorId;
     }
 
-    // overide rtc::VideoSourceInterface<webrtc::VideoFrame>
-    void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const rtc::VideoSinkWants &wants)
+    // overide webrtc::VideoSourceInterface<webrtc::VideoFrame>
+    void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const webrtc::VideoSinkWants &wants)
     {
         LOG(info) << "AddOrUpdateSink" << endl;
         m_broadcaster.AddOrUpdateSink(sink, wants);
@@ -692,13 +697,13 @@ public:
             }
             if (m_webrtcSinkConsumer)
             {
-                m_webrtcSinkConsumer->setWebrtcBroadcaster ((void*)&m_broadcaster);
+                m_webrtcSinkConsumer->setWebrtcBroadcaster (&m_broadcaster);
             }
         }
         m_broadcaster.AddOrUpdateSink(sink, wants);
     }
 
-    void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
+    void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
     {
         LOG(info) << "RemoveSink" << endl;
         if (m_passThrough)
@@ -715,7 +720,7 @@ public:
         }
     }
 
-    void OnSinkWantsChanged(const rtc::VideoSinkWants& wants)
+    void OnSinkWantsChanged(const webrtc::VideoSinkWants& wants)
     {
         if (!m_passThrough)
         {
@@ -739,7 +744,7 @@ public:
         }
         return buffer;
     }
-    rtc::VideoBroadcaster          m_broadcaster;
+    webrtc::VideoBroadcaster          m_broadcaster;
     shared_ptr<GstNvVideoDecoder>  m_gstdecoder = nullptr;
     std::string                    m_peerid;
     std::string                    m_peerIdStreamId {""};

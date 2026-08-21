@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,24 +32,20 @@
 using namespace std;
 using namespace nv_vms;
 
-#define DECODER_EXTRA_SURFACES 6
-#define CUDA_DEC_MEM_TYPE_DEVICE 0
+[[maybe_unused]] constexpr gint DECODER_EXTRA_SURFACES   = 6;
+[[maybe_unused]] constexpr gint CUDA_DEC_MEM_TYPE_DEVICE = 0;
 
 const string UdpClient::UDP_AUDIO_TYPE = "audio";
 const string UdpClient::UDP_VIDEO_TYPE = "video";
 const string UdpClient::UDP_VIDEO_AUDIO_TYPE = "video_audio";
 const string UdpClient::UDP_UNKNOWN_TYPE = "unknown";
 
-#define NV_V4L2_DECODER        "nvv4l2decoder"
-#define SW_DECODER             "avdec_h264"
-#define DECODER_NODE           "/dev/nvidia0"
-#define NV_VID_CONV            "nvvidconv"
-#define NV_VID_CONVERT         "nvvideoconvert"
-#define VID_CONVERT            "videoconvert"
+[[maybe_unused]] constexpr const char* SW_DECODER = "avdec_h264";
+[[maybe_unused]] constexpr const char* VID_CONVERT = "videoconvert";
 
-#define GST_DEBUG_DECODER_PROBE_COUNT 10
-#define GST_DEBUG_UDPSRC_PROBE_COUNT 1500
-#define VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL  10s
+constexpr unsigned GST_DEBUG_DECODER_PROBE_COUNT = 10;
+constexpr unsigned GST_DEBUG_UDPSRC_PROBE_COUNT = 1500;
+constexpr auto VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL = 10s;
 
 namespace nv_vms
 {
@@ -136,7 +132,8 @@ GstUDPVideoClient::GstUDPVideoClient (const string&  id, UdpStream& stream)
     , m_sinkAudio(nullptr)
     , m_bus(nullptr)
     , m_bus_watch_id(0)
-    , m_eventLoop("udp_video_event_loop", process_eventloop_message)
+    , m_eventLoop("udp_video_event_loop", [this](std::shared_ptr<EventLoopData> data)
+                  { process_eventloop_message(std::move(data), this); })
     , m_is_error(false)
     , m_udpsrcVideoFrameCount(0)
     , m_udpsrcVideoProbeCount(0)
@@ -155,7 +152,7 @@ GstUDPVideoClient::GstUDPVideoClient (const string&  id, UdpStream& stream)
 
 GstUDPVideoClient::~GstUDPVideoClient ()
 {
-    LOG(info) << "~GstUDPVideoClient port:" << m_id << endl;
+    LOG(info) << "~GstUDPVideoClient port:" << getId() << endl;
     if (GET_CONFIG().enable_udp_input_dump)
     {
         fclose(m_dumpFile);
@@ -936,7 +933,7 @@ static bool link_decoder(GstElement* decoder, GstElement* element)
 
 int GstUDPVideoClient::create_internal ()
 {
-    LOG (info) << "Creating Gstreamer udp-video on port: " << m_id << endl;
+    LOG (info) << "Creating Gstreamer udp-video on port: " << getId() << endl;
     if (gst_is_initialized() == false)
     {
         gst_init (nullptr, nullptr);
@@ -997,7 +994,7 @@ int GstUDPVideoClient::create_internal ()
     if (use_video_convert)
     {
         m_videoConverter = gst_element_factory_make ("nvvideoconvert", nullptr);
-        g_object_set (G_OBJECT (m_videoConverter), "gpu-id", g_gpuIndex, nullptr);
+        g_object_set (G_OBJECT (m_videoConverter), "gpu-id", getGpuIndex(), nullptr);
         m_convCapsFilter    = gst_element_factory_make ("capsfilter", nullptr);
         if (!m_videoConverter || !m_convCapsFilter)
         {
@@ -1243,7 +1240,7 @@ void GstUDPVideoClient::play_internal ()
     LOG (info) << "Exit - play Gstreamer GstUDPVideoClient pipeline" << endl;   
 
     m_videoDataWatchDog = make_unique<Bosma::Scheduler>(1);
-    m_videoDataWatchDog->interval(VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [=]() {
+    m_videoDataWatchDog->interval(VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [this]() {
         checkVideoDataFlowStatus();
     });
 }
@@ -1253,7 +1250,7 @@ bool GstUDPVideoClient::pause_internal()
     bool ret = true;
     if (m_pipeline)
     {
-        LOG (info) << "Pausing the pipeline, port:" << m_id << endl;
+        LOG (info) << "Pausing the pipeline, port:" << getId() << endl;
         GstStateChangeReturn gstStateChangeRet = gst_element_set_state (m_pipeline, GST_STATE_PAUSED);
         if (gstStateChangeRet == GST_STATE_CHANGE_FAILURE)
         {
@@ -1296,7 +1293,7 @@ void GstUDPVideoClient::reset_pipeline_internal ()
 void GstUDPVideoClient::destroy_internal ()
 {
     GstStateChangeReturn state_change;
-    LOG(info) << "Terminating gstreamer udp-video pipeline port:" << m_id << endl;
+    LOG(info) << "Terminating gstreamer udp-video pipeline port:" << getId() << endl;
     m_videoDataWatchDog.reset();
     if (m_pipeline == nullptr)
     {
@@ -1340,12 +1337,11 @@ void GstUDPVideoClient::destroy_internal ()
         m_bus = nullptr;
     }
     m_videoDataReceived = false;
-    LOG(info) << "Terminated gstreamer udp-video pipeline port:" << m_id << endl;
+    LOG(info) << "Terminated gstreamer udp-video pipeline port:" << getId() << endl;
 }
 
 int GstUDPVideoClient::create()
 {
-    m_eventLoop.setParent(this);
     std::shared_ptr<EventLoopData> data(new EventLoopData);
     data->m_taskName = "create";
     m_eventLoop.postMsg(data);
@@ -1354,7 +1350,6 @@ int GstUDPVideoClient::create()
 
 int GstUDPVideoClient::create_audio()
 {
-    m_eventLoop.setParent(this);
     std::shared_ptr<EventLoopData> data(new EventLoopData);
     data->m_taskName = "create_audio";
     m_eventLoop.postMsg(data);
@@ -1363,7 +1358,6 @@ int GstUDPVideoClient::create_audio()
 
 void GstUDPVideoClient::start()
 {
-    m_eventLoop.setParent(this);
     std::shared_ptr<EventLoopData> data(new EventLoopData);
     data->m_taskName = "play";
     m_eventLoop.postMsg(data);
@@ -1411,10 +1405,10 @@ void GstUDPVideoClient::destroy(bool expect_result)
     return;
 }
 
-void GstUDPVideoClient::process_eventloop_message(std::shared_ptr<EventLoopData> data, void* parent)
+void GstUDPVideoClient::process_eventloop_message(std::shared_ptr<EventLoopData> data, GstUDPVideoClient* parent)
 {
-    shared_ptr<EventLoopData> ev_data = std::static_pointer_cast<EventLoopData>(data);
-    GstUDPVideoClient* udpClient = static_cast <GstUDPVideoClient*>(parent);
+    shared_ptr<EventLoopData> ev_data = std::move(data);
+    GstUDPVideoClient* udpClient = parent;
     if (udpClient == nullptr || ev_data == nullptr)
     {
         LOG(error) << "Received null data" << endl;

@@ -23,8 +23,8 @@
 class NvGstAudioCapturer : public NvGstAudioSource
 {
 	public:
-		static rtc::scoped_refptr<NvGstAudioCapturer> Create(const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts) {
-			rtc::scoped_refptr<NvGstAudioCapturer> source(new rtc::RefCountedObject<NvGstAudioCapturer>(uri, opts));
+		static webrtc::scoped_refptr<NvGstAudioCapturer> Create(const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts) {
+			webrtc::scoped_refptr<NvGstAudioCapturer> source(new webrtc::RefCountedObject<NvGstAudioCapturer>(uri, opts));
 			return source;
 		}
 

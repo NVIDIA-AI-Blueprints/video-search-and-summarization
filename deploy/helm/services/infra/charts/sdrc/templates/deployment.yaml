@@ -49,6 +49,14 @@ spec:
             - name: admin
               containerPort: {{ required "service.envoyAdmin.port is required" .Values.service.envoyAdmin.port | int }}
               protocol: TCP
+            - name: envoy-proxy
+              containerPort: {{ required "service.envoyProxy.port is required" .Values.service.envoyProxy.port | int }}
+              protocol: TCP
+            {{- range $idx, $listener := .Values.service.workloadListeners | default list }}
+            - name: {{ required (printf "service.workloadListeners[%d].name is required" $idx) (get $listener "name") }}
+              containerPort: {{ required (printf "service.workloadListeners[%d].targetPort or port is required" $idx) (default (get $listener "port") (get $listener "targetPort")) | int }}
+              protocol: TCP
+            {{- end }}
           env:
             {{- include "sdrc.runtimeEnv" . | nindent 12 }}
           volumeMounts:

@@ -1,144 +1,140 @@
-# Teardown — MV3DT stack
+# Teardown Standalone RT-CV-3D MV3DT
 
-Parent: [`../SKILL.md`](../SKILL.md). Stop the MV3DT stack, optionally clear data, leave the host clean for redeploy.
+Load this reference when the user asks to stop, tear down, clean, reset, or tear down everything for the standalone RT-CV-3D MV3DT deployment.
 
-This teardown is scoped to whatever this skill brought up — the same compose file the deploy used. It's safe to run repeatedly.
+## Contents
 
-## Step 1 — Stop containers and reset named volumes (recommended for redeploys)
+- [File-Input Post-Run Cleanup](#file-input-post-run-cleanup)
+- [Teardown Scope](#teardown-scope)
+- [Stop Host-Side BEV Visualizer](#stop-host-side-bev-visualizer)
+- [Stop The Stack](#stop-the-stack)
+- [Verify Stop](#verify-stop)
+- [Clean Generated Runtime State](#clean-generated-runtime-state)
+- [Reset Bundled Broker Data](#reset-bundled-broker-data)
+- [AMC And VIOS](#amc-and-vios)
 
-```bash
-cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
-  down -v
-```
+## File-Input Post-Run Cleanup
 
-`down -v` removes the MV3DT containers (perception, fusion, mosquitto, broker, VST sensor stack, configurator, nvstreamer) **and** resets the named docker volumes (Kafka log, Postgres VST DB, Elasticsearch data, Logstash libs). This is the recommended path for any redeploy where:
-
-- the dataset or camera count changed (sensor records re-initialize from the new calibration),
-- the calibration file changed for the same dataset slug,
-- you want each deploy to start from a known-clean state.
-
-Named volumes persist across `docker compose down` by design, which is great when you want to retain Kafka offsets or Elasticsearch history between restarts. For redeploys after a camera-set change, the cleaner path is to let those volumes reset alongside the containers — `down -v` does both in one step.
-
-### Alternate — stop containers, keep volumes
-
-When you intend to bring the same dataset back up against the existing broker / VST history (for example, restarting after a quick config tweak), use plain `down` and skip Step 2:
+For `INPUT_MODE=file`, `vss-rtvi-cv-mv3dt` exits after EOS by design. Before cleanup, classify the run:
 
 ```bash
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
-  down
-```
-
-## Step 2 — (Optional) Targeted volume cleanup + prune
-
-When you stopped with plain `down` in Step 1 but later decide to reset only certain volumes, target them explicitly. Then prune dangling resources:
-
-```bash
-# Remove MV3DT-named volumes explicitly
-docker volume rm $(docker volume ls -q | grep '^mdx_') 2>/dev/null
-
-# Then clean up dangling resources
-docker volume prune -f
-docker system prune -f
-```
-
-**Prune does not reliably remove the named volumes.** Neither `docker volume prune -f` nor `docker system prune -af --volumes` is a dependable way to clear `mdx_mdx-kafka` / `mdx_vios_pg_data` — prune skips anonymous/unreferenced volumes, and named project volumes routinely survive a full system prune. Always target them explicitly with `docker volume rm $(docker volume ls -q | grep '^mdx_')` (or `down -v`, which drops the project's volumes as part of teardown). Skip the prune lines if other docker workloads on this host share the volume namespace.
-
-## Step 3 — Clear data logs
-
-The shipped cleanup script drops data dirs the warehouse stack writes to (Elasticsearch indexes, Kafka logs, VST sensor state, etc.).
-
-**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from `.env`, so reverting them isn't needed; leaving the flag off causes the script to source a placeholder `.env`, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
-
-```bash
-bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
-  -e industry-profiles/warehouse-operations/.env \
-  --skip-revert-from-oldest-backup
-```
-
-Sudo may prompt for some paths.
-
-### Verify the cleanup actually ran
-
-The cleanup script doesn't print per-path success, so confirm by disk usage:
-
-```bash
-# Should be small (a few MB at most) or report "No such file or directory"
-du -sh "${VSS_DATA_DIR}/data_log" 2>/dev/null
-du -sh "${VSS_DATA_DIR}/auto-calib"/{vst_storage,nvstreamer_data}/ 2>/dev/null
-```
-
-If you see multi-GB sizes after Step 3, the deletes did not take effect. Confirm `VSS_DATA_DIR` resolves in your shell (`echo "${VSS_DATA_DIR}"`), then re-run Step 3.
-
-## Step 4 — Tear down AMC (only if you deployed it standalone)
-
-If [`calibration-workflow.md`](calibration-workflow.md) deployed `auto_calib` separately and you didn't tear it down already, do it now:
-
-```bash
-cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto_calib docker compose \
-  --env-file industry-profiles/warehouse-operations/.env \
-  down
-```
-
-Normal MV3DT profiles (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`) do not include AMC. Auto-calibration warehouse profiles use `bp_wh_auto_calib_*`; if AMC is still running after the MV3DT teardown, use the command above.
-
-## What is preserved across teardown
-
-These are intentionally not deleted:
-
-- **Calibration outputs** — `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<slug>/` (bind-mounted, not a docker volume). Next deploy reuses them.
-- **AMC project state** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/` (bind-mounted). Lets you re-run VGGT or fetch logs after teardown.
-- **NGC images** in `nvcr.io` — local docker image cache is preserved. Next deploy uses cached images unless you `--pull always`.
-
-What is **not** preserved (be aware):
-
-- **Configurator-rendered configs** under `warehouse-mv3dt-app/{vst,nvstreamer,deepstream,vss-behavior-analytics}/configs/` and `services/analytics/video-analytics-api/configs/` — these are re-rendered on next deploy from `.env`, so this is normally fine, but any hand-edits you made between deploys will be overwritten.
-- **`.env` if you omit `--skip-revert-from-oldest-backup` in Step 3** — the cleanup script will roll `.env` back to its packaged snapshot (placeholders for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, `NGC_CLI_API_KEY`). With the flag set as shown above, `.env` is untouched.
-
-## Nuke option (you're really sure)
-
-When you want to wipe everything including bind-mounted state, named volumes, and the cached image layers:
-
-```bash
-cd "${VSS_APPS_DIR}"
-
-# Stop everything, drop named volumes, drop locally-built images
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env down -v --rmi local
-
-# Clear bind-mounted AMC state — DESTRUCTIVE.
-# Auto-proceed when sudo is passwordless; otherwise surface the commands for the user.
-DATASET="${SAMPLE_VIDEO_DATASET:?}"
-if sudo -n true 2>/dev/null; then
-  sudo rm -rf "${VSS_APPS_DIR}/services/auto-calibration/projects/"
-
-  # Clear your own calibration outputs (keep the ship-with-repo sample!)
-  if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
-    sudo rm -rf "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
-  fi
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+status="$(docker inspect --format '{{.State.Status}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+exit_code="$(docker inspect --format '{{.State.ExitCode}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+if [ "${status}" = exited ] && [ "${exit_code}" = 0 ] && docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -q 'App run successful'; then
+  echo 'file-input run completed successfully; safe to stop remaining support services after artifact verification'
 else
-  echo "Sudo requires a password on this host. Please run the commands below in your shell, then confirm to continue:"
-  echo "  sudo rm -rf \"${VSS_APPS_DIR}/services/auto-calibration/projects/\""
-  if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
-    echo "  sudo rm -rf \"${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}\""
+  echo "perception status=${status:-missing} exit=${exit_code:-unknown}; inspect logs before cleanup"
+fi
+```
+
+After `video-output/`, `bev-output/`, and Kafka offset evidence are verified, stop remaining standalone support services for a completed file-input run unless the user asked to keep them running. Do not delete artifacts during post-run cleanup.
+
+## Teardown Scope
+
+Treat `teardown everything` as all runtime resources started by this standalone skill:
+
+- host-side BEV visualizer processes started from this app and tracked in `generated/run-state/bev-visualizer.pid`
+- standalone compose containers from `services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml`
+- generated runtime artifacts only when the user explicitly asks to delete generated state, outputs, or local artifacts
+
+Do not delete models, user videos, user-provided calibration/map assets, NGC credentials, unrelated Docker images/volumes, warehouse services, AMC, or VIOS unless the user explicitly names those targets. If AMC/VIOS were started only as calibration prerequisites, route their teardown through their owning skills and do not stop pre-existing shared services.
+
+## Stop Host-Side BEV Visualizer
+
+Stop the BEV visualizer before compose down so saved MP4 output finalizes. Never signal a PID only because it appears in the PID file; validate the tracked process identity first.
+
+```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+RUN_STATE_DIR="${RTCV3D_APP}/generated/run-state"
+PID_FILE="${RUN_STATE_DIR}/bev-visualizer.pid"
+if [ -f "${PID_FILE}" ]; then
+  pid="$(cat "${PID_FILE}")"
+  if ! printf '%s' "${pid}" | grep -Eq '^[0-9]+$'; then
+    echo "WARN: ignoring invalid BEV PID: ${pid}"
+  elif ! kill -0 "${pid}" 2>/dev/null; then
+    echo "BEV visualizer PID ${pid} is not active"
+  else
+    current_cwd="$(readlink -f /proc/"${pid}"/cwd 2>/dev/null || true)"
+    expected_cwd="$(cat "${RUN_STATE_DIR}/bev-visualizer.cwd" 2>/dev/null || true)"
+    current_cmd="$(tr '\0' ' ' < /proc/"${pid}"/cmdline 2>/dev/null || true)"
+    current_start="$(awk '{print $22}' /proc/"${pid}"/stat 2>/dev/null || true)"
+    expected_start="$(cat "${RUN_STATE_DIR}/bev-visualizer.start_ticks" 2>/dev/null || true)"
+
+    case "${current_cmd}" in
+      *kafka_bev_visualizer.py*|*kafka_fused_bev_visualizer.py*|*bev-visualizer.sh*) cmd_ok=1 ;;
+      *) cmd_ok=0 ;;
+    esac
+    cwd_ok=0
+    if [ -n "${current_cwd}" ] && [ "${current_cwd}" = "${RTCV3D_APP}" ]; then cwd_ok=1; fi
+    if [ -n "${expected_cwd}" ] && [ "${current_cwd}" = "${expected_cwd}" ]; then cwd_ok=1; fi
+    start_ok=1
+    if [ -n "${expected_start}" ] && [ -n "${current_start}" ] && [ "${current_start}" != "${expected_start}" ]; then start_ok=0; fi
+
+    if [ "${cmd_ok}" = 1 ] && [ "${cwd_ok}" = 1 ] && [ "${start_ok}" = 1 ]; then
+      kill -TERM "${pid}" 2>/dev/null || true
+      deadline=$((SECONDS + 20))
+      while kill -0 "${pid}" 2>/dev/null && [ "${SECONDS}" -lt "${deadline}" ]; do
+        sleep 1
+      done
+      if kill -0 "${pid}" 2>/dev/null; then
+        echo "WARN: BEV visualizer did not stop after SIGTERM: pid=${pid}"
+      else
+        echo "BEV visualizer stopped: pid=${pid}"
+        rm -f "${PID_FILE}" "${RUN_STATE_DIR}/bev-visualizer.cwd"           "${RUN_STATE_DIR}/bev-visualizer.cmdline"           "${RUN_STATE_DIR}/bev-visualizer.start_ticks"           "${RUN_STATE_DIR}/bev-visualizer.group"
+      fi
+    else
+      echo "WARN: not stopping PID ${pid}; identity check failed (cmd_ok=${cmd_ok} cwd_ok=${cwd_ok} start_ok=${start_ok})"
+    fi
   fi
 fi
-
-# Drop data_log and optionally revert .env (intentional this time)
-bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
-  -e industry-profiles/warehouse-operations/.env
-
-docker volume prune -f
-docker system prune -f
 ```
 
-Don't run this if you have AMC project state or custom calibration you want to keep — they're both wiped.
+If no PID file exists but a BEV window or recording is visibly running, ask before killing untracked processes. Never use broad `pkill` patterns.
 
-## After teardown — common next steps
+## Stop The Stack
 
-- Edit `.env` and redeploy: [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
-- Re-calibrate from scratch: walk [`calibration-workflow.md`](calibration-workflow.md) again.
-- Switch to the full warehouse blueprint (with agents / ELK): [`../../vss-deploy-profile/references/warehouse.md`](../../vss-deploy-profile/references/warehouse.md).
+Stop containers started by the standalone compose file:
+
+```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}/docker"
+docker compose --profile "*" down
+```
+
+This stops/removes standalone compose resources. It does not delete models, calibration files, generated configs, or visualization outputs.
+
+## Verify Stop
+
+```bash
+docker ps --filter status=running --format '{{.Names}}'   | grep -E '^(vss-rtvi-cv-mv3dt|vss-rtvi-cv-bev-fusion|vss-mosquitto-mv3dt|kafka|kafka-topic-init)$'   || echo 'standalone RT-CV-3D containers stopped'
+```
+
+## Clean Generated Runtime State
+
+Run this only when the user explicitly asks to delete generated state, saved outputs, or local artifacts in addition to stopping services. If the user only says `teardown everything`, stop runtime resources first and ask before deleting these paths because they include run outputs:
+
+```text
+${RTCV3D_APP}/generated/
+${RTCV3D_APP}/video-output/
+${RTCV3D_APP}/bev-output/
+${RTCV3D_APP}/utils/venv/
+```
+
+If the user approves generated-state cleanup:
+
+```bash
+cd "${RTCV3D_APP}"
+rm -rf generated video-output bev-output utils/venv
+```
+
+Do not delete `MODELS_DIR`, user videos, user calibration files, `map.png`, or `transforms.yml` unless the user explicitly names those targets.
+
+## Reset Bundled Broker Data
+
+The bundled Kafka service in this standalone compose uses container-local state. A normal `docker compose --profile "*" down` removes the broker container but not pulled images. Use image or volume pruning only when the user explicitly asks for broader Docker cleanup.
+
+## AMC And VIOS
+
+This standalone RT-CV-3D deployment does not include AMC or VIOS. If calibration handoff started AMC, tear it down through `vss-generate-video-calibration`. If this workflow used `vss-manage-video-io-storage` to bring up VIOS as a missing RTSP-calibration prerequisite, tear that VIOS deployment down through the VIOS skill only when the user asks.
+
+Do not stop pre-existing or unrelated VIOS services just because RTSP calibration used them.

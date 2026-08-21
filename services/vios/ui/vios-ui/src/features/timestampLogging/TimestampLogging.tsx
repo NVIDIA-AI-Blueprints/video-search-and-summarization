@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useState } from 'react';
 import {
     Card,
@@ -30,7 +31,7 @@ import {
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
 import nvAxios from '../../services/Axios';
-import { useNotifications } from '@toolpad/core/useNotifications';
+import { useSnackbar } from 'notistack';
 import config from '../../config';
 
 interface LoggingStatus {
@@ -42,14 +43,14 @@ const TimestampLogging: React.FC = () => {
     const [liveStreamLogging, setLiveStreamLogging] = useState<boolean>(false);
     const [vodStreamLogging, setVodStreamLogging] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
-    const notifications = useNotifications();
+    const { enqueueSnackbar } = useSnackbar();
 
     const getLoggingStatus = async (): Promise<void> => {
         setIsLoading(true);
         try {
             const response = await nvAxios.get<LoggingStatus>(`${config.sensorManagementEndpoint}/api/v1/sensor/debug/logging`);
             const { data } = response;
-            console.log('Debug Logging status: ', data);
+            LOG.info('Debug Logging status: ', data);
             if (data) {
                 if ('live_stream' in data) {
                     setLiveStreamLogging(data.live_stream);
@@ -59,9 +60,9 @@ const TimestampLogging: React.FC = () => {
                 }
             }
         } catch (error) {
-            console.log('Failed to fetch logging status', error);
-            notifications.show('Error - Could not Get logging data', {
-                severity: 'error',
+            LOG.info('Failed to fetch logging status', error);
+            enqueueSnackbar('Error - Could not Get logging data', {
+                variant: 'error',
                 autoHideDuration: 3000,
             });
         } finally {
@@ -76,14 +77,14 @@ const TimestampLogging: React.FC = () => {
                 live_stream: liveStreamLogging,
                 vod_stream: vodStreamLogging,
             });
-            notifications.show('Logging status updated successfully', {
-                severity: 'success',
+            enqueueSnackbar('Logging status updated successfully', {
+                variant: 'success',
                 autoHideDuration: 3000,
             });
         } catch (error) {
-            console.log('Failed to set logging status', error);
-            notifications.show('Error - Could not set logging status', {
-                severity: 'error',
+            LOG.info('Failed to set logging status', error);
+            enqueueSnackbar('Error - Could not set logging status', {
+                variant: 'error',
                 autoHideDuration: 3000,
             });
         } finally {

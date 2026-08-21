@@ -5,9 +5,14 @@ import { useStreams, useStorageTimelines } from './hooks';
 import { filterStreams, isRtspStream } from './utils';
 import {
   UploadFilesDialog,
+  UploadProgressPopup,
+  UploadSuccessPopup,
   VideoModal,
   useVideoModal,
   useChatVideoUploadCompleteSubscription,
+  type UploadFilesDialogEntry,
+  type UploadFileConfigTemplate,
+  type UploadResultItem,
 } from '@nemo-agent-toolkit/ui';
 import { chunkedUpload, notifyUploadComplete } from './chunkedUpload';
 import { createApiEndpoints } from './api';
@@ -21,9 +26,7 @@ import {
   LoadingState,
   StreamsGrid,
   Toolbar,
-  UploadProgressPanel,
   VideoManagementSidebarControls,
-  AgentUploadDialog,
 } from './components';
 
 export type { VideoManagementComponentProps, VideoManagementSidebarControlHandlers } from './types';
@@ -42,18 +45,12 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const enableAddRtspButton = videoManagementData?.enableAddRtspButton ?? true;
   const enableVideoUpload = videoManagementData?.enableVideoUpload ?? true;
 
-  // Upload dialog state (chat-style upload with config fields)
+  // Upload dialog state
   const [showUploadDialog, setShowUploadDialog] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<Array<{
-    id: string;
-    file: File;
-    isExpanded: boolean;
-    formData: Record<string, any>;
-  }>>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingInitialFiles, setPendingInitialFiles] = useState<File[] | null>(null);
 
-  // Parse config template from videoManagementData (same as Chat component)
-  const configTemplate = useMemo(() => {
+  // Parse config template from videoManagementData
+  const configTemplate = useMemo((): UploadFileConfigTemplate | null => {
     if (chatUploadFileConfigTemplateJson) {
       try {
         return JSON.parse(chatUploadFileConfigTemplateJson);
@@ -64,19 +61,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     return null;
   }, [chatUploadFileConfigTemplateJson]);
 
-  // Generate default form data from config template (same as Chat component)
-  const generateDefaultFormData = useCallback((): Record<string, any> => {
-    if (!configTemplate || !Array.isArray(configTemplate.fields)) return {};
-    return configTemplate.fields.reduce((acc: Record<string, any>, field: any) => {
-      acc[field['field-name']] = field['field-default-value'];
-      return acc;
-    }, {} as Record<string, any>);
-  }, [configTemplate]);
-
-  const generateFileId = useCallback(() => {
-    return `file_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-  }, []);
-
   const [isRtspModalOpen, setIsRtspModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
@@ -86,14 +70,34 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const [selectedStreams, setSelectedStreams] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
+  const [showUploadSuccessPopup, setShowUploadSuccessPopup] = useState(false);
+  const [uploadResults, setUploadResults] = useState<UploadResultItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [loadingStreamId, setLoadingStreamId] = useState<string | null>(null);
 
+  // Only one dialog may be open at a time. The RTSP and delete dialogs use a
+  // `contained` overlay that covers the pane but not the toolbar above it, so their
+  // trigger buttons stay live and a second dialog could otherwise be opened and end
+  // up stacked behind the first, unreachable until the top one is closed.
+  const isDialogOpen = showUploadDialog || isRtspModalOpen || showDeleteConfirm;
+  const isDialogOpenRef = useRef(isDialogOpen);
+
+  useEffect(() => {
+    isDialogOpenRef.current = isDialogOpen;
+  }, [isDialogOpen]);
+
+  const resolveFilename = useCallback(
+    (file: File, uploadFilename?: string) => uploadFilename?.trim() || file.name,
+    [],
+  );
+
   const isUploadingRef = useRef(false);
   const uploadSessionIdRef = useRef(0);
-  const uploadAbortControllerRef = useRef<AbortController | null>(null);
-  const pendingFilesQueueRef = useRef<Array<{ id: string; file: File }>>([]);
+  const abortControllerMapRef = useRef<Map<string, AbortController>>(new Map());
+  const cancelledFileIdsRef = useRef<Set<string>>(new Set());
+  const pendingFilesQueueRef = useRef<Array<{ id: string; file: File; uploadFilename?: string; formData?: Record<string, any> }>>([]);
 
   useEffect(() => {
     isUploadingRef.current = isUploading;
@@ -107,7 +111,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     if (!enableVideoUpload) setShowVideos(false);
   }, [enableVideoUpload]);
 
-  const { streams, isLoading, error, refetch } = useStreams({ vstApiUrl });
+  const { streams, isLoading, error, refetch, waitUntilStreamsRemoved } = useStreams({ vstApiUrl });
   const { getEndTimeForStream, getLastTimelineForStream, refetch: refetchTimelines } = useStorageTimelines({ vstApiUrl });
   const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl ?? undefined);
 
@@ -153,19 +157,21 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     refreshStreamsAfterChatUpload,
   );
 
-  const processUploadQueue = useCallback(async (fileEntries: Array<{ id: string; file: File; formData?: Record<string, any> }>) => {
-    const abortController = new AbortController();
-    uploadAbortControllerRef.current = abortController;
+  const processUploadQueue = useCallback(async (fileEntries: Array<{ id: string; file: File; uploadFilename?: string; formData?: Record<string, any> }>) => {
     uploadSessionIdRef.current += 1;
     const currentSessionId = uploadSessionIdRef.current;
 
     setIsUploading(true);
     const isSessionValid = () => uploadSessionIdRef.current === currentSessionId;
 
-    const uploadSingleFile = async (entry: { id: string; file: File; formData?: Record<string, any> }): Promise<void> => {
-      const { id, file, formData } = entry;
+    const uploadSingleFile = async (entry: { id: string; file: File; uploadFilename?: string; formData?: Record<string, any> }): Promise<void> => {
+      const { id, file, uploadFilename, formData } = entry;
+      const requestFilename = resolveFilename(file, uploadFilename);
 
-      if (!isSessionValid() || abortController.signal.aborted) return;
+      if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
+
+      const abortController = new AbortController();
+      abortControllerMapRef.current.set(id, abortController);
 
       setUploadProgress((prev) =>
         prev.map((p) => (p.id === id && p.status === 'pending' ? { ...p, status: 'uploading' } : p))
@@ -179,11 +185,10 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           throw new Error('Agent API URL not configured');
         }
 
-        // Step 1: Chunked upload directly to the video storage service
-        // (bypasses agent, avoids Cloudflare 100s timeout on large files)
         const uploadEndpoints = createApiEndpoints(vstApiUrl);
         const videoUploadApiResponse = await chunkedUpload({
           file,
+          fileName: requestFilename,
           uploadUrl: uploadEndpoints.UPLOAD_FILE,
           onProgress: (progress: number) => {
             if (!isSessionValid() || abortController.signal.aborted) return;
@@ -194,27 +199,21 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           abortSignal: abortController.signal,
         });
 
-        if (!isSessionValid()) return;
+        if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
 
-        // Step 2: Notify agent for post-processing (embeddings, RTVI registration, etc.).
-        // We forward the upload response as-is so the agent picks out the fields
-        // it cares about; keeps the UI decoupled from the storage API shape.
         setUploadProgress((prev) =>
           prev.map((p) => (p.id === id && p.status === 'uploading' ? { ...p, status: 'processing', progress: 100 } : p))
         );
 
-        // Forward the per-upload custom params collected by the dialog
-        // (from chatUploadFileConfigTemplateJson) so the agent can use them
-        // downstream. Sent as `custom_params` on the /complete body.
         await notifyUploadComplete(
           agentApiUrl,
-          file.name,
+          requestFilename,
           videoUploadApiResponse,
           formData,
           abortController.signal,
         );
 
-        if (!isSessionValid()) return;
+        if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
 
         setUploadProgress((prev) =>
           prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'processing') ? {
@@ -227,7 +226,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         if (!isSessionValid()) return;
 
         const errorMessage = err instanceof Error ? err.message : 'Upload failed';
-        const isCancelled = err instanceof Error && (err.name === 'AbortError' || err.message === 'Upload was cancelled');
+        const isAborted = err instanceof Error && (err.name === 'AbortError' || err.message === 'Upload was cancelled');
+        const isCancelled = isAborted || cancelledFileIdsRef.current.has(id);
 
         setUploadProgress((prev) =>
           prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'pending' || p.status === 'processing') ? {
@@ -236,6 +236,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
             error: isCancelled ? undefined : errorMessage
           } : p))
         );
+      } finally {
+        abortControllerMapRef.current.delete(id);
       }
     };
 
@@ -251,7 +253,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
       if (!isSessionValid()) return;
 
-      // Check for any files queued during this batch
       if (pendingFilesQueueRef.current.length > 0) {
         entriesToProcess = [...pendingFilesQueueRef.current];
         pendingFilesQueueRef.current = [];
@@ -262,21 +263,58 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
     setIsUploading(false);
     await Promise.all([refetchRef.current(), refetchTimelinesRef.current()]);
-  }, [vstApiUrl, agentApiUrl]);
+  }, [vstApiUrl, agentApiUrl, resolveFilename]);
 
-  const handleFilesSelected = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
-
-    // Open dialog for user input (chat-style upload with config fields)
-    const newItems = Array.from(files).map((file) => ({
-      id: generateFileId(),
-      file,
-      isExpanded: false,
-      formData: generateDefaultFormData(),
-    }));
-    setSelectedFiles((prev) => [...prev, ...newItems]);
+  const handleFilesSelected = useCallback((files: File[]) => {
+    if (files.length === 0 || isDialogOpenRef.current) return;
+    setPendingInitialFiles(Array.from(files));
     setShowUploadDialog(true);
-  }, [generateFileId, generateDefaultFormData]);
+  }, []);
+
+  const handleUploadClick = useCallback(() => {
+    if (isDialogOpenRef.current) return;
+    setPendingInitialFiles(null);
+    setShowUploadDialog(true);
+  }, []);
+
+  const handleUploadDialogClose = useCallback(() => {
+    setShowUploadDialog(false);
+    setPendingInitialFiles(null);
+  }, []);
+
+  const handleUploadConfirm = useCallback((entries: UploadFilesDialogEntry[]) => {
+    if (entries.length === 0) return;
+    setShowUploadSuccessPopup(false);
+    setUploadResults([]);
+    cancelledFileIdsRef.current.clear();
+
+    const fileEntries = entries.map((e) => ({
+      id: e.id,
+      file: e.file,
+      uploadFilename: e.uploadFilename,
+      formData: e.formData,
+    }));
+
+    if (isUploadingRef.current) {
+      pendingFilesQueueRef.current.push(...fileEntries);
+      const queuedProgress: UploadProgress[] = fileEntries.map((entry) => ({
+        id: entry.id,
+        fileName: resolveFilename(entry.file, entry.uploadFilename),
+        progress: 0,
+        status: 'pending' as const,
+      }));
+      setUploadProgress((prev) => [...prev, ...queuedProgress]);
+    } else {
+      const initialProgress: UploadProgress[] = fileEntries.map((entry) => ({
+        id: entry.id,
+        fileName: resolveFilename(entry.file, entry.uploadFilename),
+        progress: 0,
+        status: 'pending' as const,
+      }));
+      setUploadProgress(initialProgress);
+      processUploadQueue(fileEntries);
+    }
+  }, [processUploadQueue, resolveFilename]);
 
   const uploadProgressRef = useRef<UploadProgress[]>([]);
 
@@ -284,22 +322,42 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     uploadProgressRef.current = uploadProgress;
   }, [uploadProgress]);
 
-  const handleCancelUploads = useCallback(async () => {
-    pendingFilesQueueRef.current = [];
-
-    if (uploadAbortControllerRef.current) {
-      uploadAbortControllerRef.current.abort();
-      uploadAbortControllerRef.current = null;
-    }
-
-    uploadSessionIdRef.current += 1;
-    const successCount = uploadProgressRef.current.filter((p) => p.status === 'success').length;
+  const handleCancelSingleUpload = useCallback((fileId: string) => {
+    cancelledFileIdsRef.current.add(fileId);
+    abortControllerMapRef.current.get(fileId)?.abort();
+    abortControllerMapRef.current.delete(fileId);
 
     setUploadProgress((prev) =>
-      prev.map((p) => (p.status === 'pending' || p.status === 'uploading' || p.status === 'processing' ? { ...p, status: 'cancelled' } : p))
+      prev.map((p) =>
+        p.id === fileId && (p.status === 'pending' || p.status === 'uploading' || p.status === 'processing')
+          ? { ...p, status: 'cancelled' }
+          : p,
+      ),
     );
+  }, []);
+
+  const handleCancelAllUploads = useCallback(async () => {
+    pendingFilesQueueRef.current = [];
+    uploadSessionIdRef.current += 1;
+
+    abortControllerMapRef.current.forEach((ctrl) => ctrl.abort());
+    abortControllerMapRef.current.clear();
+
+    setUploadProgress((prev) => {
+      prev.forEach((p) => {
+        if (p.status === 'pending' || p.status === 'uploading' || p.status === 'processing') {
+          cancelledFileIdsRef.current.add(p.id);
+        }
+      });
+      return prev.map((p) =>
+        p.status === 'pending' || p.status === 'uploading' || p.status === 'processing'
+          ? { ...p, status: 'cancelled' }
+          : p,
+      );
+    });
     setIsUploading(false);
 
+    const successCount = uploadProgressRef.current.filter((p) => p.status === 'success').length;
     if (successCount > 0) {
       await Promise.all([refetchRef.current(), refetchTimelinesRef.current()]);
     }
@@ -325,9 +383,46 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
   const handleClearUploadProgress = useCallback(() => {
     setUploadProgress([]);
+    setUploadResults([]);
+    setShowUploadSuccessPopup(false);
   }, []);
 
+  const uploadProgressPopupFiles = useMemo(
+    () =>
+      uploadProgress.map((upload) => ({
+        id: upload.id,
+        displayName: upload.fileName,
+        uploadProgress: upload.status === 'processing' ? 100 : upload.progress,
+        uploadStatus: upload.status === 'processing' ? 'uploading' as const : upload.status as Exclude<UploadProgress['status'], 'processing'>,
+        uploadError: upload.error,
+      })),
+    [uploadProgress],
+  );
+
+  const hasActiveUploads = useMemo(
+    () => uploadProgress.some((u) => u.status === 'pending' || u.status === 'uploading' || u.status === 'processing'),
+    [uploadProgress],
+  );
+
+  useEffect(() => {
+    if (uploadProgress.length === 0 || hasActiveUploads || showUploadSuccessPopup) return;
+
+    const results: UploadResultItem[] = uploadProgress.map((u) => {
+      if (u.status === 'success') {
+        return { filename: u.fileName, result: { status: 'success' } };
+      }
+      if (u.status === 'cancelled') {
+        return { filename: u.fileName, cancelled: true };
+      }
+      return { filename: u.fileName, error: u.error ?? 'Upload failed' };
+    });
+
+    setUploadResults(results);
+    setShowUploadSuccessPopup(true);
+  }, [uploadProgress, hasActiveUploads, showUploadSuccessPopup]);
+
   const handleAddRtspClick = () => {
+    if (isDialogOpenRef.current) return;
     setIsRtspModalOpen(true);
   };
 
@@ -340,7 +435,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     refetchTimelinesRef.current();
   }, []);
 
-  const handlePlayStream = useCallback(async (stream: StreamInfo) => {
+  const handlePlayStream = useCallback(async (stream: StreamInfo): Promise<boolean> => {
     let startTime: string;
     let endTime: string;
 
@@ -350,21 +445,23 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       startTime = new Date(now.getTime() - 35000).toISOString();
     } else {
       const range = getLastTimelineForStream(stream.streamId);
-      if (!range) return;
+      if (!range) return false;
       startTime = range.startTime;
       endTime = range.endTime;
     }
 
     setLoadingStreamId(stream.streamId);
     try {
-      await openVideoModal({
+      return await openVideoModal({
         video_name: stream.name,
         start_time: startTime,
         end_time: endTime,
         sensor_id: stream.sensorId,
       });
     } catch {
-      // openVideoModal handles errors internally; catch to prevent unhandled rejection
+      // openVideoModal signals failure through its return value; catch guards
+      // against anything unexpected escaping as an unhandled rejection.
+      return false;
     } finally {
       setLoadingStreamId(null);
     }
@@ -397,21 +494,54 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     [streams, selectedStreams]
   );
 
+  // Sensors the agent already accepted a delete for, still listed by VST. This
+  // tracks backend state, not dialog state: any later attempt on these must only
+  // resume polling, since re-sending the destructive request would either fail
+  // against an already-deleted sensor or hit a resource recreated under the same
+  // identity. Cancelling the dialog therefore must not clear it.
+  const acceptedDeletesRef = useRef<Set<string>>(new Set());
+
+  // An acknowledgement only describes the backend that issued it. Once the tab points at
+  // a different VST/agent, a sensor id reused over there has not been deleted, so keeping
+  // the entry would skip the new backend's delete call and poll until timeout instead.
+  // The counter lets a delete already in flight recognise that its result arrived too
+  // late to be recorded, which clearing alone cannot prevent.
+  const backendSessionRef = useRef(0);
+
+  useEffect(() => {
+    backendSessionRef.current += 1;
+    acceptedDeletesRef.current.clear();
+  }, [vstApiUrl, agentApiUrl]);
+
+  // Once VST stops listing a sensor the delete is fully settled, so drop it here.
+  // Without this, a stream later recreated under the same sensor id could never be
+  // deleted — every attempt would skip the agent call and just poll forever.
+  useEffect(() => {
+    if (acceptedDeletesRef.current.size === 0) return;
+    const listed = new Set(streams.map((s) => s.sensorId));
+    for (const sensorId of Array.from(acceptedDeletesRef.current)) {
+      if (!listed.has(sensorId)) acceptedDeletesRef.current.delete(sensorId);
+    }
+  }, [streams]);
+
   // Step 1 of delete: just open the confirmation dialog. The Toolbar's "Delete
   // Selected" button is wired to this so a single click never destroys data.
   const handleDeleteSelected = useCallback(() => {
-    if (selectedStreams.size === 0 || isDeleting) return;
+    if (selectedStreams.size === 0 || isDeleting || isDialogOpenRef.current) return;
+    setDeleteError(null);
     setShowDeleteConfirm(true);
   }, [selectedStreams.size, isDeleting]);
 
   const handleCancelDelete = useCallback(() => {
     if (isDeleting) return;
+    setDeleteError(null);
     setShowDeleteConfirm(false);
   }, [isDeleting]);
 
   // Step 2 of delete: invoked by the confirm button inside DeleteConfirmDialog.
-  // This holds the actual destructive API calls that used to live in
-  // handleDeleteSelected.
+  // Keeps the dialog open through agent delete + VST stream-list convergence
+  // (NVBug 6243148). Only closes when VST no longer lists the deleted sensors;
+  // otherwise surfaces which streams could not be removed so the user can retry.
   const handleConfirmDelete = useCallback(async () => {
     if (selectedStreams.size === 0 || isDeleting) return;
 
@@ -427,11 +557,20 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       }
     }
 
+    const backendSession = backendSessionRef.current;
+    const isSameBackend = () => backendSessionRef.current === backendSession;
+
     const uniqueSensorIds = Array.from(sensorToStreams.keys());
+    // Retry after a convergence timeout: the agent already took these, so only
+    // the VST wait below needs repeating.
+    const alreadyAcceptedSensorIds = uniqueSensorIds.filter((id) => acceptedDeletesRef.current.has(id));
+    const sensorIdsToDelete = uniqueSensorIds.filter((id) => !acceptedDeletesRef.current.has(id));
+
     setIsDeleting(true);
+    setDeleteError(null);
 
     try {
-      const deletePromises = uniqueSensorIds.map(async (sensorId) => {
+      const deletePromises = sensorIdsToDelete.map(async (sensorId) => {
         const sensorStreams = sensorToStreams.get(sensorId) || [];
         const firstStream = sensorStreams[0];
 
@@ -453,19 +592,76 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       });
 
       const results = await Promise.allSettled(deletePromises);
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          // eslint-disable-next-line no-console
-          console.error('[VideoManagement] delete failed for sensor', uniqueSensorIds[idx], r.reason);
+
+      // These answers came from the backend we have since left. Recording them would let
+      // a same-id stream on the current one be treated as already accepted, so drop the
+      // whole outcome and leave the dialog open to retry against the backend in use.
+      if (!isSameBackend()) return;
+
+      const deletedSensorIds: string[] = [...alreadyAcceptedSensorIds];
+      const failedNames: string[] = [];
+      const stillSelected = new Set<string>();
+
+      const nameFor = (sensorId: string) =>
+        sensorToStreams.get(sensorId)?.[0]?.name ?? sensorId;
+      const keepSelected = (sensorId: string) =>
+        (sensorToStreams.get(sensorId) || []).forEach((s) => stillSelected.add(s.streamId));
+
+      results.forEach((result, idx) => {
+        const sensorId = sensorIdsToDelete[idx];
+
+        if (result.status === 'fulfilled') {
+          deletedSensorIds.push(sensorId);
+          return;
         }
+
+        // Keep failures selected so the confirm dialog's retry acts on exactly them
+        failedNames.push(nameFor(sensorId));
+        keepSelected(sensorId);
+        // eslint-disable-next-line no-console
+        console.error('[VideoManagement] delete failed for sensor', sensorId, result.reason);
       });
-      setSelectedStreams(new Set());
-      await Promise.all([refetch(), refetchTimelines()]);
+
+      deletedSensorIds.forEach((sensorId) => acceptedDeletesRef.current.add(sensorId));
+
+      // Agent accepted the delete — wait until VST's streams list agrees before
+      // claiming success. Closing early is what left RTSP entries stale in the grid.
+      const { remainingSensorIds } = await waitUntilStreamsRemoved(deletedSensorIds);
+      if (!isSameBackend()) return;
+      void refetchTimelines();
+
+      const unconfirmed = new Set(remainingSensorIds);
+      deletedSensorIds.forEach((sensorId) => {
+        if (!unconfirmed.has(sensorId)) acceptedDeletesRef.current.delete(sensorId);
+      });
+
+      const unconfirmedNames: string[] = [];
+      for (const sensorId of remainingSensorIds) {
+        unconfirmedNames.push(nameFor(sensorId));
+        keepSelected(sensorId);
+      }
+
+      setSelectedStreams(stillSelected);
+
+      if (failedNames.length > 0 || unconfirmedNames.length > 0) {
+        const messages: string[] = [];
+        if (failedNames.length > 0) {
+          messages.push(`Unable to remove the following streams: ${failedNames.join(', ')}`);
+        }
+        if (unconfirmedNames.length > 0) {
+          messages.push(
+            `Deletion was accepted but these are still listed by VST: ${unconfirmedNames.join(', ')}. Retry to check again.`
+          );
+        }
+        setDeleteError(messages.join('\n'));
+        return;
+      }
+
+      setShowDeleteConfirm(false);
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
     }
-  }, [selectedStreams, streams, isDeleting, agentApiUrl, refetch, refetchTimelines]);
+  }, [selectedStreams, streams, isDeleting, agentApiUrl, waitUntilStreamsRemoved, refetchTimelines]);
 
   const controlsComponent = useMemo(
     () => (
@@ -526,28 +722,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
   return (
     <div className="flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col bg-gray-50 text-gray-900 dark:bg-black dark:text-gray-100">
-      {/* Hidden input for upload dialog add-more */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept=".mp4,.mkv"
-        className="hidden"
-        onChange={(e) => {
-          const files = e.target.files;
-          if (files && files.length > 0) {
-            const newItems = Array.from(files).map((file) => ({
-              id: generateFileId(),
-              file,
-              isExpanded: false,
-              formData: generateDefaultFormData(),
-            }));
-            setSelectedFiles((prev) => [...prev, ...newItems]);
-          }
-          if (fileInputRef.current) fileInputRef.current.value = '';
-        }}
-      />
-
       {/* Toolbar */}
       <Toolbar
         searchQuery={searchQuery}
@@ -558,6 +732,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         onShowVideosChange={setShowVideos}
         onShowRtspsChange={setShowRtsps}
         onFilesSelected={handleFilesSelected}
+        onUploadClick={handleUploadClick}
         onAddRtspClick={handleAddRtspClick}
         selectedCount={selectedStreams.size}
         onDeleteSelected={handleDeleteSelected}
@@ -566,83 +741,38 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         enableVideoUpload={enableVideoUpload}
         hasVideoStreams={hasVideoStreams}
         hasRtspStreams={hasRtspStreams}
+        isDialogOpen={isDialogOpen}
       />
 
       {/* Main pane: scrollable grid + upload/progress overlays confined to this tab (not full viewport) */}
       <div className="flex flex-1 min-h-0 flex-col relative">
         <div className="flex flex-1 min-h-0 flex-col overflow-auto">{renderMainContent()}</div>
 
-        <AgentUploadDialog
+        <UploadFilesDialog
           overlay="contained"
           open={showUploadDialog}
-          files={selectedFiles}
           configTemplate={configTemplate}
-          onAddMore={() => fileInputRef.current?.click()}
-          onFilesDropped={(droppedFiles: File[]) => {
-            const newItems = droppedFiles.map((file) => ({
-              id: generateFileId(),
-              file,
-              isExpanded: false,
-              formData: generateDefaultFormData(),
-            }));
-            setSelectedFiles((prev) => [...prev, ...newItems]);
-          }}
-          onClose={() => {
-            setShowUploadDialog(false);
-            setSelectedFiles([]);
-          }}
-          onConfirmUpload={() => {
-            if (selectedFiles.length === 0) return;
-
-            const entries = selectedFiles.map((f) => ({
-              id: f.id,
-              file: f.file,
-              formData: f.formData,
-            }));
-
-            if (isUploadingRef.current) {
-              pendingFilesQueueRef.current.push(...entries);
-              const queuedProgress: UploadProgress[] = entries.map((entry) => ({
-                id: entry.id,
-                fileName: entry.file.name,
-                progress: 0,
-                status: 'pending' as const,
-              }));
-              setUploadProgress((prev) => [...prev, ...queuedProgress]);
-            } else {
-              const initialProgress: UploadProgress[] = entries.map((entry) => ({
-                id: entry.id,
-                fileName: entry.file.name,
-                progress: 0,
-                status: 'pending' as const,
-              }));
-              setUploadProgress(initialProgress);
-              processUploadQueue(entries);
-            }
-
-            setShowUploadDialog(false);
-            setSelectedFiles([]);
-          }}
-          onToggleExpand={(id: string) =>
-            setSelectedFiles((prev) =>
-              prev.map((f) => (f.id === id ? { ...f, isExpanded: !f.isExpanded } : f))
-            )
-          }
-          onRemoveFile={(id: string) => setSelectedFiles((prev) => prev.filter((f) => f.id !== id))}
-          onFieldChange={(fileId: string, fieldName: string, value: any) =>
-            setSelectedFiles((prev) =>
-              prev.map((f) =>
-                f.id === fileId ? { ...f, formData: { ...f.formData, [fieldName]: value } } : f
-              )
-            )
-          }
+          onClose={handleUploadDialogClose}
+          onConfirm={handleUploadConfirm}
+          initialFiles={pendingInitialFiles}
         />
 
-        <UploadProgressPanel
-          uploads={uploadProgress}
-          onClose={handleClearUploadProgress}
-          onCancel={handleCancelUploads}
-        />
+        {uploadProgress.length > 0 && hasActiveUploads && (
+          <UploadProgressPopup
+            overlay="contained"
+            files={uploadProgressPopupFiles}
+            onCancelAll={handleCancelAllUploads}
+            onCancelSingle={handleCancelSingleUpload}
+          />
+        )}
+
+        {showUploadSuccessPopup && uploadResults.length > 0 && (
+          <UploadSuccessPopup
+            overlay="contained"
+            results={uploadResults}
+            onClose={handleClearUploadProgress}
+          />
+        )}
 
         <AddRtspDialog
           overlay="contained"
@@ -657,6 +787,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           isOpen={showDeleteConfirm}
           streams={selectedStreamInfos}
           isDeleting={isDeleting}
+          error={deleteError}
           onCancel={handleCancelDelete}
           onConfirm={handleConfirmDelete}
         />

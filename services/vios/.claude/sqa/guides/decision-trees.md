@@ -72,9 +72,6 @@ What changed or what needs to be verified?
 ├─ Recording jobs, schedules, retention
 │   └─ tests/unit_tests/stream_recorder/
 │
-├─ MCP gateway / tool integration
-│   └─ tests/unit_tests/mcp_gateway/
-│
 ├─ File upload to VIOS
 │   └─ tests/file_upload/
 │
@@ -143,36 +140,26 @@ NVStreamer must always be deployed before the stream-processor. See sequences be
 Deployment target?
 │
 ├─ Default / "deploy" / "deploy VST" / "deploy VIOS" / no specific target
-│   └─ Step 1: deploy --target nvstreamer --auto --force
-│      Step 2: deploy --auto --force
+│   └─ Step 1: deploy --target nvstreamer --force
+│      Step 2: deploy --force
 │      ("VST" and "VIOS" always mean stream-processor, not the full stack)
 │
 ├─ Explicit full stack keywords:
 │   "full stack", "legacy deployment", "regular deployment",
 │   "full service deployment", or mentions live / replay / storage /
 │   recorder / rtsp services by name
-│   └─ deploy --target all --auto --force
+│   └─ deploy --target all --force
 │      (NVStreamer-first handled internally by --target all)
 │
-├─ "scaled deployment" / "scaled" / lists multiple microservices
-│   └─ Step 1: deploy --target nvstreamer --auto --force
-│      Step 2: deploy --target scaled --auto --force
-│
 ├─ "deploy NVStreamer" / NVStreamer only
-│   └─ deploy --target nvstreamer --auto --force
+│   └─ deploy --target nvstreamer --force
 │
 ├─ After a build (any target)
 │   └─ Append to each deploy command:
-│      --all-tag <BUILD_TAG>        (covers all VIOS service images)
+│      --all-tag <BUILD_TAG>        (covers stream-processor + sensor images)
 │      --nvstreamer-tag <BUILD_TAG> (covers NVStreamer)
 │      BUILD_TAG is from build-containers.md Step 6 (default: "latest")
 │      See deploy.md Step 1b for the standalone-deploy probe path
-│
-├─ Test file upload/download features
-│   └─ Add --with-minio
-│
-├─ Test metrics / alerting
-│   └─ Add --with-monitoring
 │
 ├─ Test a specific image build
 │   └─ Add --all-tag <TAG> or per-service tag flag

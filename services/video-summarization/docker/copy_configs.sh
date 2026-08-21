@@ -25,4 +25,4 @@ fi
 CONFIGS_DIR="$1"
 OUT_DIR="$2"
 
-sed '/model:/s/nvdev\///g' "$CONFIGS_DIR/config.yaml" > "$OUT_DIR/default_config.yaml"
+cp "$CONFIGS_DIR/config.yaml" "$OUT_DIR/default_config.yaml"

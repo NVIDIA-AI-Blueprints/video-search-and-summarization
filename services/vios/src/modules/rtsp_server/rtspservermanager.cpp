@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,7 @@
 #include <mutex>
 #include <set>
 #include <limits>
+#include <memory>
 
 using namespace nv_vms;
 
@@ -107,21 +108,15 @@ namespace
             }
         }
 
-        // Update stream to STREAMING status
+        // STREAMING: for RTSP proxy, registerStreamAsync already set status and
+        // persisted before sendEvent(), so this is usually an early-out.
+        // Fallback below remains for needRtspServer == false (StreamMonitor emits
+        // STREAMING); codec/resolution DB updates come from StreamMonitor's
+        // metadata task, not from this callback.
         for (auto const& stream : streamList)
         {
             if (stream->live_proxy_url == url)
             {
-                if (!details.codec.empty())
-                {
-                    SensorVideoEncoderSettingsValues& enc_values = stream->getvideoEncoderValues();
-                    enc_values.encoding = details.codec;
-                    stream->updateVideoEncoderValues(enc_values, /*updateDB=*/false);
-                    LOG(info) << "RtspStreamStatusListener: Updated codec for stream: "
-                              << stream->name << ", id: " << stream->id
-                              << ", codec: " << details.codec << endl;
-                }
-
                 if (stream->getErrorStatus().first == StreamStatus::STREAM_STATUS_STREAMING)
                 {
                     LOG(info) << "RtspStreamStatusListener: stream "
@@ -682,7 +677,7 @@ VmsErrorCode RtspServerManager::handleProxyConfiguration(const Json::Value &req_
         response["webserviceAccessControlList"] = config.webservice_access_control_list;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
     }
     else
@@ -746,11 +741,38 @@ VmsErrorCode RtspServerManager::handleStreamDelete(const std::string &streamId, 
     }
 
     VmsErrorCode eventResult = VmsErrorCode::NoError;
+    bool proxyTornDownByEvent = false;
     if (!streamUrl.empty() && parentSensorType != std::string(SENSOR_TYPE_FILE))
     {
         StreamEncParam details;
         eventResult = StreamEventManager::getInstance().sendEventBlocking(
             streamUrl, STREAM_STATUS_REMOVED, details);
+        /* The STREAM_STATUS_REMOVED path (RtspStreamStatusCallback -> removeStream)
+         * synchronously tears down the RTSP proxy for this stream. */
+        proxyTornDownByEvent = true;
+    }
+
+    /* Tear down the RTSP proxy here only if the STREAM_STATUS_REMOVED path above
+     * did NOT run. That path is skipped when the stream never reached STREAMING
+     * (the back-end DESCRIBE never succeeded, e.g. a cold or unreachable source):
+     * sdpReady/registerStreamAsync never ran, so the stream is absent from the
+     * device-manager stream list and streamUrl is empty. Without this, removeProxy
+     * is never invoked and the ProxyServerMediaSession (with its self-rescheduling
+     * ProxyRTSPClient) is orphaned and keeps contacting the source forever. The
+     * guard ensures removeProxy runs exactly once - no redundant call on the
+     * normal (streaming) delete path. */
+    if (!proxyTornDownByEvent && deviceManager->needRtspServer)
+    {
+        int lbResult = m_lb.removeStream(streamId);
+        if (lbResult != 0)
+        {
+            /* Surface (do not silently swallow) a proxy-teardown failure - e.g.
+             * deleteProxy timing out in the load balancer - so it is not masked
+             * as success. Mirrors removeStream()'s handling of the same call. */
+            LOG(error) << "Failed to remove RTSP proxy for never-streamed stream id: "
+                       << streamId << endl;
+            eventResult = VmsErrorCode::VMSInternalError;
+        }
     }
 
     // For SENSOR_TYPE_FILE, remove the uploaded file from disk before the
@@ -927,10 +949,10 @@ VmsErrorCode RtspServerManager::handleStreamAPIrequest(const Json::Value &req_in
 
 extern "C" void* createRtspServerManagerObject()
 {
-    return new RtspServerManager;
+    return std::make_unique<RtspServerManager>().release();
 }
 
 extern "C" void deleteRtspServerManagerObject(RtspServerManager* object)
 {
-    delete object;
+    std::unique_ptr<RtspServerManager> owner(object);
 }

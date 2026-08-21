@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +25,7 @@
 WebrtcSinkConsumer::WebrtcSinkConsumer(const std::string& consumer_name) : IMediaDataConsumer(consumer_name)
 {
     m_videowebRTCSender = std::make_shared<VideoWebRTCSender>("VideoWebRTCSender");
-    setConsumerType (ConsumerType::webrtcConsumer);
+    IMediaDataConsumer::setConsumerType (ConsumerType::webrtcConsumer);
 }
 
 WebrtcSinkConsumer::WebrtcSinkConsumer(const std::string& consumer_name, string peer_id, double frame_rate,
@@ -33,7 +33,7 @@ WebrtcSinkConsumer::WebrtcSinkConsumer(const std::string& consumer_name, string 
         : IMediaDataConsumer(consumer_name), m_peerIdStreamId (peer_id)
 {
     m_videowebRTCSender = std::make_shared<VideoWebRTCSender>("VideoWebRTCSender", frame_rate, enable_frame_sync);
-    setConsumerType (ConsumerType::webrtcConsumer);
+    IMediaDataConsumer::setConsumerType (ConsumerType::webrtcConsumer);
 }
 
 WebrtcSinkConsumer::~WebrtcSinkConsumer()
@@ -45,7 +45,7 @@ WebrtcSinkConsumer::~WebrtcSinkConsumer()
     LOG(info) << "WebrtcSinkConsumer instance deleted for " << m_peerIdStreamId << endl;
 }
 
-void WebrtcSinkConsumer::setWebrtcBroadcaster(void* broadcaster)
+void WebrtcSinkConsumer::setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster)
 {
     {
         std::lock_guard<std::mutex> lock(m_broadcasterMutex);
@@ -53,7 +53,7 @@ void WebrtcSinkConsumer::setWebrtcBroadcaster(void* broadcaster)
     }
     if (m_videowebRTCSender)
     {
-        m_videowebRTCSender->appendWebrtcBroacaster(m_peerIdStreamId, (rtc::VideoBroadcaster*)broadcaster);
+        m_videowebRTCSender->appendWebrtcBroacaster(m_peerIdStreamId, broadcaster);
     }
 }
 
@@ -77,18 +77,23 @@ void WebrtcSinkConsumer::onFrame(std::shared_ptr<RawFrameParams> frame_data)
 
     if (frame_data->m_isYuvBuffer && frame_data->m_buffer != nullptr)
     {
-        rtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer = rtc::scoped_refptr<webrtc::I420Buffer>(static_cast<webrtc::I420Buffer*>(static_cast<void*>(frame_data->m_buffer)));
+        webrtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer = webrtc::scoped_refptr<webrtc::I420Buffer>(static_cast<webrtc::I420Buffer*>(static_cast<void*>(frame_data->m_buffer)));
 
         /* Create a VideoFrame to pass it further in webRTC framework */
         if (yuv_buffer.get() != nullptr)
         {
+            const WebrtcFrameTimestamp frame_timestamp = m_frameTimestamper.next();
+
             webrtc::VideoFrame webRTC_input_video_frame  = webrtc::VideoFrame::Builder()
                                         .set_video_frame_buffer(yuv_buffer)
+                                        .set_rotation(webrtc::kVideoRotation_0)
+                                        .set_timestamp_us(frame_timestamp.m_timestampUs)
+                                        .set_timestamp_rtp(frame_timestamp.m_rtpTimestamp)
                                         .build();
             std::lock_guard<std::mutex> lock(m_broadcasterMutex);
             if (m_broadcaster != nullptr)
             {
-                ((rtc::VideoBroadcaster *)m_broadcaster)->OnFrame(webRTC_input_video_frame);
+                m_broadcaster->OnFrame(webRTC_input_video_frame);
             }
         }
     }

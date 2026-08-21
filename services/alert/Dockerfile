@@ -17,7 +17,7 @@
 ARG TARGETARCH
 ARG TARGETPLATFORM
 ARG PYTHON_VERSION=3.13
-ARG TAG=v3.1.7
+ARG TAG=v4.0.8
 ARG IMG=nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}
 
 # Stage 1: Build Stage - Use a slim Python image to install dependencies
@@ -48,7 +48,7 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/setuptools*
 RUN ln -s /usr/local/lib/python3.13/site-packages /python-packages
 
 # Stage 2: Production Stage - Use Distroless Python as the base image (per-platform)
-FROM --platform=$TARGETPLATFORM nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}-${TAG} AS prefinal
+FROM nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}-${TAG} AS prefinal
 ARG TARGETARCH
 
 # Set the working directory in the final stage
@@ -57,7 +57,7 @@ WORKDIR /app
 # Copy Python runtime dependencies from the build stage
 COPY --from=build /python-packages /usr/local/lib/python3.13/site-packages
 
-FROM --platform=$TARGETPLATFORM busybox:1.36 AS strip
+FROM busybox:1.36 AS strip
 ARG TARGETARCH
 
 # Copy the full root filesystem from the prefinal image and remove unwanted artifacts
@@ -82,7 +82,13 @@ COPY . /app
 
 # Ship the NVIDIA Software License inside the container (governs the distributed
 # image; must match the NGC catalog card). Source files remain Apache-2.0.
-COPY NVIDIA-Software-License-Agreement.pdf /app/NVIDIA-Software-License-Agreement.pdf
+# Not vendored in this source tree: BuildKit performs this download itself, so
+# no HTTP client is needed in any stage, and --checksum verifies the bytes
+# before the layer is created. Placed after `COPY . /app` so it is not clobbered.
+ADD --chown=root:root --chmod=444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    /app/NVIDIA-Software-License-Agreement.pdf
 
 # Minimal Python runtime settings and non-root execution
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

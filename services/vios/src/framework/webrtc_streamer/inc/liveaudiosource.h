@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,6 +37,7 @@
 
 #include "pc/local_audio_source.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
+#include "api/environment/environment_factory.h"
 
 template <typename T>
 class LiveAudioSource : public webrtc::Notifier<webrtc::AudioSourceInterface>, public T::Callback
@@ -107,7 +108,8 @@ public:
             webrtc::SdpAudioFormat format = webrtc::SdpAudioFormat(codecstr, m_freq, m_channel, std::move(params));
             if (m_factory->IsSupportedDecoder(format))
             {
-                m_decoder = m_factory->MakeAudioDecoder(format, absl::optional<webrtc::AudioCodecPairId>());
+                webrtc::Environment webrtc_env = webrtc::CreateEnvironment();
+                m_decoder = m_factory->Create(webrtc_env, format);
                 m_codec[id] = codec;
                 success = true;
             }
@@ -133,7 +135,7 @@ public:
             LOG(verbose2) << "LiveAudioSource::onData decode ts:" << ts
                               << " source ts:" << sourcets;
 
-            if (m_decoder.get() != NULL)
+            if (m_decoder.get() != nullptr)
             {
 
                 // waiting
@@ -198,9 +200,9 @@ public:
     }
 
 protected:
-    LiveAudioSource(rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts, bool wait)
+    LiveAudioSource(webrtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts, bool wait)
         : m_env(m_stop)
-        , m_connection(m_env, this, uri.c_str(), opts, rtc::LogMessage::GetLogToDebug() <= 2)
+        , m_connection(m_env, this, uri.c_str(), opts, webrtc::LogMessage::GetLogToDebug() <= 2)
         , m_factory(audioDecoderFactory)
         , m_freq(8000)
         , m_channel(1)
@@ -217,13 +219,13 @@ protected:
     }
 
 private:
-    char m_stop;
+    EventLoopWatchVariable m_stop{0};
     Environment m_env;
 
 private:
     T m_connection;
     std::thread m_capturethread;
-    rtc::scoped_refptr<webrtc::AudioDecoderFactory> m_factory;
+    webrtc::scoped_refptr<webrtc::AudioDecoderFactory> m_factory;
     std::unique_ptr<webrtc::AudioDecoder> m_decoder;
     int m_freq;
     int m_channel;

@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // RTP Sinks
 // C++ header
 
@@ -44,18 +44,18 @@ public:
 
   unsigned char rtpPayloadType() const { return fRTPPayloadType; }
   unsigned rtpTimestampFrequency() const { return fTimestampFrequency; }
-  void setRTPTimestampFrequency(unsigned freq) {
-    fTimestampFrequency = freq;
-  }
-  char const* rtpPayloadFormatName() const {return fRTPPayloadFormatName;}
+  void setRTPTimestampFrequency(unsigned freq) { fTimestampFrequency = freq; }
+  char const* rtpPayloadFormatName() const { return fRTPPayloadFormatName; }
 
   unsigned numChannels() const { return fNumChannels; }
 
-  void setupForSRTP(Boolean useEncryption);
+  void setupForSRTP(Boolean useEncryption, u_int32_t roc);
       // sets up keying/encryption state for streaming via SRTP, using default values.
-  u_int8_t* setupForSRTP(Boolean useEncryption, unsigned& resultMIKEYStateMessageSize);
+  u_int8_t* setupForSRTP(Boolean useEncryption, u_int32_t roc,
+			 unsigned& resultMIKEYStateMessageSize);
       // as above, but returns the binary MIKEY state
-  void setupForSRTP(u_int8_t const* MIKEYStateMessage, unsigned MIKEYStateMessageSize);
+  void setupForSRTP(u_int8_t const* MIKEYStateMessage, unsigned MIKEYStateMessageSize,
+		    u_int32_t roc);
       // as above, but takes a MIKEY state message as parameter
 
   virtual char const* sdpMediaType() const; // for use in SDP m= lines
@@ -97,10 +97,11 @@ public:
   }
   unsigned& estimatedBitrate() { return fEstimatedBitrate; } // kbps; usually 0 (i.e., unset)
 
-  u_int32_t SSRC() const {return fSSRC;}
+  u_int32_t SSRC() const { return fSSRC; }
      // later need a means of changing the SSRC if there's a collision #####
 
   SRTPCryptographicContext* getCrypto() const { return fCrypto; }
+  u_int32_t srtpROC() const;
 
   // Use rtpBase time provided externally (vod) instead of getTimeOfDay()
   void setRTPBaseTime(const timeval& rtp_base_ts) {

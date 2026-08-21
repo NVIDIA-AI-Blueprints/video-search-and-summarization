@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include <dlfcn.h>
 #include "logger.h"
 #include "nvbuf_utils.h"
@@ -43,7 +44,7 @@
 typedef int (*NvBufSurfaceCopy_t) (NvBufSurface *, NvBufSurface *);
 typedef int (*NvBufSurfaceCreate_t) (NvBufSurface **, uint32_t, NvBufSurfaceCreateParams *);
 typedef int (*NvBufSurfaceDestroy_t) (NvBufSurface *);
-typedef int (*NvBufSurfaceFromFd_t) (int, void**);
+typedef int (*NvBufSurfaceFromFdSurface_t) (int, NvBufSurface**);
 typedef int (*NvBufSurfaceAllocate_t) (NvBufSurface **, uint32_t, NvBufSurfaceAllocateParams *);
 
 typedef int (*NvBufSurfaceMap_t) (NvBufSurface *, int, int,  NvBufSurfaceMemMapFlags);
@@ -54,9 +55,14 @@ typedef NvBufSurfTransform_Error (*NvBufSurfTransform_t) (NvBufSurface *, NvBufS
 typedef int (*NvBufSurfTransformSetSessionParams_t) (NvBufSurfTransformConfigParams*);
 typedef int (*NvBufSurfTransformSetDefaultSession_t) (void);
 typedef NvBufSurfTransform_Error (*NvBufSurfTransformMultiInputBufCompositeBlend_t) (NvBufSurface **src, NvBufSurface *dst, NvBufSurfTransformCompositeBlendParamsEx *composite_blend_params);
-#ifdef JETSON_PLATFORM
+// Only resolved at runtime on Jetson/Orin (see NvBufSurface2Raw dlsym below), but the
+// typedef and member are declared unconditionally so the class layout is identical
+// across platforms in the unified aarch64 build.
 typedef int (*NvBufSurface2Raw_t) (NvBufSurface*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned char*);
-#endif
+
+// Opaque stand-in for the handle returned by dlopen(); never defined, so the
+// handle stays a typed pointer instead of a bare void*.
+struct NvBufDlHandle;
 
 enum NvBufferMode
 {
@@ -90,9 +96,7 @@ class NvBufWrapper
             , NvBufSurfTransform (nullptr)
             , NvBufSurfTransformSetSessionParams (nullptr)
             , NvBufSurfTransformSetDefaultSession(nullptr)
-#ifdef JETSON_PLATFORM
             , NvBufSurface2Raw (nullptr)
-#endif
             , m_nvBufferMode (NvBufferModeHardwareSurface)
             , handle_nvbufsurface_utils (nullptr)
             , handle_nvbufsurfacetransform_utils (nullptr)
@@ -117,48 +121,54 @@ class NvBufWrapper
                 return;
             }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
-            handle_nvbufsurface_utils = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so", RTLD_LAZY);
-            handle_nvbufsurfacetransform_utils = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so", RTLD_LAZY);
+#if defined(AARCH64_PLATFORM)
+            // Loaded from /usr/lib/aarch64-linux-gnu/nvidia/: on Jetson (Orin/Thor)
+            // the device/BSP injects the Tegra libs there; on discrete aarch64
+            // (DGX-Spark/SBSA) Dockerfile.app symlinks them from the sbsa prebuilts.
+            handle_nvbufsurface_utils = dlOpenLibrary("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so");
+            handle_nvbufsurfacetransform_utils = dlOpenLibrary("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so");
 #else
-            handle_nvbufsurface_utils = dlopen("/usr/lib/x86_64-linux-gnu/libnvbufsurface.so", RTLD_LAZY);
-            handle_nvbufsurfacetransform_utils = dlopen("/usr/lib/x86_64-linux-gnu/libnvbufsurftransform.so", RTLD_LAZY);
+            handle_nvbufsurface_utils = dlOpenLibrary("/usr/lib/x86_64-linux-gnu/libnvbufsurface.so");
+            handle_nvbufsurfacetransform_utils = dlOpenLibrary("/usr/lib/x86_64-linux-gnu/libnvbufsurftransform.so");
 #endif
             if (handle_nvbufsurface_utils && handle_nvbufsurfacetransform_utils)
             {
                 /* Surface core library functions */
                 dlerror();
-                NvBufSurfaceCopy = (NvBufSurfaceCopy_t) dlsym(handle_nvbufsurface_utils, "NvBufSurfaceCopy");
+                NvBufSurfaceCopy = dlLoadSymbol<NvBufSurfaceCopy_t>(handle_nvbufsurface_utils, "NvBufSurfaceCopy");
                 DL_ERROR_EXIT
-                NvBufSurfaceCreate = (NvBufSurfaceCreate_t) dlsym(handle_nvbufsurface_utils, "NvBufSurfaceCreate");
+                NvBufSurfaceCreate = dlLoadSymbol<NvBufSurfaceCreate_t>(handle_nvbufsurface_utils, "NvBufSurfaceCreate");
                 DL_ERROR_EXIT
-                NvBufSurfaceDestroy = (NvBufSurfaceDestroy_t) dlsym(handle_nvbufsurface_utils, "NvBufSurfaceDestroy");
+                NvBufSurfaceDestroy = dlLoadSymbol<NvBufSurfaceDestroy_t>(handle_nvbufsurface_utils, "NvBufSurfaceDestroy");
                 DL_ERROR_EXIT
-                NvBufSurfaceFromFd = (NvBufSurfaceFromFd_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurfaceFromFd");
+                NvBufSurfaceFromFd = dlLoadSymbol<NvBufSurfaceFromFdSurface_t>(handle_nvbufsurface_utils, "NvBufSurfaceFromFd");
                 DL_ERROR_EXIT
-                NvBufSurfaceAllocate = (NvBufSurfaceAllocate_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurfaceAllocate");
+                NvBufSurfaceAllocate = dlLoadSymbol<NvBufSurfaceAllocate_t>(handle_nvbufsurface_utils, "NvBufSurfaceAllocate");
                 DL_ERROR_EXIT
 
-                NvBufSurfaceMap = (NvBufSurfaceMap_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurfaceMap");
+                NvBufSurfaceMap = dlLoadSymbol<NvBufSurfaceMap_t>(handle_nvbufsurface_utils, "NvBufSurfaceMap");
                 DL_ERROR_EXIT
-                NvBufSurfaceSyncForCpu = (NvBufSurfaceSyncForCpu_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurfaceSyncForCpu");
+                NvBufSurfaceSyncForCpu = dlLoadSymbol<NvBufSurfaceSyncForCpu_t>(handle_nvbufsurface_utils, "NvBufSurfaceSyncForCpu");
                 DL_ERROR_EXIT
-                NvBufSurfaceUnMap = (NvBufSurfaceUnMap_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurfaceUnMap");
+                NvBufSurfaceUnMap = dlLoadSymbol<NvBufSurfaceUnMap_t>(handle_nvbufsurface_utils, "NvBufSurfaceUnMap");
                 DL_ERROR_EXIT
-#ifdef JETSON_PLATFORM
-                NvBufSurface2Raw = (NvBufSurface2Raw_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurface2Raw");
-                DL_ERROR_EXIT
-#endif
+                // NvBufSurface2Raw is exported only by the Jetson/Orin variant of
+                // libnvbufsurface; resolving it on Thor/SBSA/x86 would fail init.
+                if (isJetsonPlatform())
+                {
+                    NvBufSurface2Raw = dlLoadSymbol<NvBufSurface2Raw_t>(handle_nvbufsurface_utils, "NvBufSurface2Raw");
+                    DL_ERROR_EXIT
+                }
 
                 /* Surface transform library functions */
                 dlerror();
-                NvBufSurfTransform = (NvBufSurfTransform_t) dlsym(handle_nvbufsurfacetransform_utils, "NvBufSurfTransform");
+                NvBufSurfTransform = dlLoadSymbol<NvBufSurfTransform_t>(handle_nvbufsurfacetransform_utils, "NvBufSurfTransform");
                 DL_ERROR_EXIT
-                NvBufSurfTransformSetSessionParams = (NvBufSurfTransformSetSessionParams_t) dlsym(handle_nvbufsurfacetransform_utils, "NvBufSurfTransformSetSessionParams");
+                NvBufSurfTransformSetSessionParams = dlLoadSymbol<NvBufSurfTransformSetSessionParams_t>(handle_nvbufsurfacetransform_utils, "NvBufSurfTransformSetSessionParams");
                 DL_ERROR_EXIT
-                NvBufSurfTransformMultiInputBufCompositeBlend = (NvBufSurfTransformMultiInputBufCompositeBlend_t) dlsym(handle_nvbufsurfacetransform_utils, "NvBufSurfTransformMultiInputBufCompositeBlend");
+                NvBufSurfTransformMultiInputBufCompositeBlend = dlLoadSymbol<NvBufSurfTransformMultiInputBufCompositeBlend_t>(handle_nvbufsurfacetransform_utils, "NvBufSurfTransformMultiInputBufCompositeBlend");
                 DL_ERROR_EXIT
-                NvBufSurfTransformSetDefaultSession = (NvBufSurfTransformSetDefaultSession_t) dlsym(handle_nvbufsurfacetransform_utils, "NvBufSurfTransformSetDefaultSession");
+                NvBufSurfTransformSetDefaultSession = dlLoadSymbol<NvBufSurfTransformSetDefaultSession_t>(handle_nvbufsurfacetransform_utils, "NvBufSurfTransformSetDefaultSession");
                 DL_ERROR_EXIT
 
                 /* WAR to initialize pthread key nvbufsurftransform_key, in libnvbufsurftransform.so to avoid crash */
@@ -174,16 +184,16 @@ class NvBufWrapper
 
         close_dl:
                 LOG(error) << "Error loading the plugins, default buffer format: " << m_nvBufferMode << endl;
-                if (handle_nvbufsurface_utils)  dlclose(handle_nvbufsurface_utils);
-                if (handle_nvbufsurfacetransform_utils)  dlclose(handle_nvbufsurfacetransform_utils);
+                if (handle_nvbufsurface_utils)  dlCloseLibrary(handle_nvbufsurface_utils);
+                if (handle_nvbufsurfacetransform_utils)  dlCloseLibrary(handle_nvbufsurfacetransform_utils);
                 throw std::runtime_error("An exception occurred, error loading the NvBuf libraries");
         }
 
         ~NvBufWrapper()
         {
             LOG(info) << "Destructor NvBufWrapper::~NvBufWrapper" << endl;
-            if (handle_nvbufsurface_utils)  dlclose(handle_nvbufsurface_utils);
-            if (handle_nvbufsurfacetransform_utils)  dlclose(handle_nvbufsurfacetransform_utils);
+            if (handle_nvbufsurface_utils)  dlCloseLibrary(handle_nvbufsurface_utils);
+            if (handle_nvbufsurfacetransform_utils)  dlCloseLibrary(handle_nvbufsurfacetransform_utils);
         }
 
         int getFDAndDoTransformIfNeeded(InputBufferType &buffer_type, uint32_t sourceWidth, uint32_t sourceHeight,
@@ -208,10 +218,12 @@ class NvBufWrapper
             if (m_nvBufferMode == NvBufferModeSoftware || software_mode)
             {
                 is_transformed_needed = true;
-                NvBufSurface *sw_surf   = (NvBufSurface *) calloc (1, sizeof(NvBufSurface));
-                sw_surf->surfaceList    = (NvBufSurfaceParams *) calloc (1, sizeof(NvBufSurfaceParams));
+                auto sw_surf_holder      = std::make_unique<NvBufSurface>();
+                auto sw_surf_list_holder = std::make_unique<NvBufSurfaceParams>();
+                NvBufSurface *sw_surf    = sw_surf_holder.get();
+                sw_surf->surfaceList     = sw_surf_list_holder.get();
 
-                sw_surf->gpuId                                   = g_gpuIndex;
+                sw_surf->gpuId                                   = getGpuIndex();
                 sw_surf->batchSize                               = 1;
                 sw_surf->numFilled                               = 1;
                 sw_surf->memType                                 = NVBUF_MEM_SYSTEM;
@@ -249,14 +261,13 @@ class NvBufWrapper
                 sw_surf->surfaceList->planeParams.bytesPerPix[2] = 1;
 
                 // convert from I420 sw memory to I420 hw memory
-                NvBufSurface *hw_surf = 0;
+                NvBufSurface *hw_surf = nullptr;
                 NvBufSurfaceAllocateParams input_params = {0};
                 input_params.params.width       = sourceWidth;
                 input_params.params.height      = sourceHeight;
                 input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                 input_params.params.colorFormat = NVBUF_COLOR_FORMAT_YUV420;
-#ifdef JETSON_PLATFORM
-                if (g_isJetsonGpuMode)
+                if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                 {
                     LOG(info) << "Using CUDA Device memory" << endl;
                     input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -266,15 +277,10 @@ class NvBufWrapper
                     LOG(info) << "Using Default memory" << endl;
                     input_params.params.memType     = NVBUF_MEM_DEFAULT;
                 }
-#else
-                input_params.params.memType     = NVBUF_MEM_DEFAULT;
-#endif
                 input_params.memtag             = NvBufSurfaceTag_VIDEO_CONVERT;
                 int ret = NvBufSurfaceAllocate(&hw_surf, 1, &input_params);
                 if (ret != 0)
                 {
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
                     LOG(error) << "NvBufSurfaceAllocate failed" << endl;
                     ret = -1;
                     return ret;
@@ -283,8 +289,6 @@ class NvBufWrapper
                 ret = NvBufSurfaceCopy (sw_surf, hw_surf);
                 if (ret != 0)
                 {
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
                     NvBufSurfaceDestroy(hw_surf);
                     LOG(error) << "NvBufSurfaceCopy failed" << endl;
                     ret = -1;
@@ -292,18 +296,17 @@ class NvBufWrapper
                 }
 
                 // Color conversion from I420 to NV12 and Resolution change
-                NvBufSurface *op_surf = 0;
-#ifndef JETSON_PLATFORM
-                if (fd && *fd == -1)
-#endif
+                NvBufSurface *op_surf = nullptr;
+                // On Jetson/Orin a fresh output surface is always allocated; on
+                // Thor/SBSA/x86 it is derived from an existing fd when one is provided.
+                if (isJetsonPlatform() || (fd && *fd == -1))
                 {
                     input_params = {0};
                     input_params.params.width       = width;
                     input_params.params.height      = height;
                     input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                     input_params.params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-#ifdef JETSON_PLATFORM
-                    if (g_isJetsonGpuMode)
+                    if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                     {
                         LOG(info) << "Using CUDA Device memory" << endl;
                         input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -313,15 +316,10 @@ class NvBufWrapper
                         LOG(info) << "Using Default memory" << endl;
                         input_params.params.memType     = NVBUF_MEM_DEFAULT;
                     }
-#else
-                    input_params.params.memType     = NVBUF_MEM_DEFAULT;
-#endif
                     input_params.memtag             = NvBufSurfaceTag_VIDEO_CONVERT;
                     ret = NvBufSurfaceAllocate(&op_surf, 1, &input_params);
                     if (ret != 0)
                     {
-                        free(sw_surf->surfaceList);
-                        free (sw_surf);
                         NvBufSurfaceDestroy(hw_surf);
                         LOG(error) << "NvBufSurfaceAllocate1 failed" << endl;
                         ret = -1;
@@ -329,18 +327,15 @@ class NvBufWrapper
                     }
                     op_surf->numFilled = 1;
                 }
-#ifndef JETSON_PLATFORM
                 else
                 {
                     int status = -1;
                     if (fd)
                     {
-                        status = NvBufSurfaceFromFd (*fd, (void**)(&op_surf));
+                        status = NvBufSurfaceFromFd (*fd, &op_surf);
                         if (status < 0)
                         {
                             LOG(error) << "Failed to get surface from fd =" << *fd << endl;
-                            free(sw_surf->surfaceList);
-                            free (sw_surf);
                             NvBufSurfaceDestroy(hw_surf);
                             NvBufSurfaceDestroy(op_surf);
                             ret = -1;
@@ -348,17 +343,15 @@ class NvBufWrapper
                         }
                     }
                 }
-#endif
                 NvBufSurfTransformConfigParams config_params;
-                config_params.gpu_id       = g_gpuIndex;
+                config_params.gpu_id       = getGpuIndex();
                 config_params.compute_mode = NvBufSurfTransformCompute_Default;
                 config_params.cuda_stream  = nullptr;
                 NvBufSurfTransformSetSessionParams (&config_params);
 
-                NvBufSurfTransformRect *src_rect = nullptr, *dst_rect = nullptr;
+                NvBufSurfTransformRect src_rect_storage = {0}, dst_rect_storage = {0};
+                NvBufSurfTransformRect *src_rect = &src_rect_storage, *dst_rect = &dst_rect_storage;
                 NvBufSurfTransformParams transform_params = {0};
-                src_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-                dst_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
                 src_rect->top                       = 0;
                 src_rect->left                      = 0;
                 src_rect->width                     = sourceWidth;
@@ -377,10 +370,6 @@ class NvBufWrapper
                 if (transform_error != NvBufSurfTransformError_Success)
                 {
                     LOG(error) << "Failed to Transform" << endl;
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
-                    free (dst_rect);
-                    free (src_rect);
                     NvBufSurfaceDestroy(hw_surf);
                     NvBufSurfaceDestroy(op_surf);
                     ret = -1;
@@ -391,10 +380,6 @@ class NvBufWrapper
                     *fd = op_surf->surfaceList->bufferDesc;
                     *ret_transform = is_transformed_needed;
                 }
-                free (src_rect);
-                free (dst_rect);
-                free (sw_surf->surfaceList);
-                free (sw_surf);
                 NvBufSurfaceDestroy(hw_surf);
 #ifdef DUMP_YUV
                 {
@@ -408,8 +393,8 @@ class NvBufWrapper
                     int dmabuf_fd = fd != nullptr ? *fd : -1;
                     for (int plane = 0; plane < 2; ++plane)
                     {
-                        NvBufSurface *nvbuf_surf = 0;
-                        ret = NvBufSurfaceFromFd(dmabuf_fd, (void**)(&nvbuf_surf));
+                        NvBufSurface *nvbuf_surf = nullptr;
+                        ret = NvBufSurfaceFromFd(dmabuf_fd, &nvbuf_surf);
                         if (ret != 0)
                         {
                             // return -1;
@@ -441,7 +426,7 @@ class NvBufWrapper
             {
                 NvBufSurface *ip_surf = nullptr;
                 NvBufSurfTransformConfigParams config_params;
-                config_params.gpu_id       = g_gpuIndex;
+                config_params.gpu_id       = getGpuIndex();
                 config_params.compute_mode = NvBufSurfTransformCompute_Default;
                 config_params.cuda_stream  = nullptr;
                 /* TODO add this API after CUDA libs and headers are added */
@@ -454,8 +439,10 @@ class NvBufWrapper
                 }
                 if (is_transformed_needed)
                 {
-                    NvBufSurfTransformRect *src_rect          = nullptr;
-                    NvBufSurfTransformRect *dst_rect          = nullptr;
+                    NvBufSurfTransformRect src_rect_storage   = {0};
+                    NvBufSurfTransformRect dst_rect_storage   = {0};
+                    NvBufSurfTransformRect *src_rect          = &src_rect_storage;
+                    NvBufSurfTransformRect *dst_rect          = &dst_rect_storage;
                     NvBufSurfaceCreateParams buf_params       = {0};
                     NvBufSurfTransformParams transform_params = {0};
                     NvBufSurface *op_surf                     = nullptr;
@@ -464,8 +451,7 @@ class NvBufWrapper
                     {
                         buf_params.width       = targetWidth;
                         buf_params.height      = targetHeight;
-#ifdef JETSON_PLATFORM
-                        if (g_isJetsonGpuMode)
+                        if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                         {
                             LOG(info) << "Using CUDA Device memory" << endl;
                             buf_params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -475,11 +461,8 @@ class NvBufWrapper
                             LOG(info) << "Using Default memory" << endl;
                             buf_params.memType     = NVBUF_MEM_DEFAULT;
                         }
-#else
-                        buf_params.memType     = NVBUF_MEM_DEFAULT;
-#endif
                         buf_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-                        buf_params.gpuId       = g_gpuIndex;
+                        buf_params.gpuId       = getGpuIndex();
                         int status = NvBufSurfaceCreate(&op_surf, 1, &buf_params);
                         if (status < 0)
                         {
@@ -492,7 +475,7 @@ class NvBufWrapper
                     /* Compositor case with transform */
                     else if (buffer_type.m_inputFD != -1)
                     {
-                        int status = NvBufSurfaceFromFd (buffer_type.m_inputFD, (void**)(&(ip_surf)));
+                        int status = NvBufSurfaceFromFd (buffer_type.m_inputFD, &ip_surf);
                         if (status < 0)
                         {
                             LOG(error) << "Failed to get surface from fd =" << *fd << endl;
@@ -501,7 +484,7 @@ class NvBufWrapper
                         }
                         if (fd)
                         {
-                            status = NvBufSurfaceFromFd (*fd, (void**)(&op_surf));
+                            status = NvBufSurfaceFromFd (*fd, &op_surf);
                             if (status < 0)
                             {
                                 LOG(error) << "Failed to get surface from fd =" << *fd << endl;
@@ -515,7 +498,7 @@ class NvBufWrapper
                         int status = -1;
                         if (fd)
                         {
-                            status = NvBufSurfaceFromFd (*fd, (void**)(&op_surf));
+                            status = NvBufSurfaceFromFd (*fd, &op_surf);
                             if (status < 0)
                             {
                                 LOG(error) << "Failed to get surface from fd =" << *fd << endl;
@@ -525,9 +508,6 @@ class NvBufWrapper
                         }
                         ip_surf = (NvBufSurface*)buffer_type.m_inputBuffer;
                     }
-                    src_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-                    dst_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-
                     src_rect->top    = 0;
                     src_rect->left   = 0;
                     src_rect->width  = sourceWidth;
@@ -553,8 +533,6 @@ class NvBufWrapper
                         {
                             LOG(error) << "Failed to destroy surface" << endl;
                         }
-                        free (src_rect);
-                        free (dst_rect);
                         ret = -1;
                         return ret;
                     }
@@ -566,8 +544,6 @@ class NvBufWrapper
                     {
                         *ret_transform = is_transformed_needed;
                     }
-                    free (src_rect);
-                    free (dst_rect);
                 }
                 else
                 {
@@ -606,9 +582,9 @@ class NvBufWrapper
                 LOG(error) << "NvBufSurface functions not loaded" << endl;
                 return;
             }
-            NvBufSurface *nvbuf_surf = 0;
+            NvBufSurface *nvbuf_surf = nullptr;
             int status = -1;
-            status = NvBufSurfaceFromFd (fd, (void**)(&nvbuf_surf));
+            status = NvBufSurfaceFromFd (fd, &nvbuf_surf);
             if (status < 0)
             {
                 LOG(error) << "Failed to get surface from fd =" << fd << endl;
@@ -634,7 +610,7 @@ class NvBufWrapper
             int status = 0;
             uint32_t i = 0;
 
-            status = NvBufSurfaceFromFd(fd, (void**)(&nvbuf_surf));
+            status = NvBufSurfaceFromFd(fd, &nvbuf_surf);
             if (status < 0)
             {
                 LOG(error) << "Failed to fetch surface from fd =" << fd << endl;
@@ -666,7 +642,7 @@ class NvBufWrapper
             int status = 0;
             uint32_t i = 0;
 
-            status = NvBufSurfaceFromFd(fd, (void**)(&nvbuf_surf));
+            status = NvBufSurfaceFromFd(fd, &nvbuf_surf);
             if (status < 0)
             {
                 LOG(error) << "Failed to fetch surface from fd =" << fd << endl;
@@ -687,7 +663,7 @@ class NvBufWrapper
             return 0;
         }
 
-        void *getMappedAddr(int fd, uint32_t plane)
+        unsigned char *getMappedAddr(int fd, uint32_t plane)
         {
             if (!NvBufSurfaceFromFd)
             {
@@ -696,37 +672,16 @@ class NvBufWrapper
             }
             NvBufSurface *nvbuf_surf = nullptr;
             int status = 0;
-            status = NvBufSurfaceFromFd(fd, (void**)(&nvbuf_surf));
+            status = NvBufSurfaceFromFd(fd, &nvbuf_surf);
             if (status < 0)
             {
                 LOG(error) << "Failed to get surface from fd =" << fd << endl;
                 return nullptr;
             }
-            return nvbuf_surf->surfaceList[0].mappedAddr.addr[plane];
+            return static_cast<unsigned char *>(nvbuf_surf->surfaceList[0].mappedAddr.addr[plane]);
         }
 
-        void* extractSurface (int fd)
-        {
-            if (!NvBufSurfaceFromFd)
-            {
-                LOG(error) << "NvBufSurfaceFromFd not loaded" << endl;
-                return nullptr;
-            }
-            NvBufSurface *nvbuf_surf = 0;
-            int status = -1;
-            status = NvBufSurfaceFromFd (fd, (void**)(&nvbuf_surf));
-            if (status < 0)
-            {
-                LOG(error) << "Failed to get surface from fd =" << fd << endl;
-                return nullptr;
-            }
-            else
-            {
-                return nvbuf_surf->surfaceList->dataPtr;
-            }
-        }
-
-        void* getNvSurface (int fd)
+        unsigned char* extractSurface (int fd)
         {
             if (!NvBufSurfaceFromFd)
             {
@@ -735,7 +690,28 @@ class NvBufWrapper
             }
             NvBufSurface *nvbuf_surf = nullptr;
             int status = -1;
-            status = NvBufSurfaceFromFd (fd, (void**)(&nvbuf_surf));
+            status = NvBufSurfaceFromFd (fd, &nvbuf_surf);
+            if (status < 0)
+            {
+                LOG(error) << "Failed to get surface from fd =" << fd << endl;
+                return nullptr;
+            }
+            else
+            {
+                return static_cast<unsigned char*>(nvbuf_surf->surfaceList->dataPtr);
+            }
+        }
+
+        NvBufSurface* getNvSurface (int fd)
+        {
+            if (!NvBufSurfaceFromFd)
+            {
+                LOG(error) << "NvBufSurfaceFromFd not loaded" << endl;
+                return nullptr;
+            }
+            NvBufSurface *nvbuf_surf = nullptr;
+            int status = -1;
+            status = NvBufSurfaceFromFd (fd, &nvbuf_surf);
             if (status < 0)
             {
                 LOG(error) << "Failed to get surface from fd =" << fd << endl;
@@ -780,7 +756,7 @@ class NvBufWrapper
                 if (!batch_surf[i])
                 {
                     int fd = it.second->m_fd;
-                    NvBufSurfaceFromFd(fd, (void **)&batch_surf[i]);
+                    NvBufSurfaceFromFd(fd, &batch_surf[i]);
                 }
                 i++;
             }
@@ -794,7 +770,7 @@ class NvBufWrapper
             buf_params.height      = target_h;
             buf_params.memType     = NVBUF_MEM_SYSTEM;
             buf_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-            buf_params.gpuId       = g_gpuIndex;
+            buf_params.gpuId       = getGpuIndex();
             int blk_surface_fd = -1;
             int status = NvBufWrapper::getInstance()->createSurface(&blk_surface, 1, &buf_params);
             if (status < 0)
@@ -809,7 +785,7 @@ class NvBufWrapper
             memset(src_ptr, 0, lumaSize);
             memset(src_ptr+lumaSize, 128, chromaSize);
 
-            status = NvBufSurfaceFromFd (*op_fd, (void**)(&op_surf));
+            status = NvBufSurfaceFromFd (*op_fd, &op_surf);
             if (status < 0)
             {
                 LOG(error) << "Failed to get surface from fd =" << *op_fd << endl;
@@ -1172,17 +1148,17 @@ class NvBufWrapper
             compositeParam.params.composite_blend_filter = NvBufSurfTransformInter_Algo3;
 
             size_t alloc_size = (sizeof(NvBufSurfTransformRect) * list_size);
-            compositeParam.dst_comp_rect = static_cast<NvBufSurfTransformRect*> (malloc(alloc_size));
-            compositeParam.src_comp_rect = static_cast<NvBufSurfTransformRect*> (malloc(alloc_size));
+            std::vector<NvBufSurfTransformRect> dst_comp_rect(list_size);
+            std::vector<NvBufSurfTransformRect> src_comp_rect(list_size);
+            compositeParam.dst_comp_rect = dst_comp_rect.data();
+            compositeParam.src_comp_rect = src_comp_rect.data();
 
             // Use safe memory copy with bounds validation
             size_t src_size = sizeof(dstCompRect);
             if (alloc_size > src_size)
             {
-                LOG(error) << "Buffer overflow prevented: alloc_size(" << alloc_size 
+                LOG(error) << "Buffer overflow prevented: alloc_size(" << alloc_size
                           << ") > src_size(" << src_size << ")" << endl;
-                free(compositeParam.dst_comp_rect);
-                free(compositeParam.src_comp_rect);
                 return;  // Early return from void function
             }
             memmove(compositeParam.dst_comp_rect, &dstCompRect[0], alloc_size);
@@ -1246,8 +1222,8 @@ class NvBufWrapper
                     int dmabuf_fd = op_surf->surfaceList->bufferDesc;
                     for (int plane = 0; plane < 2; ++plane)
                     {
-                        NvBufSurface *nvbuf_surf = 0;
-                        ret = NvBufSurfaceFromFd(dmabuf_fd, (void**)(&nvbuf_surf));
+                        NvBufSurface *nvbuf_surf = nullptr;
+                        ret = NvBufSurfaceFromFd(dmabuf_fd, &nvbuf_surf);
                         ret = NvBufSurfaceMap(nvbuf_surf, 0, plane, NVBUF_MAP_READ_WRITE);
                         if (ret < 0)
                         {
@@ -1270,17 +1246,9 @@ class NvBufWrapper
                 }
 #endif
             NvBufWrapper::getInstance()->destroyFd(blk_surface_fd);
-            if (compositeParam.src_comp_rect)
-            {
-                free(compositeParam.src_comp_rect);
-            }
-            if (compositeParam.dst_comp_rect)
-            {
-                free(compositeParam.dst_comp_rect);
-            }
         }
 
-        int getSwNvBufSurface(rtc::scoped_refptr<webrtc::I420Buffer> buffer, NvBufSurface* sw_surf)
+        int getSwNvBufSurface(webrtc::scoped_refptr<webrtc::I420Buffer> buffer, NvBufSurface* sw_surf)
         {
             if (!sw_surf || !sw_surf->surfaceList)
             {
@@ -1298,7 +1266,7 @@ class NvBufWrapper
             int height = buffer->height();
             int pitch = buffer->StrideY();
 
-            sw_surf->gpuId                                   = g_gpuIndex;
+            sw_surf->gpuId                                   = getGpuIndex();
             sw_surf->batchSize                               = 1;
             sw_surf->numFilled                               = 1;
             sw_surf->memType                                 = NVBUF_MEM_SYSTEM;
@@ -1340,18 +1308,32 @@ class NvBufWrapper
 
     public:
         NvBufSurfaceCopy_t NvBufSurfaceCopy;
-        NvBufSurfaceFromFd_t NvBufSurfaceFromFd;
+        NvBufSurfaceFromFdSurface_t NvBufSurfaceFromFd;
         NvBufSurfTransform_t NvBufSurfTransform;
         NvBufSurfTransformSetSessionParams_t NvBufSurfTransformSetSessionParams;
         NvBufSurfTransformSetDefaultSession_t NvBufSurfTransformSetDefaultSession;
-#ifdef JETSON_PLATFORM
         NvBufSurface2Raw_t NvBufSurface2Raw;
-#endif
 
     private:
+        static NvBufDlHandle* dlOpenLibrary(const char* path)
+        {
+            return static_cast<NvBufDlHandle*>(dlopen(path, RTLD_LAZY));
+        }
+
+        static void dlCloseLibrary(NvBufDlHandle* handle)
+        {
+            dlclose(static_cast<void*>(handle));
+        }
+
+        template <typename FuncT>
+        static FuncT dlLoadSymbol(NvBufDlHandle* handle, const char* symbol)
+        {
+            return reinterpret_cast<FuncT>(dlsym(static_cast<void*>(handle), symbol));
+        }
+
         NvBufferMode m_nvBufferMode;
-        void* handle_nvbufsurface_utils;
-        void* handle_nvbufsurfacetransform_utils;
+        NvBufDlHandle* handle_nvbufsurface_utils;
+        NvBufDlHandle* handle_nvbufsurfacetransform_utils;
         NvBufSurfaceCreate_t NvBufSurfaceCreate;
         NvBufSurfaceDestroy_t NvBufSurfaceDestroy; 
         NvBufSurfaceAllocate_t NvBufSurfaceAllocate;

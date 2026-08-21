@@ -110,4 +110,6 @@ const BitrateSparkline: React.FC<BitrateSparklineProps> = ({ bitrate }) => {
     );
 };
 
-export default BitrateSparkline;
+// Memoized so the sparkline only re-renders when the bitrate value changes, not on every
+// unrelated VideoPlayer re-render (playback progress, controls visibility, etc.).
+export default React.memo(BitrateSparkline);

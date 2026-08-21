@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,23 +30,20 @@ constexpr int JPEG_DEFAULT_QUALITY = 75;
 #endif
 #define ROUND_UP_4(num)  (((num) + 3) & ~3)
 
-NvJpegEncLoader* NvJpegEncLoader::m_instance = nullptr;
+std::unique_ptr<NvJpegEncLoader> NvJpegEncLoader::m_instance = nullptr;
 
 NvJpegEncLoader* NvJpegEncLoader::getInstance()
 {
     if (m_instance == nullptr)
     {
-        m_instance = new NvJpegEncLoader();
+        m_instance.reset(new NvJpegEncLoader());
     }
-    return m_instance;
+    return m_instance.get();
 }
 
 void NvJpegEncLoader::deleteInstance()
 {
-    if (m_instance)
-    {
-        delete m_instance;
-    }
+    m_instance.reset();
 }
 
 NvJpegEncLoader::NvJpegEncLoader()
@@ -56,7 +53,7 @@ NvJpegEncLoader::NvJpegEncLoader()
         , jpeg_mem_dest(nullptr)
         , jpeg_set_defaults(nullptr)
         , jpeg_set_quality(nullptr)
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         , jpeg_set_hardware_acceleration_parameters_enc(nullptr)
 #endif
         , jpeg_start_compress(nullptr)
@@ -66,12 +63,12 @@ NvJpegEncLoader::NvJpegEncLoader()
         , m_error(false)
         , m_handleNvJpeg(nullptr)
 {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
-    m_handleNvJpeg = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvmm_jpeg.so", RTLD_LAZY);
+#if defined(AARCH64_PLATFORM)
+    m_handleNvJpeg = static_cast<nv_vms::SharedLibrary*>(dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvmm_jpeg.so", RTLD_LAZY));
 #else
 
     const char* lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "deepstream/libnvds_lljpeg.so");
-    m_handleNvJpeg = dlopen(lib_path, RTLD_LAZY);
+    m_handleNvJpeg = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleNvJpeg)
     {
@@ -88,7 +85,7 @@ NvJpegEncLoader::NvJpegEncLoader()
         jpeg_mem_dest = (jpeg_mem_dest_t) dlsym(m_handleNvJpeg, "jpeg_mem_dest");
         jpeg_set_defaults = (jpeg_set_defaults_t) dlsym(m_handleNvJpeg, "jpeg_set_defaults");
         jpeg_set_quality = (jpeg_set_quality_t) dlsym(m_handleNvJpeg, "jpeg_set_quality");
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         jpeg_set_hardware_acceleration_parameters_enc = (jpeg_set_hardware_acceleration_parameters_enc_t) dlsym(m_handleNvJpeg, "jpeg_set_hardware_acceleration_parameters_enc");
 #endif
         jpeg_start_compress = (jpeg_start_compress_t) dlsym(m_handleNvJpeg, "jpeg_start_compress");
@@ -119,7 +116,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
 {
     struct jpeg_compress_struct cinfo;
     struct jpeg_error_mgr jerr;
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     NvBufSurface *buf_surf = nullptr;
 #endif
 
@@ -140,7 +137,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
     /* JPEG encode starts */
     jpeg_mem_dest(&cinfo, out_buf, &out_buf_size);
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     cinfo.fd = fd;
 #else
     if (!NvBufWrapper::getInstance()->NvBufSurfaceFromFd)
@@ -149,7 +146,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
         jpeg_destroy_compress(&cinfo);
         return -1;
     }
-    NvBufWrapper::getInstance()->NvBufSurfaceFromFd(fd, (void **)&buf_surf);
+    NvBufWrapper::getInstance()->NvBufSurfaceFromFd(fd, &buf_surf);
     cinfo.pVendor_buf = (unsigned char *)buf_surf;
 #endif
     cinfo.IsVendorbuf = TRUE;
@@ -158,7 +155,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
     cinfo.in_color_space = JCS_YCbCr;
     jpeg_set_defaults(&cinfo);
     jpeg_set_quality(&cinfo, JPEG_DEFAULT_QUALITY, TRUE);
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_set_hardware_acceleration_parameters_enc(&cinfo, TRUE, out_buf_size, 0, 0);
 #else
     cinfo.dest->next_output_byte = *out_buf;
@@ -175,7 +172,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
         return -1;
     }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_write_raw_data (&cinfo, nullptr, 0);
 #endif
     jpeg_finish_compress(&cinfo);
@@ -251,7 +248,7 @@ int NvJpegEncLoader::nvjpegEncodeFromBuffer(unsigned char* buffer, uint32_t widt
 
     jpeg_set_defaults(&cinfo);
     jpeg_set_quality(&cinfo, JPEG_DEFAULT_QUALITY, TRUE);
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_set_hardware_acceleration_parameters_enc(&cinfo, TRUE, out_buf_size, 0, 0);
 #else
     cinfo.dest->next_output_byte = *out_buf;

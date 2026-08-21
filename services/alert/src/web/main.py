@@ -1,0 +1,203 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+
+from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from metrics import PROMETHEUS_ENABLED
+import logging
+from datetime import datetime
+from schemas.api_status import ErrorCode, ResponseStatus
+from .api.verification_routes import router as verification_router
+from .api.alert_routes import router as alert_router
+from .api.incident_routes import router as incident_router
+from .api.alert_config_routes import router as alert_config_router
+from .api.realtime_routes import (
+    router as realtime_router,
+    validate_always_on_config_at_startup,
+)
+from .core.dependencies import load_config
+
+app = FastAPI(
+    title="Alert Agent API",
+    description="HTTP API for alert submission, prompt management, and verification config",
+    version="1.0.0",
+    redirect_slashes=False,
+    servers=[
+        {"url": "/", "description": "Alert Verification microservice endpoint"},
+    ],
+)
+
+cors_cfg = load_config().get("cors", {})
+if cors_cfg.pop("enabled", True):
+    app.add_middleware(CORSMiddleware, **cors_cfg)
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Readiness state. The alert-config store MUST be built successfully at
+# startup for the service to be ready: if persistence is enabled but ES is
+# unreachable, or a non-dev profile has persistence disabled without the
+# explicit dev opt-in, the store build raises and the service must
+# report NOT ready rather than admitting traffic to a broken subsystem.
+_startup_ready: bool = False
+_startup_error: str = "startup has not completed"
+
+# Custom exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Custom handler for Pydantic validation errors.
+    Logs detailed validation errors and returns 422 with error details.
+    """
+    # Extract request details for logging
+    try:
+        request_body = await request.body()
+        request_json = request_body.decode('utf-8') if request_body else "No body"
+    except Exception:
+        request_json = "Could not parse request body"
+    
+    # Log the validation error summary
+    logger.error(f"Validation error for alert submission: {request.method} {request.url.path} "
+                f"- {len(exc.errors())} error(s) in request: "
+                f"{request_json[:200] + '...' if len(request_json) > 200 else request_json}")
+    
+    # Log each validation error for easier debugging
+    for i, error in enumerate(exc.errors(), 1):
+        field_path = " -> ".join(str(loc) for loc in error["loc"])
+        error_type = error["type"]
+        error_msg = error["msg"]
+        input_value = str(error.get("input", "N/A"))[:100]
+        
+        logger.error(f"Validation error {i}/{len(exc.errors())}: "
+                    f"field='{field_path}', type='{error_type}', "
+                    f"message='{error_msg}', input='{input_value}'")
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "status": ResponseStatus.ERROR,
+            "error": ErrorCode.VALIDATION_FAILED,
+            "message": f"Request validation failed with {len(exc.errors())} error(s). Please check the request format and required fields.",
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+    )
+
+# Include sampling/heartbeat router (existing functionality)
+#app.include_router(heartbeat_router, tags=["sampling"])
+
+# Include real-time VLM alert management router
+app.include_router(realtime_router)
+
+# Include on-demand verification router
+app.include_router(verification_router)
+
+# Include alert config management router
+app.include_router(alert_config_router)
+
+# Include alert submission router (existing functionality)
+app.include_router(alert_router)
+
+# Include incident submission router (new functionality)
+app.include_router(incident_router)
+
+
+# Application lifecycle events
+@app.on_event("startup")
+async def startup_event():
+    """Start background services when FastAPI starts."""
+    logger.info("Starting FastAPI application")
+
+    # Validate always-on rules config up-front if the feature is enabled
+    # in config.yaml. This is deliberately NOT wrapped in try/except —
+    # a misconfigured rules file should crash app boot (visible in
+    # deployment logs) rather than silently surface on the first camera
+    # event. When `alert_agent.always_on` is false (default), this is a
+    # no-op and the endpoint returns 503 ALWAYS_ON_DISABLED.
+    validate_always_on_config_at_startup()
+
+    # Eagerly build + hydrate the alert-config store and gate readiness on
+    # it. A failure here is NOT swallowed: the store build enforces the
+    # persistence gate and confirms ES is reachable, so if it raises
+    # the service marks itself NOT ready and ``/health`` returns 503. This
+    # prevents a pod from admitting traffic while a mandatory subsystem
+    # (durable, ES-backed config storage) is unusable.
+    global _startup_ready, _startup_error
+    try:
+        from .api.alert_config_routes import _get_service
+        _get_service()
+        _startup_ready = True
+        _startup_error = ""
+        logger.info("Alert config service eagerly initialised; service is ready")
+    except Exception as e:
+        _startup_ready = False
+        _startup_error = f"alert-config store initialisation failed: {e}"
+        logger.error(
+            "Alert config store initialisation failed at startup; service will "
+            "report NOT ready until this is resolved: %s", e,
+        )
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop background services when FastAPI shuts down."""
+    logger.info("Shutting down FastAPI application")
+
+# Health / readiness endpoint.
+#
+# Reports readiness: once startup has run, ``/health`` returns 503 while
+# the alert-config store could not be initialised (persistence enabled but ES
+# unreachable, or a non-dev profile with persistence disabled). A readiness
+# probe pointed at this endpoint therefore keeps traffic away from a pod
+# whose mandatory durable-config subsystem is unusable, instead of the pod
+# looking healthy while silently serving a degraded/non-durable store.
+@app.get("/health")
+async def health_check():
+    """Health + readiness check for Alert Bridge."""
+    if not _startup_ready:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "message": _startup_error or "service is not ready",
+            },
+        )
+    return {"status": "ok", "message": "Alert Bridge is running"}
+
+
+# Prometheus metrics endpoint info
+@app.get("/metrics")
+async def metrics():
+    """
+    Prometheus metrics are served from the main process on port 9081.
+    This endpoint provides guidance for the correct metrics URL.
+    """
+    if not PROMETHEUS_ENABLED:
+        return Response(content="Prometheus metrics disabled", status_code=404)
+    
+    prometheus_port = os.getenv("PROMETHEUS_PORT", "9081")
+    return Response(
+        content=f"Prometheus metrics available at http://localhost:{prometheus_port}/metrics\n",
+        status_code=200,
+        media_type="text/plain"
+    )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 

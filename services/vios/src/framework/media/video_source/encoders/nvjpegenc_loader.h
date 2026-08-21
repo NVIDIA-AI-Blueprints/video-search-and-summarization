@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +19,13 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <memory>
 #include "libjpeg-8b/jpeglib.h"
+
+namespace nv_vms {
+// Opaque handle to a dynamically loaded shared library.
+struct SharedLibrary;
+}
 
 typedef struct jpeg_error_mgr* (*jpeg_std_error_t) (struct jpeg_error_mgr*);
 typedef void (*jpeg_CreateCompress_t) (j_compress_ptr, int, size_t);
@@ -27,7 +33,7 @@ typedef void (*jpeg_suppress_tables_t) (j_compress_ptr, boolean);
 typedef void (*jpeg_mem_dest_t) (j_compress_ptr, unsigned char**, unsigned long*);
 typedef void (*jpeg_set_defaults_t) (j_compress_ptr);
 typedef void (*jpeg_set_quality_t) (j_compress_ptr, int, boolean);
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
 typedef void (*jpeg_set_hardware_acceleration_parameters_enc_t) (j_compress_ptr, boolean,
                     unsigned int, unsigned int, unsigned int);
 #endif
@@ -48,7 +54,7 @@ public:
     jpeg_mem_dest_t jpeg_mem_dest;
     jpeg_set_defaults_t jpeg_set_defaults;
     jpeg_set_quality_t jpeg_set_quality;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_set_hardware_acceleration_parameters_enc_t jpeg_set_hardware_acceleration_parameters_enc;
 #endif
     jpeg_start_compress_t jpeg_start_compress;
@@ -60,9 +66,11 @@ public:
     int nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigned long &out_buf_size);
     int nvjpegEncodeFromBuffer(unsigned char* buffer, uint32_t width, uint32_t height, unsigned char **out_buf, unsigned long &out_buf_size);
 private:
-    static NvJpegEncLoader* m_instance;
+    friend struct std::default_delete<NvJpegEncLoader>;
+
+    static std::unique_ptr<NvJpegEncLoader> m_instance;
     bool m_error;
-    void* m_handleNvJpeg;
+    nv_vms::SharedLibrary* m_handleNvJpeg;
 
     NvJpegEncLoader();
     ~NvJpegEncLoader();

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,14 +18,15 @@
 #include "videowebRTCsender.h"
 #include "modules/video_coding/codecs/nvidia/NvVideoFrameBuffer.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rtc_base/time_utils.h"
+#include "api/make_ref_counted.h"
 using namespace std;
 
-void VideoWebRTCSender::unRefDataStructure(void *ptr)
+void VideoWebRTCSender::unRefDataStructure(encoder_params *params)
 {
-    if (ptr)
+    if (params)
     {
         std::lock_guard<std::mutex> lock(m_encParamsLock);
-        encoder_params* params = (encoder_params*) ptr;
         /* Copy encoder feedback params as member variables */
         m_qp        = params->m_qp;
         m_targetBps = params->m_targetBps;
@@ -76,7 +77,7 @@ int VideoWebRTCSender::createPassThroughMode(std::string& device_id)
     return 1;
 }
 
-void VideoWebRTCSender::appendWebrtcBroacaster(const std::string& peerid, rtc::VideoBroadcaster* broadcaster)
+void VideoWebRTCSender::appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster)
 {
     std::lock_guard<std::mutex> lock(m_videoSinkLock);
     std::map<std::string, std::shared_ptr<VideoSink>>::iterator it = m_videoSinkList.find(peerid);
@@ -235,7 +236,7 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
         }
         string unique_id = it->first + string("_out");
         m_fpsDisplay->displayFPS(getCurrentUnixTimestampInMs(), unique_id);
-        rtc::scoped_refptr<NvVideoFrameBuffer> nv_video_frame_buffer(new rtc::RefCountedObject<NvVideoFrameBuffer>((int)frame_params.m_width, (int)frame_params.m_height));
+        webrtc::scoped_refptr<NvVideoFrameBuffer> nv_video_frame_buffer(new webrtc::RefCountedObject<NvVideoFrameBuffer>((int)frame_params.m_width, (int)frame_params.m_height));
         NvVideoFrameBuffer* nv_video_frame_buffer_ptr = nv_video_frame_buffer.get();
 
         /* This is being freed in webRTC stack */
@@ -248,7 +249,7 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
         memset(params, 0, sizeof(encoder_params));
         nv_video_frame_buffer_ptr->m_clientBuffer = (void*)params;
         nv_video_frame_buffer_ptr->setPassThrough(true);
-        nv_video_frame_buffer_ptr->registerCB([this](void* params) { unRefDataStructure(params); });
+        nv_video_frame_buffer_ptr->registerCB([this](auto* client_buffer) { unRefDataStructure(static_cast<encoder_params*>(client_buffer)); });
         if (frame_params.m_latencyStartTime.tv_sec != std::numeric_limits<time_t>::max() && GET_CONFIG().enable_latency_logging)
         {
             nv_video_frame_buffer->rtspToWebrtcStartTime = frame_params.m_latencyStartTime;
@@ -258,10 +259,13 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
             nv_video_frame_buffer->rtspToWebrtcStartTime.tv_sec = std::numeric_limits<time_t>::max();
         }
 
+        const WebrtcFrameTimestamp frame_timestamp = m_frameTimestamper.next();
+
         webrtc::VideoFrame decodedImage  = webrtc::VideoFrame::Builder()
                                         .set_video_frame_buffer(nv_video_frame_buffer)
                                         .set_rotation(webrtc::kVideoRotation_0)
-                                        .set_timestamp_rtp(0)
+                                        .set_timestamp_us(frame_timestamp.m_timestampUs)
+                                        .set_timestamp_rtp(frame_timestamp.m_rtpTimestamp)
                                         .build();
         
         // Validate broadcaster and state before calling OnFrame to prevent crashes
@@ -328,7 +332,7 @@ void VideoWebRTCSender::dump_input_stream(const unsigned char *buffer, ssize_t s
     }
     else if (m_dumpFile.is_open())
     {
-        m_dumpFile.write((char*)buffer, size);
+        m_dumpFile.write(reinterpret_cast<const char*>(buffer), size);
         LOG(info) << "contant data: " << size << "frame count : " << m_frameCount << endl;
         m_frameCount ++;
     }
@@ -369,5 +373,3 @@ string VideoWebRTCSender::getPlaybackState(const std::string& peerid)
     }
     return state;
 }
-
-

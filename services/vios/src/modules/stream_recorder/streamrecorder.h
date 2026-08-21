@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,8 +30,6 @@
 #include "vstmodule.h"
 #include "Scheduler.h"
 #include "libasync++/async++.h"
-
-inline constexpr const char* STREAM_RECORDER_VERSION = "0.0.1";
 
 #define CHECK_RECORDER_INSTANCE(recorder)                             \
     do                                                                \
@@ -152,7 +150,7 @@ inline constexpr const char* KILL_ERROR_WATCH_THREAD = "KILL_ERROR_WATCH_THREAD"
             RecordScheduleStatus m_isRunning;
             std::unique_ptr<Bosma::Scheduler> m_scheduler;
 
-            schedule_(std::unique_ptr<Bosma::Scheduler> bosma_scheduler_ptr)
+            explicit schedule_(std::unique_ptr<Bosma::Scheduler> bosma_scheduler_ptr)
             {
                 m_scheduler = std::move(bosma_scheduler_ptr);
                 m_isRunning = RecordScheduleOFF;

@@ -7,7 +7,7 @@
 # Internal compliance systems and credentials are used only in that pipeline.
 name: OSRB Review
 
-on:
+"on":
   workflow_run:
     workflows: ["License Diff"]
     types: [completed]
@@ -108,9 +108,7 @@ jobs:
           # there, so this dispatcher must never send a code-ref override.
           DOWNSTREAM_REF: osrb-review-trigger
           DOWNSTREAM_SUBMODULE_HASH_VARIABLE: GITHUB_MIRROR_SHA
-          # GITHUB_SHA is runner-owned and cannot be overridden. Pass the
-          # completed License Diff head explicitly to the shared trigger.
-          DOWNSTREAM_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
           GITHUB_REF_NAME: ${{ github.event.workflow_run.head_branch }}
           GITHUB_TOKEN: ${{ github.token }}
           DOWNSTREAM_EXTRA_VARIABLES_JSON: >-
@@ -121,7 +119,7 @@ jobs:
             "GITHUB_LICENSE_RUN_URL":"${{ github.event.workflow_run.html_url }}",
             "GITHUB_OSRB_RUN_URL":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
         run: |
-          python3 .github/scripts/trigger-downstream-pipeline.sh
+          python3 .github/scripts/trigger_downstream_pipeline.py
 
       - name: Poll private OSRB pipeline
         if: steps.pr.outputs.skip != 'true' && steps.trigger.outcome == 'success'

@@ -43,14 +43,16 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- if .Values.persistence.storageClass }}
-  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- $global := .Values.global | default dict }}
+  {{- $sc := .Values.persistence.storageClass | default (index $global "storageClass") }}
+  {{- with $sc }}
+  storageClassName: {{ . | quote }}
   {{- end }}
   resources:
     requests:
       storage: {{ include "vss-rtvi-cv.effectiveSearchModelsStorage" . }}
 {{- end }}
-{{- if and .Values.enabled (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d")) }}
+{{- if and .Values.enabled (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d") (eq .Values.profileMode "standalone-mv3dt")) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -62,8 +64,10 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- if .Values.persistence.storageClass }}
-  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- $global := .Values.global | default dict }}
+  {{- $sc := .Values.persistence.storageClass | default (index $global "storageClass") }}
+  {{- with $sc }}
+  storageClassName: {{ . | quote }}
   {{- end }}
   resources:
     requests:

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,7 +33,7 @@ import {
     CircularProgress,
     Tooltip,
 } from '@mui/material';
-import { Settings, Close, FullscreenExit } from '@mui/icons-material';
+import { Settings, Close } from '@mui/icons-material';
 import { VideoPlayerProps, WebRTCStats, Timeline } from '../../interfaces/interfaces';
 import StreamManager, {
     StreamConfig,
@@ -72,9 +72,92 @@ import BitrateSparkline from './videoPlayerUtils/BitrateSparkline';
 import Analytics from './videoPlayerUtils/analytics/Analytics';
 import { useShowEvents, useEventImages } from './videoPlayerUtils/ShowEvents';
 import useVSTUIStore from '../../services/StateManagement';
+import { toWebSocketUrl } from '../../utils/runtimeConfig';
 
 const FALLBACK_START_TIME = '1970-01-01T00:00:00.000Z';
 const DEFAULT_QUALITY = 'auto';
+// Delay before auto-hiding the overlay controls while in fullscreen (YouTube/VLC style).
+const CONTROLS_HIDE_DELAY_MS = 3000;
+
+interface SensorTimelineEntry {
+    sensorId?: string;
+    timelines?: Timeline[];
+}
+
+type TimelineResponseData = SensorTimelineEntry[] | Record<string, unknown>;
+
+// MMS returns the timelines endpoint; VST returns storage/size with the requested time range as query params.
+const buildTimelineEndpoint = (isMms: boolean, startTime?: string, endTime?: string): string => {
+    if (isMms) {
+        return `${config.storageManagementEndpoint}/api/v1/storage/timelines`;
+    }
+
+    const queryParams = new URLSearchParams();
+    queryParams.append('timelines', 'true');
+    if (startTime) {
+        queryParams.append('startTime', startTime);
+    }
+    if (endTime) {
+        queryParams.append('endTime', endTime);
+    }
+
+    return `${config.storageManagementEndpoint}/api/v1/storage/size?${queryParams.toString()}`;
+};
+
+// MMS response shape: { streamId: [{ startTime, endTime }] }
+const extractMmsTimelines = (data: TimelineResponseData, sensorId: string): Timeline[] => {
+    const entry = (data as Record<string, unknown>)[sensorId];
+    return Array.isArray(entry) ? (entry as Timeline[]) : [];
+};
+
+// VST responses come in three shapes: an array of sensors, an object keyed by sensorId, or a timelines map.
+const extractVstTimelines = (data: TimelineResponseData, sensorId: string): Timeline[] => {
+    if (Array.isArray(data)) {
+        const sensorData = data.find((item: SensorTimelineEntry) => item.sensorId === sensorId);
+        return sensorData?.timelines ?? [];
+    }
+
+    const sensorEntry = data[sensorId] as SensorTimelineEntry | undefined;
+    if (sensorEntry?.timelines) {
+        return sensorEntry.timelines;
+    }
+
+    const timelinesById = data.timelines as Record<string, Timeline[]> | undefined;
+    return timelinesById?.[sensorId] ?? [];
+};
+
+const fetchSensorTimelines = async (
+    sensorId: string,
+    streamId: string,
+    isMms: boolean,
+    startTime?: string,
+    endTime?: string
+): Promise<Timeline[] | null> => {
+    const response = await nvAxios.get(buildTimelineEndpoint(isMms, startTime, endTime), {
+        headers: { streamId },
+    });
+    if (!response.data) {
+        return null;
+    }
+
+    return isMms ? extractMmsTimelines(response.data, sensorId) : extractVstTimelines(response.data, sensorId);
+};
+
+const formatTimelineRange = (startTime?: string, endTime?: string): string =>
+    startTime && endTime ? `${startTime} to ${endTime}` : 'full range';
+
+const getNextPlaybackSpeed = (type: string, currentSpeed: number): number => {
+    if (type === 'fastForward') {
+        if (currentSpeed >= 1) {
+            return currentSpeed * 2;
+        }
+        return currentSpeed === -1 ? 1 : currentSpeed / 2;
+    }
+    if (currentSpeed <= -1) {
+        return currentSpeed * 2;
+    }
+    return currentSpeed === 1 ? -1 : currentSpeed / 2;
+};
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElementId, onWebRTCStatsUpdate, sensors, onClose }) => {
     // WebRTC and stream management
@@ -92,8 +175,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     const [delayBySeconds, setDelayBySeconds] = useState('10');
 
     // UI state
-    const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
     const [isActuallyFullScreen, setIsActuallyFullScreen] = useState<boolean>(false);
+    // Visibility of the auto-hiding overlay controls; only auto-hides while in fullscreen.
+    const [controlsVisible, setControlsVisible] = useState<boolean>(true);
+    // Tracks the quality menu so the fullscreen controls (and cursor) stay visible while it is open.
+    const [isQualityMenuOpen, setIsQualityMenuOpen] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState(true);
     const [connectionPhase, setConnectionPhase] = useState<'initial' | 'connecting' | 'waiting'>('initial');
     const [isLoadingTimelines, setIsLoadingTimelines] = useState<boolean>(false);
@@ -146,10 +232,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     const runOnceRef = useRef<boolean>(true);
     const startTimeMs = useRef<number | null>(null);
     const endTimeMs = useRef<number | null>(null);
-    const inboundPeerIDRef = useRef<string | undefined>();
-    const inboundMediaSessionIDRef = useRef<string | undefined>();
-    const inboundConnectionQualityWatchdogRef = useRef<NodeJS.Timeout>();
+    const inboundPeerIDRef = useRef<string | undefined>(undefined);
+    const inboundMediaSessionIDRef = useRef<string | undefined>(undefined);
+    const inboundConnectionQualityWatchdogRef = useRef<NodeJS.Timeout>(undefined);
     const overlayRef = useRef<HTMLCanvasElement | null>(null);
+    const controlsHideTimerRef = useRef<NodeJS.Timeout | null>(null);
+    // Guards against overlapping fullscreen requests/exits when the button is spammed.
+    const fullscreenTransitionRef = useRef<boolean>(false);
 
     const emdxEndpointRef = useRef<string>('');
 
@@ -206,12 +295,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // Helper function to get the earliest start time from timelines
     const getEarliestStartTime = (): string => {
         if (!timelinesRef.current || timelinesRef.current.length === 0) {
-            console.warn('No timelines found, using fallback start time:', FALLBACK_START_TIME);
+            LOG.warn('No timelines found, using fallback start time:', FALLBACK_START_TIME);
             return FALLBACK_START_TIME;
         }
 
         return timelinesRef.current.reduce((earliest, timeline) => {
-            console.log('Comparing timeline start time:', timeline.startTime, 'with earliest:', earliest);
+            LOG.verbose('Comparing timeline start time:', timeline.startTime, 'with earliest:', earliest);
             return new Date(timeline.startTime) < new Date(earliest) ? timeline.startTime : earliest;
         }, timelinesRef.current[0].startTime);
     };
@@ -219,7 +308,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // Callback for successful WebRTC connection establishment
     const onSuccessCallback = useCallback(
         (inboundPeerID: string, inboundMediaSessionID: string) => {
-            console.log('onSuccessCallback called with:', inboundPeerID);
+            LOG.info('onSuccessCallback called with:', inboundPeerID);
             setConnectionPhase('waiting');
 
             if (inboundPeerID) {
@@ -236,7 +325,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     // For StreamBridge type, set playback status to PLAYING on success since for video wall
                     // VST doesn't send stream status updates.
                     if (streamType === StreamType.VideoWall) {
-                        console.log('Video wall stream, setting playback status to PLAYING');
+                        LOG.info('Video wall stream, setting playback status to PLAYING');
                         setPlaybackStatus(StreamState.PLAYING);
                         setIsLoading(false);
                     }
@@ -250,7 +339,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
 
     // Callback for handling WebRTC connection errors
     const onErrorCallback = useCallback((error: ErrorType) => {
-        console.error('on Error: ', error);
+        LOG.error('on Error: ', error);
         clearInterval(inboundConnectionQualityWatchdogRef.current);
         if (streamManagerRef.current) {
             streamManagerRef.current.stopStreaming();
@@ -274,7 +363,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 return;
             }
             Promise.resolve().then(() => {
-                console.log('Stream status update received:', status.state);
+                LOG.info('Stream status update received:', status.state);
                 setPlaybackStatus(status.state);
                 setIsLoading(status.state === StreamState.NOT_PLAYING);
                 setHasError(false);
@@ -284,13 +373,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
 
     // Callback for handling WebRTC issues
     const onWebRTCIssueDetected = useCallback((issue: WebRTCIssue) => {
-        console.log('WebRTC Issue detected:', issue);
-        LOG.info('WebRTC Issue:', issue);
+        LOG.info('WebRTC Issue detected:', issue);
     }, []);
 
     // Callback for handling WebRTC network scores
     const onWebRTCNetworkScoresUpdated = useCallback((scores: WebRTCNetworkScores) => {
-        console.log('WebRTC Network Scores:', scores);
         LOG.info('WebRTC Network Scores:', scores);
     }, []);
 
@@ -309,23 +396,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         streamManagerRef.current = new StreamManager();
 
         const onFirstFrameReceived = () => {
+            // NOTE: test contract — BDD/sanity scrapes the browser console for this exact string.
+            // Keep it a raw, unprefixed console.log; do NOT route via LOG.
+            // eslint-disable-next-line no-console
             console.log('on First FrameReceived');
             setIsLoading(false);
             setConnectionPhase('initial');
         };
 
-        let wsEndpoint = config.liveStreamEndpoint.startsWith('https')
-            ? config.liveStreamEndpoint.replace('https', 'wss')
-            : config.liveStreamEndpoint.replace('http', 'ws');
-
-        let proxy = window.location.pathname;
-        if (proxy !== '/' && proxy.length > 0) {
-            if (proxy[proxy.length - 1] === '/') {
-                proxy = proxy.slice(0, -1);
-            }
-            // Add the proxy path to the endpoint with proper / separator
-            wsEndpoint = `${wsEndpoint}${wsEndpoint.endsWith('/') ? '' : '/'}${proxy}`;
-        }
+        const wsEndpoint = toWebSocketUrl(config.liveStreamEndpoint);
 
         const webStreamerConfig: AppConfig = {
             inboundStreamVideoElementId: videoElementId,
@@ -345,7 +424,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             onWebRTCNetworkScoresUpdated: onWebRTCNetworkScoresUpdated,
         };
 
-        console.log('webStreamerConfig: ', webStreamerConfig);
+        LOG.info('webStreamerConfig: ', webStreamerConfig);
 
         streamManagerRef.current.updateConfig(webStreamerConfig);
 
@@ -428,90 +507,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // Effect for fetching timelines for replay mode
     useEffect(() => {
         const fetchTimelines = async () => {
-            if (streamType === StreamType.Replay && sensor?.sensorId) {
-                try {
-                    const vstAdaptorType = useVSTUIStore.getState().vstAdaptorType;
-                    let timelineEndpoint: string;
+            if (streamType !== StreamType.Replay || !sensor?.sensorId) {
+                return;
+            }
 
-                    // Set loading state for MMS
-                    if (vstAdaptorType === 'mms') {
-                        setIsLoadingTimelines(true);
-                    }
+            const isMms = useVSTUIStore.getState().vstAdaptorType === 'mms';
+            if (isMms) {
+                setIsLoadingTimelines(true);
+            }
 
-                    // Build query parameters for time range if available
-                    if (vstAdaptorType === 'mms') {
-                        // For MMS, use the timelines endpoint
-                        timelineEndpoint = `${config.storageManagementEndpoint}/api/v1/storage/timelines`;
-                    } else {
-                        // For VST, use the storage/size endpoint with query params
-                        const queryParams = new URLSearchParams();
-                        queryParams.append('timelines', 'true');
-
-                        // Add time range parameters if calendar range is set
-                        if (calenderStartTime) {
-                            queryParams.append('startTime', calenderStartTime);
-                        }
-                        if (calenderEndTime) {
-                            queryParams.append('endTime', calenderEndTime);
-                        }
-
-                        timelineEndpoint = `${config.storageManagementEndpoint}/api/v1/storage/size?${queryParams.toString()}`;
-                    }
-
-                    const response = await nvAxios.get(timelineEndpoint, {
-                        headers: { streamId: sensor.streamId || sensor.sensorId },
+            try {
+                const sensorTimelines = await fetchSensorTimelines(
+                    sensor.sensorId,
+                    sensor.streamId || sensor.sensorId,
+                    isMms,
+                    calenderStartTime,
+                    calenderEndTime
+                );
+                if (sensorTimelines) {
+                    setTimelines(sensorTimelines);
+                    timelinesRef.current = sensorTimelines;
+                    setDisabledIntervals(getTimelineGaps(sensorTimelines));
+                    LOG.info(`Fetched ${sensorTimelines.length} timeline segments for sensor ${sensor.sensorId}`, {
+                        timeRange: formatTimelineRange(calenderStartTime, calenderEndTime),
                     });
-                    if (response.data) {
-                        // Iterate through the response to find timelines for the specific sensorId
-                        let sensorTimelines: Timeline[] = [];
-
-                        if (vstAdaptorType === 'mms') {
-                            // For MMS, response is { streamId: [{ startTime, endTime }] }
-                            if (Array.isArray(response.data[sensor.sensorId])) {
-                                sensorTimelines = response.data[sensor.sensorId];
-                            }
-                        } else {
-                            // For VST, handle the existing response formats
-                            if (Array.isArray(response.data)) {
-                                // If response is an array of sensors
-                                const sensorData = response.data.find(
-                                    (item: { sensorId: string; timelines?: Timeline[] }) => item.sensorId === sensor.sensorId
-                                );
-                                if (sensorData && sensorData.timelines) {
-                                    sensorTimelines = sensorData.timelines;
-                                }
-                            } else if (response.data[sensor.sensorId] && response.data[sensor.sensorId].timelines) {
-                                // If response is an object with sensorId as keys
-                                sensorTimelines = response.data[sensor.sensorId].timelines;
-                            } else if (response.data.timelines && response.data.timelines[sensor.sensorId]) {
-                                // If response has a timelines object with sensorId as keys
-                                sensorTimelines = response.data.timelines[sensor.sensorId];
-                            }
-                        }
-
-                        setTimelines(sensorTimelines);
-                        timelinesRef.current = sensorTimelines;
-                        setDisabledIntervals(getTimelineGaps(sensorTimelines));
-                        LOG.info(`Fetched ${sensorTimelines.length} timeline segments for sensor ${sensor.sensorId}`, {
-                            timeRange: calenderStartTime && calenderEndTime ? `${calenderStartTime} to ${calenderEndTime}` : 'full range',
-                        });
-
-                        // Clear loading state for MMS
-                        if (vstAdaptorType === 'mms') {
-                            setIsLoadingTimelines(false);
-                        }
-                    }
-                } catch (error) {
-                    LOG.error(`Failed to get sensor timelines for ${sensor?.name}`, error);
-                    enqueueSnackbar(`Failed to get sensor timelines for ${sensor?.name}`, {
-                        variant: 'error',
-                    });
-
-                    // Clear loading state even on error for MMS
-                    const vstAdaptorTypeCatch = useVSTUIStore.getState().vstAdaptorType;
-                    if (vstAdaptorTypeCatch === 'mms') {
-                        setIsLoadingTimelines(false);
-                    }
+                }
+            } catch (error) {
+                LOG.error(`Failed to get sensor timelines for ${sensor?.name}`, error);
+                enqueueSnackbar(`Failed to get sensor timelines for ${sensor?.name}`, {
+                    variant: 'error',
+                });
+            } finally {
+                if (isMms) {
+                    setIsLoadingTimelines(false);
                 }
             }
         };
@@ -525,14 +553,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         if (fullRange) {
             const newVisibleRange = calculateVisibleTimeRange(fullRange.start, fullRange.end, zoomLevel, zoomCenter);
             setVisibleTimeRange(newVisibleRange);
-            console.log(`Zoom updated: ${zoomLevel.toFixed(1)}x, visible range: ${newVisibleRange.start} to ${newVisibleRange.end}`);
+            LOG.info(`Zoom updated: ${zoomLevel.toFixed(1)}x, visible range: ${newVisibleRange.start} to ${newVisibleRange.end}`);
         }
     }, [zoomLevel, zoomCenter, calenderStartTime, calenderEndTime, timelines]);
 
     // Effect for logging inboundPeerId changes
     useEffect(() => {
-        console.log('inboundPeerId state changed:', inboundPeerId);
-        console.log('inboundPeerIDRef.current:', inboundPeerIDRef.current);
+        LOG.info('inboundPeerId state changed:', inboundPeerId);
+        LOG.info('inboundPeerIDRef.current:', inboundPeerIDRef.current);
     }, [inboundPeerId]);
 
     // Effect to listen for actual fullscreen changes
@@ -549,7 +577,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 doc.mozFullScreenElement === videoWrapperRef.current ||
                 doc.msFullscreenElement === videoWrapperRef.current;
             setIsActuallyFullScreen(isFullscreen);
-            setIsFullScreen(isFullscreen); // Keep both in sync
+            // A transition has resolved; allow the next toggle.
+            fullscreenTransitionRef.current = false;
         };
 
         // Add event listeners for different browser fullscreen APIs
@@ -583,6 +612,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 clearTimeout(timeoutId);
             });
             eventClickTimeouts.current = {};
+
+            // Clear the controls auto-hide timer.
+            if (controlsHideTimerRef.current) {
+                clearTimeout(controlsHideTimerRef.current);
+                controlsHideTimerRef.current = null;
+            }
         };
 
         return cleanup;
@@ -605,6 +640,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
     };
 
+    // For video wall, use HTML video element's play/pause
+    const handleVideoWallPlayPause = async () => {
+        if (!videoRef.current) {
+            return;
+        }
+        if (videoRef.current.paused) {
+            await videoRef.current.play();
+            setPlaybackStatus(StreamState.PLAYING);
+            logInfo('Video wall stream, playing');
+        } else {
+            videoRef.current.pause();
+            setPlaybackStatus(StreamState.PAUSED);
+            logInfo('Video wall stream, pausing');
+        }
+    };
+
     const handlePlayPause = async () => {
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current) {
             LOG.error('Stream not ready, cant play-pause');
@@ -612,23 +663,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
 
         if (streamType === StreamType.VideoWall) {
-            // For video wall, use HTML video element's play/pause
-            if (videoRef.current) {
-                if (videoRef.current.paused) {
-                    await videoRef.current.play();
-                    setPlaybackStatus(StreamState.PLAYING);
-                    logInfo('Video wall stream, playing');
-                } else {
-                    videoRef.current.pause();
-                    setPlaybackStatus(StreamState.PAUSED);
-                    logInfo('Video wall stream, pausing');
-                }
-            }
+            await handleVideoWallPlayPause();
             return;
         }
 
         // Original logic for non-video wall streams
-        console.log('handlePlayPause - Current playback status:', playbackStatus);
+        LOG.info('handlePlayPause - Current playback status:', playbackStatus);
 
         if (playbackStatus === StreamState.PLAYING) {
             if (!sensor?.streamId) return;
@@ -659,39 +699,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     };
 
     const handleFastForwardAndRewind = async (type: string) => {
-        if (playbackStatus !== StreamState.NOT_PLAYING) {
-            let newSpeed = 1;
-            if (type === 'fastForward') {
-                newSpeed = playbackSpeed >= 1 ? playbackSpeed * 2 : playbackSpeed === -1 ? 1 : playbackSpeed / 2;
-            } else {
-                newSpeed = playbackSpeed <= -1 ? playbackSpeed * 2 : playbackSpeed === 1 ? -1 : playbackSpeed / 2;
-            }
+        if (playbackStatus === StreamState.NOT_PLAYING) {
+            return;
+        }
+        const newSpeed = getNextPlaybackSpeed(type, playbackSpeed);
 
-            if (newSpeed > 8) {
-                LOG.error('Already at 8x, cant ff');
-                return;
-            }
-            if (newSpeed < -8) {
-                LOG.error('Already at -8x, cant rewind');
-                return;
-            }
-            if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current || !sensor?.streamId) {
-                LOG.error('Stream not ready, cant ff');
-                return;
-            }
+        if (newSpeed > 8) {
+            LOG.error('Already at 8x, cant ff');
+            return;
+        }
+        if (newSpeed < -8) {
+            LOG.error('Already at -8x, cant rewind');
+            return;
+        }
+        if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current || !sensor?.streamId) {
+            LOG.error('Stream not ready, cant ff');
+            return;
+        }
 
-            const isSuccess = await rewindOrFastforward(
-                inboundPeerIDRef.current,
-                inboundMediaSessionIDRef.current,
-                newSpeed,
-                sensor.streamId,
-                enqueueSnackbar
-            );
-            if (isSuccess) {
-                setPlaybackSpeed(newSpeed);
-            } else {
-                LOG.error('FF or rewind failed');
-            }
+        const isSuccess = await rewindOrFastforward(
+            inboundPeerIDRef.current,
+            inboundMediaSessionIDRef.current,
+            newSpeed,
+            sensor.streamId,
+            enqueueSnackbar
+        );
+        if (isSuccess) {
+            setPlaybackSpeed(newSpeed);
+        } else {
+            LOG.error('FF or rewind failed');
         }
     };
 
@@ -731,18 +767,94 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
     };
 
+    // Robust fullscreen toggle. Decisions are based on the live document.fullscreenElement
+    // (vendor-prefixed) rather than React state, so it cannot desync. Overlapping requests
+    // (rapid spam clicks) are ignored via a transition lock, and the returned promises are
+    // always caught so a rejected request/exit never produces an unhandled rejection.
     const handleFullScreen = () => {
-        if (!isFullScreen) {
-            videoWrapperRef.current?.requestFullscreen();
-        } else {
-            document.exitFullscreen();
+        if (fullscreenTransitionRef.current) {
+            return; // a request/exit is already in flight; ignore the spam click
         }
-        setIsFullScreen(!isFullScreen);
+
+        const doc = document as Document & {
+            webkitFullscreenElement?: Element;
+            mozFullScreenElement?: Element;
+            msFullscreenElement?: Element;
+            webkitExitFullscreen?: () => Promise<void> | void;
+            msExitFullscreen?: () => Promise<void> | void;
+        };
+        const fsElement =
+            document.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement || null;
+        const wrapper = videoWrapperRef.current as
+            | (HTMLDivElement & {
+                  webkitRequestFullscreen?: () => Promise<void> | void;
+                  msRequestFullscreen?: () => Promise<void> | void;
+              })
+            | null;
+        const inFullscreen = !!fsElement && fsElement === wrapper;
+
+        fullscreenTransitionRef.current = true;
+        const release = () => {
+            fullscreenTransitionRef.current = false;
+        };
+
+        try {
+            if (!inFullscreen) {
+                if (!wrapper) {
+                    release();
+                    return;
+                }
+                const req = wrapper.requestFullscreen?.() ?? wrapper.webkitRequestFullscreen?.() ?? wrapper.msRequestFullscreen?.();
+                Promise.resolve(req).then(release, release);
+            } else {
+                const exit = document.exitFullscreen?.() ?? doc.webkitExitFullscreen?.() ?? doc.msExitFullscreen?.();
+                Promise.resolve(exit).then(release, release);
+            }
+        } catch {
+            release();
+        }
+        // Safety net: clear the lock even if neither the promise nor a fullscreenchange event fires.
+        setTimeout(release, 1000);
     };
 
-    const handleExitFullScreen = () => {
-        document.exitFullscreen();
-    };
+    // Controls must stay visible while a dialog/menu is open in fullscreen, otherwise the
+    // auto-hide would fade out the control bar (and its menu anchor) mid-interaction.
+    const isAnyOverlayDialogOpen = openAnalyticsOverlay || isSyncDialogOpen || isRangeDialogOpen || isQualityMenuOpen;
+
+    // Reveal the overlay controls and (re)arm the auto-hide timer while in fullscreen.
+    // In windowed mode the controls live in the card footer and are always visible.
+    const showControls = useCallback(() => {
+        setControlsVisible(true);
+        if (controlsHideTimerRef.current) {
+            clearTimeout(controlsHideTimerRef.current);
+            controlsHideTimerRef.current = null;
+        }
+        if (isActuallyFullScreen && !isAnyOverlayDialogOpen) {
+            controlsHideTimerRef.current = setTimeout(() => setControlsVisible(false), CONTROLS_HIDE_DELAY_MS);
+        }
+    }, [isActuallyFullScreen, isAnyOverlayDialogOpen]);
+
+    // Keep control visibility consistent with fullscreen transitions and open dialogs.
+    useEffect(() => {
+        if (controlsHideTimerRef.current) {
+            clearTimeout(controlsHideTimerRef.current);
+            controlsHideTimerRef.current = null;
+        }
+        if (isActuallyFullScreen && !isAnyOverlayDialogOpen) {
+            // Entering fullscreen with no dialog open: show controls, then start the countdown.
+            setControlsVisible(true);
+            controlsHideTimerRef.current = setTimeout(() => setControlsVisible(false), CONTROLS_HIDE_DELAY_MS);
+        } else {
+            // Windowed layout, or a dialog is open: controls stay visible.
+            setControlsVisible(true);
+        }
+        return () => {
+            if (controlsHideTimerRef.current) {
+                clearTimeout(controlsHideTimerRef.current);
+                controlsHideTimerRef.current = null;
+            }
+        };
+    }, [isActuallyFullScreen, isAnyOverlayDialogOpen]);
 
     const createStreamConfig = (options: {
         streamId?: string;
@@ -906,7 +1018,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 });
             }
         } catch (error) {
-            console.error('Error fetching screenshot:', error);
+            LOG.error('Error fetching screenshot:', error);
             enqueueSnackbar('Failed to fetch screenshot', { variant: 'error' });
         }
     };
@@ -944,7 +1056,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         tag?: string
     ) => {
         try {
-            console.log('Tag value before saving:', tag);
+            LOG.info('Tag value before saving:', tag);
             // Save the overlay settings
             setOverlaySettings(settings.overlay);
 
@@ -976,7 +1088,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 ...(tag && { tag: tag }),
             };
 
-            console.log('Stream config tag:', streamConfig);
+            LOG.info('Stream config tag:', streamConfig);
 
             // Preserve start and end times for replay streams
             if (streamType === StreamType.Replay) {
@@ -995,7 +1107,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 variant: 'success',
             });
         } catch (error) {
-            console.error('Failed to update analytics overlay settings:', error);
+            LOG.error('Failed to update analytics overlay settings:', error);
             enqueueSnackbar('Failed to update analytics overlay settings', {
                 variant: 'error',
             });
@@ -1133,7 +1245,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
         setZoomLevel(newZoomLevel);
         showZoomFeedback(`Zoomed in to ${newZoomLevel.toFixed(1)}x`);
-        console.log(`Zoomed in to ${newZoomLevel}x`);
+        LOG.info(`Zoomed in to ${newZoomLevel}x`);
     };
 
     const handleZoomOut = () => {
@@ -1149,7 +1261,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         } else {
             showZoomFeedback(`Zoomed out to ${newZoomLevel.toFixed(1)}x`);
         }
-        console.log(`Zoomed out to ${newZoomLevel}x`);
+        LOG.info(`Zoomed out to ${newZoomLevel}x`);
     };
 
     const handleZoomReset = () => {
@@ -1160,7 +1272,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         setZoomLevel(1);
         setZoomCenter(null);
         showZoomFeedback('Reset to full view');
-        console.log('Zoom reset to full view');
+        LOG.info('Zoom reset to full view');
     };
 
     const handleZoomToTime = (timestamp: string) => {
@@ -1169,7 +1281,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         if (zoomLevel === 1) {
             setZoomLevel(2); // Auto-zoom to 2x when focusing on a specific time
         }
-        console.log(`Zoomed to timestamp: ${timestamp} at ${zoomLevel}x`);
+        LOG.info(`Zoomed to timestamp: ${timestamp} at ${zoomLevel}x`);
     };
 
     const handlePan = (direction: 'left' | 'right', amount: number = 0.25) => {
@@ -1215,7 +1327,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             showZoomFeedback(`Panned ${direction}`);
         }
 
-        console.log(`Panned ${direction} to center: ${new Date(newCenter).toISOString()}`);
+        LOG.info(`Panned ${direction} to center: ${new Date(newCenter).toISOString()}`);
     };
 
     const handleWheelZoom = (event: WheelEvent, cursorPosition?: number) => {
@@ -1250,7 +1362,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
 
         setZoomLevel(newZoomLevel);
         showZoomFeedback(`${zoomIn ? 'Zoomed in' : 'Zoomed out'} to ${newZoomLevel.toFixed(1)}x`);
-        console.log(`Wheel zoom: ${newZoomLevel.toFixed(1)}x${cursorPosition ? ` towards ${new Date(cursorPosition).toISOString()}` : ''}`);
+        LOG.info(`Wheel zoom: ${newZoomLevel.toFixed(1)}x${cursorPosition ? ` towards ${new Date(cursorPosition).toISOString()}` : ''}`);
     };
 
     // Effect for keyboard shortcuts and mouse wheel support
@@ -1331,7 +1443,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             clearTimeout(eventClickTimeouts.current[clickKey]);
             delete eventClickTimeouts.current[clickKey];
 
-            console.log('Double-click detected on event, zooming to timestamp:', eventTimestamp);
+            LOG.info('Double-click detected on event, zooming to timestamp:', eventTimestamp);
             handleZoomToTime(eventTimestamp);
             return;
         }
@@ -1341,7 +1453,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             delete eventClickTimeouts.current[clickKey];
 
             // Single-click action - seek to event
-            console.log('STARTING EVENT MARKER SEEK:', {
+            LOG.info('STARTING EVENT MARKER SEEK:', {
                 eventTimestamp,
                 streamType,
                 peerId: inboundPeerIDRef.current,
@@ -1353,7 +1465,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     // Subtract 2 seconds from the event timestamp
                     const seekTime = subSeconds(new Date(eventTimestamp), 2).toISOString();
 
-                    console.log('CALCULATED SEEK TIME:', {
+                    LOG.info('CALCULATED SEEK TIME:', {
                         originalTime: eventTimestamp,
                         seekTime: seekTime,
                         timeDifference: '2 seconds before',
@@ -1368,7 +1480,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                         value: seekTime,
                     };
 
-                    console.log('SENDING SEEK API REQUEST:', {
+                    LOG.info('SENDING SEEK API REQUEST:', {
                         endpoint,
                         payload,
                     });
@@ -1377,14 +1489,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                         ...(sensor && { headers: { streamId: sensor.streamId || sensor.sensorId } }),
                     });
 
-                    console.log('SEEK API RESPONSE:', {
+                    LOG.info('SEEK API RESPONSE:', {
                         status: response.status,
                         data: response.data,
                         success: response.status === 200,
                     });
 
                     if (response.status === 200) {
-                        console.log('EVENT MARKER SEEK SUCCESS:', {
+                        LOG.info('EVENT MARKER SEEK SUCCESS:', {
                             seekTime,
                             formattedTime: format(new Date(seekTime), 'HH:mm:ss'),
                         });
@@ -1394,7 +1506,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                             autoHideDuration: 3000,
                         });
                     } else {
-                        console.error('EVENT MARKER SEEK FAILED:', {
+                        LOG.error('EVENT MARKER SEEK FAILED:', {
                             status: response.status,
                             seekTime,
                         });
@@ -1402,7 +1514,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                         enqueueSnackbar('Failed to seek to event time', { variant: 'error' });
                     }
                 } catch (error) {
-                    console.error('EVENT MARKER SEEK ERROR:', {
+                    LOG.error('EVENT MARKER SEEK ERROR:', {
                         eventTimestamp,
                         error: error,
                         message: error instanceof Error ? error.message : 'Unknown error',
@@ -1411,7 +1523,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     enqueueSnackbar('Error seeking to event time', { variant: 'error' });
                 }
             } else {
-                console.warn('EVENT MARKER SEEK SKIPPED:', {
+                LOG.warn('EVENT MARKER SEEK SKIPPED:', {
                     reason: 'Invalid stream type or missing connection data',
                     streamType,
                     hasInboundPeerId: !!inboundPeerIDRef.current,
@@ -1421,8 +1533,296 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }, 300); // 300ms delay to detect double-click
     };
 
+    // Portal target for menus/dialogs. In fullscreen, MUI portals default to document.body which
+    // sits outside the fullscreen element and is therefore not rendered; anchoring them to the
+    // fullscreen wrapper keeps them visible.
+    const fullscreenContainer = isActuallyFullScreen ? videoWrapperRef.current : undefined;
+
+    // Shared control cluster (transport controls + analytics/quality settings). Rendered in the
+    // card footer while windowed and inside the fullscreen overlay while fullscreen, so exactly
+    // one instance exists at a time (avoids duplicate element IDs used by automated tests).
+    const controlsCluster = (
+        <>
+            <VideoControls
+                playbackStatus={playbackStatus}
+                playbackSpeed={playbackSpeed}
+                volume={volume}
+                isMuted={isMuted}
+                streamType={streamType}
+                isAudioTrackPresent={isAudioTrackPresent}
+                onPlayPause={handlePlayPause}
+                onFastForward={() => handleFastForwardAndRewind('fastForward')}
+                onRewind={() => handleFastForwardAndRewind('rewind')}
+                onSeekForward={handleSeekForward}
+                onSeekBackward={handleSeekBackward}
+                onVolumeChange={handleVolumeChange}
+                onToggleMute={handleMute}
+                onScreenshot={handleScreenshot}
+                onFullscreen={handleFullScreen}
+                onCalendarClick={() => setIsRangeDialogOpen(true)}
+                onSyncClick={() => setIsSyncDialogOpen(true)}
+                onReplay={handleReplay}
+                isFullscreen={isActuallyFullScreen}
+            />
+
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Tooltip title='Analytics Overlay Settings' placement='top'>
+                    <IconButton onClick={handleAnalyticsOverlayToggle}>
+                        <Settings />
+                    </IconButton>
+                </Tooltip>
+                <QualityMenu
+                    onSettingChange={handleQualitySettingChange}
+                    currentSetting={quality}
+                    show={streamType !== StreamType.VideoWall}
+                    container={fullscreenContainer}
+                    onOpenChange={setIsQualityMenuOpen}
+                />
+            </Box>
+        </>
+    );
+
+    // Replay timeline (zoom/pan controls + seek slider). Like controlsCluster it is rendered in the
+    // card body while windowed and inside the fullscreen overlay while fullscreen (single instance).
+    const showTimeline = streamType === StreamType.Replay && timelines.length > 0 && !isLoadingTimelines;
+    // Guard the whole element behind showTimeline: it dereferences timelines[0], which is empty
+    // for live streams, so it must not be constructed unless there are timelines.
+    const timelineBlock = showTimeline ? (
+        <Box className='timeline-container' sx={{ mt: 2 }}>
+            {/* Zoom Controls */}
+            <Box
+                sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: 1,
+                    px: 1,
+                }}
+            >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {/* Pan Controls - only show when zoomed */}
+                    {zoomLevel > 1 && (
+                        <Tooltip title='Pan Left (A)' placement='top'>
+                            <IconButton
+                                size='small'
+                                onClick={() => handlePan('left')}
+                                sx={{
+                                    fontSize: '0.7rem',
+                                    minWidth: '24px',
+                                    height: '24px',
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    color: 'primary.main',
+                                }}
+                            >
+                                ◀
+                            </IconButton>
+                        </Tooltip>
+                    )}
+
+                    {/* Zoom Controls */}
+                    <Tooltip title='Zoom In (+)' placement='top'>
+                        <IconButton
+                            size='small'
+                            onClick={handleZoomIn}
+                            disabled={zoomLevel >= 16}
+                            sx={{
+                                fontSize: '0.8rem',
+                                minWidth: '28px',
+                                height: '28px',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                            }}
+                        >
+                            +
+                        </IconButton>
+                    </Tooltip>
+                    <Typography
+                        variant='body2'
+                        sx={{
+                            minWidth: '40px',
+                            textAlign: 'center',
+                            fontSize: '0.75rem',
+                            color: 'text.secondary',
+                        }}
+                    >
+                        {zoomLevel.toFixed(1)}x
+                    </Typography>
+                    <Tooltip title='Zoom Out (-)' placement='top'>
+                        <IconButton
+                            size='small'
+                            onClick={handleZoomOut}
+                            disabled={zoomLevel <= 1}
+                            sx={{
+                                fontSize: '0.8rem',
+                                minWidth: '28px',
+                                height: '28px',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                            }}
+                        >
+                            −
+                        </IconButton>
+                    </Tooltip>
+
+                    {/* Pan Controls - only show when zoomed */}
+                    {zoomLevel > 1 && (
+                        <Tooltip title='Pan Right (D)' placement='top'>
+                            <IconButton
+                                size='small'
+                                onClick={() => handlePan('right')}
+                                sx={{
+                                    fontSize: '0.7rem',
+                                    minWidth: '24px',
+                                    height: '24px',
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    color: 'primary.main',
+                                }}
+                            >
+                                ▶
+                            </IconButton>
+                        </Tooltip>
+                    )}
+
+                    <Tooltip title='Reset Zoom (R)' placement='top'>
+                        <Button
+                            size='small'
+                            onClick={handleZoomReset}
+                            disabled={zoomLevel === 1}
+                            sx={{
+                                fontSize: '0.65rem',
+                                minWidth: '40px',
+                                height: '28px',
+                                px: 1,
+                            }}
+                        >
+                            Reset
+                        </Button>
+                    </Tooltip>
+
+                    {/* Help Button */}
+                    <Tooltip
+                        title={
+                            <Box sx={{ p: 0.5 }}>
+                                <Typography variant='caption' sx={{ fontWeight: 'bold', display: 'block' }}>
+                                    Zoom & Pan Controls:
+                                </Typography>
+                                <Typography variant='caption' sx={{ display: 'block', mt: 0.5 }}>
+                                    • Mouse wheel: Zoom in/out
+                                </Typography>
+                                <Typography variant='caption' sx={{ display: 'block' }}>
+                                    • + / - : Zoom in/out
+                                </Typography>
+                                <Typography variant='caption' sx={{ display: 'block' }}>
+                                    • A / ← : Pan left
+                                </Typography>
+                                <Typography variant='caption' sx={{ display: 'block' }}>
+                                    • D / → : Pan right
+                                </Typography>
+                                <Typography variant='caption' sx={{ display: 'block' }}>
+                                    • R : Reset to full view
+                                </Typography>
+                                <Typography variant='caption' sx={{ display: 'block', mt: 0.5 }}>
+                                    • Double-click event: Zoom to event
+                                </Typography>
+                            </Box>
+                        }
+                        placement='left'
+                    >
+                        <IconButton
+                            size='small'
+                            sx={{
+                                fontSize: '0.7rem',
+                                minWidth: '24px',
+                                height: '24px',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                color: 'text.secondary',
+                            }}
+                        >
+                            ?
+                        </IconButton>
+                    </Tooltip>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {/* Zoom Feedback */}
+                    {zoomFeedback && (
+                        <Box
+                            sx={{
+                                backgroundColor: 'primary.main',
+                                color: 'primary.contrastText',
+                                px: 1.5,
+                                py: 0.5,
+                                borderRadius: 1,
+                                fontSize: '0.7rem',
+                                fontWeight: 'medium',
+                                animation: 'fadeInOut 1.5s ease-in-out',
+                                '@keyframes fadeInOut': {
+                                    '0%': { opacity: 0, transform: 'scale(0.8)' },
+                                    '20%': { opacity: 1, transform: 'scale(1)' },
+                                    '80%': { opacity: 1, transform: 'scale(1)' },
+                                    '100%': { opacity: 0, transform: 'scale(0.8)' },
+                                },
+                            }}
+                        >
+                            {zoomFeedback}
+                        </Box>
+                    )}
+
+                    {/* Time Range Display */}
+                    {visibleTimeRange && (
+                        <Typography
+                            variant='caption'
+                            sx={{
+                                color: 'text.secondary',
+                                fontSize: '0.65rem',
+                            }}
+                        >
+                            {format(new Date(visibleTimeRange.start), 'HH:mm:ss')} - {format(new Date(visibleTimeRange.end), 'HH:mm:ss')}
+                        </Typography>
+                    )}
+                </Box>
+            </Box>
+
+            <TimeRangeSlider
+                min={visibleTimeRange?.start || calenderStartTime || timelines[0].startTime}
+                max={visibleTimeRange?.end || calenderEndTime || timelines[timelines.length - 1].endTime}
+                onSingleTimeSelect={handleTimeRangeSelect}
+                singleSelectMode={true}
+                disabledRange={disabledIntervals}
+                actualRecordingBounds={{
+                    start: timelines[0].startTime,
+                    end: timelines[timelines.length - 1].endTime,
+                }}
+                eventMarkers={
+                    visibleTimeRange ? filterEventsInVisibleRange(eventMarkers, visibleTimeRange.start, visibleTimeRange.end) : eventMarkers
+                }
+                onEventMarkerClick={handleEventMarkerClick}
+                onFetchEventImage={fetchEventImage}
+                getEventImage={getEventImage}
+                loadingImages={loadingImages}
+                sensorId={sensor?.sensorId}
+                onChange={() => {}}
+                container={fullscreenContainer}
+            />
+        </Box>
+    ) : null;
+
     return (
-        <Card>
+        <Card
+            sx={{
+                // Subtle entrance: gentle fade + rise when the player mounts.
+                animation: 'vstPlayerEnter 280ms ease-out both',
+                '@keyframes vstPlayerEnter': {
+                    from: { opacity: 0, transform: 'translateY(6px) scale(0.995)' },
+                    to: { opacity: 1, transform: 'translateY(0) scale(1)' },
+                },
+                '@media (prefers-reduced-motion: reduce)': {
+                    animation: 'none',
+                },
+            }}
+        >
             <Box
                 sx={{
                     display: 'flex',
@@ -1546,7 +1946,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     {({ canvasOverlay }) => (
                         <>
                             <Box sx={muiStyles.videoContainer}>
-                                <Box ref={videoWrapperRef} sx={muiStyles.videoWrapper}>
+                                <Box
+                                    ref={videoWrapperRef}
+                                    sx={muiStyles.videoWrapper}
+                                    onMouseMove={showControls}
+                                    onTouchStart={showControls}
+                                    onMouseLeave={() => {
+                                        // Only auto-hide on leave when nothing is open; never hide the
+                                        // cursor/controls while a dialog or menu is in use.
+                                        if (isActuallyFullScreen && !isAnyOverlayDialogOpen) {
+                                            setControlsVisible(false);
+                                        }
+                                    }}
+                                >
                                     <video
                                         ref={videoRef}
                                         id={videoElementId}
@@ -1560,31 +1972,52 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                     {/* Drawing Canvas Overlay - positioned directly over video */}
                                     {canvasOverlay}
 
-                                    {/* Exit Fullscreen Button - only show when actually in fullscreen */}
+                                    {/* Fullscreen overlay controls - mounted only while actually in
+                                        fullscreen, auto-hiding after mouse inactivity (YouTube/VLC style). */}
                                     {isActuallyFullScreen && (
                                         <Box
+                                            data-testid='fullscreen-controls-overlay'
+                                            onMouseMove={showControls}
+                                            onMouseEnter={showControls}
+                                            onTouchStart={showControls}
                                             sx={{
                                                 position: 'absolute',
-                                                bottom: 20,
-                                                right: 20,
-                                                zIndex: 1000,
+                                                bottom: 0,
+                                                left: 0,
+                                                right: 0,
+                                                // Below MUI's menu/dialog layer (1300) so the quality menu
+                                                // and dialogs render above the controls/timeline, but above
+                                                // the video, canvas, and network widget (<=1001).
+                                                zIndex: 1100,
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                width: '100%',
+                                                px: 2,
+                                                pt: 4,
+                                                pb: 1,
+                                                background: 'linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0) 100%)',
+                                                color: 'common.white',
+                                                opacity: controlsVisible ? 1 : 0,
+                                                transform: controlsVisible ? 'translateY(0)' : 'translateY(100%)',
+                                                transition: 'opacity 0.3s ease, transform 0.3s ease',
+                                                pointerEvents: controlsVisible ? 'auto' : 'none',
                                             }}
                                         >
-                                            <Tooltip title='Exit Fullscreen'>
-                                                <IconButton
-                                                    onClick={handleExitFullScreen}
+                                            {/* Replay timeline above the transport controls (single instance: see timelineBlock) */}
+                                            {showTimeline && (
+                                                <Box
                                                     sx={{
-                                                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                                                        color: 'white',
-                                                        '&:hover': {
-                                                            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                                                        },
+                                                        width: '100%',
+                                                        mb: 1,
+                                                        p: 1,
+                                                        borderRadius: 1,
+                                                        backgroundColor: 'rgba(0, 0, 0, 0.45)',
                                                     }}
-                                                    size='large'
                                                 >
-                                                    <FullscreenExit />
-                                                </IconButton>
-                                            </Tooltip>
+                                                    {timelineBlock}
+                                                </Box>
+                                            )}
+                                            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>{controlsCluster}</Box>
                                         </Box>
                                     )}
 
@@ -1647,273 +2080,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     </Box>
                 )}
 
-                {streamType === StreamType.Replay && timelines.length > 0 && !isLoadingTimelines && (
-                    <Box className='timeline-container' sx={{ mt: 2 }}>
-                        {/* Zoom Controls */}
-                        <Box
-                            sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                mb: 1,
-                                px: 1,
-                            }}
-                        >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                {/* Pan Controls - only show when zoomed */}
-                                {zoomLevel > 1 && (
-                                    <>
-                                        <Tooltip title='Pan Left (A)' placement='top'>
-                                            <IconButton
-                                                size='small'
-                                                onClick={() => handlePan('left')}
-                                                sx={{
-                                                    fontSize: '0.7rem',
-                                                    minWidth: '24px',
-                                                    height: '24px',
-                                                    border: '1px solid',
-                                                    borderColor: 'divider',
-                                                    color: 'primary.main',
-                                                }}
-                                            >
-                                                ◀
-                                            </IconButton>
-                                        </Tooltip>
-                                    </>
-                                )}
-
-                                {/* Zoom Controls */}
-                                <Tooltip title='Zoom In (+)' placement='top'>
-                                    <IconButton
-                                        size='small'
-                                        onClick={handleZoomIn}
-                                        disabled={zoomLevel >= 16}
-                                        sx={{
-                                            fontSize: '0.8rem',
-                                            minWidth: '28px',
-                                            height: '28px',
-                                            border: '1px solid',
-                                            borderColor: 'divider',
-                                        }}
-                                    >
-                                        +
-                                    </IconButton>
-                                </Tooltip>
-                                <Typography
-                                    variant='body2'
-                                    sx={{
-                                        minWidth: '40px',
-                                        textAlign: 'center',
-                                        fontSize: '0.75rem',
-                                        color: 'text.secondary',
-                                    }}
-                                >
-                                    {zoomLevel.toFixed(1)}x
-                                </Typography>
-                                <Tooltip title='Zoom Out (-)' placement='top'>
-                                    <IconButton
-                                        size='small'
-                                        onClick={handleZoomOut}
-                                        disabled={zoomLevel <= 1}
-                                        sx={{
-                                            fontSize: '0.8rem',
-                                            minWidth: '28px',
-                                            height: '28px',
-                                            border: '1px solid',
-                                            borderColor: 'divider',
-                                        }}
-                                    >
-                                        −
-                                    </IconButton>
-                                </Tooltip>
-
-                                {/* Pan Controls - only show when zoomed */}
-                                {zoomLevel > 1 && (
-                                    <>
-                                        <Tooltip title='Pan Right (D)' placement='top'>
-                                            <IconButton
-                                                size='small'
-                                                onClick={() => handlePan('right')}
-                                                sx={{
-                                                    fontSize: '0.7rem',
-                                                    minWidth: '24px',
-                                                    height: '24px',
-                                                    border: '1px solid',
-                                                    borderColor: 'divider',
-                                                    color: 'primary.main',
-                                                }}
-                                            >
-                                                ▶
-                                            </IconButton>
-                                        </Tooltip>
-                                    </>
-                                )}
-
-                                <Tooltip title='Reset Zoom (R)' placement='top'>
-                                    <Button
-                                        size='small'
-                                        onClick={handleZoomReset}
-                                        disabled={zoomLevel === 1}
-                                        sx={{
-                                            fontSize: '0.65rem',
-                                            minWidth: '40px',
-                                            height: '28px',
-                                            px: 1,
-                                        }}
-                                    >
-                                        Reset
-                                    </Button>
-                                </Tooltip>
-
-                                {/* Help Button */}
-                                <Tooltip
-                                    title={
-                                        <Box sx={{ p: 0.5 }}>
-                                            <Typography variant='caption' sx={{ fontWeight: 'bold', display: 'block' }}>
-                                                Zoom & Pan Controls:
-                                            </Typography>
-                                            <Typography variant='caption' sx={{ display: 'block', mt: 0.5 }}>
-                                                • Mouse wheel: Zoom in/out
-                                            </Typography>
-                                            <Typography variant='caption' sx={{ display: 'block' }}>
-                                                • + / - : Zoom in/out
-                                            </Typography>
-                                            <Typography variant='caption' sx={{ display: 'block' }}>
-                                                • A / ← : Pan left
-                                            </Typography>
-                                            <Typography variant='caption' sx={{ display: 'block' }}>
-                                                • D / → : Pan right
-                                            </Typography>
-                                            <Typography variant='caption' sx={{ display: 'block' }}>
-                                                • R : Reset to full view
-                                            </Typography>
-                                            <Typography variant='caption' sx={{ display: 'block', mt: 0.5 }}>
-                                                • Double-click event: Zoom to event
-                                            </Typography>
-                                        </Box>
-                                    }
-                                    placement='left'
-                                >
-                                    <IconButton
-                                        size='small'
-                                        sx={{
-                                            fontSize: '0.7rem',
-                                            minWidth: '24px',
-                                            height: '24px',
-                                            border: '1px solid',
-                                            borderColor: 'divider',
-                                            color: 'text.secondary',
-                                        }}
-                                    >
-                                        ?
-                                    </IconButton>
-                                </Tooltip>
-                            </Box>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                {/* Zoom Feedback */}
-                                {zoomFeedback && (
-                                    <Box
-                                        sx={{
-                                            backgroundColor: 'primary.main',
-                                            color: 'primary.contrastText',
-                                            px: 1.5,
-                                            py: 0.5,
-                                            borderRadius: 1,
-                                            fontSize: '0.7rem',
-                                            fontWeight: 'medium',
-                                            animation: 'fadeInOut 1.5s ease-in-out',
-                                            '@keyframes fadeInOut': {
-                                                '0%': { opacity: 0, transform: 'scale(0.8)' },
-                                                '20%': { opacity: 1, transform: 'scale(1)' },
-                                                '80%': { opacity: 1, transform: 'scale(1)' },
-                                                '100%': { opacity: 0, transform: 'scale(0.8)' },
-                                            },
-                                        }}
-                                    >
-                                        {zoomFeedback}
-                                    </Box>
-                                )}
-
-                                {/* Time Range Display */}
-                                {visibleTimeRange && (
-                                    <Typography
-                                        variant='caption'
-                                        sx={{
-                                            color: 'text.secondary',
-                                            fontSize: '0.65rem',
-                                        }}
-                                    >
-                                        {format(new Date(visibleTimeRange.start), 'HH:mm:ss')} -{' '}
-                                        {format(new Date(visibleTimeRange.end), 'HH:mm:ss')}
-                                    </Typography>
-                                )}
-                            </Box>
-                        </Box>
-
-                        <TimeRangeSlider
-                            min={visibleTimeRange?.start || calenderStartTime || timelines[0].startTime}
-                            max={visibleTimeRange?.end || calenderEndTime || timelines[timelines.length - 1].endTime}
-                            onSingleTimeSelect={handleTimeRangeSelect}
-                            singleSelectMode={true}
-                            disabledRange={disabledIntervals}
-                            actualRecordingBounds={{
-                                start: timelines[0].startTime,
-                                end: timelines[timelines.length - 1].endTime,
-                            }}
-                            eventMarkers={
-                                visibleTimeRange
-                                    ? filterEventsInVisibleRange(eventMarkers, visibleTimeRange.start, visibleTimeRange.end)
-                                    : eventMarkers
-                            }
-                            onEventMarkerClick={handleEventMarkerClick}
-                            onFetchEventImage={fetchEventImage}
-                            getEventImage={getEventImage}
-                            loadingImages={loadingImages}
-                            sensorId={sensor?.sensorId}
-                            onChange={() => {}}
-                        />
-                    </Box>
-                )}
+                {showTimeline && !isActuallyFullScreen && timelineBlock}
             </CardContent>
             <Divider orientation='horizontal' flexItem />
-            <CardActions disableSpacing sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Box sx={muiStyles.controls}>
-                    <VideoControls
-                        playbackStatus={playbackStatus}
-                        playbackSpeed={playbackSpeed}
-                        volume={volume}
-                        isMuted={isMuted}
-                        streamType={streamType}
-                        isAudioTrackPresent={isAudioTrackPresent}
-                        onPlayPause={handlePlayPause}
-                        onFastForward={() => handleFastForwardAndRewind('fastForward')}
-                        onRewind={() => handleFastForwardAndRewind('rewind')}
-                        onSeekForward={handleSeekForward}
-                        onSeekBackward={handleSeekBackward}
-                        onVolumeChange={handleVolumeChange}
-                        onToggleMute={handleMute}
-                        onScreenshot={handleScreenshot}
-                        onFullscreen={handleFullScreen}
-                        onCalendarClick={() => setIsRangeDialogOpen(true)}
-                        onSyncClick={() => setIsSyncDialogOpen(true)}
-                        onReplay={handleReplay}
-                    />
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Tooltip title='Analytics Overlay Settings' placement='top'>
-                            <IconButton onClick={handleAnalyticsOverlayToggle}>
-                                <Settings />
-                            </IconButton>
-                        </Tooltip>
-                        <QualityMenu
-                            onSettingChange={handleQualitySettingChange}
-                            currentSetting={quality}
-                            show={streamType !== StreamType.VideoWall}
-                        />
-                    </Box>
-                </Box>
-            </CardActions>
-            <Dialog open={isSyncDialogOpen} onClose={() => setIsSyncDialogOpen(false)}>
+            {/* Footer controls: rendered while windowed. In fullscreen the same cluster is rendered
+                as an auto-hiding overlay inside the video wrapper, so only one instance exists. */}
+            {!isActuallyFullScreen && (
+                <CardActions disableSpacing sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Box sx={muiStyles.controls}>{controlsCluster}</Box>
+                </CardActions>
+            )}
+            <Dialog open={isSyncDialogOpen} onClose={() => setIsSyncDialogOpen(false)} container={fullscreenContainer}>
                 <DialogTitle>Sync to Time</DialogTitle>
                 <DialogContent>
                     <TextField
@@ -1931,19 +2108,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={isRangeDialogOpen} onClose={() => setIsRangeDialogOpen(false)}>
-                <DialogTitle>Select Range</DialogTitle>
-                <DialogContent>
-                    <RangePickerDialog
-                        open={isRangeDialogOpen}
-                        onClose={handleCalenderDatePickerClose}
-                        onSubmit={handleCalenderRangePlayback}
-                    />
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setIsRangeDialogOpen(false)}>Close</Button>
-                </DialogActions>
-            </Dialog>
+            <RangePickerDialog
+                open={isRangeDialogOpen}
+                onClose={handleCalenderDatePickerClose}
+                onSubmit={handleCalenderRangePlayback}
+                container={fullscreenContainer}
+            />
 
             {streamType !== StreamType.Streambridge && (
                 <AnalyticsOverlayDialog
@@ -1952,6 +2122,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     onSave={handleAnalyticsOverlaySave}
                     sensors={sensors}
                     streamType={streamType}
+                    container={fullscreenContainer}
                 />
             )}
         </Card>

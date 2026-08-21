@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,6 +47,7 @@ struct TranscodeWriterConfig
     std::string user_start_time_iso;
     std::string user_end_time_iso;
     OverlayBBoxParams* overlay_params = nullptr; // optional
+    double frame_rate = 0.0;           // stream fps (from file list) for overlay tolerance; 0 = unknown
     bool is_software_encoder = false;  // true when not using NV v4l2 enc
 
     int64_t seek_start_ms = 0;         // for decoder/output filtering
@@ -66,13 +67,14 @@ public:
     virtual ~TranscodeWriterConsumer();
 
     // IMediaDataConsumer (video path)
+    using IMediaDataConsumer::onFrame;
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
 
     // Lifecycle
     bool start();
     void stop();
     bool isRunning() const { return mRunning.load(); }
-    void* getPipeline() const { return mPipeline; }
+    GstElement* getPipeline() const override { return mPipeline; }
     // Wait on this writer's bus for EOS or ERROR. Returns true on EOS/ERROR, false on timeout.
     bool waitForCompletion(int64_t timeout_secs);
     bool hasError() const { return mError.load(); }
@@ -122,6 +124,7 @@ private:
     {
     public:
         explicit AudioAppSrcConsumer(TranscodeWriterConsumer* owner) : IMediaDataConsumer("AudioAppSrcConsumer"), mOwner(owner) {}
+        using IMediaDataConsumer::onFrame;
         void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     private:
         TranscodeWriterConsumer* mOwner;

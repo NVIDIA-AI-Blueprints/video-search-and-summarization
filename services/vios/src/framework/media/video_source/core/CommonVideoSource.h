@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,7 +51,7 @@ class PipelineManager;
 #include "media_producer.h"
 #include "stream_monitor.h"
 
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 #include "../producers/gstnvipcproducer.h"
 #include "../producers/ipcproducerpool.h"
 #endif
@@ -93,6 +93,11 @@ public:
 
     CommonVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts);
     virtual ~CommonVideoSource(); // Custom destructor for pimpl-like pattern
+
+    CommonVideoSource(const CommonVideoSource &) = delete;
+    CommonVideoSource &operator=(const CommonVideoSource &) = delete;
+    CommonVideoSource(CommonVideoSource &&) = delete;
+    CommonVideoSource &operator=(CommonVideoSource &&) = delete;
 
     // Public interface methods
     VmsErrorCode controlStreamFileVideoSource(const std::string& action, const std::string& seek_value);
@@ -142,7 +147,7 @@ public:
     std::shared_ptr<NvCompositor> getCompositor() const;
     std::shared_ptr<VideoWebRTCSender> getVideoSender() const;
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const;
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> getIPCProducer() const;
 #endif
 
@@ -186,8 +191,8 @@ private:
     // Legacy component references for methods that haven't been fully refactored
     std::shared_ptr<VideoWebRTCSender> m_videowebRTCSender = nullptr; // For pass-through mode
     std::shared_ptr<NativeStreamProducer> m_nativeStreamProducer = nullptr; // For native streams
-#ifdef JETSON_PLATFORM
-    std::shared_ptr<NvIPCProducer> m_nvIPCProducer = nullptr; // For IPC streams
+#ifdef AARCH64_PLATFORM
+    std::shared_ptr<NvIPCProducer> m_nvIPCProducer = nullptr; // For IPC streams (used at runtime only when isJetsonPlatform())
 #endif
 
     // Note: setupDecoder method removed - use PipelineManager directly

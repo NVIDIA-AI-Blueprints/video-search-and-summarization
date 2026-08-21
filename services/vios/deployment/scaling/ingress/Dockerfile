@@ -13,13 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM ubuntu:24.04
+FROM nvcr.io/nvidia/base/ubuntu:24.04
 
-# Install nginx and dependencies
+# Install nginx and dependencies.
+# Enforce a minimum version (>= 1.24.0-2ubuntu7.8) rather than an exact pin so the
+# CVE-2026-42945 fix is guaranteed while still resolving to whatever patched build
+# is currently in noble-security.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-         nginx=1.24.0-2ubuntu7.8 \
-         nginx-common=1.24.0-2ubuntu7.8 \
+    && apt-get satisfy -y --no-install-recommends \
+         "nginx (>= 1.24.0-2ubuntu7.8)" \
+         "nginx-common (>= 1.24.0-2ubuntu7.8)" \
          ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r nginx \
@@ -49,8 +52,14 @@ RUN mkdir -p /tmp/nginx/client-body \
 # Copy vst-ui directory to /vst-ui
 COPY vst-ui /vst-ui/
 
-# Ensure nginx owns the UI files
-RUN chown -R nginx:nginx /vst-ui
+# build.sh stages the current VIOS third-party license file with the UI build
+# context. Keep it at the same path used by the other VIOS runtime images.
+COPY vst-ui/LICENSE.3rdparty /home/vst/vst_release/LICENSE.3rdparty
+
+# Ensure nginx workers can traverse directories and read the UI files even when
+# the build host uses a restrictive umask.
+RUN chown -R nginx:nginx /vst-ui \
+    && chmod -R a+rX /vst-ui
 
 # Set the user to nginx (non-root)
 #USER nginx
@@ -60,4 +69,3 @@ EXPOSE 30888
 
 # Start Nginx with config dump to help debugging on startup
 CMD ["sh", "-c", "cat /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
-

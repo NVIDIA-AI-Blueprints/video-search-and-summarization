@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $analytics := index .Values "analytics" | default dict }}
+{{- $behavior := index $analytics "vss-behavior-analytics" | default dict }}
+{{- $resourceFiles := index $behavior "resourceFiles" | default dict }}
+{{- $calibration := index $resourceFiles "calibration" | default dict }}
+{{- $warehouse := index .Values "warehouse" | default dict }}
+{{- $behaviorFiles := index $warehouse "behaviorAnalytics" | default dict }}
+{{- if and ($analytics.enabled | default false) ($behavior.enabled | default false) ($calibration.enabled | default false) (not ($behavior.downloadResourcesFromNgc | default false)) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-resources" ($behavior.fullnameOverride | default "vss-behavior-analytics") }}
+  labels:
+    app.kubernetes.io/name: vss-behavior-analytics
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  calibration.json: |
+{{ required "warehouse.behaviorAnalytics.calibrationFile is required" (.Files.Get ($behaviorFiles.calibrationFile | default "files/behavior-analytics/calibration.json")) | nindent 4 }}
+{{- end }}

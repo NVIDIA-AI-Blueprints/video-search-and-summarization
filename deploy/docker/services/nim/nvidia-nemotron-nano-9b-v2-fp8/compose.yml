@@ -16,7 +16,7 @@
 services:
   nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
     # Fetch toolcall parser from Hugging Face (public repo, no HF_TOKEN required).
-    image: alpine/curl:8.17.0
+    image: docker.io/alpine/curl:8.21.0
     container_name: nvidia-nemotron-nano-9b-v2-fp8-toolcall-init
     profiles:
     - llm_local_nvidia-nemotron-nano-9b-v2-fp8
@@ -31,7 +31,7 @@ services:
 
   nvidia-nemotron-nano-9b-v2-fp8:
     # Nemotron-Nano-V2 and tool-parser (nemotron_toolcall_parser_no_streaming.py) require vLLM 25.12+; 25.10 does not support Nemotron.
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m
@@ -60,6 +60,10 @@ services:
     shm_size: 16GB
     ports:
      - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
@@ -90,7 +94,7 @@ services:
 
   nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
     # Nemotron-Nano-V2 and tool-parser require vLLM 25.12+ (see rel-25-12 release notes).
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m
@@ -119,6 +123,10 @@ services:
     shm_size: 16GB
     ports:
      - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:

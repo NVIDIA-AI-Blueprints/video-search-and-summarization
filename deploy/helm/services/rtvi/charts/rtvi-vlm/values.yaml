@@ -18,8 +18,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-rt-vlm
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
+  tag: "3.3.0-26.08.2"
   pullPolicy: IfNotPresent
 replicas: 1
 
@@ -55,8 +55,8 @@ kafkaBootstrapServers: ""
 waitForKafka:
   enabled: true
   image:
-    repository: confluentinc/cp-kafka
-    tag: "8.2.0"
+    repository: docker.io/confluentinc/cp-kafka
+    tag: "8.3.0"
   imagePullPolicy: IfNotPresent
   timeoutSeconds: 1200
   topics:
@@ -99,13 +99,41 @@ env:
     value: "openai-compat"
   - name: KAFKA_ENABLED
     value: "true"
-  # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)
-  - name: KAFKA_TOPIC
-    value: "mdx-vlm"
   - name: KAFKA_INCIDENT_TOPIC
     value: "mdx-vlm-incidents"
   - name: ERROR_MESSAGE_TOPIC
     value: "vision-llm-errors"
+
+  - name: MESSAGE_BUS
+    value: "kafka"
+  - name: MESSAGE_BUS_TOPIC
+    value: "mdx-vlm-captions"
+  - name: ERROR_BUS
+    value: "kafka"
+  - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
+    value: "true"
+  - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
+    value: "true"
+  - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
+    value: "1024"
+  - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
+    value: "false"
+  - name: VIA_EVS_SESSION
+    value: ""
+  - name: VLLM_EVS_SIMILARITY_THRESHOLD
+    value: ""
+  - name: VLLM_NUM_PREPROCESS_WORKERS
+    value: "16"
+  - name: VIA_EVS_TOKEN_BUDGET
+    value: ""
+  - name: VIA_EVS_MAX_SESSIONS
+    value: ""
+  - name: VLLM_USE_AOT_COMPILE
+    value: "0"
+  - name: VLLM_DISABLE_COMPILE_CACHE
+    value: "1"
+  - name: VLLM_LOGGING_LEVEL
+    value: "INFO"
   - name: LOG_LEVEL
     value: "INFO"
   - name: ENABLE_OTEL_MONITORING

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,20 +36,39 @@ SensorManagementApis::SensorManagementApis(std::shared_ptr<SensorManagement> sen
         {
             return getSensorInfoList(req_info, out);
         }
-        return VmsErrorCode::NoError;
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/api/v1/sensor/streams"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
-        return vst_common::getSensorStreamListFromDB(m_deviceManager, out, true);
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (iequals(requestMethod, "get"))
+        {
+            return vst_common::getSensorStreamListFromDB(m_deviceManager, out, true);
+        }
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/api/v1/sensor/scan"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
-        m_sensorManagement->scanCameras(true);
-        return VmsErrorCode::NoError;
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (iequals(requestMethod, "post"))
+        {
+            m_sensorManagement->scanCameras(true);
+            return VmsErrorCode::NoError;
+        }
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/api/v1/sensor/add"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
-        return addSensor(m_sensorManagement, req_info, in, out);
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (iequals(requestMethod, "post"))
+        {
+            return addSensor(m_sensorManagement, req_info, in, out);
+        }
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/api/v1/sensor/status"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
@@ -58,7 +77,8 @@ SensorManagementApis::SensorManagementApis(std::shared_ptr<SensorManagement> sen
         {
             return getAllSensorStatus(m_deviceManager, out);
         }
-        return VmsErrorCode::NoError;
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/api/v1/sensor/configuration"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
@@ -66,15 +86,33 @@ SensorManagementApis::SensorManagementApis(std::shared_ptr<SensorManagement> sen
     };
     m_func["/api/v1/sensor/version"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
-        return getVersion(req_info, in, out);
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (iequals(requestMethod, "get"))
+        {
+            return getVersion(req_info, in, out);
+        }
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/api/v1/sensor/help"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
-        return getSensorHelp(req_info, in, out);
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (iequals(requestMethod, "get"))
+        {
+            return getSensorHelp(req_info, in, out);
+        }
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/api/v1/sensor/qos"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
-        return getSensorQosInfo(req_info, out);
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (iequals(requestMethod, "get"))
+        {
+            return getSensorQosInfo(req_info, out);
+        }
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func["/v1/live"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
@@ -95,7 +133,8 @@ SensorManagementApis::SensorManagementApis(std::shared_ptr<SensorManagement> sen
         {
             return getAllSensorTimelines(req_info, out);
         }
-        return VmsErrorCode::NoError;
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+        return VmsErrorCode::MethodNotAllowedError;
     };
     m_func[SENSOR_API] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
@@ -140,7 +179,7 @@ VmsErrorCode SensorManagementApis::handleSensorConfiguration(const Json::Value& 
         response["nvOrgId"] = config.nv_org_id;
         response["nvNgcKey"] = config.nv_ngc_key;
         response["useMultiUser"] = config.use_multi_user;
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["remoteVstAddress"] = config.remote_vst_address;
         response["deviceName"] = config.device_name;
         response["deviceLocation"] = config.device_location;
@@ -203,6 +242,11 @@ VmsErrorCode SensorManagementApis::handleSensorConfiguration(const Json::Value& 
                 }
             }
         }
+    }
+    else
+    {
+        SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+        return VmsErrorCode::MethodNotAllowedError;
     }
     return ret;
 }

@@ -15,7 +15,7 @@
 
 services:
   gpt-oss-20b-init:
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     profiles:
     - llm_local_gpt-oss-20b
     - llm_local_shared_gpt-oss-20b
@@ -33,6 +33,10 @@ services:
     shm_size: 16GB
     ports:
      - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
@@ -69,6 +73,10 @@ services:
     shm_size: 16GB
     ports:
      - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:

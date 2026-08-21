@@ -181,9 +181,8 @@ export default class StreamManager {
         /** Generate connectionId if not provided. */
         this.outboundStreamPeerId = this.appConfig.connectionId || generateUUID();
 
-        /** Always print connection ID for tracking and debug purpose. */
-        // eslint-disable-next-line no-console
-        console.log('Connection ID: ', this.outboundStreamPeerId);
+        /** Log connection ID for tracking and debug purpose. */
+        logger.info('[STREAM_MANAGER] Connection ID:', this.outboundStreamPeerId);
 
         /**
          * If both camera and microphone are disabled that means outbound stream
@@ -250,7 +249,9 @@ export default class StreamManager {
             successCallback: (): void => {
                 // Default implementation does nothing with the parameters
             },
-            firstFrameReceivedCallback: () => void {},
+            firstFrameReceivedCallback: (): void => {
+                // Default implementation does nothing on first frame
+            },
         };
     }
 

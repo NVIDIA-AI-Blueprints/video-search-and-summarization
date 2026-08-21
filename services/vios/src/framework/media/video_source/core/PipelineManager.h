@@ -32,7 +32,7 @@ class ImageEnc;
 class NvCompositor;
 class VideoWebRTCSender;
 class NativeStreamProducer;
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 class NvIPCProducer;
 #endif
 
@@ -65,7 +65,7 @@ public:
     std::shared_ptr<NvCompositor> getCompositor() const;
     std::shared_ptr<VideoWebRTCSender> getVideoSender() const;
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const;
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> getIPCProducer() const;
 #endif
 

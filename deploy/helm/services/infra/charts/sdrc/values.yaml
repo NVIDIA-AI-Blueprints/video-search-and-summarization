@@ -5,8 +5,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvidia/vss-core/sdr-mw-l
-  tag: 3.2.0
+  repository: ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l
+  tag: develop-latest
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -23,6 +23,20 @@ service:
   envoyAdmin:
     type: ClusterIP
     port: 9902
+  # Compose parity: services/infra/sdrc/docker-compose.yaml exposes
+  # SDRC_PROXY_HOST_PORT (default 10000) -> 10000. VIOS uses this as
+  # STREAM_PROCESSOR_MODULE_ENDPOINT (see services/vios/vst.env).
+  envoyProxy:
+    port: 10000
+  # Extra Envoy listener ports generated from workload config
+  # WDM_MS_LISTENER_PORT values. Use this for workload-specific lifecycle
+  # facades, for example RTVI-CV HTTP-header lifecycle on 10001. Keep this
+  # list in sync with the ports declared in the SDRC workload config.
+  workloadListeners: []
+  # - name: rtvi-cv-http
+  #   port: 10001
+  #   targetPort: 10001
+  #   nodePort: 31001
 
 config:
   configMapName: sdrc-config

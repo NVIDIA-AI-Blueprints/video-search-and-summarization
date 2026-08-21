@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import useVSTUIStore from '../../services/StateManagement';
 import SensorSelector from '../../components/sensorSelector/MultipleSensorSelector';
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
@@ -22,7 +23,7 @@ import VSTStreamManager from '../../features/streamManager/StreamManager';
 import { Sensor } from '../../interfaces/interfaces';
 import { StreamType } from 'vst-streaming-lib';
 import { getSensorsWithTimeline } from '../../utils/misc/sensorUtils';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 
 const ReplayStream = () => {
     const location = useLocation();
@@ -57,7 +58,7 @@ const ReplayStream = () => {
                     const sensorsWithTimeline = await getSensorsWithTimeline(sensors, replaySensors);
                     setAvailableSensors(sensorsWithTimeline);
                 } catch (error) {
-                    console.error('Error loading sensors with timeline:', error);
+                    LOG.error('Error loading sensors with timeline:', error);
                 } finally {
                     // Clear loading state for MMS
                     if (vstAdaptorType === 'mms') {

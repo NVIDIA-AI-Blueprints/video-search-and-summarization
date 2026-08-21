@@ -73,9 +73,9 @@ const NetworkQualityWidget: React.FC<NetworkQualityWidgetProps> = ({ stats, sens
     const [showOverlay, setShowOverlay] = useState<boolean>(false);
     const [userHidden, setUserHidden] = useState<boolean>(false);
     const [isInitialDelay, setIsInitialDelay] = useState<boolean>(true);
-    const timeoutRef = useRef<NodeJS.Timeout>();
-    const userHideTimeoutRef = useRef<NodeJS.Timeout>();
-    const initialDelayRef = useRef<NodeJS.Timeout>();
+    const timeoutRef = useRef<NodeJS.Timeout>(undefined);
+    const userHideTimeoutRef = useRef<NodeJS.Timeout>(undefined);
+    const initialDelayRef = useRef<NodeJS.Timeout>(undefined);
     const fpsLogCountRef = useRef<number>(0);
     const consecutiveIssuesRef = useRef<number>(0);
     const [series, setSeries] = useState<{ name: string; data: number[] }[]>([
@@ -182,8 +182,11 @@ const NetworkQualityWidget: React.FC<NetworkQualityWidgetProps> = ({ stats, sens
             }))
         );
 
-        // Log FPS only for the first 10 times when FPS value is present
+        // Log FPS only for the first 10 times when FPS value is present.
+        // NOTE: This exact line is a test contract — BDD/sanity scrapes the browser console for
+        // `<sensorName> fps: <n>`. Keep it a raw, unprefixed console.log; do NOT route via LOG.
         if (fpsLogCountRef.current < 10 && stats.fps != 0 && stats.fps != null) {
+            // eslint-disable-next-line no-console
             console.log(`${sensorName} fps:  ${stats.fps}`);
             fpsLogCountRef.current += 1;
         }
@@ -312,4 +315,7 @@ const NetworkQualityWidget: React.FC<NetworkQualityWidgetProps> = ({ stats, sens
     );
 };
 
-export default NetworkQualityWidget;
+// Memoized: this renders an ApexCharts sparkline. Without memo it re-renders on every parent
+// (VideoPlayer) render — playback progress, control visibility, mouse-move in fullscreen, etc. —
+// even though its data only changes ~1/sec. Memo limits re-renders to actual prop (stats) changes.
+export default React.memo(NetworkQualityWidget);

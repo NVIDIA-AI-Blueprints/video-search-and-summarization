@@ -63,34 +63,47 @@ canonical defaults rather than guessing.
 
 **Request:**
 
-```bash
-jq -n \
-  --arg url "<clip_url_from_vss_manage_video_io_storage>" \
-  --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
-  --arg scenario "<scenario>" \
-  --argjson events '["<event1>", "<event2>"]' \
-  '{
-    url: $url,
-    model: $model,
-    scenario: $scenario,
-    events: $events,
-    chunk_duration: 10,
-    num_frames_per_second_or_fixed_frames_chunk: 20,
-    use_fps_for_chunking: false,
-    seed: 1
-  }' | curl -s -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/v1/summarize" \
-  -H "Content-Type: application/json" \
-  -d @- | jq .
-```
+The collected values become flags on `vss summarize run` (`SKILL.md` Stage 4,
+`end-to-end-example.md`). The CLI issues the request, so no payload is built
+here and no model is discovered: `vss configure` recorded both.
 
-Omit `objects_of_interest` if the user did not provide any. Include it as a
-JSON array otherwise. `num_frames_per_chunk` still exists in the OpenAPI schema
-for compatibility, but it is deprecated in 3.2.0; prefer
-`num_frames_per_second_or_fixed_frames_chunk` with `use_fps_for_chunking`.
-
-**Response shape:** OpenAI-style envelope. `choices[0].message.content` is a
-**JSON string** — parse it to get the actual summary and event list.
+| HITL value | flag |
+|---|---|
+| scenario | `--scenario "<scenario>"` |
+| each event | `--event "<event>"`, repeated |
+| each object of interest | `--object-of-interest "<object>"`, repeated |
 
 ```bash
-jq -r '.choices[0].message.content' response.json | jq '{video_summary, events}'
+SUMMARIZE_OUT=/tmp/vss-summarize-video-run.json
+"${VSS[@]}" summarize run \
+  --url "<fresh_vios_clip_url_from_stage_2>" \
+  --video-id "<resolved VIOS sensor id>" \
+  --scenario "<scenario>" \
+  --event "<event1>" --event "<event2>" \
+  --creation-time "<media start, ISO-8601 UTC>" \
+  --chunk-duration 10 --seed 1 > "$SUMMARIZE_OUT"
 ```
+
+Execute exactly once. Do not repeat the run when it exits nonzero or the summary
+is empty; read the saved stdout, the stderr diagnostic, and service logs
+instead.
+
+Omit `--object-of-interest` when the user provided none. Also omit frame
+sampling flags in the standard workflow so RT-VLM uses the model-specific
+deployment default; the deprecated `--num-frames-per-chunk` must not be used.
+
+**Response shape:** the CLI nests LVS's OpenAI-style envelope under `summary`,
+where `choices[0].message.content` is a **JSON string** — parse it to get the
+actual summary and event list.
+
+```bash
+jq '{
+  usage: (.summary.usage // {}),
+  result: (.summary.choices[0].message.content | fromjson | {video_summary, events})
+}' "$SUMMARIZE_OUT"
+```
+
+When both result fields are empty, report whether
+`usage.total_chunks_processed` is positive. Zero or missing usage does not
+prove that LVS processed the media; do not describe that case as "no events
+detected."

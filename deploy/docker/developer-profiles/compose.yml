@@ -15,6 +15,19 @@
 
 include:
   - path: ./dev-profile-base/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./dev-profile-lvs/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nvstreamer/.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./dev-profile-alerts/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nvstreamer/.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
+      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
   - path: ./dev-profile-search/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nvstreamer/.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
+      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env

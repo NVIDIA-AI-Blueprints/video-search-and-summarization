@@ -97,27 +97,35 @@ jobs:
                 echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
                 exit 1
               fi
-              if [ ! -d "skills/${INPUT_SKILLS}" ]; then
-                echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref. Check skills/ for the current set of valid names."
+              # Accept a leaf skill-name at the top level (skills/<name>/) or one
+              # category level down (skills/<category>/<name>/).
+              if [ ! -f "skills/${INPUT_SKILLS}/SKILL.md" ] \
+                 && ! find skills -mindepth 2 -maxdepth 2 -type d -name "${INPUT_SKILLS}" \
+                        -exec test -f '{}/SKILL.md' ';' -print | grep -q .; then
+                echo "::error::skill '${INPUT_SKILLS}' not found under skills/ on this ref (looked for skills/${INPUT_SKILLS}/SKILL.md and skills/*/${INPUT_SKILLS}/SKILL.md)."
                 exit 1
               fi
               mode="skills"
               printf '%s\n' "$INPUT_SKILLS" > "$targets_file"
-              echo "manual: scoping to skills/${INPUT_SKILLS}"
+              echo "manual: scoping to skill ${INPUT_SKILLS}"
             fi
           else
             git fetch --no-tags --quiet origin "${PR_BASE}:refs/remotes/origin/${PR_BASE}"
             git diff --name-only "origin/${PR_BASE}...HEAD" > "$changed_files"
 
-            awk -F/ '$1 == "skills" && $2 != "" {print $2}' "$changed_files" \
-              | sort -u \
-              | while IFS= read -r skill; do
-                  if [ -d "skills/$skill" ]; then
-                    printf '%s\n' "$skill"
-                  else
-                    echo "::notice::skills/$skill no longer exists on this ref; skipping."
-                  fi
-                done > "$targets_file"
+            # Map each changed file to the leaf name of the skill that owns it —
+            # the nearest ancestor dir containing SKILL.md. Supports flat
+            # skills/<name>/ and nested skills/<category>/<name>/. A change under a
+            # deleted skill (no SKILL.md on this ref) or outside any skill (e.g.
+            # skills/README.md, or a bare category dir) prints nothing and is skipped.
+            while IFS= read -r f; do
+              case "$f" in skills/*) ;; *) continue ;; esac
+              d="$(dirname "$f")"
+              while [ "$d" != "." ] && [ "$d" != "skills" ]; do
+                if [ -f "$d/SKILL.md" ]; then basename "$d"; break; fi
+                d="$(dirname "$d")"
+              done
+            done < "$changed_files" | sort -u > "$targets_file"
 
             if grep -qve '^[[:space:]]*$' "$targets_file"; then
               mode="skills"

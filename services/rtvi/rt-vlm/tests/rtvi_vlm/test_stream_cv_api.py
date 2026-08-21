@@ -40,6 +40,10 @@ StreamRemoveRequest = live_stream.StreamRemoveRequest
 StreamRemoveResponse = live_stream.StreamRemoveResponse
 StreamInfo = live_stream.StreamInfo
 StreamInfoResponse = live_stream.StreamInfoResponse
+ViosStreamAddRequest = live_stream.ViosStreamAddRequest
+ViosStreamRemoveRequest = live_stream.ViosStreamRemoveRequest
+normalize_stream_add_request = live_stream.normalize_stream_add_request
+normalize_stream_remove_request = live_stream.normalize_stream_remove_request
 
 
 # =============================================================================
@@ -223,11 +227,11 @@ class TestStreamAddRequest:
                 creation_time="2025-01-01T00:00:00Z",
                 metadata={"prompt": "Describe", "resolution": "1920x1080"},
             ),
-            headers={"source": "vst"},
+            headers={"source": "vios"},
         )
         assert req.value.camera_id == "camera-001"
         assert req.value.metadata.has_inference_params is True
-        assert req.headers.source == "vst"
+        assert req.headers.source == "vios"
 
     def test_valid_request_no_metadata(self):
         req = StreamAddRequest(key="sensor", value=self._make_value())
@@ -285,6 +289,205 @@ class TestStreamAddRequest:
 
 
 # =============================================================================
+# VIOS Stream Requests
+# =============================================================================
+
+
+class TestViosStreamRequests:
+    """Test VIOS common schema parsing and normalization."""
+
+    def test_unknown_envelope_and_event_fields_are_ignored(self):
+        req = ViosStreamAddRequest(
+            alert_type="camera_status_change",
+            created_at="2026-08-03T12:23:45Z",
+            event={
+                "camera_id": "Camera",
+                "camera_name": "Camera",
+                "camera_type": "rtsp",
+                "camera_url": "rtsp://10.24.216.43:30554/live/Camera",
+                "camera_vod_url": "rtsp://10.24.216.43:30562/vod/Camera",
+                "change": "camera_streaming",
+                "metadata": {
+                    "codec": "H264",
+                    "framerate": 30,
+                    "resolution": "1920x1080",
+                },
+                "future_event_field": {"enabled": True},
+            },
+            source="vst",
+            webhook_id="dummy-camera-streaming",
+        )
+
+        value, _headers = normalize_stream_add_request(req)
+
+        assert value.camera_id == "Camera"
+        assert value.camera_url == "rtsp://10.24.216.43:30554/live/Camera"
+        assert value.metadata.codec == "H264"
+        assert req.model_extra is None
+        assert req.event.model_extra is None
+
+    def test_remove_ignores_unknown_envelope_and_event_fields(self):
+        req = ViosStreamRemoveRequest(
+            alert_type="camera_status_change",
+            created_at="2026-08-03T12:23:45Z",
+            event={
+                "camera_id": "Camera",
+                "camera_name": "Camera",
+                "change": "camera_remove",
+                "future_event_field": "ignored",
+            },
+            source="vst",
+            webhook_id="dummy-camera-streaming",
+        )
+
+        value, _headers = normalize_stream_remove_request(req)
+
+        assert value.camera_id == "Camera"
+        assert req.model_extra is None
+        assert req.event.model_extra is None
+
+    def test_camera_add_registration_allows_empty_url(self):
+        req = ViosStreamAddRequest(
+            alert_type="camera_status_change",
+            created_at="2026-07-01T07:06:11Z",
+            event={
+                "camera_id": "6e6d32d3-20f4-4f77-a36d-37bcef23c3d8",
+                "camera_name": "Camera_01",
+                "camera_url": "",
+                "change": "camera_add",
+                "tags": "",
+            },
+            source="vios",
+        )
+
+        value, headers = normalize_stream_add_request(req)
+
+        assert value.camera_url == ""
+        assert value.camera_type is None
+        assert value.tags == ""
+        assert value.creation_time == "2026-07-01T07:06:11Z"
+        assert headers.source == "vios"
+
+    def test_rtsp_camera_streaming_preserves_vios_fields_and_known_metadata(self):
+        req = ViosStreamAddRequest(
+            alert_type="camera_status_change",
+            created_at="2026-07-01T06:30:17Z",
+            event={
+                "camera_id": "20a3b2c7-1437-47c1-a2d7-71cf41257e53",
+                "camera_name": "boxcart_1",
+                "camera_url": "rtsp://10.24.216.43:30555/live/20a3b2c7",
+                "camera_vod_url": "rtsp://10.24.216.43:30574/vod/20a3b2c7",
+                "change": "camera_streaming",
+                "camera_type": "rtsp",
+                "metadata": {
+                    "codec": "h264",
+                    "file_start_time": "2026-07-01T06:00:00Z",
+                    "framerate": "30",
+                    "resolution": "1920x1080",
+                    "anycustomfield": "anycustomvalue",
+                },
+            },
+            source="vios",
+        )
+
+        value, _headers = normalize_stream_add_request(req)
+
+        assert value.change == "camera_streaming"
+        assert value.camera_type == "rtsp"
+        assert value.camera_vod_url == "rtsp://10.24.216.43:30574/vod/20a3b2c7"
+        assert value.creation_time == "2026-07-01T06:30:17Z"
+        assert value.metadata.codec == "h264"
+        assert value.metadata.framerate == 30.0
+        assert value.metadata.resolution == "1920x1080"
+
+    def test_file_camera_streaming_normalizes_absolute_path_to_file_url(self):
+        req = ViosStreamAddRequest(
+            alert_type="camera_status_change",
+            created_at="2026-07-09T15:02:40Z",
+            event={
+                "camera_id": "8e289f07-9b06-42b6-a6c7-87d6e542e5cb",
+                "camera_name": "Camera_01",
+                "camera_url": "/home/vios/vios_release/streamer_videos/Camera_01.mp4",
+                "change": "camera_streaming",
+                "tags": "",
+                "camera_type": "file",
+                "metadata": {
+                    "duration": "600",
+                    "file_start_time": "2026-07-09T14:58:40Z",
+                },
+            },
+            source="vios",
+        )
+
+        value, _headers = normalize_stream_add_request(req)
+
+        assert value.camera_url == "file:///home/vios/vios_release/streamer_videos/Camera_01.mp4"
+        assert value.camera_type == "file"
+        assert value.creation_time == "2026-07-09T14:58:40.000Z"
+        assert value.metadata is None
+
+    def test_file_camera_streaming_preserves_millisecond_file_start_time(self):
+        req = ViosStreamAddRequest(
+            alert_type="camera_status_change",
+            created_at="2026-07-09T15:02:40Z",
+            event={
+                "camera_id": "8e289f07-9b06-42b6-a6c7-87d6e542e5cb",
+                "camera_name": "Camera_01",
+                "camera_url": "file:///data/Camera_01.mp4",
+                "change": "camera_streaming",
+                "camera_type": "file",
+                "metadata": {
+                    "file_start_time": "2026-07-09T14:58:40.123Z",
+                },
+            },
+            source="vios",
+        )
+
+        value, _headers = normalize_stream_add_request(req)
+
+        assert value.creation_time == "2026-07-09T14:58:40.123Z"
+
+    def test_file_camera_streaming_normalizes_created_at_fallback(self):
+        req = ViosStreamAddRequest(
+            alert_type="camera_status_change",
+            created_at="2026-07-09T15:02:40Z",
+            event={
+                "camera_id": "8e289f07-9b06-42b6-a6c7-87d6e542e5cb",
+                "camera_name": "Camera_01",
+                "camera_url": "https://example.com/Camera_01.mp4",
+                "change": "camera_streaming",
+                "camera_type": "file",
+            },
+            source="vios",
+        )
+
+        value, _headers = normalize_stream_add_request(req)
+
+        assert value.creation_time == "2026-07-09T15:02:40.000Z"
+
+    def test_remove_normalizes_vios_envelope(self):
+        req = ViosStreamRemoveRequest(
+            alert_type="camera_status_change",
+            created_at="2026-07-01T07:15:20Z",
+            event={
+                "camera_id": "6e6d32d3-20f4-4f77-a36d-37bcef23c3d8",
+                "camera_name": "Camera_01",
+                "camera_url": "/home/vios/Camera_01.mp4",
+                "change": "camera_remove",
+                "tags": "",
+            },
+            source="vios",
+        )
+
+        value, headers = normalize_stream_remove_request(req)
+
+        assert value.camera_id == "6e6d32d3-20f4-4f77-a36d-37bcef23c3d8"
+        assert value.camera_url == "file:///home/vios/Camera_01.mp4"
+        assert value.tags == ""
+        assert headers.created_at == "2026-07-01T07:15:20Z"
+
+
+# =============================================================================
 # StreamRemoveRequest
 # =============================================================================
 
@@ -321,9 +524,9 @@ class TestStreamRemoveRequest:
         req = StreamRemoveRequest(
             key="sensor",
             value={"camera_id": "cam-1", "change": "camera_remove"},
-            headers={"source": "vst", "created_at": "2025-01-01T00:00:00Z"},
+            headers={"source": "vios", "created_at": "2025-01-01T00:00:00Z"},
         )
-        assert req.headers.source == "vst"
+        assert req.headers.source == "vios"
 
 
 # =============================================================================
@@ -370,13 +573,13 @@ class TestStreamRemoveResponse:
         )
         assert resp.status == "removed"
 
-    def test_custom_status(self):
-        resp = StreamRemoveResponse(
-            camera_id="cam-1",
-            asset_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            status="not_found",
-        )
-        assert resp.status == "not_found"
+    def test_rejects_unknown_status(self):
+        with pytest.raises(ValidationError):
+            StreamRemoveResponse(
+                camera_id="cam-1",
+                asset_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                status="not_found",
+            )
 
 
 # =============================================================================

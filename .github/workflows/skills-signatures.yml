@@ -7,6 +7,12 @@
 # skill gates: `/ok to test` causes copy-pr-bot to update pull-request/<N>,
 # and that push runs this check. Branch protection/rulesets can make
 # `Skills Signatures / signature-check` a required status check.
+#
+# Signature verification is only enforced for PRs targeting `main`
+# (release promotions). PRs targeting `develop` resolve their base, log a
+# skip notice, and pass without verifying — skills iterate on develop and
+# are re-signed by the signing service, so enforcing there only produced
+# noise. Manual workflow_dispatch runs always verify.
 
 name: Skills Signatures
 
@@ -74,8 +80,20 @@ jobs:
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "PR #$PR, base=$BASE"
 
+      - name: Skip for non-main base
+        if: github.event_name == 'push' && steps.pr.outputs.base != 'main'
+        env:
+          PR_BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          {
+            echo "# Agent skill signature check"
+            echo
+            echo "Skipped: enforcement is scoped to PRs targeting \`main\`; this PR targets \`$PR_BASE\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Resolve target skills
         id: targets
+        if: github.event_name == 'workflow_dispatch' || steps.pr.outputs.base == 'main'
         env:
           EVENT_NAME: ${{ github.event_name }}
           MANUAL_SKILLS: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
@@ -88,24 +106,34 @@ jobs:
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             if [ -z "$MANUAL_SKILLS" ] || [ "$MANUAL_SKILLS" = "*" ]; then
-              find skills -mindepth 1 -maxdepth 1 -type d -print \
-                | sed 's#^skills/##' \
-                | sort > "$targets_file"
+              # Every skill (leaf name) — any dir with SKILL.md, flat or nested.
+              find skills -type f -name SKILL.md -not -path '*/.*' \
+                | sed -E 's#/SKILL\.md$##; s#.*/##' \
+                | sort -u > "$targets_file"
             else
               if ! [[ "$MANUAL_SKILLS" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
                 echo "::error::skills='$MANUAL_SKILLS' is not a valid skill-dir name. Use a bare name like 'vss-deploy-profile' or '*'."
                 exit 1
               fi
-              if [ ! -d "skills/$MANUAL_SKILLS" ]; then
-                echo "::error::skills/$MANUAL_SKILLS does not exist on this ref."
+              if [ -z "$(find skills -type d -name "$MANUAL_SKILLS" -exec test -f '{}/SKILL.md' ';' -print)" ]; then
+                echo "::error::skill '$MANUAL_SKILLS' not found under skills/ on this ref."
                 exit 1
               fi
               printf '%s\n' "$MANUAL_SKILLS" > "$targets_file"
             fi
           else
             git fetch --no-tags --quiet origin "${PR_BASE}:refs/remotes/origin/${PR_BASE}"
+            # Leaf name of the skill owning each changed file (nearest ancestor
+            # with SKILL.md) — supports skills/<name>/ and skills/<category>/<name>/.
             git diff --name-only "origin/${PR_BASE}...HEAD" \
-              | awk -F/ '$1 == "skills" && $2 != "" {print $2}' \
+              | while IFS= read -r f; do
+                  case "$f" in skills/*) ;; *) continue ;; esac
+                  d="$(dirname "$f")"
+                  while [ "$d" != "." ] && [ "$d" != "skills" ]; do
+                    if [ -f "$d/SKILL.md" ]; then basename "$d"; break; fi
+                    d="$(dirname "$d")"
+                  done
+                done \
               | sort -u > "$targets_file"
           fi
 
@@ -131,6 +159,7 @@ jobs:
 
       - name: Resolve blocking mode
         id: blocking
+        if: github.event_name == 'workflow_dispatch' || steps.pr.outputs.base == 'main'
         env:
           EVENT_NAME: ${{ github.event_name }}
           MANUAL_BLOCKING: ${{ inputs.blocking }}
@@ -150,7 +179,7 @@ jobs:
 
       - name: Verify skill signatures
         id: verify
-        if: steps.targets.outputs.count != '0'
+        if: (github.event_name == 'workflow_dispatch' || steps.pr.outputs.base == 'main') && steps.targets.outputs.count != '0'
         env:
           TARGETS_FILE: ${{ steps.targets.outputs.targets_file }}
           BLOCKING: ${{ steps.blocking.outputs.value }}
@@ -174,7 +203,8 @@ jobs:
 
           while IFS= read -r skill; do
             [ -n "$skill" ] || continue
-            skill_dir="skills/$skill"
+            skill_dir="$(find skills -type d -name "$skill" -exec test -f '{}/SKILL.md' ';' -print | head -n 1)"
+            skill_dir="${skill_dir:-skills/$skill}"
             signature="$skill_dir/skill.oms.sig"
             log_file="$LOG_DIR/${skill}.log"
 
@@ -216,7 +246,7 @@ jobs:
           fi
 
       - name: No signature targets
-        if: steps.targets.outputs.count == '0'
+        if: (github.event_name == 'workflow_dispatch' || steps.pr.outputs.base == 'main') && steps.targets.outputs.count == '0'
         run: |
           {
             echo "# Agent skill signature check"
@@ -225,7 +255,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload signature report
-        if: always() && steps.targets.outputs.count != '0'
+        if: always() && (github.event_name == 'workflow_dispatch' || steps.pr.outputs.base == 'main') && steps.targets.outputs.count != '0'
         uses: actions/upload-artifact@v4
         with:
           name: skill-signature-results

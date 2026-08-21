@@ -1,0 +1,113 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Deletes a closed PR's pr-<N>-* candidate images from GHCR.
+#
+# Candidate tags are build scaffolding — pr-<N>-<sha12> immutable candidates and
+# the pr-<N>-latest alias. After the PR closes they can never be rebuilt or
+# referenced, so keeping them only grows the package. develop-* tags are the
+# opposite: they are the derivable coordinate set and are kept forever.
+#
+# `pull_request` (not `pull_request_target`): this repo has never fired a single
+# pull_request_target run, while pull_request fires normally — PRs are branched
+# in-repo, not from forks, so the token carries packages: write.
+#
+# Cleanup is best-effort by design: the script swallows per-package HTTP errors
+# and the job is `continue-on-error`. A retained tag costs storage; a failed
+# required check after a merge costs a human. Never trade the second for the first.
+
+name: Cleanup PR Tags
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number whose pr-<N>-* tags should be removed"
+        required: true
+      dry_run:
+        description: "List what would be deleted without deleting"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cleanup-pr-tags-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Delete pr-<N>-* candidate images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      # A PR digest almost always also carries its tree-<sha> content tag, and the
+      # delete pass (correctly) refuses to delete a version holding a foreign tag.
+      # Move this PR's tags onto a throwaway manifest first: the real digest keeps
+      # tree-/develop- and loses nothing, and the PR tags end up on a scratch digest
+      # that the unchanged delete rule can remove. Best-effort — if a retag fails the
+      # tag simply stays put, which is today's behaviour.
+      # continue-on-error on both registry steps: detaching is best-effort, and a
+      # registry outage must not stop the REST delete pass below from removing the
+      # PR-only versions it can already handle without any registry access.
+      - name: Log in to GHCR
+        if: inputs.dry_run != 'true'
+        continue-on-error: true
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detach this PR's tags from shared digests
+        if: inputs.dry_run != 'true'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/cleanup_pr_tags.py \
+            --org "${OWNER}" --pr "${PR_NUMBER}" --emit-detach-plan > /tmp/detach.txt
+          if [ ! -s /tmp/detach.txt ]; then
+            echo "[pr-tags] nothing to detach"
+            exit 0
+          fi
+
+          # One empty manifest, reused for every tag. No layers, no content.
+          printf 'FROM scratch\nLABEL com.nvidia.vss.detached-pr="%s"\n' "${PR_NUMBER}" \
+            > /tmp/Dockerfile.scratch
+          scratch=""
+          while read -r package tag; do
+            ref="ghcr.io/$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')/${package}:${tag}"
+            if [ -z "${scratch}" ]; then
+              docker buildx build --push --provenance=false --sbom=false \
+                -f /tmp/Dockerfile.scratch -t "${ref}" /tmp
+              scratch="${ref}"
+            else
+              docker buildx imagetools create --tag "${ref}" "${scratch}"
+            fi
+            echo "[pr-tags] detached ${ref}"
+          done < /tmp/detach.txt
+
+      - name: Delete candidate images for this PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--org "${GITHUB_REPOSITORY_OWNER}" --pr "${PR_NUMBER}")
+          if [ "${DRY_RUN}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/cleanup_pr_tags.py "${args[@]}"

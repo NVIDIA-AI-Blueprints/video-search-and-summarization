@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,13 +32,13 @@ extern "C" void* createPeerConnectionReplayManagerObject()
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
     std::shared_ptr<PeerConnectionManager> pcm = std::make_shared<PeerConnectionManager>("replay", audioLayer, publishFilter, deviceManager);
 
-    return static_cast<void*>(static_cast<IVstModule*>(new ReplayPeerConnection(pcm, deviceManager)));
+    auto replayPeerConnection = std::make_unique<ReplayPeerConnection>(pcm, deviceManager);
+    return static_cast<void*>(static_cast<IVstModule*>(replayPeerConnection.release()));
 }
 
 extern "C" void deletePeerConnectionReplayManagerObject(IVstModule* object)
 {
-    ReplayPeerConnection* pcm_live = static_cast<ReplayPeerConnection*>(object);
-    delete pcm_live;
+    std::unique_ptr<ReplayPeerConnection> pcm_live(static_cast<ReplayPeerConnection*>(object));
 }
 
 ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager> peerConnectionManager,
@@ -120,6 +120,12 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
 
 	m_func["/api/v1/replay/stream/add"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         string url = in.get("url", EMPTY_STRING).asString();
         string id = in.get("id", EMPTY_STRING).asString();
 
@@ -381,6 +387,12 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
     };
     m_func["/api/v1/replay/stream/swap"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         VmsErrorCode ret;
         const string protocol = in.get("protocol", EMPTY_STRING).asString();
         const string startTime = in.get("startTime", EMPTY_STRING).asString();
@@ -401,6 +413,12 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
     };
     m_func["/api/v1/replay/stream/stats"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         if (GET_CONFIG().enable_perf_logging == false)
         {
             LOG(error) << "Stream stats not enabled";
@@ -436,10 +454,22 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
     };
     m_func["/api/v1/replay/version"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         return getVersion(req_info, in, out);
     };
     m_func["/api/v1/replay/help"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         return getReplayHelp(req_info, in, out);
     };
     m_func["/v1/live"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
@@ -633,7 +663,7 @@ VmsErrorCode ReplayPeerConnection::handleReplayConfiguration(const Json::Value &
         response["enableGstDebugProbes"] = config.enable_gst_debug_probes;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
         response["enableDecLowLatencyMode"] = config.enable_dec_low_latency_mode;
         response["webrtc_video_quality_tunning"] = config.webrtc_video_quality_tunning;

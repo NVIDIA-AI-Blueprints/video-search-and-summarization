@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -426,7 +426,7 @@ ClientSession::~ClientSession()
 
 ClientSession::ClientSession()
 {
-    m_curl = curl_easy_init();
+    m_curl = static_cast<CurlEasyHandle*>(curl_easy_init());
     m_nvsoap = std::make_shared<NvSoap>();
 
     if (!m_curl || !m_nvsoap)
@@ -435,7 +435,7 @@ ClientSession::ClientSession()
     }
 }
 
-CURL* ClientSession::getCurlClient()
+CurlEasyHandle* ClientSession::getCurlClient()
 {
     if (m_curl != nullptr)
     {
@@ -478,7 +478,11 @@ Json::Value SensorInfo::getStreamsJson(bool isStreamerDevice)
         {
             stream->name = stream->id;
         }
-        response.append(stream->toJson(isStreamerDevice));
+        Json::Value stream_json = stream->toJson(isStreamerDevice);
+        // Surface the backing sensor's tags on every stream object so the
+        // Live Streams UI can populate and filter by tag (NVBug 6167266).
+        stream_json["tags"] = tags;
+        response.append(stream_json);
     }
     return response;
 }

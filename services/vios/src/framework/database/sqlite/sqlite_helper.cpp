@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,8 +34,6 @@ constexpr const char* DB_FILE_NAME = "nvvst.db";
 #define CHECK_DB_IF_NULL_RETURN(ret) \
     if (m_db == nullptr)             \
         return ret;
-
-Sqlite *Sqlite::m_instance = nullptr;
 
 // Callback function to fill up query result
 static int fillResultCallback(void *userData, int argc, char **argv, char **azColName)
@@ -574,6 +572,7 @@ bool Sqlite::connect()
           TempFilesDBColumns::end_time_ms + string(" INTEGER DEFAULT 0, ") +
           TempFilesDBColumns::file_type + string(" TEXT DEFAULT '', ") +
           TempFilesDBColumns::container_format + string(" TEXT DEFAULT '', ") +
+          TempFilesDBColumns::config_hash + string(" TEXT DEFAULT '', ") +
           DBColumns::created_date_time + string(" TEXT NOT NULL, ") +
           DBColumns::modified_date_time + string(" TEXT NOT NULL ") +
           string(");");
@@ -600,6 +599,7 @@ bool Sqlite::connect()
     addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::end_time_ms, "INTEGER DEFAULT 0");
     addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::file_type, "TEXT DEFAULT ''");
     addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::container_format, "TEXT DEFAULT ''");
+    addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::config_hash, "TEXT DEFAULT ''");
 
     /* Create indexes for TEMP_VIDEO_FILES table performance */
     sql = "CREATE INDEX IF NOT EXISTS idx_temp_files_expiry ON " + 
@@ -616,13 +616,19 @@ bool Sqlite::connect()
         LOG(error) << "Error creating temp files device index: " << sql << endl;
     }
 
-    sql = "CREATE INDEX IF NOT EXISTS idx_temp_files_stream_time ON " +
+    // Renamed from idx_temp_files_stream_time (5-col) to include
+    // config_hash. CREATE INDEX IF NOT EXISTS would not extend an existing
+    // index, so a fresh name guarantees the new column gets indexed on
+    // pre-existing databases too. The old 5-col index, if present, stays
+    // around harmlessly and is dropped naturally on the next DB reset.
+    sql = "CREATE INDEX IF NOT EXISTS idx_temp_files_stream_time_v2 ON " +
           TempFilesDBColumns::table_name + " (" +
           DBColumns::device_id + ", " +
           TempFilesDBColumns::stream_id + ", " +
           TempFilesDBColumns::start_time_ms + ", " +
           TempFilesDBColumns::end_time_ms + ", " +
-          TempFilesDBColumns::file_type + ");";
+          TempFilesDBColumns::file_type + ", " +
+          TempFilesDBColumns::config_hash + ");";
     if (!executeQuery(sql))
     {
         LOG(error) << "Error creating temp files stream_time index: " << sql << endl;
@@ -4073,10 +4079,11 @@ int Sqlite::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN_INT(TempFilesDBColumns::end_time_ms, row.end_time_ms_value, insertQuery)
     APPEND_COLUMN(TempFilesDBColumns::file_type, row.file_type_value, insertQuery)
     APPEND_COLUMN(TempFilesDBColumns::container_format, row.container_format_value, insertQuery)
+    APPEND_COLUMN(TempFilesDBColumns::config_hash, row.config_hash_value, insertQuery)
     APPEND_COLUMN(DBColumns::created_date_time, currentUtcTime, insertQuery)
     APPEND_COLUMN(DBColumns::modified_date_time, currentUtcTime, insertQuery)
     insertQuery.pop_back();
-    
+
     // Build parameterized values using safe macros
     APPEND_COLUMN_VALUE(row.device_id_value, params)
     APPEND_COLUMN_VALUE(row.file_path_value, params)
@@ -4088,6 +4095,7 @@ int Sqlite::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN_VALUE_INT(row.end_time_ms_value, params)
     APPEND_COLUMN_VALUE(row.file_type_value, params)
     APPEND_COLUMN_VALUE(row.container_format_value, params)
+    APPEND_COLUMN_VALUE(row.config_hash_value, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
     
@@ -4179,10 +4187,14 @@ std::vector<TempFilesDBColumns> Sqlite::getAllTempFiles()
             {
                 record.container_format_value = column.second;
             }
+            else if (iequals(column.first, TempFilesDBColumns::config_hash))
+            {
+                record.config_hash_value = column.second;
+            }
         }
         result.push_back(record);
     }
-    
+
     return result;
 }
 
@@ -4233,7 +4245,8 @@ TempFilesDBColumns Sqlite::findTempFileByStreamAndTime(
     const std::string& deviceId, const std::string& streamId,
     int64_t startTimeMs, int64_t endTimeMs,
     const std::string& fileType,
-    const std::string& containerFormat)
+    const std::string& containerFormat,
+    const std::string& configHash)
 {
     TempFilesDBColumns record;
     queryResult queryRes;
@@ -4265,9 +4278,16 @@ TempFilesDBColumns Sqlite::findTempFileByStreamAndTime(
 
     if (!containerFormat.empty())
     {
-        queryTemplate += " AND " + TempFilesDBColumns::container_format + " = " + PARAM_PLACEHOLDER(8);
+        queryTemplate += " AND " + TempFilesDBColumns::container_format + " = " + PARAM_PLACEHOLDER(params.size());
         params.push_back(containerFormat);
     }
+    // Cache key is partitioned by overlay/transcode configuration. Callers
+    // that vary output by config (e.g. /url with overlay) supply a non-empty
+    // hash and must only reuse files generated with the identical config.
+    // Callers that do not (full-file symlink, picture snapshots) pass an
+    // empty string and continue matching the legacy unhashed rows.
+    queryTemplate += " AND " + TempFilesDBColumns::config_hash + " = " + PARAM_PLACEHOLDER(params.size());
+    params.push_back(configHash);
     queryTemplate += " LIMIT 1;";
 
     LOG(verbose) << "SQL query: " << queryTemplate << endl;

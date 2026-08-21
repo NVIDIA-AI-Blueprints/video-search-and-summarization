@@ -16,8 +16,8 @@
     "reverse_proxy_server_address": "REVERSE_PROXY_SERVER_ADDRESS:100",
     "ntp_servers": [],
     "use_sensor_ntp_time": false,
-    "max_webrtc_out_connections": 8,
-    "max_webrtc_in_connections": 8,
+    "max_webrtc_out_connections": 16,
+    "max_webrtc_in_connections": 1,
     "webservice_access_control_list": "",
     "rtsp_server_port": 31554,
     "rtsp_server_instances_count": 8,
@@ -26,7 +26,7 @@
     "rtcp_rtp_port_multiplex": true,
     "rtsp_in_base_udp_port_num": -1,
     "rtsp_out_base_udp_port_num": -1,
-    "rtsp_streaming_over_tcp": false,
+    "rtsp_streaming_over_tcp": true,
     "rtsp_server_reclamation_client_timeout_sec": 10,
     "rx_socket_buffer_size": 1000000,
     "tx_socket_buffer_size": 1000000,
@@ -144,9 +144,8 @@
     "storage_monitoring_frequency_secs": 2,
     "nv_streamer_directory_path": "/home/vst/vst_release/streamer_videos/",
     "nv_streamer_loop_playback": true,
-    "nv_streamer_seekable": false,
-    "nv_streamer_sync_playback": false,
-    "nv_streamer_sync_file_count": 0,
+    "nv_streamer_seekable": true,
+    "nv_streamer_sync_file_count": __SYNC_FILE_COUNT__,
     "nv_streamer_max_upload_file_size_MB": 10000,
     "nv_streamer_media_container_supported": [
       "mp4",
@@ -199,13 +198,6 @@
     "webrtc_out_enc_quality_tuning": "ultra_low_latency",
     "webrtc_out_enc_preset": "ultra_fast",
     "enable_drc": true
-  },
-  "notifications": {
-    "enable_notification": false,
-    "use_message_broker": "kafka",
-    "message_broker_topic": "vst.event",
-    "redis_server_env_var": "__REDIS_ADDRESS__",
-    "kafka_server_address": "__KAFKA_ADDRESS__"
   },
   "debug": {
     "enable_perf_logging": true,

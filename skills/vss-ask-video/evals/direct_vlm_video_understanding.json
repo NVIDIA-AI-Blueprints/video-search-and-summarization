@@ -1,0 +1,47 @@
+{
+  "skills": [
+    "vss-ask-video",
+    "vss-deploy-profile"
+  ],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base` so a local NIM Cosmos VLM is serving. Run autonomously.\n\n**Purpose of this eval:** it exercises the **vss-ask-video direct-VLM path with NO VST/VIOS** — later steps answer a question about a *local* video file by POSTing it straight to the VLM's `/v1/chat/completions` (inline base64 or a self-served URL). The skill does NOT call `POST /generate` and does NOT resolve a VST clip URL. For this step, only bring the base profile up so a VLM endpoint resolves. Read `VLM_BASE_URL` / `VLM_NAME` / `VLM_MODE` (and `RTVI_VLM_BASE_URL` for RT-VLM) off the `vss-agent` container env — the image is distroless, so use `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`, not `docker exec`. (See `skills/vss-ask-video/SKILL.md`.)",
+      "checks": [
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+        "A VLM endpoint resolves from the vss-agent container environment (read via `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`): either VLM_BASE_URL + VLM_NAME (NIM Cosmos, base default :30082) or RTVI_VLM_BASE_URL + VLM_NAME (RT-VLM), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"
+      ]
+    },
+    {
+      "query": "Obtain the VSS sample data **as a local file on disk** (do NOT upload it to VST/VIOS). Configure NGC access, then run `ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.2.0` and extract it (e.g. `tar -xf dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz -C ./sample-data`) so that a local copy of `warehouse_safety_0001.mp4` exists on disk. This route uses the local file directly — it must NOT be registered as a VST sensor or uploaded via VIOS.",
+      "checks": [
+        "A local, non-empty file named warehouse_safety_0001.mp4 exists on disk after this step (e.g. `find . -name warehouse_safety_0001.mp4` returns a path to a file with size > 0), sourced from the NGC `nvidia/vss-developer/dev-profile-sample-data` resource.",
+        "The trajectory shows the video was obtained as a local file (NGC resource download + extract) and was NOT uploaded to VIOS/VST for this step (no PUT to the VST sensor/stream registration endpoints such as /vst/api/v1/... for warehouse_safety_0001)."
+      ]
+    },
+    {
+      "query": "Answer this question about the **local** video file `warehouse_safety_0001.mp4` (the on-disk copy from the previous step) by calling the VLM directly with the file inlined — do NOT use VST/VIOS and do NOT call the agent's summarize pipeline: **Is the worker wearing PPE?**",
+      "checks": [
+        "The run inlined the LOCAL mp4 as base64: it POSTed to the resolved VLM endpoint's /v1/chat/completions with Content-Type application/json and a messages array whose first user content list contains a text block with the question AND a video block whose url is a `data:video/mp4;base64,...` data URI (the file_base64 path, NOT a remote/VST URL). HTTP 2xx. Backend-conditional kwargs \u2014 judge ONLY the endpoint that the successful (HTTP 2xx) request actually targeted: if it was NIM Cosmos (VLM_BASE_URL, base default :30082) the body MUST also include mm_processor_kwargs and media_io_kwargs (with num_frames); if it was RT-VLM (RTVI_VLM_BASE_URL, default :8018) those two fields MUST be absent, but the body MUST instead carry RT-VLM's frame-sampling field num_frames_per_second_or_fixed_frames_chunk with a non-zero value, because RT-VLM defaults it to 0 and a bare request then samples the clip at zero frames and answers from its opening frame. use_fps_for_chunking, vlm_input_width and vlm_input_height are OPTIONAL: the skill sends them to match the profile's agent config, but they do not change which frames the model sees (verified live \u2014 the frame count alone restores correct answers), so their absence is NOT a failure. Earlier failed or empty attempts against a different endpoint do not count against this check.",
+        "The run did NOT perform any GET to a VST clip-URL endpoint (no request to a http://<host>:30888/vst/api/v1/storage/file/.../url style URL) — the video came from the local file, not VST.",
+        "The run did NOT POST to http://<host>:8000/generate.",
+        "The final assistant reply answers whether the worker is wearing PPE in plain text or light markdown, derived from the VLM response (any <think>...</think> block stripped), with no errors in the final response."
+      ]
+    },
+    {
+      "query": "Now answer a second question about the same local `warehouse_safety_0001.mp4` using the **`video_url`** input format (a URL the VLM fetches) instead of inline base64 — still WITHOUT VST/VIOS and WITHOUT `POST /generate`. Serve the local file over a simple HTTP URL the VLM can reach (e.g. `python3 -m http.server` bound to the host IP), then hand that URL to **vss-ask-video** as its VIDEO_URL input and let the skill build and send the request \u2014 do not hand-write your own shorter request body: **At what timestamp does the worker climb the ladder?**",
+      "checks": [
+        "The run served the local mp4 over a reachable HTTP URL and POSTed to the resolved VLM endpoint's /v1/chat/completions with a `video_url` block whose url is that self-served http URL (NOT a VST /vst/api/v1/... clip URL and NOT a `data:` URI), plus the user's question as a text block. HTTP 2xx. Backend-conditional kwargs \u2014 judge ONLY the endpoint that the successful (HTTP 2xx) request actually targeted: if it was NIM Cosmos (VLM_BASE_URL, base default :30082) the body MUST also include mm_processor_kwargs and media_io_kwargs (with num_frames); if it was RT-VLM (RTVI_VLM_BASE_URL, default :8018) those two fields MUST be absent, but the body MUST instead carry RT-VLM's frame-sampling field num_frames_per_second_or_fixed_frames_chunk with a non-zero value, because RT-VLM defaults it to 0 and a bare request then samples the clip at zero frames and answers from its opening frame. use_fps_for_chunking, vlm_input_width and vlm_input_height are OPTIONAL: the skill sends them to match the profile's agent config, but they do not change which frames the model sees (verified live \u2014 the frame count alone restores correct answers), so their absence is NOT a failure. Earlier failed or empty attempts against a different endpoint do not count against this check.",
+        "The run did NOT perform any GET to a VST clip-URL endpoint (no http://<host>:30888/vst/api/v1/storage/file/.../url request).",
+        "The run did NOT POST to http://<host>:8000/generate.",
+        "The final assistant reply answers the question in plain text or light markdown and includes a timestamp, derived from the VLM response (any <think>...</think> block stripped), with no errors in the final response."
+      ]
+    }
+  ]
+}

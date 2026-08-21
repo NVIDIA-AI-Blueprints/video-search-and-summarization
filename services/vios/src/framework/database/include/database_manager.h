@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +40,7 @@ public:
     virtual bool executeQuery(const std::string &queryTemplate, const std::vector<std::string> &params) = 0;
     virtual bool executeQuery(const std::string &queryTemplate, const std::vector<std::string> &params, queryResult &result) = 0;
     
-    virtual ~IDatabaseInterface() {}
+    virtual ~IDatabaseInterface() = default;
 
     // Database type identification
     virtual DatabaseType getDatabaseType() const = 0;
@@ -86,10 +86,10 @@ public:
     virtual std::vector<UserSessionsDBColumns> getUserSessions(const string username) { return {}; };
     virtual int deleteUserSession(const string username, const string sessionId) { return -1; };
     virtual int setUserSession(UserSessionsDBColumns &row) { return -1; };
-    virtual void deleteExpiredUserSessions() {};
+    virtual void deleteExpiredUserSessions() { /* Default no-op: backends without user session support have nothing to expire */ };
     virtual std::vector<UserSessionsDBColumns> getAllSessions() { return {}; };
     virtual int deleteUserDetails(const string username) { return -1; };
-    virtual void extendSession(const string username, const string sessionId) {};
+    virtual void extendSession(const string username, const string sessionId) { /* Default no-op; concrete database backends override this. */ };
     virtual std::string getLocalDeviceId() { return ""; };
     virtual std::string getLocalDeviceName() { return ""; };
     virtual int setLocalDeviceId(const string deviceId) { return -1; };
@@ -118,7 +118,7 @@ public:
     virtual int updateFilesProtectionInDb(bool fileProtection, const std::vector<string>& filePaths) { return -1; };
     virtual int resetProtectedFlagsInDb() { return -1; };
     virtual std::vector<VideoRecordDBColumns> getProtectedFilesFromDB() { return {}; };
-    virtual void createDatabaseTables() {};
+    virtual void createDatabaseTables() { /* No-op default: backends without a fixed schema have no tables to create. */ };
     virtual VmsErrorCode getMainStreamFromDB(shared_ptr<StreamInfo> &mainStream, const SensorDetailsDBColumns &sensorDetails) { return VmsErrorCode::NoError; };
     virtual VmsErrorCode getSubStreamFromDB(shared_ptr<StreamInfo> &subStream, const SensorStreamsDBColumns &streamDetails, const string device_name) { return VmsErrorCode::NoError; };
     virtual VmsErrorCode getSensorInfoFromDB(shared_ptr<SensorInfo> &deviceInfo, const SensorDetailsDBColumns &sensorDetails) { return VmsErrorCode::NoError; };
@@ -142,7 +142,8 @@ public:
         const std::string& deviceId, const std::string& streamId,
         int64_t startTimeMs, int64_t endTimeMs,
         const std::string& fileType = "",
-        const std::string& containerFormat = "") { return {}; };
+        const std::string& containerFormat = "",
+        const std::string& configHash = "") { return {}; };
     virtual int updateTempFileExpiry(
         const std::string& filePath, int64_t newExpiryTimestamp) { return -1; };
 

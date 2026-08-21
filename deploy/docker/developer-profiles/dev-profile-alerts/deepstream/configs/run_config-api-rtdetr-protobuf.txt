@@ -39,7 +39,7 @@ num-source-bins=0
 #num-source-bins=4
 use-nvmultiurisrcbin=1
 max-batch-size=30
-http-ip=localhost
+http-ip=0.0.0.0
 http-port=9010
 #sgie batch size is number of sources * fair fraction of number of objects detected per frame per source
 #the fair fraction of number of object detected is assumed to be 4
@@ -91,7 +91,7 @@ msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.s
 #msg-broker-conn-str=qvs-ds-kafka-01;9092;metromind-raw
 #topic=metromind-raw
 # msg-broker-conn-str=mdx-kafka-cluster-kafka-brokers;9092;mdx-raw
-msg-broker-conn-str=localhost;9092;mdx-raw
+msg-broker-conn-str=kafka;29092;mdx-raw
 #topic=mdx-raw
 topic=mdx-raw
 #Optional:
@@ -198,3 +198,16 @@ display-tracking-id=1
 
 [tests]
 file-loop=1
+
+#[frame-dump]
+#enable=1
+#fps=1
+#location=/tmp/frame_dumps
+#all-cameras=1
+#quality=80
+#hour-subfolder=0
+#unique-filenames=0
+#retention-days=0
+#kafka-enable=1
+#kafka-broker=kafka;29092
+#kafka-topic=frame-dumps

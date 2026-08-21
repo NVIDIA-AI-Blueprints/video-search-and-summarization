@@ -15,11 +15,29 @@
 
 include:
   - path: cosmos-reason1-7b/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: cosmos-reason2-8b/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: cosmos3-reasoner/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: gpt-oss-20b/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: llama-3.3-nemotron-super-49b-v1.5/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: nemotron-3-nano/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: nvidia-nemotron-nano-9b-v2/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: nvidia-nemotron-nano-9b-v2-fp8/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: qwen3-vl-8b-instruct/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env

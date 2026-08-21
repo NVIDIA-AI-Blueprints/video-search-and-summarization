@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -527,6 +527,10 @@ nv_vms::VmsErrorCode downloadVideoFile(
         wcfg.user_start_time_iso = user_start_time;
         wcfg.user_end_time_iso = user_end_time;
         wcfg.overlay_params = ol_params;
+        // Real fps from the file-list query (already fetched) so the overlay
+        // bbox match tolerance adapts to the clip's actual cadence instead of a
+        // hardcoded 30. 0 when unknown -> writer falls back to the default.
+        wcfg.frame_rate = static_cast<double>(fileNameArray[0].m_fileFPS);
         wcfg.is_software_encoder = is_sw_encoder;
         wcfg.seek_start_ms = params.seek_start_pos;
         wcfg.end_time_ms = params.seek_end_pos;
@@ -565,13 +569,13 @@ nv_vms::VmsErrorCode downloadVideoFile(
     std::atomic<bool> finished{false};
     std::atomic<bool> readerError{false};
 
-    readerProducer->onFinished([&]() {
+    readerProducer->onFinished([&finished, &log_prefix, &videoConsumer]() {
         finished = true;
         LOG(info) << log_prefix << "Reader producer: EOS reached" << endl;
         videoConsumer->sendEOS();
     });
 
-    readerProducer->onError([&](const std::string& errorMsg, int errorCode) {
+    readerProducer->onError([&finished, &readerError, &log_prefix, &videoConsumer](const std::string& errorMsg, int errorCode) {
         finished = true;
         readerError = true;
         LOG(error) << log_prefix << "Reader producer error: " << errorMsg << " (code: " << errorCode << ")" << endl;

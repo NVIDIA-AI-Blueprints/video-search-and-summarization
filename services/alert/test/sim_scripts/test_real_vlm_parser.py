@@ -141,7 +141,7 @@ def simulate_pipeline_merge(parser_output: dict) -> dict:
     through merge_info_with_response; we mirror that here for fidelity.
     """
     try:
-        from models.responses import (
+        from schemas.vlm_responses import (
             AlertBridgeResponse,
             VLMResponse,
             merge_info_with_response,

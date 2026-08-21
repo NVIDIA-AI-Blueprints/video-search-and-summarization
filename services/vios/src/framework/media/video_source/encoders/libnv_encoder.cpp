@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,10 +45,7 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/field_trial_units.h"
 #include "rtc_base/trace_event.h"
-#include "system_wrappers/include/field_trial.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
-
-#include "modules/video_capture/linux/video_capture_linux.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -92,21 +89,19 @@ std::unordered_map<std::string, uint32_t> stringToPresetIDMap =
         {"slow"       , 7 }
 };
 
-NvVideoEncoder::NvVideoEncoder()
-{
-}
+NvVideoEncoder::NvVideoEncoder() = default;
 
 NvVideoEncoder::~NvVideoEncoder()
 {
     // Ensure cleanup of allocated resources
     if (capturePlane != nullptr)
     {
-        free(capturePlane);
+        delete capturePlane;
         capturePlane = nullptr;
     }
     if (outputPlane != nullptr)
     {
-        free(outputPlane);
+        delete outputPlane;
         outputPlane = nullptr;
     }
 }
@@ -116,13 +111,13 @@ void NvVideoEncoder::Init()
     int ret = 0;
     if (capturePlane == nullptr)
     {
-        capturePlane = (v4l2Planes_ *)(malloc(sizeof(v4l2Planes_)));
+        capturePlane = new v4l2Planes_();
         capturePlane->plane_name = "Capture Plane";
         InitPlane(capturePlane);
     }
     if (outputPlane == nullptr)
     {
-        outputPlane = (v4l2Planes_ *)(malloc(sizeof(v4l2Planes_)));
+        outputPlane = new v4l2Planes_();
         outputPlane->plane_name = "Output Plane";
         InitPlane(outputPlane);
     }
@@ -130,32 +125,32 @@ void NvVideoEncoder::Init()
     /* open encoder device */
     if (encoder_fd == -1)
     {
-        if (g_gpuNodePath.empty())
+        if (isJetsonPlatform())
         {
-            g_gpuNodePath = ENCODER_DEV;
-#ifdef JETSON_PLATFORM
-            gpu_enabled = true;
-#endif
+            // On Tegra/Orin the NVENC engine is a V4L2 M2M device, NOT the GPU/CUDA node
+            // (/dev/nvidia0, which R39 now exposes for the iGPU — opening it would succeed
+            // but VIDIOC_S_FMT then fails). Open the V4L2 encoder node directly: prefer
+            // /dev/v4l2-nvenc (R39/JetPack7), fall back to /dev/nvhost-msenc (JetPack5/6).
+            gpu_enabled = false;
+            const char* enc_node = (access(ENCODER_DEV_ALT, F_OK) == 0) ? ENCODER_DEV_ALT
+                                                                        : ENCODER_DEV_LEGACY;
+            encoder_fd = NvLibs::getInstance()->v4l2_open(enc_node, flags | O_RDWR);
+            LOG(error) << "Opening Nvidia Enc device (Jetson V4L2 M2M): " << enc_node << endl;
         }
-        encoder_fd = NvLibs::getInstance()->v4l2_open(g_gpuNodePath.c_str(), flags | O_RDWR);
-        LOG(error) << "Opening Nvidia Enc device: " << g_gpuNodePath << endl;
+        else
+        {
+            if (getGpuNodePath().empty())
+            {
+                setGpuNodePath(ENCODER_DEV);
+            }
+            encoder_fd = NvLibs::getInstance()->v4l2_open(getGpuNodePath().c_str(), flags | O_RDWR);
+            LOG(error) << "Opening Nvidia Enc device: " << getGpuNodePath() << endl;
+        }
         if (encoder_fd == -1)
         {
-#ifdef JETSON_PLATFORM
-            g_gpuNodePath = ENCODER_DEV_ALT;
-            encoder_fd = NvLibs::getInstance()->v4l2_open(g_gpuNodePath.c_str(), flags | O_RDWR);
-            gpu_enabled = false;
-            LOG(error) << "Opening Nvidia Enc device: " << g_gpuNodePath << endl;
-            if (encoder_fd == -1)
-            {
-
-#endif
-                /* Exiting the vst process so that it can restart the process */
-                LOG(error) << "FATAL ERROR observed - Could not open device ENCODER DEV:" << g_gpuNodePath << endl;
-                assert(false);
-#ifdef JETSON_PLATFORM
-            }
-#endif
+            /* Exiting the vst process so that it can restart the process */
+            LOG(error) << "FATAL ERROR observed - Could not open encoder device" << endl;
+            assert(false);
         }
     }
 
@@ -184,13 +179,13 @@ void NvVideoEncoder::Deinit()
 
     if (capturePlane != nullptr)
     {
-        free(capturePlane);
+        delete capturePlane;
         capturePlane = nullptr;
     }
 
     if (outputPlane != nullptr)
     {
-        free(outputPlane);
+        delete outputPlane;
         outputPlane = nullptr;
     }
 
@@ -591,11 +586,11 @@ int NvVideoEncoder::reqbufs(struct v4l2Planes_ * currentPlane, uint32_t num)
         if (reqbuf.count)
         {
             currentPlane->buffer_count = reqbuf.count;
-            currentPlane->buffers  = (NvBuffer ** )malloc(reqbuf.count*sizeof(NvBuffer *));
+            currentPlane->buffers  = new NvBuffer *[reqbuf.count]();
 
             for (uint32_t i = 0; i < reqbuf.count; i++)
             {
-                currentPlane->buffers[i] = (NvBuffer *)malloc(sizeof(NvBuffer));
+                currentPlane->buffers[i] = new NvBuffer();
                 InitNvBuffer(currentPlane->buffers[i], currentPlane->buf_type,
                         currentPlane->memory_type, currentPlane->n_planes,
                         currentPlane->planefmts, i);
@@ -605,9 +600,9 @@ int NvVideoEncoder::reqbufs(struct v4l2Planes_ * currentPlane, uint32_t num)
         {
             for (uint32_t i = 0; i < currentPlane->num_buffers; i++)
             {
-                free(currentPlane->buffers[i]);
+                delete currentPlane->buffers[i];
             }
-            free(currentPlane->buffers);
+            delete[] currentPlane->buffers;
             currentPlane->buffers = nullptr;
         }
         currentPlane->num_buffers = reqbuf.count;
@@ -677,9 +672,10 @@ int NvVideoEncoder::setupPlane(struct v4l2Planes_ * currentPlane, enum v4l2_memo
         bool map, bool allocate)
 {
     bool export_buffer = map;
-#ifdef JETSON_PLATFORM
-    export_buffer = true;
-#endif
+    if (isJetsonPlatform())
+    {
+        export_buffer = true;
+    }
     uint32_t i;
 
     currentPlane->memory_type = mem_type;
@@ -707,16 +703,17 @@ int NvVideoEncoder::setupPlane(struct v4l2Planes_ * currentPlane, enum v4l2_memo
                 }
             }
         }
-#ifdef JETSON_PLATFORM
-        if (map)
+        if (isJetsonPlatform())
         {
-            if (mapBuffers(currentPlane->buffers[i]))
+            if (map)
             {
-                LOG(error) << "Error in mapBuffers" << endl;
-                return -1;
+                if (mapBuffers(currentPlane->buffers[i]))
+                {
+                    LOG(error) << "Error in mapBuffers" << endl;
+                    return -1;
+                }
             }
         }
-#endif
     }
     return 0;
 }
@@ -863,53 +860,56 @@ int NvVideoEncoder::InitEncode(uint32_t width, uint32_t height, string codecStri
     int ret = 0;
     DeviceConfig vms_config = GET_CONFIG();
 
-#ifndef JETSON_PLATFORM
-    CUresult cu_result = CUDA_SUCCESS;
-    cudaError_t CUerr  = cudaSuccess;
+    // Discrete-GPU CUDA context setup is only required on Thor/SBSA/x86, not Jetson/Orin.
+    if (!isJetsonPlatform())
+    {
+        CUresult cu_result = CUDA_SUCCESS;
+        cudaError_t CUerr  = cudaSuccess;
 
-    if (CudaLoader::getInstance()->isError())
-    {
-        LOG(error) << "Cuda library not present" << endl;
-        return -1;
-    }
-    CudaLoader::getInstance()->cuInit(0);
-    LOG(info) << "Init CUDA device " << g_gpuIndex << endl;
-    cu_result = CudaLoader::getInstance()->cuDeviceGet(&cuDevice, g_gpuIndex);
-    if (cu_result != CUDA_SUCCESS)
-    {
-        LOG(error) << "ENC_CTX Unable to get Cuda device\n" << cu_result << endl;
-        return -1;
-    }
-    CUerr = CudaLoader::getInstance()->cudaSetDevice(cuDevice);
-    if (CUerr != cudaSuccess)
-    {
-        LOG(error) << "Failed cudaSetDevice" << endl;
-        return -1;
-    }
+        if (CudaLoader::getInstance()->isError())
+        {
+            LOG(error) << "Cuda library not present" << endl;
+            return -1;
+        }
+        CudaLoader::getInstance()->cuInit(0);
+        LOG(info) << "Init CUDA device " << getGpuIndex() << endl;
+        cu_result = CudaLoader::getInstance()->cuDeviceGet(&cuDevice, getGpuIndex());
+        if (cu_result != CUDA_SUCCESS)
+        {
+            LOG(error) << "ENC_CTX Unable to get Cuda device\n" << cu_result << endl;
+            return -1;
+        }
+        CUerr = CudaLoader::getInstance()->cudaSetDevice(cuDevice);
+        if (CUerr != cudaSuccess)
+        {
+            LOG(error) << "Failed cudaSetDevice" << endl;
+            return -1;
+        }
 
-    cu_result = CudaLoader::getInstance()->cuCtxGetCurrent(&cuContext);
-    if (cu_result != CUDA_SUCCESS)
-    {
-        LOG(error) << "Failed cuCtxGetCurrent" << endl;
-        return -1;
+        cu_result = CudaLoader::getInstance()->cuCtxGetCurrent(&cuContext);
+        if (cu_result != CUDA_SUCCESS)
+        {
+            LOG(error) << "Failed cuCtxGetCurrent" << endl;
+            return -1;
+        }
+        if (cuContext == nullptr)
+        {
+            LOG(error) << "Failed cuContext is NULL" << endl;
+            return -1;
+        }
     }
-    if (cuContext == nullptr)
-    {
-        LOG(error) << "Failed cuContext is NULL" << endl;
-        return -1;
-    }
-#endif
 
     Init();
 
     // SetVBR ();
     setMaxPerfMode();
 
-#ifndef JETSON_PLATFORM
-    /* This is required for x86 as QP for I values when unset, shoot to 50 when there are
-    *  high Motion Vectors in the frame */
-    setQpRange();
-#endif
+    if (!isJetsonPlatform())
+    {
+        /* This is required for x86 as QP for I values when unset, shoot to 50 when there are
+        *  high Motion Vectors in the frame */
+        setQpRange();
+    }
 
     if (iequals(codecString, "H264"))
     {
@@ -928,9 +928,10 @@ int NvVideoEncoder::InitEncode(uint32_t width, uint32_t height, string codecStri
         return -1;
     }
 
-#ifndef JETSON_PLATFORM
-    setGPUIndex(g_gpuIndex);
-#endif
+    if (!isJetsonPlatform())
+    {
+        setGPUIndex(getGpuIndex());
+    }
 
     DeviceConfig config =  GET_CONFIG();
     if (config.webrtc_out_enable_insert_sps_pps)
@@ -948,10 +949,11 @@ int NvVideoEncoder::InitEncode(uint32_t width, uint32_t height, string codecStri
 
     setHWPreset();
 
-#ifndef JETSON_PLATFORM
-    setTuningInfo ();
-    setCudaPresetID ();
-#endif
+    if (!isJetsonPlatform())
+    {
+        setTuningInfo ();
+        setCudaPresetID ();
+    }
 
     struct v4l2_streamparm parm;
     memset(&parm, 0, sizeof(struct v4l2_streamparm));
@@ -1442,17 +1444,20 @@ int NvVideoEncoder::GetEncodedPartitions(unsigned char** data, ssize_t *size, bo
         LOG(error) << "capplane_buffer is NULL" << endl;
         return -1;
     }
-    *data = (uint8_t* )malloc(capplane_buffer->planes[0].bytesused);
+    *data = new uint8_t[capplane_buffer->planes[0].bytesused];
     *size =  capplane_buffer->planes[0].bytesused;
-#ifdef JETSON_PLATFORM
-    memcpy(*data,  capplane_buffer->planes[0].data,  capplane_buffer->planes[0].bytesused);
-#else
-    void* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
-    if (surface_data_ptr)
+    if (isJetsonPlatform())
     {
-        memcpy(*data,  (unsigned char*)surface_data_ptr,  capplane_buffer->planes[0].bytesused);
+        memcpy(*data,  capplane_buffer->planes[0].data,  capplane_buffer->planes[0].bytesused);
     }
-#endif
+    else
+    {
+        unsigned char* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
+        if (surface_data_ptr)
+        {
+            memcpy(*data,  surface_data_ptr,  capplane_buffer->planes[0].bytesused);
+        }
+    }
 
     if (!last_buffers)
     {

@@ -40,26 +40,23 @@ WORKDIR /vss-agent
 # runtime user can read/execute but not own or modify the copied resources.
 COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
 COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
-COPY --chown=root:root --chmod=0444 agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
-COPY --chown=root:root --chmod=0555 agent/src/vss_agents /vss-agent/src/vss_agents
-# `lib/` is a sibling top-level package shipped in the same wheel
-# (see pyproject.toml `packages = ["src/vss_agents", "src/lib"]`); without
-# this copy, lib.knowledge would be missing from the built image.
-COPY --chown=root:root --chmod=0555 agent/src/lib /vss-agent/src/lib
+# uv workspace: the meta pyproject (copied above) + each member's pyproject/src.
+# Tests are intentionally omitted from the image.
+COPY --chown=root:root --chmod=0444 agent/packages/vss_core/pyproject.toml /vss-agent/packages/vss_core/pyproject.toml
+COPY --chown=root:root --chmod=0555 agent/packages/vss_core/src /vss-agent/packages/vss_core/src
+COPY --chown=root:root --chmod=0444 agent/packages/vss_agents/pyproject.toml /vss-agent/packages/vss_agents/pyproject.toml
+COPY --chown=root:root --chmod=0555 agent/packages/vss_agents/src /vss-agent/packages/vss_agents/src
+COPY --chown=root:root --chmod=0444 agent/packages/vss_cli/pyproject.toml /vss-agent/packages/vss_cli/pyproject.toml
+COPY --chown=root:root --chmod=0555 agent/packages/vss_cli/src /vss-agent/packages/vss_cli/src
 COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
-COPY --chown=root:root --chmod=0444 agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
-COPY --chown=root:root --chmod=0555 agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
-
-# Fail early if FFmpeg source tarball is missing or invalid (required for LGPL compliance)
-RUN python3 /vss-agent/verify_ffmpeg_tarball.py
 
 # Create virtual environment and install dependencies
 # Use architecture-specific cache to avoid ARM64/AMD64 conflicts
 RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=private \
     uv venv --seed .venv && \
     . .venv/bin/activate && \
-    uv sync --frozen --no-dev --no-editable --link-mode copy
+    uv sync --frozen --no-dev --no-editable --extra agent --link-mode copy
 
 RUN uv pip uninstall setuptools
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/setuptools
@@ -97,8 +94,9 @@ RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/cv2 \
            -o -name 'libde265*.so*' -o -name 'libopenh264*.so*' -o -name 'libkvazaar*.so*' \
        \) -delete 2>/dev/null || true
 
-# Security patch stage - download patched OpenSSL libraries
+# Security patch stage - download patched runtime libraries
 # CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.20-1~deb12u2
+# CVE-2026-34743: Upgrade liblzma5 to 5.4.1-1+deb12u1
 # (bumped from 3.0.19-1~deb12u2, which Debian rotated out of the security pool — the
 #  pinned URL started returning 404 and broke the image build).
 FROM debian:bookworm AS security-patches
@@ -106,19 +104,22 @@ ARG TARGETARCH
 
 # Download the patched libssl3 package for the target architecture
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget ca-certificates && \
+    apt-get install -y --no-install-recommends wget ca-certificates liblzma5 && \
     mkdir -p /patches && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' liblzma5)" ge "5.4.1-1+deb12u1" && \
+    dpkg-query -s liblzma5 > /patches/liblzma5.status && \
+    cp /var/lib/dpkg/info/liblzma5*.md5sums /patches/liblzma5.md5sums && \
     if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb; \
+        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb; \
+        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb; \
     fi && \
     cd /patches && \
     dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime stage - using NVIDIA distroless production image (supports AMD64 and ARM64)
-FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.7 AS runtime
+FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.10 AS runtime
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG TARGETPLATFORM
@@ -152,11 +153,25 @@ COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/lib
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libcrypto.so.* /usr/lib/x86_64-linux-gnu/
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libcrypto.so.* /usr/lib/aarch64-linux-gnu/
 
+# Replace liblzma and its package metadata so runtime scanners identify the
+# patched Debian package rather than the vulnerable distroless-base version.
+COPY --from=security-patches /usr/lib/*-linux-gnu*/liblzma.so.* /usr/lib/x86_64-linux-gnu/
+COPY --from=security-patches /usr/lib/*-linux-gnu*/liblzma.so.* /usr/lib/aarch64-linux-gnu/
+COPY --from=security-patches /patches/liblzma5.status /var/lib/dpkg/status.d/liblzma5
+COPY --from=security-patches /patches/liblzma5.md5sums /var/lib/dpkg/status.d/liblzma5.md5sums
+
 # Copy application without any dev needs
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
-COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/third_party/ffmpeg /vss-agent/third_party/ffmpeg
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
-COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
+
+# The NVIDIA Software License Agreement is not vendored in this source tree.
+# BuildKit performs this download itself, so no HTTP client is needed in any
+# stage, and --checksum verifies the bytes before the layer is created: a
+# CDN error page or a silently replaced document fails the build.
+ADD --chown=root:root --chmod=0444 \
+    --checksum=sha256:f5ad3da1faf5734a1f9ea1ad4ab6862236bf061a0ebbb02dea0fb726b81d7e0d \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    /vss-agent/NVIDIA-Software-License-Agreement.pdf
 
 # Entrypoint wrapper + opt-in proprietary-codec installer (read-only app resources).
 COPY --chown=root:root --chmod=0555 agent/docker/entrypoint.py /vss-agent/entrypoint.py

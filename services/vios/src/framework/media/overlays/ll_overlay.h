@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +32,7 @@
 using namespace std;
 
 inline constexpr double DEFAULT_FRAME_RATE = 30.0;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
 inline constexpr int OUTPUT_PLANE_NUM_BUFFERS = 19;
 #else
 inline constexpr int OUTPUT_PLANE_NUM_BUFFERS = 20;
@@ -110,7 +110,7 @@ private:
     std::string                                    m_isoStartTime;
     std::string                                    m_isoEndTime;
     void*                                          m_broadcaster = nullptr;
-    uint8_t*                                       m_cpuPtr[OUTPUT_PLANE_NUM_BUFFERS];
+    std::vector<uint8_t>                           m_cpuPtr[OUTPUT_PLANE_NUM_BUFFERS];
     bool                                           m_imageCapture = false;
     bool                                           m_isIPCMeta = false;
     std::shared_ptr<IMetadataStore>                m_metadataStore = nullptr;

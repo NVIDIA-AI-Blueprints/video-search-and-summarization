@@ -184,6 +184,9 @@ class RequestInfo:
         self.vlm_pipeline_span = None
         self._e2e_span_context = None
         self._vlm_pipeline_span_context = None
+        # Trace context extracted from the inbound request's traceparent header,
+        # carried here because span creation happens on an executor thread.
+        self._remote_trace_context = None
         # fps metrics
         self._fps_start_time = None
         self._fps_frame_count = 0
@@ -1409,6 +1412,33 @@ class ViaStreamHandler:
         req_info.status = RequestInfo.Status.PROCESSING
         req_info.start_time = time.time()
 
+        # Create OTEL spans for end-to-end and VLM pipeline tracing. This runs
+        # before the dense caption cache check below so a cache hit still
+        # produces a correctly parented trace instead of orphaned chunk spans.
+        if is_tracing_enabled():
+            from opentelemetry import trace
+
+            tracer = get_tracer()
+            if tracer:
+                # _remote_trace_context is the caller's traceparent when supplied,
+                # otherwise None, which starts a new root span as before.
+                req_info._e2e_span = tracer.start_span(
+                    "Summarization E2E Latency",
+                    context=getattr(req_info, "_remote_trace_context", None),
+                )
+                req_info._e2e_span.set_attribute("request_id", req_info.request_id)
+                req_info._e2e_span.set_attribute("source_id", req_info.source_id)
+                req_info._e2e_span_context = trace.set_span_in_context(req_info._e2e_span)
+
+                req_info.vlm_pipeline_span = tracer.start_span(
+                    "VLM Pipeline Latency", context=req_info._e2e_span_context
+                )
+                req_info.vlm_pipeline_span.set_attribute("request_id", req_info.request_id)
+                req_info.vlm_pipeline_span.set_attribute("source_id", req_info.source_id)
+                req_info._vlm_pipeline_span_context = trace.set_span_in_context(
+                    req_info.vlm_pipeline_span, context=req_info._e2e_span_context
+                )
+
         # Dense caption cache: load from .dc.json if available
         enable_dense_caption = bool(os.environ.get("ENABLE_DENSE_CAPTION", False))
         if enable_dense_caption:
@@ -1422,27 +1452,15 @@ class ViaStreamHandler:
                 req_info.chunk_count = len(req_info_deserialized.processed_chunk_list)
                 for vlm_response in req_info_deserialized.processed_chunk_list:
                     self._on_vlm_chunk_response(vlm_response, req_info)
+                if req_info.chunk_count:
+                    # The final replayed chunk ends the pipeline span and queues
+                    # _process_output, which ends the E2E span.
+                    return
+                # An empty cache replays nothing, so neither span would other-
+                # wise be closed and the trace would never be exported.
+                self._end_vlm_pipeline_span(req_info)
+                self._end_e2e_span(req_info)
                 return
-
-        # Create OTEL spans for end-to-end and VLM pipeline tracing
-        if is_tracing_enabled():
-            from opentelemetry import trace
-
-            tracer = get_tracer()
-            if tracer:
-                req_info._e2e_span = tracer.start_span("Summarization E2E Latency")
-                req_info._e2e_span.set_attribute("request_id", req_info.request_id)
-                req_info._e2e_span.set_attribute("source_id", req_info.source_id)
-                req_info._e2e_span_context = trace.set_span_in_context(req_info._e2e_span)
-
-                req_info.vlm_pipeline_span = tracer.start_span(
-                    "VLM Pipeline Latency", context=req_info._e2e_span_context
-                )
-                req_info.vlm_pipeline_span.set_attribute("request_id", req_info.request_id)
-                req_info.vlm_pipeline_span.set_attribute("source_id", req_info.source_id)
-                req_info._vlm_pipeline_span_context = trace.set_span_in_context(
-                    req_info.vlm_pipeline_span, context=req_info._e2e_span_context
-                )
 
         if req_info._ctx_mgr:
             ca_rag_config = self.update_ca_rag_config(req_info)
@@ -1933,7 +1951,7 @@ class ViaStreamHandler:
                 with self._lock:
                     self._ctx_mgr_pool.append(ctx_mgr)
 
-    def summarize_stream(self, request: StreamSummarizeRequest):
+    def summarize_stream(self, request: StreamSummarizeRequest, trace_context=None):
         """Summarize a live stream by aggregating captions from Elasticsearch via CA-RAG.
 
         Requires ``KAFKA_ENABLED=true``. Creates a RequestInfo, borrows a
@@ -1954,6 +1972,7 @@ class ViaStreamHandler:
         camera_id = getattr(request, "camera_id", "default") or "default"
 
         req_info = RequestInfo()
+        req_info._remote_trace_context = trace_context
         req_info.source_id = stream_id
         req_info.camera_id = camera_id
         req_info.is_summarization = True
@@ -1994,7 +2013,9 @@ class ViaStreamHandler:
 
             tracer = get_tracer()
             if tracer:
-                req_info._e2e_span = tracer.start_span("Stream Summarization E2E Latency")
+                req_info._e2e_span = tracer.start_span(
+                    "Stream Summarization E2E Latency", context=trace_context
+                )
                 req_info._e2e_span.set_attribute("request_id", req_info.request_id)
                 req_info._e2e_span.set_attribute("source_id", stream_id)
                 req_info._e2e_span.set_attribute("is_live", True)
@@ -2475,6 +2496,7 @@ class ViaStreamHandler:
         self,
         source: RequestSource,
         query: SummarizationQuery,
+        trace_context=None,
     ):
         """Run a summarization query on a file"""
         # Enable summarization if summarization config is enabled  OR API passes enable flag
@@ -2492,6 +2514,7 @@ class ViaStreamHandler:
             source=source,
             query=query,
             is_summarization=True,
+            trace_context=trace_context,
         )
 
     def query(
@@ -2500,6 +2523,7 @@ class ViaStreamHandler:
         query: SummarizationQuery,
         is_summarization=False,
         skip_ca_rag=False,
+        trace_context=None,
     ):
         """Run a query on a file"""
 
@@ -2548,6 +2572,7 @@ class ViaStreamHandler:
 
         # Create a RequestInfo object and populate it
         req_info = RequestInfo()
+        req_info._remote_trace_context = trace_context
         req_info.file = source.url or ""
         req_info.chunk_size = query.chunk_duration
         req_info.is_summarization = is_summarization

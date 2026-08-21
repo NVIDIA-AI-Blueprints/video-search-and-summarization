@@ -14,10 +14,13 @@
 # limitations under the License.
 
 # VIOS aarch64 cross-compilation container (NGC CUDA base + arm64 multiarch)
-# Host:   x86_64 Ubuntu 24.04 (nvcr.io/nvidia/cuda:13.0.0-devel-ubuntu24.04)
-# Target: aarch64 (Jetson Thor and DGX-Spark)
+# Host:   x86_64 Ubuntu 24.04 (nvcr.io/nvidia/cuda:13.2.0-devel-ubuntu24.04)
+# Target: aarch64 — one toolchain for Orin (Jetson iGPU), Jetson Thor, and
+#         DGX-Spark. Platform is detected at runtime (isJetsonPlatform()); no
+#         L4T rootfs / jetson_multimedia_api needed (Tegra headers are vendored
+#         in-repo, Tegra libs are dlopen'd and injected on-device).
 
-FROM nvcr.io/nvidia/cuda:13.0.0-devel-ubuntu24.04
+FROM nvcr.io/nvidia/cuda:13.2.0-devel-ubuntu24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -72,7 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #    Side effect: some arm64 -dev packages (e.g. libgtest-dev:arm64) pull
 #    g++-13:arm64, which conflicts with the amd64 g++-13 the base image
 #    pins. apt resolves this by removing the amd64 toolchain, taking
-#    cuda-crt-13-0 (and its crt/ headers) with it; step 4 restores them.
+#    cuda-crt-13-2 (and its crt/ headers) with it; step 4 restores them.
 #    The aarch64-linux-gnu-* cross toolchain from step 2 is unaffected.
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -116,8 +119,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #    the libraries at runtime.
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        cuda-crt-13-0 \
+        cuda-crt-13-2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js for the vios-ui build. The multiarch transaction above can remove
+# amd64 APT packages, while installing NodeSource's amd64 nodejs afterwards
+# can remove arm64 development packages. Use the official amd64 binary archive
+# instead so Node does not participate in either APT dependency transaction.
+ARG NODE_VERSION=22.23.2
+RUN wget -q "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -O /tmp/node-shasums.txt && \
+    wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -O "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" && \
+    (cd /tmp && grep " node-v${NODE_VERSION}-linux-x64.tar.gz$" node-shasums.txt | sha256sum -c -) && \
+    tar -xzf "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" -C /opt && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/node" /usr/local/bin/node && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/npm" /usr/local/bin/npm && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/npx" /usr/local/bin/npx && \
+    rm -f /tmp/node-shasums.txt "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" && \
+    node -v && npm -v
 
 # ---------------------------------------------------------------------------
 # 5. Build environment for the cross toolchain.
@@ -128,10 +146,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #    scripts pick up aarch64 .pc files instead of x86_64 ones.
 #
 #    CUDA_TARGET_DIR points at the base image's CUDA install root. The
-#    devel image places headers under /usr/local/cuda-13.0/include/
+#    devel image places headers under /usr/local/cuda-13.2/include/
 #    directly. The Makefile consumes this via `-I $(CUDA_TARGET_DIR)/include`.
 # ---------------------------------------------------------------------------
 ENV CROSS_COMPILE="aarch64-linux-gnu-"
 ENV PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
 ENV PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
-ENV CUDA_TARGET_DIR="/usr/local/cuda-13.0"
+ENV CUDA_TARGET_DIR="/usr/local/cuda-13.2"

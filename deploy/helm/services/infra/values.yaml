@@ -26,8 +26,8 @@ phoenix:
   useReleaseNamePrefix: false
   replicas: 1
   image:
-    repository: arizephoenix/phoenix
-    tag: "14.15.0"
+    repository: docker.io/arizephoenix/phoenix
+    tag: "19.8.0"
     pullPolicy: IfNotPresent
   phoenixHost: "0.0.0.0"
   env: []
@@ -46,8 +46,8 @@ redis:
   enabled: false
   replicas: 1
   image:
-    repository: redis
-    tag: 8.6.2-alpine
+    repository: docker.io/library/redis
+    tag: 8.10.0-alpine
     pullPolicy: IfNotPresent
   port: 6379
   persistence:
@@ -56,6 +56,23 @@ redis:
   resources: {}
   nodeSelector: {}
   tolerations: []
+
+# Mosquitto subchart (MQTT broker for MV3DT cross-camera messaging). Service
+# name stays "mosquitto" when useReleaseNamePrefix is false.
+mosquitto:
+  enabled: false
+  replicas: 1
+  image:
+    repository: docker.io/library/eclipse-mosquitto
+    tag: "2"
+    pullPolicy: IfNotPresent
+  port: 1883
+  service:
+    type: ClusterIP
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  config: ""
 
 # SDRC (combined WDM controller + Envoy router). Disabled by default; parent
 # profiles enable it and provide a profile-owned workload config ConfigMap.
@@ -66,7 +83,7 @@ sdrc:
 elasticsearch:
   enabled: false
 
-# Kibana (Deployment + kibana.yml + optional dashboard import Job). Profiles set infra.kibana.init.objectsBundle (alerts|search|lvs) when init.enabled.
+# Kibana (Deployment + kibana.yml + optional dashboard import Job). Profiles set infra.kibana.init.objectsBundle (alerts|search|lvs|search-and-alerts) when init.enabled.
 kibana:
   enabled: false
 

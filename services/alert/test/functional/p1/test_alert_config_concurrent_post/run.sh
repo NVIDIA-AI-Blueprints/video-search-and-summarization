@@ -36,15 +36,12 @@ PID_DIR="${PID_DIR:-/tmp/alert_agent_p1_functional}"
 AB_PORT="${AB_PORT:-9088}"
 AB_HOST="${AB_HOST:-http://localhost:$AB_PORT}"
 ES_HOST="${ES_HOST:-http://127.0.0.1:9200}"
-REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
-REDIS_PORT="${REDIS_PORT:-6379}"
 BASE_CONFIG="${BASE_CONFIG:-$P1_ROOT/shared/config_base.yaml}"
 
 BASE="$AB_HOST/api/v1/verification/config"
 RUN_ID="${RUN_ID:-concurrent_post_$(date +%s)_$$}"
 ALERT_TYPE="$RUN_ID"
 ES_INDEX="ab-alert_configs"
-REDIS_KEY="alert_config:$ALERT_TYPE"
 NUM_WRITERS=5
 
 mkdir -p "$PID_DIR"
@@ -57,9 +54,6 @@ cleanup() {
     print_status "info" "Cleaning up $ALERT_TYPE"
     curl -fsS -X DELETE "$BASE/$ALERT_TYPE" >/dev/null 2>&1 || true
     curl -fsS -X DELETE "$ES_HOST/$ES_INDEX/_doc/$ALERT_TYPE?refresh=true" >/dev/null 2>&1 || true
-    if command -v redis-cli >/dev/null 2>&1; then
-        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" DEL "$REDIS_KEY" >/dev/null 2>&1 || true
-    fi
     stop_alert_bridge_local "$PID_DIR" || true
     if [ $rc -ne 0 ]; then
         print_status "info" "Last 40 log lines from test AB:"

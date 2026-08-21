@@ -230,7 +230,7 @@ def export_onnx_text(
 
 
 def get_gpu_name():
-    """Return a sanitized GPU name suitable for filenames (single GPU, no spaces/newlines)."""
+    """Return a sanitized GPU name suitable for filenames (single GPU, no spaces/parentheses)."""
     try:
         # Query only the first GPU to avoid multi-line output on multi-GPU systems
         command = [
@@ -241,8 +241,8 @@ def get_gpu_name():
             "0",
         ]
         raw_output = subprocess.check_output(command, text=True).strip()
-        # Take the first line and replace spaces with underscores for filename safety
-        gpu_name = raw_output.splitlines()[0].replace(" ", "_")
+        # Take the first line and sanitize for filename safety (no spaces/parentheses)
+        gpu_name = raw_output.splitlines()[0].replace(" ", "_").replace("(", "").replace(")", "")
         return gpu_name
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         logger.error(f"Error getting GPU name: {e}")

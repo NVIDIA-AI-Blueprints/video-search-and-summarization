@@ -53,9 +53,9 @@ curl -s -X DELETE "$BASE_URL/vios/api/v1/sensors/<SENSOR_ID>"
 If orphaned state persists (e.g. dangling recording jobs, stuck pipelines), a container restart clears in-memory state without losing database content:
 
 ```bash
-cd <PROJECT_ROOT>/deployment
-python3 oneclick_dc_deployment_for_dev.py stop
-python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
+cd <PROJECT_ROOT>/services/vios/deployment/stream-processing
+python3 oneclick_dc_deployment.py stop
+python3 oneclick_dc_deployment.py deploy --force
 ```
 
 Wait for health check to return 200 before proceeding:

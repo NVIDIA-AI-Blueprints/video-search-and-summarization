@@ -40,7 +40,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #ifndef _STRDUP_HH
 #define _STRDUP_HH
 
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // A C++ equivalent to the standard C routine "strdup()".
 // This generates a char* that can be deleted using "delete[]"
 // Header

@@ -1,6 +1,6 @@
 # Standalone RTVI Embed (`vss-rtvi-embed`)
 
-This document describes a **from-scratch** install of the **`vss-rtvi-embed`** subchart: the **RTVI Cosmos Embed1** HTTP service (port **8000**) for text/video embeddings and MDX search. The chart deploys a GPU **Deployment**, **Service**, and PVCs for NGC and Hugging Face model caches. **Kafka and Redis are not required** for the standalone profile in **`overrides_rtvi_embed.yaml`** (`kafkaEnabled: false`, `waitForKafka.enabled: false`).
+This document describes a **from-scratch** install of the **`vss-rtvi-embed`** subchart: the **RTVI Cosmos Embed1** HTTP service (port **8000**) for text/video embeddings and MDX search. The chart deploys a GPU **Deployment**, **Service**, and PVCs for NGC and Hugging Face model caches. **Kafka and Redis are not required** for the standalone profile in **`overrides_rtvi_embed.yaml`** (`messageBus: ""`, `errorBus: ""`, `waitForKafka.enabled: false`).
 
 For chart internals (templates, values), see `charts/rtvi-embed/`.
 
@@ -15,7 +15,7 @@ For chart internals (templates, values), see `charts/rtvi-embed/`.
 - **`ngc-image-pull-secret`** (or equivalent) if your cluster requires pull secrets for private images (`imagePullSecrets` in `overrides_rtvi_embed.yaml`). Base `values.yaml` defaults to **`ngc-docker-reg-secret`** instead—use one name consistently.
 - On **MicroK8s / GPU Operator** clusters, GPU scheduling may require extra node setup (device plugin, `nvidia.com/gpu` allocatable); this chart version does not expose `runtimeClassName` in `templates/deployment.yaml`.
 
-Default image: `nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>` (see `Chart.yaml` / `values.yaml` for image `tag`).
+Default image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1` (see `Chart.yaml` / `values.yaml` for image `tag`).
 
 ---
 
@@ -58,6 +58,28 @@ kubectl create secret generic hf-token-secret \
 ```
 
 If you use other secret names, set `imagePullSecrets` and `hfTokenSecret` in Helm values or `--set` flags to match.
+
+**Optional asset authorization tokens.** If you need `ASSET_DOWNLOAD_AUTH_TOKENS`, prefer a Kubernetes Secret instead of a literal Helm value:
+
+```bash
+kubectl create secret generic asset-download-auth-tokens \
+  --namespace "${NAMESPACE}" \
+  --from-literal=ASSET_DOWNLOAD_AUTH_TOKENS='<authorization-headers>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Then set `assetDownloadAuthTokensSecret.name: asset-download-auth-tokens` and `assetDownloadAuthTokensSecret.key: ASSET_DOWNLOAD_AUTH_TOKENS`.
+
+**Optional remote CE1 NIM API key.** If your `remoteEmbedEndpoint` requires `REMOTE_EMBED_ENDPOINT_API_KEY`, prefer a Kubernetes Secret instead of a literal Helm value:
+
+```bash
+kubectl create secret generic remote-embed-api-key \
+  --namespace "${NAMESPACE}" \
+  --from-literal=REMOTE_EMBED_ENDPOINT_API_KEY='<api-key>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Then set `remoteEmbedEndpointApiKeySecret.name: remote-embed-api-key` and `remoteEmbedEndpointApiKeySecret.key: REMOTE_EMBED_ENDPOINT_API_KEY`.
 
 ---
 
@@ -103,9 +125,10 @@ helm upgrade --install "${RELEASE}" . \
   --set vss-rtvi-cv.enabled=false \
   --set vss-rtvi-cv-sdr.enabled=false \
   --set vss-rtvi-vlm.enabled=false \
-  --set vss-rtvi-embed.kafkaEnabled=false \
+  --set-string vss-rtvi-embed.messageBus="" \
+  --set-string vss-rtvi-embed.errorBus="" \
   --set vss-rtvi-embed.waitForKafka.enabled=false \
-  --set vss-rtvi-embed.kafkaTopic=mdx-embed \
+  --set vss-rtvi-embed.messageBusTopic=mdx-embed \
   --set vss-rtvi-embed.hfTokenSecret.name=hf-token-secret \
   --set vss-rtvi-embed.hfTokenSecret.key=HF_TOKEN \
   --set-json 'vss-rtvi-embed.imagePullSecrets=[{"name":"ngc-image-pull-secret"}]' \
@@ -115,8 +138,8 @@ helm upgrade --install "${RELEASE}" . \
 Notes:
 
 - Ensure **`hf-token-secret`** and **`ngc-image-pull-secret`** exist in **`${NAMESPACE}`** (umbrella install does not create secrets). The **`--set-json`** line above wires image pull to the secret from section 2; without it the chart defaults to **`ngc-docker-reg-secret`** and pods may hit **ImagePullBackOff**.
-- **`kafkaTopic`** defaults to **`mdx-embed`** in `values.yaml`; standalone overrides keep the same topic for later Kafka integration.
-- The Deployment sets **`ERROR_MESSAGE_TOPIC=vision-embed-errors`** (hardcoded env today); output topic for Kafka is **`KAFKA_TOPIC`** / **`kafkaTopic`**.
+- **`messageBusTopic`** defaults to **`mdx-embed`** in `values.yaml`; standalone overrides keep the same topic for later Kafka integration.
+- Output and error publishing are controlled by **`MESSAGE_BUS`**, **`MESSAGE_BUS_TOPIC`**, and **`ERROR_BUS`**.
 - First startup can take **many minutes** (HF model download + Triton model repo; `startupProbe` in `values.yaml` allows a long initial delay).
 
 ---
@@ -154,12 +177,12 @@ kill %1  # stop the port-forward when done
 
 ## 6. Standalone vs full stack
 
-| Mode | `kafkaEnabled` | `waitForKafka` | Typical use |
-|------|----------------|----------------|-------------|
-| **Standalone** (`overrides_rtvi_embed.yaml`) | `false` | `false` | Dev GPU cluster; HTTP embed only |
-| **Full VSS** (default `values.yaml` + umbrella) | `true` | `true` | Search pipeline; topic **`mdx-embed`** |
+| Mode | `messageBus` / `errorBus` | `waitForKafka` | Typical use |
+|------|----------------------------|----------------|-------------|
+| **Standalone** (`overrides_rtvi_embed.yaml`) | empty | `false` | Dev GPU cluster; HTTP embed only |
+| **Full VSS** (default `values.yaml` + umbrella) | `kafka` | `true` | Search pipeline; topic **`mdx-embed`** |
 
-Do **not** leave **`waitForKafka.enabled: true`** without a reachable **`kafkaBootstrapServers`**; the init container will block startup.
+Do **not** leave **`waitForKafka.enabled: true`** while **`messageBus`** or **`errorBus`** is `kafka` without a reachable **`kafkaBootstrapServers`**; the init container will block startup.
 
 ---
 
@@ -210,7 +233,7 @@ kubectl delete namespace "${NAMESPACE}"
 - **Stuck in init `wait-for-kafka`**: use **`overrides_rtvi_embed.yaml`** or set **`waitForKafka.enabled: false`**.
 - **HF / model errors**: verify **`hf-token-secret`** / **`HF_TOKEN`**; check pod logs during Cosmos-Embed1 download.
 - **Slow ready on first install**: expected; keep **`--timeout 45m`** on `helm upgrade --wait` or inspect **`startupProbe`** in `values.yaml`.
-- **Wrong values applied**: `helm get values "${RELEASE}" -n "${NAMESPACE}"` and confirm **`kafkaTopic`**, **`modelPath`**, image tag.
+- **Wrong values applied**: `helm get values "${RELEASE}" -n "${NAMESPACE}"` and confirm **`messageBusTopic`**, **`modelPath`**, image tag.
 
 ---
 

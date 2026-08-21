@@ -3,7 +3,7 @@
 Deploy **just** `vss-behavior-analytics` (no agent, no perception, no UI) — useful when you want to:
 
 - Run a behavior-analytics pipeline against an existing broker (or no broker at all).
-- Pick a different entrypoint (analytics 2D / 3D, dev_example, fusion_search) without modifying the image.
+- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts) without modifying the image.
 
 Required host runtime: **Docker Engine 28.3.3** with **Docker Compose plugin v2.39.1+**.
 
@@ -33,8 +33,27 @@ Set the first half of `command:` to one of the following:
 |---|---|---|
 | `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` | 2D spatial pipeline — operates on **(X, Y) world-plane coordinates** lifted from the image plane via per-sensor homography. Two parallel processors: **behavior creation** (object tracking → behavior + ROI / tripwire / proximity events, plus map-matching) and **frame enhancement** (calibration transform → per-frame state → FOV-count / restricted-area / confined-area incidents). **The default.** |
 | `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` | Operates on **full (X, Y, Z) 3D world coordinates** — fed from upstream multi-view 3D tracking (mv3dt) that produces 3D bounding boxes. Same two processors as 2D (with the 3D calibration class), plus a third **space-analyzer** processor that estimates space utilization per region on a periodic interval. Use this for 3D warehouse / multi-view 3D tracking (mv3dt). |
-| `apps/dev_example/main_dev_example_app.py` | `DevExampleApp` | Smaller app that focuses on **FOV-count violation** and **restricted-area violation** detection. No behavior creation, no map-matching. Good starting point for new incident types — also the entrypoint used by `dev-profile-alerts`. |
-| `apps/fusion_search/main_fusion_search_analytics_app.py` | `FusionSearchAnalyticsApp` | Two-path app: (a) behavior creation from raw frames, like 2D but without the FOV-count / ROI / tripwire events; (b) **video-embedding downsampling** — reads chunked video embeddings, optionally downsamples them (SDT / fixed-window), writes filtered embeddings. Use this with the VSS search profile. |
+| `apps/search_and_alerts/main_search_and_alerts_app.py` | `SearchAndAlertsApp` | Three processors, each registered only if its worker count is non-zero: **incident generation** (`numWorkersForIncidentGeneration`) — calibration transform → per-frame state → FOV-count / restricted-area / confined-area / proximity incidents; **behavior creation** (`numWorkersForBehaviorCreation`) — object tracking from raw frames, including ROI / tripwire events; **embedding downsampling** (`numWorkersForEmbedFiltering`) — reads chunked video embeddings and writes the survivors. The three modes are just which counts you set: all three = search + alerts; `numWorkersForIncidentGeneration=0` = search only (`dev-profile-search`); `numWorkersForBehaviorCreation=0` + `numWorkersForEmbedFiltering=0` = alerts only (`dev-profile-alerts`). |
+| `apps/smart_city/main_smart_city_app.py` | `SmartCityApp` | Geo-oriented pipeline for street/city scenes. **Behavior creation** (`numWorkersForBehaviorCreation`) with anomaly detection built **unconditionally** — unlike every other entrypoint there is no `anomalyDetectionEnable` gate, so speed/stop anomalies and the road-network CRS load are always paid for. Collision detection is opt-in via the sensor `collisionDetection.enable` block and writes collision incidents. A second **behavior clustering** processor (`numWorkersForBehaviorClustering`) registers only when the config's `inference.enable` is `true` — worker count alone is not enough here, which differs from `CompositeApp`. **Constraints:** both worker counts are read with no fallback, so a config omitting either key crashes at startup with `ValueError: invalid literal for int()`; the shipped `smart_city_config.json` / `smart_city_config_image.json` set them (4 and 2) with `inference.enable: false`. |
+| `apps/composite/main_composite_app.py` | `CompositeApp` | **Last resort — prefer one of the apps above.** It is the heavyweight option: it constructs every capability's state (behavior state, frame state, ROI/tripwire generators, space analyzer, embedding state) at startup regardless of which processors you enabled, and the enabled ones are CPU-hungry per batch. Reproducing a shipped profile through it costs more than running that profile's own entrypoint for identical output. Pick it **only** when the capability set you want does not exist as a single shipped app. Every capability in one app, each registered only if its worker count is non-zero: **behavior creation** (`numWorkersForBehaviorCreation`), **frame enhancement** (`numWorkersForFrameEnhancement`), **space estimation** (`numWorkersForSpaceEstimation`), **embedding downsampling** (`numWorkersForEmbedFiltering`), **behavior clustering** (`numWorkersForBehaviorClustering`). These come from different per-profile apps and can be combined freely, which no other entrypoint allows. Detection stages inside behavior creation are opt-in: `anomalyDetectionEnable`, `actionDetectionEnable`, `collisionDetection.enable`. **Constraints:** space estimation needs cartesian 3D and silently produces nothing otherwise; clustering needs a Triton `inference` block; run only one behavior producer per deployment. |
+
+**Which topics each processor needs.** A destination the config omits is a *disabled output*, not an error: the
+sink logs `No destination configured for '<key>'` once and drops the rest, so an unconfigured topic looks like an
+empty stream. Define every key a processor you enabled writes to. Each entry is `{"name": "<key>", "value":
+"<broker topic/stream name>"}` under `kafka.topics` (or `redisStream.streams` / `mqtt.topics`).
+
+| Processor (worker key) | Reads | Writes |
+|---|---|---|
+| behavior creation (`numWorkersForBehaviorCreation`) | `raw` | `behavior`, `events`, and — only where the app runs detection — `anomaly`, `incidents` |
+| frame enhancement / incident generation (`numWorkersForFrameEnhancement`, or `numWorkersForIncidentGeneration` in search_and_alerts) | `raw` | `frames`, `incidents` |
+| space estimation (`numWorkersForSpaceEstimation`) | `raw` | `spaceUtilization` |
+| embedding downsampling (`numWorkersForEmbedFiltering`) | `embed` | `embedFiltered` |
+| behavior clustering (`numWorkersForBehaviorClustering`) | `behavior` | `behaviorPlus` |
+
+`notification` is also needed if you want dynamic config or calibration at runtime — that is the topic both
+listeners consume.
+
+**ROI ENTRY/EXIT detection mode.** `roiEventDetectionMode` defaults to `"coordinate"` (the object's representative point must fall inside the ROI polygon). `"bbox"` — overlap of the object's bounding box with the polygon — is honored **only for image calibration**, where `object.bbox` and the ROI share image-pixel coordinates. Under cartesian or geo calibration the bbox is in pixels while the ROI is in world units, so it silently falls back to the coordinate test with a one-time warning. Pick an entrypoint you would actually run image-calibrated if you need bbox mode.
 
 **mv3dt** uses `main_analytics_3d_app.py` (the multi-view 3D tracker is a perception-side variant — the analytics pipeline is the same as 3D). There is no separate `main_mv3dt_app.py`.
 
@@ -55,8 +74,11 @@ Recommended pairings (entrypoint → existing config):
 | `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_dev_example_app.py` | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_fusion_search_analytics_app.py` | the search profile's own config (lives outside `behavior-analytics/`) |
+| `main_search_and_alerts_app.py` (search + alerts) | Use the shipped repository-root `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`. It is outside `VSS_APPS_DIR` (`deploy/docker`), so mount it by absolute host path as in Option B. Copy and edit it only for bespoke topic mappings or worker counts. |
+| `main_search_and_alerts_app.py` (alerts only) | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` (behavior + embed workers set to `0`) |
+| `main_search_and_alerts_app.py` (search only) | `developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-<stream>-config.json` (incident-generation workers set to `0`) |
+| `main_smart_city_app.py` | No profile ships one. Start from the service's own `configs/smart_city_config.json` (geo calibration) or `configs/smart_city_config_image.json` (image calibration) and mount it as a custom config (Option B). |
+| `main_composite_app.py` | No profile ships one. `configs/composite_config.json` is a starter that defines every topic but sets every `numWorkersFor*` to `0` — copy it and set the counts you want, or the app exits immediately (see Troubleshooting). |
 
 Compose change:
 
@@ -124,7 +146,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
   | `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<dataset>/calibration.json` |
-  | `main_dev_example_app.py` | the dev profile may not need one. |
+  | `main_search_and_alerts_app.py` | the search / alerts profiles may not need one. |
 - **Bring your own.** Any absolute host path that conforms to the calibration JSON schema. If you're hand-rolling one, start from the `"cartesian"` type — that's the path the rest of the pipeline is tuned for.
 
   Compose change:
@@ -145,10 +167,12 @@ The schema for the calibration JSON is vendored from `video-analytics-api/src/we
 
 ## Step 4 — Broker (not required to launch)
 
+> **Standalone caveat — point `brokers` at a reachable address first.** The shipped configs set the broker to a **Docker DNS service name** — `kafka.brokers: "kafka:29092"` (and `redisStream.host: "redis"`) — which only resolves **inside the VSS compose network**, where those broker services run. Deploying `vss-behavior-analytics` on its own (this skill's whole point) puts it on a lone bridge network where the name `kafka` does **not** resolve, so it can never connect. Before bring-up, edit the config JSON's `brokers` / `host` to a reachable `host:port` for your actual broker (or attach the container to the broker's Docker network). The default DNS names are correct only when BA runs alongside the broker in the same compose project.
+
 `vss-behavior-analytics` does **not** require a broker to be present at start time:
 
 - The container starts fine without Kafka/Redis/MQTT reachable.
-- The Kafka client retries the broker connection a bounded number of times (with backoff). You'll see repeated `Connect to ipv4#…:9092 failed: Connection refused` warnings in `docker logs behavior-analytics-vss-behavior-analytics-base-1` while it tries. (The auto-generated container name comes from Compose's default `<project>-<service>-<index>` pattern; project name defaults to the compose file's parent directory, `behavior-analytics`.)
+- The Kafka client retries the broker connection (with backoff) at whatever `kafka.brokers` is set to (shipped default `kafka:29092`). You'll see repeated connection warnings in `docker logs behavior-analytics-vss-behavior-analytics-base-1` while it tries — `Connection refused` if the address resolves but nothing is listening, or a **name-resolution failure** if the DNS name (`kafka`) can't resolve, which is the standalone-with-default-config case the caveat above prevents. (The auto-generated container name comes from Compose's default `<project>-<service>-<index>` pattern; project name defaults to the compose file's parent directory, `behavior-analytics`.)
 - Once retries are exhausted, the app process exits and the container's `restart: always` policy brings it back up. The new container starts a fresh retry cycle. This restart loop continues — visible in `docker ps` as the `Status` column counting `Restarting (N)` — until the broker becomes reachable, at which point the consumer thread connects on the next attempt and drains messages normally.
 
 Practical implication: a broker-less analytics container is **not** sitting idle in-process — it's cycling. Fine for "bring up analytics first, broker later" workflows, but expect periodic restarts in the meantime. If you want it to fail-fast instead (e.g. in CI), override `restart:` to `on-failure` or `no`, or wrap with your own healthcheck.

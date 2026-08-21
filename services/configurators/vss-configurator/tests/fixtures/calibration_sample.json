@@ -1,0 +1,23 @@
+{
+  "calibrationType": "intrinsic_extrinsic",
+  "sensors": [
+    {
+      "id": "camera-001",
+      "group": {"name": "group-a"},
+      "region": {"placeLevel": "zone"},
+      "place": [{"name": "zone", "value": "north"}]
+    },
+    {
+      "id": "camera-002",
+      "group": {"name": "group-a"},
+      "region": {"placeLevel": "zone"},
+      "place": [{"name": "zone", "value": "south"}]
+    },
+    {
+      "id": "camera-003",
+      "group": {"name": "group-b"},
+      "region": {"placeLevel": "zone"},
+      "place": [{"name": "zone", "value": "east"}]
+    }
+  ]
+}

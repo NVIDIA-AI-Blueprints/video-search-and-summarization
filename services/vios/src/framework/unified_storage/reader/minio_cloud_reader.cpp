@@ -82,7 +82,7 @@ bool MinioCloudReader::configure(const CloudReaderConfig& config)
     try
     {
         // Store configuration
-        m_config = config;
+        getConfigInternal() = config;
 
         LOG(info) << "MinioCloudReader::configure called with:" << std::endl;
         LOG(info) << "  endpoint: '" << config.endpoint << "'" << std::endl;
@@ -152,7 +152,7 @@ bool MinioCloudReader::configure(const CloudReaderConfig& config)
 
 CloudReaderConfig MinioCloudReader::getConfiguration() const
 {
-    return m_config;
+    return getConfigInternal();
 }
 
 CloudListResult MinioCloudReader::listObjects(const std::string& bucket, const std::string& prefix, uint32_t maxKeys)
@@ -736,14 +736,14 @@ CloudResult MinioCloudReader::deleteObject(const std::string& bucket, const std:
 
 CloudReaderStats MinioCloudReader::getStats() const
 {
-    std::lock_guard<std::mutex> lock(m_stats_mutex);
-    return m_stats;
+    std::lock_guard<std::mutex> lock(getStatsMutexInternal());
+    return getStatsInternal();
 }
 
 void MinioCloudReader::resetStats()
 {
-    std::lock_guard<std::mutex> lock(m_stats_mutex);
-    m_stats = CloudReaderStats();
+    std::lock_guard<std::mutex> lock(getStatsMutexInternal());
+    getStatsInternal() = CloudReaderStats();
 }
 
 CloudResult MinioCloudReader::performHealthCheck()
@@ -801,7 +801,7 @@ CloudResult MinioCloudReader::performHealthCheck()
 
 std::string MinioCloudReader::getLastError() const
 {
-    return m_lastError;
+    return getLastErrorInternal();
 }
 
 // Private implementation methods

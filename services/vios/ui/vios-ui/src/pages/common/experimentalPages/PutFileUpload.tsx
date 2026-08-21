@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState, useCallback, useRef } from 'react';
 import {
     Stack,
@@ -58,6 +59,68 @@ interface UploadResponse {
     timestamp: string;
 }
 
+const formatTimestamp = (input: string): string => {
+    try {
+        const numericTimestamp = Number(input);
+        const parsedTimestamp = !Number.isNaN(numericTimestamp) && numericTimestamp > 0 ? new Date(numericTimestamp) : new Date(input);
+        if (Number.isNaN(parsedTimestamp.getTime())) {
+            throw new Error('Invalid timestamp');
+        }
+        return parsedTimestamp.toISOString();
+    } catch (error) {
+        throw new Error('Invalid timestamp format. Use Unix timestamp or ISO 8601');
+    }
+};
+
+const buildUploadUrl = (fileName: string, timestamp: string, sensorId: string, isLegacy: boolean): string => {
+    if (isLegacy) {
+        // Legacy API: timestamp as path parameter, no sensorId
+        const legacyUrl = `${config.storageManagementEndpoint}/api/v1/storage/file/${fileName}/${encodeURIComponent(timestamp)}`;
+        LOG.info('PUT upload URL (Legacy):', legacyUrl);
+        return legacyUrl;
+    }
+
+    // Current API: timestamp and sensorId as query parameters
+    const url = `${config.storageManagementEndpoint}/api/v1/storage/file/${fileName}?sensorId=${encodeURIComponent(sensorId)}&timestamp=${encodeURIComponent(timestamp)}`;
+    LOG.info('PUT upload URL (Current):', url);
+    return url;
+};
+
+const logUploadError = (error: unknown): void => {
+    LOG.error('PUT upload error:', error);
+    LOG.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        response: error instanceof AxiosError ? error.response : null,
+        request: error instanceof AxiosError ? error.request : null,
+    });
+};
+
+const buildErrorUploadResponse = (error: unknown, fileName: string): UploadResponse | null => {
+    if (!(error instanceof AxiosError) || !error.response) {
+        return null;
+    }
+
+    const errorResponse = error.response;
+    return {
+        fileName,
+        response: {
+            status: errorResponse.status,
+            statusText: errorResponse.statusText,
+            headers: errorResponse.headers as Record<string, string>,
+            data: errorResponse.data,
+            error: true,
+        },
+        timestamp: new Date().toISOString(),
+    };
+};
+
+const getUploadErrorMessage = (error: unknown): string => {
+    if (error instanceof AxiosError) {
+        return error.response?.data?.message || error.message;
+    }
+    return 'Unknown error';
+};
+
 const PutFileUpload: React.FC = () => {
     const { enqueueSnackbar } = useSnackbar();
     const [sensorId, setSensorId] = useState('');
@@ -86,43 +149,22 @@ const PutFileUpload: React.FC = () => {
         return true;
     }, [isLegacy, sensorId, timestampInput, enqueueSnackbar]);
 
-    const formatTimestamp = (input: string): string => {
-        try {
-            const numericTimestamp = Number(input);
-            const parsedTimestamp = !Number.isNaN(numericTimestamp) && numericTimestamp > 0 ? new Date(numericTimestamp) : new Date(input);
-            if (Number.isNaN(parsedTimestamp.getTime())) {
-                throw new Error('Invalid timestamp');
-            }
-            return parsedTimestamp.toISOString();
-        } catch (error) {
-            throw new Error('Invalid timestamp format. Use Unix timestamp or ISO 8601');
-        }
-    };
-
     const uploadFileWithPut = useCallback(
         async (file: File): Promise<boolean> => {
             try {
-                console.log('uploadFileWithPut called for:', file.name);
+                LOG.info('uploadFileWithPut called for:', file.name);
 
                 if (!validateInputs()) {
-                    console.log('Validation failed, aborting upload');
+                    LOG.info('Validation failed, aborting upload');
                     return false;
                 }
 
                 const timestamp = formatTimestamp(timestampInput);
                 const fileName = customFilename.trim() || file.name;
 
-                let url: string;
-                if (isLegacy) {
-                    // Legacy API: timestamp as path parameter, no sensorId
-                    url = `${config.storageManagementEndpoint}/api/v1/storage/file/${fileName}/${encodeURIComponent(timestamp)}`;
-                } else {
-                    // Current API: timestamp and sensorId as query parameters
-                    url = `${config.storageManagementEndpoint}/api/v1/storage/file/${fileName}?sensorId=${encodeURIComponent(sensorId)}&timestamp=${encodeURIComponent(timestamp)}`;
-                }
+                const url = buildUploadUrl(fileName, timestamp, sensorId, isLegacy);
 
-                console.log(`PUT upload URL (${isLegacy ? 'Legacy' : 'Current'}):`, url);
-                console.log('File details:', {
+                LOG.info('File details:', {
                     originalName: file.name,
                     uploadName: fileName,
                     isCustomName: !!customFilename.trim(),
@@ -146,8 +188,8 @@ const PutFileUpload: React.FC = () => {
                     },
                 });
 
-                console.log('PUT upload successful:', response.data);
-                console.log('Full response:', response);
+                LOG.info('PUT upload successful:', response.data);
+                LOG.info('Full response:', response);
 
                 // Store the response data
                 setUploadResponse({
@@ -163,46 +205,26 @@ const PutFileUpload: React.FC = () => {
 
                 setUploadComplete(true);
                 setUploadProgress({ fileName, progress: 100 });
-                console.log('Upload completed successfully, states updated');
+                LOG.info('Upload completed successfully, states updated');
                 enqueueSnackbar(`File "${fileName}" uploaded successfully`, { variant: 'success' });
                 return true;
             } catch (error) {
-                console.error('PUT upload error:', error);
-                console.error('Error details:', {
-                    message: error instanceof Error ? error.message : 'Unknown error',
-                    response: error instanceof AxiosError ? error.response : null,
-                    request: error instanceof AxiosError ? error.request : null,
-                });
+                logUploadError(error);
 
                 setUploadFailed(true);
-                console.log('Upload failed, states updated, ready for next upload');
+                LOG.info('Upload failed, states updated, ready for next upload');
 
                 // Store error response data if available
-                if (error instanceof AxiosError && error.response) {
-                    const errorResponse = error.response;
-                    setUploadResponse({
-                        fileName: file.name,
-                        response: {
-                            status: errorResponse.status,
-                            statusText: errorResponse.statusText,
-                            headers: errorResponse.headers as Record<string, string>,
-                            data: errorResponse.data,
-                            error: true,
-                        },
-                        timestamp: new Date().toISOString(),
-                    });
+                const errorUploadResponse = buildErrorUploadResponse(error, file.name);
+                if (errorUploadResponse) {
+                    setUploadResponse(errorUploadResponse);
                 }
 
-                if (error instanceof AxiosError) {
-                    const errorMsg = error.response?.data?.message || error.message;
-                    enqueueSnackbar(`Upload failed for "${file.name}": ${errorMsg}`, { variant: 'error' });
-                } else {
-                    enqueueSnackbar(`Upload failed for "${file.name}": Unknown error`, { variant: 'error' });
-                }
+                enqueueSnackbar(`Upload failed for "${file.name}": ${getUploadErrorMessage(error)}`, { variant: 'error' });
                 return false;
             }
         },
-        [sensorId, timestampInput, customFilename, isLegacy, enqueueSnackbar]
+        [sensorId, timestampInput, customFilename, isLegacy, enqueueSnackbar, validateInputs]
     );
 
     const handleFileUpload = useCallback(
@@ -217,8 +239,8 @@ const PutFileUpload: React.FC = () => {
             }
 
             // Clear all previous states completely and start upload
-            console.log('Starting PUT upload for file:', file.name);
-            console.log('Clearing all previous states...');
+            LOG.info('Starting PUT upload for file:', file.name);
+            LOG.info('Clearing all previous states...');
 
             setIsUploading(true);
             setUploadComplete(false);
@@ -229,11 +251,11 @@ const PutFileUpload: React.FC = () => {
             try {
                 await uploadFileWithPut(file);
             } catch (error) {
-                console.error('Upload failed:', error);
+                LOG.error('Upload failed:', error);
                 setUploadFailed(true);
             } finally {
                 setIsUploading(false);
-                console.log('Upload process completed, ready for next upload');
+                LOG.info('Upload process completed, ready for next upload');
             }
         },
         [uploadFileWithPut, validateInputs, isUploading, enqueueSnackbar]

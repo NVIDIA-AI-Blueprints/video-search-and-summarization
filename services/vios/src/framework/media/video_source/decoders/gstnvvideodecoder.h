@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -79,7 +79,6 @@ struct DecoderData : public EventLoopData
 struct DecoderOutData : public EventLoopOutData
 {
     map<string, string> data;
-    void* data2;
     int result;
 };
 
@@ -131,10 +130,8 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         void setDecoderStride(int stride_y, int stride_u, int stride_v) override;
 
         bool play();
-#ifdef JETSON_PLATFORM
         void registerDecoderPlayingStatusListener(IStreamStatusEvent *listener);
         void deregisterDecoderPlayingStatusListener(IStreamStatusEvent *listener);
-#endif
         int createSwDecodePipeline ();
         void setQuality(const std::string&, const std::string& quality);
         void setQuality(const std::string&, const std::string& quality, int width, int height);
@@ -155,7 +152,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         GstFlowReturn processJpegImageFromSink(GstElement *appsink);
         void setSourceFrameSize(uint32_t w, uint32_t h);
         friend gboolean busWatch (GstBus *bus, GstMessage *message, gpointer data);
-        friend void process_dec_message(std::shared_ptr<EventLoopData> data, void*);
+        friend void process_dec_message(std::shared_ptr<EventLoopData> data, GstNvVideoDecoder*);
 
         int create_internal();
         int create_recorded_internal();
@@ -325,10 +322,8 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         int64_t                 m_fileStartTime{0};
         bool                    m_continuosPlayback = false;
         std::time_t             m_lastDRCTime {0};
-#ifdef JETSON_PLATFORM
         std::set<IStreamStatusEvent*> m_listeners;
         std::mutex                    m_listenerMutex;
-#endif
         bool                    m_isOverlay = false;
         GstPad*                 m_teeSrcAppsink = nullptr;
         GstPad*                 m_teeSrcIpcsink = nullptr;

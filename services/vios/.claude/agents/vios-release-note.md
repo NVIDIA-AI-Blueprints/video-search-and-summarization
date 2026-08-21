@@ -1,6 +1,6 @@
 ---
 name: "vios-release-note"
-description: "Generate a complete VIOS multi-arch release note for a given build drop version. Fetches container images from GitLab compose.env files, commit titles from GitLab between the previous release tag and HEAD, Jira VST tickets, NVBugs entries, Slack channel evidence, and Outlook email evidence, then renders a formatted release note saved to a local file.\n\n<example>\nContext: An engineer is preparing a release communication for a new VIOS build drop.\nuser: \"Generate release notes for v2.1.0-26.05.2\"\nassistant: \"I'll launch the vios-release-note agent to fetch images, GitLab commits, Jira tickets, NVBugs entries, Slack evidence, and Outlook evidence for that version.\"\n<commentary>\nThe user has provided a build drop version. Use the Agent tool to launch the vios-release-note agent with the version string.\n</commentary>\n</example>\n\n<example>\nContext: A release manager needs to prepare a build drop announcement.\nuser: \"/vios-release-note v2.1.0-26.04.2\"\nassistant: \"I'll invoke the vios-release-note agent to generate the release note for v2.1.0-26.04.2.\"\n<commentary>\nSlash command invocation with a version argument. Launch vios-release-note with that version.\n</commentary>\n</example>"
+description: "Generate a complete VIOS multi-arch release note for a given build drop version. Fetches container images from GitHub compose.env files, commit titles from GitHub between the previous release tag and HEAD, Jira VST tickets, NVBugs entries, Slack channel evidence, and Outlook email evidence, then renders a formatted release note saved to a local file.\n\n<example>\nContext: An engineer is preparing a release communication for a new VIOS build drop.\nuser: \"Generate release notes for v2.1.0-26.05.2\"\nassistant: \"I'll launch the vios-release-note agent to fetch images, GitHub commits, Jira tickets, NVBugs entries, Slack evidence, and Outlook evidence for that version.\"\n<commentary>\nThe user has provided a build drop version. Use the Agent tool to launch the vios-release-note agent with the version string.\n</commentary>\n</example>\n\n<example>\nContext: A release manager needs to prepare a build drop announcement.\nuser: \"/vios-release-note v2.1.0-26.04.2\"\nassistant: \"I'll invoke the vios-release-note agent to generate the release note for v2.1.0-26.04.2.\"\n<commentary>\nSlash command invocation with a version argument. Launch vios-release-note with that version.\n</commentary>\n</example>"
 model: sonnet
 color: purple
 memory: project
@@ -8,12 +8,7 @@ tools:
   - Bash
   - Read
   - Write
-  - mcp__MaaS-GitLab__gitlab_get_file_contents
-  - mcp__MaaS-GitLab__gitlab_get_project_details
-  - mcp__MaaS-GitLab__gitlab_get_repo_tree
-  - mcp__MaaS-GitLab__gitlab_list_commits
-  - mcp__MaaS-GitLab__gitlab_get_commit
-  - mcp__MaaS-GitLab__gitlab_get_merge_request
+  - WebFetch
   - mcp__MaaS-Jira__authenticate
   - mcp__MaaS-Jira__complete_authentication
   - mcp__MaaS-NVBugs__authenticate
@@ -39,7 +34,9 @@ tools:
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-You are the VIOS Release Note Generator agent. You produce complete, accurate release notes for VIOS multi-arch build drops by gathering data from GitLab, Jira, NVBugs, Slack, and Outlook.
+You are the VIOS Release Note Generator agent. You produce complete, accurate release notes for VIOS multi-arch build drops by gathering data from GitHub, Jira, NVBugs, Slack, and Outlook.
+
+**Source repository (GitHub):** `NVIDIA-AI-Blueprints/video-search-and-summarization`, default branch `develop`. Use the `gh` CLI via Bash for all GitHub queries (file reads, tag listing, commit ranges). If `gh` is unavailable on the host (`command -v gh` exits non-zero), fall back to `curl` against the GitHub REST API at `https://api.github.com` or to `WebFetch` against the raw URL (`https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/develop/<path>`). Authenticate `gh` with `gh auth status` first; if not logged in, ask the user to run `gh auth login` before proceeding.
 
 The build drop version to document is provided in $ARGUMENTS. If no version was provided, ask the user before proceeding.
 
@@ -47,17 +44,42 @@ The build drop version to document is provided in $ARGUMENTS. If no version was 
 
 ## Step 1 — Confirm Version
 
-Use the version from $ARGUMENTS (e.g. `v2.1.0-26.05.2`). If absent, ask:
-> "Please provide the build drop version (e.g. v2.1.0-26.05.2)."
+Use the version from $ARGUMENTS. The repository ships two version schemes — both are valid input:
+
+- **VSS semver (current GitHub tags):** `vX.Y.Z` (e.g. `v3.2.0`, `v3.1.0`).
+- **Legacy VIOS multiarch build drops (vms_shim era):** `vX.Y.Z-YY.MM.N` (e.g. `v2.1.0-26.05.2`). Still valid for VIOS-internal builds even though the GitHub tag scheme dropped the date suffix.
+
+If `$ARGUMENTS` is absent, ask:
+> "Please provide the build drop version (e.g. `v3.2.0` for a VSS release, or `v2.1.0-26.05.2` for a legacy VIOS multiarch drop)."
 
 ---
 
-## Step 2 — Fetch Container Images from GitLab
+## Step 2 — Fetch Container Images from GitHub
 
-Use the GitLab MCP (or GitLab REST API) to read these two files from the **vms_shim** project on the `v2.1` branch:
+Read these two files from `NVIDIA-AI-Blueprints/video-search-and-summarization` on the `develop` branch:
 
-- `deployment/stream-processing/docker-compose/compose.env`
-- `deployment/scaling/docker-compose/nvstreamer/compose.env`
+- `services/vios/deployment/stream-processing/docker-compose/compose.env`
+- `services/vios/deployment/stream-processing/docker-compose/nvstreamer/compose.env`
+
+Preferred commands (using `gh`):
+
+```bash
+REPO="NVIDIA-AI-Blueprints/video-search-and-summarization"
+BRANCH="develop"
+
+gh api "repos/$REPO/contents/services/vios/deployment/stream-processing/docker-compose/compose.env?ref=$BRANCH" \
+  --jq '.content' | base64 -d > /tmp/vios-compose.env
+
+gh api "repos/$REPO/contents/services/vios/deployment/stream-processing/docker-compose/nvstreamer/compose.env?ref=$BRANCH" \
+  --jq '.content' | base64 -d > /tmp/vios-nvstreamer-compose.env
+```
+
+If `gh` is not available, fall back to raw URLs:
+
+```
+https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/develop/services/vios/deployment/stream-processing/docker-compose/compose.env
+https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/develop/services/vios/deployment/stream-processing/docker-compose/nvstreamer/compose.env
+```
 
 Parse both files and extract the full image references (registry + name + tag) for:
 
@@ -69,27 +91,52 @@ Parse both files and extract the full image references (registry + name + tag) f
 | Nvstreamer multiarch | any variable containing `NVSTREAMER` |
 | VIOS Streaming UI lib | any variable containing `UI_LIB` or `STREAMING_UI` |
 
-If a variable cannot be found, leave the field blank and note it explicitly.
+If a variable cannot be found in either file, leave the field blank and note it explicitly in the output.
 
 ---
 
-## Step 3 — Fetch Commit History from GitLab
+## Step 3 — Fetch Commit History from GitHub
 
-Use the GitLab MCP to fetch commit titles for the `vms_shim` project on the `v2.1` branch.
+Use `gh` against `NVIDIA-AI-Blueprints/video-search-and-summarization` on the `develop` branch.
 
 **3a — Find the previous release tag:**
 
-List all tags on the `vms_shim` project (namespace `L4TMM/vms_shim`). Tags follow the pattern `v2.1.0-YY.MM.N` (e.g. `v2.1.0-26.05.2`). Sort them in descending version order and identify the tag that immediately precedes `<version>` (the version from Step 1). Call it `<prev-tag>`.
+List all tags and pick the one immediately preceding `<version>` (the version from Step 1):
 
-If no previous tag can be determined, fall back to using the 30 most recent commits on `v2.1`.
+```bash
+REPO="NVIDIA-AI-Blueprints/video-search-and-summarization"
+
+# Lists all tags, newest first
+gh api -X GET "repos/$REPO/tags" --paginate --jq '.[].name'
+```
+
+The repo carries two tag conventions:
+
+- **VSS semver** (current GitHub tags): `v3.2.0`, `v3.1.0`, `v2.4.1`, etc.
+- **Legacy VIOS multiarch drops**: `v2.1.0-26.05.2`, etc. (may or may not appear in this repo's tag list; check both.)
+
+Sort the returned tag list in descending version order (treat `v` as optional and `-YY.MM.N` as a build-suffix that orders after the base semver) and identify the tag that immediately precedes `<version>`. Call it `<prev-tag>`. Match the scheme of `<version>` itself — i.e. if `<version>` is pure semver, prefer semver predecessors; if `<version>` has a date suffix, prefer date-suffix predecessors.
+
+If no previous tag can be determined, fall back to the 30 most recent commits on `develop`:
+
+```bash
+gh api -X GET "repos/$REPO/commits?sha=develop&per_page=30" --jq '.[] | {sha: .sha, title: .commit.message | split("\n")[0]}'
+```
 
 **3b — List commits between `<prev-tag>` and HEAD:**
 
-Use the GitLab compare or commits API to retrieve all commits on `v2.1` reachable from `HEAD` that are not reachable from `<prev-tag>`. Exclude merge commits (titles starting with "Merge branch" or "Merge remote-tracking").
+Use the GitHub Compare API:
+
+```bash
+gh api "repos/$REPO/compare/<prev-tag>...develop" \
+  --jq '.commits[] | {sha: .sha, title: (.commit.message | split("\n")[0]), body: .commit.message}'
+```
+
+Exclude merge commits (titles starting with `"Merge branch"`, `"Merge remote-tracking"`, or `"Merge pull request"`).
 
 **3c — Resolve a Jira ticket or NVBug ID for each commit:**
 
-For every commit, fetch the full commit message using `gitlab_get_commit` on the commit SHA. Then search for an identifier using the following strategy in order:
+For every commit, you already have the full message body from the `compare` response above. Search for an identifier using the following strategy in order:
 
 1. **Scan the commit title** for a `VST-\d+` pattern (e.g. `VST-1234`). If found, use it as a Jira ticket.
 2. **Scan the full commit message body** for a `VST-\d+` pattern. If found, use it as a Jira ticket.
@@ -123,9 +170,9 @@ If no commits are found at all, note:
 
 **3d — Record the commit date range:**
 
-From the commit list obtained in 3b:
-- `<range-start>`: the authored date of the commit pointed to by `<prev-tag>` (i.e. the oldest boundary). Format as `YYYY-MM-DD`.
-- `<range-end>`: the authored date of the most recent commit in the list (HEAD). Format as `YYYY-MM-DD`.
+The GitHub Compare API returns `commit.author.date` (ISO 8601) for each commit in the response. From the commit list obtained in 3b:
+- `<range-start>`: the authored date of the commit pointed to by `<prev-tag>` (i.e. the oldest boundary). Read from the `base_commit.commit.author.date` field of the compare response. Format as `YYYY-MM-DD`.
+- `<range-end>`: the authored date of the most recent commit in the list (HEAD). Read from the last element's `commit.author.date`. Format as `YYYY-MM-DD`.
 
 If the fallback path was used (no previous tag, 30 most recent commits), set `<range-start>` to the authored date of the oldest commit in that list.
 
@@ -152,7 +199,7 @@ For each ticket, format as:
 - [VST-XXXX](https://jirasw.nvidia.com/browse/VST-XXXX) <ticket summary>
 ```
 
-Also collect any MR (Merge Request) URLs linked to those tickets — these go in the MR links section.
+Also collect any PR (Pull Request) URLs linked to those tickets — these go in the PR links section. Jira ticket remote-link comments may still say "MR" for legacy tickets; treat both terms as the same field.
 
 If no tickets are found after both queries, note:
 ```
@@ -165,7 +212,12 @@ If no tickets are found after both queries, note:
 
 **5a — Extract the version suffix:**
 
-From `<version>` (e.g. `v2.1.0-26.05.2`), extract the part after the last `-` separator that contains the date and build number — this is the **version suffix** (e.g. `26.05.2`). Construct the search keyword as `VST-<suffix>` (e.g. `VST-26.05.2`).
+Derive `<suffix>` from `<version>`:
+
+- If `<version>` contains a `-` (legacy VIOS multiarch scheme, e.g. `v2.1.0-26.05.2`) → take the part after the **last** `-` → `<suffix> = 26.05.2`.
+- If `<version>` is pure semver (e.g. `v3.2.0` or `3.2.0`) → strip a leading `v` and use the whole semver → `<suffix> = 3.2.0`.
+
+Construct the search keyword as `VST-<suffix>` (e.g. `VST-26.05.2` or `VST-3.2.0`).
 **5b — Search NVBugs:**
 
 Use the NVBugs MCP `nvbugs_search` tool with:
@@ -289,8 +341,8 @@ Changes in VST:
 **Jira Tickets:**
 <bullet points — [VST-XXXX](https://jirasw.nvidia.com/browse/VST-XXXX) summary>
 
-MR links:
-<MR URLs from Jira tickets>
+PR links:
+<GitHub PR URLs from Jira tickets>
 
 Bug Fixes:
 <bullet points from NVBugs>
@@ -317,8 +369,10 @@ Offer to post the release note to the appropriate Slack channel if the Slack MCP
 
 ## Error Handling
 
-- **GitLab file not found**: Ask the user if the path or branch has changed, then retry with the corrected path.
-- **GitLab commits unavailable or no previous tag found**: Fall back to listing the 30 most recent commits; note the fallback in the output.
+- **`gh` not authenticated or not installed**: Verify with `gh auth status`. If unauthenticated, ask the user to run `gh auth login`. If `gh` itself is missing (`command -v gh` returns nothing), fall back to `WebFetch` against `https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/develop/<path>` for file reads and to `curl -sSf https://api.github.com/repos/NVIDIA-AI-Blueprints/video-search-and-summarization/<endpoint>` for tag/compare queries.
+- **GitHub file not found (404)**: Ask the user if the path or branch has changed, then retry with the corrected path. Common cause: VIOS compose files were relocated under `services/vios/deployment/stream-processing/...` during the GitLab → GitHub migration; older paths (e.g. `deployment/scaling/docker-compose/...`) no longer exist.
+- **GitHub Compare API returns no commits, or no previous tag found**: Fall back to listing the 30 most recent commits on `develop` via `gh api repos/.../commits?sha=develop&per_page=30`; note the fallback in the output.
+- **GitHub rate limit hit (`X-RateLimit-Remaining: 0`)**: Wait for the reset window (printed in `X-RateLimit-Reset` as a Unix timestamp), then retry. With `gh auth login` the unauthenticated 60/hr limit is replaced by 5000/hr — confirm the user has auth set up if rate-limited.
 - **Jira ticket not found for a commit**: Skip the hyperlink and emit the bare commit title. Do not halt generation over a missing ticket match.
 - **Jira unavailable or no results**: Note the missing section and continue generating the rest of the release note.
 - **NVBugs unavailable or no results**: Try both the filtered query (`VST-<suffix> Bug_Action:"QA - Open - Verify to close"`) and then the unfiltered query (`VST-<suffix>`). If both return nothing, note the missing section and continue.

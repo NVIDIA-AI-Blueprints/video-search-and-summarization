@@ -165,7 +165,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=validate_file_path,
-        default="configs/fusion_search_analytics_config.json",
+        default="configs/search_and_alerts_config.json",
         action=ValidateFile,
         help="The input app config file",
     )

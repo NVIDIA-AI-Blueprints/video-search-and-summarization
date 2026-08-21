@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,6 +33,7 @@ import useVSTUIStore from '../../../services/StateManagement';
 import { Sensor } from '../../../interfaces/interfaces';
 import StreamManager, { StreamConfig, StreamType, ErrorType } from 'vst-streaming-lib';
 import config from '../../../config';
+import { toWebSocketUrl } from '../../../utils/runtimeConfig';
 
 interface StreamResult {
     sensorId: string;
@@ -74,7 +75,7 @@ export const StreamAutomation: React.FC = () => {
         successCallbackFailed: 0,
     });
 
-    const automationIntervalRef = useRef<number>();
+    const automationIntervalRef = useRef<number>(undefined);
     const streamManagerRef = useRef<StreamManager | null>(null);
 
     const handleStreamTest = useCallback(
@@ -186,19 +187,8 @@ export const StreamAutomation: React.FC = () => {
                     streamConfig.startTime = '2020-12-01T12:00:20.000Z';
                 }
 
-                let wsEndpoint = (streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint).startsWith(
-                    'https'
-                )
-                    ? (streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint).replace('https', 'wss')
-                    : (streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint).replace('http', 'ws');
-
-                let proxy = window.location.pathname;
-                if (proxy !== '/' && proxy.length > 0) {
-                    if (proxy[proxy.length - 1] === '/') {
-                        proxy = proxy.slice(0, -1);
-                    }
-                    wsEndpoint = `${wsEndpoint}${wsEndpoint.endsWith('/') ? '' : '/'}${proxy}`;
-                }
+                const endpoint = streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint;
+                const wsEndpoint = toWebSocketUrl(endpoint);
 
                 streamManagerRef.current.updateConfig({
                     inboundStreamVideoElementId: videoElementId,
@@ -241,15 +231,15 @@ export const StreamAutomation: React.FC = () => {
         const totalTests = selectedSensors.length * streamTypes.length;
         const testPromises: Promise<StreamResult>[] = [];
 
+        const advanceProgress = (result: StreamResult) => {
+            setProgress(prev => Math.min(prev + 100 / totalTests, 100));
+            return result;
+        };
+
         // Create all test promises
         selectedSensors.forEach(sensor => {
             streamTypes.forEach(streamType => {
-                testPromises.push(
-                    handleStreamTest(sensor, streamType).then(result => {
-                        setProgress(prev => Math.min(prev + 100 / totalTests, 100));
-                        return result;
-                    })
-                );
+                testPromises.push(handleStreamTest(sensor, streamType).then(advanceProgress));
             });
         });
 

@@ -32,51 +32,89 @@ defaults
     timeout server 120s
     timeout tunnel 3600s
 
-# --- Backends (services use host networking on HOST_IP) ---
+resolvers docker
+    nameserver dns 127.0.0.11:53
+    accepted_payload_size 8192
+    hold valid 10s
+
+# --- Backends (services resolve by Docker DNS; override *_SERVICE_HOST for custom targets) ---
 
 backend bk_vss_ui
-    server s1 "${HOST_IP}:${VSS_UI_PORT}" check
+    server s1 "${VSS_UI_SERVICE_HOST}:${VSS_UI_PORT}" check resolvers docker init-addr none
 
 backend bk_vss_agent
-    server s1 "${HOST_IP}:${VSS_AGENT_PORT}" check
+    server s1 "${VSS_AGENT_SERVICE_HOST}:${VSS_AGENT_PORT}" check resolvers docker init-addr none
 
 backend bk_vst_ingress
-    server s1 "${HOST_IP}:${VST_PORT}" check
+    server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
 
 backend bk_vst_storage_compat
     http-request replace-path ^/storage/(.*) /vst/storage/\1
     http-request replace-path ^/storage$ /vst/storage
-    server s1 "${HOST_IP}:${VST_PORT}" check
+    server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
+
+backend bk_vst_prefixed_compat
+    http-request replace-path ^/[^/]+:[0-9]+/vst/(.*) /vst/\1
+    http-request replace-path ^/[^/]+:[0-9]+/vst$ /vst
+    server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
 
 backend bk_behavior_analytics
-    server s1 "${HOST_IP}:${BEHAVIOR_ANALYTICS_PORT}" check
+    server s1 "${BEHAVIOR_ANALYTICS_SERVICE_HOST}:${BEHAVIOR_ANALYTICS_PORT}" check resolvers docker init-addr none
 
 backend bk_perception_sdr
-    server s1 "${HOST_IP}:${PERCEPTION_SDR_PORT}" check
+    server s1 "${PERCEPTION_SDR_SERVICE_HOST}:${PERCEPTION_SDR_PORT}" check resolvers docker init-addr none
 
 backend bk_va_mcp
-    server s1 "${HOST_IP}:${VSS_VA_MCP_PORT}" check
+    server s1 "${VSS_VA_MCP_SERVICE_HOST}:${VSS_VA_MCP_PORT}" check resolvers docker init-addr none
 
 backend bk_kibana
-    server s1 "${HOST_IP}:${KIBANA_PORT}" check
+    server s1 "${KIBANA_SERVICE_HOST}:${KIBANA_PORT}" check resolvers docker init-addr none
 
 # Path-rewrite + backends for prefixed services (same as haproxy.org/path-rewrite on Ingress)
 
 backend bk_video_analytics_api_strip
     http-request replace-path ^/video-analytics-api/(.*) /\1
     http-request replace-path ^/video-analytics-api$ /
-    server s1 "${HOST_IP}:${VIDEO_ANALYTICS_API_PORT}" check
+    server s1 "${VIDEO_ANALYTICS_API_SERVICE_HOST}:8081" check resolvers docker init-addr none
 
 backend bk_alert_bridge_strip
     http-request replace-path ^/alert-bridge/(.*) /\1
     http-request replace-path ^/alert-bridge$ /
-    server s1 "${HOST_IP}:${ALERT_BRIDGE_PORT}" check
+    server s1 "${ALERT_BRIDGE_SERVICE_HOST}:${ALERT_BRIDGE_PORT}" check resolvers docker init-addr none
 
 # Strip /phoenix like Phoenix examples/reverse-proxy (Traefik stripPrefix); keep PHOENIX_HOST_ROOT_PATH in sync.
+backend bk_elasticsearch_strip
+    http-request replace-path ^/elasticsearch/(.*) /\1
+    http-request replace-path ^/elasticsearch$ /
+    server s1 "${ELASTICSEARCH_SERVICE_HOST}:${ELASTICSEARCH_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_embed_strip
+    http-request replace-path ^/rtvi-embed/(.*) /\1
+    http-request replace-path ^/rtvi-embed$ /
+    server s1 "${RTVI_EMBED_SERVICE_HOST}:${RTVI_EMBED_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_cv_strip
+    http-request replace-path ^/rtvi-cv/(.*) /\1
+    http-request replace-path ^/rtvi-cv$ /
+    server s1 "${RTVI_CV_SERVICE_HOST}:${RTVI_CV_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_vlm_strip
+    http-request replace-path ^/rtvi-vlm/(.*) /\1
+    http-request replace-path ^/rtvi-vlm$ /
+    server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_lvs_strip
+    http-request replace-path ^/lvs/(.*) /\1
+    http-request replace-path ^/lvs$ /
+    # A long summarization outlasts the 120s default, and a 504 mid-job reads as
+    # a backend failure. The CLI bounds the wait itself.
+    timeout server 3600s
+    server s1 "${LVS_SERVICE_HOST}:${LVS_SERVICE_PORT}" check resolvers docker init-addr none
+
 backend bk_phoenix_strip
     http-request replace-path ^/phoenix/(.*) /\1
     http-request replace-path ^/phoenix$ /
-    server s1 "${HOST_IP}:${PHOENIX_PORT}" check
+    server s1 "${PHOENIX_SERVICE_HOST}:${PHOENIX_PORT}" check resolvers docker init-addr none
 
 frontend fe_http
     bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
@@ -107,14 +145,17 @@ frontend fe_http
 
     acl p_vst_storage path /vst/storage
     acl p_vst_storage path_beg /vst/storage/
+    acl p_vst_prefixed_storage path_reg ^/[^/]+:[0-9]+/vst/storage(/|$)
     acl p_storage path /storage
     acl p_storage path_beg /storage/
     acl m_head method HEAD
     acl m_options method OPTIONS
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_storage
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_storage
+    http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_prefixed_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
+    http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_prefixed_storage
     use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api
@@ -128,6 +169,64 @@ frontend fe_http
     acl p_kibana path /kibana
     acl p_kibana path_beg /kibana/
     use_backend bk_kibana if h_main p_kibana
+
+    # Elasticsearch, method- and path-restricted at the edge. The CLI needs
+    # query access to resolve searches through one origin; it does not need to
+    # administer the cluster, and exposing that through a public ingress would
+    # be a far larger grant than the use case requires.
+    #
+    # Not read-only: the rules below stop PUT/DELETE, cluster-admin paths and
+    # the two-segment mutating operations, but POST is allowed, so
+    # POST /_bulk, /_reindex, /_scripts/<id> and /<index>/_doc still reach ES.
+    # Closing that means deny-by-default with an allowlist of the handful of
+    # operations the CLI uses, not another entry on the denylist.
+    acl p_elasticsearch path /elasticsearch
+    acl p_elasticsearch path_beg /elasticsearch/
+    acl es_read_method method GET HEAD POST OPTIONS
+    acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
+    acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
+
+    # Unified memory persists a job as PUT /<index>/_doc/<job_id>, which the
+    # read-only method rule answers 405. Scoped to the unified-memory index
+    # itself -- `vss-memory`, plus a suffixed variant such as `vss-memory-dev`
+    # for a --memory-index override -- rather than to the `vss-` prefix, so the
+    # exception does not widen on its own if other indices are renamed into that
+    # prefix later (FR-30). Every other index stays read-only whatever it is
+    # called, which is what the earlier `vss-*` pattern rested on assuming.
+    #
+    # Two denies rather than `http-request allow`: allow also skips the
+    # backend's replace-path rules, so the request would reach Elasticsearch
+    # with the /elasticsearch prefix still on it.
+    acl es_memory_write method PUT
+    acl es_memory_doc_path path_reg ^/elasticsearch/vss-memory(-[^/]+)?/_doc/[^/]+$
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method es_memory_doc_path !es_memory_write
+    http-request deny status 403 if h_main p_elasticsearch es_admin_path
+    http-request deny status 403 if h_main p_elasticsearch es_mutating_op
+    use_backend bk_elasticsearch_strip if h_main p_elasticsearch
+
+    # RT-Embed, mounted at the service name so it matches its sibling
+    # /rtvi-cv and the Helm chart, which already calls it rtvi-embed.
+    acl p_rtvi_embed path /rtvi-embed
+    acl p_rtvi_embed path_beg /rtvi-embed/
+    use_backend bk_rtvi_embed_strip if h_main p_rtvi_embed
+
+    acl p_rtvi_cv path /rtvi-cv
+    acl p_rtvi_cv path_beg /rtvi-cv/
+    use_backend bk_rtvi_cv_strip if h_main p_rtvi_cv
+
+    # RT-VLM, mounted at its service name like its two siblings. Profiles that
+    # do not run rtvi-vlm leave the backend DOWN, so the route answers 503 and
+    # `vss configure` records it absent rather than present-but-broken.
+    acl p_rtvi_vlm path /rtvi-vlm
+    acl p_rtvi_vlm path_beg /rtvi-vlm/
+    use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
+
+    # Profiles without lvs-server leave the backend DOWN, so this answers 503
+    # and `vss configure` records the service absent, not present-but-broken.
+    acl p_lvs path /lvs
+    acl p_lvs path_beg /lvs/
+    use_backend bk_lvs_strip if h_main p_lvs
 
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/
@@ -155,6 +254,8 @@ frontend fe_http
 
     acl p_vst path /vst
     acl p_vst path_beg /vst/
+    acl p_vst_prefixed path_reg ^/[^/]+:[0-9]+/vst(/|$)
+    use_backend bk_vst_prefixed_compat if h_main p_vst_prefixed
     use_backend bk_vst_ingress if h_main p_vst
 
     acl p_behavior path /behavior-analytics

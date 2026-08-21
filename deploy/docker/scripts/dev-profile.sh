@@ -132,9 +132,53 @@ function get_vlm_slug() {
     nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
     nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
     nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
+    # No standalone NIM ships this checkpoint; RT-VLM serves it, so there is no slug to select.
+    nvidia/cosmos3-reasoner-fp8) echo "none" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
+}
+
+# Map CLI --vlm friendly names to RT-VLM MODEL_PATH for integrated (local) mode.
+# Used by base/alerts/lvs; search still uses standalone NIM slugs via get_vlm_slug.
+# Returns empty for unknown / unsupported names.
+function get_rtvi_vlm_model_path() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/cosmos-reason1-7b) echo "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic" ;;
+    nvidia/cosmos-reason2-8b) echo "ngc:nim/nvidia/cosmos-reason2-8b:hf-0303" ;;
+    nvidia/cosmos3-reasoner) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" ;;
+    nvidia/cosmos3-reasoner-fp8) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" ;;
+    Qwen/Qwen3-VL-8B-Instruct) echo "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" ;;
+    *) echo "" ;;
+  esac
+}
+
+function get_rtvi_vlm_model_to_use() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/cosmos-reason1-7b) echo "cosmos-reason1" ;;
+    nvidia/cosmos-reason2-8b) echo "cosmos-reason2" ;;
+    nvidia/cosmos3-reasoner) echo "cosmos-reason3" ;;
+    nvidia/cosmos3-reasoner-fp8) echo "cosmos-reason3" ;;
+    Qwen/Qwen3-VL-8B-Instruct) echo "vllm-compatible" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Derive the /v1/models id RT-VLM advertises from MODEL_PATH.
+# NGC: ngc:nim/<org>/<model>:<tag> → nim_<org>_<model>_<tag> ('.' in tag → '_', matching ngc_model_downloader).
+# HF git: git:https://huggingface.co/<org>/<repo> → <repo> (best-effort; confirm via /v1/models after boot).
+function get_rtvi_vlm_name_from_model_path() {
+  local _path="${1}"
+  if [[ "${_path}" == ngc:* ]]; then
+    local _rest="${_path#ngc:}"
+    echo "${_rest}" | tr '/:' '__' | tr '.' '_'
+  elif [[ "${_path}" == git:* ]]; then
+    basename "${_path#git:}"
+  else
+    basename "${_path}"
+  fi
 }
 
 # Mode: accepted CLI values verification | real-time; written to MODE in env as 2d_cv | 2d_vlm
@@ -168,6 +212,25 @@ function set_alerts_ui_subtitle_from_mode() {
     2d_vlm)
       sed -i 's|^NEXT_PUBLIC_APP_SUBTITLE=.*|NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"|' "${_generated_env}"
       echo "[INFO] Set NEXT_PUBLIC_APP_SUBTITLE for alerts (MODE=2d_vlm → Vision (Alerts - VLM))"
+      ;;
+  esac
+}
+
+# Alerts RT-VLM Kafka publishing: overrides.env disables it for verification
+# (2d_cv), where nothing consumes the output and RT-VLM would emit duplicate
+# incidents with file-relative timestamps. Real-time (2d_vlm) drives alerts from
+# RT-VLM's Kafka events, so comment the override out and let the rtvi-vlm compose
+# default (true) apply.
+function set_alerts_rtvi_vlm_kafka_from_mode() {
+  local _generated_env="${1}"
+  local _mode
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  case "${_mode}" in
+    2d_vlm)
+      if grep -q '^RTVI_VLM_KAFKA_ENABLED=' "${_generated_env}"; then
+        sed -i 's|^RTVI_VLM_KAFKA_ENABLED=|#RTVI_VLM_KAFKA_ENABLED=|' "${_generated_env}"
+        echo "[INFO] Commented out RTVI_VLM_KAFKA_ENABLED for alerts (MODE=2d_vlm → RT-VLM Kafka publishing enabled)"
+      fi
       ;;
   esac
 }
@@ -237,6 +300,39 @@ function get_env_value() {
     _val="${_val#\'}"; _val="${_val%\'}"
     echo "${_val}"
   fi
+}
+
+function env_file_has_var() {
+  local _env_file="${1}"
+  local _var_name="${2}"
+  [[ -f "${_env_file}" ]] && grep -q "^${_var_name}=" "${_env_file}" 2>/dev/null
+}
+
+function get_env_value_from_files() {
+  local _var_name="${1}"
+  shift
+  local _env_file _val="" _found="false"
+  for _env_file in "$@"; do
+    if env_file_has_var "${_env_file}" "${_var_name}"; then
+      _val="$(get_env_value "${_env_file}" "${_var_name}")"
+      _found="true"
+    fi
+  done
+  if [[ "${_found}" == "true" ]]; then
+    echo "${_val}"
+  fi
+}
+
+function env_var_defined_in_files() {
+  local _var_name="${1}"
+  shift
+  local _env_file
+  for _env_file in "$@"; do
+    if env_file_has_var "${_env_file}" "${_var_name}"; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 # Resolve path to absolute (relative paths are relative to current working directory).
@@ -385,7 +481,6 @@ function usage() {
   echo "  • LLM_ENDPOINT_URL    — optional; required when --use-remote-llm is passed (both must be set)"
   echo "  • VLM_ENDPOINT_URL    — optional; required when --use-remote-vlm is passed (both must be set)"
   echo "  • VLM_CUSTOM_WEIGHTS  — optional; when --use-remote-vlm is not passed: absolute path to custom weights dir; when --use-remote-vlm is passed, ignored"
-  echo "  • ENABLE_CRITIC       — optional; search profile: enabled by default; when false (case-insensitive), disables the critic agent and skips local VLM deployment"
   echo ""
   echo "Options for 'up':"
   echo "  -p, --profile                    [REQUIRED] Profile."
@@ -436,7 +531,9 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
-  echo "                                     - nvidia/cosmos3-reasoner          (NIM_MODEL_SIZE=nano|super → VLM_NAME=nvidia/cosmos3-{size}-reasoner)"
+  echo "                                     - nvidia/cosmos3-reasoner          (search: NIM_MODEL_SIZE=nano|super → nvidia/cosmos3-{size}-reasoner;"
+  echo "                                                                         base/alerts/lvs: maps to RT-VLM MODEL_PATH + /v1/models basename)"
+  echo "                                     - nvidia/cosmos3-reasoner-fp8      (Cosmos3 Nano FP8 via RT-VLM; smaller footprint for a shared GPU)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -672,27 +769,32 @@ function process_args() {
 
       # Populate from profile .env when not provided by user (only after .env existence is verified)
       local _profile_env="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
+      local _profile_overrides_env="${deployment_directory}/developer-profiles/dev-profile-${profile}/overrides.env"
+      if [[ ! -f "${_profile_overrides_env}" ]]; then
+        echo "[ERROR] Profile overrides env file not found: ${_profile_overrides_env}"
+        ((_all_good++))
+      fi
       if ! contains_element "hardware-profile" "${options_provided[@]}"; then
-        hardware_profile="$(get_env_value "${_profile_env}" "HARDWARE_PROFILE")"
+        hardware_profile="$(get_env_value_from_files "HARDWARE_PROFILE" "${_profile_env}" "${_profile_overrides_env}")"
       fi
       if ! contains_element "llm-device-id" "${options_provided[@]}"; then
-        llm_device_id="$(get_env_value "${_profile_env}" "LLM_DEVICE_ID")"
+        llm_device_id="$(get_env_value_from_files "LLM_DEVICE_ID" "${_profile_env}" "${_profile_overrides_env}")"
       fi
       if ! contains_element "vlm-device-id" "${options_provided[@]}"; then
-        vlm_device_id="$(get_env_value "${_profile_env}" "VLM_DEVICE_ID")"
+        vlm_device_id="$(get_env_value_from_files "VLM_DEVICE_ID" "${_profile_env}" "${_profile_overrides_env}")"
       fi
       local _fixed_shared_raw _fixed_shared_norm _reserved_raw _reserved_norm
-      _fixed_shared_raw="$(get_env_value "${_profile_env}" "FIXED_SHARED_DEVICE_IDS")"
+      _fixed_shared_raw="$(get_env_value_from_files "FIXED_SHARED_DEVICE_IDS" "${_profile_env}" "${_profile_overrides_env}")"
       _fixed_shared_raw="${_fixed_shared_raw// /}"
       _fixed_shared_norm=",${_fixed_shared_raw},"
-      _reserved_raw="$(get_env_value "${_profile_env}" "RESERVED_DEVICE_IDS")"
+      _reserved_raw="$(get_env_value_from_files "RESERVED_DEVICE_IDS" "${_profile_env}" "${_profile_overrides_env}")"
       _reserved_raw="${_reserved_raw// /}"
       _reserved_norm=",${_reserved_raw},"
       if ! contains_element "llm-model-type" "${options_provided[@]}"; then
-        llm_model_type="$(get_env_value "${_profile_env}" "LLM_MODEL_TYPE")"
+        llm_model_type="$(get_env_value_from_files "LLM_MODEL_TYPE" "${_profile_env}" "${_profile_overrides_env}")"
       fi
       if ! contains_element "vlm-model-type" "${options_provided[@]}"; then
-        vlm_model_type="$(get_env_value "${_profile_env}" "VLM_MODEL_TYPE")"
+        vlm_model_type="$(get_env_value_from_files "VLM_MODEL_TYPE" "${_profile_env}" "${_profile_overrides_env}")"
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
@@ -813,7 +915,7 @@ function process_args() {
 
       # When VLM is not remote, use host env VLM_CUSTOM_WEIGHTS if set; when remote, ignore it (do not set in generated.env).
       if [[ "${vlm_mode}" != "remote" ]]; then
-        vlm_custom_weights="${VLM_CUSTOM_WEIGHTS:-}"
+        vlm_custom_weights="${VLM_CUSTOM_WEIGHTS:-$(get_env_value_from_files "VLM_CUSTOM_WEIGHTS" "${_profile_env}" "${_profile_overrides_env}")}"
       else
         vlm_custom_weights=""
       fi
@@ -851,14 +953,15 @@ function process_args() {
         ((_all_good++))
       fi
 
-      # L40S: neither LLM nor VLM may use local_shared (device ID cannot be shared with other services)
+      # L40S (48 GB) cannot share the LLM with another NIM (no hw-L40S-shared.env).
+      # Search RT-VLM may share GPU 0 with RT-CV. LLM and VLM still cannot share a GPU.
       if [[ "${hardware_profile}" == "L40S" ]]; then
         if [[ "${llm_mode}" == "local_shared" ]]; then
           echo "[ERROR] On L40S, the device ID for the LLM cannot be shared with other services"
           ((_all_good++))
         fi
-        if [[ "${vlm_mode}" == "local_shared" ]]; then
-          echo "[ERROR] On L40S, the device ID for the VLM cannot be shared with other services"
+        if [[ "${llm_mode}" != "remote" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]] && [[ -n "${vlm_device_id}" ]] && [[ "${llm_device_id}" == "${vlm_device_id}" ]]; then
+          echo "[ERROR] On L40S, the LLM and VLM cannot share the same GPU"
           ((_all_good++))
         fi
       fi
@@ -868,8 +971,9 @@ function process_args() {
       if ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
         if [[ -n "${profile}" ]] && [[ -f "${deployment_directory}/developer-profiles/dev-profile-${profile}/.env" ]]; then
           local _profile_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
+          local _profile_overrides_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/overrides.env"
           local _reserved_raw
-          _reserved_raw="$(get_env_value "${_profile_env_reserved}" "RESERVED_DEVICE_IDS")"
+          _reserved_raw="$(get_env_value_from_files "RESERVED_DEVICE_IDS" "${_profile_env_reserved}" "${_profile_overrides_env_reserved}")"
           _reserved_raw="${_reserved_raw// /}"  # normalize: remove spaces so "0, 1" matches id "0" and "1"
           local _reserved_norm=",${_reserved_raw},"
           if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
@@ -972,20 +1076,21 @@ function process_args() {
         fi
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
-            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, Qwen/Qwen3-VL-8B-Instruct"
+            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, nvidia/cosmos3-reasoner-fp8, Qwen/Qwen3-VL-8B-Instruct"
             ((_all_good++))
           fi
         fi
       fi
 
-      # Search critic requires a local VLM unless --use-remote-vlm is provided.
-      # On 2-GPU Brev launchables the configured local VLM device is unavailable,
-      # so fail fast instead of silently deploying without the critic service.
-      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]] && ! ([[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]); then
+      # Search deploys a local RT-VLM (critic + video_understanding) that shares GPU 0
+      # with RT-CV, while RT-Embed and the LLM share GPU 1, so two GPUs are the floor
+      # unless --use-remote-vlm is provided. A single-GPU Brev launchable cannot host
+      # that layout, so fail fast instead of a broken deployment.
+      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
         local _brev_gpu_count
         _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
-        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
-          echo "[ERROR] Search critic requires a local VLM GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Set ENABLE_CRITIC=false to deploy search without critic, or pass --use-remote-vlm with VLM_ENDPOINT_URL."
+        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -lt 2 ]]; then
+          echo "[ERROR] Search deploys a local RT-VLM and needs at least 2 GPUs, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
           ((_all_good++))
         fi
       fi
@@ -1029,12 +1134,13 @@ function print_args() {
     fi
     echo "ngc-cli-api-key:           $(mask_secret "${ngc_cli_api_key}")"
     local _env_file="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
-    local _llm_mode="${llm_mode:-$(get_env_value "${_env_file}" "LLM_MODE")}"
-    local _vlm_mode="${vlm_mode:-$(get_env_value "${_env_file}" "VLM_MODE")}"
+    local _overrides_env_file="${deployment_directory}/developer-profiles/dev-profile-${profile}/overrides.env"
+    local _llm_mode="${llm_mode:-$(get_env_value_from_files "LLM_MODE" "${_env_file}" "${_overrides_env_file}")}"
+    local _vlm_mode="${vlm_mode:-$(get_env_value_from_files "VLM_MODE" "${_env_file}" "${_overrides_env_file}")}"
 
-    echo "hardware-profile:          ${hardware_profile:-$(get_env_value "${_env_file}" "HARDWARE_PROFILE")}"
+    echo "hardware-profile:          ${hardware_profile:-$(get_env_value_from_files "HARDWARE_PROFILE" "${_env_file}" "${_overrides_env_file}")}"
     if [[ "${profile}" == "alerts" ]]; then
-      echo "mode:                      ${mode:-$(get_mode_display_value "$(get_env_value "${_env_file}" "MODE")")}"
+      echo "mode:                      ${mode:-$(get_mode_display_value "$(get_env_value_from_files "MODE" "${_env_file}" "${_overrides_env_file}")")}"
     fi
 
     echo "llm-mode:                  ${_llm_mode}"
@@ -1046,17 +1152,17 @@ function print_args() {
         _llm_model="$(get_remote_model_name "${llm_base_url}" "llm")"
       fi
     else
-      _llm_model="${llm:-$(get_env_value "${_env_file}" "LLM_NAME")}"
+      _llm_model="${llm:-$(get_env_value_from_files "LLM_NAME" "${_env_file}" "${_overrides_env_file}")}"
     fi
     echo "llm:                       ${_llm_model}"
     if [[ "${_llm_mode}" != "remote" ]]; then
-      local _llm_device_id="${llm_device_id:-$(get_env_value "${_env_file}" "LLM_DEVICE_ID")}"
+      local _llm_device_id="${llm_device_id:-$(get_env_value_from_files "LLM_DEVICE_ID" "${_env_file}" "${_overrides_env_file}")}"
       echo "llm-device-id:             ${_llm_device_id}"
     fi
     if [[ "${_llm_mode}" == "remote" ]]; then
-      local _llm_base_url="${llm_base_url:-$(get_env_value "${_env_file}" "LLM_BASE_URL")}"
+      local _llm_base_url="${llm_base_url:-$(get_env_value_from_files "LLM_BASE_URL" "${_env_file}" "${_overrides_env_file}")}"
       echo "llm-base-url:              ${_llm_base_url}"
-      local _llm_model_type="${llm_model_type:-$(get_env_value "${_env_file}" "LLM_MODEL_TYPE")}"
+      local _llm_model_type="${llm_model_type:-$(get_env_value_from_files "LLM_MODEL_TYPE" "${_env_file}" "${_overrides_env_file}")}"
       if [[ -n "${_llm_model_type}" ]]; then
         echo "llm-model-type:            ${_llm_model_type}"
       fi
@@ -1074,17 +1180,17 @@ function print_args() {
         _vlm_model="$(get_remote_model_name "${vlm_base_url}" "vlm")"
       fi
     else
-      _vlm_model="${vlm:-$(get_env_value "${_env_file}" "VLM_NAME")}"
+      _vlm_model="${vlm:-$(get_env_value_from_files "VLM_NAME" "${_env_file}" "${_overrides_env_file}")}"
     fi
     echo "vlm:                       ${_vlm_model}"
     if [[ "${_vlm_mode}" != "remote" ]]; then
-      local _vlm_device_id="${vlm_device_id:-$(get_env_value "${_env_file}" "VLM_DEVICE_ID")}"
+      local _vlm_device_id="${vlm_device_id:-$(get_env_value_from_files "VLM_DEVICE_ID" "${_env_file}" "${_overrides_env_file}")}"
       echo "vlm-device-id:             ${_vlm_device_id}"
     fi
     if [[ "${_vlm_mode}" == "remote" ]]; then
-      local _vlm_base_url="${vlm_base_url:-$(get_env_value "${_env_file}" "VLM_BASE_URL")}"
+      local _vlm_base_url="${vlm_base_url:-$(get_env_value_from_files "VLM_BASE_URL" "${_env_file}" "${_overrides_env_file}")}"
       echo "vlm-base-url:              ${_vlm_base_url}"
-      local _vlm_model_type="${vlm_model_type:-$(get_env_value "${_env_file}" "VLM_MODEL_TYPE")}"
+      local _vlm_model_type="${vlm_model_type:-$(get_env_value_from_files "VLM_MODEL_TYPE" "${_env_file}" "${_overrides_env_file}")}"
       if [[ -n "${_vlm_model_type}" ]]; then
         echo "vlm-model-type:            ${_vlm_model_type}"
       fi
@@ -1106,9 +1212,10 @@ function print_args() {
 }
 
 function state_up() {
-  local _profile_dir _source_env _generated_env
+  local _profile_dir _source_env _overrides_env _generated_env
   _profile_dir="${deployment_directory}/developer-profiles/dev-profile-${profile}"
   _source_env="${_profile_dir}/.env"
+  _overrides_env="${_profile_dir}/overrides.env"
   _generated_env="${_profile_dir}/generated.env"
 
   echo "[INFO] Generating environment file for profile '${profile}'..."
@@ -1119,9 +1226,15 @@ function state_up() {
     exit 1
   fi
 
-  # Copy source .env to generated.env
-  cp "${_source_env}" "${_generated_env}"
-  echo "[INFO] Copied ${_source_env} to ${_generated_env}"
+  # Check if overrides.env exists
+  if [[ ! -f "${_overrides_env}" ]]; then
+    echo "[ERROR] Overrides env file not found: ${_overrides_env}"
+    exit 1
+  fi
+
+  # Copy overrides.env to generated.env. The stable .env is passed separately to Compose.
+  cp "${_overrides_env}" "${_generated_env}"
+  echo "[INFO] Copied ${_overrides_env} to ${_generated_env}"
 
   ensure_generated_env_trailing_newline() {
     if [[ -s "${_generated_env}" ]] && [[ "$(tail -c 1 "${_generated_env}" | wc -l)" -eq 0 ]]; then
@@ -1131,13 +1244,13 @@ function state_up() {
   ensure_generated_env_trailing_newline
 
   # Append compose-wide defaults for variables not already defined in the profile
-  local _compose_defaults="${deployment_directory}/vst/compose-defaults.env"
+  local _compose_defaults="${deployment_directory}/services/vios/compose-defaults.env"
   if [[ -f "${_compose_defaults}" ]]; then
     while IFS= read -r line || [[ -n "${line}" ]]; do
       [[ "${line}" =~ ^[[:space:]]*# ]] && continue
       [[ -z "${line// }" ]] && continue
       local _var_name="${line%%=*}"
-      if ! grep -q "^${_var_name}=" "${_generated_env}"; then
+      if ! env_var_defined_in_files "${_var_name}" "${_source_env}" "${_generated_env}"; then
         echo "${line}" >> "${_generated_env}"
       fi
     done < "${_compose_defaults}"
@@ -1152,15 +1265,17 @@ function state_up() {
     local var_value="${2}"
     local mask="${3:-false}"
     local display_value="${var_value}"
+    local sed_value
+    sed_value="$(printf '%s' "${var_value}" | sed 's/[&|\\]/\\&/g')"
     if [[ "${mask}" == "true" ]]; then
       display_value="$(mask_secret "${var_value}")"
     fi
     if grep -q "^${var_name}=" "${_generated_env}"; then
       # Variable exists (uncommented), update it
-      sed -i "s|^${var_name}=.*|${var_name}=${var_value}|" "${_generated_env}"
+      sed -i "s|^${var_name}=.*|${var_name}=${sed_value}|" "${_generated_env}"
     elif grep -Eq "^#[[:space:]]*${var_name}=" "${_generated_env}"; then
       # Variable exists but is commented (with optional whitespace), uncomment and update it
-      sed -i -E "s|^#[[:space:]]*${var_name}=.*|${var_name}=${var_value}|" "${_generated_env}"
+      sed -i -E "s|^#[[:space:]]*${var_name}=.*|${var_name}=${sed_value}|" "${_generated_env}"
     else
       # Variable doesn't exist, append it
       echo "${var_name}=${var_value}" >> "${_generated_env}"
@@ -1178,25 +1293,24 @@ function state_up() {
   # Export INSTALL_PROPRIETARY_CODECS=false to keep them off at runtime too.
   set_env_var "INSTALL_PROPRIETARY_CODECS" "${INSTALL_PROPRIETARY_CODECS:-true}"
   set_env_var "VST_CONFIG_PATH" "${deployment_directory}/services/vios/configs"
-  set_env_var "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/config.yml"
-  if [[ -f "${_profile_dir}/vss-agent/configs/va_mcp_server_config.yml" ]]; then
-    set_env_var "VSS_VA_MCP_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/va_mcp_server_config.yml"
-  fi
   if [[ -n "${external_ip}" ]]; then
     set_env_var "EXTERNAL_IP" "${external_ip}" "true"
   fi
 
   # ===== Brev secure links =====
   # Brev secure links use <prefix>-<env>.<domain>. During the phased tunnel
-  # migration, Netbird identifies Skybridge; Cloudflare remains the fallback.
-  # An explicit BREV_LINK_DOMAIN always overrides automatic detection.
+  # migration, Brev-managed NetBird details identify Skybridge; a generic
+  # healthy NetBird client is insufficient. An explicit domain always wins.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
     local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}}"
-    local _link_domain
+    local _link_domain _netbird_status=""
     if [[ -n "${BREV_LINK_DOMAIN:-}" ]]; then
       _link_domain="${BREV_LINK_DOMAIN}"
-    elif netbird status >/dev/null 2>&1; then
+    elif _netbird_status="$(netbird status -d 2>&1)" &&
+         [[ "${_netbird_status,,}" == *"skybridge"* ||
+            "${_netbird_status,,}" == *"brev.nvidia.com"* ||
+            "${_netbird_status,,}" == *"brev.dev"* ]]; then
       _link_domain="apps.run.brev.nvidia.com"
     else
       _link_domain="brevlab.com"
@@ -1220,6 +1334,11 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
+    # Alerts VLM mode uses a different explicit service list than CV mode.
+    if [[ "${mode_env}" == "2d_vlm" ]]; then
+      set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+    fi
   fi
 
   # ===== LLM Configuration =====
@@ -1257,7 +1376,7 @@ function state_up() {
     set_env_var "LLM_BASE_URL" "${llm_base_url}"
   fi
   if [[ "${llm_mode}" == "remote" ]]; then
-    local _llm_type="${llm_model_type:-$(get_env_value "${_source_env}" "LLM_MODEL_TYPE")}"
+    local _llm_type="${llm_model_type:-$(get_env_value_from_files "LLM_MODEL_TYPE" "${_source_env}" "${_overrides_env}")}"
     if [[ -n "${_llm_type}" ]]; then
       set_env_var "LLM_MODEL_TYPE" "${_llm_type}"
     fi
@@ -1288,7 +1407,7 @@ function state_up() {
   elif [[ -n "${vlm}" ]]; then
     set_env_var "VLM_NAME_SLUG" "$(get_vlm_slug "${vlm}")"
     if [[ "${vlm}" == "nvidia/cosmos3-reasoner" ]]; then
-      local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value "${_source_env}" "NIM_MODEL_SIZE")}"
+      local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value_from_files "NIM_MODEL_SIZE" "${_source_env}" "${_overrides_env}")}"
       _nim_model_size="${_nim_model_size:-nano}"
       set_env_var "VLM_NAME" "nvidia/cosmos3-${_nim_model_size}-reasoner"
     else
@@ -1306,7 +1425,7 @@ function state_up() {
     fi
   fi
   if [[ "${vlm_mode}" == "remote" ]]; then
-    local _vlm_type="${vlm_model_type:-$(get_env_value "${_source_env}" "VLM_MODEL_TYPE")}"
+    local _vlm_type="${vlm_model_type:-$(get_env_value_from_files "VLM_MODEL_TYPE" "${_source_env}" "${_overrides_env}")}"
     if [[ -n "${_vlm_type}" ]]; then
       set_env_var "VLM_MODEL_TYPE" "${_vlm_type}"
     fi
@@ -1315,14 +1434,22 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Base/alerts/LVS/search + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason3 is only valid when the
   # local rtvi-vlm container is serving the integrated checkpoint).
   # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
+    # LVS requests defer frame sampling to RT-VLM. Default remote endpoints to
+    # five frames per chunk unless their profile or environment overrides it.
+    if [[ "${profile}" == "lvs" ]]; then
+      local _configured_frame_default
+      _configured_frame_default="$(get_env_value_from_files "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "${_source_env}" "${_overrides_env}")"
+      local _remote_frame_default="${RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK:-${_configured_frame_default}}"
+      set_env_var "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "${_remote_frame_default:-5}"
+    fi
   fi
 
   # Handle custom weights for VLM
@@ -1337,18 +1464,6 @@ function state_up() {
     set_env_var "VLM_ENV_FILE" "${vlm_env_file}"
   fi
 
-  # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
-  # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
-  # Brev 2-GPU local-VLM critic deployments are rejected during argument validation.
-  if [[ "${profile}" == "search" ]]; then
-    if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
-      set_env_var "ENABLE_CRITIC" "false"
-      set_env_var "VLM_NAME_SLUG" "none"
-    else
-      set_env_var "ENABLE_CRITIC" "true"
-    fi
-  fi
-
   # Alerts profile: conditionally set perception prefix for edge (DGX-SPARK, IGX-THOR, AGX-THOR)
   if [[ "${profile}" == "alerts" ]] && contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
@@ -1358,23 +1473,14 @@ function state_up() {
     set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
   fi
 
-  # Alerts or base profile on IGX-THOR or AGX-THOR: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "base" ]]); then
+  # Base/alerts/LVS/search for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed RT-VLM configuration)
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
-    set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-    set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
-    set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
-    set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
-    set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
-  fi
-  # Alerts/LVS profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if  ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]); then
-    set_env_var "VLM_NAME_SLUG" "none"
-    # Local VLM only: rtvi-vlm serves the VLM locally on port 8018. VLM_BASE_URL
-    # needs runtime host_ip injection (source .env has it empty). VLM_NAME and
-    # RTVI_VLM_MODEL_PATH should come straight from the source .env.
+    # Local VLM only: rtvi-vlm serves the VLM locally on the Compose network.
+    # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports.
+    # VLM_NAME and RTVI_VLM_MODEL_PATH come from the profile env files unless hardware/remote settings override them.
     if [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
+      set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
     fi
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
@@ -1392,7 +1498,7 @@ function state_up() {
     if [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
       if [[ "${vlm_mode}" == "local_shared" ]]; then
         local _shared_rt_dev_id
-        _shared_rt_dev_id="$(get_env_value "${_source_env}" "SHARED_LLM_VLM_DEVICE_ID")"
+        _shared_rt_dev_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_source_env}" "${_overrides_env}")"
         set_env_var "RT_VLM_DEVICE_ID" "${_shared_rt_dev_id:-${vlm_device_id}}"
       elif [[ "${vlm_mode}" == "remote" ]]; then
         set_env_var "RT_VLM_DEVICE_ID" "0"
@@ -1401,18 +1507,46 @@ function state_up() {
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+      # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
+      if [[ "${profile}" == "base" ]]; then
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
+      else
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+      fi
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
-    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -z "${vlm}" ]]; then
       set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
       set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
     fi
+    # Honor --vlm for local RT-VLM: map friendly CLI name → MODEL_PATH + advertised basename.
+    # (Standalone NIM slug/VLM_NAME from the generic --vlm block above is overwritten here.)
+    if [[ "${vlm_mode}" != "remote" ]] && [[ -n "${vlm}" ]]; then
+      local _rtvi_path _rtvi_to_use _rtvi_name
+      _rtvi_path="$(get_rtvi_vlm_model_path "${vlm}")"
+      if [[ -z "${_rtvi_path}" ]]; then
+        echo "[ERROR] VLM '${vlm}' is not supported as an integrated RT-VLM checkpoint for profile ${profile}."
+        exit 1
+      fi
+      _rtvi_name="$(get_rtvi_vlm_name_from_model_path "${_rtvi_path}")"
+      _rtvi_to_use="$(get_rtvi_vlm_model_to_use "${vlm}")"
+      set_env_var "RTVI_VLM_MODEL_PATH" "${_rtvi_path}"
+      set_env_var "VLM_NAME" "${_rtvi_name}"
+      if [[ -n "${_rtvi_to_use}" ]]; then
+        set_env_var "RTVI_VLM_MODEL_TO_USE" "${_rtvi_to_use}"
+      fi
+    fi
   fi
-  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
-  # (alerts defaults to VLM_MODEL_TYPE=rtvi via its source .env, so it does not need this override)
-  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
+  # Base local VLM always uses the rtvi_vlm agent profile (overrides default to rtvi; keep explicit for Thor/history).
+  # Remote VLM may still set VLM_MODEL_TYPE via --vlm-model-type / profile remote defaults above.
+  if [[ "${profile}" == "base" ]] && [[ "${vlm_mode}" != "remote" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
+    local _compose_profiles
+    _compose_profiles="$(get_env_value "${_generated_env}" "COMPOSE_PROFILES")"
+    case ",${_compose_profiles}," in
+      *,rtvi-vlm,*) ;;
+      *) set_env_var "COMPOSE_PROFILES" "${_compose_profiles},rtvi-vlm" ;;
+    esac
   fi
 
   # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
@@ -1444,7 +1578,7 @@ function state_up() {
   mkdir -p "${data_directory}/agent_eval/dataset/"
   mkdir -p "${data_directory}/agent_eval/results/"
 
-  # Create alerts-specific directories and download models
+  # Create alerts-specific directories
   if [[ "${profile}" == "alerts" ]]; then
     echo "[INFO] Creating alerts-specific directories..."
 
@@ -1462,63 +1596,7 @@ function state_up() {
       chmod -R 777 "${deployment_directory}/engines"
     fi
 
-    # Download alerts models from NGC
-    echo "[INFO] Downloading alerts models from NGC..."
-
-    if [[ "${dry_run}" == "true" ]]; then
-      echo "[DRY-RUN] rm -rf ${data_directory}/models"
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models/rtdetr-its"
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models/gdino"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
-      echo "[DRY-RUN] mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx ${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
-      echo "[DRY-RUN] rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
-      echo "[DRY-RUN] mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx ${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-      echo "[DRY-RUN] rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
-      echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
-    else
-      rm -rf "${data_directory}/models"
-
-      mkdir -p "${data_directory}/models/rtdetr-its"
-      mkdir -p "${data_directory}/models/gdino"
-
-      # Download and install trafficcamnet RT-DETR model
-      run_required_step "Failed to download trafficcamnet RT-DETR model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
-
-      require_downloaded_model_file \
-        "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx" \
-        "trafficcamnet RT-DETR ONNX artifact"
-      run_required_step "Failed to install trafficcamnet RT-DETR model" \
-        mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
-        "${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
-
-      rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
-
-      # Download and install grounding DINO model
-      run_required_step "Failed to download grounding DINO model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-
-      require_downloaded_model_file \
-        "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx" \
-        "grounding DINO ONNX artifact"
-      run_required_step "Failed to install grounding DINO model" \
-        mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
-        "${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-
-      rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-
-      chmod -R 777 "${data_directory}/models"
-      echo "[INFO] Alerts models downloaded and installed to ${data_directory}/models"
-    fi
+    echo "[INFO] Alerts model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   if [[ "${profile}" == "search" ]]; then
@@ -1530,37 +1608,7 @@ function state_up() {
       mkdir -p "${data_directory}/data_log/vss_video_analytics_api"
     fi
 
-    # Download RT-DETR model from NGC (host-staged, bind-mounted into container).
-    echo "[INFO] Downloading RT-DETR model from NGC..."
-
-    if [[ "${dry_run}" == "true" ]]; then
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvidia"
-      echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-      echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2"
-      echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
-    else
-      mkdir -p "${data_directory}/models"
-
-      run_required_step "Failed to download RT-DETR model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-        --org nvidia
-
-      require_downloaded_model_file \
-        "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx" \
-        "RT-DETR warehouse ONNX artifact"
-      run_required_step "Failed to install RT-DETR model" \
-        mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-
-      rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
-
-      chmod -R 777 "${data_directory}/models"
-      echo "[INFO] RT-DETR model downloaded and installed to ${data_directory}/models"
-    fi
+    echo "[INFO] Search model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   # Set permissions on data_log directory
@@ -1577,6 +1625,23 @@ function state_up() {
     set_vss_linux_kernel_settings
   fi
 
+  # Resolve and display the managed container channel before deployment.
+  set -a
+  # shellcheck disable=SC1091
+  source "${deployment_directory}/containers.env"
+  set +a
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  echo "[INFO] Resolved compose images:"
+  (
+    cd "${deployment_directory}"
+    docker compose \
+      --env-file containers.env \
+      --env-file "developer-profiles/dev-profile-${profile}/.env" \
+      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+      config --images | sort -u
+  )
+
   # Docker login to nvcr.io
   echo "[INFO] Logging into nvcr.io..."
   if [[ "${dry_run}" == "true" ]]; then
@@ -1591,24 +1656,75 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --pull always --force-recreate --build"
   else
-    cd "${deployment_directory}" && docker compose \
-      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
-      up \
-      --detach \
-      --force-recreate \
-      --build
+    if ! (
+      cd "${deployment_directory}" && docker compose \
+        --env-file containers.env \
+        --env-file "developer-profiles/dev-profile-${profile}/.env" \
+        --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+        up \
+        --detach \
+        --pull always \
+        --force-recreate \
+        --build
+    ); then
+      echo "[ERROR] docker compose up failed for developer profile '${profile}'"
+      return 1
+    fi
   fi
 
   echo "[INFO] State up completed"
 }
 
 function state_down() {
-  local _profile_dir_names _profile_dir_name _generated_env
+  local _profile_dir_names _profile_dir_name _profile_dir _source_env _overrides_env _generated_env
+  local _compose_project_name _compose_project_names=()
+
+  _profile_dir_names=('base' 'lvs' 'search' 'alerts')
+
+  if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    _compose_project_names+=("${COMPOSE_PROJECT_NAME}")
+  fi
+
+  for _profile_dir_name in "${_profile_dir_names[@]}"; do
+    _profile_dir="${deployment_directory}/developer-profiles/dev-profile-${_profile_dir_name}"
+    _source_env="${_profile_dir}/.env"
+    _overrides_env="${_profile_dir}/overrides.env"
+    _generated_env="${_profile_dir}/generated.env"
+    if [[ -f "${_generated_env}" ]]; then
+      _compose_project_name="$(get_env_value_from_files "COMPOSE_PROJECT_NAME" "${_source_env}" "${_overrides_env}" "${_generated_env}")"
+      _compose_project_name="${_compose_project_name:-vss}"
+      if ! contains_element "${_compose_project_name}" "${_compose_project_names[@]}"; then
+        _compose_project_names+=("${_compose_project_name}")
+      fi
+    fi
+  done
+
+  if [[ ${#_compose_project_names[@]} -eq 0 ]]; then
+    for _profile_dir_name in "${_profile_dir_names[@]}"; do
+      _profile_dir="${deployment_directory}/developer-profiles/dev-profile-${_profile_dir_name}"
+      _compose_project_name="$(get_env_value_from_files "COMPOSE_PROJECT_NAME" "${_profile_dir}/.env" "${_profile_dir}/overrides.env")"
+      if [[ -n "${_compose_project_name}" ]]; then
+        _compose_project_names+=("${_compose_project_name}")
+        break
+      fi
+    done
+  fi
+  if [[ ${#_compose_project_names[@]} -eq 0 ]]; then
+    _compose_project_names=('vss')
+  fi
+
+  for _compose_project_name in "${_compose_project_names[@]}"; do
+    echo "[INFO] Bringing down docker compose project '${_compose_project_name}' (with volumes)..."
+    if [[ "${dry_run}" == "true" ]]; then
+      echo "[DRY-RUN] docker compose -p ${_compose_project_name} down -v --remove-orphans"
+    else
+      docker compose -p "${_compose_project_name}" down -v --remove-orphans
+    fi
+  done
 
   echo "[INFO] Cleaning up generated.env files from all profiles..."
-  _profile_dir_names=('base' 'lvs' 'search' 'alerts')
   for _profile_dir_name in "${_profile_dir_names[@]}"; do
     _generated_env="${deployment_directory}/developer-profiles/dev-profile-${_profile_dir_name}/generated.env"
     if [[ -f "${_generated_env}" ]]; then
@@ -1620,13 +1736,6 @@ function state_down() {
       fi
     fi
   done
-
-  echo "[INFO] Bringing down docker compose project 'mdx' (with volumes)..."
-  if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] docker compose -p mdx down -v --remove-orphans"
-  else
-    docker compose -p mdx down -v --remove-orphans
-  fi
 
   echo "[INFO] Removing dangling docker volumes..."
   if [[ "${dry_run}" == "true" ]]; then

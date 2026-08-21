@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +25,7 @@
 
 using namespace std;
 
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
 static void
 DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaque)
 {
@@ -41,29 +41,25 @@ DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaq
 }
 #endif
 
-NvKafka* NvKafka::_instance = nullptr;
+std::unique_ptr<NvKafka> NvKafka::_instance = nullptr;
 
 NvKafka* NvKafka::getInstance()
 {
     if (_instance == nullptr)
     {
-        _instance = new NvKafka();
+        _instance = std::unique_ptr<NvKafka>(new NvKafka());
     }
-    return _instance;
+    return _instance.get();
 }
 
 void NvKafka::deleteInstance()
 {
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    _instance.reset();
 }
 
 NvKafka::NvKafka()
         : m_error(false)
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
         , m_kafkaHandle(nullptr)
         , rd_kafka_conf_new(nullptr)
         , rd_kafka_conf_set(nullptr)
@@ -75,8 +71,8 @@ NvKafka::NvKafka()
         , m_producer(nullptr)
 #endif
 {
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-    m_kafkaHandle = dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY);
+#if !defined(AARCH64_PLATFORM)
+    m_kafkaHandle = static_cast<KafkaLibHandle*>(dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY));
     if (!m_kafkaHandle)
     {
         LOG(error) << "Cannot open librdkafka library: " << dlerror() << endl;
@@ -154,7 +150,7 @@ NvKafka::~NvKafka()
 {
     LOG(info) << " ::~NvKafka" << endl;
     stopMessageProcessing();
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     if (m_kafkaHandle)
     {
         dlclose(m_kafkaHandle);
@@ -164,7 +160,7 @@ NvKafka::~NvKafka()
 
 void NvKafka::kafka_init()
 {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     LOG(error) << "Kafka not integrated for Jetson device" << endl;
 #else
     rd_kafka_conf_t *conf; /* Temporary configuration object */
@@ -233,7 +229,7 @@ bool NvKafka::sendToKafka(std::string& payload)
         return false;
     }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     LOG(error) << "Kafka not integrated for Jetson device" << endl;
 #else
     rd_kafka_resp_err_t err;

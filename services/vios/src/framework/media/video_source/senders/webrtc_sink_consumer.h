@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 
 #include "media_consumer.h"
 #include "videowebRTCsender.h"
+#include "webrtc_frame_timestamper.h"
 #include <atomic>
 #include <mutex>
 #include <queue>
@@ -27,14 +28,14 @@ class
 WebrtcSinkConsumer : public IMediaDataConsumer
 {
 public:
-    WebrtcSinkConsumer(const std::string& consumer_name);
+    explicit WebrtcSinkConsumer(const std::string& consumer_name);
     WebrtcSinkConsumer(const std::string& consumer_name, string peer_id, double frame_rate, 
                     const std::map<std::string, std::string, std::less<>> &opts, bool enable_frame_sync = false);
     ~WebrtcSinkConsumer();
 
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void onFrame(FrameParams& params) override;
-    void setWebrtcBroadcaster(void* broadcaster) override;
+    void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) override;
     void removeWebrtcBroadcaster(const std::string& peerid); // New method to remove broadcaster safely
     void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate) override;
     
@@ -54,7 +55,8 @@ private:
 private:
     shared_ptr<VideoWebRTCSender>                  m_videowebRTCSender = nullptr;
     std::mutex                                     m_broadcasterMutex;
-    void*                                          m_broadcaster = nullptr;
+    webrtc::VideoBroadcaster*                      m_broadcaster = nullptr;
     std::string                                    m_peerIdStreamId{""};
     std::shared_ptr<IMediaDataConsumer>            m_bitstreamConsumer = nullptr;
+    WebrtcFrameTimestamper                         m_frameTimestamper;
 };

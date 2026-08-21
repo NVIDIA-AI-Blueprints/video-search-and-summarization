@@ -1,0 +1,154 @@
+{
+    "swagger": "2.0",
+    "info": {
+      "title": "workload worker set APIs",
+      "version": "2.6.2",
+      "description": "API for SDRC service"
+    },
+    "host": "localhost:4000",
+    "basePath": "/",
+    "schemes": ["http"],
+    "consumes": ["application/json"],
+    "produces": ["application/json"],
+    "paths": {
+      "/healthz": {
+        "get": {
+          "summary": "Health check",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/reset": {
+        "get": {
+          "summary": "Reset caches",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/get_config": {
+        "get": {
+          "summary": "Get allocation configs",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/replicas": {
+        "get": {
+          "summary": "Get replica information",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/getwl": {
+        "get": {
+          "summary": "Get workload by id",
+          "parameters": [
+            { "name": "id", "in": "query", "required": false, "type": "string" }
+          ],
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/getpoddns": {
+        "get": {
+          "summary": "Get pod DNS by id",
+          "parameters": [
+            { "name": "id", "in": "query", "required": false, "type": "string" }
+          ],
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/v3/discovery:routes": {
+        "post": {
+          "summary": "xDS routes discovery",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/v3/discovery:clusters": {
+        "post": {
+          "summary": "xDS clusters discovery",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/stream": {
+        "get": {
+          "summary": "Replica count stream",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/current_distributed_streams_cache": {
+        "get": {
+          "summary": "Current distributed streams cache",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/current_distributed_streams_name_id_url": {
+        "get": {
+          "summary": "Current streams name/id/url",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/current_streamid_address_mapping": {
+        "get": {
+          "summary": "Current stream id to address mapping",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/cache_metadata_update": {
+        "post": {
+          "summary": "Update cache metadata for a stream",
+          "parameters": [
+            {
+              "name": "body",
+              "in": "body",
+              "required": true,
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "stream_id": { "type": "string" },
+                  "additional_metadata": { "type": "object" },
+                  "overwrite": { "type": "boolean" },
+                  "cache_key": { "type": "string" }
+                },
+                "required": ["stream_id", "additional_metadata"]
+              }
+            }
+          ],
+          "responses": {
+            "200": { "description": "OK" },
+            "400": { "description": "Bad Request" }
+          }
+        }
+      },
+      "/metrics": {
+        "get": {
+          "summary": "Prometheus metrics",
+          "produces": ["text/plain"],
+          "responses": { "200": { "description": "Metrics text" } }
+        }
+      },
+      "/apply_metadata_payload": {
+        "post": {
+          "summary": "Apply metadata payload",
+          "parameters": [
+            { "name": "body", "in": "body", "required": true, "schema": { "type": "object" } }
+          ],
+          "responses": {
+            "200": { "description": "OK" },
+            "400": { "description": "Bad Request" }
+          }
+        }
+      },
+      "/get_wl_replica_data": {
+        "get": {
+          "summary": "Get workload replica data",
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/getpodInfo": {
+        "get": {
+          "summary": "Get pod info by id",
+          "parameters": [
+            { "name": "id", "in": "query", "required": false, "type": "string" }
+          ],
+          "responses": { "200": { "description": "OK" } }
+        }
+      }
+    }
+  }
+    

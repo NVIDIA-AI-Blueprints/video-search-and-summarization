@@ -1,19 +1,19 @@
 docker-workload-streamprocessing:
   wl_obj_name: vss-vios-streamprocessing
   port: 4005
-  enable: true
+  enable: ${VST_USE_SDRC_ENABLE}
   WDM_CONSUMER_GRP_ID: sdr-streamprocessing-vios-cg
   WDM_REDIS_CACHE_OBJECT: streamprocessing-data
-  WDM_XDS_USE_POD_DNS: false
-  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_XDS_USE_POD_DNS: true
+  WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
 #  WDM_REAPPLY_ON_WL_RESTART: true
   WDM_CLUSTER_TYPE: docker
   WDM_CLUSTER_CONTAINER_NAMES: '["vss-vios-streamprocessing"]'
-  WDM_KFK_BOOTSTRAP_URL: "${HOST_IP}:29092"
+  WDM_KFK_BOOTSTRAP_URL: "kafka:29092"
   WDM_WL_REDIS_PORT: 6379
-  WDM_WL_REDIS_SERVER: ${HOST_IP}
+  WDM_WL_REDIS_SERVER: redis
   WDM_INITIALIZE_FROM_VST: false
   WDM_WL_ADD_URL: /api/v1/proxy/stream/add
   WDM_WL_DELETE_URL: /api/v1/proxy/stream/
@@ -30,8 +30,8 @@ docker-workload-streamprocessing:
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 50
   WDM_DISABLE_WERKZEUG_LOGGING: true
   WDM_WL_OBJECT_NAME: vss-vios-streamprocessing
-  VST_STREAMS_ENDPOINT: http://localhost:30000/api/v1/sensor/streams
-  VST_STATUS_ENDPOINT: http://localhost:30000/api/v1/sensor/status
+  VST_STREAMS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/streams
+  VST_STATUS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/status
   OTEL_SDK_DISABLED: true
   OTEL_SERVICE_NAME: SDR_AGENT
   WDM_WL_NAME_IGNORE_REGEX: ""
@@ -39,7 +39,8 @@ docker-workload-streamprocessing:
   ENVOY_ROUTE_HEADER: "streamid"
   WDM_MS_LISTENER_PORT: 10000
   NOHEADERTARGETROUTE: true
-  HEADERLESS_SERVICE_ENDPOINTS: "[\"${HOST_IP}:30001\"]"
+  HEADERLESS_SERVICE_ENDPOINTS: "[\"vss-vios-streamprocessing:30001\"]"
   WDM_WL_REDIS_MSG_FIELD: sensor.id
   WDM_MSG_KEY: vst_events
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json
+  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false

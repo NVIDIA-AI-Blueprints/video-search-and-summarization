@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,13 +45,13 @@ using namespace std;
 extern "C" void* createSensorManagementObject()
 {
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
-    return static_cast<void*>(static_cast<IVstModule*>(new SensorManagement(deviceManager)));
+    auto sensorManagement = std::make_unique<SensorManagement>(deviceManager);
+    return static_cast<void*>(static_cast<IVstModule*>(sensorManagement.release()));
 }
 
 extern "C" void deleteSensorManagementObject(IVstModule* object)
 {
-    SensorManagement* sensorManagement = static_cast<SensorManagement*>(object);
-    delete sensorManagement;
+    std::unique_ptr<SensorManagement> sensorManagement(static_cast<SensorManagement*>(object));
 }
 
 void SensorManagement::onDecoderPlayingStatus(const string &url)
@@ -493,7 +493,25 @@ int SensorManagement::getAndAddProxyUrl(shared_ptr<SensorInfo>& sensorInfo, cons
                         }
                     }
 
-                    if (GET_DEVICE_MANAGER()->needRtspServer == false)
+                    /* SDR-mediated path vs direct-REST path.
+                     *
+                     * use_sdrc == true   -> publish a camera_proxy event to the
+                     *                       message broker; SDR (sdr-mw-l) consumes
+                     *                       it and POSTs /api/v1/proxy/stream/add
+                     *                       on the chosen stream-processor pod.
+                     *                       Used in the scaled / multi-pod topology.
+                     *
+                     * use_sdrc == false  -> sensor-MS calls vst_rtsp::addStream
+                     *                       itself. The helper routes to the local
+                     *                       in-process RTSP module if loaded
+                     *                       (monolithic / standalone-monolith), or
+                     *                       falls back to an HTTP POST against
+                     *                       RTSP_SERVER_MODULE_ENDPOINT
+                     *                       (standalone-direct deployments without
+                     *                       SDR). Either way the proxy registration
+                     *                       happens synchronously from here.
+                     */
+                    if (GET_CONFIG().use_sdrc == true)
                     {
                         /* Send camera_proxy event */
                         if (sensorInfo->type != SENSOR_TYPE_FILE && sensorInfo->getSensorStatus() == SensorStatusOnline && stream->isMainStream)
@@ -570,8 +588,19 @@ int SensorManagement::getAndAddProxyUrl(shared_ptr<SensorInfo>& sensorInfo, cons
             }
         }
 
-        /* For standalone VST service, Sensors and its streams details will be updated in DB from here */
-        if (GET_DEVICE_MANAGER()->needRtspServer)
+        /* Persist sensor details to the centralized DB.
+         *
+         * In SDRC mode (use_sdrc == true) this already happened above, inside
+         * the camera_proxy publish branch, BEFORE the event was emitted so
+         * SDR's consumer (the stream-processor) can read sensor metadata
+         * when handling the proxy/stream/add call.
+         *
+         * In direct mode (use_sdrc == false) and in monolithic deployments,
+         * sensor-MS calls vst_rtsp::addStream directly above; the write must
+         * happen here so subsequent queries against the DB resolve. The
+         * needRtspServer condition kept for backwards compatibility: classic
+         * monolith deployments persist from here regardless of use_sdrc. */
+        if (GET_DEVICE_MANAGER()->needRtspServer || GET_CONFIG().use_sdrc == false)
         {
             vst_common::updateSensorDetailsToDB(deviceManager->id, sensorInfo);
         }
@@ -596,7 +625,8 @@ std::string SensorManagement::addStream(shared_ptr<StreamInfo> stream)
             }
         }
 
-#ifdef JETSON_PLATFORM
+        if (isJetsonPlatform())
+        {
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
         if (GET_CONFIG().enable_ipc_path)
         {
@@ -635,7 +665,7 @@ std::string SensorManagement::addStream(shared_ptr<StreamInfo> stream)
             return socket_name;
         }
 #endif
-#endif
+        }
     }
     return "";
 }
@@ -731,7 +761,8 @@ int SensorManagement::deleteSensor(const string sensor_id, bool isReqFromCloudDe
                 {
                     vst_recorder::removeStream(stream->id);
                 }
-#ifdef JETSON_PLATFORM
+                if (isJetsonPlatform())
+                {
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
                 if (GET_CONFIG().enable_ipc_path)
                 {
@@ -745,7 +776,7 @@ int SensorManagement::deleteSensor(const string sensor_id, bool isReqFromCloudDe
                     }
                 }
 #endif
-#endif
+                }
             }
         }
         std::lock_guard<std::mutex> removedListMutex(m_userRemovedListMutex);
@@ -937,9 +968,19 @@ void SensorManagement::deleteSensorDetails(const string& sensor_id)
             }
 
             // delete proxy url, this should happen at the end.
+            //
+            // In SDRC mode (use_sdrc == true) the camera_remove event published
+            // earlier (notifySensorStatusEvent(SensorStatusOffline, ...) above)
+            // is consumed by SDR, which calls DELETE on the pod. We skip the
+            // direct call here.
+            //
+            // In direct mode (use_sdrc == false) or in monolithic deployments,
+            // sensor-MS removes the proxy itself via vst_rtsp::removeStream
+            // (in-process if the RTSP module is local, HTTP DELETE against
+            // RTSP_SERVER_MODULE_ENDPOINT otherwise).
             if (sensor->type != SENSOR_TYPE_WEBRTC && sensor->type != SENSOR_TYPE_UDP && sensor->type != SENSOR_TYPE_CSI) // WAR to be removed.
             {
-                if (GET_DEVICE_MANAGER()->needRtspServer == true)
+                if (GET_DEVICE_MANAGER()->needRtspServer == true || GET_CONFIG().use_sdrc == false)
                 {
                     if (vst_rtsp::removeStream(stream->id) != 0)
                     {

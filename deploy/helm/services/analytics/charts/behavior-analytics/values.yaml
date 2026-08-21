@@ -22,14 +22,23 @@ global: {}
 replicas: 1
 
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-behavior-analytics
-  tag: "3.2.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 
 port: 8080
 
 service:
   type: ClusterIP
+
+waitForKafka:
+  enabled: false
+  host: ""
+  port: 9092
+  topic: ""
+  image: confluentinc/cp-kafka:8.3.0
+  maxAttempts: 120
+  sleepSeconds: 5
 
 # Container command (including app entrypoint and --config path).
 command: []
@@ -48,6 +57,8 @@ resourceFiles:
 
 downloadResourcesFromNgc: false
 downloadResourcesFromNgcWaitSeconds: 300
+downloadResourcesJob:
+  ttlSecondsAfterFinished: null
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"

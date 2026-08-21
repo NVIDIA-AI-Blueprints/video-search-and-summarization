@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM nvcr.io/nvidia/cuda:13.0.0-devel-ubuntu24.04
+FROM nvcr.io/nvidia/cuda:13.2.0-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
@@ -58,6 +58,22 @@ RUN apt-get update && \
 	libpaho-mqtt-dev \
 	&& apt-get clean
 
+# Node.js for the vios-ui build (build.sh -> build_vios_ui).
+# Ubuntu 24.04 only ships nodejs 18.19.1, which is EOL and below the
+# "^20.19.0 || >=22.12.0" required by vite 8, so the apt `npm` package cannot
+# be used here. Install Node from NodeSource with an explicit keyring rather
+# than piping their setup script into a shell.
+ARG NODE_MAJOR=22
+RUN install -d -m 0755 /usr/share/keyrings && \
+	wget -qO- https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+		| gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
+	echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+		> /etc/apt/sources.list.d/nodesource.list && \
+	apt-get update && \
+	apt-get install -y --no-install-recommends nodejs && \
+	apt-get clean && \
+	node -v && npm -v
+
 RUN pip3 install --break-system-packages requests
 
 # install cmake 3.19.6 required by grpc
@@ -70,6 +86,10 @@ RUN git clone --recurse-submodules -b v1.50.0 --depth 1 --shallow-submodules htt
 RUN cd /var/local/git/grpc && \
     mkdir -p cmake/build && \
 	cd cmake/build && \
-	cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../.. && \
+	cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_CXX_STANDARD=20 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../.. && \
     make -j12 && \
     make install
+
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/usr-local-lib.conf && \
+    echo /usr/local/lib/x86_64-linux-gnu >> /etc/ld.so.conf.d/usr-local-lib.conf && \
+    ldconfig

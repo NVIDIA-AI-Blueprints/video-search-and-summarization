@@ -18,6 +18,17 @@ Feature: VST Storage Management Service API Unit Tests
     Then the storage response status is 200
     And the storage response is a valid version string
 
+  # Regression for bug 6303142 (extended to the Storage MS): the version
+  # endpoint returned a hardcoded placeholder ("0.0.1") instead of the deployed
+  # release/build version. The Sensor MS reports the correct build version in
+  # the same deployment, so it is used as the source of truth.
+  Scenario: Storage version matches the deployed build version
+    Given the VST storage management API is accessible
+    When I request the storage management service version
+    And I request the sensor service version
+    Then the storage reported version is not the placeholder "0.0.1"
+    And the storage reported version matches the sensor reported build version
+
   Scenario: Get storage management service help
     Given the VST storage management API is accessible
     When I request the storage management service help
@@ -39,3 +50,21 @@ Feature: VST Storage Management Service API Unit Tests
     Given the VST storage management API is accessible
     When I request the protected file list
     Then the storage response status is 200
+
+  # Regression for NVBug 6217188: a JSON array body to /storage/file/protect
+  # must return 400, not crash streamprocessing-ms via uncaught Json::LogicError.
+  Scenario: POST /storage/file/protect with a JSON array body is rejected, not crashed
+    Given the VST storage management API is accessible
+    When I POST a JSON array body to the storage file protect endpoint
+    Then the storage protect request is rejected with status 400
+    And the streamprocessing storage service is still alive
+  # Regression for NVBug 6141778: reject reversed delete-videos time range (startTime > endTime)
+  Scenario: Delete videos rejects a reversed time range
+    Given the VST storage management API is accessible
+    When I request to delete videos with a reversed time range
+    Then the delete videos response status is 400
+
+  Scenario: Delete videos accepts a valid forward time range
+    Given the VST storage management API is accessible
+    When I request to delete videos with a valid forward time range
+    Then the delete videos response status is 200

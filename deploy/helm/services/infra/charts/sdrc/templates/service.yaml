@@ -21,6 +21,24 @@ spec:
       {{- if (get $controller "nodePort") }}
       {{- include "sdrc.serviceNodePort" (dict "path" "service.controller" "type" $controllerType "nodePort" (get $controller "nodePort")) | nindent 6 }}
       {{- end }}
+    - name: envoy-proxy
+      port: {{ required "service.envoyProxy.port is required" .Values.service.envoyProxy.port | int }}
+      targetPort: envoy-proxy
+      protocol: TCP
+    {{- $workloadListeners := .Values.service.workloadListeners | default list }}
+    {{- if $workloadListeners }}
+    # Extra Envoy listeners generated from workload WDM_MS_LISTENER_PORT values.
+    # These expose workload-compatible facades such as HTTP-header lifecycle APIs.
+    {{- end }}
+    {{- range $idx, $listener := $workloadListeners }}
+    - name: {{ required (printf "service.workloadListeners[%d].name is required" $idx) (get $listener "name") }}
+      port: {{ required (printf "service.workloadListeners[%d].port is required" $idx) (get $listener "port") | int }}
+      targetPort: {{ required (printf "service.workloadListeners[%d].name is required" $idx) (get $listener "name") }}
+      protocol: TCP
+      {{- if (get $listener "nodePort") }}
+      {{- include "sdrc.serviceNodePort" (dict "path" (printf "service.workloadListeners[%d]" $idx) "type" $controllerType "nodePort" (get $listener "nodePort")) | nindent 6 }}
+      {{- end }}
+    {{- end }}
   selector:
     {{- include "sdrc.selectorLabels" . | nindent 4 }}
 ---

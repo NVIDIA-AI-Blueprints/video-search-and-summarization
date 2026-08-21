@@ -51,7 +51,7 @@ PLATFORMS: dict[str, dict] = {
 
 DEFAULT_PLATFORM = "L40S"
 DEFAULT_SPEC = "standalone_api.json"
-COMPOSE_PROFILE = "bp_developer_alerts_2d_vlm"
+COMPOSE_PROFILE = "rtvi-vlm"
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 PREAMBLE = (
@@ -211,6 +211,9 @@ def generate_task(
             f'name = "nvidia-vss/vss-deploy-dense-captioning-{dataset_group}-{platform_short}-{mode}{step_suffix}"',
             f'description = "RT-VLM API query {idx}/{len(expects)} on {platform}/{mode}"',
             f'keywords = ["vss-deploy-dense-captioning", "rtvi-vlm", "{dataset_group}", "{platform}", "{mode}"]',
+            "",
+            "[agent]",
+            "timeout_sec = 600.0",
             "",
             "[environment]",
             'skills_dir = "/skills"',

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -84,7 +84,8 @@ class VideoDataConsumer : public IMediaDataConsumer
             return m_videoSinkList.size();
         }
 
-        void onFrame(FrameParams& params)
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override
         {
             std::lock_guard<std::mutex> lock(m_videoSinkLock);
             m_sourceWidth  = params.m_width;
@@ -149,8 +150,8 @@ class VideoDataConsumer : public IMediaDataConsumer
                 /* SW Path, i.e. Inbuilt webRTC Encoder */
                 else
                 {
-                    rtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new rtc::RefCountedObject<webrtc::I420Buffer>(target_width,  target_height ));
-                    rtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new rtc::RefCountedObject<webrtc::I420Buffer>(m_sourceWidth, m_sourceHeight));
+                    webrtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new webrtc::RefCountedObject<webrtc::I420Buffer>(target_width,  target_height ));
+                    webrtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new webrtc::RefCountedObject<webrtc::I420Buffer>(m_sourceWidth, m_sourceHeight));
                     /* Create Y, U, V data pointers */
                     uint8_t *buffer_y = params.m_buffer;
                     uint8_t *buffer_u = buffer_y + m_sourceWidth * m_sourceHeight;
@@ -223,7 +224,7 @@ class VideoDataConsumer : public IMediaDataConsumer
                 LOG(warning) << "Changing resolution for peerid : " << peerid << " from : " << prev_size.m_width << "x" << prev_size.m_height << " ==> " << sink->m_frameSize.m_width << "x" << sink->m_frameSize.m_height << endl;
             }
         }
-        void setConsumer(const std::string& peerid, rtc::VideoBroadcaster* broadcaster,
+        void setConsumer(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster,
                                                     const std::string& quality, const std::string& framerate)
         {
             std::lock_guard<std::mutex> lock(m_videoSinkLock);
@@ -284,12 +285,14 @@ class VideoDataConsumer : public IMediaDataConsumer
         std::map<std::string, std::shared_ptr<VideoSinkInfo>> m_videoSinkList;
 };
 
-class NvGstUDPVideoSource : public rtc::VideoSourceInterface<webrtc::VideoFrame>
+class NvGstUDPVideoSource : public webrtc::VideoSourceInterface<webrtc::VideoFrame>
 {
 public:
     void getDecodeStats(LatencyStats& stats)
     {
-
+        // The UDP source receives already-decoded frames, so it owns no decoder
+        // and has no latency statistics to report. Leave the caller's stats untouched.
+        (void)stats;
     }
     NvGstUDPVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts)
     : m_udpVideoClient(nullptr)
@@ -398,7 +401,10 @@ public:
 
     void controlStreamFileVideoSource(const std::string& action, const std::string& seek_value)
     {
-
+        // Intentionally empty: a UDP source is a live stream with no file playback
+        // to pause, resume or seek, so playback control requests are a no-op here.
+        (void)action;
+        (void)seek_value;
     }
 
     void setupClient (const std::map<std::string, std::string, std::less<>> &opts)
@@ -453,8 +459,8 @@ public:
             LOG(warning) << "Data Consumer or Video Client Instance is NULL" << endl;
         }
     }
-    // overide rtc::VideoSourceInterface<webrtc::VideoFrame>
-    void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const rtc::VideoSinkWants &wants)
+    // overide webrtc::VideoSourceInterface<webrtc::VideoFrame>
+    void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const webrtc::VideoSinkWants &wants)
     {
         LOG(info) << __METHOD_NAME__ << endl;
         m_broadcaster.AddOrUpdateSink(sink, wants);
@@ -463,7 +469,7 @@ public:
         m_videoDataConsumer->setConsumerReady(m_peerid);
     }
 
-    void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
+    void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
     {
         LOG(info) << __METHOD_NAME__ << endl;
         m_videoDataConsumer->removeConsumer(m_peerid);
@@ -471,7 +477,7 @@ public:
         m_broadcaster.RemoveSink(sink);
     }
 
-    void OnSinkWantsChanged(const rtc::VideoSinkWants& wants)
+    void OnSinkWantsChanged(const webrtc::VideoSinkWants& wants)
     {
         unsigned int targetPixelCount = wants.target_pixel_count.value_or(wants.max_pixel_count);
         LOG (info) << "WebRTC asked targetPixel = " << targetPixelCount << " maxPixel = " << wants.max_pixel_count
@@ -483,7 +489,7 @@ private:
     shared_ptr<UdpClient>               m_udpVideoClient;
     shared_ptr<VideoDataConsumer>       m_videoDataConsumer;
     int                                 m_audioFreq;
-    rtc::VideoBroadcaster               m_broadcaster;
+    webrtc::VideoBroadcaster               m_broadcaster;
     std::string                         m_uri;
     std::string                         m_mediaType;
     std::string                         m_peerid;

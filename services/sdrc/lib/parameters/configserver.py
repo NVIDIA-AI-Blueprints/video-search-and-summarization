@@ -1,0 +1,352 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from io import StringIO
+import sys
+import json
+from ruamel.yaml import YAML
+import redis
+import logging
+import copy
+import time
+from threading import Lock
+
+logger = logging.getLogger(__name__)
+
+
+class configserver:
+    def __init__(self, wl_spec_file=None, app_config=None):
+        self.config = app_config
+        self.even_obj = app_config["WDM_EVENT_OBJECT_FIELD"]
+        self.wl_spec_file = wl_spec_file
+        self.wl_spec = None
+        self.id_field = app_config["WDM_WL_ID_FIELD"]
+        self.wl_objectName = app_config["WDM_WL_OBJECT_NAME"]
+        self.y = YAML()
+        self.y.indent(mapping=4, sequence=4, offset=2)
+        self.y.preserve_quotes = True
+        self.file_write_lock = Lock()
+        self.provision_lease_lock = Lock()
+        self.provision_leases = {}
+        self._loadWorkLoadSpec()
+
+    def tryAcquireProvisionLease(self, stream_id, owner, ttl_seconds):
+        """Acquire a process-local lease for the file-backed configuration."""
+        now = time.monotonic()
+        with self.provision_lease_lock:
+            current = self.provision_leases.get(stream_id)
+            if current is not None and current[1] > now:
+                return False
+            self.provision_leases[stream_id] = (owner, now + ttl_seconds)
+            return True
+
+    def renewProvisionLease(self, stream_id, owner, ttl_seconds):
+        with self.provision_lease_lock:
+            current = self.provision_leases.get(stream_id)
+            if current is None or current[0] != owner:
+                return False
+            self.provision_leases[stream_id] = (
+                owner,
+                time.monotonic() + ttl_seconds,
+            )
+            return True
+
+    def releaseProvisionLease(self, stream_id, owner):
+        with self.provision_lease_lock:
+            current = self.provision_leases.get(stream_id)
+            if current is None or current[0] != owner:
+                return False
+            del self.provision_leases[stream_id]
+            return True
+
+    def erasePodSpecContent(self, wl_pod):
+        if self.wl_spec is not None and wl_pod in self.wl_spec:
+            logger.debug (f"erase content for {wl_pod} from cache")
+            self.deleteWLObj(wl_pod)
+
+
+    def eraseSpecContent(self):
+        try:
+            try:
+                self.file_write_lock.acquire()
+                f = open(self.wl_spec_file, 'w')
+            finally:
+                f.close()
+                self.file_write_lock.release()
+            self._loadWorkLoadSpec()
+        except Exception as e:
+            logger.info(f"workload spec could not be loaded {e}")
+
+    def getpods(self):
+        retlist = list()
+        if self.wl_spec is not None:
+            for i in self.wl_spec.keys():
+                retlist.append(i)
+        return retlist
+
+    def getpodsCount(self):
+        return len(self.wl_spec.keys()) if self.wl_spec is not None else 0
+
+    def getSpecCount(self, pod_name):
+        if self.wl_spec is not None and pod_name in self.wl_spec.keys():
+            spc = json.loads(self.wl_spec[pod_name])
+            return len(spc)
+        return 0
+
+    def getAllStreams(self):
+        pod_names = self.getpods()
+        all_returns = {}
+        for pod in pod_names:
+            all_returns[pod] = json.loads(self.getworkLoadSpecs(pod))
+        return all_returns
+    
+    def getCacheInfoForStreamId(self, stream_id):
+        stream_cache_data = self.getAllStreams()
+        for key, pipeline in stream_cache_data.items():
+            streams = json.loads(pipeline)
+            for stream in streams:
+                if stream[self.config["WDM_EVENT_OBJECT_FIELD"]][self.config["WDM_WL_ID_FIELD"]] == stream_id:
+                    return key, stream
+        return None, None
+
+    def _loadWorkLoadSpecRedis(self):
+        self.redis_connection.llen(self.wl_objectName)
+        redis.lrange(self.wl_objectName, 0, -1)[0].decode()
+
+        return
+
+    def _loadWorkLoadSpec(self):
+        try:
+            try:
+                self.file_write_lock.acquire()
+                with open(self.wl_spec_file, "r") as f:
+                    d = f.read()
+                    tmp_yml = self.y.load(d)
+                    self.wl_spec = tmp_yml
+            finally:
+                self.file_write_lock.release()
+
+        except FileNotFoundError:
+            logger.info("filenot found")
+            self.wl_spec = None
+        except Exception as e:
+            logger.info(self.wl_spec)
+            logger.info("Some error while trying to load workload file, will delete and remake. NOTE: this may cause SDR and other services to go out of sync - " + repr(e))
+#            self.eraseSpecContent()
+
+    def getworkLoadSpecById(self, id):
+        self._loadWorkLoadSpec()
+        if self.wl_spec is None:
+            return []
+        retList = list()
+        for itm in self.wl_spec.keys():
+            for s in json.loads(self.wl_spec[itm]):
+                if not isinstance(s, dict):
+                    logger.info("Expected type read from wl_spec to be dict but it was not - value: " + str(s) + ". Skipping over this element")
+                    continue
+                if s[self.even_obj][self.id_field] == id:
+                    if "pod_name" not in s:
+                        s["pod_name"] = itm
+                    retList.append(s)
+        return retList if len(retList) > 0 else None
+
+    def deleteFromWorkLoadSpecbyId(self, id):
+        delList = self.getworkLoadSpecById(id)
+        if delList is not None:
+            for s in delList:
+                if "pod_name" in s:
+                    pn = s["pod_name"]
+                    self.deleteFromWorkLoadSpec(id=id, pod_name=s["pod_name"])
+                    p = len(json.loads(self.wl_spec[pn]))
+                    if p == 0:
+                        self.deleteWLObj(s["pod_name"])
+        return delList
+
+    def getworkLoadSpec(self, pod_name, id):
+        self._loadWorkLoadSpec()
+        if self.wl_spec is None or pod_name not in self.wl_spec:
+            return None
+        json.loads(self.wl_spec[pod_name] + "")
+        o = list(
+            filter(
+                lambda itm: itm[self.even_obj][self.id_field] == id,
+                json.loads(self.wl_spec[pod_name]),
+            )
+        )
+        return o
+
+    def getworkLoadSpecs(self, pod_name):
+        return (
+            None
+            if self.wl_spec is None or pod_name not in self.wl_spec
+            else json.dumps(self.wl_spec[pod_name])
+        )
+
+    def setworkLoadSpec(self, pod_name, spec_data):
+        if self.getworkLoadSpec(pod_name) is None:
+            self.wl_spec = dict()
+        else:
+            self.wl_spec[pod_name] = spec_data
+        return
+
+    def _initSpecData(self, pod_name, spec_data):
+        inital = "{}: |-\n  [{}\n  ]".format(pod_name, spec_data)
+        yinit = YAML()
+        # yinit.indent()
+        # yinit.preserve_quotes = True
+        self.wl_spec = d = yinit.load(inital)
+        try:
+            self.file_write_lock.acquire()
+            yinit.dump(self.wl_spec, sys.stdout)
+        finally:
+            self.file_write_lock.release()
+        self._write_to_file(self.wl_spec)
+        return d
+
+    def deleteWLObj(self, pod_name):
+        if self.wl_spec is None or pod_name not in self.wl_spec:
+            logger.info("{} not found".format(pod_name))
+            return
+
+        del self.wl_spec[pod_name]
+        try:
+            self.file_write_lock.acquire()
+            self.y.dump(self.wl_spec, sys.stdout)
+        finally:
+            self.file_write_lock.release()
+        self._write_to_file(self.wl_spec)
+        self._loadWorkLoadSpec()
+
+    def updateWorkLoadSpec(self, pod_name, id, new_value):
+        try:
+            self.deleteFromWorkLoadSpec(pod_name, id)
+            self.addWorkLoadSpec(pod_name, new_value, new_value)
+        except Exception as e:
+            logger.info("error in updateWorkLoadSpec: " + str(e))
+
+    def deleteFromWorkLoadSpec(self, pod_name, id):
+        logger.info("delete Workload Spec {} {}".format(pod_name, id))
+        try:
+            with self.file_write_lock:
+                try:
+                    with open(self.wl_spec_file, "r") as f:
+                        current_spec = self.y.load(f.read()) or {}
+                except FileNotFoundError:
+                    current_spec = {}
+                if pod_name not in current_spec:
+                    logger.info("{} not found".format(pod_name))
+                    return
+                streams = json.loads(current_spec[pod_name])
+                remaining = list(
+                    filter(
+                        lambda itm: itm[self.even_obj][self.id_field] != id,
+                        streams,
+                    )
+                )
+                current_spec[pod_name] = json.dumps(remaining, indent=4)
+                with open(self.wl_spec_file, "w") as f:
+                    self.y.dump(current_spec, f)
+                self.wl_spec = current_spec
+        except Exception as e:
+            logger.info("error in deleteFromWorkLoadSpec: " + str(e))
+
+    def tryReserveWorkLoadSpec(self, pod_name, originalData, threshold):
+        """Atomically append a stream when the pod still has capacity."""
+        stream_id = originalData[self.even_obj][self.id_field]
+        with self.file_write_lock:
+            try:
+                with open(self.wl_spec_file, "r") as f:
+                    current_spec = self.y.load(f.read()) or {}
+            except FileNotFoundError:
+                current_spec = {}
+
+            streams = json.loads(current_spec.get(pod_name, "[]"))
+            if any(
+                stream.get(self.even_obj, {}).get(self.id_field) == stream_id
+                for stream in streams
+                if isinstance(stream, dict)
+            ):
+                return "already_held"
+            if len(streams) >= threshold:
+                return False
+
+            streams.append(copy.deepcopy(originalData))
+            current_spec[pod_name] = json.dumps(streams, indent=4)
+            with open(self.wl_spec_file, "w") as f:
+                self.y.dump(current_spec, f)
+            self.wl_spec = current_spec
+        return True
+
+    def addWorkLoadSpec(self, pod_name, spec_data, originalData):
+        logger.info("add Workload Spec {}".format(pod_name))
+        # TODO: clean up the following
+        spec_data = originalData
+        spec_data = json.dumps(originalData)
+        if self.wl_spec is None or self.wl_spec == {}:
+            data = "{}: |-\n [{}\n ]".format(pod_name, spec_data)
+            # y = YAML()
+            try:
+                self.file_write_lock.acquire()
+                d = self.y.load(data)
+            finally:
+                self.file_write_lock.release()
+            self._write_to_file(d)
+            self._loadWorkLoadSpec()
+        elif self.wl_spec is not None and pod_name not in self.wl_spec:
+            data = "{}: |-\n [{}\n ]".format(pod_name, spec_data)
+            # y = YAML()
+            try:
+                self.file_write_lock.acquire()
+                d = self.y.load(data)
+            finally:
+                self.file_write_lock.release()
+
+            string_stream = StringIO()
+            try:
+                self.file_write_lock.acquire()
+                self.y.dump(d, string_stream)
+            finally:
+                self.file_write_lock.release()
+            output_str = string_stream.getvalue()
+            string_stream.close()
+            try:
+                self.file_write_lock.acquire()
+                with open(self.wl_spec_file, "a") as f:
+                    f.write(output_str)
+            finally:
+                self.file_write_lock.release()
+            self._loadWorkLoadSpec()
+            self._write_to_file(self.wl_spec)
+        elif self.wl_spec is not None and pod_name in self.wl_spec:
+            j = json.loads(spec_data)
+            d = json.loads(self.wl_spec[pod_name])
+            # y = YAML()
+            d.append(j)
+            self.wl_spec[pod_name] = json.dumps(d, indent=4)
+            try:
+                self.file_write_lock.acquire()
+                self.y.dump(self.wl_spec, sys.stdout)
+            finally:
+                self.file_write_lock.release()
+            self._write_to_file(self.wl_spec)
+            self._loadWorkLoadSpec()
+    
+    def _write_to_file(self, file_contents, write_type="w"):
+        try:
+            self.file_write_lock.acquire()
+            with open(self.wl_spec_file, write_type) as f:
+                self.y.dump(file_contents, f)
+        finally:
+            self.file_write_lock.release()

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,6 +46,11 @@ struct SensorCurlData {
 
     SensorCurlData() : curl(nullptr), headers(nullptr) {}
 
+    SensorCurlData(const SensorCurlData&) = delete;
+    SensorCurlData& operator=(const SensorCurlData&) = delete;
+    SensorCurlData(SensorCurlData&&) = delete;
+    SensorCurlData& operator=(SensorCurlData&&) = delete;
+
     ~SensorCurlData()
     {
         if (headers)
@@ -61,12 +66,12 @@ struct SensorCurlData {
 
 extern "C" ISensorDiscoveryInterface* createObject()
 {
-    return new OnvifDiscovery;
+    return std::make_unique<OnvifDiscovery>().release();
 }
 
 extern "C" void destroyObject( OnvifDiscovery* object )
 {
-    delete object;
+    std::unique_ptr<OnvifDiscovery> deleter(object);
 }
 
 OnvifDiscovery::OnvifDiscovery()
@@ -82,7 +87,7 @@ OnvifDiscovery::OnvifDiscovery()
 OnvifDiscovery::~OnvifDiscovery()
 {
     LOG(info) << "Destroying onvif disclovery" << endl;
-    stop();
+    OnvifDiscovery::stop();
 
     // Cleanup CURL multi handle
     if (m_sensorSyncMultiHandle)
@@ -376,9 +381,9 @@ std::vector<unsigned char> generate_nonce(size_t length)
 }
 
 // libcurl write callback
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+static size_t WriteCallback(char* contents, size_t size, size_t nmemb, void* userp)
 {
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    static_cast<std::string*>(userp)->append(contents, size * nmemb);
     return size * nmemb;
 }
 

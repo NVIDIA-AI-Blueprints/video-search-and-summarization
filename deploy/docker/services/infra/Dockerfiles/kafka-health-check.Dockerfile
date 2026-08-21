@@ -13,28 +13,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Dockerfile specifically for Kafka health check
-# Uses Confluent Kafka image with all Kafka tools
+# Shared Kafka tooling image for health-check and topic-init.
+# cp-kafka 8.3+ is based on ubi9-micro and no longer includes curl/wget,
+# so jq is fetched in a separate Alpine stage and copied in.
+#
+# Build targets:
+#   kafka-base       - cp-kafka + jq (shared; used by kafka-topic-init-container)
+#   kafka-health-check - broker/topic readiness check (default)
 
-FROM confluentinc/cp-kafka:8.2.0
+FROM alpine:3.24.1 AS jq-fetch
+RUN apk add --no-cache curl=8.21.0-r0 \
+    && ARCH=$(uname -m) \
+    && if [ "$ARCH" = "x86_64" ]; then \
+         JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"; \
+       elif [ "$ARCH" = "aarch64" ]; then \
+         JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64"; \
+       else \
+         echo "Unsupported architecture: $ARCH" && exit 1; \
+       fi \
+    && mkdir -p /jqbin \
+    && curl -fsSL -o /jqbin/jq "$JQ_URL" \
+    && chmod +x /jqbin/jq
 
-# Install jq in a user-writable location with architecture detection
-RUN mkdir -p /home/appuser/jqbin && \
-    ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64"; \
-    else \
-        echo "Unsupported architecture: $ARCH" && exit 1; \
-    fi && \
-    curl -L -o /home/appuser/jqbin/jq "$JQ_URL" && \
-    chmod +x /home/appuser/jqbin/jq
+FROM confluentinc/cp-kafka:8.3.0 AS kafka-base
 
-# Copy Kafka health check script
-COPY --chmod=755 ./broker-health-check/scripts/check-kafka-health.sh /scripts/check-kafka-health.sh
-
+USER root
+RUN mkdir -p /home/appuser/jqbin
+COPY --from=jq-fetch /jqbin/jq /home/appuser/jqbin/jq
+RUN chown -R appuser:appuser /home/appuser/jqbin
+ENV PATH="/home/appuser/jqbin:${PATH}"
 USER appuser
 
-# Direct entrypoint to Kafka health check script
+FROM kafka-base AS kafka-health-check
+
+USER root
+COPY --chmod=755 ./broker-health-check/scripts/check-kafka-health.sh /scripts/check-kafka-health.sh
+USER appuser
+
 ENTRYPOINT ["/scripts/check-kafka-health.sh"]

@@ -26,6 +26,7 @@ export declare function fetchAlertsData(): Promise<{
     maxResults: number;
     pageSize: number;
     alertReportPromptTemplate: string;
+    vlmVerifiedAlertReportPromptTemplate: string;
     maxSearchTimeLimit: string;
     mediaWithObjectsBbox: boolean;
 }>;

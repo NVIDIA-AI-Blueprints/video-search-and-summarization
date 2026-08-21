@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,6 +38,52 @@ import config from '../../config';
 interface CameraSettingsFormProps {
     sensor: Sensor | null;
 }
+
+const setFieldValue = (fieldOptions: unknown, value: string) => {
+    if (!fieldOptions || typeof fieldOptions !== 'object') {
+        return;
+    }
+    if ('Max' in fieldOptions) {
+        // It's a RangeField
+        (fieldOptions as RangeField).Value = value;
+    } else if ('AllowedValues' in fieldOptions) {
+        // It's an EnumField
+        (fieldOptions as EnumField).Value = value;
+    }
+};
+
+const applyEncodeChange = (profile: CameraProfile, field: string, value: string) => {
+    const encodeSettings = profile.Encode;
+    if (field === 'Encoding') {
+        encodeSettings.Encoding.Value = value;
+        encodeSettings.Options = encodeSettings.Options.map(opt => {
+            const encodingType = Object.keys(opt)[0] as keyof typeof opt;
+            const newOpt = { ...opt };
+            newOpt[encodingType] = {
+                ...newOpt[encodingType],
+                isActive: encodingType === value,
+            };
+            return newOpt;
+        });
+        return;
+    }
+    const currentEncoding = encodeSettings.Encoding.Value;
+    const options = encodeSettings.Options.find((opt): opt is { [key: string]: EncodingOptions } => currentEncoding in opt);
+    if (!options) {
+        return;
+    }
+    const encodingOptions = options[currentEncoding];
+    if (field in encodingOptions) {
+        setFieldValue(encodingOptions[field as keyof EncodingOptions], value);
+    }
+};
+
+const applyImageChange = (profile: CameraProfile, field: string, value: string) => {
+    const imageSettings = profile.Image;
+    if (field in imageSettings) {
+        setFieldValue(imageSettings[field as keyof ImageSettings], value);
+    }
+};
 
 const CameraSettingsForm: React.FC<CameraSettingsFormProps> = ({ sensor }) => {
     const [settings, setSettings] = useState<CameraSettings | null>(null);
@@ -163,52 +209,12 @@ const CameraSettingsForm: React.FC<CameraSettingsFormProps> = ({ sensor }) => {
             const profile = newSettings[profileKey];
 
             if (section === 'Encode') {
-                const encodeSettings = profile.Encode;
-                if (field === 'Encoding') {
-                    encodeSettings.Encoding.Value = value;
-                    encodeSettings.Options = encodeSettings.Options.map(opt => {
-                        const encodingType = Object.keys(opt)[0] as keyof typeof opt;
-                        const newOpt = { ...opt };
-                        newOpt[encodingType] = {
-                            ...newOpt[encodingType],
-                            isActive: encodingType === value,
-                        };
-                        return newOpt;
-                    });
-                } else {
-                    const currentEncoding = encodeSettings.Encoding.Value;
-                    const options = encodeSettings.Options.find((opt): opt is { [key: string]: EncodingOptions } => currentEncoding in opt);
-                    if (options) {
-                        const encodingOptions = options[currentEncoding];
-                        if (field in encodingOptions) {
-                            const fieldOptions = encodingOptions[field as keyof EncodingOptions];
-                            if (fieldOptions && typeof fieldOptions === 'object') {
-                                if ('Max' in fieldOptions) {
-                                    // It's a RangeField
-                                    (fieldOptions as RangeField).Value = value;
-                                } else if ('AllowedValues' in fieldOptions) {
-                                    // It's an EnumField
-                                    (fieldOptions as EnumField).Value = value;
-                                }
-                            }
-                        }
-                    }
-                }
+                applyEncodeChange(profile, field, value);
             } else if (section === 'Image') {
-                const imageSettings = profile.Image;
-                if (field in imageSettings) {
-                    const fieldOptions = imageSettings[field as keyof ImageSettings];
-                    if ('Max' in fieldOptions) {
-                        // It's a RangeField
-                        (fieldOptions as RangeField).Value = value;
-                    } else if ('AllowedValues' in fieldOptions) {
-                        // It's an EnumField
-                        (fieldOptions as EnumField).Value = value;
-                    }
-                }
+                applyImageChange(profile, field, value);
             }
 
-            console.log('newSettings: ', newSettings);
+            LOG.info('newSettings: ', newSettings);
             return newSettings;
         });
     };

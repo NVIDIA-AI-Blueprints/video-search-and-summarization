@@ -6,7 +6,7 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 
 ## Services Deployed
 
-Profile `bp_developer_base_2d` activates only the services below. Elasticsearch, Kafka, and VST MCP are **not** part of `base` — they ship with `search`, `lvs`, and `alerts` (see those profile references). If you see `VST_MCP_URL` / `VSS_VA_MCP_PORT` warnings during `docker compose config`, that's expected on `base` and not an error.
+The `base` service list activates only the services below. Elasticsearch, Kafka, and VST MCP are **not** part of `base` — they ship with `search`, `lvs`, and `alerts` (see those profile references). If you see `VST_MCP_URL` / `VSS_VA_MCP_PORT` warnings during `docker compose config`, that's expected on `base` and not an error.
 
 Container names below are exactly what `docker ps` reports (sourced from the `container_name:` keys in `deploy/docker/services/**/compose.yml`). LLM/VLM NIM containers are named after the selected model — the row shows the **default**; swapping `LLM_NAME_SLUG` / `VLM_NAME_SLUG` in `generated.env` selects a different per-model compose with its own `container_name`.
 
@@ -52,7 +52,7 @@ The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use
 |---|---|---|---|---|---|
 | `nvidia/nvidia-nemotron-nano-9b-v2` (default) | NIM (`nvcr.io/nim/...:1`) | `nim/nvidia-nemotron-nano-9b-v2/compose.yml` | 9 B | FP16 | **23.4 GB** |
 | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` | NIM (`nvcr.io/nim/...:1.0.0-variant`, DGX Spark only) | not in tree - see `edge.md` | 9 B | NVFP4 | ~5.9 GB |
-| `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | DLFW vLLM (`nvcr.io/nvidia/vllm:25.12.post1-py3`) | `nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml` | 9 B | FP8 | **11.7 GB** |
+| `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | DLFW vLLM (`nvcr.io/nvidia/vllm:26.07-py3`) | `nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml` | 9 B | FP8 | **11.7 GB** |
 | `nvidia/nemotron-3-nano` | NIM | `nim/nemotron-3-nano/compose.yml` | ~3 B | FP16 | ~7.8 GB |
 | `nvidia/llama-3.3-nemotron-super-49b-v1.5` | NIM | `nim/llama-3.3-nemotron-super-49b-v1.5/compose.yml` | 49 B | FP16 | **127 GB** (needs tp≥2 to fit on H100/L40S) |
 | `openai/gpt-oss-20b` | NIM | `nim/gpt-oss-20b/compose.yml` | 20 B | FP16 | **52 GB** |
@@ -97,20 +97,23 @@ fits_shared    = total_GB(LLM) + total_GB(VLM)
 
 # In single-GPU shared mode, KV / GPU-mem fraction per service:
 fraction       = (this_num_params / total_num_params) × 0.85
-# Set this in NIM_KVCACHE_PERCENT (NIMs) and --gpu-memory-utilization (vLLM/DLFW).
+# Set this in the NIM's effective GPU-mem knob (see table below) or --gpu-memory-utilization (vLLM/DLFW).
 ```
 
 `bits_per_param` = 16 for FP16/BF16, 8 for FP8/INT8, 4 for INT4/MXFP4.
 
 ### `NIM_KVCACHE_PERCENT` ↔ GB on common GPUs
 
-`NIM_KVCACHE_PERCENT` is a fraction (0.0–1.0) of **total GPU VRAM** the NIM container is allowed to consume (weights + KV cache + activations all included). For vLLM containers, the same fraction is `--gpu-memory-utilization`.
+The GPU-mem fraction knob is a fraction (0.0–1.0) of **total GPU VRAM** the NIM container is allowed to consume (weights + KV cache + activations all included). For vLLM containers, the same fraction is `--gpu-memory-utilization`.
 
-> **NIM 2.x renames the knob.** Set both forms in every `hw-*.env` so the deploy works on either major version:
-> - **LLM NIM** — `NIM_KVCACHE_PERCENT=<v>` *and* `NIM_GPU_MEM_FRACTION=<v>`.
-> - **VLM NIM** — `NIM_KVCACHE_PERCENT=<v>` *and* `NIM_PASSTHROUGH_ARGS="--gpu-memory-utilization <v>"`.
+> **Which env var is effective depends on the NIM's serving stack** (verified against container source, 2026-07):
+> - **LLM NIM** (`nim_llm_sdk`: nemotron / llama / gpt-oss) — `NIM_KVCACHE_PERCENT=<v>` *and* `NIM_GPU_MEM_FRACTION=<v>` (set both; version-dependent).
+> - **VLM NIM, current gen** (`nim_inference_sdk`: `cosmos3-reasoner`) — `NIM_GPU_MEMORY_UTILIZATION=<v>` **only** (container default 0.90; an explicit value also overrides the NIM's built-in per-GPU auto-tuning). The container ignores `NIM_KVCACHE_PERCENT`.
+> - **VLM NIM, `cosmos-reason2-*`** — the container is the same `nim_inference_sdk` stack and reads `NIM_GPU_MEMORY_UTILIZATION`, but the in-tree CR2 deploy files are intentionally left on the legacy keys. For Docker you can set `NIM_GPU_MEMORY_UTILIZATION` in the CR2 `hw-*.env` (`env_file` passes every key through); for Helm the `cosmos-reason2-8b` chart's `envConfigMapKeys` does **not** include it, so the value will not reach the container.
+> - **VLM NIM, legacy** (`nim_llm_sdk`: `cosmos-reason1-7b`) — `NIM_KVCACHE_PERCENT=<v>` (maps to vLLM `gpu_memory_utilization` internally).
+> - `NIM_PASSTHROUGH_ARGS` is consumed by **no** cosmos VLM container (CR1/CR2/CR3 all ignore it) — do not set it in new configs. The in-tree CR1/CR2 files still carry it; it is inert there and intentionally left untouched.
 >
-> The rest of this doc uses `NIM_KVCACHE_PERCENT` for brevity; mirror the value into the matching 2.x form per the table above.
+> The rest of this doc uses `NIM_KVCACHE_PERCENT` for brevity; write the value into the stack's effective knob per the table above.
 
 | Fraction | H100 / A100-80 (80 GB) | H200 (141 GB) | RTX PRO 6000 (96 GB) | GB10 / Thor (128 GB) | L40S (48 GB) |
 |---|---|---|---|---|---|
@@ -127,8 +130,8 @@ Read this as: at `NIM_KVCACHE_PERCENT=0.7` on an H100, the NIM is allowed 56 GB 
 ```text
 H100 max safe shared budget = 0.85 × 80 GB = 68 GB
 
-LLM fraction = 0.40  →  NIM_KVCACHE_PERCENT=0.40  →  32 GB cap
-VLM fraction = 0.40  →  NIM_KVCACHE_PERCENT=0.40  →  32 GB cap
+LLM fraction = 0.40  →  NIM_KVCACHE_PERCENT=0.40           →  32 GB cap
+VLM fraction = 0.40  →  NIM_GPU_MEMORY_UTILIZATION=0.40    →  32 GB cap  (cosmos3-reasoner)
 
 shared check: 32 + 32 = 64 GB ≤ 68 GB ✓ fits
 reserved     = 1 - (0.40 + 0.40) = 0.20  (framework/CUDA buffer)
@@ -188,9 +191,9 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 1. **Compute** the start fraction from [Sizing math](#sizing-math). Round to 2 decimal places.
 2. **Write** it into the env file the resolved compose will load. The path is `deploy/docker/services/nim/<model-slug>/hw-<HARDWARE_PROFILE>(-shared).env` — pick or create whichever `HARDWARE_PROFILE` label fits (use the host's actual profile for documentation value, or `OTHER` if none matches and you're not contributing back).
-   - **LLM NIM**: `NIM_KVCACHE_PERCENT=<v>` **and** `NIM_GPU_MEM_FRACTION=<v>`. **VLM NIM**: `NIM_KVCACHE_PERCENT=<v>` **and** `NIM_PASSTHROUGH_ARGS="--gpu-memory-utilization <v>"`. Also set `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` if you need to constrain context/concurrency.
+   - **LLM NIM**: `NIM_KVCACHE_PERCENT=<v>` **and** `NIM_GPU_MEM_FRACTION=<v>`. **VLM NIM**: `NIM_GPU_MEMORY_UTILIZATION=<v>` for `cosmos3-reasoner`, `NIM_KVCACHE_PERCENT=<v>` for legacy `cosmos-reason1-7b` (for `cosmos-reason2-*` see the stack table caveat above). Also set `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` if you need to constrain context/concurrency.
    - vLLM: edit the model's `compose.yml` to set `--gpu-memory-utilization <value>` (or pass through an env var if the compose supports it)
-3. **Re-resolve and deploy**: `docker compose --env-file <env> config > resolved.yml && docker compose --env-file <env> -f resolved.yml up -d`. `--env-file` is required on `up` too — without it `COMPOSE_PROFILES` is unset and `up` exits 0 with zero services (see `SKILL.md` Step 5). Before running `up -d`, verify `resolved.yml` includes the right LLM/VLM service for your `LLM_NAME_SLUG` / `VLM_NAME_SLUG` and that the sizing values you wrote are visible in its `environment:` block.
+3. **Re-resolve and deploy**: `docker compose --env-file <stable-env> --env-file <generated-env> config > resolved.yml && docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`. both `--env-file` arguments are required on `up` too — without them `COMPOSE_PROFILES` is unset or incomplete and `up` exits 0 with zero services (see `SKILL.md` Step 5). Before running `up -d`, verify `resolved.yml` includes the right LLM/VLM service for your `LLM_NAME_SLUG` / `VLM_NAME_SLUG` and that the sizing values you wrote are visible in its `environment:` block.
 4. **Watch container logs** for the KV-cache report on startup (NIM logs `KV cache size: X GB` once it boots; vLLM logs `Maximum concurrency for X tokens per GPU: Y x`):
    - **OOM at model load** → lower fraction by 0.05 and redeploy.
    - **OOM mid-inference** (after a few requests, on long prompts) → also lower `NIM_MAX_MODEL_LEN` / `--max-model-len` and `NIM_MAX_NUM_SEQS` (e.g. from `4096`/`16` to `2048`/`4`).
@@ -202,7 +205,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 ## Swapping a different LLM/VLM
 
-The skill never invokes `dev-profile.sh`. Swapping a model is purely an `.env` edit + (if needed) a new compose file under `deploy/docker/services/nim/<slug>/`. Use this decision tree.
+The skill never invokes `dev-profile.sh`. Swapping a model is a `generated.env` edit + (if needed) a new compose file under `deploy/docker/services/nim/<slug>/`. Use this decision tree.
 
 ### Step 1 — Is the model already in tree?
 
@@ -223,7 +226,7 @@ VLM_NAME=nvidia/cosmos-reason1-7b
 VLM_NAME_SLUG=cosmos-reason1-7b
 ```
 
-The slug must match the directory name exactly. `COMPOSE_PROFILES` then auto-includes `llm_<mode>_<slug>` and `vlm_<mode>_<slug>`, picking up the right service from the in-tree compose. Re-run the dry-run (`docker compose --env-file <env> config > resolved.yml`) and verify `resolved.yml` contains the expected service. Confirm the `hw-<HARDWARE_PROFILE>(-shared).env` exists for the new model on this host (per the [GPU VRAM reference](#gpu-vram-reference) above).
+The slug must match the directory name exactly. `COMPOSE_PROFILES` then auto-includes `llm_<mode>_<slug>` and `vlm_<mode>_<slug>`, picking up the right service from the in-tree compose. Re-run the dry-run (`docker compose --env-file <stable-env> --env-file <generated-env> config > resolved.yml`) and verify `resolved.yml` contains the expected service. Confirm the `hw-<HARDWARE_PROFILE>(-shared).env` exists for the new model on this host (per the [GPU VRAM reference](#gpu-vram-reference) above).
 
 ### Step 2 — Is the model published as a NIM on build.nvidia.com?
 
@@ -232,7 +235,7 @@ If yes (NGC catalog has an `nvcr.io/nim/<org>/<model>:<tag>` image): create a ne
 1. Create `deploy/docker/services/nim/<your-slug>/compose.yml` modeled on `cosmos-reason2-8b/compose.yml`. Two services:
    - `<your-slug>` with `profiles: [llm_local_<slug>]` (or `vlm_local_<slug>`) and the dedicated-GPU device assignment.
    - `<your-slug>-shared-gpu` with `profiles: [llm_local_shared_<slug>]` (or `vlm_local_shared_<slug>`) and `device_ids: ["${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"]`.
-2. Add `hw-<HARDWARE_PROFILE>.env` and `hw-<HARDWARE_PROFILE>-shared.env` files. Compute the starting fraction from the formula in [Sizing math](#sizing-math). Set both forms per the v1.x↔v2.x table above: **LLM** → `NIM_KVCACHE_PERCENT=<v>` and `NIM_GPU_MEM_FRACTION=<v>`; **VLM** → `NIM_KVCACHE_PERCENT=<v>` and `NIM_PASSTHROUGH_ARGS="--gpu-memory-utilization <v>"`. Add `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` per the model's documented limits.
+2. Add `hw-<HARDWARE_PROFILE>.env` and `hw-<HARDWARE_PROFILE>-shared.env` files. Compute the starting fraction from the formula in [Sizing math](#sizing-math). Set the stack's effective knob per the table above: **LLM** → `NIM_KVCACHE_PERCENT=<v>` and `NIM_GPU_MEM_FRACTION=<v>`; **VLM** → `NIM_GPU_MEMORY_UTILIZATION=<v>` (`cosmos3-reasoner`) or `NIM_KVCACHE_PERCENT=<v>` (legacy `cosmos-reason1-7b`). Add `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` per the model's documented limits.
 3. Add the new compose file to the `include:` list in `deploy/docker/services/nim/compose.yml`.
 4. Edit `dev-profile-base/generated.env` to set `LLM_NAME` / `LLM_NAME_SLUG` (or VLM equivalents).
 5. Run the [Tuning workflow](#tuning-workflow) above.
@@ -244,7 +247,7 @@ For models that aren't packaged as NIMs but have weights on Hugging Face or NGC,
 ```yaml
 services:
   <slug>:                                    # dedicated-GPU variant
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m
@@ -303,7 +306,7 @@ Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-b
 
 For shared mode, compute it via the formula. As sanity-check defaults / in-tree precedents:
 
-| Co-residency | LLM `--gpu-memory-utilization` | VLM `NIM_KVCACHE_PERCENT` | Source |
+| Co-residency | LLM `--gpu-memory-utilization` | VLM GPU-mem fraction (effective knob per the [stack table](#nim_kvcache_percent--gb-on-common-gpus)) | Source |
 |---|---|---|---|
 | Nano 9B v2 + Cosmos3 Reasoner Nano BF16 (shared) | 0.40 | 0.40 | Cosmos3 `*-shared.env` |
 | DGX Spark Nano 9B NIM + Cosmos3 Reasoner Nano BF16 on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
@@ -417,15 +420,15 @@ overwrite the template default — re-run the `sed` with the correct value.
 
 ## COMPOSE_PROFILES (computed — do not set directly)
 
-The `.env` file computes this from other variables:
+The profile's `overrides.env` sets this to an explicit list of service names (each service carries its own `profiles: ["<name>"]`):
 
 ```
-COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
+COMPOSE_PROFILES=phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
 ```
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,llm_remote_none,vlm_local_shared_cosmos3-reasoner
+phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_remote_none,vlm_local_shared_cosmos3-reasoner
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.
@@ -488,4 +491,4 @@ Common failure modes and what they mean for base:
 
 - `cosmos-reason2-8b` NIM cannot restart after stop/crash — must redeploy full stack
 - Reports are in-memory by default — lost on container restart (mount a volume to persist)
-- `VLM_NIM_KVCACHE_PERCENT` defaults to `0.7` — may need tuning on memory-constrained GPUs
+- `VLM_NIM_KVCACHE_PERCENT` defaults to `0.7` in `deploy/docker/services/nim/nim.env` — may need tuning on memory-constrained GPUs

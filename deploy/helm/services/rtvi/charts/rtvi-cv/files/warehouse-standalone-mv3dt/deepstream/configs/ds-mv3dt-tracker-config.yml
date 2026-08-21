@@ -1,0 +1,82 @@
+%YAML:1.0
+
+BaseConfig:
+  minDetectorConfidence: 0.266
+  checkClassMatch: 1
+  useBatchNumForFrameId: 1
+
+TargetManagement:
+  enableBboxUnClipping: 1
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 200
+  minIouDiff4NewTarget: 0.33485659954800495
+  minTrackerConfidence: 0.6019478047482886
+  probationAge: 17
+  maxShadowTrackingAge: 131
+  earlyTerminationAge: 7
+  maxTrajectoryBufferLength: -1
+
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 1
+  minMatchingScore4Overall: 0.5082953005836124
+  minMatchingScore4SizeSimilarity: 0.009643993655030297
+  minMatchingScore4Iou: 0.11557371329518315
+  matchingScoreWeight4SizeSimilarity: 0.5084913673983223
+  matchingScoreWeight4Iou: 0.3494256836722713
+  tentativeDetectorConfidence: 0.7745249596202076
+  minMatchingScore4TentativeIou: 0.42388480686796887
+  minMatchingScore4PeerAssocIou: 0.6955557941537551
+
+StateEstimator:
+  stateEstimatorType: 4
+  processNoiseVar4Loc: 56.29654177092754
+  processNoiseVar4Size: 96.07257407264093
+  processNoiseVar4Vel: 84.56030088053706
+  measurementNoiseVar4Detector: 78.43805173471176
+  measurementNoiseVar4Tracker: 82.2705749896136
+
+PoseEstimator:
+  poseEstimatorType: 1
+  useVPICropScaler: 1
+  operateOnClassIds: [0]
+  batchSize: 1
+  workspaceSize: 1000
+  inferDims: [3, 256, 192]
+  networkMode: 1
+  inputOrder: 0
+  colorFormat: 0
+  offsets: [123.6750, 116.2800, 103.5300]
+  netScaleFactor: 0.00392156
+  onnxFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx
+  modelEngineFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx_b1_gpu0_fp16.engine
+  poseInferenceInterval: -1
+
+ObjectModelProjection:
+  outputFootLocation: 1
+  minPoseConfidence: 0.95
+  cameraModelFilepath:
+    Camera: /tmp/camInfo/Camera.yml
+    Camera_01: /tmp/camInfo/Camera_01.yml
+    Camera_02: /tmp/camInfo/Camera_02.yml
+    Camera_03: /tmp/camInfo/Camera_03.yml
+  objectModelType: 0
+
+MultiViewAssociator:
+  multiViewAssociatorType: 1
+  enableLatePeerReAssoc: 1
+  enableIDCorrection: 0
+  enableSeeThrough: 1
+  maxPeerTrackletSize: 30
+  recentlyActiveAge: 150
+  minCommonFrames4MatchScore: 15
+  minPeerTrackletMatchScore: 0.5
+  minPeerVisibility4Fusion: 0.1
+  maxPeerToPredDistance4Fusion: 2.0
+  maxTrackletMatchingTimeSearchRange: 5
+  maxPeerFrameDiff4NoDet: 5
+
+Communicator:
+  communicatorType: 2
+  pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
+  mqttProtoAdaptorConfigPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_mqtt.txt

@@ -18,6 +18,7 @@
 # Description: Verify Kafka consume/dispatch continues while VLM is waiting
 #              by injecting fixed NIM delay and asserting dispatch queueing
 #              activity before the first delayed VLM response returns.
+#              Runs once per async pipeline mode (thread_bridge, event_loop).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,12 +33,11 @@ TOPIC="${TOPIC:-mdx-incidents}"
 PAYLOAD="${REPO_ROOT}/test/protobuf/test_data/sample_incident.json"
 BASE_CONFIG="${P1_ROOT}/shared/config_base.yaml"
 TEST_NAME="async_kafka_non_blocking"
-ID_SUFFIX="p1_${TEST_NAME}_$(date +%H%M%S)"
-SENSOR_PREFIX="ASYNC_NONBLOCK_${ID_SUFFIX}"
 
 BURST_COUNT="${BURST_COUNT:-6}"
 NIM_DELAY_SECONDS="${NIM_DELAY_SECONDS:-3.0}"
 MIN_QUEUE_DURING_WAIT="${MIN_QUEUE_DURING_WAIT:-2}"
+PIPELINE_MODES="${PIPELINE_MODES:-thread_bridge event_loop}"
 
 echo "=== P1: Async Kafka Non-Blocking ==="
 mkdir -p "$PID_DIR"
@@ -61,13 +61,8 @@ stop_nim_sim() {
 
 start_nim_sim() {
     local delay_seconds="$1"
-    if [ "$delay_seconds" = "0" ] || [ "$delay_seconds" = "0.0" ]; then
-        NIM_STUB_DELAY_SECONDS="0" \
-            python3 "$REPO_ROOT/test/sim_scripts/nim/nim_stub_server.py" > "$PID_DIR/nim_sim.log" 2>&1 &
-    else
-        NIM_STUB_DELAY_SECONDS="$delay_seconds" \
-            python3 "$REPO_ROOT/test/sim_scripts/nim/nim_stub_server.py" > "$PID_DIR/nim_sim.log" 2>&1 &
-    fi
+    NIM_STUB_DELAY_SECONDS="$delay_seconds" \
+        python3 "$REPO_ROOT/test/sim_scripts/nim/nim_stub_server.py" > "$PID_DIR/nim_sim.log" 2>&1 &
     echo $! > "$PID_DIR/nim_sim.pid"
     sleep 2
 }
@@ -78,9 +73,18 @@ restore_default_nim() {
 }
 trap restore_default_nim EXIT
 
-ASYNC_CONFIG="$PID_DIR/${TEST_NAME}_config.yaml"
-build_async_external_io_config "$BASE_CONFIG" "$ASYNC_CONFIG"
-python3 - "$ASYNC_CONFIG" <<'PY'
+if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
+    export PATH="$REPO_ROOT/venv/bin:$PATH"
+fi
+
+build_mode_config() {
+    local mode="$1" dst="$2"
+    if [ "$mode" = "event_loop" ]; then
+        build_event_loop_config "$BASE_CONFIG" "$dst" 20 20 20
+    else
+        build_async_external_io_config "$BASE_CONFIG" "$dst"
+    fi
+    python3 - "$dst" <<'PY'
 import sys
 import yaml
 
@@ -106,15 +110,23 @@ logging_cfg["format"] = "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s
 with open(config_path, "w", encoding="utf-8") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PY
+}
 
-if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
-    export PATH="$REPO_ROOT/venv/bin:$PATH"
-fi
+run_mode() {
+    local mode="$1"
+    local id_suffix="p1_${TEST_NAME}_${mode}_$(date +%H%M%S)"
+    local sensor_prefix="ASYNC_NONBLOCK_$(echo "$mode" | tr '[:lower:]' '[:upper:]')_${id_suffix}"
+    local mode_config="$PID_DIR/${TEST_NAME}_${mode}_config.yaml"
 
-stop_alert_bridge_local "$PID_DIR"
-start_alert_bridge_local "$REPO_ROOT" "$PID_DIR" "$ASYNC_CONFIG"
+    echo ""
+    print_status "info" "[$mode] Building config and starting Alert Bridge"
+    build_mode_config "$mode" "$mode_config"
 
-BASE_LOG_LINE=$(python3 - "$PID_DIR/alert_bridge.log" <<'PY'
+    stop_alert_bridge_local "$PID_DIR"
+    start_alert_bridge_local "$REPO_ROOT" "$PID_DIR" "$mode_config"
+
+    local base_log_line
+    base_log_line=$(python3 - "$PID_DIR/alert_bridge.log" <<'PY'
 import sys
 path = sys.argv[1]
 try:
@@ -125,14 +137,15 @@ except FileNotFoundError:
 PY
 )
 
-stop_nim_sim
-start_nim_sim "$NIM_DELAY_SECONDS"
-print_status "info" "NIM simulator restarted with fixed response delay=${NIM_DELAY_SECONDS}s"
+    stop_nim_sim
+    start_nim_sim "$NIM_DELAY_SECONDS"
+    print_status "info" "[$mode] NIM simulator restarted with fixed response delay=${NIM_DELAY_SECONDS}s"
 
-for i in $(seq 1 "$BURST_COUNT"); do
-    payload_i="$PID_DIR/${TEST_NAME}_payload_${i}.json"
-    sensor_id="${SENSOR_PREFIX}_${i}"
-    python3 - "$PAYLOAD" "$payload_i" "$sensor_id" "$i" <<'PY'
+    local i
+    for i in $(seq 1 "$BURST_COUNT"); do
+        local payload_i="$PID_DIR/${TEST_NAME}_${mode}_payload_${i}.json"
+        local sensor_id="${sensor_prefix}_${i}"
+        python3 - "$PAYLOAD" "$payload_i" "$sensor_id" "$i" <<'PY'
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -150,14 +163,14 @@ with open(dst, "w", encoding="utf-8") as f:
     json.dump(data, f)
 PY
 
-    produce_incident "$REPO_ROOT" "$BOOTSTRAP" "$TOPIC" "$payload_i" "${ID_SUFFIX}_${i}" --no-patch
-done
-print_status "info" "Produced burst incidents: count=${BURST_COUNT} sensor_prefix=${SENSOR_PREFIX}_*"
+        produce_incident "$REPO_ROOT" "$BOOTSTRAP" "$TOPIC" "$payload_i" "${id_suffix}_${i}" --no-patch
+    done
+    print_status "info" "[$mode] Produced burst incidents: count=${BURST_COUNT} sensor_prefix=${sensor_prefix}_*"
 
-first_response_seen=0
-for _ in $(seq 1 90); do
-    first_response_seen=$(python3 - "$PID_DIR/alert_bridge.log" "$SENSOR_PREFIX" "$BASE_LOG_LINE" <<'PY'
-import re
+    local first_response_seen=0
+    local _attempt
+    for _attempt in $(seq 1 90); do
+        first_response_seen=$(python3 - "$PID_DIR/alert_bridge.log" "$sensor_prefix" "$base_log_line" <<'PY'
 import sys
 
 log_path, sensor_prefix, start_line = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -171,18 +184,19 @@ with open(log_path, "r", encoding="utf-8", errors="replace") as f:
 print(count)
 PY
 )
-    if [ "${first_response_seen}" -gt 0 ]; then
-        break
+        if [ "${first_response_seen}" -gt 0 ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [ "${first_response_seen}" -eq 0 ]; then
+        print_status "fail" "[$mode] FAIL: Timed out waiting for first delayed VLM response"
+        return 1
     fi
-    sleep 1
-done
 
-if [ "${first_response_seen}" -eq 0 ]; then
-    print_status "fail" "FAIL: Timed out waiting for first delayed VLM response"
-    exit 1
-fi
-
-ANALYSIS_OUTPUT=$(python3 - "$PID_DIR/alert_bridge.log" "$SENSOR_PREFIX" "$BASE_LOG_LINE" "$NIM_DELAY_SECONDS" "$MIN_QUEUE_DURING_WAIT" <<'PY'
+    local analysis_output
+    analysis_output=$(python3 - "$PID_DIR/alert_bridge.log" "$sensor_prefix" "$base_log_line" "$NIM_DELAY_SECONDS" "$MIN_QUEUE_DURING_WAIT" <<'PY'
 import datetime as dt
 import re
 import sys
@@ -267,12 +281,16 @@ print(
 PY
 )
 
-print_status "info" "$ANALYSIS_OUTPUT"
+    print_status "info" "[$mode] $analysis_output"
+    case "$analysis_output" in
+        FAIL*) return 1 ;;
+    esac
 
-DOC_COUNT=0
-for _ in $(seq 1 120); do
-    all_docs=$(get_all_es_docs "$ES_HOST")
-    DOC_COUNT=$(SENSOR_PREFIX="$SENSOR_PREFIX" python3 -c "
+    local doc_count=0
+    for _attempt in $(seq 1 120); do
+        local all_docs
+        all_docs=$(get_all_es_docs "$ES_HOST")
+        doc_count=$(SENSOR_PREFIX="$sensor_prefix" python3 -c "
 import json
 import os
 import sys
@@ -287,16 +305,27 @@ for doc in docs:
 print(count)
 " <<< "$all_docs" 2>/dev/null || echo "0")
 
-    if [ "$DOC_COUNT" -ge "$BURST_COUNT" ]; then
-        break
+        if [ "$doc_count" -ge "$BURST_COUNT" ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [ "$doc_count" -lt "$BURST_COUNT" ]; then
+        print_status "fail" "[$mode] FAIL: Expected >=${BURST_COUNT} docs for ${sensor_prefix}_* but got ${doc_count}"
+        return 1
     fi
-    sleep 1
+
+    print_status "ok" "[$mode] Kafka consume/dispatch continued while delayed VLM was in-flight"
+    return 0
+}
+
+for mode in $PIPELINE_MODES; do
+    if ! run_mode "$mode"; then
+        print_status "fail" "FAIL: Non-blocking check failed in mode=$mode"
+        exit 1
+    fi
 done
 
-if [ "$DOC_COUNT" -lt "$BURST_COUNT" ]; then
-    print_status "fail" "FAIL: Expected >=${BURST_COUNT} docs for ${SENSOR_PREFIX}_* but got ${DOC_COUNT}"
-    exit 1
-fi
-
-print_status "ok" "PASS: Kafka consume/dispatch continued while delayed VLM was in-flight"
+print_status "ok" "PASS: Kafka consume/dispatch stayed non-blocking in modes: $PIPELINE_MODES"
 exit 0

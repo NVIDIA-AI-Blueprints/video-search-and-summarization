@@ -76,6 +76,18 @@ spec:
               mountPath: /usr/share/elasticsearch/data
             - name: es-logs
               mountPath: /usr/share/elasticsearch/logs
+          {{- with .Values.startupProbe }}
+          {{- if .enabled }}
+          startupProbe:
+            httpGet:
+              path: /_cluster/health
+              port: http
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+          {{- end }}
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /_cluster/health
@@ -116,8 +128,10 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
-        {{- if .Values.persistence.storageClass }}
-        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- $global := .Values.global | default dict }}
+        {{- $sc := .Values.persistence.storageClass | default (index $global "storageClass") }}
+        {{- with $sc }}
+        storageClassName: {{ . | quote }}
         {{- end }}
         resources:
           requests:
@@ -129,8 +143,10 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
-        {{- if .Values.persistence.storageClass }}
-        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- $global := .Values.global | default dict }}
+        {{- $sc := .Values.persistence.storageClass | default (index $global "storageClass") }}
+        {{- with $sc }}
+        storageClassName: {{ . | quote }}
         {{- end }}
         resources:
           requests:

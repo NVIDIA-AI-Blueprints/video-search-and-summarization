@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,11 +16,25 @@
  */
 
 #include "config.h"
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <strings.h>
+#include <sys/stat.h>
+#include "fs_utils.h"
 #include "device_manager.h"
 #include "logger.h"
 #include "boost/regex.hpp"
 #include "mm_utils.h"
 #include "unified_storage_types.h"
+#include "network_utils.h"
+#include "utils.h"
+
+#include <chrono>
+#include <thread>
 
 
 using namespace nv_vms;
@@ -201,7 +215,7 @@ Json::Value VmsConfigManager::getWebrtcVideoQualityValues(const uint32_t& height
 string VmsConfigManager::getWebServerUrl()
 {
     string domain_name = m_vmsConfig.server_domain_name.empty() == false ?
-                            m_vmsConfig.server_domain_name : g_hostIp;
+                            m_vmsConfig.server_domain_name : getHostIpAddress();
     string url = string("http://") + domain_name + string(":") + m_vmsConfig.http_port + string("/");
     return url;
 }
@@ -480,11 +494,14 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.enable_silent_audio_in_udp_input = data.get("enable_silent_audio_in_udp_input", false).asBool();
         m_vmsConfig.enable_udp_input_dump = data.get("enable_udp_input_dump", false).asBool();
         m_vmsConfig.webrtc_out_default_resolution = data.get("webrtc_out_default_resolution", "").asString();
-#ifdef JETSON_PLATFORM
-        m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
-#else
-        m_vmsConfig.enable_ipc_path = false;
-#endif
+        if (isJetsonPlatform())
+        {
+            m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
+        }
+        else
+        {
+            m_vmsConfig.enable_ipc_path = false;
+        }
         m_vmsConfig.ipc_src_buffer_timestamp_copy  = data.get("ipc_src_buffer_timestamp_copy", true).asBool();
         m_vmsConfig.ipc_src_connection_attempts    = data.get("ipc_src_connection_attempts", 5).asInt();
         m_vmsConfig.ipc_src_connection_interval_us = data.get("ipc_src_connection_interval_us", 1000000).asInt();
@@ -502,6 +519,17 @@ VmsConfigManager::VmsConfigManager()
         {
             m_vmsConfig.default_file_expiry_minutes = stringToInt(string(default_file_expiry_minutes_env), DEFAULT_FILE_EXPIRY_MINUTES);
         }
+
+        // Operator-facing kill switch for /url cache reuse. When true the
+        // server still tracks generated files in TEMP_VIDEO_FILES (so
+        // expiry/cleanup keep working) but bypasses the lookup step and
+        // regenerates on every call. Defaults off so production keeps the
+        // cache speedup; useful for debug deployments where the operator
+        // wants every /url and /picture/url request to hit the pipeline.
+        // The DISABLE_URL_CACHING env override is applied unconditionally
+        // below (outside this branch) so it still works when the config
+        // file omits the "data" section.
+        m_vmsConfig.disable_url_caching = data.get("disable_url_caching", false).asBool();
         m_vmsConfig.ingress_endpoint = data.get("ingress_endpoint", "").asString();
         char *default_ingress_endpoint = getenv("VST_INGRESS_ENDPOINT");
         if (default_ingress_endpoint != nullptr)
@@ -511,7 +539,7 @@ VmsConfigManager::VmsConfigManager()
         else
         {
             // If ingress endpoint is not set, use the default ingress endpoint locahhost:30888/vst
-            m_vmsConfig.ingress_endpoint =  string(g_hostIp) + ":" + string(DEFAULT_INGRESS_ENDPOINT);
+            m_vmsConfig.ingress_endpoint =  getHostIpAddress() + ":" + string(DEFAULT_INGRESS_ENDPOINT);
         }
 
         m_vmsConfig.use_webrtc_hw_dec = data.get("use_webrtc_hw_dec", false).asBool();
@@ -678,6 +706,17 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.audio_codecs.push_back(DEFAULT_AUDIO_CODEC);
     }
 
+    // DISABLE_URL_CACHING env override - applied unconditionally so it
+    // works even when the config file omits the "data" section. The
+    // baseline value comes from either data.get("disable_url_caching",
+    // false) above when "data" was present, or the DeviceConfig
+    // constructor default (false) when it wasn't.
+    if (const char* disableUrlCachingEnv = getenv("DISABLE_URL_CACHING"))
+    {
+        const std::string v(disableUrlCachingEnv);
+        m_vmsConfig.disable_url_caching = (v == "1" || v == "true" || v == "TRUE" || v == "True");
+    }
+
     Json::Value gpu_indices = data.get("gpu_indices", Json::nullValue);
     if(gpu_indices != Json::nullValue && gpu_indices.isArray())
     {
@@ -689,10 +728,12 @@ VmsConfigManager::VmsConfigManager()
     }
     if (m_vmsConfig.gpu_indices.size() > 0)
     {
-        g_gpuIndex = m_vmsConfig.gpu_indices[0];  // Currenlty only first gpu index is supported
+        setGpuIndex(m_vmsConfig.gpu_indices[0]);  // Currenlty only first gpu index is supported
     }
 
-    Json::Value notifications = config.get("notifications", Json::nullValue);
+    // message_broker config now lives in the dedicated notification_config.json.
+    Json::Value notificationConfig = loadNotificationConfig(NOTIFICATION_CONFIG_FILE);
+    Json::Value notifications = notificationConfig.get("message_broker", Json::nullValue);
     if (notifications != Json::nullValue)
     {
         m_vmsConfig.enable_notification = notifications.get("enable_notification", true).asBool();
@@ -759,12 +800,15 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.enable_gem_drawing = overlay.get("enable_gem_drawing", false).asBool();
         m_vmsConfig.analytic_server_address = overlay.get("analytic_server_address", "").asString();
         m_vmsConfig.calibration_file_path = overlay.get("calibration_file_path", "").asString();
+        m_vmsConfig.calibration_file_endpoint = overlay.get("calibration_file_endpoint", "").asString();
         m_vmsConfig.floor_map_file_path = overlay.get("floor_map_file_path", "").asString();
+        m_vmsConfig.floormap_image_endpoint = overlay.get("floormap_image_endpoint", "").asString();
         m_vmsConfig.overlay_3d_sensor_name = overlay.get("3d_overlay_sensor_name", "").asString();
         m_vmsConfig.calibration_mode = overlay.get("calibration_mode", "").asString();
         m_vmsConfig.use_camera_groups = overlay.get("use_camera_groups", false).asBool();
         m_vmsConfig.enable_recentering = overlay.get("enable_recentering", false).asBool();
         m_vmsConfig.overlay_text_font_type = overlay.get("overlay_text_font_type", DEFAULT_CUOSD_FONT_TYPE).asString();
+        m_vmsConfig.bbox_debug_font_size = overlay.get("bbox_debug_font_size", 0).asInt();
         m_vmsConfig.bbox_tolerance_ms = overlay.get("bbox_tolerance_ms", 0).asInt();
         m_vmsConfig.enable_overlay_skip_frame = overlay.get("enable_overlay_skip_frame", false).asBool();
         m_vmsConfig.halo_safety_udp_port = overlay.get("halo_safety_udp_port", -1).asInt();
@@ -782,7 +826,7 @@ VmsConfigManager::VmsConfigManager()
     if (m_vmsConfig.analytic_server_address.empty())
     {
         string protocol = DEFAULT_ANALYTIC_PROTOCOL;
-        string hostIp = g_hostIp;
+        string hostIp = getHostIpAddress();
         string analyticsPort = DEFAULT_ANALYTIC_PORT;
         string analyticsEndPoint = DEFAULT_ANALYTIC_ENDPOINT;
         m_vmsConfig.analytic_server_address = protocol + "://" + hostIp + ":" + analyticsPort + "/" + analyticsEndPoint;
@@ -894,6 +938,25 @@ VmsConfigManager::VmsConfigManager()
     else
     {
         m_vmsConfig.module_endpoints[ModuleLiveStream] = LIVE_STREAM_MODULE_DEFAULT_ENDPOINT;
+    }
+
+    /* VST_USE_SDRC toggles between the direct (sensor-MS posts to
+       stream-processor REST API; default, no SDR/Envoy in the data path) and
+       scaled (SDR + Envoy route stream-bound APIs) deployment topologies. */
+    char *use_sdrc_env = getenv("VST_USE_SDRC");
+    if (use_sdrc_env != nullptr)
+    {
+        string val(use_sdrc_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.use_sdrc = (val == "true" || val == "1" || val == "yes");
+    }
+
+    char *enable_notif_env = getenv("VST_ENABLE_NOTIFICATION");
+    if (enable_notif_env != nullptr)
+    {
+        string val(enable_notif_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.enable_notification = (val == "true" || val == "1" || val == "yes");
     }
 
     // Observability configuration
@@ -1049,4 +1112,570 @@ void VmsConfigManager::parseOverlayConfigs(const Json::Value& overlay)
             }
         }
     }
+}
+
+namespace {
+
+// The startup download blocks server init, so its budget is what a boot pays
+// when the analytics service is down.  Measured against the real endpoint the
+// whole transfer takes 20-32ms for both assets (113KB of JSON and a 1.3MB PNG),
+// so 5s is ~150x the observed worst case and still allows the image through on
+// a ~2Mbps link.  Worst case is 2 x 5s + 1 x 1s = 11s per asset, 22s for both.
+//
+// The budget can be this tight because startup is no longer the only chance to
+// get the assets: ensureOverlayAssetsForLiveRequest() below retries on the
+// first overlay request, so anything startup misses is recovered later.
+constexpr int kOverlayAssetDownloadMaxRetries = 2;
+constexpr int kOverlayAssetDownloadRetrySleepSec = 1;
+constexpr long kOverlayAssetStartupTimeoutMs = 5000L;
+
+// The fallback runs inline on WebRTC stream setup, so it is deliberately an
+// order of magnitude tighter than the startup budget: one attempt, 1s, which is
+// still ~30x the measured 20-32ms.  A miss is not fatal -- the next request
+// tries again once the cooldown below has passed.
+constexpr long kOverlayAssetLiveFallbackTimeoutMs = 1000L;
+
+// Minimum gap between two fallback attempts for the SAME asset, across
+// different requests.  It is not a retry delay: a single request only ever
+// makes one attempt.  This bounds what happens when many stream setups arrive
+// while the endpoint is down -- without it, twenty requests in three seconds
+// would each pay their own 1s inline attempt.  With it, one attempt is made and
+// the rest skip immediately and start without the overlay.
+constexpr auto kOverlayAssetFallbackCooldown = std::chrono::seconds(5);
+
+bool isValidCalibrationJson(const string& payload)
+{
+    // Parse here rather than through stringToJson(): that helper discards the
+    // parser's return value, so a truncated body yields a partially populated
+    // object and the field checks below still pass.  Measured against a real
+    // download cut at 50%: calibrationType and a non-empty sensors array were
+    // both present, and the half file was published to the live path.
+    Json::Value root;
+    Json::CharReaderBuilder builder;
+    std::string errors;
+    const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+    if (!reader->parse(payload.c_str(), payload.c_str() + payload.size(), &root, &errors))
+    {
+        return false;
+    }
+    if (root.isNull() || !root.isObject())
+    {
+        return false;
+    }
+    if (!root.isMember("calibrationType") || !root["calibrationType"].isString() ||
+        root["calibrationType"].asString().empty())
+    {
+        return false;
+    }
+    if (!root.isMember("sensors") || !root["sensors"].isArray() || root["sensors"].empty())
+    {
+        return false;
+    }
+
+    // A non-empty sensors array is not enough to be useful, and neither is a
+    // matrix that is merely an array.  The camera-groups loader requires a
+    // nested 3x3 intrinsic and 3x4 extrinsic and throws otherwise; the
+    // non-grouped loader is worse -- it flattens without checking and hands the
+    // buffer to cv::Mat(3, 3, CV_32F, data()), which reads past the end of the
+    // vector when fewer values were supplied.  A wrongly shaped document that
+    // only passed an isArray() check would parse cleanly, replace a good local
+    // calibration, and be cached as usable, so validate the shape here.
+    //
+    // Checked for at least one sensor: the loader skips individual bad entries
+    // and uses the rest, so demanding every sensor be well formed would reject
+    // a file it would happily consume.
+    const auto isMatrix = [](const Json::Value& m, unsigned rows, unsigned cols) {
+        if (!m.isArray() || m.size() != rows)
+        {
+            return false;
+        }
+        for (const auto& row : m)
+        {
+            if (!row.isArray() || row.size() != cols)
+            {
+                return false;
+            }
+            for (const auto& val : row)
+            {
+                if (!val.isConvertibleTo(Json::ValueType::realValue))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    for (const auto& sensor : root["sensors"])
+    {
+        if (sensor.isMember("id") && sensor["id"].isString() && !sensor["id"].asString().empty() &&
+            isMatrix(sensor["intrinsicMatrix"], 3, 3) && isMatrix(sensor["extrinsicMatrix"], 3, 4))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Read the file exactly as stored.
+//
+// Deliberately not readFileIntoString(): despite the name that helper returns
+// base64_encode() of the contents, so the validators below were handed base64
+// text and rejected every asset.  isOverlayAssetUsable() therefore always
+// answered false, which meant a perfectly valid local asset was re-downloaded
+// on every overlay request, ensureOverlayAssetsForLiveRequest() always reported
+// failure, and the compositor logged "No overlay for gods eye view stream"
+// even immediately after a successful download.
+string readAssetFile(const string& path)
+{
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs)
+    {
+        return "";
+    }
+    std::ostringstream ss;
+    ss << ifs.rdbuf();
+    return ss.str();
+}
+
+// Percent-encode everything outside the RFC 3986 unreserved set.  The place
+// value carries '=' and '/', and both must be escaped or the server reads them
+// as query-string structure rather than as part of the value.
+string percentEncode(const string& in)
+{
+    static const char* kHex = "0123456789ABCDEF";
+    string out;
+    out.reserve(in.size() * 3);
+    for (const unsigned char c : in)
+    {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+        {
+            out.push_back(static_cast<char>(c));
+        }
+        else
+        {
+            out.push_back('%');
+            out.push_back(kHex[c >> 4]);
+            out.push_back(kHex[c & 0x0F]);
+        }
+    }
+    return out;
+}
+
+// Build "building=Warehouse/room=Room-1/region=Region-1" from the calibration
+// document.  Each sensor carries its own place as a list of {name,value} pairs;
+// they are expected to agree, and a disagreement is reported rather than
+// silently resolved because only one floor map can be fetched.
+string placeFromCalibration(const string& calibrationPath)
+{
+    const string payload = readAssetFile(calibrationPath);
+    if (payload.empty())
+    {
+        return "";
+    }
+
+    Json::Value root;
+    Json::CharReaderBuilder builder;
+    std::string errors;
+    const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+    if (!reader->parse(payload.c_str(), payload.c_str() + payload.size(), &root, &errors) ||
+        !root.isObject() || !root["sensors"].isArray() || root["sensors"].empty())
+    {
+        return "";
+    }
+
+    string first;
+    for (const auto& sensor : root["sensors"])
+    {
+        const Json::Value& place = sensor["place"];
+        if (!place.isArray() || place.empty())
+        {
+            continue;
+        }
+        string composed;
+        for (const auto& entry : place)
+        {
+            if (!composed.empty())
+            {
+                composed += "/";
+            }
+            composed += entry.get("name", "").asString() + "=" +
+                        entry.get("value", "").asString();
+        }
+        if (first.empty())
+        {
+            first = composed;
+        }
+        else if (composed != first)
+        {
+            LOG(warning) << "Calibration sensors disagree on place (" << first << " vs "
+                         << composed << "); using the first for the floor map" << endl;
+            break;
+        }
+    }
+    return first;
+}
+
+// The floor-map endpoint may be configured either way:
+//
+//   .../config/calibration/image?place=building%3DWarehouse%2F...&view=plan-view
+//   .../config/calibration/image
+//
+// The second form is resolved here: the place is derived from the calibration
+// document and appended.  Calibration is fetched before the floor map, so by
+// this point it is on disk.  If it is not -- or carries no place -- the endpoint
+// is returned unchanged, which the server answers with 400/422 and the validator
+// rejects, so the previous local floor map is kept rather than overwritten.
+string resolveFloorMapEndpoint(const string& endpoint, const string& calibrationPath)
+{
+    // Match the parameter, not the substring: a bare find("place=") would also
+    // fire on something like "?myplace=x" and silently skip the derivation.
+    if (endpoint.empty() ||
+        endpoint.find("?place=") != string::npos ||
+        endpoint.find("&place=") != string::npos)
+    {
+        return endpoint;   // caller supplied the place explicitly
+    }
+
+    const string place = placeFromCalibration(calibrationPath);
+    if (place.empty())
+    {
+        LOG(error) << "Floor map endpoint has no place= and it could not be derived from "
+                   << calibrationPath << "; requesting " << endpoint << " unchanged" << endl;
+        return endpoint;
+    }
+
+    string resolved = endpoint;
+    resolved += (endpoint.find('?') == string::npos) ? "?" : "&";
+    resolved += "place=" + percentEncode(place);
+    if (endpoint.find("view=") == string::npos)
+    {
+        resolved += "&view=plan-view";
+    }
+    LOG(info) << "Derived floor map place from calibration: " << place << endl;
+    return resolved;
+}
+
+// True if the body is an HTTP error page rather than an asset.  This is the
+// failure that actually happens in the field: a proxy or the analytics service
+// answers 200 with an HTML or JSON error instead of the image.
+bool looksLikeErrorPage(const string& payload)
+{
+    const size_t i = payload.find_first_not_of(" \t\r\n");
+    if (i == string::npos)
+    {
+        return true;
+    }
+    const char* s = payload.c_str() + i;
+    return strncasecmp(s, "<!doctype html", 14) == 0 ||
+           strncasecmp(s, "<html", 5) == 0 ||
+           *s == '{';
+}
+
+// Trailing terminator check, tolerating a little padding because some servers
+// append a newline to the body.
+bool endsWithMarker(const string& payload, const char* marker, size_t n, size_t slack)
+{
+    for (size_t back = n; back <= std::min(n + slack, payload.size()); ++back)
+    {
+        if (memcmp(payload.data() + payload.size() - back, marker, n) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Validate the payload the way the floor-map pipeline will actually consume it:
+// filesrc plus a decoder chosen by file extension (see the floor map pipeline in
+// gstnvvideodecoder.cpp).  Signature and terminator checks catch the practical
+// failures -- an error page, or a truncated body -- without a full decode.
+//
+// Deliberately not cv::imdecode(): SVG is a supported floor-map format on the
+// decodebin path and OpenCV cannot decode it, so a decode-based check rejects a
+// valid asset forever.  Avoiding OpenCV also keeps libopencv_core and
+// libopencv_imgcodecs out of libnvconfigmanager.so, which matters because the
+// released container does not necessarily ship them.
+bool isValidFloorMapImage(const string& payload, const string& localPath)
+{
+    if (payload.size() < 16)
+    {
+        return false;
+    }
+    const auto* p = reinterpret_cast<const unsigned char*>(payload.data());
+
+    string ext = getFileExtension(localPath);
+    if (!ext.empty() && ext[0] == '.')
+    {
+        ext = ext.substr(1);
+    }
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    if (ext == "png")
+    {
+        static const char kIend[] = {0x49, 0x45, 0x4E, 0x44,
+                                     char(0xAE), 0x42, 0x60, char(0x82)};
+        return memcmp(p, "\x89PNG\r\n\x1a\n", 8) == 0 &&
+               endsWithMarker(payload, kIend, sizeof(kIend), 0);
+    }
+    if (ext == "jpg" || ext == "jpeg" || ext == "jpe")
+    {
+        static const char kEoi[] = {char(0xFF), char(0xD9)};
+        return p[0] == 0xFF && p[1] == 0xD8 && p[2] == 0xFF &&
+               endsWithMarker(payload, kEoi, sizeof(kEoi), 2);
+    }
+    if (ext == "svg")
+    {
+        return payload.find("<svg") != string::npos;
+    }
+    if (ext == "bmp")
+    {
+        return p[0] == 'B' && p[1] == 'M';
+    }
+    if (ext == "webp")
+    {
+        return memcmp(p, "RIFF", 4) == 0 && memcmp(p + 8, "WEBP", 4) == 0;
+    }
+
+    // Any other extension is still handed to decodebin, which autoplugs by
+    // content rather than by name.  Do not guess a signature for it -- reject
+    // only what can be positively recognised as not an asset.
+    return !looksLikeErrorPage(payload);
+}
+
+} // namespace
+
+bool VmsConfigManager::isOverlayAssetUsable(const string& localPath, bool validateCalibrationJson,
+                                            AssetVerdict& cached)
+{
+    // stat() rather than read-and-parse on the hot path: this runs for every
+    // WebRTC overlay request, and the healthy case (asset present and valid) is
+    // the common one.
+    struct stat st;
+    if (localPath.empty() || stat(localPath.c_str(), &st) != 0)
+    {
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_overlayAssetCacheMutex);
+        // st_ino is the decisive field: the download publishes with rename(), so
+        // a replacement always lands on a new inode even when the size is
+        // unchanged and the write falls inside the same second.
+        if (st.st_dev == cached.dev && st.st_ino == cached.ino &&
+            st.st_size == cached.size &&
+            st.st_mtim.tv_sec == cached.mtim.tv_sec &&
+            st.st_mtim.tv_nsec == cached.mtim.tv_nsec)
+        {
+            return cached.ok;
+        }
+    }
+
+    const string payload = readAssetFile(localPath);
+    const bool ok = validateCalibrationJson ? isValidCalibrationJson(payload)
+                                            : isValidFloorMapImage(payload, localPath);
+
+    std::lock_guard<std::mutex> lock(m_overlayAssetCacheMutex);
+    cached = {st.st_dev, st.st_ino, st.st_size, st.st_mtim, ok};
+    return ok;
+}
+
+bool VmsConfigManager::downloadOverlayAsset(const string& endpoint, const string& localPath,
+                                            bool validateCalibrationJson, int maxRetries,
+                                            long timeoutMs)
+{
+    if (endpoint.empty())
+    {
+        return false;
+    }
+    if (localPath.empty())
+    {
+        LOG(error) << "Overlay asset local path is empty for endpoint: " << endpoint << endl;
+        return false;
+    }
+
+    const string parentDir = getDirPath(localPath);
+    if (!parentDir.empty() && !isDirExist(parentDir))
+    {
+        createDir(parentDir);
+    }
+
+    for (int attempt = 1; attempt <= maxRetries; ++attempt)
+    {
+        string payload;
+        LOG(info) << "Downloading overlay asset from " << endpoint
+                  << " (attempt " << attempt << "/" << maxRetries << ")"
+                  << " -> " << localPath << endl;
+
+        if (!curlGetRequest(endpoint, payload, timeoutMs) || payload.empty())
+        {
+            LOG(error) << "Failed to download overlay asset from " << endpoint << endl;
+        }
+        else if (validateCalibrationJson && !isValidCalibrationJson(payload))
+        {
+            LOG(error) << "Downloaded calibration JSON from " << endpoint
+                       << " failed validation (need calibrationType + non-empty sensors)" << endl;
+        }
+        else if (!validateCalibrationJson && !isValidFloorMapImage(payload, localPath))
+        {
+            LOG(error) << "Downloaded floor map from " << endpoint
+                       << " is not a decodable image" << endl;
+        }
+        else
+        {
+            // Never expose a partial or invalid response at the configured
+            // path.  rename() is atomic because the temporary file is created
+            // in the destination directory.
+            const string temporaryPath = localPath + ".download.tmp";
+            std::remove(temporaryPath.c_str());
+            if (!writeBinaryFile(temporaryPath, payload))
+            {
+                LOG(error) << "Failed to write overlay asset temporary file " << temporaryPath << endl;
+            }
+            else if (std::rename(temporaryPath.c_str(), localPath.c_str()) != 0)
+            {
+                LOG(error) << "Failed to publish overlay asset to " << localPath << endl;
+                std::remove(temporaryPath.c_str());
+            }
+            else
+            {
+                LOG(info) << "Overlay asset saved to " << localPath << endl;
+                return true;
+            }
+        }
+
+        if (attempt < maxRetries)
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(kOverlayAssetDownloadRetrySleepSec));
+        }
+    }
+
+    return false;
+}
+
+void VmsConfigManager::downloadOverlayAssets()
+{
+    std::lock_guard<std::mutex> lock(m_overlayAssetDownloadMutex);
+
+    if (!m_vmsConfig.calibration_file_endpoint.empty())
+    {
+        const string& destPath = m_vmsConfig.calibration_file_path;
+        if (!downloadOverlayAsset(m_vmsConfig.calibration_file_endpoint,
+                                  destPath,
+                                  true /* validateCalibrationJson */,
+                                  kOverlayAssetDownloadMaxRetries,
+                                  kOverlayAssetStartupTimeoutMs))
+        {
+            if (!destPath.empty() && isFileExist(destPath))
+            {
+                LOG(warning) << "Using existing local calibration file after endpoint download failure: "
+                             << destPath << endl;
+            }
+            else
+            {
+                LOG(error) << "Calibration endpoint download failed and no local file at "
+                           << destPath << "; overlay calibration will not work" << endl;
+            }
+        }
+    }
+
+    if (!m_vmsConfig.floormap_image_endpoint.empty())
+    {
+        const string& destPath = m_vmsConfig.floor_map_file_path;
+        if (!downloadOverlayAsset(resolveFloorMapEndpoint(m_vmsConfig.floormap_image_endpoint,
+                                                          m_vmsConfig.calibration_file_path),
+                                  destPath,
+                                  false /* validateCalibrationJson */,
+                                  kOverlayAssetDownloadMaxRetries,
+                                  kOverlayAssetStartupTimeoutMs))
+        {
+            if (!destPath.empty() && isFileExist(destPath))
+            {
+                LOG(warning) << "Using existing local floor map file after endpoint download failure: "
+                             << destPath << endl;
+            }
+            else
+            {
+                LOG(error) << "Floor map endpoint download failed and no local file at "
+                           << destPath << "; overlay floor map will not work" << endl;
+            }
+        }
+    }
+}
+
+bool VmsConfigManager::ensureOverlayAssetForLiveRequest(
+    const string& endpoint, const string& localPath, bool validateCalibrationJson,
+    std::chrono::steady_clock::time_point& lastAttempt, AssetVerdict& cached,
+    bool isFloorMap)
+{
+    // Hot path: the asset is normally present and valid, so answer from the
+    // cached verdict without taking the download lock.  Otherwise concurrent
+    // stream setups would serialise on a check that does no I/O beyond stat().
+    if (endpoint.empty() || isOverlayAssetUsable(localPath, validateCalibrationJson, cached))
+    {
+        return true;
+    }
+
+    // Only the fetch, the publish and the retry bookkeeping are serialised.
+    std::lock_guard<std::mutex> lock(m_overlayAssetDownloadMutex);
+
+    // Re-check: another request may have published the asset while this one was
+    // waiting for the lock.
+    if (isOverlayAssetUsable(localPath, validateCalibrationJson, cached))
+    {
+        return true;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (lastAttempt.time_since_epoch().count() != 0 &&
+        now - lastAttempt < kOverlayAssetFallbackCooldown)
+    {
+        LOG(warning) << "Overlay asset is unavailable; another request attempted it within the "
+                        "fallback cooldown, so this one starts without it: "
+                     << localPath << endl;
+        return false;
+    }
+
+    lastAttempt = now;
+    LOG(info) << "Overlay asset is unavailable for a WebRTC live request; making one "
+              << kOverlayAssetLiveFallbackTimeoutMs << "ms fallback download attempt: "
+              << localPath << endl;
+    // Resolved here rather than by the caller: deriving the place re-reads and
+    // re-parses the calibration document, and the common path returns above on
+    // the cached verdict without doing any I/O beyond stat().
+    const string url = isFloorMap
+        ? resolveFloorMapEndpoint(endpoint, m_vmsConfig.calibration_file_path)
+        : endpoint;
+    return downloadOverlayAsset(url, localPath, validateCalibrationJson,
+                                1 /* maxRetries */, kOverlayAssetLiveFallbackTimeoutMs);
+}
+
+bool VmsConfigManager::ensureOverlayAssetsForLiveRequest(bool requireCalibration, bool requireFloorMap)
+{
+    if (!requireCalibration && !requireFloorMap)
+    {
+        return true;
+    }
+
+    // No lock here: each helper takes the download lock only if it has to fetch.
+    bool available = true;
+    if (requireCalibration)
+    {
+        available = ensureOverlayAssetForLiveRequest(m_vmsConfig.calibration_file_endpoint,
+                                                      m_vmsConfig.calibration_file_path,
+                                                      true /* validateCalibrationJson */,
+                                                      m_lastCalibrationFallbackAttempt,
+                                                      m_calibrationVerdict,
+                                                      false /* isFloorMap */) && available;
+    }
+    if (requireFloorMap)
+    {
+        available = ensureOverlayAssetForLiveRequest(m_vmsConfig.floormap_image_endpoint,
+                                                      m_vmsConfig.floor_map_file_path,
+                                                      false /* validateCalibrationJson */,
+                                                      m_lastFloorMapFallbackAttempt,
+                                                      m_floorMapVerdict,
+                                                      true /* isFloorMap */) && available;
+    }
+    return available;
 }

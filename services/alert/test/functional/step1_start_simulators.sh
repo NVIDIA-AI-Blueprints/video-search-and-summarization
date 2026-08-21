@@ -76,34 +76,9 @@ echo "=== Step 1: Starting Simulators ==="
 echo ""
 
 # --- Redis ---
-print_status "wait" "Checking Redis on :6379..."
-
-if check_port 127.0.0.1 6379; then
-    print_status "ok" "Redis already running on :6379"
-else
-    print_status "wait" "Starting Redis container..."
-
-    REDIS_CONTAINER="alert-agent-redis-test"
-
-    # Clean up existing container if present
-    docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
-
-    # Start Redis (with JSON module for prompt storage)
-    docker run -d \
-        --name "$REDIS_CONTAINER" \
-        -p 6379:6379 \
-        redis/redis-stack-server:7.2.0-v9 >/dev/null
-
-    echo "$REDIS_CONTAINER" > "$PID_DIR/redis_container"
-
-    print_status "wait" "Waiting for Redis to be ready..."
-    if wait_for_service "redis" "check_port 127.0.0.1 6379" 30; then
-        print_status "ok" "Redis ready"
-    else
-        print_status "fail" "Redis failed to start"
-        exit 1
-    fi
-fi
+# Redis has been removed from Alert MS. Dedup/filter state is in-process and
+# durable state (verdict protection, alert configs) lives in Elasticsearch,
+# so no Redis container is started for the functional stack.
 
 # --- Kafka ---
 print_status "wait" "Checking Kafka on :9092..."

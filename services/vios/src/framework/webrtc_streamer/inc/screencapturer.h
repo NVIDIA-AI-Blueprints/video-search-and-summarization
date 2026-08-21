@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,9 +40,9 @@
 #include "logger.h"
 
 
-class DesktopCapturer : public rtc::VideoSourceInterface<webrtc::VideoFrame>, public webrtc::DesktopCapturer::Callback  {
+class DesktopCapturer : public webrtc::VideoSourceInterface<webrtc::VideoFrame>, public webrtc::DesktopCapturer::Callback  {
 	public:
-		DesktopCapturer(const std::map<std::string,std::string> & opts) : m_width(0), m_height(0) {
+		explicit DesktopCapturer(const std::map<std::string,std::string> & opts) : m_width(0), m_height(0) {
 			if (opts.find("width") != opts.end()) {
 				m_width = std::stoi(opts.at("width"));
 			}	
@@ -67,22 +67,26 @@ class DesktopCapturer : public rtc::VideoSourceInterface<webrtc::VideoFrame>, pu
 		// overide webrtc::DesktopCapturer::Callback
 		virtual void OnCaptureResult(webrtc::DesktopCapturer::Result result, std::unique_ptr<webrtc::DesktopFrame> frame);
 		
-		// overide rtc::VideoSourceInterface<webrtc::VideoFrame>
-		virtual void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const rtc::VideoSinkWants& wants) {
+		// overide webrtc::VideoSourceInterface<webrtc::VideoFrame>
+		virtual void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const webrtc::VideoSinkWants& wants) {
 			broadcaster_.AddOrUpdateSink(sink, wants);
 		}
 
-		virtual void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) {
+		virtual void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink) {
 			broadcaster_.RemoveSink(sink);
 		}
 	
 	protected:
+		void SetCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer) { m_capturer = std::move(capturer); }
+		webrtc::DesktopCapturer* GetCapturer() const { return m_capturer.get(); }
+
+	private:
 		std::thread                              m_capturethread;
 		std::unique_ptr<webrtc::DesktopCapturer> m_capturer;
 		int                                      m_width;		
 		int                                      m_height;	
 		bool                                     m_isrunning;
-		rtc::VideoBroadcaster                    broadcaster_;
+		webrtc::VideoBroadcaster                    broadcaster_;
 };
 
 
@@ -90,10 +94,11 @@ class ScreenCapturer : public DesktopCapturer {
 	public:
 		ScreenCapturer(const std::string & url, const std::map<std::string,std::string> & opts) : DesktopCapturer(opts) {
 			const std::string prefix("screen://");
-			m_capturer = webrtc::DesktopCapturer::CreateScreenCapturer(webrtc::DesktopCaptureOptions::CreateDefault());
-			if (m_capturer) {
+			SetCapturer(webrtc::DesktopCapturer::CreateScreenCapturer(webrtc::DesktopCaptureOptions::CreateDefault()));
+			webrtc::DesktopCapturer* capturer = GetCapturer();
+			if (capturer) {
 				webrtc::DesktopCapturer::SourceList sourceList;
-				if (m_capturer->GetSourceList(&sourceList)) {
+				if (capturer->GetSourceList(&sourceList)) {
 					const std::string screen(url.substr(prefix.length()));
 					if (screen.empty() == false) {
 						for (auto source : sourceList) {
@@ -101,7 +106,7 @@ class ScreenCapturer : public DesktopCapturer {
 							try {
 								if (std::stoi(screen) == source.id)
 								{
-									m_capturer->SelectSource(source.id);
+									capturer->SelectSource(source.id);
 									break;
 								}
 							} catch (const std::invalid_argument& e) {
@@ -131,16 +136,17 @@ class WindowCapturer : public DesktopCapturer {
 		WindowCapturer(const std::string & url, const std::map<std::string,std::string> & opts) : DesktopCapturer(opts) {
 			const std::string windowprefix("window://");
 			if (url.find(windowprefix) == 0) {	
-				m_capturer = webrtc::DesktopCapturer::CreateWindowCapturer(webrtc::DesktopCaptureOptions::CreateDefault());
-			
-				if (m_capturer) {
+				SetCapturer(webrtc::DesktopCapturer::CreateWindowCapturer(webrtc::DesktopCaptureOptions::CreateDefault()));
+
+				webrtc::DesktopCapturer* capturer = GetCapturer();
+				if (capturer) {
 					webrtc::DesktopCapturer::SourceList sourceList;
-					if (m_capturer->GetSourceList(&sourceList)) {
+					if (capturer->GetSourceList(&sourceList)) {
 						const std::string windowtitle(url.substr(windowprefix.length()));
 						for (auto source : sourceList) {
 							LOG(error) << "WindowCapturer source:" << source.id << " title:"<< source.title;
 							if (windowtitle == source.title) {
-								m_capturer->SelectSource(source.id);
+								capturer->SelectSource(source.id);
 								break;
 							}
 						}

@@ -40,6 +40,44 @@
 {{- $agent := index .Values "agent" | default dict }}
 {{- $vssAgent := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
 {{- $agentEnabled := index $agent "enabled" | default true }}
+{{/*
+  CLI edge routes. Mirrors the four backends the Docker edge exposes in
+  deploy/docker/services/infra/haproxy/haproxy.cfg.template so `vss configure`
+  resolves the same paths on both. Each mount carries whatever that service
+  itself serves -- /elasticsearch/_cat/..., /rtvi-embed/v1/...,
+  /rtvi-cv/api/v1/... and /rtvi-vlm/v1/... -- the same convention /vst/api
+  already follows.
+
+  The Docker edge also mounts /lvs, but that one is published by
+  dev-profile-lvs, the profile that runs lvs-server. Declaring it here would
+  point an Ingress path at a Service this profile does not deploy, which fails
+  validation rather than answering 503 the way an unavailable HAProxy backend
+  does.
+
+  Off by default: enabling this publishes Elasticsearch on the public origin
+  with no per-path guard at all, because an Ingress annotation cannot express
+  one. Note the Docker edge is not a read-only baseline either -- its deny rules
+  stop DELETE, cluster-admin paths and the two-segment mutating operations, but
+  POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES there,
+  as does a PUT to a vss-memory document path so the memory store can persist.
+  Turn this on only where a writable ES is acceptable.
+
+  /rtvi-cv and /rtvi-embed are skipped when rtviInternalIngress is enabled,
+  because that Ingress already publishes those two paths and renders no host
+  when its own `host` is empty -- two Ingress objects claiming one path on one
+  host is ambiguous. /rtvi-vlm is not among them, so it is gated on cliRoutes
+  alone.
+*/}}
+{{- $rii := (.Values.global | default dict).rtviInternalIngress | default dict }}
+{{- $cli := (.Values.ingress | default dict).cliRoutes | default dict }}
+{{- $cliOn := default false $cli.enabled }}
+{{- $cliRtvi := and $cliOn (not (default false $rii.enabled)) }}
+{{- $embedSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-embed") }}
+{{- $cvSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-cv") }}
+{{- $vlmSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-vlm") }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $esSvc := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
 {{- $analytics := index .Values "analytics" | default dict }}
 {{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
 {{- $videoAnalyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
@@ -57,6 +95,18 @@ metadata:
 {{- end }}
       /phoenix/(.*) /\1
       /phoenix /
+{{- if $cliOn }}
+      /elasticsearch/(.*) /\1
+      /elasticsearch /
+      /rtvi-vlm/(.*) /\1
+      /rtvi-vlm /
+{{- end }}
+{{- if $cliRtvi }}
+      /rtvi-embed/(.*) /\1
+      /rtvi-embed /
+      /rtvi-cv/(.*) /\1
+      /rtvi-cv /
+{{- end }}
     haproxy.org/timeout-server: "3600s"
     haproxy.org/timeout-client: "3600s"
     haproxy.org/timeout-tunnel: "3600s"
@@ -115,6 +165,34 @@ spec:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
                 port:
                   number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /redoc
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /generate
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
           {{- end }}
           {{- $vioIng := index $vios "vss-vios-ingress" | default dict }}
           {{- if $vioIng.enabled }}
@@ -145,6 +223,38 @@ spec:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }}
                 port:
                   number: {{ $ing.videoAnalyticsApiPort | default 8081 }}
+          {{- end }}
+          {{- if $cliOn }}
+          - path: /elasticsearch
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $esSvc }}
+                port:
+                  number: {{ $cli.elasticsearchPort | default 9200 }}
+          - path: /rtvi-vlm
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $vlmSvc }}
+                port:
+                  number: {{ $cli.rtviVlmPort | default 8000 }}
+          {{- end }}
+          {{- if $cliRtvi }}
+          - path: /rtvi-embed
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $embedSvc }}
+                port:
+                  number: {{ $cli.rtviEmbedPort | default 8000 }}
+          - path: /rtvi-cv
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $cvSvc }}
+                port:
+                  number: {{ $cli.rtviCvPort | default 9000 }}
           {{- end }}
           {{- if (index .Values "vss-agent-ui").enabled }}
           - path: /

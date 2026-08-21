@@ -85,9 +85,8 @@ Execute these steps in order. Deviate only when the argument table above says ot
 3. Unless `results` or `ui` argument:
    - Stop any existing stack
    - NVStreamer must always be deployed before the stream-processor:
-     - Default (stream-processor): `deploy --target nvstreamer --auto --force`, then `deploy --auto --force`
-     - Full stack: `deploy --target all --auto --force` — NVStreamer-first handled internally
-     - Scaled: `deploy --target nvstreamer --auto --force`, then `deploy --target scaled --auto --force`
+     - Default (stream-processor): `deploy --target nvstreamer --force`, then `deploy --force`
+     - Full stack: `deploy --target all --force` — NVStreamer-first handled internally
    - If a build was done in step 2, pass `--all-tag <BUILD_TAG> --nvstreamer-tag <BUILD_TAG>` to the deploy commands (BUILD_TAG from `skills/build/build-containers.md` Step 6). See `skills/deployment/deploy.md` Step 1b for the full decision.
    - See `skills/deployment/deploy.md` for full options
 4. Sync `test/bdd_tests/config.json` → `api.base_url` with resolved BASE_URL (see Step 4b in `skills/deployment/deploy.md`)
@@ -124,8 +123,10 @@ Execute these steps in order. Deviate only when the argument table above says ot
 
 ```
 deployment/
-  oneclick_dc_deployment_for_dev.py   # primary deploy script
-  1click_README.md                    # deployment reference
+  1click_README.md                              # deployment reference
+  stream-processing/
+    oneclick_dc_deployment.py                   # primary deploy script
+    docker-compose/                             # VST compose tree
 
 test/bdd_tests/
   setup.sh                            # one-time environment setup
@@ -139,9 +140,28 @@ test/bdd_tests/
     junit.xml
     test_results.csv
     unit_tests/*.csv
+  test_videos/                        # sample clips, baked into the BDD image (gitignored, not in repo)
 
 webroot/index.html                    # UI entry point
 ```
+
+---
+
+## Sample Video Files
+
+There are no longer sample clips committed under `tools/data/`. The BDD sample
+clips (10s H.264/H.265, MP4/MKV) are **baked into the BDD test image** at
+`/app/test_videos` and are gitignored, not stored in the repo. The BDD suite
+seeds NVStreamer from them automatically (session prerequisite uploads them and
+runs a VST scan when NVStreamer has no streams).
+
+When a deployment or an ad-hoc test needs a video source and none is available:
+
+- **Ask the user to point to a directory that contains valid video files**
+  (MP4/MKV/TS carrying H.264 or H.265). Do not assume a path exists.
+- Upload those files to NVStreamer (`PUT /vst/api/v1/storage/file/<name>`), then
+  run a sensor scan from the VST UI (or `POST /vst/api/v1/sensor/scan`) so VIOS
+  imports the RTSP streams.
 
 ---
 
@@ -152,7 +172,6 @@ webroot/index.html                    # UI entry point
 | VIOS API + UI | `BASE_URL` (default port 30888) |
 | VIOS Dashboard | `BASE_URL/vios/#/dashboard` |
 | NVStreamer (0–4) | `http://<HOST>:31000–31004/#/dashboard` |
-| Grafana (if enabled) | `http://<HOST>:3000` |
 | MinIO Console (if enabled) | `http://<HOST>:9001` |
 
 ---
@@ -163,7 +182,7 @@ webroot/index.html                    # UI entry point
 - **Build before deploying by default** — run `skills/build/build-containers.md` first to ensure the deployment uses the latest source. Skip build only when explicitly requested (`--skip-build`) or when no deploy is needed (`results`, `ui` arguments).
 - Do not run `--fresh-start` or destructive flags without explicit user approval.
 - Do not modify `deployment/**/docker-compose*.y*ml` without instruction.
-- **Always** sync `test/bdd_tests/config.json` → `api.base_url` to match the resolved BASE_URL before running tests. The file defaults to `localhost:30888` which causes MCP tests to derive the wrong URL. This sync is automatic and requires no user approval.
+- **Always** sync `test/bdd_tests/config.json` → `api.base_url` to match the resolved BASE_URL before running tests. The file defaults to `localhost:30888`, which points tests at the wrong host. This sync is automatic and requires no user approval.
 - **Always stop and redeploy before running tests** — never run tests against an already-running stack. A fresh deployment avoids stale database state from previous runs.
 - Prefer targeted test runs over full suite unless full regression is requested.
 - Always generate `reports/junit.xml` and `reports/report.html` — never run tests without report flags.

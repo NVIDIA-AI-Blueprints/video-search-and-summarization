@@ -1083,6 +1083,24 @@ VmsErrorCode getSensorStatus(std::shared_ptr<nv_vms::SensorManagement> sensorMgm
 
 VmsErrorCode getSensorNetworkInfo(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, const string sensor_id, Json::Value &response)
 {
+    CHECK_SENSOR_MNGT_AND_RETURN_FAIL_RESP(sensorMgmt)
+    std::shared_ptr<DeviceManager> deviceMngr = sensorMgmt->getDeviceManagerObject();
+    CHECK_DEVICE_MANAGER(deviceMngr)
+
+    /* Network configuration is only retrievable from ONVIF/remote sensors. For
+     * RTSP/native sensors there is no ONVIF client session, so the adaptor
+     * cannot fetch network interfaces. Report this expected limitation as a
+     * structured not-supported response instead of a generic internal error
+     * (NVBug 6164112). */
+    shared_ptr<SensorInfo> sensor = deviceMngr->getSensorInfo(sensor_id);
+    if (sensor != nullptr && sensor->type != SENSOR_TYPE_ONVIF && !sensor->isRemoteSensor)
+    {
+        LOG(info) << "Network information is not supported for non-onvif sensor: " << sensor_id << endl;
+        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response,
+                       "Sensor network information is not supported for this sensor type")
+        return VmsErrorCode::VMSNotSupportedError;
+    }
+
     int ret = -1;
     SensorNetworkInfo netInfo;
     ret = getSensorNetworkInfo(sensorMgmt, sensor_id, netInfo);

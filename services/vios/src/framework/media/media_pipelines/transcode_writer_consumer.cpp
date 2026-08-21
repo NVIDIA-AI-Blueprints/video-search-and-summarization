@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -83,7 +83,7 @@ static GstPadProbeReturn decoder_src_pad_cb(GstPad *pad, GstPadProbeInfo *info, 
 {
     DecoderProbeCtx* ctx = (DecoderProbeCtx*)user_data;
     int64_t start_time = 0;
-    bool sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
     if (ctx)
     {
         start_time = ctx->seek_start_ms + FIXED_TS_OFFSET/1000000;
@@ -192,10 +192,57 @@ GstElement* TranscodeWriterConsumer::buildOverlayBinIfNeeded()
     params.m_startTime = mCfg.user_start_time_iso;
     params.m_endTime = mCfg.user_end_time_iso;
     params.m_sensorName = mCfg.sensor_name;
-    // Defaults; can be refined later if needed
-    params.m_frameRate = 30;
-    params.m_frameSize.m_width = 1920;
-    params.m_frameSize.m_height = 1080;
+    // Use the stream's real frame rate (from the file-list query, passed in via
+    // cfg) so the overlay bbox match tolerance (1000/fps ms, when
+    // bbox_tolerance_ms config is 0) matches the actual cadence. A hardcoded 30
+    // made the window too tight for lower-fps clips (e.g. 10fps -> 33ms instead
+    // of 100ms), dropping boxes on offset frames. Fall back to the default when
+    // the file fps is unknown (0).
+    params.m_frameRate = (mCfg.frame_rate > 0.0) ? mCfg.frame_rate
+                                                 : DEFAULT_VIDEO_FRAME_RATE;
+    LOG(info) << mLogPrefix << "TranscodeWriter: overlay frame rate = "
+              << params.m_frameRate << " fps (file fps=" << mCfg.frame_rate
+              << (mCfg.frame_rate > 0.0 ? "" : " -> default") << ")" << endl;
+    // Use the stream's real resolution for the overlay. The transcode pipeline
+    // preserves the source resolution (no scaler), so drawing at a hardcoded
+    // 1920x1080 on a smaller stream made the debug font oversized and pushed the
+    // debug timestamp text off the frame (positions are computed for 1080p). Fall
+    // back to 1920x1080 when the DB has no usable resolution.
+    int overlayWidth = 1920;
+    int overlayHeight = 1080;
+    if (!mCfg.stream_id.empty())
+    {
+        auto dbHelper = GET_DB_INSTANCE();
+        if (dbHelper)
+        {
+            SensorStreamsDBColumns row = dbHelper->readSensorStreams(mCfg.stream_id);
+            const std::string& resStr = row.resolution_value;  // e.g. "640x428"
+            const auto xpos = resStr.find('x');
+            if (xpos != std::string::npos)
+            {
+                try
+                {
+                    const int w = std::stoi(resStr.substr(0, xpos));
+                    const int h = std::stoi(resStr.substr(xpos + 1));
+                    if (w > 0 && h > 0)
+                    {
+                        overlayWidth = w;
+                        overlayHeight = h;
+                    }
+                }
+                catch (const std::exception& e)
+                {
+                    LOG(warning) << mLogPrefix << "TranscodeWriter: invalid resolution '"
+                                 << resStr << "': " << e.what() << ", using "
+                                 << overlayWidth << "x" << overlayHeight << endl;
+                }
+            }
+        }
+    }
+    params.m_frameSize.m_width = overlayWidth;
+    params.m_frameSize.m_height = overlayHeight;
+    LOG(info) << mLogPrefix << "TranscodeWriter: overlay resolution = "
+              << overlayWidth << "x" << overlayHeight << endl;
     if (mCfg.overlay_params)
     {
         params.m_bboxParams = *mCfg.overlay_params;
@@ -208,6 +255,13 @@ GstElement* TranscodeWriterConsumer::buildOverlayBinIfNeeded()
     std::shared_ptr<IMetadataStore> metadataStore = std::make_shared<ElasticMetadataStore>(metadataParams, false);
     // Store overlay instance as member to keep it alive for pipeline duration
     mOverlayInst = std::make_unique<NvLLOverlayInternal>(params, metadataStore, false, true);
+    if (mOverlayInst)
+    {
+        // Keep source == draw resolution so bbox coordinates (already in source
+        // space) map 1:1 (unchanged from the previous 1920==1920 behaviour),
+        // while font size and debug-text positions scale to the real frame.
+        mOverlayInst->updateSourceResolution(overlayWidth, overlayHeight);
+    }
     GstElement* overlay = mOverlayInst ? mOverlayInst->create() : nullptr;
     if (!overlay)
     {
@@ -226,7 +280,7 @@ TranscodeWriterConsumer::TranscodeWriterConsumer(const TranscodeWriterConfig& cf
 TranscodeWriterConsumer::~TranscodeWriterConsumer()
 {
     try {
-        stop();
+        TranscodeWriterConsumer::stop();
         teardown();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~TranscodeWriterConsumer: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
@@ -402,12 +456,15 @@ bool TranscodeWriterConsumer::buildPipeline()
     bool needConverter = (NvHwDetection::getInstance()->m_useNvV4l2Dec ^ NvHwDetection::getInstance()->m_useNvV4l2Enc) ||
                          (!NvHwDetection::getInstance()->m_useNvV4l2Dec && !NvHwDetection::getInstance()->m_useNvV4l2Enc && mCfg.enable_overlay) ||
                          (mCfg.enable_overlay && iequals(mCfg.video_codec, "h265"));  // Always use converter for H.265 with overlay (P010_10LE → NV12)
-#ifdef JETSON_PLATFORM
-    if (needConverter) converter = gst_element_factory_make ("nvvidconv" , nullptr);
-#else
-    if (needConverter) converter = gst_element_factory_make ("nvvideoconvert" , nullptr);
-    if (needConverter && !converter) converter = gst_element_factory_make("nvvidconv", nullptr);
-#endif
+    if (isJetsonPlatform())
+    {
+        if (needConverter) converter = gst_element_factory_make ("nvvidconv" , nullptr);
+    }
+    else
+    {
+        if (needConverter) converter = gst_element_factory_make ("nvvideoconvert" , nullptr);
+        if (needConverter && !converter) converter = gst_element_factory_make("nvvidconv", nullptr);
+    }
     if (needConverter && !converter) converter = gst_element_factory_make("videoconvert", nullptr);
 
     if (needConverter && mCfg.enable_overlay && iequals(mCfg.video_codec, "h265"))
@@ -1046,7 +1103,7 @@ bool TranscodeWriterConsumer::waitForCompletion(int64_t timeout_secs)
                     if (NvHwDetection::getInstance()->m_useNvV4l2Dec || NvHwDetection::getInstance()->m_useNvV4l2Enc)
                     {
                         detectGPU();
-                        if (!g_isGpuPresent)
+                        if (!isGpuPresent())
                         {
                             LOG(error) << mLogPrefix << "---#--- /dev/nvidia node not present, Non-recoverable error ---#---" << endl;
                             std::exit(EXIT_GPU_NOT_FOUND);

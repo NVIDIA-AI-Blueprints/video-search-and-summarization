@@ -1,0 +1,171 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# RT-CV-3D (MV3DT) minimal standalone stack.
+#
+#   perception     VSS-RT-CV: RT-DETR + MV3DT tracker, Kafka sink → mdx-raw (REST :9000)
+#   bev-fusion     VSS-RT-CV-BEV-Fusion: consumes mdx-raw → publishes fused mdx-bev
+#   mosquitto      optional MQTT broker for MV3DT /trck/* — COMPOSE_PROFILES+=mosquitto
+#                  (omit if you have your own broker; set MQTT_HOST/MQTT_PORT instead)
+#   kafka          optional single-node KRaft broker + topic init — COMPOSE_PROFILES+=kafka
+#                  (omit if you have your own broker; set KAFKA_BOOTSTRAP instead)
+#
+# No streaming front-end is included: bring your own synchronized RTSP streams and
+# register them at runtime with scripts/add-streams.sh (see README).
+#
+# Configuration comes from .env in this directory. Stage the per-run config dir
+# first, then launch from this directory (see README §3):
+#   ../scripts/stage-configs.sh
+#   COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
+
+services:
+  perception:
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0}
+    container_name: vss-rtvi-cv-mv3dt
+    network_mode: host
+    runtime: nvidia
+    shm_size: "6gb"
+    environment:
+      STREAM_TYPE: kafka
+      DS_HTTP_PORT: "${DS_HTTP_PORT:-9000}"
+      MQTT_HOST: ${MQTT_HOST:-localhost}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
+      OTEL_SDK_DISABLED: "true"
+      DISPLAY: ${DISPLAY:-:0}
+      NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
+    volumes:
+      - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/mtmc:/opt/storage
+      - ${MODELS_DIR}/mv3dt/BodyPose3DNet:/opt/storage/BodyPose3DNet
+      - ../generated/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs:ro
+      - ../generated/camInfo:/tmp/camInfo:ro
+      - ./init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh:ro
+      # X11 socket for the optional on-screen display (OSD=1 staging); harmless headless.
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      # Local video files for INPUT_MODE=file (read-only). Harmless '.' default when
+      # unused (stream mode); set VIDEO_DIR in .env to your <sensor_id>.mp4 directory.
+      - ${VIDEO_DIR:-.}:/videos:ro
+      # Saved perception videos for SAVE_VIDEO=1 (grid-view + per-camera mp4s).
+      - ../video-output:/video-output
+    command: ["./ds-start-mv3dt.sh"]
+    # Wait for the bundled brokers when their profiles are enabled (the MV3DT
+    # tracker fails at startup if MQTT is unreachable; the kafka sink needs the
+    # broker). `required: false` skips the dependency when the profile is off
+    # (own-broker deployments).
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        required: false
+      kafka:
+        condition: service_healthy
+        required: false
+    # Uncomment the following 2 lines docker logs shows "libEGL warning: egl: failed to create dri2 screen"
+    # devices:
+    #   - /dev/dri
+
+  bev-fusion:
+    image: ${BEV_FUSION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_TAG:-3.2.0}
+    container_name: vss-rtvi-cv-bev-fusion
+    network_mode: host
+    restart: always
+    environment:
+      BROKER_TYPE: kafka
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-localhost:9092}
+      RAW_TOPIC: ${RAW_TOPIC:-mdx-raw}
+      FUSED_TOPIC: ${FUSED_TOPIC:-mdx-bev}
+      SENSOR_TIMEOUT_MS: "100"
+      MAX_EXPECTED_SENSORS: ${NUM_CAMS:?set NUM_CAMS in docker/.env}
+      BUFFER_DURATION_S: "2.0"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,sys; sys.exit(0 if os.path.isfile('/tmp/fusion_ready') else 1)"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      kafka:
+        condition: service_healthy
+        required: false
+
+  # ── Optional brokers (enable via COMPOSE_PROFILES; skip if you run your own) ──
+
+  mosquitto:
+    image: ${MOSQUITTO_IMAGE:-eclipse-mosquitto:2}
+    container_name: vss-mosquitto-mv3dt
+    profiles: ["mosquitto"]
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      # set_tcp_nodelay in this conf is the key setting that keeps the small
+      # MV3DT /trck/* messages low-latency (defeats Nagle coalescing).
+      - ../configs/mosquitto.conf:/mosquitto.conf:ro
+    command: ["mosquitto", "-c", "/mosquitto.conf", "-p", "${MQTT_PORT:-1883}"]
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-p", "${MQTT_PORT:-1883}", "-t", "health", "-m", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 3s
+
+  kafka:
+    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:8.2.0}
+    container_name: kafka
+    profiles: ["kafka"]
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:${KAFKA_CONTROLLER_PORT:-9093}"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:${KAFKA_PORT:-9092},CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT:-9093}"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:${KAFKA_PORT:-9092}"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+      KAFKA_HEAP_OPTS: "-Xmx4G -Xms4G"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:${KAFKA_PORT:-9092}", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  # Pre-create the topics perception + bev-fusion use (auto-create is also on, but
+  # creating them up front avoids first-message races).
+  kafka-topic-init:
+    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:8.2.0}
+    container_name: kafka-topic-init
+    profiles: ["kafka"]
+    network_mode: host
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - |
+        for t in ${RAW_TOPIC:-mdx-raw} ${FUSED_TOPIC:-mdx-bev}; do
+          kafka-topics --bootstrap-server localhost:${KAFKA_PORT:-9092} --create --if-not-exists \
+            --topic "$$t" --partitions 1 --replication-factor 1
+        done
+        echo "topics:" && kafka-topics --bootstrap-server localhost:${KAFKA_PORT:-9092} --list
+    restart: "no"

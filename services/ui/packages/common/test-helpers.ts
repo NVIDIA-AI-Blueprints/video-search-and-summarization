@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-/** Shared test helpers for @aiqtoolkit-ui/common tests */
+/** Shared test helpers for common package tests */
 
 export const createMockFile = (name = 'test.mp4', size = 1024) =>
   new File(['x'.repeat(size)], name, { type: 'video/mp4' });

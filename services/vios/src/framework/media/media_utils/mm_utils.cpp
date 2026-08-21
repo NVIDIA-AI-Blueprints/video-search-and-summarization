@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -390,7 +390,7 @@ int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_
         ssize_t sei_uuid_index = nal_start_code_size + 1;
         if (size >= sei_uuid_index)
         {
-            uint8_t *uuid_buf  = (uint8_t *)&buffer[sei_uuid_index];
+            const uint8_t *uuid_buf  = &buffer[sei_uuid_index];
             uuid_str = hexBytesToString(uuid_buf, UUID_STANDARD_SIZE);
             if (uuid_str.find(SEI_CUSTOM_META_UUID) == string::npos && uuid_str.find(MEGA_SEI_CUSTOM_META_UUID) == string::npos)
             {
@@ -412,14 +412,17 @@ int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_
         /* Parse the actual payload frameId + time */
         if (size >= seiPayload_index)
         {
-            uint8_t *seiPayload  = (uint8_t *)&buffer[seiPayload_index];
+            const uint8_t *seiPayload  = reinterpret_cast<const uint8_t *>(&buffer[seiPayload_index]);
             vect_sei_payload.assign(seiPayload, seiPayload + size - 1);
 #ifdef ENABLE_EMULATION_PREVENTATION_BYTE_SUPPORT
             checkAndRemoveEmulationPrevByte(vect_sei_payload);
 #endif
             if (uuid_str.find(SEI_CUSTOM_META_UUID) != string::npos)
             {
-                for (size_t i = 0; i < vect_sei_payload.size(); i++)
+                /* Copy at most sizeof(FrameInfoSeiPayload) bytes, the payload can be larger */
+                const size_t copy_size = vect_sei_payload.size() < sizeof(FrameInfoSeiPayload) ?
+                                         vect_sei_payload.size() : sizeof(FrameInfoSeiPayload);
+                for (size_t i = 0; i < copy_size; i++)
                 {
                     frameInfo_ptr[i] = vect_sei_payload[i];
                 }
@@ -450,6 +453,11 @@ int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_
                     {
                         frameId = jsonValue["frame_id"].asInt64();
                     }
+                    else if (jsonValue.isMember("frame_num") && jsonValue["frame_num"].isInt64())
+                    {
+                        frameId = jsonValue["frame_num"].asInt64();
+                    }
+
                     if (jsonValue.isMember("timestamp") && jsonValue["timestamp"].isInt64())
                     {
                         pts_from_server = jsonValue["timestamp"].asInt64() / 1000;
@@ -961,197 +969,204 @@ int getMediaInformation (const string& filename, Json::Value &media_info, bool m
         // Local file path, add file:// prefix
         uri_string = string("file://") + filename;
     }
-    gchar *uri = (gchar *) uri_string.c_str();
+    const gchar *uri = uri_string.c_str();
 
     discoverer = gst_discoverer_new (4 * GST_SECOND, &err);
     if (err != nullptr)
     {
         LOG(error) << "gst_discoverer_new failed with err:" << err << endl;
         ret = -1;
-        goto exit;
-    }
-
-    /* Use default software decoder for discoverer */
-    discovererPriv = discoverer->priv;
-    if (discovererPriv && discovererPriv->uridecodebin)
-    {
-        g_signal_connect (discovererPriv->uridecodebin, "autoplug-select", G_CALLBACK (autoplug_select), nullptr);
-    }
-
-retry:
-    info = gst_discoverer_discover_uri (discoverer, uri, &err);
-    if (err != nullptr)
-    {
-        LOG(error) << "gst_discoverer_discover_uri failed with err:" << err << endl;
-        ret = -1;
-        goto exit;
-    }
-
-    sinfo = gst_discoverer_info_get_stream_info (info);
-    duration = gst_discoverer_info_get_duration (info);
-    divisor_factor = millisec ? 1000000 : 1000000000;
-    media_info["Duration"] = (duration / static_cast<double>(divisor_factor));     // convert to seconds/ms
-    duration_ms = (uint64_t)(duration / 1000000);
-
-    if (GST_IS_DISCOVERER_CONTAINER_INFO (sinfo))
-    {
-        GstCaps *caps;
-
-        caps = gst_discoverer_stream_info_get_caps (
-            GST_DISCOVERER_STREAM_INFO(sinfo));
-        container_string = gst_pb_utils_get_codec_description (caps);
-        ctr_caps_str = gst_caps_to_string (caps);
-        media_info["Container"] = container_string;
-        media_info["ContainerCaps"] = ctr_caps_str;
-        LOG(verbose) << "container: " << container_string << endl;
-        LOG(verbose) << "container caps: " << ctr_caps_str << endl;
-        gst_caps_unref (caps);
-        g_free (ctr_caps_str);
-    }
-
-    if (GST_IS_DISCOVERER_VIDEO_INFO (sinfo))
-    {
-        vinfo = GST_DISCOVERER_VIDEO_INFO (sinfo);
     }
     else
     {
-        videos = gst_discoverer_info_get_video_streams (info);
-        if (videos != nullptr)
+        /* Use default software decoder for discoverer */
+        discovererPriv = discoverer->priv;
+        if (discovererPriv && discovererPriv->uridecodebin)
         {
-            vinfo = (GstDiscovererVideoInfo *)videos->data;
-        }
-    }
-    if (GST_IS_DISCOVERER_AUDIO_INFO (sinfo))
-    {
-        ainfo = GST_DISCOVERER_AUDIO_INFO (sinfo);
-    }
-    else
-    {
-        audios = gst_discoverer_info_get_audio_streams (info);
-        if (audios != nullptr)
-        {
-            ainfo = (GstDiscovererAudioInfo *)audios->data;
-        }
-    }
-
-    if (vinfo != nullptr)
-    {
-        GstCaps *caps;
-
-        caps = gst_discoverer_stream_info_get_caps (GST_DISCOVERER_STREAM_INFO (vinfo));
-        video_codec_string = gst_pb_utils_get_codec_description (caps);
-        video_caps_str = gst_caps_to_string (caps);
-        media_info["VideoCaps"] = video_caps_str;
-        LOG(info) << "Video codec format for file:" << filename << ", codec:" << video_codec_string << endl;
-
-        if (video_codec_string.find("H.264") != string::npos)
-        {
-            media_info["Codec"] = "h264";
-        }
-        else if (video_codec_string.find("H.265") != string::npos)
-        {
-            media_info["Codec"] = "h265";
-        }
-        else
-        {
-            media_info["Codec"] = video_codec_string;
-        }
-        media_info["Height"] = gst_discoverer_video_info_get_height (vinfo);
-        media_info["Width"] = gst_discoverer_video_info_get_width (vinfo);
-
-        num = gst_discoverer_video_info_get_framerate_num (vinfo);
-        denom = gst_discoverer_video_info_get_framerate_denom (vinfo);
-        
-        // Defensive check to prevent division by zero from invalid media metadata
-        if (denom == 0)
-        {
-            LOG(warning) << "Invalid framerate denominator (0) in media file, using default " 
-                        << DEFAULT_FRAMERATE_NUM << "/" << DEFAULT_FRAMERATE_DENOM << " fps" << endl;
-            num = DEFAULT_FRAMERATE_NUM;
-            denom = DEFAULT_FRAMERATE_DENOM;
-        }
-        
-        media_info["Framerate"] = (float) num/denom;
-        media_info["FramerateNum"] = num;
-        media_info["FramerateDenom"] = denom;
-        double frameRate = (double) num/denom;
-        media_info["FrameCount"] = (unsigned int)((duration_ms * frameRate) / 1000);
-        LOG(info) << "FrameCount: " << media_info.get("FrameCount", 0).asUInt() << endl;
-        LOG(verbose) << "Frame rate fraction: " << num << "/" << denom << endl;
-
-        value = gst_discoverer_video_info_is_interlaced (vinfo);
-        if (value)
-        {
-            media_info["ScanType"] = "Interlaced";
-        }
-        else
-        {
-            media_info["ScanType"] = "Progressive";
+            g_signal_connect (discovererPriv->uridecodebin, "autoplug-select", G_CALLBACK (autoplug_select), nullptr);
         }
 
-        stream_tag_list = gst_discoverer_stream_info_get_tags (GST_DISCOVERER_STREAM_INFO (vinfo));
-        if (stream_tag_list)
+        do
         {
-            guint bitrate;
-            if (gst_tag_list_get_uint (stream_tag_list, "bitrate", &bitrate))
+            if (retry_count > 0)
             {
-                media_info["Bitrate"] = bitrate;
-                LOG(verbose) << "bitrate: " << bitrate << endl;
+                LOG(error) << "container/codec info is empty, retrying count:" << retry_count << endl;
             }
-        }
-        LOG(verbose) << "video codec: " << video_codec_string << endl;
-        LOG(verbose) << "video caps: " << video_caps_str << endl;
-        gst_caps_unref (caps);
-        g_free (video_caps_str);
-    }
-    if (ainfo != nullptr)
-    {
-        GstCaps *caps;
-        guint data;
-        caps = gst_discoverer_stream_info_get_caps (GST_DISCOVERER_STREAM_INFO (ainfo));
-        audio_codec_string = gst_pb_utils_get_codec_description (caps);
-        audio_caps_str = gst_caps_to_string (caps);
-        LOG(info) << "Audio codec format for file:" << filename << ", codec:" << audio_codec_string << endl;
-        media_info["AudioCodec"] = audio_codec_string;
-        media_info["AudioCaps"] = audio_caps_str;
 
-        data = gst_discoverer_audio_info_get_sample_rate (ainfo);
-        if (data)
-        {
-            media_info["SampleRate"] = data;
-        }
-        data = gst_discoverer_audio_info_get_channels  (ainfo);
-        if (data)
-        {
-            media_info["Channels"] = data;
-        }
-        data = gst_discoverer_audio_info_get_depth   (ainfo);
-        if (data)
-        {
-            media_info["Depth"] = data;
-        }
-        LOG(verbose) << "audio codec: " << audio_codec_string << endl;
-        LOG(verbose) << "audio caps: " << audio_caps_str << endl;
-        gst_caps_unref (caps);
-        g_free (audio_caps_str);
-    }
-    if (videos != nullptr)
-    {
-        gst_discoverer_stream_info_list_free (videos);
-    }
+            info = gst_discoverer_discover_uri (discoverer, uri, &err);
+            if (err != nullptr)
+            {
+                LOG(error) << "gst_discoverer_discover_uri failed with err:" << err << endl;
+                ret = -1;
+                continue;
+            }
 
-    gst_discoverer_info_unref (info);
-exit:
-    if (container_string.empty() || video_codec_string.empty())
-    {
-        retry_count++;
-        if (retry_count < 3)
-        {
-            LOG(error) << "container/codec info is empty, retrying count:" << retry_count << endl;
-            goto retry;
-        }
+            sinfo = gst_discoverer_info_get_stream_info (info);
+            duration = gst_discoverer_info_get_duration (info);
+            divisor_factor = millisec ? 1000000 : 1000000000;
+            media_info["Duration"] = (duration / static_cast<double>(divisor_factor));     // convert to seconds/ms
+            duration_ms = (uint64_t)(duration / 1000000);
+
+            if (GST_IS_DISCOVERER_CONTAINER_INFO (sinfo))
+            {
+                GstCaps *caps;
+
+                caps = gst_discoverer_stream_info_get_caps (
+                    GST_DISCOVERER_STREAM_INFO(sinfo));
+                container_string = gst_pb_utils_get_codec_description (caps);
+                ctr_caps_str = gst_caps_to_string (caps);
+                media_info["Container"] = container_string;
+                media_info["ContainerCaps"] = ctr_caps_str;
+                LOG(verbose) << "container: " << container_string << endl;
+                LOG(verbose) << "container caps: " << ctr_caps_str << endl;
+                gst_caps_unref (caps);
+                g_free (ctr_caps_str);
+            }
+
+            if (GST_IS_DISCOVERER_VIDEO_INFO (sinfo))
+            {
+                vinfo = GST_DISCOVERER_VIDEO_INFO (sinfo);
+            }
+            else
+            {
+                videos = gst_discoverer_info_get_video_streams (info);
+                if (videos != nullptr)
+                {
+                    vinfo = (GstDiscovererVideoInfo *)videos->data;
+                }
+            }
+            if (GST_IS_DISCOVERER_AUDIO_INFO (sinfo))
+            {
+                ainfo = GST_DISCOVERER_AUDIO_INFO (sinfo);
+            }
+            else
+            {
+                audios = gst_discoverer_info_get_audio_streams (info);
+                if (audios != nullptr)
+                {
+                    ainfo = (GstDiscovererAudioInfo *)audios->data;
+                }
+            }
+
+            if (vinfo != nullptr)
+            {
+                GstCaps *caps;
+
+                caps = gst_discoverer_stream_info_get_caps (GST_DISCOVERER_STREAM_INFO (vinfo));
+                video_codec_string = gst_pb_utils_get_codec_description (caps);
+                video_caps_str = gst_caps_to_string (caps);
+                media_info["VideoCaps"] = video_caps_str;
+                LOG(info) << "Video codec format for file:" << filename << ", codec:" << video_codec_string << endl;
+
+                if (video_codec_string.find("H.264") != string::npos)
+                {
+                    media_info["Codec"] = "h264";
+                }
+                else if (video_codec_string.find("H.265") != string::npos)
+                {
+                    media_info["Codec"] = "h265";
+                }
+                else
+                {
+                    media_info["Codec"] = video_codec_string;
+                }
+                media_info["Height"] = gst_discoverer_video_info_get_height (vinfo);
+                media_info["Width"] = gst_discoverer_video_info_get_width (vinfo);
+
+                num = gst_discoverer_video_info_get_framerate_num (vinfo);
+                denom = gst_discoverer_video_info_get_framerate_denom (vinfo);
+        
+                // Defensive check to prevent division by zero from invalid media metadata
+                if (denom == 0)
+                {
+                    LOG(warning) << "Invalid framerate denominator (0) in media file, using default " 
+                                << DEFAULT_FRAMERATE_NUM << "/" << DEFAULT_FRAMERATE_DENOM << " fps" << endl;
+                    num = DEFAULT_FRAMERATE_NUM;
+                    denom = DEFAULT_FRAMERATE_DENOM;
+                }
+        
+                media_info["Framerate"] = (float) num/denom;
+                media_info["FramerateNum"] = num;
+                media_info["FramerateDenom"] = denom;
+                double frameRate = (double) num/denom;
+                media_info["FrameCount"] = (unsigned int)((duration_ms * frameRate) / 1000);
+                LOG(info) << "FrameCount: " << media_info.get("FrameCount", 0).asUInt() << endl;
+                LOG(verbose) << "Frame rate fraction: " << num << "/" << denom << endl;
+
+                value = gst_discoverer_video_info_is_interlaced (vinfo);
+                if (value)
+                {
+                    media_info["ScanType"] = "Interlaced";
+                }
+                else
+                {
+                    media_info["ScanType"] = "Progressive";
+                }
+
+                stream_tag_list = gst_discoverer_stream_info_get_tags (GST_DISCOVERER_STREAM_INFO (vinfo));
+                if (stream_tag_list)
+                {
+                    guint bitrate;
+                    if (gst_tag_list_get_uint (stream_tag_list, "bitrate", &bitrate))
+                    {
+                        media_info["Bitrate"] = bitrate;
+                        LOG(verbose) << "bitrate: " << bitrate << endl;
+                    }
+                }
+                LOG(verbose) << "video codec: " << video_codec_string << endl;
+                LOG(verbose) << "video caps: " << video_caps_str << endl;
+                gst_caps_unref (caps);
+                g_free (video_caps_str);
+            }
+            if (ainfo != nullptr)
+            {
+                GstCaps *caps;
+                guint data;
+                caps = gst_discoverer_stream_info_get_caps (GST_DISCOVERER_STREAM_INFO (ainfo));
+                audio_codec_string = gst_pb_utils_get_codec_description (caps);
+                audio_caps_str = gst_caps_to_string (caps);
+                LOG(info) << "Audio codec format for file:" << filename << ", codec:" << audio_codec_string << endl;
+                media_info["AudioCodec"] = audio_codec_string;
+                media_info["AudioCaps"] = audio_caps_str;
+
+                data = gst_discoverer_audio_info_get_sample_rate (ainfo);
+                if (data)
+                {
+                    media_info["SampleRate"] = data;
+                }
+                data = gst_discoverer_audio_info_get_channels  (ainfo);
+                if (data)
+                {
+                    media_info["Channels"] = data;
+                }
+                data = gst_discoverer_audio_info_get_depth   (ainfo);
+                if (data)
+                {
+                    media_info["Depth"] = data;
+                }
+                LOG(verbose) << "audio codec: " << audio_codec_string << endl;
+                LOG(verbose) << "audio caps: " << audio_caps_str << endl;
+                gst_caps_unref (caps);
+                g_free (audio_caps_str);
+            }
+            if (videos != nullptr)
+            {
+                gst_discoverer_stream_info_list_free (videos);
+            }
+
+            gst_discoverer_info_unref (info);
+
+            // Incremented here rather than inside the while condition. As
+            // `&& ++retry_count < 3` the increment sat on the right operand of
+            // a short-circuiting &&, so it only ran when the left side was
+            // true. Behaviour is unchanged -- retry_count is read only at the
+            // top of this loop, and when the left side is false the loop exits
+            // anyway -- but the count no longer depends on evaluation order.
+            ++retry_count;
+        } while ((container_string.empty() || video_codec_string.empty()) && retry_count < 3);
+
+        g_object_unref (discoverer);
     }
-    g_object_unref (discoverer);
 
     // Log the final result of GStreamer discoverer fallback
     if (ret == 0)

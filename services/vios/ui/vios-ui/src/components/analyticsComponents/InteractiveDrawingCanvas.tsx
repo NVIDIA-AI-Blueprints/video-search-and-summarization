@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,9 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, Typography, Box, Button, ButtonGroup, Alert, Chip, Stack } from '@mui/material';
-import { useTheme, alpha } from '@mui/material/styles';
+import { useTheme, alpha, Theme } from '@mui/material/styles';
 import { Sensor } from '../../interfaces/interfaces';
 import config from '../../config';
 import nvAxios from '../../services/Axios';
@@ -32,6 +33,302 @@ export interface TripwireCoordinates {
 }
 
 type DrawingMode = 'roi' | 'tripwire-line' | 'tripwire-direction' | 'none';
+
+interface CanvasGeometry {
+    canvasWidth: number;
+    canvasHeight: number;
+    frameWidth: number;
+    frameHeight: number;
+    scaleX: number;
+    scaleY: number;
+}
+
+// True when the parent has reset the coordinates back to the origin
+const isClearedCoordinates = (coords?: TripwireCoordinates): boolean =>
+    !!coords && coords.p1.x === 0 && coords.p1.y === 0 && coords.p2.x === 0 && coords.p2.y === 0;
+
+const isDoubleClick = (point: CoordinatePoint, elapsed: number, lastPoint: CoordinatePoint | null): boolean =>
+    elapsed < 300 && !!lastPoint && Math.abs(point.x - lastPoint.x) < 10 && Math.abs(point.y - lastPoint.y) < 10;
+
+// Captures the first point, then hands the completed pair to `commit`
+const captureTwoPointDraw = (
+    start: CoordinatePoint | null,
+    point: CoordinatePoint,
+    setStart: (value: CoordinatePoint | null) => void,
+    commit: (coords: TripwireCoordinates) => void
+) => {
+    if (!start) {
+        setStart(point);
+        return;
+    }
+
+    commit({ p1: start, p2: point });
+    setStart(null);
+};
+
+const labelColors = (theme: Theme) => ({
+    fill: theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black,
+    stroke: theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white,
+});
+
+// Text with stroke for better visibility
+const drawLabel = (ctx: CanvasRenderingContext2D, theme: Theme, text: string, x: number, y: number, font: string) => {
+    const colors = labelColors(theme);
+    ctx.fillStyle = colors.fill;
+    ctx.strokeStyle = colors.stroke;
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+};
+
+const drawBackdrop = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry, backgroundImage: HTMLImageElement | null) => {
+    const { canvasWidth, canvasHeight } = geo;
+
+    if (backgroundImage) {
+        // Draw the live camera feed as background, scaled to fit canvas
+        ctx.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight);
+
+        // Add a subtle overlay to improve contrast for overlays
+        ctx.fillStyle = alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.1 : 0.05);
+    } else {
+        // Draw solid background with better theme integration
+        ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50];
+    }
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    // Draw frame border with better contrast
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.grey[600] : theme.palette.grey[400];
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, canvasWidth, canvasHeight);
+};
+
+// Draw grid for reference with better visibility
+const drawGrid = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry) => {
+    const { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY } = geo;
+
+    ctx.strokeStyle = theme.palette.mode === 'dark' ? alpha(theme.palette.grey[500], 0.3) : alpha(theme.palette.grey[400], 0.4);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
+
+    // Grid lines every 100 pixels on original frame
+    for (let x = 0; x <= frameWidth; x += 100) {
+        const scaledX = x / scaleX;
+        if (scaledX <= canvasWidth) {
+            ctx.beginPath();
+            ctx.moveTo(scaledX, 0);
+            ctx.lineTo(scaledX, canvasHeight);
+            ctx.stroke();
+        }
+    }
+
+    for (let y = 0; y <= frameHeight; y += 100) {
+        const scaledY = y / scaleY;
+        if (scaledY <= canvasHeight) {
+            ctx.beginPath();
+            ctx.moveTo(0, scaledY);
+            ctx.lineTo(canvasWidth, scaledY);
+            ctx.stroke();
+        }
+    }
+    ctx.setLineDash([]);
+};
+
+// Draw ROI points and lines
+const drawROI = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry, roiPoints: CoordinatePoint[]) => {
+    if (roiPoints.length === 0) return;
+
+    const { scaleX, scaleY } = geo;
+    ctx.strokeStyle = theme.palette.primary.main;
+    ctx.fillStyle = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.25 : 0.15);
+    ctx.lineWidth = 3;
+
+    // Draw ROI polygon if more than 2 points
+    if (roiPoints.length > 2) {
+        ctx.beginPath();
+        const firstPoint = roiPoints[0];
+        ctx.moveTo(firstPoint.x / scaleX, firstPoint.y / scaleY);
+
+        for (let i = 1; i < roiPoints.length; i++) {
+            const point = roiPoints[i];
+            ctx.lineTo(point.x / scaleX, point.y / scaleY);
+        }
+
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    } else if (roiPoints.length === 2) {
+        // Draw line for first two points
+        ctx.beginPath();
+        ctx.moveTo(roiPoints[0].x / scaleX, roiPoints[0].y / scaleY);
+        ctx.lineTo(roiPoints[1].x / scaleX, roiPoints[1].y / scaleY);
+        ctx.stroke();
+    }
+
+    // Draw ROI points with better visibility
+    ctx.fillStyle = theme.palette.primary.main;
+    ctx.strokeStyle = labelColors(theme).fill;
+    ctx.lineWidth = 2;
+
+    roiPoints.forEach((point, index) => {
+        ctx.beginPath();
+        ctx.arc(point.x / scaleX, point.y / scaleY, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw point labels with better contrast
+        drawLabel(ctx, theme, `${index + 1}`, point.x / scaleX, point.y / scaleY - 10, 'bold 12px Arial');
+    });
+};
+
+// Draw tripwire line
+const drawTripwire = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry, tripwire: TripwireCoordinates | null) => {
+    if (!tripwire) return;
+
+    const { scaleX, scaleY } = geo;
+    ctx.strokeStyle = theme.palette.secondary.main;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(tripwire.p1.x / scaleX, tripwire.p1.y / scaleY);
+    ctx.lineTo(tripwire.p2.x / scaleX, tripwire.p2.y / scaleY);
+    ctx.stroke();
+
+    // Draw tripwire endpoints with better contrast
+    ctx.fillStyle = theme.palette.secondary.main;
+    ctx.strokeStyle = labelColors(theme).fill;
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.arc(tripwire.p1.x / scaleX, tripwire.p1.y / scaleY, 8, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(tripwire.p2.x / scaleX, tripwire.p2.y / scaleY, 8, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw labels with better contrast
+    drawLabel(ctx, theme, 'W1', tripwire.p1.x / scaleX, tripwire.p1.y / scaleY - 12, 'bold 14px Arial');
+    drawLabel(ctx, theme, 'W2', tripwire.p2.x / scaleX, tripwire.p2.y / scaleY - 12, 'bold 14px Arial');
+};
+
+// Draw a temporary start point (while drawing)
+const drawStartMarker = (
+    ctx: CanvasRenderingContext2D,
+    theme: Theme,
+    geo: CanvasGeometry,
+    start: CoordinatePoint | null,
+    color: string,
+    label: string
+) => {
+    if (!start) return;
+
+    const { scaleX, scaleY } = geo;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = labelColors(theme).fill;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(start.x / scaleX, start.y / scaleY, 8, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw label with better contrast
+    drawLabel(ctx, theme, label, start.x / scaleX, start.y / scaleY - 12, 'bold 12px Arial');
+};
+
+// Draw direction line
+const drawDirection = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry, direction: TripwireCoordinates | null) => {
+    if (!direction) return;
+
+    const { scaleX, scaleY } = geo;
+    ctx.strokeStyle = theme.palette.warning.main;
+    ctx.fillStyle = theme.palette.warning.main;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]); // Better dashed line pattern
+
+    ctx.beginPath();
+    ctx.moveTo(direction.p1.x / scaleX, direction.p1.y / scaleY);
+    ctx.lineTo(direction.p2.x / scaleX, direction.p2.y / scaleY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw arrowhead
+    const arrowLength = 15;
+    const angle = Math.atan2(direction.p2.y - direction.p1.y, direction.p2.x - direction.p1.x);
+    const arrowAngle = Math.PI / 6;
+
+    ctx.beginPath();
+    ctx.moveTo(direction.p2.x / scaleX, direction.p2.y / scaleY);
+    ctx.lineTo(
+        direction.p2.x / scaleX - (arrowLength * Math.cos(angle - arrowAngle)) / scaleX,
+        direction.p2.y / scaleY - (arrowLength * Math.sin(angle - arrowAngle)) / scaleY
+    );
+    ctx.moveTo(direction.p2.x / scaleX, direction.p2.y / scaleY);
+    ctx.lineTo(
+        direction.p2.x / scaleX - (arrowLength * Math.cos(angle + arrowAngle)) / scaleX,
+        direction.p2.y / scaleY - (arrowLength * Math.sin(angle + arrowAngle)) / scaleY
+    );
+    ctx.stroke();
+
+    // Draw direction point labels with better contrast
+    drawLabel(ctx, theme, 'D1', direction.p1.x / scaleX, direction.p1.y / scaleY - 12, 'bold 12px Arial');
+    drawLabel(ctx, theme, 'D2', direction.p2.x / scaleX, direction.p2.y / scaleY - 12, 'bold 12px Arial');
+};
+
+// Draw coordinate info with better theme integration
+const drawInfoBox = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry) => {
+    const { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY } = geo;
+    const infoBoxHeight = 75;
+    const infoBoxWidth = 200;
+
+    // Draw semi-transparent background for info text (more transparent for better visibility while drawing)
+    ctx.fillStyle = alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.4 : 0.3);
+    ctx.fillRect(5, 5, infoBoxWidth, infoBoxHeight);
+
+    // Draw border around info box (more subtle)
+    ctx.strokeStyle = alpha(theme.palette.divider, 0.5);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(5, 5, infoBoxWidth, infoBoxHeight);
+
+    // Draw info text
+    ctx.fillStyle = theme.palette.text.primary;
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Frame: ${frameWidth}x${frameHeight}`, 10, 25);
+    ctx.fillText(`Canvas: ${canvasWidth.toFixed(0)}x${canvasHeight.toFixed(0)}`, 10, 40);
+    ctx.fillText(`Scale: ${scaleX.toFixed(3)}x, ${scaleY.toFixed(3)}y`, 10, 55);
+};
+
+// Draw mode indicator with better styling
+const drawModeIndicator = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry, drawingMode: DrawingMode) => {
+    if (drawingMode === 'none') return;
+
+    const { canvasWidth } = geo;
+    const modeText = `Mode: ${drawingMode.toUpperCase()}`;
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'right';
+
+    // Measure text to create background box
+    const textMetrics = ctx.measureText(modeText);
+    const textWidth = textMetrics.width;
+    const textHeight = 20;
+    const padding = 8;
+
+    // Draw background for mode indicator
+    ctx.fillStyle = alpha(theme.palette.info.main, 0.2);
+    ctx.fillRect(canvasWidth - textWidth - padding * 2, 5, textWidth + padding * 2, textHeight + padding);
+
+    // Draw border
+    ctx.strokeStyle = theme.palette.info.main;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(canvasWidth - textWidth - padding * 2, 5, textWidth + padding * 2, textHeight + padding);
+
+    // Draw mode text
+    ctx.fillStyle = theme.palette.info.main;
+    ctx.fillText(modeText, canvasWidth - padding, 25);
+};
 
 interface InteractiveDrawingCanvasProps {
     sensor: Sensor | null;
@@ -115,7 +412,7 @@ const InteractiveDrawingCanvas: React.FC<InteractiveDrawingCanvasProps> = ({
             };
             img.src = imageUrl;
         } catch (error) {
-            console.error('Error fetching live picture:', error);
+            LOG.error('Error fetching live picture:', error);
             setImageError(error instanceof Error ? error.message : 'Unknown error');
             setIsLoadingImage(false);
         }
@@ -151,14 +448,7 @@ const InteractiveDrawingCanvas: React.FC<InteractiveDrawingCanvasProps> = ({
         }
 
         // Check if parent has cleared tripwire coordinates
-        if (
-            initialTripwire &&
-            initialTripwire.p1.x === 0 &&
-            initialTripwire.p1.y === 0 &&
-            initialTripwire.p2.x === 0 &&
-            initialTripwire.p2.y === 0 &&
-            tripwirePoints
-        ) {
+        if (isClearedCoordinates(initialTripwire) && tripwirePoints) {
             setTripwirePoints(null);
             setTempTripwireStart(null);
             if (drawingMode === 'tripwire-line') {
@@ -167,14 +457,7 @@ const InteractiveDrawingCanvas: React.FC<InteractiveDrawingCanvasProps> = ({
         }
 
         // Check if parent has cleared direction coordinates
-        if (
-            initialTripwireDirection &&
-            initialTripwireDirection.p1.x === 0 &&
-            initialTripwireDirection.p1.y === 0 &&
-            initialTripwireDirection.p2.x === 0 &&
-            initialTripwireDirection.p2.y === 0 &&
-            directionPoints
-        ) {
+        if (isClearedCoordinates(initialTripwireDirection) && directionPoints) {
             setDirectionPoints(null);
             setTempDirectionStart(null);
             if (drawingMode === 'tripwire-direction') {
@@ -185,284 +468,31 @@ const InteractiveDrawingCanvas: React.FC<InteractiveDrawingCanvasProps> = ({
 
     // Handle canvas drawing
     const drawCanvas = useCallback(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
+        const ctx = canvasRef.current?.getContext('2d');
         if (!ctx) return;
+
+        const geo: CanvasGeometry = { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY };
 
         // Clear canvas
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
         // Draw background image or solid color with better theme integration
-        if (backgroundImage) {
-            // Draw the live camera feed as background, scaled to fit canvas
-            ctx.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight);
+        drawBackdrop(ctx, theme, geo, backgroundImage);
+        drawGrid(ctx, theme, geo);
+        drawROI(ctx, theme, geo, roiPoints);
+        drawTripwire(ctx, theme, geo, tripwirePoints);
 
-            // Add a subtle overlay to improve contrast for overlays
-            ctx.fillStyle = alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.1 : 0.05);
-            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-        } else {
-            // Draw solid background with better theme integration
-            ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50];
-            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        if (drawingMode === 'tripwire-line') {
+            drawStartMarker(ctx, theme, geo, tempTripwireStart, theme.palette.secondary.main, 'W1');
         }
 
-        // Draw frame border with better contrast
-        ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.grey[600] : theme.palette.grey[400];
-        ctx.lineWidth = 2;
-        ctx.strokeRect(0, 0, canvasWidth, canvasHeight);
-
-        // Draw grid for reference with better visibility
-        ctx.strokeStyle = theme.palette.mode === 'dark' ? alpha(theme.palette.grey[500], 0.3) : alpha(theme.palette.grey[400], 0.4);
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 2]);
-
-        // Grid lines every 100 pixels on original frame
-        for (let x = 0; x <= frameWidth; x += 100) {
-            const scaledX = x / scaleX;
-            if (scaledX <= canvasWidth) {
-                ctx.beginPath();
-                ctx.moveTo(scaledX, 0);
-                ctx.lineTo(scaledX, canvasHeight);
-                ctx.stroke();
-            }
+        if (drawingMode === 'tripwire-direction') {
+            drawStartMarker(ctx, theme, geo, tempDirectionStart, theme.palette.warning.main, 'D1');
         }
 
-        for (let y = 0; y <= frameHeight; y += 100) {
-            const scaledY = y / scaleY;
-            if (scaledY <= canvasHeight) {
-                ctx.beginPath();
-                ctx.moveTo(0, scaledY);
-                ctx.lineTo(canvasWidth, scaledY);
-                ctx.stroke();
-            }
-        }
-        ctx.setLineDash([]);
-
-        // Draw ROI points and lines
-        if (roiPoints.length > 0) {
-            ctx.strokeStyle = theme.palette.primary.main;
-            ctx.fillStyle = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.25 : 0.15);
-            ctx.lineWidth = 3;
-
-            // Draw ROI polygon if more than 2 points
-            if (roiPoints.length > 2) {
-                ctx.beginPath();
-                const firstPoint = roiPoints[0];
-                ctx.moveTo(firstPoint.x / scaleX, firstPoint.y / scaleY);
-
-                for (let i = 1; i < roiPoints.length; i++) {
-                    const point = roiPoints[i];
-                    ctx.lineTo(point.x / scaleX, point.y / scaleY);
-                }
-
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-            } else if (roiPoints.length === 2) {
-                // Draw line for first two points
-                ctx.beginPath();
-                ctx.moveTo(roiPoints[0].x / scaleX, roiPoints[0].y / scaleY);
-                ctx.lineTo(roiPoints[1].x / scaleX, roiPoints[1].y / scaleY);
-                ctx.stroke();
-            }
-
-            // Draw ROI points with better visibility
-            ctx.fillStyle = theme.palette.primary.main;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.lineWidth = 2;
-
-            roiPoints.forEach((point, index) => {
-                ctx.beginPath();
-                ctx.arc(point.x / scaleX, point.y / scaleY, 6, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-
-                // Draw point labels with better contrast
-                ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-                ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-                ctx.font = 'bold 12px Arial';
-                ctx.textAlign = 'center';
-                ctx.lineWidth = 3;
-
-                // Text with stroke for better visibility
-                ctx.strokeText(`${index + 1}`, point.x / scaleX, point.y / scaleY - 10);
-                ctx.fillText(`${index + 1}`, point.x / scaleX, point.y / scaleY - 10);
-            });
-        }
-
-        // Draw tripwire line
-        if (tripwirePoints) {
-            ctx.strokeStyle = theme.palette.secondary.main;
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY);
-            ctx.lineTo(tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY);
-            ctx.stroke();
-
-            // Draw tripwire endpoints with better contrast
-            ctx.fillStyle = theme.palette.secondary.main;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.lineWidth = 2;
-
-            ctx.beginPath();
-            ctx.arc(tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY, 8, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.arc(tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY, 8, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
-
-            // Draw labels with better contrast
-            ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-            ctx.font = 'bold 14px Arial';
-            ctx.textAlign = 'center';
-            ctx.lineWidth = 3;
-
-            // Text with stroke for better visibility
-            ctx.strokeText('W1', tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY - 12);
-            ctx.fillText('W1', tripwirePoints.p1.x / scaleX, tripwirePoints.p1.y / scaleY - 12);
-            ctx.strokeText('W2', tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY - 12);
-            ctx.fillText('W2', tripwirePoints.p2.x / scaleX, tripwirePoints.p2.y / scaleY - 12);
-        }
-
-        // Draw temporary tripwire start point (while drawing)
-        if (tempTripwireStart && drawingMode === 'tripwire-line') {
-            ctx.fillStyle = theme.palette.secondary.main;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(tempTripwireStart.x / scaleX, tempTripwireStart.y / scaleY, 8, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
-
-            // Draw label with better contrast
-            ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.lineWidth = 3;
-
-            ctx.strokeText('W1', tempTripwireStart.x / scaleX, tempTripwireStart.y / scaleY - 12);
-            ctx.fillText('W1', tempTripwireStart.x / scaleX, tempTripwireStart.y / scaleY - 12);
-        }
-
-        // Draw temporary direction start point (while drawing)
-        if (tempDirectionStart && drawingMode === 'tripwire-direction') {
-            ctx.fillStyle = theme.palette.warning.main;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(tempDirectionStart.x / scaleX, tempDirectionStart.y / scaleY, 8, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
-
-            // Draw label with better contrast
-            ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.lineWidth = 3;
-
-            ctx.strokeText('D1', tempDirectionStart.x / scaleX, tempDirectionStart.y / scaleY - 12);
-            ctx.fillText('D1', tempDirectionStart.x / scaleX, tempDirectionStart.y / scaleY - 12);
-        }
-
-        // Draw direction line
-        if (directionPoints) {
-            ctx.strokeStyle = theme.palette.warning.main;
-            ctx.fillStyle = theme.palette.warning.main;
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 4]); // Better dashed line pattern
-
-            ctx.beginPath();
-            ctx.moveTo(directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY);
-            ctx.lineTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Draw arrowhead
-            const arrowLength = 15;
-            const angle = Math.atan2(directionPoints.p2.y - directionPoints.p1.y, directionPoints.p2.x - directionPoints.p1.x);
-            const arrowAngle = Math.PI / 6;
-
-            ctx.beginPath();
-            ctx.moveTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
-            ctx.lineTo(
-                directionPoints.p2.x / scaleX - (arrowLength * Math.cos(angle - arrowAngle)) / scaleX,
-                directionPoints.p2.y / scaleY - (arrowLength * Math.sin(angle - arrowAngle)) / scaleY
-            );
-            ctx.moveTo(directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY);
-            ctx.lineTo(
-                directionPoints.p2.x / scaleX - (arrowLength * Math.cos(angle + arrowAngle)) / scaleX,
-                directionPoints.p2.y / scaleY - (arrowLength * Math.sin(angle + arrowAngle)) / scaleY
-            );
-            ctx.stroke();
-
-            // Draw direction point labels with better contrast
-            ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black;
-            ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white;
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.lineWidth = 3;
-
-            // Text with stroke for better visibility
-            ctx.strokeText('D1', directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY - 12);
-            ctx.fillText('D1', directionPoints.p1.x / scaleX, directionPoints.p1.y / scaleY - 12);
-            ctx.strokeText('D2', directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY - 12);
-            ctx.fillText('D2', directionPoints.p2.x / scaleX, directionPoints.p2.y / scaleY - 12);
-        }
-
-        // Draw coordinate info with better theme integration
-        const infoBoxHeight = 75;
-        const infoBoxWidth = 200;
-
-        // Draw semi-transparent background for info text (more transparent for better visibility while drawing)
-        ctx.fillStyle = alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.4 : 0.3);
-        ctx.fillRect(5, 5, infoBoxWidth, infoBoxHeight);
-
-        // Draw border around info box (more subtle)
-        ctx.strokeStyle = alpha(theme.palette.divider, 0.5);
-        ctx.lineWidth = 1;
-        ctx.strokeRect(5, 5, infoBoxWidth, infoBoxHeight);
-
-        // Draw info text
-        ctx.fillStyle = theme.palette.text.primary;
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(`Frame: ${frameWidth}x${frameHeight}`, 10, 25);
-        ctx.fillText(`Canvas: ${canvasWidth.toFixed(0)}x${canvasHeight.toFixed(0)}`, 10, 40);
-        ctx.fillText(`Scale: ${scaleX.toFixed(3)}x, ${scaleY.toFixed(3)}y`, 10, 55);
-
-        // Draw mode indicator with better styling
-        if (drawingMode !== 'none') {
-            const modeText = `Mode: ${drawingMode.toUpperCase()}`;
-            ctx.font = 'bold 14px Arial';
-            ctx.textAlign = 'right';
-
-            // Measure text to create background box
-            const textMetrics = ctx.measureText(modeText);
-            const textWidth = textMetrics.width;
-            const textHeight = 20;
-            const padding = 8;
-
-            // Draw background for mode indicator
-            ctx.fillStyle = alpha(theme.palette.info.main, 0.2);
-            ctx.fillRect(canvasWidth - textWidth - padding * 2, 5, textWidth + padding * 2, textHeight + padding);
-
-            // Draw border
-            ctx.strokeStyle = theme.palette.info.main;
-            ctx.lineWidth = 1;
-            ctx.strokeRect(canvasWidth - textWidth - padding * 2, 5, textWidth + padding * 2, textHeight + padding);
-
-            // Draw mode text
-            ctx.fillStyle = theme.palette.info.main;
-            ctx.fillText(modeText, canvasWidth - padding, 25);
-        }
+        drawDirection(ctx, theme, geo, directionPoints);
+        drawInfoBox(ctx, theme, geo);
+        drawModeIndicator(ctx, theme, geo, drawingMode);
     }, [
         canvasWidth,
         canvasHeight,
@@ -503,14 +533,10 @@ const InteractiveDrawingCanvas: React.FC<InteractiveDrawingCanvasProps> = ({
             const currentTime = Date.now();
 
             // Check for double-click (within 300ms and close proximity)
-            const isDoubleClick =
-                currentTime - lastClickTime < 300 &&
-                lastClickPoint &&
-                Math.abs(clickPoint.x - lastClickPoint.x) < 10 &&
-                Math.abs(clickPoint.y - lastClickPoint.y) < 10;
+            const doubleClick = isDoubleClick(clickPoint, currentTime - lastClickTime, lastClickPoint);
 
             if (drawingMode === 'roi') {
-                if (isDoubleClick && roiPoints.length >= 3) {
+                if (doubleClick && roiPoints.length >= 3) {
                     // Close the ROI polygon on double-click
                     onROIChange([...roiPoints]);
                     setDrawingMode('none');
@@ -521,29 +547,17 @@ const InteractiveDrawingCanvas: React.FC<InteractiveDrawingCanvasProps> = ({
                     onROIChange(newPoints);
                 }
             } else if (drawingMode === 'tripwire-line') {
-                if (!tempTripwireStart) {
-                    // First point of tripwire
-                    setTempTripwireStart(clickPoint);
-                } else {
-                    // Second point of tripwire - complete the line
-                    const newTripwire = { p1: tempTripwireStart, p2: clickPoint };
+                captureTwoPointDraw(tempTripwireStart, clickPoint, setTempTripwireStart, newTripwire => {
                     setTripwirePoints(newTripwire);
                     onTripwireChange(newTripwire);
-                    setTempTripwireStart(null);
                     setDrawingMode('none');
-                }
+                });
             } else if (drawingMode === 'tripwire-direction') {
-                if (!tempDirectionStart) {
-                    // First point of direction
-                    setTempDirectionStart(clickPoint);
-                } else {
-                    // Second point of direction - complete the direction
-                    const newDirection = { p1: tempDirectionStart, p2: clickPoint };
+                captureTwoPointDraw(tempDirectionStart, clickPoint, setTempDirectionStart, newDirection => {
                     setDirectionPoints(newDirection);
                     onTripwireDirectionChange(newDirection);
-                    setTempDirectionStart(null);
                     setDrawingMode('none');
-                }
+                });
             }
 
             setLastClickTime(currentTime);

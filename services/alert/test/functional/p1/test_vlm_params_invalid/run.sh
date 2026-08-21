@@ -55,6 +55,7 @@ JSONEOF
 # 2. Try to load the config with AlertTypeConfigLoader
 LOAD_RESULT=$(python3 -c "
 import sys
+sys.path.insert(0, '$REPO_ROOT/src')
 sys.path.insert(0, '$REPO_ROOT')
 from handlers.prompt_handler.alert_type_config_loader import AlertTypeConfigLoader
 

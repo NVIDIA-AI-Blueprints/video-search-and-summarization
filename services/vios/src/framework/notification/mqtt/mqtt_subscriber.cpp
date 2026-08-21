@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,7 +26,7 @@
 using namespace std;
 #define MQTT_WAIT_TIMEOUT (10 * 1000)   // 10 seconds
 
-MqttSubscriber* MqttSubscriber::_instance = nullptr;
+std::unique_ptr<MqttSubscriber> MqttSubscriber::_instance = nullptr;
 std::mutex MqttSubscriber::m_instanceMutex;
 
 MqttSubscriber* MqttSubscriber::getInstance()
@@ -34,19 +34,15 @@ MqttSubscriber* MqttSubscriber::getInstance()
     std::lock_guard<std::mutex> lock(m_instanceMutex);
     if (_instance == nullptr)
     {
-        _instance = new MqttSubscriber();
+        _instance.reset(new MqttSubscriber());
     }
-    return _instance;
+    return _instance.get();
 }
 
 void MqttSubscriber::deleteInstance()
 {
     std::lock_guard<std::mutex> lock(m_instanceMutex);
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    _instance.reset();
 }
 
 MqttSubscriber::MqttSubscriber()
@@ -180,7 +176,7 @@ void MqttSubscriber::handleMessageArrived(mqtt::const_message_ptr msg)
     }
 
     int64_t frameTimeMs = 0;
-    Json::Value payload = DsProtoParser::getInstance()->parseMessage(str_payload.c_str(), str_payload.length(), frameTimeMs);
+    Json::Value payload = DsProtoParser::getInstance()->parseMessage(reinterpret_cast<const unsigned char*>(str_payload.c_str()), str_payload.length(), frameTimeMs);
     if (payload == Json::nullValue)
     {
         static std::atomic<uint64_t> logError{0};

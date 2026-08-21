@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,6 +24,7 @@
 #include <queue>
 #include <condition_variable>
 #include <atomic>
+#include <variant>
 #include <dlfcn.h>
 #include <jsoncpp/json/json.h>
 
@@ -69,10 +70,26 @@ typedef void (*osd_draw_t) (OsdContext_t, void *);
 typedef void (*osd_global_init_t) ();
 typedef void (*osd_global_destroy_t) ();
 
-union GstMetaUnion
+class GstMetaUnion
 {
-    GstNvVstMeta* vstMeta;
-    GstNvIpcMeta* ipcMeta;
+    public:
+        void setVstMeta (GstNvVstMeta* meta) { m_meta = meta; }
+        void setIpcMeta (GstNvIpcMeta* meta) { m_meta = meta; }
+
+        GstNvVstMeta* vstMeta () const
+        {
+            auto* meta = std::get_if<GstNvVstMeta*>(&m_meta);
+            return meta ? *meta : nullptr;
+        }
+
+        GstNvIpcMeta* ipcMeta () const
+        {
+            auto* meta = std::get_if<GstNvIpcMeta*>(&m_meta);
+            return meta ? *meta : nullptr;
+        }
+
+    private:
+        std::variant<std::monostate, GstNvVstMeta*, GstNvIpcMeta*> m_meta;
 };
 
 struct Point2D
@@ -80,7 +97,9 @@ struct Point2D
     float x;
     float y;
     
-    Point2D(float _x = 0, float _y = 0) 
+    Point2D()
+        : x(0), y(0) {}
+    Point2D(float _x, float _y)
         : x(_x), y(_y) {}
 };
 
@@ -90,7 +109,9 @@ struct Point3D
     float y;
     float z;
     
-    Point3D(float _x = 0, float _y = 0, float _z = 0) 
+    Point3D()
+        : x(0), y(0), z(0) {}
+    Point3D(float _x, float _y, float _z)
         : x(_x), y(_y), z(_z) {}
 };
 
@@ -249,8 +270,8 @@ class NvLLOverlayInternal
         void readTripwire();
         void readRoi();
         void readCalibrationData();
-        bool processOsdSinkPadBufferProbeStreamer (void* buf, GstNvVstMeta *meta);
-        bool processOsdSinkPadBufferProbe (void* buf, GstMetaUnion *meta, int64_t pts = 0);
+        bool processOsdSinkPadBufferProbeStreamer (unsigned char* buf, GstNvVstMeta *meta);
+        bool processOsdSinkPadBufferProbe (unsigned char* buf, GstMetaUnion *meta, int64_t pts = 0);
         void fetchMetadataAgain (string new_start);
         void updateIdList(std::vector<string> idList[OVERLAYCOUNT]);
         void updateClassTypeList(std::vector<string> classTypeList);
@@ -259,6 +280,7 @@ class NvLLOverlayInternal
         void setBboxHalos(bool halos) { m_bboxParams.m_overlay.m_enableHalos = halos; }
         void setBboxThickness(uint16_t thickness) { m_bboxParams.m_overlay.m_bboxThickness = thickness; }
         void setBboxDebug(bool debug) { m_bboxParams.m_overlay.m_bboxDebug = debug; }
+        void setBboxDebugFontSize(int fontSize) { m_bboxParams.m_overlay.m_bboxDebugFontSize = fontSize; }
         void setBboxOpacity(uint8_t opacity) { m_bboxParams.m_overlay.m_bboxOpacity = opacity; }
         void setBboxId(bool enableBboxId) { m_bboxParams.m_overlay.m_enableBboxId = enableBboxId; }
         void setBboxIdPosition(BBoxIdPosition position) { m_bboxParams.m_overlay.m_bboxIdPosition = position; }
@@ -274,7 +296,7 @@ class NvLLOverlayInternal
         void updateIPCStreamResolution(int width, int height);
         bool isOverlayEnabled();
         bool isBboxEnabled() { return m_enableBbox; }
-        bool doDraw (void* data, GstMetaUnion *meta, int64_t pts = 0);
+        bool doDraw (unsigned char* data, GstMetaUnion *meta, int64_t pts = 0);
         void draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData* box_params,
                 vector<string> m_bboxList, vector<string> m_classTypeList, OsdContext_t context, GstBuffer *buffer);
         GstElement* create();
@@ -322,7 +344,7 @@ class NvLLOverlayInternal
         async::task<void>           m_elasticTask;
         std::mutex                  m_debugData;
         std::string                 m_bboxColor;
-        uint16_t                    m_bboxThickness = DEFAULT_BBOX_WIDTH;
+        uint16_t                    m_bboxThickness = getDefaultBboxWidth();
         uint8_t                     m_bboxOpacity = DEFAULT_BBOX_OPACITY;
         bool                        m_bboxDebug = false;
         bool                        m_enableBboxId = false;
@@ -365,8 +387,8 @@ class NvLLOverlayInternal
         std::map<string, CalibrationData, std::less<>> m_calibrationData;
         std::mutex                  m_calibrationLock;
         SyncObject                  m_metaWait = {};
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-        OsdCpuDataContext*          m_cpuCtx = nullptr;
+#if !defined(AARCH64_PLATFORM)
+        std::unique_ptr<OsdCpuDataContext> m_cpuCtx;
 #endif
         std::unique_ptr<HaloSafetyManager> m_haloSafetyManager;
 };

@@ -11,7 +11,9 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: kibana-init
 spec:
-  ttlSecondsAfterFinished: 600
+  {{- with .Values.init.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   backoffLimit: {{ .Values.init.backoffLimit }}
   template:
     metadata:
@@ -40,12 +42,28 @@ spec:
           command:
             - sh
             - -c
-            - apk add --no-cache curl bash && export KIBANA_OBJECTS_FILE=kibana-objects.ndjson && bash /opt/mdx/kibana-import-dashboard.sh
+            - |
+              apk add --no-cache curl bash
+              export KIBANA_OBJECTS_FILE=kibana-objects.ndjson
+              bash /opt/mdx/kibana-import-dashboard.sh
           env:
+            {{- $kbUrl := .Values.init.kibanaUrl | default (include "kibana.httpServiceUrl" .) }}
+            {{- /* Kibana serves its API under basePath, so the import must too. */}}
+            {{- with .Values.basePath }}
+            {{- if not (hasSuffix . $kbUrl) }}
+            {{- $kbUrl = printf "%s%s" (trimSuffix "/" $kbUrl) . }}
+            {{- end }}
+            {{- end }}
             - name: KIBANA_URL
-              value: {{ .Values.init.kibanaUrl | default (include "kibana.httpServiceUrl" .) | quote }}
+              value: {{ $kbUrl | quote }}
             - name: ELASTICSEARCH_URL
               value: {{ .Values.init.elasticsearchUrl | default (printf "http://%s:9200" (include "kibana.elasticsearchServiceHostname" .)) | quote }}
+            - name: KB_CONNECTION_MAX_ATTEMPTS
+              value: {{ .Values.init.maxAttempts | default 120 | quote }}
+            - name: ES_CONNECTION_MAX_ATTEMPTS
+              value: {{ .Values.init.maxAttempts | default 120 | quote }}
+            - name: SLEEP_SECONDS
+              value: {{ .Values.init.sleepSeconds | default 5 | quote }}
           volumeMounts:
             - name: import-data
               mountPath: /opt/mdx

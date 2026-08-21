@@ -31,7 +31,9 @@ global:
 # ── Agent config: search profile wired to in-cluster services ───────────────
 vss-agent:
   llmBaseUrl: "http://nvidia-nemotron-nano-9b-v2:8000"
-  vlmBaseUrl: "http://nvidia-cosmos3-reasoner:8000"
+  # VLM is local (rtvi.vss-rtvi-vlm); leave empty so VLM_MODE stays `local` and the agent
+  # uses RTVI_VLM_BASE_URL. Set only for a remote VLM (also flip VLM_MODEL_TYPE to `nim`).
+  vlmBaseUrl: ""
   evalLlmJudgeBaseUrl: "http://nvidia-nemotron-nano-9b-v2:8000"
   rtviEmbedBaseUrl: "http://vss-search-vss-rtvi-embed:8000"
   cosmosEmbedEndpoint: "http://vss-search-vss-rtvi-embed:8000"
@@ -44,7 +46,7 @@ vss-agent:
 # kafka:
 #   advertisedHost: "192.168.1.100"
 
-# ── rtvi (vss-rtvi-cv + vss-rtvi-embed): GPU / keys ────────────────────────────
+# ── rtvi (vss-rtvi-cv + vss-rtvi-embed + vss-rtvi-vlm): GPU / keys ─────────────
 rtvi:
   enabled: true
   vss-rtvi-cv:
@@ -53,4 +55,8 @@ rtvi:
   vss-rtvi-embed:
     gpuDeviceId: "1"
     ngcApiKey: "nvapi-xxxxx"
+  # VLM pod (Cosmos3 checkpoint in-pod)
+  # Scheduled on any free GPU via nvidia.com/gpu; set enabled: false to drop it (both lose the VLM).
+  vss-rtvi-vlm:
+    enabled: true
 
