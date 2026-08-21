@@ -876,6 +876,29 @@ async def list_media(
         # Deliberately not caught: if VIOS cannot answer, `list` must fail with
         # exit 3, never return a short list that reads as "these are all of them".
         streams = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
+        if not streams:
+            # A registered sensor with no stream rows still exists. Dropping it
+            # from a successful listing reads as "not registered", and the
+            # caller's next move is to create it -- vss-ask-video lists and
+            # uploads when the name is absent, so this becomes a duplicate
+            # upload and a 409. Report it, inventing nothing.
+            #
+            # Only when unfiltered: without a stream there is no url, so the
+            # provenance --type selects on is unknowable.
+            if kind is None:
+                rows.append(
+                    {
+                        "name": name,
+                        "sensor_id": sensor_id,
+                        "stream_id": "",
+                        "type": "unknown",
+                        "state": sensor.get("state"),
+                        "is_main": False,
+                        "has_timeline": bool(sensor.get("isTimelinePresent")),
+                        "error": "VIOS lists this sensor with no streams",
+                    }
+                )
+            continue
         for stream in streams:
             stream_url = str(stream.get("url") or "")
             stream_id = str(stream.get("streamId") or "")

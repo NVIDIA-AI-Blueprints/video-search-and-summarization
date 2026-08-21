@@ -760,3 +760,29 @@ def test_a_live_stream_refuses_a_second_offset() -> None:
 
 def test_a_stream_window_inside_the_recording_is_accepted() -> None:
     assert vios.resolve_window(SPAN, SPAN[0], SPAN[1], "stream") == SPAN
+
+
+@pytest.mark.asyncio
+async def test_a_registered_sensor_with_no_streams_is_still_listed(vios_http) -> None:
+    """Vanishing from a successful listing reads as "not registered".
+
+    vss-ask-video lists, and uploads when the name is absent — so a sensor
+    dropped here becomes a duplicate upload and a 409.
+    """
+    configure, _, _ = vios_http
+    configure(**_routes(sensors=[{"name": "stream-less", "sensorId": "s0", "state": "offline"}], streams={"s0": []}))
+
+    rows = await vios.list_media(VST)
+
+    assert [r["name"] for r in rows] == ["stream-less"]
+    assert rows[0]["type"] == "unknown"
+    assert rows[0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_stream_less_sensor_satisfies_neither_type_filter(vios_http) -> None:
+    configure, _, _ = vios_http
+    configure(**_routes(sensors=[{"name": "stream-less", "sensorId": "s0"}], streams={"s0": []}))
+
+    assert await vios.list_media(VST, kind="video") == []
+    assert await vios.list_media(VST, kind="stream") == []
