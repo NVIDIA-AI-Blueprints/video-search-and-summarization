@@ -111,7 +111,17 @@ export class DashStream {
         await this.waitForManifest(manifestUrl);
         const player = dashjs.MediaPlayer().create();
         this.player = player;
-        const liveDelay = config.liveDelaySeconds ?? 8;
+        // The catalogue a fresh session has when the manifest is first served is
+        // the preroll, so a delay larger than that asks for media from before
+        // the session existed and the player waits instead of starting.  Keep
+        // this at or under the server's preroll.
+        //
+        // Live trades buffer for a short wait before the first frame, because
+        // that wait is the whole of what the viewer experiences as latency.  A
+        // recording has no live edge to chase, so replay keeps the larger buffer
+        // and spends latency nobody is measuring.
+        const isReplay = Boolean(config.startTime);
+        const liveDelay = config.liveDelaySeconds ?? (isReplay ? 8 : 3);
         // Keys follow the dash.js 5.x layout that package.json pins.  dash.js
         // silently rejects unknown keys with a console warning instead of
         // failing, so a key from the pre-5 flat layout would leave the default
@@ -130,7 +140,7 @@ export class DashStream {
                     // right after start-up while the connection is still ramping,
                     // so playback is held until a cushion has been fetched and
                     // the trough never starts near zero.
-                    initialBufferLevel: config.initialBufferSeconds ?? 4,
+                    initialBufferLevel: config.initialBufferSeconds ?? (isReplay ? 4 : 2),
                     bufferTimeDefault: 12,
                     bufferTimeAtTopQuality: 12,
                 },
