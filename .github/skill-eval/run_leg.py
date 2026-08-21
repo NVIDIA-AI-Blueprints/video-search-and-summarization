@@ -40,6 +40,16 @@ import tempfile
 import threading
 import time
 import urllib.parse
+try:
+    import gpu_trace
+except Exception:  # noqa: BLE001 - telemetry is never load-bearing
+    # Deliberately broader than ImportError. gpu_trace reads its knobs at module
+    # scope, so a malformed EVAL_GPU_TRACE_INTERVAL used to raise ValueError
+    # here and fail the leg before main() ran -- telemetry config breaking the
+    # thing it observes. run_leg.py is normally executed as a script so its own
+    # directory is on sys.path; imported any other way, a missing or broken
+    # sampler must degrade to "no trace", never to a failed leg.
+    gpu_trace = None
 
 # Self-contained instrumentation with its own module state. Split out because
 # this file is long enough that a reader looking for the lock or the Harbor
@@ -1272,6 +1282,8 @@ def run_invocations(
     platform: str,
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
+    declared_gpu_count: int | None = None,
+    gpu_count_source: str = "default",
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -1354,8 +1366,34 @@ def run_invocations(
 
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
+        # Nested inside the phase, not beside it: the phase is the leg-level
+        # accounting for this invocation, so the sampler's own start and stop
+        # cost belongs inside the number rather than hidden next to it.
         with phase(f"harbor:{invocation.include_task_name}"):
-            rc = run_command(cmd, env, harbor_timeout_sec)
+            # Sample the box's GPUs for exactly this harbor invocation.
+            # Per-step, not per-leg: step-1 pays the cold deploy and later steps
+            # reuse it, so one trace spanning both would average away the
+            # difference that matters. The context manager is a no-op if
+            # tracing is disabled or the box is unreachable, and it never raises.
+            if gpu_trace is not None:
+                with gpu_trace.trace(
+                    instance,
+                    results_root,
+                    spec_stem=spec_stem,
+                    platform=platform,
+                    step=invocation.step_index or 1,
+                    # Two chains of one leg can share a step index, and without
+                    # this they wrote the same trace file and the second
+                    # silently replaced the first.
+                    chain=str(invocation.chain_key or invocation.include_task_name or ""),
+                    declared_gpu_count=declared_gpu_count,
+                    gpu_count_source=gpu_count_source,
+                    skill=os.environ.get("EVAL_SKILL", ""),
+                    harbor_timeout_sec=harbor_timeout_sec,
+                ):
+                    rc = run_command(cmd, env, harbor_timeout_sec)
+            else:
+                rc = run_command(cmd, env, harbor_timeout_sec)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1438,10 +1476,16 @@ def _terminate(signum: int, _frame) -> None:
     terminates the interpreter without unwinding, so no `finally` and no
     context-manager exit fires. That matters here because `skills-eval.yml`
     sets `cancel-in-progress: true`: every push to a pull request SIGTERMs the
-    in-flight legs, up to `max-parallel` of them at once. Without this, a
-    cancelled leg never reaches the phase-timing write in main()'s finally, so
-    it produces no artifact at all -- and a leg cancelled after an hour in the
-    lock queue is one of the most informative things this feature can record.
+    in-flight legs, up to `max-parallel` of them at once. Two things are lost
+    without this, and a leg cancelled after an hour in the lock queue is one of
+    the most informative runs either of them could describe:
+
+    * the phase-timing write in main()'s finally never runs, so the leg
+      produces no timing artifact at all;
+    * the GPU sampler on each of those boxes is orphaned until its own remote
+      hard stop, over two hours, while the box is handed straight to the next
+      leg. The partial trace is lost, and a partial trace from a cancelled leg
+      is exactly the kind the workflow already goes out of its way to archive.
     """
     raise SystemExit(128 + signum)
 
@@ -1531,6 +1575,22 @@ def main(argv: list[str] | None = None) -> int:
                     args.platform,
                     args.harbor_timeout_sec,
                     work_deadline,
+                    # The declaration under test. It has to travel with the
+                    # measurement, because "declared 2 GPUs, used 1" is the whole
+                    # question and the spec is the only place the 2 comes from.
+                    #
+                    # The resolved count keeps pool_candidates' exact reading
+                    # (absent -> 1, explicit 0/null -> GPU-independent), while
+                    # the source says whether that number was ever stated:
+                    # 15 of the 50 platform entries in skills/*/evals/ omit
+                    # gpu_count, and for those "declared 1" is this default
+                    # talking, not the spec. Without the second field the
+                    # sidecar cannot tell a satisfied requirement from an
+                    # absent one.
+                    declared_gpu_count=int(metadata.get("gpu_count", 1) or 0),
+                    gpu_count_source=(
+                        "spec" if "gpu_count" in metadata else "default"
+                    ),
                 )
         except LockTimeoutError:
             leg_timing.record_phase(
