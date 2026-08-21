@@ -744,6 +744,9 @@ run_dry_run_up_and_check_generated_env "generated.env search default wires RT-VL
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0" \
   "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+run_dry_run_up_and_check_generated_env "generated.env search selects SBSA RT Embed tag" "search" \
+  -i 127.0.0.1 -H OTHER --use-sbsa-images -d -- \
+  "VSS_RT_EMBED_TAG" "develop-latest-sbsa"
 _mock_brev_one_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_one_gpu_dir}")
 cat > "${_mock_brev_one_gpu_dir}/nvidia-smi" <<'EOF'

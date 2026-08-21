@@ -66,8 +66,8 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | (unset; `${RTVI_EMBED_PORT?}` fails fast) | Yes |
-| `RTVI_EMBED_IMAGE` | Container image. | `nvcr.io/nvstaging/vss-core/vss-rt-embed` | No |
-| `RTVI_EMBED_TAG` | Container image tag. | `3.3.0-26.08.1` | No |
+| `VSS_RT_EMBED_IMAGE` | Container image. | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` | No |
+| `VSS_RT_EMBED_TAG` | Container image tag. | `develop-latest`; set `develop-latest-sbsa` on SBSA/DGX Spark. | No |
 | `RT_EMBED_DEVICE_ID` | GPU device id used by the Compose `device_ids` reservation. | `0` | No |
 | `RTVI_EMBED_NVIDIA_VISIBLE_DEVICES` | Maps to `NVIDIA_VISIBLE_DEVICES` inside the container. | `all` | No |
 | `RTVI_EMBED_NUM_GPUS` | Sets `NUM_GPUS` inside the container. | (unset) | No |
@@ -128,7 +128,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 
 - **Ports exposed** — `${RTVI_EMBED_PORT}:8000/tcp`.
 - **Inbound traffic** — REST clients (other VSS microservices or operator tooling) calling the `/v1/*` endpoints.
-- **Outbound traffic** — Hugging Face (`huggingface.co`) and NGC (`nvcr.io`) at first boot; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
+- **Outbound traffic** — GHCR (`ghcr.io`) for the container image, Hugging Face (`huggingface.co`) for the default model, and `prod.api.nvidia.com` when using NGC-hosted models or assets; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
 - **DNS / hostname assumptions** — Uses `KAFKA_BOOTSTRAP_SERVERS=${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
 - **`network_mode`** — Default bridge (no `network_mode` override in the Compose service).
 
@@ -162,7 +162,7 @@ export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH="$(
 ```yaml
 services:
   rtvi-embed:
-    image: ${RTVI_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-embed}:${RTVI_EMBED_TAG:-3.3.0-26.08.1}
+    image: ${VSS_RT_EMBED_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-embed}:${VSS_RT_EMBED_TAG:-develop-latest}
     container_name: vss-rtvi-embed
     user: "1001:1001"
     profiles: ["rtvi-embed"]
