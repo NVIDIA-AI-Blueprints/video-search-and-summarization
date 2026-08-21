@@ -113,6 +113,7 @@
       "dockerfile": "services/video-summarization/docker/Dockerfile",
       "platforms": ["linux/arm64"],
       "compose_image_names": [],
+      "tag_variables": [],
       "repository": "vss-video-summarization",
       "tag_suffix": "-sbsa",
       "native_platform_build": true,
