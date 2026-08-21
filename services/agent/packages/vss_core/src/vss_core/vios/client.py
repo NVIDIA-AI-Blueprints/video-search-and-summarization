@@ -1230,14 +1230,25 @@ async def recorded_span(
     if not isinstance(payload, dict):
         raise VSTError(f"Unexpected timelines response shape: {type(payload).__name__}")
 
-    segments = payload.get(stream_id)
-    if segments is None or (isinstance(segments, list) and not segments):
+    # Absent and present-but-null are different answers. A stream VIOS does not
+    # list has nothing recorded; a stream it lists with a null timeline is one
+    # it knows about and could not describe, and concluding "nothing to
+    # reclaim" from that is how a delete reports success over live recordings.
+    if stream_id not in payload:
         return None
+    segments = payload[stream_id]
+    if segments is None:
+        raise VSTError(
+            f"VIOS lists {stream_id} with a null timeline, which is not the same as having no "
+            f"recordings; refusing to report a clean delete"
+        )
     if not isinstance(segments, list):
         raise VSTError(f"Unexpected timeline shape for {stream_id}: {type(segments).__name__}")
+    if not segments:
+        return None
 
-    starts: list[str] = []
-    ends: list[str] = []
+    starts: list[datetime.datetime] = []
+    ends: list[datetime.datetime] = []
     for seg in segments:
         # Per segment, not across the list: collecting starts and ends
         # independently would let one entry with only a start and another with
@@ -1247,9 +1258,25 @@ async def recorded_span(
                 f"VIOS listed a recorded segment for {stream_id} without a usable start and end time; "
                 f"refusing to report a clean delete"
             )
-        starts.append(str(seg["startTime"]))
-        ends.append(str(seg["endTime"]))
-    return min(starts), max(ends)
+        # Parsed, not compared as strings: an unparseable value is truthy and
+        # would otherwise reach the delete query, and min/max over raw strings
+        # is only correct while every value happens to be uniform ISO-8601 UTC.
+        try:
+            first = iso8601_to_datetime(str(seg["startTime"]))
+            last = iso8601_to_datetime(str(seg["endTime"]))
+        except Exception as exc:
+            raise VSTError(
+                f"VIOS listed a segment for {stream_id} with an unparseable time "
+                f"({seg.get('startTime')!r}..{seg.get('endTime')!r}); refusing to report a clean delete"
+            ) from exc
+        if first > last:
+            raise VSTError(
+                f"VIOS listed a segment for {stream_id} ending before it starts "
+                f"({seg['startTime']}..{seg['endTime']}); refusing to report a clean delete"
+            )
+        starts.append(first)
+        ends.append(last)
+    return _isoformat(min(starts)), _isoformat(max(ends))
 
 
 async def confirm_absent(

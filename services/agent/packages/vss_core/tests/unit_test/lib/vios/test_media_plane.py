@@ -786,3 +786,59 @@ async def test_a_stream_less_sensor_satisfies_neither_type_filter(vios_http) -> 
 
     assert await vios.list_media(VST, kind="video") == []
     assert await vios.list_media(VST, kind="stream") == []
+
+
+@pytest.mark.asyncio
+async def test_a_null_timeline_is_not_the_same_as_no_recordings(vios_http) -> None:
+    """VIOS listing a stream it cannot describe must not read as "nothing to reclaim"."""
+    configure, _, _ = vios_http
+    configure(**{"/storage/timelines": {"r-stream": None}})
+
+    with pytest.raises(vios.VSTError, match="null timeline"):
+        await vios.recorded_span(VST, "r-stream")
+
+
+@pytest.mark.asyncio
+async def test_an_unparseable_segment_time_is_refused(vios_http) -> None:
+    """A truthy but unparseable value would otherwise reach the delete query."""
+    configure, _, _ = vios_http
+    configure(**{"/storage/timelines": {"r-stream": [{"startTime": "not-a-time", "endTime": "also-not"}]}})
+
+    with pytest.raises(vios.VSTError, match="unparseable time"):
+        await vios.recorded_span(VST, "r-stream")
+
+
+@pytest.mark.asyncio
+async def test_a_segment_ending_before_it_starts_is_refused(vios_http) -> None:
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/storage/timelines": {
+                "r-stream": [{"startTime": "2025-01-01T00:05:00.000Z", "endTime": "2025-01-01T00:01:00.000Z"}]
+            }
+        }
+    )
+
+    with pytest.raises(vios.VSTError, match="ending before it starts"):
+        await vios.recorded_span(VST, "r-stream")
+
+
+@pytest.mark.asyncio
+async def test_the_span_is_ordered_by_time_not_by_string(vios_http) -> None:
+    """Mixed precision sorts wrong lexicographically; parsed values do not."""
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/storage/timelines": {
+                "r-stream": [
+                    {"startTime": "2025-01-01T00:10:00Z", "endTime": "2025-01-01T00:20:00.000Z"},
+                    {"startTime": "2025-01-01T00:02:00.500Z", "endTime": "2025-01-01T00:09:00Z"},
+                ]
+            }
+        }
+    )
+
+    assert await vios.recorded_span(VST, "r-stream") == (
+        "2025-01-01T00:02:00.500Z",
+        "2025-01-01T00:20:00.000Z",
+    )
