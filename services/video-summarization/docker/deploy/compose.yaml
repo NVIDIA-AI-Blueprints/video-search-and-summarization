@@ -315,6 +315,40 @@ services:
     user: "1001:1001"
     profiles:
     - rtvi
+    # The stock image's ENTRYPOINT is /opt/nvidia/rtvi/start_rtvi_vlm.sh. We
+    # override it to fail fast on missing VLM configuration before exec'ing
+    # the original entrypoint. Without this, an unset VLM_MODEL_TO_USE /
+    # MODEL_PATH silently falls through to the openai-compat backend with
+    # the OPENAI_API_KEY placeholder "NOAPIKEYSET": the container still
+    # reports readiness, but no VLM weights ever load and
+    # every request fails with a 401 from api.openai.com. These settings
+    # have no safe default, so they must be mandatory instead.
+    #
+    # See the "MUST live inside `entrypoint` as a 3-element list" note on
+    # the `logstash` service below for why this can't be a `command:` block.
+    entrypoint:
+    - bash
+    - -c
+    - |
+      set -e
+      if [ -z "$${VLM_MODEL_TO_USE:-}" ]; then
+        echo "[rtvi-vlm] FATAL: VLM_MODEL_TO_USE is required -- set it to 'openai-compat' or a local model backend. See README.md#set-environment-variables." >&2
+        exit 1
+      fi
+      if [ "$$VLM_MODEL_TO_USE" = "openai-compat" ]; then
+        if [ -z "$${VIA_VLM_ENDPOINT:-}" ]; then
+          echo "[rtvi-vlm] FATAL: VLM_MODEL_TO_USE=openai-compat requires VIA_VLM_ENDPOINT to be set explicitly -- it no longer falls back to the public OpenAI API." >&2
+          exit 1
+        fi
+        if { [ -z "$${OPENAI_API_KEY:-}" ] || [ "$$OPENAI_API_KEY" = "NOAPIKEYSET" ]; } && { [ -z "$${VIA_VLM_API_KEY:-}" ] || [ "$$VIA_VLM_API_KEY" = "NOAPIKEYSET" ]; }; then
+          echo "[rtvi-vlm] FATAL: VLM_MODEL_TO_USE=openai-compat requires OPENAI_API_KEY or VIA_VLM_API_KEY to be set to a real credential." >&2
+          exit 1
+        fi
+      elif [ -z "$${MODEL_PATH:-}" ]; then
+        echo "[rtvi-vlm] FATAL: MODEL_PATH is required when VLM_MODEL_TO_USE=$$VLM_MODEL_TO_USE (local model backend)." >&2
+        exit 1
+      fi
+      exec /opt/nvidia/rtvi/start_rtvi_vlm.sh
     ports:
     - ${RTVI_VLM_PORT:-8000}:8000
     tmpfs:
@@ -335,7 +369,7 @@ services:
       VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: ${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-}
       VIA_VLM_ENDPOINT: ${VIA_VLM_ENDPOINT:-}
       VIA_VLM_API_KEY: ${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}
-      VLM_MODEL_TO_USE: ${VLM_MODEL_TO_USE:-openai-compat}
+      VLM_MODEL_TO_USE: ${VLM_MODEL_TO_USE:-}
       VLM_BATCH_SIZE: ${VLM_BATCH_SIZE:-}
       MODEL_PATH: ${MODEL_PATH:-}
       NUM_VLM_PROCS: ${NUM_VLM_PROCS:-}

@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Use this skill when summarizing a recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning.
+description: Use when summarizing a recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning.
 license: Apache-2.0
 metadata:
   version: "3.2.2"
@@ -22,10 +22,10 @@ metadata:
 Runnable scenarios live under `evals/`. The command implementations are in
 [`references/end-to-end-example.md`](references/end-to-end-example.md).
 
-## Purpose
+## When to Use
 
-Produce one polished narrative summary with timestamped events when LVS is
-available.
+Use when summarizing a recorded video through HITL-gated LVS, to produce one
+polished narrative summary with timestamped events when LVS is available.
 
 Do not use this skill for:
 
@@ -60,6 +60,15 @@ Load these files only as directed:
   service environment.
 - [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
   Kubernetes `VSS_PUBLIC_URL` contract and LVS Exact `/v1` routes.
+- [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md): load
+  when asked about LVS's own container image, GPU/CPU/storage sizing, or
+  deployment contract as a peer service (heavier than
+  `video-summarization-deployment.md`, which covers operating an already
+  running deployment).
+- [`references/integrate-lvs-service.md`](references/integrate-lvs-service.md):
+  load when another agent or skill needs to integrate with LVS as a peer
+  service — required peers, integration interfaces, API schema, and network
+  requirements.
 
 ## Core Invariants
 

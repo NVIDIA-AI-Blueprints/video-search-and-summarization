@@ -64,5 +64,17 @@
       "Authenticates the Spark NIM with NGC_CLI_API_KEY and does NOT require HF_TOKEN (HF_TOKEN is the AGX/IGX Thor Edge-4B fallback path, not DGX Spark).",
       "Runs the edge cache-cleaner pre-flight check and does not print plaintext API tokens."
     ]
+  },
+  {
+    "id": "deploy-profile-negative-standalone-microservice",
+    "question": "Stand up just the RT-VLM microservice on this host, outside of any compose profile.",
+    "expected_skill": null,
+    "ground_truth": "This is a standalone microservice deployment, explicitly out of scope for vss-deploy-profile (which only deploys compose-based VSS profiles: base, search, lvs, warehouse, edge). The agent routes to the matching vss-deploy-* standalone-microservice skill instead.",
+    "expected_behavior": [
+      "Does not load vss-deploy-profile for a standalone microservice request.",
+      "Does not run the profile-routing table or the generated.env dry-run flow.",
+      "Identifies that the request needs the matching vss-deploy-* standalone-microservice skill instead.",
+      "Does not fabricate a profile name to force-fit the request into profile routing."
+    ]
   }
 ]

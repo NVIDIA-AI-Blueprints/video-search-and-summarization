@@ -9,13 +9,17 @@ For chart internals (templates, values), see `charts/rtvi-embed/`.
 ## Prerequisites
 
 - Kubernetes cluster with **NVIDIA GPU** nodes and the NVIDIA device plugin (workload requests `nvidia.com/gpu: 1`).
-- **`helm`** (v3) with network access to pull images (`nvcr.io`, `docker.io`, …).
+- **`helm`** (v3) with network access to pull images from `ghcr.io`.
 - **Hugging Face token** in a Secret (default name/key below) for [nvidia/Cosmos-Embed1-448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p). The chart **`modelPath`** value is `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` (runtime download specifier for the embed service—not a URL to open in a browser).
 - A **StorageClass** for RWO volumes (or leave `persistence.storageClass` empty to use the cluster default).
-- **`ngc-image-pull-secret`** (or equivalent) if your cluster requires pull secrets for private images (`imagePullSecrets` in `overrides_rtvi_embed.yaml`). Base `values.yaml` defaults to **`ngc-docker-reg-secret`** instead—use one name consistently.
+- An image pull secret only when overriding the public GHCR default with a private registry image.
 - On **MicroK8s / GPU Operator** clusters, GPU scheduling may require extra node setup (device plugin, `nvidia.com/gpu` allocatable); this chart version does not expose `runtimeClassName` in `templates/deployment.yaml`.
 
-Default image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1` (see `Chart.yaml` / `values.yaml` for image `tag`).
+Default image: `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest` (see `Chart.yaml` / `values.yaml` for image `tag`).
+
+For SBSA/DGX-Spark, use the separate ARM64 build in the same repository by
+setting `image.tag=develop-latest-sbsa` (or `global.container_tag` when that
+global override is appropriate for every managed image in the release).
 
 ---
 
@@ -38,16 +42,6 @@ With default `charts/rtvi-embed` helpers, Kubernetes **object names** for the wo
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-**NGC / nvcr.io pull secret.** `overrides_rtvi_embed.yaml` expects **`Secret` name `ngc-image-pull-secret`**, key **`.dockerconfigjson`**:
-
-```bash
-kubectl create secret generic ngc-image-pull-secret \
-  --namespace "${NAMESPACE}" \
-  --from-file=.dockerconfigjson=/path/to/.docker/config.json \
-  --type=kubernetes.io/dockerconfigjson \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
 **Hugging Face token.** `overrides_rtvi_embed.yaml` wires **`hfTokenSecret.name: hf-token-secret`**, key **`HF_TOKEN`**:
 
 ```bash
@@ -57,7 +51,7 @@ kubectl create secret generic hf-token-secret \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-If you use other secret names, set `imagePullSecrets` and `hfTokenSecret` in Helm values or `--set` flags to match.
+If you use another Hugging Face secret name, set `hfTokenSecret` in Helm values or `--set` flags to match. Set `imagePullSecrets` only when overriding the public GHCR image with a private registry image.
 
 **Optional asset authorization tokens.** If you need `ASSET_DOWNLOAD_AUTH_TOKENS`, prefer a Kubernetes Secret instead of a literal Helm value:
 
@@ -131,13 +125,12 @@ helm upgrade --install "${RELEASE}" . \
   --set vss-rtvi-embed.messageBusTopic=mdx-embed \
   --set vss-rtvi-embed.hfTokenSecret.name=hf-token-secret \
   --set vss-rtvi-embed.hfTokenSecret.key=HF_TOKEN \
-  --set-json 'vss-rtvi-embed.imagePullSecrets=[{"name":"ngc-image-pull-secret"}]' \
   --wait --timeout 45m
 ```
 
 Notes:
 
-- Ensure **`hf-token-secret`** and **`ngc-image-pull-secret`** exist in **`${NAMESPACE}`** (umbrella install does not create secrets). The **`--set-json`** line above wires image pull to the secret from section 2; without it the chart defaults to **`ngc-docker-reg-secret`** and pods may hit **ImagePullBackOff**.
+- Ensure **`hf-token-secret`** exists in **`${NAMESPACE}`** (the umbrella install does not create secrets). Configure `imagePullSecrets` only if you override the public GHCR image with a private registry image.
 - **`messageBusTopic`** defaults to **`mdx-embed`** in `values.yaml`; standalone overrides keep the same topic for later Kafka integration.
 - Output and error publishing are controlled by **`MESSAGE_BUS`**, **`MESSAGE_BUS_TOPIC`**, and **`ERROR_BUS`**.
 - First startup can take **many minutes** (HF model download + Triton model repo; `startupProbe` in `values.yaml` allows a long initial delay).
@@ -215,7 +208,7 @@ kubectl get pvc -n "${NAMESPACE}" | grep rtvi-embed
 ### 7.3 Remove secrets (optional)
 
 ```bash
-kubectl delete secret ngc-image-pull-secret hf-token-secret -n "${NAMESPACE}" --ignore-not-found
+kubectl delete secret hf-token-secret -n "${NAMESPACE}" --ignore-not-found
 ```
 
 ### 7.4 Remove the namespace (optional, destructive)
@@ -229,7 +222,7 @@ kubectl delete namespace "${NAMESPACE}"
 ## 8. Troubleshooting
 
 - **Pod `Pending`**: insufficient **`nvidia.com/gpu`** or missing device plugin — `kubectl describe pod -n "${NAMESPACE}"`.
-- **`ImagePullBackOff`**: check **`ngc-image-pull-secret`**, image repository/tag, registry reachability.
+- **`ImagePullBackOff`**: check the image repository/tag, registry reachability, and `imagePullSecrets` when using a private registry override.
 - **Stuck in init `wait-for-kafka`**: use **`overrides_rtvi_embed.yaml`** or set **`waitForKafka.enabled: false`**.
 - **HF / model errors**: verify **`hf-token-secret`** / **`HF_TOKEN`**; check pod logs during Cosmos-Embed1 download.
 - **Slow ready on first install**: expected; keep **`--timeout 45m`** on `helm upgrade --wait` or inspect **`startupProbe`** in `values.yaml`.
