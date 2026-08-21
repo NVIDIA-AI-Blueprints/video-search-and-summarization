@@ -348,26 +348,16 @@ network_policies:
       - { path: /usr/bin/python3.13 }
       - { path: /usr/local/bin/node }
 
-  # `vss search run` is not a standalone binary: the skills invoke it as
-  # `uv run --project services/agent --extra cli vss`, so a sandbox that
-  # operates a deployment through the host CLI must also resolve that project.
-  # The `pypi` policy above carries pypi.org and files.pythonhosted.org, and it
-  # now lists uv among its binaries -- that pairing is what --extra cli actually
-  # runs on, since nvidia-vss-cli needs only click plus nvidia-vss-core's seven
-  # PyPI dependencies. Install uv from PyPI rather than the astral.sh script,
-  # which redirects to release assets this policy does not name.
+  # Host-CLI skills run `uv run --project services/agent --extra cli vss`.
+  # Pair with the `pypi` policy: uv comes from PyPI, not the astral.sh
+  # script (its release assets are not listed).
   #
-  # The indexes below are the remaining ones services/agent/pyproject.toml
-  # declares. They matter for --extra agent (torch resolves through
-  # pytorch-cpu), not for --extra cli, but uv reads every index the project
-  # declares while resolving. ngc-data-platform is omitted: it is
-  # NVIDIA-internal and only `nvdataset` resolves through it, which neither
-  # extra pulls.
+  # Extra indexes from services/agent/pyproject.toml: uv reads every declared
+  # index. pytorch-cpu is for --extra agent; ngc-data-platform is omitted
+  # (NVIDIA-internal, only nvdataset).
   #
-  # Build the venv with `--python /usr/bin/python3.13`. OpenShell enforces on
-  # the kernel-trusted /proc/<pid>/exe, and a uv-managed interpreter under
-  # ~/.local/share/uv/python/ resolves to a path no policy here lists -- the
-  # Elasticsearch and RT-Embed calls run under that interpreter, not under curl.
+  # Use `--python /usr/bin/python3.13`. A uv-managed interpreter under
+  # ~/.local/share/uv/python/ is not listed; OpenShell enforces /proc/<pid>/exe.
   vss-cli-build:
     name: vss-cli-build
     endpoints:
@@ -377,15 +367,12 @@ network_policies:
       - host: download.pytorch.org
         port: 443
         access: full
-    # uv is a standalone binary and makes its own requests, so its path is
-    # enforced, not the shell's. The sandbox user is unprivileged and the base
-    # image is PEP 668 externally-managed, so the install route is
-    # `pip install --user --break-system-packages uv`. The sandbox presets
-    # PYTHONUSERBASE=/tmp/.local, so that lands at /tmp/.local/bin/uv -- the
-    # same /tmp convention claude_code already covers for /tmp/npm-global, and
-    # NOT $HOME/.local/bin as the pip docs imply. The other paths are fallbacks
-    # for drivers that leave PYTHONUSERBASE unset. pip itself passes on
-    # /usr/bin/pip3, and a venv's bin/python symlinks to /usr/bin/python3.13.
+    # uv is a standalone binary; its path is enforced, not the shell's. The
+    # agent installs it itself per TOOLS.md "VSS CLI checkout"
+    # (`pip install --user --break-system-packages uv`, PEP 668), which lands
+    # at /tmp/.local/bin/uv under the sandbox PYTHONUSERBASE; the other uv
+    # paths are fallbacks. pip is /usr/bin/pip3; a venv python symlinks
+    # to /usr/bin/python3.13.
     binaries:
       - { path: /tmp/.local/bin/uv }
       - { path: /tmp/.local/bin/uvx }

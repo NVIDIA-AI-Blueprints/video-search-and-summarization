@@ -42,8 +42,6 @@ before running it — do not guess the hostname, and do not go looking for
 it in the cluster:
 
 > I need the Ingress origin of the VSS deployment you want me to operate.
-> It looks like `http://vss-<profile>.<node-ip>.nip.io:80`, and the
-> deployment's Helm values report it as `global.externalHost`.
 
 Then `export VSS_PUBLIC_URL=<answer>` for the session and write it to
 `memory/YYYY-MM-DD.md`, so the next session can offer it back instead of
