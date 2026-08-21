@@ -7,7 +7,7 @@ description: >-
   Test source (tests/, features/, scripts/, data/, conftest.py) is bind-mounted
   from the host repo at runtime, so pure test code changes do NOT require a
   container rebuild. Use only when files that the container bakes in are
-  modified: Dockerfile, docker-entrypoint.sh, pyproject.toml, poetry.lock.
+  modified: Dockerfile, docker-entrypoint.sh, pyproject.toml.
 ---
 
 # BDD Test Container Update
@@ -24,8 +24,21 @@ needs to be rebuilt when the things it bakes in change.
 - `test/bdd_tests/Dockerfile`
 - `test/bdd_tests/docker-entrypoint.sh`
 - `test/bdd_tests/pyproject.toml` (any change -- deps or pytest config)
-- `test/bdd_tests/poetry.lock`
 - `test/bdd_tests/test_videos/*` (sample clips baked to `/app/test_videos`)
+
+> **Note on `poetry.lock`:** there is no committed lock file. It is gitignored
+> and resolved by `poetry lock` inside the Docker build, because a checked-in
+> lock is reported as a dependency manifest by the OSS/nspect source scan. A
+> rebuild therefore re-resolves dependencies within the `pyproject.toml`
+> constraints and can pick up newer patch/minor versions -- check
+> `/app/resolved-deps.txt` in the new image (or the build log) against the
+> previous image if a test starts failing after a rebuild.
+>
+> The currently published `v1.10.0_x86` image predates this change and still
+> carries the dependency set from the old committed lock file. CI pulls that
+> image and bind-mounts the test source into it, so nothing is broken -- but the
+> first person to rebuild picks up the re-resolved dependencies and must bump
+> the tag here and in `start_test.sh` as part of that rebuild.
 
 > **Note on `test_videos/`:** the clip binaries are **gitignored** -- they are
 > NOT in the repo, only baked into the published image. The pushed image is the
@@ -66,8 +79,8 @@ Classify the changes made under `test/bdd_tests/`:
 | Change type | Bump | Examples |
 |---|---|---|
 | **Major** | Increment MAJOR, reset MINOR and PATCH to 0 | Dockerfile base image change, entrypoint rewrite, Python major version bump, dependency major version upgrade (e.g. poetry major), new system-level package added to Dockerfile |
-| **Minor** | Increment MINOR, reset PATCH to 0 | New runtime dependency in pyproject.toml, dependency minor version updates in pyproject.toml/poetry.lock, new pytest plugin in deps, additions to the Dockerfile that do not break existing tests |
-| **Patch** | Increment PATCH | Dependency patch upgrades, minor Dockerfile cleanup, comment-only edits to Dockerfile/entrypoint, pinning a transitive dependency in poetry.lock |
+| **Minor** | Increment MINOR, reset PATCH to 0 | New runtime dependency in pyproject.toml, dependency minor version updates in pyproject.toml, new pytest plugin in deps, additions to the Dockerfile that do not break existing tests |
+| **Patch** | Increment PATCH | Dependency patch upgrades, minor Dockerfile cleanup, comment-only edits to Dockerfile/entrypoint, raising a transitive dependency floor in pyproject.toml |
 
 When in doubt between major and minor, prefer minor. When in doubt between
 minor and patch, prefer patch.

@@ -327,4 +327,4 @@ After modifying files in certain directories, follow up with the corresponding a
 
 | Changed files | Action |
 |---|---|
-| `test/bdd_tests/Dockerfile`, `test/bdd_tests/docker-entrypoint.sh`, `test/bdd_tests/pyproject.toml`, `test/bdd_tests/poetry.lock` | Read and follow `.cursor/skills/bdd-container-update/SKILL.md` — bump the BDD container image version, rebuild, push, and update the tag in `cicd_files/docker-compose-test/start_test.sh`. Test code under `test/bdd_tests/{tests,features,scripts,data,conftest.py,config.json}` is bind-mounted at runtime and does NOT require a rebuild. |
+| `test/bdd_tests/Dockerfile`, `test/bdd_tests/docker-entrypoint.sh`, `test/bdd_tests/pyproject.toml` | Read and follow `.cursor/skills/bdd-container-update/SKILL.md` — bump the BDD container image version, rebuild, push, and update the tag in `cicd_files/docker-compose-test/start_test.sh`. Test code under `test/bdd_tests/{tests,features,scripts,data,conftest.py,config.json}` is bind-mounted at runtime and does NOT require a rebuild. |

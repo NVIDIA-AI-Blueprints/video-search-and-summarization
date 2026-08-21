@@ -17,6 +17,10 @@ env/
 .venv/
 ENV/
 
+# A developer's locally generated lock file must never leak into the build --
+# dependencies are resolved inside the image (see Dockerfile).
+poetry.lock
+
 # Test artifacts
 reports/
 test-results/
