@@ -11,21 +11,39 @@
 
 ## Model
 
-A Foundation is one reviewed, current developer profile selected as the closest
-starting point for a request. A Delta Profile is the smallest environment and
+A Foundation is one reviewed, current developer or industry profile selected as
+the closest starting point for a request. A Delta Profile is the smallest environment and
 optional Compose service-definition patch applied to exactly one Foundation.
 The Foundation remains in place; the delta does not copy its `.env`,
 `overrides.env`, Compose files, configs, or skill bundle.
 
 Current Foundations:
 
-- `base`
-- `alerts`
-- `lvs`
-- `search`
+| Foundation | Kind | Baseline `COMPOSE_PROFILES` |
+|---|---|---|
+| `base`, `alerts`, `lvs`, `search` | developer | `dev-profile-<F>/overrides.env` sets it directly |
+| `warehouse` | industry | one of 9 in-scope `COMPOSE_PROFILES_WH_*` lists, selected by variant |
 
-Use only developer profiles. Do not route warehouse or industry profiles through
-this workflow.
+`warehouse` is the only supported industry Foundation. Do not route
+`smartcities` or any other industry profile through this workflow.
+
+**`warehouse` deltas are floor-guarded.** Every warehouse service list carries a
+dozen infrastructure services that no capability names and nothing boots without.
+The forward-closure prune below would remove them, and the build would then
+resolve, normalize and validate cleanly before failing at bring-up — after the
+user has been told it validated. Those services are owned by
+[`services/warehouse-infra.md`](services/warehouse-infra.md) and are a
+`Required peer` of every warehouse capability owner, so the closure retains them
+automatically. Two rules follow:
+
+- Never prune a member of that floor, whatever the requested capability set.
+  `scripts/validate_warehouse_env.py` fails the build if one is missing.
+- Prefer the smallest delta off the closest `COMPOSE_PROFILES_WH_*` baseline, and
+  record which baseline in `FOUNDATION_VARIANT`. Removing the monitoring keys is
+  the safest warehouse delta — nothing depends on them
+  ([`services/monitoring.md`](services/monitoring.md)). Changing `MODE`,
+  `BP_PROFILE` or `STREAM_TYPE` is **not** a delta: those select a different
+  baseline, so switch `FOUNDATION_VARIANT` instead of editing the list.
 
 ## Select the foundation
 
@@ -135,8 +153,26 @@ _builds/<name>/
 ├── override.env
 ├── compose.yml
 ├── resolved.yml
+├── configurator.env       # warehouse only; generated, never hand-edited
 └── patches/               # optional; changed or new services only
 ```
+
+`configurator.env` exists because `bp-configurator-<mode>` does **not** read its
+environment through Compose interpolation. It declares
+
+```yaml
+env_file:
+  - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/.../.env}
+  - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/.../overrides.env}
+```
+
+so with those knobs unset it loads the **checked-in** files directly, bypassing
+`--env-file` layering entirely — the build's `override.env` cannot reach it, and
+the pristine `HOST_IP='<HOST_IP>'` sentinel is baked into the container that
+renders every stream and hardware config. Generate the file with
+`scripts/render_warehouse_configurator_env.py` and point
+`BP_CONFIGURATOR_ENV_FILE` at it from `override.env`. It is a generated artifact:
+never hand-edit it, and regenerate it whenever `override.env` changes.
 
 `<name>` is a filesystem label supplied by the user or a neutral description of
 the requested build. It is never a Compose profile. If the user supplies no
@@ -149,7 +185,11 @@ The only writable location is `_builds/<name>/`. Never create or edit files unde
 
 `override.env` contains:
 
-1. `FOUNDATION=<base|alerts|lvs|search>`.
+1. `FOUNDATION=<base|alerts|lvs|search|warehouse>`.
+1b. `FOUNDATION_VARIANT=<COMPOSE_PROFILES_WH_*>`, required only when
+   `FOUNDATION=warehouse`. It records which of the 16 baselines the build was
+   expanded from. Provenance only — field 2 still carries the expanded literal
+   list, never a `${...}` reference to the baseline.
 2. The full effective `COMPOSE_PROFILES` after additions and removals.
 3. Every customized environment value and every Foundation value transitively
    derived from it. Do not repeat unrelated Foundation defaults.
@@ -162,7 +202,25 @@ For example:
 - changing `VSS_APPS_DIR` also requires the effective `VST_CONFIG_PATH`,
   `SDR_CONTROLLER_CONFIG_PATH`, and any selected profile-specific config paths;
 - changing `HOST_IP` also requires the effective `EXTERNAL_IP`,
-  `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints.
+  `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints; on
+  `warehouse` that closure is `EXTERNAL_IP`, `VSS_PUBLIC_HOST` and
+  `TURN_EXTERNAL_IP`;
+- on `warehouse`, changing `MODE` also requires the effective
+  `SDR_CONTROLLER_CONFIG_PATH` and `NVSTREAMER_<MODE>_CONFIG_DIR`, both of which
+  embed the mode; and changing `VSS_APPS_DIR` requires all seven of
+  `SDR_CONTROLLER_CONFIG_PATH`, `SENSOR_FILE_PATH`,
+  `NVSTREAMER_2D_CONFIG_DIR`, `NVSTREAMER_3D_CONFIG_DIR`,
+  `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` and
+  `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE`.
+
+**Compute the closure transitively, not one hop.** On `warehouse`, `HOST_IP`
+reaches `TURN_PUBLIC_HOST` only through two intermediate variables
+(`HOST_IP` → `EXTERNAL_IP` → `VSS_PUBLIC_HOST` → `TURN_PUBLIC_HOST`), so a
+single-level scan for `${HOST_IP}` misses it and the build bakes the
+`<HOST_IP>` sentinel into `streamprocessing-ms-<mode>`. Follow each reference
+until no value changes. `validate_resolved_yml.py`'s sentinel check is the
+backstop: a missed closure member surfaces there as a `<HOST_IP>` or
+`/path/to/deploy/docker` placeholder.
 
 Find the exact closure by following variable references in the selected
 Foundation's `.env` and `overrides.env`; do not assume a later primitive
@@ -174,6 +232,17 @@ override will update an earlier derived value.
 include:
   - path:
       - ../../deploy/docker/compose.yml
+```
+
+A `warehouse` Foundation appends the shared TURN relay overlay that every
+warehouse deployment needs. It is an in-tree shared file, not a build-local
+patch, so it belongs in the include path list rather than under `patches/`:
+
+```yaml
+include:
+  - path:
+      - ../../deploy/docker/compose.yml
+      - ../../deploy/docker/services/infra/compose-no-turn-tcp-relay.yml
 ```
 
 When a service definition must change, append its patch after the root Compose
@@ -234,7 +303,17 @@ From the repository root:
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
 FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
-FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
+
+# warehouse only, and BEFORE `config`: materialize the configurator's env_file.
+# Set BP_CONFIGURATOR_ENV_FILE=$BUILD_DIR/configurator.env in override.env first.
+[ "$FOUNDATION" = warehouse ] && uv run \
+  "$REPO/skills/vss-build-vision-agent/scripts/render_warehouse_configurator_env.py" \
+  "$BUILD_DIR" --repo-root "$REPO"
+
+case "$FOUNDATION" in
+  warehouse) FOUNDATION_DIR="$REPO/deploy/docker/industry-profiles/warehouse-operations" ;;
+  *)         FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION" ;;
+esac
 
 env_args=(
   --env-file "$REPO/deploy/docker/containers.env"
@@ -252,6 +331,10 @@ uv run "$REPO/skills/vss-build-vision-agent/scripts/normalize_resolved_yml.py" \
 
 uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
+
+# warehouse only: env-level constraints that resolved.yml cannot express
+uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_warehouse_env.py" \
+  "$BUILD_DIR" --repo-root "$REPO"
 ```
 
 `docker compose config` writes the resolved model to stdout and its warnings and
@@ -327,7 +410,26 @@ Then verify:
   images and `ngc:` paths. A `401`/`403`/missing-repo result is a blocker — a
   Validate gate on every build, deploy or not.
 - `resolved.yml` contains no stock sentinels such as
-  `/path/to/deploy/docker` or `<HOST_IP>`.
+  `/path/to/deploy/docker` or `<HOST_IP>`. On `warehouse` this is load-bearing:
+  `overrides.env` ships both `VSS_APPS_DIR` and `VSS_DATA_DIR` as `/path/to/...`
+  placeholders, so a build that omits them fails here rather than at bring-up.
+- On `warehouse`, `scripts/validate_warehouse_env.py` exits 0. It enforces what
+  `resolved.yml` structurally cannot: `MODE`, `BP_PROFILE`, `HARDWARE_PROFILE`
+  and `SAMPLE_VIDEO_DATASET` appear in no service `environment:` block, so the
+  resolved model cannot be checked against them. It covers variant validity,
+  the dataset/`NUM_STREAMS` pairing, broker agreement, LLM sizing-file
+  existence, `VLM_MODE=none`, `FOUNDATION_VARIANT` provenance, and the
+  infrastructure floor. Every one of these fails at bring-up or silently at
+  runtime, never at `config` time.
+- No service's resolved `environment` is oversized. `docker compose config`
+  inlines every `env_file` into `environment`, so a malformed generated env file
+  lands in `resolved.yml` rather than staying in the file the build wrote. A
+  runaway expansion there passes every other gate — no sentinel, no unresolved
+  `${...}` (Compose already expanded it), no empty credential — and then dies at
+  bring-up with a bare `argument list too long` from the entrypoint.
+  `validate_resolved_yml.py` enforces a 32 KiB-per-variable and 256 KiB-per-service
+  budget; a hit means the generated env file expanded wrong, not that the budget
+  is too small.
 - Every checked-in bind source exists and a file target is not backed by a
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.
@@ -343,6 +445,10 @@ Then verify:
 
 - `deploy/docker/compose.yml`
 - `deploy/docker/containers.env`
+- `deploy/docker/industry-profiles/warehouse-operations/.env`
+- `deploy/docker/industry-profiles/warehouse-operations/overrides.env`
+- `deploy/docker/industry-profiles/warehouse-operations/compose.yml`
+- `deploy/docker/services/infra/compose-no-turn-tcp-relay.yml`
 - `deploy/docker/developer-profiles/dev-profile-*/.env`
 - `deploy/docker/developer-profiles/dev-profile-*/overrides.env`
 - `deploy/docker/developer-profiles/dev-profile-*/compose.yml`

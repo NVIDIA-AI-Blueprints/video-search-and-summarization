@@ -118,6 +118,13 @@ before you proceed.
 
 Use the bundled cleanup helper. It clears every directory whose stale state can poison a fresh deploy: kafka logs, elasticsearch data + logs, redis data + log, behavior-learning data, video-analytics API state, calibration toolkit, VST/nvstreamer recordings, and any blueprint-configurator backup files.
 
+> **Warehouse: this destroys camera calibration output.** `calibration_toolkit`
+> is in the wipe list, so teardown discards any calibration imported for a
+> `MODE=3d` build. Copy it out of `${VSS_DATA_DIR}/data_log/calibration_toolkit`
+> first unless it is cheap to regenerate. `videos/`, `playback/` and `models/` are kept. The helper resolves
+> `VSS_DATA_DIR` from whatever env file it is handed, so the build's own
+> `override.env` works unchanged — no in-tree `generated.env` is needed.
+
 The cleaner needs **root**. Gate on sudo the same way the SKILL.md pre-flight does:
 if sudo is passwordless, run it; otherwise **do not** run it under automation —
 surface the command and let the user run it once, then resume.

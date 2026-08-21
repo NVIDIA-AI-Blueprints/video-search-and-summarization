@@ -39,7 +39,10 @@ metadata:
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
-| Warehouse or another industry profile | Stop: this skill currently covers developer examples only. |
+| Deploy, start, run, verify, or stop a warehouse variant (`MODE=2d` or `3d`) | Stock mode, `FOUNDATION=warehouse` (`references/profiles/warehouse.md`). Select the variant per Q2w; expand its `COMPOSE_PROFILES_WH_*` list unchanged. |
+| Build, extend, customize, or remove capabilities from a warehouse deployment | Delta mode off the closest `COMPOSE_PROFILES_WH_*` baseline, recorded in `FOUNDATION_VARIANT`. Never prune the warehouse infrastructure floor (`references/services/warehouse-infra.md`). Changing `MODE`, `BP_PROFILE` or `STREAM_TYPE` selects a different baseline, not a delta. |
+| Debug a running warehouse deployment | `vss-deploy-profile/references/warehouse-debug.md`. |
+| `smartcities` or another industry profile | Stop: `warehouse` is the only supported industry Foundation. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
 ## Entry Mode (Step 0)
@@ -60,8 +63,9 @@ Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until 
 
 **Q1 — Starting point.** *"How would you like to start?"*
 
-- **Deploy a pre-built workflow** *(recommended for a first run / quickstart)* — Choose from a ready-made, validated VSS developer profile. Fastest path to a running system; no composition needed. Deploys as-is; you can customize it afterward.
-- **Build a custom configuration** — pick the specific vision capabilities you need and let the skill compose the smallest delta overlay for them.
+- **Deploy a pre-built developer workflow** *(recommended for a first run / quickstart)* — Choose from a ready-made, validated VSS developer profile. Fastest path to a running system; no composition needed. Deploys as-is; you can customize it afterward. → **Q2a**
+- **Deploy a pre-built industry blueprint** — Warehouse multi-camera perception (2D RT-DETR or 3D Sparse4D) with behavior analytics. Deployed as-is. → **Q2w**
+- **Build a custom configuration** — pick the specific vision capabilities you need and let the skill compose the smallest delta overlay for them. → **Q2b**
 
 ### Mode: Pre-built workflow (quickstart)
 
@@ -86,6 +90,37 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 These are **predefined developer profiles** — the skill keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (Stock mode, Step 5 exact match) and follows the shared build lifecycle (Steps 5–9). For Alerts, set the profile `MODE` per Q2a-mode.
 
 **Customize a pre-built workflow → Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** and computing a **capability delta** on top of it (the profile itself is never modified — it is only the baseline). The stock build becomes a **Delta build**: the same `_builds/<name>/` machinery now carries the added/removed profile keys and any changed knobs.
+
+### Mode: Pre-built industry blueprint (warehouse)
+
+Reached from Q1 → industry blueprint, or when the request names warehouse
+directly. Expand the selected variant's service list unchanged. A warehouse *delta* is
+possible but floor-guarded — see `references/composition.md` — and is reached by
+customizing after this deploy, not from Q2w.
+Read [`references/profiles/warehouse.md`](references/profiles/warehouse.md)
+before asking, and apply its Hard constraints while asking, not after.
+
+Three single-select questions, each inside the four-option cap:
+
+| Question | Options |
+|---|---|
+| **Q2w-mode** — *"Which warehouse perception mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) |
+| **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` (agent + UI + RTVI VLM) · `bp_wh_kafka` · `bp_wh_redis` |
+| **Q2w-size** — *"Minimal or extended?"* | Extended (ELK, analytics API, ingress, monitoring) · Minimal (perception + analytics only) |
+
+Filter the remaining options rather than validating the answers afterwards:
+
+- **Omit `bp_wh` from Q2w-profile when Q2w-mode is `3d`** — the combination is
+  unsupported. Leaving it selectable turns an impossible deployment into a late
+  runtime failure.
+- **Skip Q2w-size entirely for `bp_wh`** — it has no minimal/extended pair.
+- Set `SAMPLE_VIDEO_DATASET` and `NUM_STREAMS` from the chosen variant, not from
+  the Foundation default; a mismatch shows up as a short stream count with every
+  container healthy.
+
+The three answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its
+name in `FOUNDATION_VARIANT`, expand it verbatim into `COMPOSE_PROFILES`, and
+continue at Step 5 with `FOUNDATION=warehouse`.
 
 ### Mode: Custom build (guided)
 
@@ -113,11 +148,11 @@ After Q2b, the selected capabilities **are** the required-capability set. Select
 ## Steps
 
 1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow keeps a named profile's authoritative service set unchanged (Stock mode).
-2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all four current profiles and select exactly one Foundation; ask only when two are equally plausible. Read `references/edge.md` for DGX Spark or Thor.
+2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all four current **developer** profiles and select exactly one Foundation; ask only when two are equally plausible. `warehouse` is never a delta Foundation and never competes in that comparison — it is selected only by an explicit warehouse request. Read `references/edge.md` for DGX Spark or Thor.
 3. Before resolution or deployment, run the applicable checks from `references/prerequisites.md`, `references/credentials.md`, and `references/ngc.md`. Read the environment and Brev references when applicable.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
 5. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Foundation’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs. If this single pass leaves a blocker the rules cannot settle (an unmapped or ambiguous capability, a Foundation tie, a singleton conflict, or a requested/excluded contradiction), apply the clarification gate in `references/composition.md`: ask one structured question, then resolve on the answer; never re-run the same resolution or guess past the blocker.
 6. Before writing delta artifacts or starting a stock or delta deployment, present a compact architecture diagram in the conversation. Show the Foundation, added and removed capability owners and service keys, principal data flows and topics, external endpoints, and GPU/model placement. Do not save the diagram as a build artifact.
 7. For every stock or delta build, write `_builds/<name>/override.env`, `_builds/<name>/compose.yml`, and `_builds/<name>/resolved.yml`. Put the Foundation, the full effective `COMPOSE_PROFILES`, required build-local path/host values, and only environment values that are customized or transitively derived from a customization in `override.env`; do not copy unchanged Foundation defaults such as stock ports or model knobs. Make `compose.yml` include the root `deploy/docker/compose.yml` plus only minimal changed or new service Compose files, if any. Treat `<name>` only as a filesystem label; never add it to `COMPOSE_PROFILES`.
-8. Generate `resolved.yml` with `docker compose config` using the ordered env layers in `references/composition.md`, normalize dangling optional dependencies with `scripts/normalize_resolved_yml.py`, then run the mandatory check/create gate in `references/data-directory.md` on every build, deploy or not — it prepares the external `${VSS_DATA_DIR}` any later bring-up needs (this agent's or a hand-run `docker compose up`) and never touches the repo tree. When the effective `COMPOSE_PROFILES` includes an RT-CV perception key (`perception-alerts`, `perception-2d-fusion`), no host-side or agent detector staging is required: the RT-CV container downloads the detector ONNX at first boot (ds-start phase 0) from its mounted `models-download.json` into the world-writable `${VSS_DATA_DIR}/models` the gate just created. Reject stale placeholders and invalid checked-in bind sources with `scripts/validate_resolved_yml.py`; if validation finds real unresolved `${...}` Compose interpolation, add only the missing concrete values to `override.env` and regenerate before proceeding. Do not count escaped container-shell variables such as `$${HOST_IP}` as unresolved Compose interpolation. Validate the selected keys, services, images, required peers, GPU placement, utilization, and requested success checks against that exact file.
-9. If deployment was requested, deploy the exact `_builds/<name>/resolved.yml` validated in the previous step, refresh its registry images even when their tags already exist locally, use `references/readiness.md` with the matching profile checks, and follow `references/deployment.md` for the resolved-Compose lifecycle. When a source must be provisioned into the deployed build (a headless build registers none at bring-up), resolve the consumer ports and confirm the build is headless (no `vss-agent`) from `resolved.yml`, then follow `vss-manage-video-io-storage` `references/provision-vios-source.md`. When a search query round-trip is then requested against the deployed build, run `vss configure --base-url <build-origin>` (the fronting `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local entry point (`uv run --project <repo>/services/agent --no-dev vss …`, per `references/deployment_resolution.md`) — not a bare `vss` — then defer entirely to `vss-search-archive` for decomposition, mode, and the query itself. For stop or cleanup, follow `references/teardown.md`: remove project volumes by default and preserve model caches only when the user explicitly requests it.
+8. Generate `resolved.yml` with `docker compose config` using the ordered env layers in `references/composition.md` (a `warehouse` Foundation resolves its env layers from `deploy/docker/industry-profiles/warehouse-operations/`, must run `scripts/render_warehouse_configurator_env.py` *before* `config` so `bp-configurator-<mode>` does not load the checked-in `overrides.env`, and must also run `scripts/validate_warehouse_env.py`), normalize dangling optional dependencies with `scripts/normalize_resolved_yml.py`, then run the mandatory check/create gate in `references/data-directory.md` on every build, deploy or not — it prepares the external `${VSS_DATA_DIR}` any later bring-up needs (this agent's or a hand-run `docker compose up`) and never touches the repo tree. When the effective `COMPOSE_PROFILES` includes an RT-CV perception key (`perception-alerts`, `perception-2d-fusion`), no host-side or agent detector staging is required: the RT-CV container downloads the detector ONNX at first boot (ds-start phase 0) from its mounted `models-download.json` into the world-writable `${VSS_DATA_DIR}/models` the gate just created. Reject stale placeholders and invalid checked-in bind sources with `scripts/validate_resolved_yml.py`; if validation finds real unresolved `${...}` Compose interpolation, add only the missing concrete values to `override.env` and regenerate before proceeding. Do not count escaped container-shell variables such as `$${HOST_IP}` as unresolved Compose interpolation. Validate the selected keys, services, images, required peers, GPU placement, utilization, and requested success checks against that exact file.
+9. If deployment was requested, deploy the exact `_builds/<name>/resolved.yml` validated in the previous step, refresh its registry images even when their tags already exist locally, use `references/readiness.md` with the matching profile checks, and follow `references/deployment.md` for the resolved-Compose lifecycle. When a source must be provisioned into the deployed build (a headless build registers none at bring-up), resolve the consumer ports and confirm the build is headless (no `vss-agent`) from `resolved.yml`, then follow `vss-manage-video-io-storage` `references/provision-vios-source.md`. When a search query round-trip is then requested against the deployed build, run `vss configure --base-url <build-origin>` (the fronting `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local entry point (`uv run --project <repo>/services/agent --no-dev vss …`, per `references/deployment_resolution.md`) — not a bare `vss` — then defer entirely to `vss-search-archive` for decomposition, mode, and the query itself. For a warehouse build, use the readiness checks in `references/profiles/warehouse.md` — container state alone is not sufficient, since every container can be `Up` while zero streams are processed — and for cleanup additionally run `deploy/docker/scripts/cleanup_all_datalog.sh -e _builds/<name>/override.env`, which resolves `VSS_DATA_DIR` from the build's own env file. For stop or cleanup, follow `references/teardown.md`: remove project volumes by default and preserve model caches only when the user explicitly requests it.

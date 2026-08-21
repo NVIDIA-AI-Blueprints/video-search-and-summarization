@@ -45,6 +45,17 @@ jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
 fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
 
+> **Warehouse builds need a data-plane check, not just Gate 0.** Every warehouse
+> container can report `Up` while zero streams are processed — a partial stream
+> registration leaves the stack healthy and idle. Gate 0 passes warehouse's
+> one-shot init containers unchanged (it already accepts `exited 0`), but it
+> cannot see this. Run the `stream_name` / `Active sources` liveness checks in
+> [`profiles/warehouse.md`](profiles/warehouse.md) before declaring a warehouse
+> deploy done, and never substitute `grep -i fps` — DeepStream's only line
+> containing that string is a valueless header, so it reports success regardless.
+> Note also that `node-exporter` and `cadvisor` set no `container_name` and
+> appear as `<project>-node-exporter-1` / `-cadvisor-1`.
+
 ## Step 2 — probe the profile's documented readiness endpoints
 
 Container state alone isn't enough — the processes inside may still be

@@ -7,6 +7,8 @@
 | Video database and ingest | `centralizedb`, `vst-ingress` |
 | Sensor and stream management | `sensor-ms`, `streamprocessing-ms` |
 | Profile stream sources | `nvstreamer-alerts`, `nvstreamer-lvs`, `nvstreamer-2d-fusion` |
+| Warehouse stream sources | `nvstreamer-2d`, `nvstreamer-3d` |
+| Warehouse sensor and stream management | `sensor-ms-<mode>`, `streamprocessing-ms-<mode>` |
 | SDR controller and config rendering | `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller` |
 
 ## Required peers
@@ -17,6 +19,18 @@
   `redis`.
 - NvStreamer variants require the matching developer profile's mounted configs
   and, where declared, `broker-health-check`.
+- On `warehouse`, the VIOS keys are mode-suffixed (`sensor-ms-2d`,
+  `streamprocessing-ms-3d`, ...) while `centralizedb` and `vst-ingress` are not.
+  The suffix is on the compose *service* name only: perception, nvstreamer and
+  the VST stack use the **same container names** in 2D and 3D. See
+  [`warehouse-infra.md`](warehouse-infra.md) for the rest of the warehouse
+  floor, which this owner does not duplicate.
+- Warehouse NvStreamer keys mount `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}`;
+  the dataset must match `MODE` and `BP_PROFILE`, and `NUM_STREAMS` must match the
+  dataset. A mismatch is not a config error — it is a short `Active sources` count
+  with every container healthy.
+- `vios-apt-cache-init` has no `profiles:` gate and is a `depends_on` of
+  `streamprocessing-ms-*`; it resolves into every build and cannot be pruned.
 - Add only the profile-specific NvStreamer key; do not activate multiple
   variants for one source.
 

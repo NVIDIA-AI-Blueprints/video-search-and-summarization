@@ -6,6 +6,8 @@
 |---|---|---|---|
 | Alerts perception | `perception-alerts` | `alerts` | GDINO |
 | Search detection and tracking | `perception-2d-fusion` | `search` | RT-DETR |
+| Warehouse 2D perception | `perception-2d` | `warehouse` | RT-DETR (warehouse) |
+| Warehouse 3D perception | `perception-3d`, `ds-configurator-3d` | `warehouse` | Sparse4D |
 
 Select the Foundation that ships the requested model family. RT-DETR and
 GDINO are not interchangeable — each requires its own configs, mounts, and
@@ -16,8 +18,20 @@ the mapping above is the composition surface, not a second source of truth.
 
 ## Required peers
 
-- Use the service key defined by the selected developer profile; the shared
+- Use the service key defined by the selected profile; the shared
   `perception` service is an `extends` source, not a profile key.
+- Warehouse keys are fixed by `MODE` and are not interchangeable: `2d` →
+  `perception-2d`, `3d` → `perception-3d` **plus** `ds-configurator-3d` (the
+  DeepStream config adaptor, 3D only). Every warehouse perception key
+  additionally requires the blueprint configurator
+  ([`configurator.md`](configurator.md)) and the infrastructure floor
+  ([`warehouse-infra.md`](warehouse-infra.md)).
+- `MODE=mv3dt` is out of scope for this skill — route multi-view 3D tracking to
+  `vss-deploy-profile`.
+- **Output topic differs by warehouse mode.** `2d` publishes tracked detections
+  on `mdx-raw`. `3d` (Sparse4D) publishes BEV frames **directly** to `mdx-bev`
+  and leaves `mdx-raw` empty — do not use `mdx-raw` to test whether 3D
+  perception is alive.
 - Kafka-backed pipelines require `kafka`, `kafka-topic-init-container`, and
   `broker-health-check`.
 - Search RT-CV requires checked-in model/config mounts; model download is

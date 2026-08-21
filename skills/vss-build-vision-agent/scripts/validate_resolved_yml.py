@@ -41,6 +41,11 @@ NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
 
 
+# Linux MAX_ARG_STRLEN is 128 KiB per entry; ARG_MAX bounds the whole block.
+MAX_ENV_ENTRY_BYTES = 32_768
+MAX_ENV_TOTAL_BYTES = 262_144
+
+
 def walk_strings(value: Any, location: str = "$") -> Iterator[tuple[str, str]]:
     if isinstance(value, str):
         yield location, value
@@ -126,6 +131,43 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
     return errors
 
 
+def env_size_errors(document: dict[str, Any]) -> list[str]:
+    """Reject a service whose environment cannot survive execve().
+
+    `docker compose config` inlines each `env_file` into `environment`, so a
+    malformed generated env file (for example one whose expansion ran away on a
+    self-referential value with a nested default) lands here rather than in the
+    file the build wrote. The container then dies at bring-up with a bare
+    `argument list too long` from the entrypoint, long after every other gate
+    reported the build valid -- so the size is checked here, not at `up` time.
+
+    Linux caps a single argv/envp entry at MAX_ARG_STRLEN (128 KiB) and the
+    whole block at ARG_MAX; the per-service budget below stays well under both.
+    """
+    errors: list[str] = []
+    for service_name, service in (document.get("services") or {}).items():
+        if not isinstance(service, dict):
+            continue
+        total = 0
+        for key, value in iter_env(service):
+            entry = len(str(key)) + len(str(value or "")) + 2
+            if entry > MAX_ENV_ENTRY_BYTES:
+                errors.append(
+                    f"service {service_name!r} environment {key!r} is "
+                    f"{entry} bytes, over the {MAX_ENV_ENTRY_BYTES}-byte limit "
+                    "for one variable; check the generated env file for runaway "
+                    "variable expansion"
+                )
+            total += entry
+        if total > MAX_ENV_TOTAL_BYTES:
+            errors.append(
+                f"service {service_name!r} environment totals {total} bytes, over "
+                f"the {MAX_ENV_TOTAL_BYTES}-byte budget; it will fail at bring-up "
+                "with 'argument list too long', not here"
+            )
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
@@ -148,7 +190,9 @@ def validate_document(
         source = Path(source_text)
         if not source.is_absolute() or not is_within(source, repo_root):
             continue
-        checked_in_source = read_only or "developer-profiles" in source.parts
+        checked_in_source = read_only or bool(
+            {"developer-profiles", "industry-profiles"} & set(source.parts)
+        )
         if not checked_in_source:
             continue
         if not source.exists():
@@ -165,6 +209,7 @@ def validate_document(
                 f"onto file target {target_text}"
             )
 
+    errors.extend(env_size_errors(document))
     errors.extend(secret_errors(document, extra_required or set()))
 
     return errors
