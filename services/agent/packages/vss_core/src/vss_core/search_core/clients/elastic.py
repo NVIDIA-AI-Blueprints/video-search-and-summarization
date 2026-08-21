@@ -36,6 +36,8 @@ from typing import Any
 from typing import ClassVar
 import urllib.parse
 
+from elastic_transport import HttpxAsyncHttpNode
+from elastic_transport import NodeConfig
 from elasticsearch import ApiError as ESApiError
 from elasticsearch import AsyncElasticsearch
 from elasticsearch import ConnectionError as ESConnectionError
@@ -53,6 +55,31 @@ if TYPE_CHECKING:
     from ..runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
+
+
+class _PrefixedHttpxAsyncNode(HttpxAsyncHttpNode):
+    """httpx transport node that preserves the endpoint's path prefix.
+
+    httpx rather than elastic_transport's default aiohttp node: that node
+    builds its ClientSession without ``trust_env``, so it ignores
+    ``HTTP(S)_PROXY`` and resolves DNS itself, which fails wherever egress is
+    proxy-only (the NemoClaw/OpenShell sandbox). Every other search_core
+    client is already httpx, so this also makes the tier consistent. The one
+    capability given up is certificate pinning, which VSS does not configure.
+
+    The override exists because upstream's httpx node derives the client
+    ``base_url`` from scheme/host/port alone and drops
+    ``NodeConfig.path_prefix``. An Ingress-mounted endpoint such as
+    ``http://host:80/elasticsearch`` would then be queried at
+    ``/<index>/_search``, which the Ingress answers with a 404 that surfaces
+    as a bogus "index does not exist". The aiohttp node has no such bug: it
+    concatenates ``BaseNode.base_url``, which already carries the prefix.
+    """
+
+    def __init__(self, config: NodeConfig) -> None:
+        super().__init__(config)
+        if self.path_prefix:
+            self.client.base_url = self.base_url
 
 
 def _redact_endpoint(endpoint: str) -> str:
@@ -189,6 +216,7 @@ class ElasticClient:
             )
         new = AsyncElasticsearch(
             hosts=[endpoint],
+            node_class=_PrefixedHttpxAsyncNode,
             request_timeout=request_timeout,
             max_retries=max_retries,
         )

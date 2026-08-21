@@ -140,6 +140,10 @@ network_policies:
       - host: files.pythonhosted.org
         port: 443
         access: full
+    # uv resolves and downloads in-process rather than shelling out to pip, so
+    # its own path has to be listed here or every wheel fetch from
+    # files.pythonhosted.org fails with `tunnel error: unsuccessful`. See
+    # vss-cli-build below for why uv lands under /tmp/.local/bin.
     binaries:
       - { path: /usr/bin/python3 }
       - { path: /usr/bin/python3.13 }
@@ -147,6 +151,11 @@ network_policies:
       - { path: /usr/bin/pip3 }
       - { path: /usr/bin/curl }
       - { path: /usr/local/bin/node }
+      - { path: /tmp/.local/bin/uv }
+      - { path: /tmp/.local/bin/uvx }
+      - { path: /usr/local/bin/uv }
+      - { path: /root/.local/bin/uv }
+      - { path: /sandbox/.local/bin/uv }
 
   slack:
     name: slack
@@ -319,3 +328,73 @@ network_policies:
       - { path: /usr/local/bin/openclaw }
       - { path: /usr/bin/python3 }
       - { path: /usr/bin/python3.13 }
+
+  # Kubernetes developer profiles publish nothing on host.openshell.internal:
+  # every HTTP surface sits behind one path-based Ingress on the node running
+  # the controller, so the Ingress host has to be named here. Set it to the
+  # deployment's `global.externalHost` (`vss-<profile>.<node-ip>.nip.io`) and
+  # re-apply; the value below is an example, not a fixture. Port 80 is the
+  # HAProxy Ingress hostPort from the profile READMEs -- use 443 instead when
+  # ingress.tls is configured.
+  vss-k8s-ingress:
+    name: vss-k8s-ingress
+    endpoints:
+      - host: vss-search.140.238.93.91.nip.io
+        port: 80
+        access: full
+    binaries:
+      - { path: /usr/bin/curl }
+      - { path: /usr/bin/python3 }
+      - { path: /usr/bin/python3.13 }
+      - { path: /usr/local/bin/node }
+
+  # `vss search run` is not a standalone binary: the skills invoke it as
+  # `uv run --project services/agent --extra cli vss`, so a sandbox that
+  # operates a deployment through the host CLI must also resolve that project.
+  # The `pypi` policy above carries pypi.org and files.pythonhosted.org, and it
+  # now lists uv among its binaries -- that pairing is what --extra cli actually
+  # runs on, since nvidia-vss-cli needs only click plus nvidia-vss-core's seven
+  # PyPI dependencies. Install uv from PyPI rather than the astral.sh script,
+  # which redirects to release assets this policy does not name.
+  #
+  # The indexes below are the remaining ones services/agent/pyproject.toml
+  # declares. They matter for --extra agent (torch resolves through
+  # pytorch-cpu), not for --extra cli, but uv reads every index the project
+  # declares while resolving. ngc-data-platform is omitted: it is
+  # NVIDIA-internal and only `nvdataset` resolves through it, which neither
+  # extra pulls.
+  #
+  # Build the venv with `--python /usr/bin/python3.13`. OpenShell enforces on
+  # the kernel-trusted /proc/<pid>/exe, and a uv-managed interpreter under
+  # ~/.local/share/uv/python/ resolves to a path no policy here lists -- the
+  # Elasticsearch and RT-Embed calls run under that interpreter, not under curl.
+  vss-cli-build:
+    name: vss-cli-build
+    endpoints:
+      - host: pypi.nvidia.com
+        port: 443
+        access: full
+      - host: download.pytorch.org
+        port: 443
+        access: full
+    # uv is a standalone binary and makes its own requests, so its path is
+    # enforced, not the shell's. The sandbox user is unprivileged and the base
+    # image is PEP 668 externally-managed, so the install route is
+    # `pip install --user --break-system-packages uv`. The sandbox presets
+    # PYTHONUSERBASE=/tmp/.local, so that lands at /tmp/.local/bin/uv -- the
+    # same /tmp convention claude_code already covers for /tmp/npm-global, and
+    # NOT $HOME/.local/bin as the pip docs imply. The other paths are fallbacks
+    # for drivers that leave PYTHONUSERBASE unset. pip itself passes on
+    # /usr/bin/pip3, and a venv's bin/python symlinks to /usr/bin/python3.13.
+    binaries:
+      - { path: /tmp/.local/bin/uv }
+      - { path: /tmp/.local/bin/uvx }
+      - { path: /usr/local/bin/uv }
+      - { path: /root/.local/bin/uv }
+      - { path: /sandbox/.local/bin/uv }
+      - { path: /home/sandbox/.local/bin/uv }
+      - { path: /usr/bin/python3 }
+      - { path: /usr/bin/python3.13 }
+      - { path: /usr/bin/pip }
+      - { path: /usr/bin/pip3 }
+      - { path: /usr/bin/curl }

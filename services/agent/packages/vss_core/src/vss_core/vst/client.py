@@ -62,6 +62,17 @@ _VST_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 _VST_BOUNDARY_ERRORS: tuple[type[Exception], ...] = (aiohttp.ClientError, TimeoutError)
 
 
+def _session(timeout: aiohttp.ClientTimeout) -> aiohttp.ClientSession:
+    """Return a session that honors the ambient proxy configuration.
+
+    aiohttp ignores ``HTTP(S)_PROXY`` unless ``trust_env`` is set, and then
+    resolves DNS itself. Wherever egress is proxy-only -- the NemoClaw or
+    OpenShell sandbox the host CLI runs in -- that surfaces as a DNS
+    resolution failure against a host the proxy reaches perfectly well.
+    """
+    return aiohttp.ClientSession(timeout=timeout, trust_env=True)
+
+
 # ---------------------------------------------------------------------- types
 
 
@@ -188,7 +199,7 @@ async def get_timelines_map(
     timelines_url = f"{base}/vst/api/v1/storage/timelines"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _session(timeout) as session:
             async for retry in create_retry_strategy(retries=retries, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(timelines_url) as response:
@@ -282,7 +293,7 @@ async def get_video_clip_url(
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(url) as response:
@@ -318,7 +329,7 @@ async def get_name_to_stream_id_map(
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(url) as response:
@@ -365,7 +376,7 @@ async def get_streams_info(
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(url) as response:
@@ -472,7 +483,7 @@ async def get_timeline(
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(timelines_url) as response:
