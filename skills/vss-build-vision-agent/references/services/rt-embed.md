@@ -39,17 +39,13 @@ the separate error bus, disabled by the same empty default (the error topic
 `RTVI_EMBED_ERROR_MESSAGE_TOPIC` already defaults to `vision-embed-errors`, so
 only the bus toggle matters).
 
-What the build must contribute depends on the Foundation:
-
-- The `search` Foundation sets `MESSAGE_BUS=kafka`, `MESSAGE_BUS_TOPIC=mdx-embed`,
-  and `ERROR_BUS=kafka` in its `.env`, matching the Helm search profile. A build
-  derived from it inherits working values, so do not repeat them in
-  `override.env` — that would copy an unchanged Foundation default. Verify they
-  are effective in `resolved.yml` instead.
-- Any other Foundation (`base`, `lvs`, `alerts`) leaves all three empty. A build
-  on those that requires embedding events must set `MESSAGE_BUS=kafka` and
-  `MESSAGE_BUS_TOPIC=mdx-embed` in `override.env`, plus `ERROR_BUS=kafka` if it
-  needs RT-Embed error events on Kafka.
+Read the Foundation's env before adding anything. A Foundation that already
+sets these ships working values, so repeating them in `override.env` would copy
+an unchanged Foundation default. Set `MESSAGE_BUS=kafka` and
+`MESSAGE_BUS_TOPIC=mdx-embed` in `override.env` only when the Foundation leaves
+them empty and the build needs embedding events, plus `ERROR_BUS=kafka` only if
+it also needs RT-Embed error events. Either way, confirm the effective values in
+`resolved.yml`.
 
 ## Placement and sizing
 
