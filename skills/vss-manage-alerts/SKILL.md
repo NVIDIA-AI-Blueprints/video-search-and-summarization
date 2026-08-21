@@ -384,6 +384,26 @@ Load `references/always-on.md` for the event contract, reason-code table, YAML r
 
 Query past incidents **directly** from Alert Bridge — no `/generate`:
 
+**The only parameter that scopes by sensor is `sensor_id`.** Any other spelling (e.g.
+`?sensor=`) is silently ignored by the API (`realtime_routes.py:577` declares `sensor_id`;
+FastAPI drops undeclared params), so `incident_service.py` builds no term clause and falls
+through to `match_all` — the request looks sensor-scoped but returns the **whole store's**
+total. Scope only with `--data-urlencode "sensor_id=..."`.
+
+**Every `curl` in this workflow is an assertion, not a fetch.** `curl -sf`'s exit status is
+swallowed by a `| jq` pipe, and `jq` exits `0` on empty input — so an unreachable Alert
+Bridge yields empty/zero output that reads back as a real `count: 0`. Guard each call with
+`jq -e` and `|| { echo "...unreachable..."; exit 2; }` so silent empty output fails loudly
+instead of being reported as an answer.
+
+**Run the numbered blocks below TOGETHER as one shell session** — not each fenced block in
+its own Bash call, and not line by line — so `$NAME` resolved in step 1 survives into the
+step 2/3 queries and an `exit` actually stops the workflow instead of killing one line's
+shell. The failure detection is done by the explicit guards themselves (`jq -e`, `|| exit`,
+`${VAR:?}`, `[ … ] || exit`); do NOT wrap them in `set -e` — with `pipefail` it would abort
+the `grep`-no-match branch below (an unknown sensor) before that branch can tell the user
+what exists.
+
 **If the ask names a sensor, resolve its exact stored name FIRST.** Never derive the value
 from the user's phrasing: "the warehouse sample sensor" is English, not an identifier, and
 guessing the separator (`warehouse-sample` vs `warehouse_sample`) filters on a value that
@@ -395,9 +415,12 @@ does not exist — which returns `count: 0`, not an error.
 #    different camera or errors out and reads back as "no such sensor".
 # Keep the two failures apart: a dead VIOS and an unknown sensor both leave you with no
 # name, but one means "use the fallback below" and the other means "tell the user".
-LIST=$(curl -sf "$VST_API_BASE/sensor/list") || { echo "VIOS unreachable → fallback"; exit 2; }
+LIST=$(curl -sf "$VST_API_BASE/sensor/list") || { echo "VIOS unreachable — exit 2 means: continue with the unfiltered /incidents fallback below (do NOT report an error)"; exit 2; }
 # sort -u: one sensor registered twice is one name, not an ambiguous choice between two.
-MATCHES=$(printf '%s' "$LIST" | jq -r '.[] | .name' | grep -Fi -- "<user's wording, e.g. warehouse>" | sort -u)
+# Guard the parse separately: a 200 with malformed JSON makes jq fail silently, and a bare
+# `jq | grep` would swallow it into an empty match that reads back as "no such sensor".
+NAMES=$(printf '%s' "$LIST" | jq -r '.[] | .name') || { echo "VIOS returned unparseable data — not an empty sensor list; do NOT read this as 'sensor not registered'"; exit 2; }
+MATCHES=$(printf '%s' "$NAMES" | grep -Fi -- "<user's wording, e.g. warehouse>" | sort -u)
 # Stop unless exactly one name matched — anything else is a question for the user, not a guess
 [ "$(printf '%s\n' "$MATCHES" | grep -c .)" = 1 ] || { printf '%s\n' "$MATCHES"; exit 1; }
 NAME="$MATCHES"
@@ -409,7 +432,10 @@ mean the wording is ambiguous (`warehouse_sample` and `warehouse_sample_2` both 
 different camera, and its count looks exactly as valid as the right one. Feeding all of them
 to the query is worse, because the joined value matches nothing and reads back as `count: 0`.
 
-Fall back to an unfiltered `/incidents` response only when VIOS is unavailable. It carries
+Fall back to an unfiltered `/incidents` response only when VIOS is unavailable — and fetch it
+with the cap, not the browse default: `ALL=$(curl -sf "$AB/api/v1/realtime/incidents?limit=1000" | jq -e .) || { echo "Alert Bridge unreachable — cannot answer"; exit 2; }`.
+(The `?limit=20` call in (a) below is for the no-sensor recent-list case; here you need the
+whole store to count client-side, so `count == total` can actually hold.) It carries
 the same strings, so the values already in it are the candidate list —
 `jq -r '.incidents[].sensorId' | sort -u` — and the rule above applies to them unchanged:
 exactly one match with the user's wording is the sensor, several is a question for the user,
@@ -418,9 +444,12 @@ the point of this fallback is that the stored strings are in front of you.
 
 That response is **not** an answer on its own: its `count`/`total` covers every sensor in the
 store, so count only the documents carrying the matched value, and say the name could not be
-confirmed against VIOS. Counting what came back is only sound while `count == total` — a
-truncated page gives a partial figure that looks like a complete one, so when they differ,
-narrow the window or say the list was cut short rather than reporting the number. This list
+confirmed against VIOS. Counting what came back is only sound while `count == total`.
+When they differ the page was truncated: re-request with `--data-urlencode "limit=1000"` (the
+endpoint's cap; the default is 100) and page with `offset` if it still truncates. Do not
+narrow the asked-for window to make the numbers agree — that answers about a different period
+(the rule `:463` states). If it still truncates at the cap, say the list was cut short and
+report the bound, not the number. This list
 is weaker than VIOS in one way worth stating to the user: it only contains sensors that have
 **produced** incidents. When nothing matches, you cannot tell "this sensor has no incidents"
 from "that is not its stored name" — report that ambiguity instead of reporting `0`.
@@ -430,34 +459,44 @@ from "that is not its stored name" — report that ambiguity instead of reportin
 #    question, and its count is the one that gets misreported as a single sensor's.
 
 # (a) the ask named NO sensor — recent incidents across every sensor
-curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq .
+curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq -e . \
+  || { echo "Alert Bridge unreachable — no incidents to report; do NOT read this as empty"; exit 2; }
 
 # (b) the ask named a sensor — scope to it, passing the NAME, not a VIOS UUID.
 # Let curl encode it: a name with a space or reserved character breaks a hand-built URL,
 # and a mangled value filters on something else (silent zero) instead of erroring.
 : "${NAME:?resolve the name first — an empty sensor_id is dropped, not rejected, and the
    response then covers every sensor in the store}"
+# Omit start_time/end_time for an all-time count — the endpoint applies NO range filter
+# without them. Add them ONLY when the user named a period, and then as real ISO-8601 values,
+# never the literal `<ISO>` (which 422s). A window you invent answers about a different period.
 curl -sfG "$AB/api/v1/realtime/incidents" \
-  --data-urlencode "sensor_id=$NAME" \
-  --data-urlencode "start_time=<ISO>" \
-  --data-urlencode "end_time=<ISO>" | jq .
+  --data-urlencode "sensor_id=$NAME" | jq -e . \
+  || { echo "Alert Bridge unreachable — no answer; do NOT read this as count 0"; exit 2; }
+# windowed ask → add:  --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 
 # 3. a scoped `count: 0` is not an answer yet: a rule created without `sensor_name` stores the
 #    stream id instead, so the rows exist under the UUID. There are only these two identities
 #    to try — ask about the second one directly. `total` is the full match count, so this is
 #    exact at any `limit`, and needs no paging through the store.
-UUID=$(curl -sf "$VST_API_BASE/sensor/list" | jq -r --arg n "$NAME" '.[]|select(.name==$n)|.sensorId')
+UUID=$(curl -sf "$VST_API_BASE/sensor/list" | jq -r --arg n "$NAME" '.[]|select(.name==$n)|.sensorId' | sort -u)
 # same trap as $NAME, and it springs while you are being careful: if VIOS died or dropped the
 # sensor since step 1, an empty $UUID is dropped from the query and the store-wide total comes
 # back as this sensor's — turning "none" into someone else's incidents.
 : "${UUID:?VIOS no longer resolves this sensor — say the alternate identity could not be checked}"
-# Carry the SAME window as (b). Drop it and you answer a different question: the endpoint
-# applies no range filter without it, so an all-time total comes back for a "today" ask.
-curl -sfG "$AB/api/v1/realtime/incidents" \
-  --data-urlencode "sensor_id=$UUID" \
-  --data-urlencode "start_time=<ISO>" \
-  --data-urlencode "end_time=<ISO>" | jq '.total'
-# > 0 → that is the answer; say it matched the sensor's UUID, not its name. Exactly 10000 is
+# Same dedup as step 1 (${UUID:?} only tests emptiness): a two-line $UUID goes on the wire as
+# sensor_id=<uuid>%0A<uuid> and matches nothing — collapse it; if two distinct ids remain, ask.
+[ "$(printf '%s\n' "$UUID" | grep -c .)" = 1 ] || { printf '%s\n' "$UUID"; exit 1; }
+# Carry the SAME window choice as (b): omit start_time/end_time for an all-time count, or
+# add the SAME window the user asked for. Mismatching (b) answers a different question — the
+# endpoint applies no range filter without them, so an all-time total comes back for a "today" ask.
+TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=$UUID" | jq -e '.total') \
+  || { echo "Alert Bridge unreachable — the alternate-identity check did not run; do NOT report a zero"; exit 2; }
+# windowed ask → add the same:  --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
+# jq -e exits non-zero on null/absent output, so an empty body (Alert Bridge down) fails the
+# assignment rather than yielding "" that reads back as a checked zero.
+# $TOTAL > 0 → that is the answer; say it matched the sensor's UUID, not its name. Exactly 10000 is
 #   the one number to distrust: this raw view never asks Elasticsearch for an exact hit count,
 #   and paging cannot go past it either, so 10000 is a floor. Report it as "at least 10000" —
 #   that is the true answer, not a fallback. Only narrow the window if the user asks for a

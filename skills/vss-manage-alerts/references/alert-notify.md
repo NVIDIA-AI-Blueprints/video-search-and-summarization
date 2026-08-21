@@ -116,11 +116,12 @@ scripts/alert-notify/
 2. **`.env` file** in `{baseDir}/.env`
 3. **Shell environment** variables already exported
 
-Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are available. If any is missing, resolve it before proceeding:
+Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS=slack` (or `slack,dashboard`) are available. If any is missing, resolve it before proceeding:
 - `SLACK_BOT_TOKEN` / `SLACK_CHANNEL_ID` — ask the user to provide them.
 - `VST_ENDPOINT` — use the `vss-manage-video-io-storage` skill to discover the VST endpoint, or ask the user.
+- `NOTIFY_BACKENDS` — set to `slack` (or `slack,dashboard`); without it the relay defaults to Dashboard and no incident reaches Slack.
 
-Do not start the server without all three variables set.
+Do not start the server without all four variables set.
 
 **Run all commands yourself** — never instruct the user to run commands manually.
 
@@ -168,7 +169,7 @@ If either command fails, do NOT proceed to Step 4. Report the error to the user.
 
 ### Step 3 — Configure Environment
 
-Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are set (via OpenClaw `skills.entries` injection, `.env` file, or shell env).
+Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are set (via OpenClaw `skills.entries` injection, `.env` file, or shell env).
 
 **For Slack credentials** — if `SLACK_BOT_TOKEN` or `SLACK_CHANNEL_ID` is missing, ask the user:
 
@@ -182,17 +183,18 @@ Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are set (via 
 
 > "I need the VST endpoint (`host:port`) to resolve video clip URLs. What is the VST address?"
 
-Once all three values are available, write the `.env` file:
+Once all four values are available, write the `.env` file:
 
 ```bash
 cat > {baseDir}/.env << 'EOF'
 SLACK_BOT_TOKEN=<token>
 SLACK_CHANNEL_ID=<channel_id>
 VST_ENDPOINT=<host>:<port>
+NOTIFY_BACKENDS=slack
 EOF
 ```
 
-**Do not start the server** until `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are all set.
+**Do not start the server** until `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are all set. Omitting `NOTIFY_BACKENDS=slack` (or `slack,dashboard`) is the quiet failure the warning above names: the relay starts and every incident goes to the Dashboard by default, never reaching Slack.
 
 ### Step 4 — Start the Server
 
