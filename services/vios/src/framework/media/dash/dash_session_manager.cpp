@@ -264,6 +264,14 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         opts["codec"] = stream->settings.encoderValues.encoding;
         opts["framerate"] = stream->settings.encoderValues.frameRate;
         opts["dash"] = "dash";
+        // Decode for this session alone rather than sharing the camera's pooled
+        // decoder.  An overlay session already needs its own draw and encode
+        // stages, so sharing only ever bought the decode itself, and it bought it
+        // at the price of tying this session's supply of frames to pool churn it
+        // does not control: a viewer leaving releases the pooled decoder, the
+        // next arrival builds a replacement, and a session still holding the old
+        // one stops receiving frames.  Replay overlay has always worked this way.
+        opts["new_dec"] = "true";
         setOverlayOptsBasedOnJson(opts, overlay);
 
         session->replay = true;   // owns a pipeline, not shared by stream
