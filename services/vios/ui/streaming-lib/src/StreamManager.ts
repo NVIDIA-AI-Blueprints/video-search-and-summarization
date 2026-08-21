@@ -325,6 +325,9 @@ export default class StreamManager {
             await dash.start({
                 endpoint: this.getHttpEndpoint(),
                 streamId: streamConfig.streamId,
+                // Present for a replay request, absent for live.
+                startTime: streamConfig.startTime,
+                endTime: streamConfig.endTime,
                 videoElement,
                 onFirstFrame: () => this.appConfig.firstFrameReceivedCallback?.(),
                 onError: (message: string) => {
