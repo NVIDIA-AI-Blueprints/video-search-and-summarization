@@ -1,0 +1,80 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+
+name: "gdino_preprocess"
+backend: "python"
+max_batch_size: 8
+input [
+{
+    name: "PROMPT"
+    data_type: TYPE_UINT8
+    dims: [ 2048 ]
+}
+]
+
+output [
+{
+    name: "input_ids"
+    data_type: TYPE_INT64
+    dims: [256]
+
+},
+{
+    name: "attention_mask"
+    data_type: TYPE_BOOL
+    dims: [256]
+},
+{
+    name: "position_ids"
+    data_type: TYPE_INT64
+    dims: [256]
+},
+{
+    name: "token_type_ids"
+    data_type: TYPE_INT64
+    dims: [256]
+},
+{
+    name: "text_token_mask"
+    data_type: TYPE_BOOL
+    dims: [256,256]
+}
+,
+{
+    name: "pos_map"
+    data_type: TYPE_FP32
+    dims: [-1,256]
+}
+,
+{
+    name: "target_sizes"
+    data_type: TYPE_INT32
+    dims: [ 4]
+}
+]
+
+
+instance_group [
+    {
+      count: 1
+      kind: KIND_CPU
+    }
+]
+
+
+#parameters: { key: "FORCE_CPU_ONLY_INPUT_TENSORS" value: {string_value:"no"}}
+
+
+response_cache {
+  enable: true
+}

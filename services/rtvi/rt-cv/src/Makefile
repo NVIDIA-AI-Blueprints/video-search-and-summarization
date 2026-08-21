@@ -25,7 +25,10 @@ APP:= metropolis_perception_app
 
 TARGET_DEVICE = $(shell gcc -dumpmachine | cut -f1 -d -)
 
-NVDS_VERSION:=9.1
+NVDS_VERSION?=$(DS_VERSION)
+ifeq ($(NVDS_VERSION),)
+  $(error "Neither NVDS_VERSION nor DS_VERSION is set")
+endif
 
 LIB_INSTALL_DIR?=/opt/nvidia/deepstream/deepstream-$(NVDS_VERSION)/lib/
 APP_INSTALL_DIR?=/opt/nvidia/deepstream/deepstream-$(NVDS_VERSION)/bin/
@@ -40,6 +43,7 @@ SRCS+= ../deepstream-app/deepstream_app_config_parser_yaml.cpp
 SRCS+= /opt/nvidia/deepstream/deepstream/sources/libs/nvds_msgapi_common_src/nvds_utils.cpp
 SRCS+= $(wildcard ../../apps-common/src/*.c)
 SRCS+= $(wildcard ../../apps-common/src/deepstream-yaml/*.cpp)
+SRCS+= ../../apps-common/src/frame_dump.cpp
 
 INCS:= $(wildcard *.h)
 INCS+= -I/opt/nvidia/deepstream/deepstream/sources/includes/ 
@@ -53,6 +57,8 @@ CFLAGS+= -I../../apps-common/includes \
                  -I../../../includes \
                  -I../deepstream-app/ -DDS_VERSION_MINOR=0 -DDS_VERSION_MAJOR=5 \
                  -I /usr/local/cuda-$(CUDA_VER)/include
+# frame_dump: nvds_obj_encode.h include (json-glib comes via PKGS)
+CFLAGS+= -I/opt/nvidia/deepstream/deepstream/sources/includes
 
 # Set default values if REGISTRY or TAG are not provided
 IMAGE_PATH ?= $(REGISTRY)
@@ -73,6 +79,12 @@ LIBS:= -L/usr/local/cuda-$(CUDA_VER)/lib64/ -lcudart -lnvds_utils -lnvds_msgbrok
 
 LIBS+= -L$(LIB_INSTALL_DIR) -lnvdsgst_meta -lnvds_meta -lnvdsgst_helper -lnvdsgst_customhelper -lnvdsgst_smartrecord -lnvds_utils -lnvds_msgbroker -lm \
        -lyaml-cpp -lcuda -lgstrtspserver-1.0 -ldl -Wl,-rpath,$(LIB_INSTALL_DIR)
+# frame_dump: GPU JPEG encode + threads.
+# nvds_batch_jpegenc pulls in libnvbufsurface/libnvbufsurftransform. On aarch64
+# those are dangling symlinks into /usr/lib/aarch64-linux-gnu/tegra, which the
+# L4T runtime only injects on-device, so ld cannot resolve them at build time.
+# The app calls no NvBufSurface* symbol itself, so defer them to the loader.
+LIBS+= -lnvds_batch_jpegenc -lpthread -Wl,--allow-shlib-undefined
 
 CFLAGS+= $(shell pkg-config --cflags $(PKGS))
 CXXFLAGS+= $(CFLAGS)

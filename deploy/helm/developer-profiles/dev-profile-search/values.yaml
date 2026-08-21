@@ -246,11 +246,16 @@ rtvi:
     # `search` mounts ds-main-config / ds-ppl-analytics from dev-profile-search vss-rtvi-cv-configmap (not the default `alerts` StatefulSet).
     profileMode: search
     replicas: 1
+    # image: inherited from the rtvi-cv subchart's managed GHCR channel.
+    # Pinning it here would override that default and silently keep this
+    # profile on NGC, like the other managed images which are not pinned in
+    # profile values.
+    #
+    # DGX-SPARK (SBSA) is a separate build -- different base image, same
+    # linux/arm64 platform -- but it shares the GHCR repository under an
+    # -sbsa tag suffix, so it needs a tag override only:
+    #   tag: develop-latest-sbsa
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      # For multi-arch: 3.3.0-26.07.2
-      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
-      tag: 3.3.0-26.07.2
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka

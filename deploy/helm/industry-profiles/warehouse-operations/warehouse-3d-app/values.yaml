@@ -388,9 +388,12 @@ rtvi:
     enabled: true
     profileMode: standalone-3d
     replicas: 1
+    # image: inherited from the rtvi-cv subchart's managed GHCR channel.
+    # Pinning it here would override that default and silently keep this
+    # profile on NGC, exactly like the other managed images which are not
+    # pinned in profile values. Override globally with
+    # global.container_prefix / global.container_tag instead.
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: "3.3.0-26.07.2"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka

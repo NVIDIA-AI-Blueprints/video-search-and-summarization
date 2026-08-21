@@ -146,6 +146,34 @@
       "notes": "SBSA (Grace/DGX-Spark) build of vss-rt-embed. It cannot be another platform in the normal multiarch manifest because SBSA and Jetson both report linux/arm64 but require different DeepStream bases. It shares the vss-rt-embed GHCR repository and uses the -sbsa tag suffix; Compose and Helm select it by overriding only the tag."
     },
     {
+      "name": "vss-rt-cv",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/rtvi/rt-cv",
+      "context": "services/rtvi/rt-cv",
+      "dockerfile": "services/rtvi/rt-cv/docker/Dockerfile",
+      "lfs_include": "services/rtvi/rt-cv/**/*.so",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-rt-cv"],
+      "tag_variables": ["VSS_RT_CV_TAG"],
+      "notes": "Built by GitHub with the managed first-party image set. The Dockerfile builds on the public DeepStream SDK image, which is anonymously pullable, rather than the private nvstaging base that would need NGC credentials GitHub Actions does not have. SBSA is the sibling vss-rt-cv-sbsa entry, not a platform of this multiarch manifest."
+    },
+    {
+      "name": "vss-rt-cv-sbsa",
+      "strategy": "build",
+      "ghcr_build": true,
+      "repository": "vss-rt-cv",
+      "tag_suffix": "-sbsa",
+      "source_path": "services/rtvi/rt-cv",
+      "context": "services/rtvi/rt-cv",
+      "dockerfile": "services/rtvi/rt-cv/docker/sbsa.Dockerfile",
+      "lfs_include": "services/rtvi/rt-cv/**/*.so",
+      "platforms": ["linux/arm64"],
+      "compose_image_names": [],
+      "tag_variables": [],
+      "notes": "SBSA (Grace/DGX-Spark) build of vss-rt-cv. It cannot be a platform of the multiarch entry: SBSA reports the same linux/arm64 TARGETARCH as Jetson, so buildx cannot tell them apart, and it needs a different base image (deepstream:9.1-triton-sbsa-dgx-spark). It therefore shares the vss-rt-cv GHCR repository via `repository` and stays collision-free via the -sbsa tag_suffix. No compose reference by design: compose and Helm select SBSA by overriding only the tag on the shared vss-rt-cv image, so this entry is a tagged variant with no dedicated coordinate."
+    },
+    {
       "name": "vss-vios-sensor",
       "strategy": "build",
       "ghcr_build": true,
@@ -256,13 +284,6 @@
       "platforms": ["linux/amd64"],
       "compose_image_names": ["vss-video-analytics-ui"],
       "tag_variables": ["VIDEO_ANALYTICS_UI_IMAGE_TAG"]
-    },
-    {
-      "name": "vss-rt-cv",
-      "strategy": "external-pin",
-      "platforms": ["linux/amd64"],
-      "compose_image_names": ["vss-rt-cv"],
-      "tag_variables": ["PERCEPTION_TAG"]
     },
     {
       "name": "vss-rt-cv-mv3dt-bev-fusion",
