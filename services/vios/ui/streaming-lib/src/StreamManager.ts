@@ -328,6 +328,7 @@ export default class StreamManager {
                 // Present for a replay request, absent for live.
                 startTime: streamConfig.startTime,
                 endTime: streamConfig.endTime,
+                overlay: streamConfig.options?.overlay as Record<string, unknown> | undefined,
                 videoElement,
                 onFirstFrame: () => this.appConfig.firstFrameReceivedCallback?.(),
                 onError: (message: string) => {

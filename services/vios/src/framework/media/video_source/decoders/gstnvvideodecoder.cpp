@@ -320,6 +320,12 @@ void GstNvVideoDecoder::setLatencyDropExempt(const string& peerid, bool exempt)
     }
 }
 
+bool GstNvVideoDecoder::hasAttachedConsumers()
+{
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    return !m_videoSinkList.empty();
+}
+
 bool GstNvVideoDecoder::hasLatencyExemptSink()
 {
     std::lock_guard<std::mutex> lock(m_videoSinkLock);

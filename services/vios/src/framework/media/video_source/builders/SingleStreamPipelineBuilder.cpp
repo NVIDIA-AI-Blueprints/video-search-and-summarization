@@ -248,7 +248,17 @@ void SingleStreamPipelineBuilder::destroyPipeline()
         // BUT destructor won't run while StreamMonitor holds the reference!
         // SOLUTION: Call destroy() explicitly BEFORE final cleanup to break the cycle.
         // IMPORTANT: Do NOT clear producer before destroy() - destroy_internal() needs it to unregister from StreamMonitor!
-        if (m_decoder) {
+        // A pooled decoder is shared by every viewer of the camera: the other
+        // DASH sessions drawing an overlay and every WebRTC viewer alike.  This
+        // session's consumer was removed in phase 1, so destroying the decoder
+        // now, while others are still attached, would tear the pipeline out from
+        // under them and freeze their video.  It is destroyed once nothing is
+        // left on it, which is when the circular reference above actually needs
+        // breaking.
+        if (m_decoder && !wasNewDecoder && m_decoder->hasAttachedConsumers()) {
+            LOG(info) << "Pooled decoder still has consumers; leaving it running" << endl;
+        }
+        else if (m_decoder) {
             try {
                 m_decoder->destroy(true);
             } catch (const std::exception& e) {

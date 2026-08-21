@@ -28,6 +28,10 @@ export interface DashStreamConfig {
     startTime?: string;
     endTime?: string;
     videoElement: HTMLVideoElement;
+    // The same overlay object the WebRTC path sends; the service parses it with
+    // the same reader, so an enabled overlay decodes and draws while an empty
+    // one keeps the cheaper bitstream passthrough.
+    overlay?: Record<string, unknown>;
     liveDelaySeconds?: number;
     initialBufferSeconds?: number;
     onFirstFrame?: () => void;
@@ -77,12 +81,15 @@ export class DashStream {
         this.replay = Boolean(config.startTime);
         const startPath = this.replay ? '/vst/api/v1/replay/dash/start' : '/vst/api/v1/live/dash/start';
         const startUrl = new URL(startPath, config.endpoint).toString();
-        const requestBody: Record<string, string> = { streamId: config.streamId };
+        const requestBody: Record<string, unknown> = { streamId: config.streamId };
         if (this.replay) {
             requestBody.startTime = config.startTime as string;
             if (config.endTime) {
                 requestBody.endTime = config.endTime;
             }
+        }
+        if (config.overlay) {
+            requestBody.overlay = config.overlay;
         }
         const response = await fetch(startUrl, {
             method: 'POST',

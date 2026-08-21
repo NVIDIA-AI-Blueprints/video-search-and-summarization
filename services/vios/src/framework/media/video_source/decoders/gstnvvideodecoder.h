@@ -209,6 +209,8 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         /* Exempt one sink from the live latency frame drop (DASH sinks). */
         void setLatencyDropExempt(const string& peerid, bool exempt = true);
         [[nodiscard]] bool hasLatencyExemptSink();
+        /* True while any consumer is still attached to this decoder. */
+        [[nodiscard]] bool hasAttachedConsumers();
         std::shared_ptr<NvEncoderVideoConsumer> getConsumer(const string& media_type);
         void addFrameTs(int64_t ts);
         void setEOS();
