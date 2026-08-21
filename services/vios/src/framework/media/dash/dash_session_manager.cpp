@@ -73,11 +73,15 @@ namespace
 {
 constexpr uint64_t kDashRetainedSegments = 60;
 
-// A fresh session has no back catalogue, so a player that starts immediately
-// sits on the live edge and stalls once per segment.  Withhold the manifest
-// until this many seconds of media exist, expressed in seconds so it holds for
-// any segment duration.
-constexpr unsigned kDashPrerollSeconds = 10;
+// A fresh session has no back catalogue, so a player that starts on the live
+// edge stalls once per segment.  Withhold the manifest until this many seconds
+// of media exist, expressed in seconds so it holds for any segment duration.
+//
+// This is charged in full to how long the viewer stares at a black screen, so
+// it buys only enough catalogue for the player to start behind the edge rather
+// than on it.  Ten seconds here meant ten seconds of 202 before the first frame
+// could even be requested, which dominated startup.
+constexpr unsigned kDashPrerollSeconds = 5;
 } // namespace
 
 DashSessionManager& DashSessionManager::instance()
@@ -597,6 +601,7 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
     }
     session->lastActivity = std::chrono::steady_clock::now();
     result.valid = true;
+    result.replay = session->replay;
     result.path = session->packager->manifestPath().parent_path() / fileName;
     if (result.path.extension() == ".mpd")
     {

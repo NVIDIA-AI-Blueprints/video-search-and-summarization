@@ -477,10 +477,17 @@ void replaceAttribute(std::string& manifest, size_t begin, size_t end,
 // behind live, which leaves a real catalogue in front of it to buffer from.
 // The value is derived from the manifest's own timestamp, so every refresh
 // yields the same answer and the player does not jump between live ranges.
-constexpr int kDashAvailabilityShiftSec = 6;
+// Together with the player's live delay this is the whole latency budget: the
+// playhead sits (shift + liveDelay) behind the newest media, so that sum is
+// both how much catalogue must exist before playback can start and how much
+// jitter the buffer can absorb.  Six seconds here plus a five second delay
+// meant no first frame until eleven seconds of media existed, whatever the
+// preroll gate was set to.
+constexpr int kDashLiveAvailabilityShiftSec = 2;
+constexpr int kDashReplayAvailabilityShiftSec = 6;
 
 // How often the player is asked to refetch the manifest.
-constexpr int kDashManifestRefreshSec = 5;
+constexpr int kDashManifestRefreshSec = 2;
 
 void setMinimumUpdatePeriod(std::string& manifest, int seconds)
 {
@@ -705,7 +712,8 @@ void anchorAvailabilityToFirstSegment(std::string& manifest, const std::filesyst
     manifest.replace(valueBegin, valueEnd - valueBegin, stamp);
 }
 
-void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& directory)
+void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& directory,
+                           bool replay)
 {
     // dashsink writes self-initializing fMP4 segments but omits SegmentTemplate@initialization.
     // dash.js requires that attribute, so expose segment 1 as the initialization segment and
@@ -746,7 +754,8 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
     if (isDynamic)
     {
         anchorAvailabilityToFirstSegment(manifest, directory);
-        shiftAvailabilityStart(manifest, kDashAvailabilityShiftSec);
+        shiftAvailabilityStart(manifest, replay ? kDashReplayAvailabilityShiftSec
+                                                : kDashLiveAvailabilityShiftSec);
         // dashsink advertises a one second refresh.  The SegmentTemplate carries a
         // fixed duration, so the player can derive segment numbers arithmetically
         // and only needs the manifest again to notice structural changes.  Halving
@@ -798,7 +807,7 @@ bool sendManifest(struct mg_connection* connection, const DashAssetResult& asset
     {
         return false;
     }
-    normalizeLiveManifest(manifest, asset.path.parent_path());
+    normalizeLiveManifest(manifest, asset.path.parent_path(), asset.replay);
     mg_printf(connection,
               "HTTP/1.1 200 OK\r\n"
               "Content-Type: application/dash+xml\r\n"
