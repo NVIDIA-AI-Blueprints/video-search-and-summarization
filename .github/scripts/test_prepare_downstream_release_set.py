@@ -23,46 +23,6 @@ from prepare_downstream_release_set import (  # noqa: E402
 )
 
 
-class GhcrBuildEntriesTest(unittest.TestCase):
-    def test_requires_new_ghcr_build(self):
-        self.assertTrue(
-            module.has_ghcr_build_entries(
-                {
-                    "images": [
-                        {
-                            "strategy": "build",
-                            "image": "ghcr.io/nvidia/vss-agent",
-                        }
-                    ]
-                }
-            )
-        )
-        self.assertFalse(
-            module.has_ghcr_build_entries(
-                {
-                    "images": [
-                        {
-                            "strategy": "reuse-pinned",
-                            "image": "ghcr.io/nvidia/vss-agent",
-                        }
-                    ]
-                }
-            )
-        )
-        self.assertFalse(
-            module.has_ghcr_build_entries(
-                {
-                    "images": [
-                        {
-                            "strategy": "build",
-                            "image": "nvcr.io/nvidia/vss-agent",
-                        }
-                    ]
-                }
-            )
-        )
-
-
 class PrMergeBaseShaTest(unittest.TestCase):
     def test_uses_compare_merge_base_not_target_tip(self):
         target = "b" * 40
@@ -175,7 +135,6 @@ class DownstreamVariablesTest(unittest.TestCase):
             )
             self.assertEqual(
                 output_path.read_text(),
-                "has_ghcr_build_entries=false\n"
                 "run_downstream=false\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)

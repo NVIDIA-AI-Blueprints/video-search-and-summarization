@@ -17,7 +17,7 @@
 # Single-file install: helm upgrade --install vss-alerts . -f values-realtime.yaml -n vss-alerts --create-namespace
 #
 # Before install: set ngc.apiKey, global.storageClass, global.externalHost (+ optional scheme/port).
-# Disables verification-only services (alert-bridge, perception, behavior analytics); enables rtvi-vlm.
+# Disables perception and behavior analytics; keeps alert-bridge and enables RT-VLM.
 
 profile: alerts
 mode: real-time
@@ -45,7 +45,8 @@ infra:
   sdrc:
     configFilePath: configs/sdrc/config-realtime.yml
 
-# Real-time (reference: met-blueprints values-realtime.yaml): disables verification-only services; enables vss-rtvi-vlm.
+# Real-time mirrors COMPOSE_PROFILES_VLM: disables perception/behavior analytics,
+# keeps alert-bridge, and enables vss-rtvi-vlm.
 # agent.vss-agent: wire RTVI_VLM_BASE_URL to in-cluster vss-rtvi-vlm (rtviVlmEnabled + rtviVlmServiceName; image override optional).
 # COSMOS_EMBED_ENDPOINT stays empty — alerts profile does not ship vss-rtvi-embed (same as reference; search profile uses embed).
 agent:
@@ -55,7 +56,6 @@ agent:
     cosmosEmbedEnabled: false
     vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
-# No alert-bridge; do not set NEXT_PUBLIC_ALERTS_API_URL
 vss-agent-ui:
   appSubtitle: "Vision (Alerts - VLM)"
 
@@ -71,121 +71,12 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
-    env:
-      - name: OPENAI_API_KEY
-        value: "NOAPIKEYSET"
-      - name: OPENAI_API_VERSION
-        value: ""
-      - name: NVIDIA_API_KEY
-        value: "NOAPIKEYSET"
-      - name: NVIDIA_VISIBLE_DEVICES
-        value: "all"
-      - name: VLM_MODEL_TO_USE
-        value: "cosmos-reason3"
-      - name: KAFKA_ENABLED
-        value: "true"
-      - name: KAFKA_INCIDENT_TOPIC
-        value: "mdx-vlm-incidents"
-      - name: ERROR_MESSAGE_TOPIC
-        value: "vision-llm-errors"
-      # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
-      - name: MESSAGE_BUS
-        value: "kafka"
-      - name: MESSAGE_BUS_TOPIC
-        value: "mdx-vlm-captions"
-      - name: ERROR_BUS
-        value: "kafka"
-      - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
-        value: "true"
-      - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
-        value: "true"
-      - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
-        value: "1024"
-      - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
-        value: "false"
-      # Optional EVS++ session controls.
-      - name: VIA_EVS_SESSION
-        value: ""
-      - name: VLLM_EVS_SIMILARITY_THRESHOLD
-        value: ""
-      - name: VLLM_NUM_PREPROCESS_WORKERS
-        value: "16"
-      - name: VIA_EVS_TOKEN_BUDGET
-        value: ""
-      - name: VIA_EVS_MAX_SESSIONS
-        value: ""
-      - name: VLLM_USE_AOT_COMPILE
-        value: "0"
-      - name: VLLM_DISABLE_COMPILE_CACHE
-        value: "1"
-      - name: VLLM_LOGGING_LEVEL
-        value: "INFO"
-      - name: LOG_LEVEL
-        value: "INFO"
-      - name: ENABLE_OTEL_MONITORING
-        value: "false"
-      - name: ENABLE_REDIS_ERROR_MESSAGES
-        value: "false"
-      - name: OTEL_EXPORTER_OTLP_ENDPOINT
-        value: "http://otel-collector:4318"
-      - name: OTEL_METRIC_EXPORT_INTERVAL
-        value: "60000"
-      - name: OTEL_RESOURCE_ATTRIBUTES
-        value: ""
-      - name: OTEL_TRACES_EXPORTER
-        value: "otlp"
-      - name: NUM_GPUS
-        value: "1"
-      - name: NUM_VLM_PROCS
-        value: ""
-      - name: MODEL_IMPLEMENTATION_PATH
-        value: ""
-      - name: HF_TOKEN
-        value: ""
-      - name: INSTALL_PROPRIETARY_CODECS
-        value: "false"
-      - name: FORCE_SW_AV1_DECODER
-        value: ""
-      - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
-        value: ""
-      - name: RTVI_EXTRA_ARGS
-        value: ""
-      - name: RTVI_RTSP_LATENCY
-        value: ""
-      - name: RTVI_RTSP_TIMEOUT
-        value: ""
-      - name: RTVI_RTSP_RECONNECTION_INTERVAL
-        value: "5"
-      - name: RTVI_RTSP_RECONNECTION_WINDOW
-        value: "60"
-      - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
-        value: "10"
-      - name: VLLM_GPU_MEMORY_UTILIZATION
-        value: ""
-      - name: VLM_BATCH_SIZE
-        value: ""
-      # For edge (DGX-SPARK, IGX-THOR, AGX-THOR): dev-profile.sh sets 860, 467, 20. Override when using edge hardware.
-      - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
-        value: "1"
-      - name: VLM_INPUT_WIDTH
-        value: ""
-      - name: VLM_INPUT_HEIGHT
-        value: ""
-      - name: VLM_SYSTEM_PROMPT
-        value: ""
-      - name: VSS_NUM_GPUS_PER_VLM_PROC
-        value: ""
-      - name: VSS_SKIP_INPUT_MEDIA_VERIFICATION
-        value: ""
-      # Enable native audio for Omni models (replaces ENABLE_AUDIO); disables Riva ASR.
-      - name: VLM_MODEL_SUPPORTS_AUDIO
-        value: "false"
-      # Required for Nemotron Nano Omni models.
-      - name: VLM_TRUST_REMOTE_CODE
-        value: "false"
-      # EVS pruning rate 0.0-1.0.
-      - name: VLM_VIDEO_PRUNING_RATE
-        value: "0.0"
+    envOverrides:
+      VLM_MODEL_TO_USE: "cosmos-reason3"
+      KAFKA_ENABLED: "true"
+      MESSAGE_BUS: "kafka"
+      ERROR_BUS: "kafka"
+      INSTALL_PROPRIETARY_CODECS: "true"
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-alerts/values.yaml for full nims.* defaults).
 nims:

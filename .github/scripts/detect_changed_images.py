@@ -274,7 +274,7 @@ def _format_build_args(build_args: dict | None) -> str:
 
 
 def matrix_entry(entry: dict) -> dict:
-    return {
+    matrix = {
         "name": entry["name"],
         "repository": entry.get("repository", entry["name"]),
         "tag_suffix": entry.get("tag_suffix", ""),
@@ -285,6 +285,7 @@ def matrix_entry(entry: dict) -> dict:
         "source_path": entry["source_path"],
         "build_args": _format_build_args(entry.get("build_args")),
     }
+    return matrix
 
 
 def to_matrix(entries: list[dict]) -> dict:

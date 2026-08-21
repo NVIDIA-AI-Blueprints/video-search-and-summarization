@@ -11,8 +11,8 @@ deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-ag
 deploy/docker/services/alert/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
 deploy/docker/services/analytics/behavior-analytics/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics:develop-latest
 deploy/docker/services/analytics/video-analytics-api/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
-deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.3.0-2
-deploy/docker/services/auto-calibration/ui/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.3.0-2
+deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.3.0-3
+deploy/docker/services/auto-calibration/ui/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.3.0-3
 deploy/docker/services/configurators/vss-configurator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-configurator:develop-latest
 deploy/docker/services/infra/compose.yml alpine:3.24.1
 deploy/docker/services/infra/compose.yml arizephoenix/phoenix:19.8.0
@@ -62,7 +62,7 @@ deploy/docker/services/rtvi/rtvi-cv/compose.yaml nvcr.io/nvstaging/vss-core/vss-
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
-deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1
+deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest
 deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
 deploy/docker/services/ui/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
 deploy/docker/services/video-summarization/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest
