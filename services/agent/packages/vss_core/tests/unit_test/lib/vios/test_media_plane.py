@@ -254,9 +254,12 @@ async def test_list_joins_streams_and_filters_by_provenance(vios_http) -> None:
     everything = await vios.list_media(VST)
     assert {row["type"] for row in everything} == {"video", "stream"}
     assert everything[0]["has_timeline"] is True
-    # `source` is VIOS's reference, not a fetchable handle.
-    assert everything[0]["source"] == "/videos/one.mp4"
-    assert "url" not in everything[0]
+    # A camera's source is its RTSP address; an upload's would be a container
+    # path that only repeats `name`, so it is omitted rather than misleading.
+    video_row = next(r for r in everything if r["type"] == "video")
+    stream_row = next(r for r in everything if r["type"] == "stream")
+    assert "source" not in video_row
+    assert stream_row["source"] == "rtsp://cam/1"
 
     assert [row["name"] for row in await vios.list_media(VST, kind="video")] == ["file-one"]
     assert [row["name"] for row in await vios.list_media(VST, kind="stream")] == ["rtsp-one"]

@@ -153,6 +153,25 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
     at = values.get("at")
+
+    # A file-backed sensor has no live capture: VIOS answers 400 for a live
+    # frame. We already know the provenance, so resolve to the first recorded
+    # frame instead of sending a request that cannot succeed. `clip` defaults
+    # to the covering segment for the same reason.
+    if at is None and ref.kind == "video":
+        span = _run(vios.recorded_span(origin, ref.stream_id))
+        if span is None:
+            return Result(
+                body={
+                    "error": f"{ref.name!r} is an uploaded file with no recordings yet, so it has "
+                    f"neither a live frame nor one to replay",
+                    "name": ref.name,
+                    "type": ref.kind,
+                },
+                exit=Exit.NOT_FOUND,
+            )
+        at = span[0]
+
     url = vios.normalise_media_url(_run(vios.get_snapshot_url(origin, ref.stream_id, at=at)), origin)
     body = {"media_url": url, "kind": "snapshot", "source": "replay" if at else "live"}
     if at:
@@ -288,7 +307,14 @@ def _build() -> click.Group:
     group.add_command(
         _command(
             "snapshot",
-            "Mint a picture URL: the latest live frame, or the frame nearest --at.",
+            "Mint a picture URL: the latest live frame, or the frame nearest --at.\n"
+            "\n"
+            "A live frame only exists for an RTSP sensor. For an uploaded file, omitting --at "
+            "gives the first recorded frame rather than an error.\n"
+            "\n"
+            "\b\n"
+            "  vss vios snapshot --sensor dock-cam\n"
+            "  vss vios snapshot --sensor warehouse_safety_0001 --at 2025-01-01T00:01:00.000Z\n",
             [_sensor_option(), click.Option(["--at"], default=None, help="ISO-8601 timestamp; omit for a live frame.")],
             _snapshot,
         )

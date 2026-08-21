@@ -152,26 +152,6 @@ def test_clip_defaults_to_the_covering_segment_and_echoes_it(
     assert body["name"] == "warehouse_safety_0001"
 
 
-def test_snapshot_marks_live_versus_replay(cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[Any] = []
-
-    def fake_run(coro: Any) -> Any:
-        coro.close()
-        calls.append(coro)
-        return _Ref() if len(calls) == 1 else "https://vss.test/vst/img.jpg"
-
-    monkeypatch.setattr(vios_group, "_run", fake_run)
-
-    live = json.loads(CliRunner().invoke(cli, ["snapshot", "--sensor", "cam"]).stdout)
-    assert live["source"] == "live"
-    assert "at" not in live
-
-    calls.clear()
-    replay = json.loads(CliRunner().invoke(cli, ["snapshot", "--sensor", "cam", "--at", "2026-08-01T12:00:30Z"]).stdout)
-    assert replay["source"] == "replay"
-    assert replay["at"] == "2026-08-01T12:00:30Z"
-
-
 def test_delete_refuses_a_type_mismatch(cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """--type is the caller's belief; a mismatch means one of us is wrong."""
     monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])
@@ -277,3 +257,66 @@ def test_add_refuses_a_type_that_contradicts_the_source(
 
     assert result.exit_code == int(Exit.INVALID_INPUT)
     assert "is a stream source, not a video" in result.stdout
+
+
+def test_snapshot_of_an_uploaded_file_replays_instead_of_asking_for_a_live_frame(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VIOS answers 400 for a live frame on a file-backed sensor.
+
+    We know the provenance already, so the request is never sent.
+    """
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()  # kind == "video"
+        if len(calls) == 2:
+            return ("2025-01-01T00:00:00.000Z", "2025-01-01T00:03:30.000Z")
+        return "https://vss.test/vst/img.jpg"
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    body = json.loads(CliRunner().invoke(cli, ["snapshot", "--sensor", "warehouse_safety_0001"]).stdout)
+
+    assert body["source"] == "replay"
+    assert body["at"] == "2025-01-01T00:00:00.000Z"
+
+
+def test_snapshot_says_so_when_an_upload_has_nothing_recorded_yet(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        return _Ref() if len(calls) == 1 else None
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(cli, ["snapshot", "--sensor", "warehouse_safety_0001"])
+
+    assert result.exit_code == int(Exit.NOT_FOUND)
+    assert "neither a live frame nor one to replay" in result.stdout
+
+
+def test_snapshot_of_an_rtsp_sensor_is_still_live(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Cam(_Ref):
+        kind = "stream"
+        url = "rtsp://cam/1"
+
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        return _Cam() if len(calls) == 1 else "https://vss.test/vst/img.jpg"
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    body = json.loads(CliRunner().invoke(cli, ["snapshot", "--sensor", "dock-cam"]).stdout)
+
+    assert body["source"] == "live"
+    assert "at" not in body

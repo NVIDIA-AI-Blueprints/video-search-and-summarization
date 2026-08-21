@@ -867,7 +867,6 @@ async def list_media(
                     "stream_id": "",
                     "type": "unknown",
                     "state": sensor.get("state"),
-                    "source": "",
                     "is_main": False,
                     "has_timeline": bool(sensor.get("isTimelinePresent")),
                     "error": "VIOS reported no sensorId",
@@ -886,14 +885,16 @@ async def list_media(
                 "stream_id": stream_id,
                 "type": classify_source(stream_url),
                 "state": sensor.get("state"),
-                # VIOS's own reference: an RTSP URL for a camera, a path inside
-                # the VIOS container for an uploaded file. Not a handle you can
-                # fetch -- `clip` and `snapshot` mint those, because addressing
-                # recorded media needs a time window.
-                "source": stream_url,
                 "is_main": bool(stream.get("isMain")),
                 "has_timeline": bool(sensor.get("isTimelinePresent")),
             }
+            # Only an RTSP sensor has a source worth reporting -- it is the
+            # camera's address, and `vss-manage-alerts` reads it as
+            # live_stream_url. For an uploaded file the equivalent is a path
+            # inside the VIOS container, which duplicates `name` behind a
+            # constant prefix and cannot be fetched, so it is omitted.
+            if row["type"] == "stream":
+                row["source"] = stream_url
             if not stream_id:
                 row["error"] = "VIOS reported a stream with no streamId"
             if kind is None or row["type"] == kind:
