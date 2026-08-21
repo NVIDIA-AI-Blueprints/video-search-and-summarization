@@ -2641,7 +2641,7 @@ def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -
 
 
 def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
-                       ready_event: Optional[Any]) -> None:
+                       ready_event: Optional[Any], started: bool = True) -> None:
     """Mirror the live assignment into the readiness signal and the gauge.
 
     Readiness is not a milestone that a process passes once. A rebalance can
@@ -2655,10 +2655,16 @@ def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
     set_assigned_partitions(held)
     ready = enhancer.source.is_ready() and held > 0
     if ready_event is not None:
-        if ready:
-            ready_event.set()
-        else:
+        if not ready:
+            # Losing partitions is reported immediately, whatever else this
+            # process is doing.
             ready_event.clear()
+        elif started:
+            # Raised only once this process has finished starting. The first
+            # assignment arrives from inside the join, while the dispatcher is
+            # still being built, and announcing then tells a producer to start
+            # sending to a pipeline that cannot yet take it.
+            ready_event.set()
     return ready
 
 
@@ -2685,10 +2691,13 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         # its own. Both have to finish before this child counts as ready, or
         # the instance announces readiness while some partitions are still
         # unowned and a producer writes past them.
-        # Registered before the wait so the first assignment is reported by
-        # the same path as every later one, rather than by a one-off call.
+        # Registered before the wait so the assignment gauge is live from the
+        # first callback. It cannot raise readiness yet: that waits until this
+        # process has finished starting, below.
+        startup = {"complete": False}
         enhancer.source.set_assignment_change_hook(
-            lambda: _publish_readiness(enhancer, index, ready_event)
+            lambda: _publish_readiness(enhancer, index, ready_event,
+                                       started=startup["complete"])
         )
         if not enhancer.source.await_ready():
             # Restartable rather than fatal: a broker blip should recover on
@@ -2697,6 +2706,7 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
             raise RuntimeError(
                 f"pipeline process {index} could not join the consumer group"
             )
+        startup["complete"] = True
         _publish_readiness(enhancer, index, ready_event)
         logger.info("Pipeline process %d ready (pid=%d)", index, os.getpid())
         if index == 0:

@@ -276,3 +276,61 @@ class TestReadinessTracksTheLiveAssignment:
         enhancer.source.is_ready.return_value = True
         entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, None)
         enhancer.source.set_assignment_change_hook.assert_called_once()
+
+
+class TestReadinessWaitsForStartupToFinish:
+    """The first assignment arrives while this process is still starting.
+
+    It comes from inside the group join, before the dispatcher is built.
+    Raising readiness there tells the supervisor to announce the instance, and
+    a producer gated on that announcement starts sending to a pipeline that
+    cannot yet take the work.
+    """
+
+    @staticmethod
+    def _child(held=2, ready=True):
+        enhancer = MagicMock()
+        enhancer.source.assigned_partition_count.return_value = held
+        enhancer.source.is_ready.return_value = ready
+        return enhancer
+
+    def test_an_assignment_before_startup_finishes_does_not_raise_it(self):
+        event = entry._pipeline_mp_context().Event()
+        entry._publish_readiness(self._child(), 0, event, started=False)
+        assert not event.is_set()
+
+    def test_the_gauge_is_still_published_while_starting(self):
+        # Live assignment state is useful before this process is ready.
+        child = self._child(held=3)
+        entry._publish_readiness(child, 0, None, started=False)
+        child.source.assigned_partition_count.assert_called()
+
+    def test_finishing_startup_raises_it(self):
+        event = entry._pipeline_mp_context().Event()
+        entry._publish_readiness(self._child(), 0, event, started=False)
+        entry._publish_readiness(self._child(), 0, event, started=True)
+        assert event.is_set()
+
+    def test_losing_partitions_lowers_it_whatever_the_startup_state(self):
+        # A revoke is reported at once; there is nothing to wait for.
+        event = entry._pipeline_mp_context().Event()
+        entry._publish_readiness(self._child(), 0, event, started=True)
+        entry._publish_readiness(self._child(held=0), 0, event, started=False)
+        assert not event.is_set()
+
+    def test_the_hook_cannot_raise_readiness_before_the_child_logs_ready(self, enhancer):
+        enhancer.source.await_ready.return_value = True
+        enhancer.source.assigned_partition_count.return_value = 2
+        enhancer.source.is_ready.return_value = True
+        event = entry._pipeline_mp_context().Event()
+
+        # Fire the hook the way the join does, from inside await_ready.
+        def fire_hook_during_join():
+            hook = enhancer.source.set_assignment_change_hook.call_args.args[0]
+            hook()
+            assert not event.is_set(), "readiness raised before startup finished"
+            return True
+
+        enhancer.source.await_ready.side_effect = fire_hook_during_join
+        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, event)
+        assert event.is_set(), "readiness never raised after startup"
