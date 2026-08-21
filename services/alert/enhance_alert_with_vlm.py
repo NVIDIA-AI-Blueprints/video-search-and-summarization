@@ -310,6 +310,11 @@ class AnomalyEnhancer(
         # the outgoing member finishes what it owes on a partition before
         # letting it move.
         self._partition_in_flight = PartitionInFlight()
+        # One budget per rebalance, not per consumer. Every consumer in this
+        # process is revoked together and drains sequentially on the consume
+        # thread, so a per-consumer bound multiplies by the topic count against
+        # a poll interval that does not.
+        self._rebalance_drain_deadline: Optional[float] = None
         self.source.set_revoke_hook(self._drain_revoked_partitions)
         self.sink = EventBridgeFactory.create_sink(self.config)
 
@@ -941,6 +946,15 @@ class AnomalyEnhancer(
         so a process that is killed loses whatever it held regardless.
         """
         from metrics.recorder import inc_rebalance_drain
+        from utils.partition_in_flight import DEFAULT_DRAIN_TIMEOUT
+
+        if self._rebalance_drain_deadline is None:
+            # Opened by the first revoke of a rebalance and closed when the
+            # coordinator answers again. Not reopened on expiry: a spent
+            # budget means this rebalance has had its allowance, and handing
+            # the next consumer a fresh one is the per-consumer bound this
+            # replaces.
+            self._rebalance_drain_deadline = time.monotonic() + DEFAULT_DRAIN_TIMEOUT
 
         if not partitions:
             return
@@ -952,7 +966,8 @@ class AnomalyEnhancer(
             "Draining %d message(s) still in flight across %d revoked partition(s)",
             outstanding, len(partitions),
         )
-        drained = self._partition_in_flight.drain(partitions)
+        remaining = max(0.0, self._rebalance_drain_deadline - time.monotonic())
+        drained = self._partition_in_flight.drain(partitions, timeout=remaining)
         inc_rebalance_drain("drained" if drained else "timed_out")
 
     def _needs_worker_pool(self) -> bool:
@@ -2681,6 +2696,9 @@ def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
 
     held = enhancer.source.assigned_partition_count()
     set_assigned_partitions(held)
+    if enhancer.source.is_ready():
+        # The rebalance is over; the next one starts a fresh budget.
+        enhancer._rebalance_drain_deadline = None
     # Decided, not non-empty. With more group members than a topic has
     # partitions a member legitimately owns none of it -- the documented
     # replicas x processes > partitions rollout -- and requiring work here
@@ -2934,6 +2952,14 @@ if __name__ == "__main__":
         process_count = resolve_process_count(pipeline_config)
         source_partitions = None
         multi_process = process_count > 1
+
+        if multi_process and PROMETHEUS_ENABLED:
+            # Published before anything else so the endpoint can tell "no
+            # pipeline yet" from "no pipeline needed". An absent gauge reads as
+            # nothing wrong, which is how health answered ok for the whole
+            # startup window with no worker owning a single partition.
+            from metrics.recorder import set_pipeline_process_counts
+            set_pipeline_process_counts(process_count, 0, 0)
 
         if multi_process:
             # Everything a wrong multi-process configuration would only reveal

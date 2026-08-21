@@ -204,6 +204,20 @@ class TestAssignmentIsLiveState:
         consumer.revoke()
         assert broker.owned_partitions(consumer) == set()
 
+    def test_a_revoke_drops_what_was_buffered_for_that_consumer(self):
+        # Buffered records were never committed, so the incoming owner reads
+        # them again. Keeping them would give this member work on partitions
+        # it has just lost.
+        from mdx.kafka_message_broker import KafkaMessageBroker
+        broker = KafkaMessageBroker(CONFIG)
+        consumer = wire(broker, FakeConsumer(assign_after=2, messages=[FakeMessage()]))
+        broker.await_assignment(consumer, timeout=5)
+        broker._prefetched[id(consumer)] = [FakeMessage()]
+
+        consumer.revoke()
+
+        assert broker._prefetched.get(id(consumer)) in (None, [])
+
     def test_a_revoke_makes_the_assignment_undecided_again(self):
         # Readiness follows this. Leaving it decided made it a latch that
         # could only ever be set, which is what let a worker report itself

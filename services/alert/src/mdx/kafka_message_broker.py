@@ -109,6 +109,12 @@ class KafkaMessageBroker:
                 # holds nothing and does not yet know what it will hold.
                 self._assignment_decided.discard(id(consumer))
                 self._owned[id(consumer)] = set()
+                # Anything buffered while waiting for the assignment goes with
+                # them. It was never committed, so the incoming owner reads it
+                # again from the unchanged offset; keeping it would hand this
+                # member work on partitions it no longer owns, which is the
+                # overlap the drain exists to prevent.
+                self._prefetched.pop(id(consumer), None)
             logger.info("Revoking %d partition(s) of %s", len(losing), topic)
             if on_assignment_change is not None:
                 # Before the drain: readiness has to drop the moment the

@@ -181,5 +181,53 @@ class TestAdmissionOwnership:
         assert tracker.drain([P0], timeout=0.2) is False
 
 
+class TestTheDrainBudgetIsPerRebalance:
+    """Every consumer in a process is revoked together and drains in turn.
+
+    They run one after another on the consume thread, so a budget charged per
+    consumer multiplies by the number of source topics while the poll interval
+    it is measured against does not. Two topics at fifteen seconds each is
+    thirty of a sixty-second allowance, with nothing left for a third.
+    """
+
+    @staticmethod
+    def _enhancer():
+        from unittest.mock import MagicMock
+        from enhance_alert_with_vlm import AnomalyEnhancer
+
+        stub = MagicMock()
+        stub._partition_in_flight = PartitionInFlight()
+        stub._rebalance_drain_deadline = None
+        stub.source.is_ready.return_value = False
+        stub._drain_revoked_partitions = (
+            AnomalyEnhancer._drain_revoked_partitions.__get__(stub)
+        )
+        return stub
+
+    def test_the_first_revoke_opens_a_budget(self):
+        stub = self._enhancer()
+        stub._drain_revoked_partitions([P0])
+        assert stub._rebalance_drain_deadline is not None
+
+    def test_a_second_consumer_shares_the_same_budget(self):
+        stub = self._enhancer()
+        stub._drain_revoked_partitions([P0])
+        first = stub._rebalance_drain_deadline
+        stub._drain_revoked_partitions([P1])
+        assert stub._rebalance_drain_deadline == first, "each consumer got its own budget"
+
+    def test_the_budget_bounds_the_total_not_each_consumer(self):
+        stub = self._enhancer()
+        stub._rebalance_drain_deadline = time.monotonic() + 0.15
+        stub._partition_in_flight.accept(P0)
+        stub._partition_in_flight.accept(P1)
+
+        started = time.monotonic()
+        stub._drain_revoked_partitions([P0])
+        stub._drain_revoked_partitions([P1])
+        # Two consumers, one budget: the second finds it nearly spent.
+        assert time.monotonic() - started < 1.0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
