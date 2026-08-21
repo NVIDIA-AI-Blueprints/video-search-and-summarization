@@ -176,7 +176,13 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,
    e.g. `warehouse_safety_0001`).
 
-3. **If a matching sensor is present** → proceed to Step 1.
+   A row may carry an `error` field — VIOS listed the sensor but could not describe it (no
+   streams, or no id). It is still listed on purpose: the name **exists**, so treating it as
+   absent and uploading would create a duplicate and a 409.
+
+3. **If a matching sensor is present** → proceed to Step 1. If its row carries an `error`,
+   report that rather than uploading over it; the clip resolution in Step 1 will fail with a
+   specific reason.
 
 4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new
    sensor appears:

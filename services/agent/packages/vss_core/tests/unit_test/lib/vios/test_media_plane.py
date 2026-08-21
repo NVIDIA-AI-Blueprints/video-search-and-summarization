@@ -623,13 +623,20 @@ async def test_two_half_segments_do_not_combine_into_an_invented_span(vios_http)
 
 
 @pytest.mark.asyncio
-async def test_an_unknown_provenance_row_satisfies_neither_type_filter(vios_http) -> None:
+async def test_an_unclassifiable_sensor_stays_visible_under_every_filter(vios_http) -> None:
+    """The filtered list is what ask-video checks before uploading.
+
+    Hiding a sensor there answers "does this name exist" with a wrong no, and
+    the caller creates a duplicate.
+    """
     configure, _, _ = vios_http
     configure(**{"/sensor/list": [{"name": "orphan", "sensorId": ""}]})
 
-    assert await vios.list_media(VST, kind="video") == []
-    assert await vios.list_media(VST, kind="stream") == []
-    assert len(await vios.list_media(VST)) == 1
+    for kind in (None, "video", "stream"):
+        rows = await vios.list_media(VST, kind=kind)
+        assert [r["name"] for r in rows] == ["orphan"], kind
+        assert rows[0]["type"] == "unknown"
+        assert rows[0]["error"]
 
 
 @pytest.mark.asyncio
@@ -780,12 +787,31 @@ async def test_a_registered_sensor_with_no_streams_is_still_listed(vios_http) ->
 
 
 @pytest.mark.asyncio
-async def test_a_stream_less_sensor_satisfies_neither_type_filter(vios_http) -> None:
+async def test_a_stream_less_sensor_stays_visible_under_a_filter(vios_http) -> None:
     configure, _, _ = vios_http
     configure(**_routes(sensors=[{"name": "stream-less", "sensorId": "s0"}], streams={"s0": []}))
 
-    assert await vios.list_media(VST, kind="video") == []
-    assert await vios.list_media(VST, kind="stream") == []
+    rows = await vios.list_media(VST, kind="video")
+    assert [r["name"] for r in rows] == ["stream-less"]
+    assert rows[0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_filter_still_excludes_the_other_provenance(vios_http) -> None:
+    """Visible-when-unclassifiable must not become "the filter does nothing"."""
+    configure, _, _ = vios_http
+    configure(
+        **_routes(
+            sensors=[{"name": "f", "sensorId": "f"}, {"name": "r", "sensorId": "r"}],
+            streams={
+                "f": [{"streamId": "f", "isMain": True, "url": "/videos/f.mp4"}],
+                "r": [{"streamId": "r", "isMain": True, "url": "rtsp://c/1"}],
+            },
+        )
+    )
+
+    assert [r["name"] for r in await vios.list_media(VST, kind="video")] == ["f"]
+    assert [r["name"] for r in await vios.list_media(VST, kind="stream")] == ["r"]
 
 
 @pytest.mark.asyncio

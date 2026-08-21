@@ -856,10 +856,6 @@ async def list_media(
         if not sensor_id:
             # POST-uploaded sources sometimes report an empty sensorId. Say so
             # in the row rather than dropping the sensor from the listing.
-            if kind is not None:
-                # An unknown-provenance row answers neither --type video nor
-                # --type stream; including it in both would be a wrong answer.
-                continue
             rows.append(
                 {
                     "name": name,
@@ -883,21 +879,18 @@ async def list_media(
             # uploads when the name is absent, so this becomes a duplicate
             # upload and a 409. Report it, inventing nothing.
             #
-            # Only when unfiltered: without a stream there is no url, so the
-            # provenance --type selects on is unknowable.
-            if kind is None:
-                rows.append(
-                    {
-                        "name": name,
-                        "sensor_id": sensor_id,
-                        "stream_id": "",
-                        "type": "unknown",
-                        "state": sensor.get("state"),
-                        "is_main": False,
-                        "has_timeline": bool(sensor.get("isTimelinePresent")),
-                        "error": "VIOS lists this sensor with no streams",
-                    }
-                )
+            rows.append(
+                {
+                    "name": name,
+                    "sensor_id": sensor_id,
+                    "stream_id": "",
+                    "type": "unknown",
+                    "state": sensor.get("state"),
+                    "is_main": False,
+                    "has_timeline": bool(sensor.get("isTimelinePresent")),
+                    "error": "VIOS lists this sensor with no streams",
+                }
+            )
             continue
         for stream in streams:
             stream_url = str(stream.get("url") or "")
@@ -920,9 +913,14 @@ async def list_media(
                 row["source"] = stream_url
             if not stream_id:
                 row["error"] = "VIOS reported a stream with no streamId"
-            if kind is None or row["type"] == kind:
-                rows.append(row)
-    return rows
+            rows.append(row)
+    if kind is None:
+        return rows
+    # Filter, but never hide. A caller asking for videos is entitled to a list
+    # of videos -- and a sensor we could not classify must still be visible,
+    # because the question that list answers is usually "does this name already
+    # exist", and a wrong "no" creates a duplicate.
+    return [row for row in rows if row["type"] == kind or row.get("error")]
 
 
 async def get_snapshot_url(
