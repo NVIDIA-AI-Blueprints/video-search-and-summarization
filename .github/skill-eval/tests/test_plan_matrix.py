@@ -573,6 +573,18 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertEqual(inc[0]["platform"], "RTXPRO6000BW")
         self.assertEqual(inc[0]["kind"], "eval")
 
+    def test_skill_without_rtxpro_is_not_replaced_by_smoke(self):
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(inc, [])
+
+    def test_non_rtxpro_labels_are_skip_runner(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("L40S", {"gpu_count": 1}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+
     def test_openshell_main_enumerates_all_skills(self):
         src = inspect.getsource(plan_matrix.main)
         self.assertIn("OPENSHELL_RTXPRO6000_ONLY", src)

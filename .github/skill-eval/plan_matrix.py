@@ -239,7 +239,7 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
             labels = list(OPENSHELL_RTXPRO6000_LABELS)
             labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
             return labels
-        return list(OPENSHELL_RTXPRO6000_LABELS)
+        return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
     if count <= 0:
         return labels
@@ -478,18 +478,24 @@ def build_matrix(changed: list[str]) -> list[dict]:
     if os.environ.get("OPENSHELL_RTXPRO6000_ONLY") and not any(
         leg.get("kind") == "eval" for leg in include
     ):
-        include.append({
-            "skill": "vss-deploy-profile",
-            "spec_path": SMOKE_SPEC,
-            "spec_stem": "base",
-            "eval_dir": "evals",
-            "platform": "RTXPRO6000BW",
-            "kind": "eval",
-            "skip_reason": "",
-            "slug": "vss-deploy-profile__base__RTXPRO6000BW",
-            "name": "vss-deploy-profile · base · RTXPRO6000BW",
-            "runs_on": [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"],
-        })
+        # Harness-only diffs (no skills/ files) still need a GPU canary.
+        # If the input named a skill and every RTXPRO6000BW leg was
+        # filtered out, do not substitute vss-deploy-profile/base — that
+        # would report Skills Eval success without testing the named skill.
+        named_a_skill = any(f.startswith("skills/") for f in changed)
+        if not named_a_skill:
+            include.append({
+                "skill": "vss-deploy-profile",
+                "spec_path": SMOKE_SPEC,
+                "spec_stem": "base",
+                "eval_dir": "evals",
+                "platform": "RTXPRO6000BW",
+                "kind": "eval",
+                "skip_reason": "",
+                "slug": "vss-deploy-profile__base__RTXPRO6000BW",
+                "name": "vss-deploy-profile · base · RTXPRO6000BW",
+                "runs_on": [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"],
+            })
     return include
 
 
