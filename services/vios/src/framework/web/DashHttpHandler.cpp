@@ -483,11 +483,19 @@ void replaceAttribute(std::string& manifest, size_t begin, size_t end,
 // jitter the buffer can absorb.  Six seconds here plus a five second delay
 // meant no first frame until eleven seconds of media existed, whatever the
 // preroll gate was set to.
-constexpr int kDashLiveAvailabilityShiftSec = 2;
+// Live needs no shift of its own.  The player already positions its playhead
+// its live delay behind the advertised edge, which is the same thing this was
+// doing, so applying both put the playhead twice as far back as intended and
+// made the media that has to exist before playback can start the sum of the
+// two.  Replay keeps a shift because it wants the deeper buffer.
+constexpr int kDashLiveAvailabilityShiftSec = 0;
 constexpr int kDashReplayAvailabilityShiftSec = 6;
 
 // How often the player is asked to refetch the manifest.
-constexpr int kDashManifestRefreshSec = 2;
+// Part of the floor under the live delay: a segment the player has not been
+// told about yet cannot be fetched, so a slower refresh raises the minimum
+// latency the player can hold.
+constexpr int kDashManifestRefreshSec = 1;
 
 void setMinimumUpdatePeriod(std::string& manifest, int seconds)
 {
@@ -853,7 +861,11 @@ bool waitForMediaSegment(const std::filesystem::path& path)
     // dash.js requests the next live fragment at the live edge.  dashsink may
     // still be closing that file, so an immediate 404 is interpreted as a
     // fatal media error instead of a short encoder race.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+    // Long enough to cover the encoder still closing the file it is writing,
+    // short enough that a segment which is never coming does not hold a browser
+    // connection open.  A client only has a handful of connections per host, so
+    // several of these waiting at once starve the manifest requests behind them.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
     std::error_code ec;
     while (std::chrono::steady_clock::now() < deadline)
     {

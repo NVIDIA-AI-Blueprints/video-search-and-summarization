@@ -120,8 +120,14 @@ export class DashStream {
         // that wait is the whole of what the viewer experiences as latency.  A
         // recording has no live edge to chase, so replay keeps the larger buffer
         // and spends latency nobody is measuring.
+        // The floor under this is what the pipeline cannot go below: a segment
+        // has to be written whole, the manifest has to advertise it, and the
+        // viewer's round trip has to fetch it.  Target a delay under that floor
+        // and the player never reaches it, so it runs permanently fast, drains
+        // the buffer against a source producing at exactly real time, and stalls
+        // once per segment.  This sits comfortably above the floor instead.
         const isReplay = Boolean(config.startTime);
-        const liveDelay = config.liveDelaySeconds ?? (isReplay ? 8 : 3);
+        const liveDelay = config.liveDelaySeconds ?? (isReplay ? 8 : 5);
         // Keys follow the dash.js 5.x layout that package.json pins.  dash.js
         // silently rejects unknown keys with a console warning instead of
         // failing, so a key from the pre-5 flat layout would leave the default
@@ -140,7 +146,7 @@ export class DashStream {
                     // right after start-up while the connection is still ramping,
                     // so playback is held until a cushion has been fetched and
                     // the trough never starts near zero.
-                    initialBufferLevel: config.initialBufferSeconds ?? (isReplay ? 4 : 2),
+                    initialBufferLevel: config.initialBufferSeconds ?? 4,
                     bufferTimeDefault: 12,
                     bufferTimeAtTopQuality: 12,
                 },
@@ -150,10 +156,17 @@ export class DashStream {
                 // however long each of them stalled.  Nudging the playback rate
                 // pulls a lagging player back to the target delay so every
                 // viewer converges on the same live edge again.
+                // Off deliberately.  Catch-up speeds playback up to close a gap
+                // to the live edge, but the source produces at exactly real
+                // time, so any rate above 1.0 consumes faster than the stream is
+                // made and drains the buffer to nothing.  It then stalls on
+                // every segment: play one second, wait for the next, repeat.
+                // Capping the rate only decides how long the cushion lasts
+                // before that starts.  Without it the player holds the delay it
+                // started with and plays at source rate, which is what a live
+                // stream with a shallow buffer needs.
                 liveCatchup: {
-                    enabled: true,
-                    maxDrift: 1,
-                    playbackRate: { min: -0.05, max: 0.05 },
+                    enabled: false,
                 },
                 // The manifest is served 202/Accepted until the packager has
                 // prerolled, so the first fetches have to be retried patiently.
@@ -165,6 +178,23 @@ export class DashStream {
                 },
             },
         });
+        // A stall on the viewer's network is invisible from the server: the
+        // request log shows the fetch being abandoned but not why the player
+        // gave up on it.  Report the player's own account of each interruption,
+        // stamped so it lines up with the access log.
+        const trace = (what: string, detail: unknown) => {
+            // eslint-disable-next-line no-console
+            console.warn(`[dash] ${new Date().toISOString()} ${what}`, detail ?? '');
+        };
+        const ev = dashjs.MediaPlayer.events as Record<string, string>;
+        (['PLAYBACK_STALLED', 'PLAYBACK_WAITING', 'BUFFER_EMPTY', 'BUFFER_LOADED',
+          'PLAYBACK_SEEKING', 'FRAGMENT_LOADING_ABANDONED', 'PLAYBACK_RATE_CHANGED'] as const)
+            .forEach(name => {
+                const id = ev[name];
+                if (id) {
+                    player.on(id, (e: unknown) => trace(name, e));
+                }
+            });
         player.on(dashjs.MediaPlayer.events.ERROR, (event: { error?: { message?: string }; event?: { message?: string } }) => {
             const message = event.error?.message ?? event.event?.message ?? 'DASH playback error';
             config.onError?.(message);
