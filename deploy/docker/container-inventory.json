@@ -105,6 +105,20 @@
       "tag_variables": ["CONTAINER_IMAGE"]
     },
     {
+      "name": "vss-video-summarization-sbsa",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/video-summarization",
+      "context": "services/video-summarization",
+      "dockerfile": "services/video-summarization/docker/Dockerfile",
+      "platforms": ["linux/arm64"],
+      "compose_image_names": [],
+      "repository": "vss-video-summarization",
+      "tag_suffix": "-sbsa",
+      "native_platform_build": true,
+      "notes": "Native ARM64 SBSA variant published in the shared GHCR package under -sbsa tags"
+    },
+    {
       "name": "vss-rt-vlm",
       "strategy": "build",
       "ghcr_build": true,
