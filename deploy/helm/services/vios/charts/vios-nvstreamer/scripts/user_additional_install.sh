@@ -250,6 +250,41 @@ install_packages_with_retries() {
   return 1
 }
 
+# APT opens one connection per repository host, and this package set resolves to
+# a single host, so the 138MB download runs over one connection: measured 8.8s
+# against archive.ubuntu.com where 8 connections take 2.6s. The 224 files range
+# from 2KB to 30MB, so workers take the next URI as they free up rather than
+# splitting the list up front, which would leave one worker holding the 30MB
+# file after the others finish.
+#
+# Best effort by design. apt-helper checks each file against the hash APT
+# printed and writes nothing on a mismatch, and the apt-get install -d that
+# follows still downloads whatever is missing, so a failed or partial prefetch
+# costs time and nothing else. Set VST_APT_PARALLEL_DOWNLOADS=1 to disable.
+prefetch_parallel() {
+  local jobs="${VST_APT_PARALLEL_DOWNLOADS:-8}"
+  [[ "${jobs}" =~ ^[0-9]+$ && "${jobs}" -gt 1 && -x /usr/lib/apt/apt-helper ]] || return 0
+
+  local uris count
+  uris="$(mktemp)"
+  # Each line is: 'URI' filename size Hash:value. Anything that does not parse is
+  # left out and downloaded by APT below.
+  apt-get install --reinstall -d -y --no-install-recommends --print-uris \
+      "${APT_OPTS[@]}" -o "Dir::Cache::archives=${APT_CACHE_DIR}" \
+      "${RUNTIME_PACKAGES[@]}" 2>/dev/null \
+    | tr -d "'" \
+    | awk 'NF == 4 && $1 ~ /^https?:/ { print $1, $2, $4 }' >"${uris}"
+
+  count="$(wc -l <"${uris}")"
+  if [[ "${count}" -gt 0 ]]; then
+    echo "Prefetching ${count} packages over ${jobs} connections..."
+    APT_CACHE_DIR="${APT_CACHE_DIR}" xargs -a "${uris}" -P "${jobs}" -n 3 bash -c '
+      /usr/lib/apt/apt-helper download-file "$0" "${APT_CACHE_DIR}/partial/$1" "$2" >/dev/null 2>&1 &&
+        mv -f "${APT_CACHE_DIR}/partial/$1" "${APT_CACHE_DIR}/$1"' || true
+  fi
+  rm -f "${uris}"
+}
+
 refresh_apt_metadata() {
   local attempt
   for attempt in $(seq 1 "${MAX_RETRIES}"); do
@@ -293,7 +328,9 @@ if [[ "${APT_CACHE_POPULATE}" == "true" ]]; then
     echo "ERROR: Unable to refresh APT metadata."
     exit 1
   fi
-  # -d downloads without installing: this container only fills the cache.
+  prefetch_parallel
+  # -d downloads without installing: this container only fills the cache. Runs
+  # after the prefetch and completes anything it did not get.
   if ! apt-get install --reinstall -d -y --no-install-recommends \
          "${APT_OPTS[@]}" -o "Dir::Cache::archives=${APT_CACHE_DIR}" \
          "${RUNTIME_PACKAGES[@]}"; then

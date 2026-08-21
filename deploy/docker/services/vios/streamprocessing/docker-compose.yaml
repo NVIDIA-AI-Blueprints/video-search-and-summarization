@@ -31,6 +31,7 @@ services:
       - VST_APT_CACHE_POPULATE=true
       - VST_APT_CACHE_DIR=/opt/apt-cache
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
+      - VST_APT_PARALLEL_DOWNLOADS=${VST_APT_PARALLEL_DOWNLOADS:-}
     # Best-effort: the `|| echo` keeps the init exit 0 even if the populate
     # fails, so a transient apt error never blocks the consumers that
     # depend_on this (service_completed_successfully) -- they just fall back to
