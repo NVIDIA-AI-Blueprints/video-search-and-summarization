@@ -95,6 +95,7 @@ services:
       PORT: 5003
       ROUTER_PORT: 5003
       WDM_CLUSTER_TYPE: docker
+      WDM_XDS_GRPC_ADS_ENABLED: "true"
       OTEL_SDK_DISABLED: "true"
     volumes:
       - ./.generated/log:/logs

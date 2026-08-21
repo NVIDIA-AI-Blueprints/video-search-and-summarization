@@ -1,3 +1,6 @@
+defaults:
+  WDM_XDS_GRPC_ADS_ENABLED: "true"
+
 k8s-workload-streamprocessing:
   wl_obj_name: vss-vios-streamprocessing
   port: 4005

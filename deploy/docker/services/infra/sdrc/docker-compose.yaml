@@ -156,6 +156,7 @@ services:
       PORT: 5003
       ROUTER_PORT: 5003
       WDM_CLUSTER_TYPE: "docker"
+      WDM_XDS_GRPC_ADS_ENABLED: "true"
     volumes:
       - ./log:/logs
       - /var/run/docker.sock:/var/run/docker.sock
