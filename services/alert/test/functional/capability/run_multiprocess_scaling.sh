@@ -185,7 +185,13 @@ ensure_stack() {
     # so a one-partition companion topic would now fail startup.
     ensure_partitions mdx-alerts "$PARTITIONS" || exit 1
 
-    if ! curl -sf http://127.0.0.1:9200/health >/dev/null 2>&1; then
+    # Probed at "/", which the simulator and a real Elasticsearch both answer;
+    # "/health" is the simulator's own and returns 404 from the real thing.
+    # Whatever already holds 9200 is used as-is, so standing up a real
+    # Elasticsearch first is how a run escapes the simulator's one-core
+    # ceiling -- the sink is single-process Flask and caps the fleet before
+    # Alert MS does.
+    if ! curl -sf http://127.0.0.1:9200/ >/dev/null 2>&1; then
         python3 "$REPO_ROOT/test/sim_scripts/elastic/elastic_sim.py" > "$PID_DIR/elastic_sim.log" 2>&1 &
         echo $! > "$PID_DIR/elastic_sim.pid"
     fi
@@ -198,7 +204,7 @@ ensure_stack() {
         echo $! > "$PID_DIR/vss_sim.pid"
     fi
 
-    wait_for_sim "Elastic sim" http://127.0.0.1:9200/health "$PID_DIR/elastic_sim.log" || exit 1
+    wait_for_sim "Elastic" http://127.0.0.1:9200/ "$PID_DIR/elastic_sim.log" || exit 1
     wait_for_sim "VST sim" http://127.0.0.1:30888/status "$PID_DIR/vst_sim.log" || exit 1
     wait_for_sim "VSS sim" "http://127.0.0.1:$VSS_SIM_PORT/models" "$PID_DIR/vss_sim.log" || exit 1
 }
