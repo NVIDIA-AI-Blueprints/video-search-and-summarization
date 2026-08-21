@@ -5,6 +5,11 @@ guides are. **This is the single place the CLI bootstrap is written down** — a
 skill that needs VSS should link here rather than restate it. Instructions that
 live in one skill are invisible to the next and drift the moment the CLI moves.
 
+**Looking for a capability rather than the CLI?** [`skills/`](skills/) holds the
+operational skills — deploy a profile, build a vision stack, search the archive,
+ask about a video, manage alerts, generate a report. [`skills/README.md`](skills/README.md)
+lists them; each `SKILL.md` says when to use it and when not to.
+
 Human contributor guidance — licensing, DCO, file headers — is in
 [CONTRIBUTING.md](CONTRIBUTING.md). What the blueprint *is* is in
 [README.md](README.md). Neither is repeated here.
@@ -68,6 +73,25 @@ Sync once with that superset and then pass `--no-sync` to later `uv run` calls.
 A bare `uv run --project … --no-dev --extra cli` re-resolves the environment to
 exactly the runtime spec and **removes pytest**, which turns the next test run
 into a wall of collection errors.
+
+### No deployment yet?
+
+The CLI talks to a **running** stack; it does not stand one up. If there is
+nothing to configure against:
+
+- [`/vss-build-vision-agent`](skills/vss-build-vision-agent/SKILL.md) — pick the
+  capabilities you need (dense captioning, detection, search, alerting,
+  summarization) and it composes, configures and deploys a profile for them,
+  stock or a custom combination. Start here when you are deciding *what* to run.
+- [`/vss-deploy-profile`](skills/vss-deploy-profile/SKILL.md) — deploy, verify,
+  debug or tear down a **named** profile (`base`, `search`, `lvs`, `alerts`,
+  warehouse, edge). Start here when you already know which one you want.
+
+Then `vss configure --base-url <origin>` against what came up.
+
+A partial deployment is normal and fine: `vss configure check` reports which
+command groups it can serve, and the rest fail with exit 4 naming what is
+missing rather than misbehaving.
 
 ### Point it at a deployment
 
@@ -156,10 +180,9 @@ covers and what it does not — is in
 
 ## Skills
 
-`skills/` holds the operational skills — deploy a profile, search the archive,
-ask about a video, manage alerts. Each carries a `SKILL.md` saying when to use
-it and when not to; `skills/README.md` lists them. A skill that talks to a
-deployment should drive `vss` and link here for the bootstrap.
+Listed in [`skills/README.md`](skills/README.md). A skill that talks to a
+running deployment should drive `vss` and link here for the bootstrap, rather
+than carrying its own copy.
 
 ## Other guides
 
