@@ -177,6 +177,14 @@ void SingleStreamPipelineBuilder::buildStandardPipeline(const PipelineConfigurat
         else if (config.getSensorType() == SENSOR_TYPE_MMS_ONVIF) {
             m_decoder->setNeedSharedStream();
         }
+        // A dedicated decoder on a live source is fed by the stream monitor, and
+        // a decoder only registers itself as a consumer of that producer when it
+        // is marked as needing the shared stream.  Without this it starts,
+        // reports success and then sits at zero frames for good.
+        else if (config.isLivePlayback() && !config.isHlsPlayback()) {
+            m_decoder->setNeedSharedStream();
+            LOG(info) << "Dedicated live decoder registered for the shared stream" << endl;
+        }
     } else {
         LOG(info) << "Using decoder pool for live streaming" << endl;
         DecoderPool* pool = DecoderPool::getInstance();
