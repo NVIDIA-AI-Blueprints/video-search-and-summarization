@@ -79,17 +79,17 @@ env:
   # run_leg.py, and Harbor's isolated uvx environment. Do not fall back to the
   # self-hosted runner's system python3 (currently 3.10).
   SKILL_EVAL_PYTHON_VERSION: "3.12"
-  # Route RTXPRO6000BW onto the 10.86.16.223 OpenShell GitHub Actions
-  # runners and skip other GPU SKUs for this PR path. Unset on develop to
-  # restore coordinator labels. These VMs are registered from the GitLab
-  # fleet repo (brev-openshell-gpu-runners); they are GitHub Actions
-  # runners, not GitLab CI runners. After each job the *host* recreates
-  # that one VM (gha_idle_recreate.sh → recreate_fleet_vm.sh --apply
-  # --start-listener). This workflow does not implement KVM/VFIO.
+  # Route RTXPRO6000BW onto 10.86.16.223 OpenShell runners and H200 onto
+  # 10.86.14.74 (8×1). Skip other GPU SKUs for this PR path. Unset on
+  # develop to restore coordinator labels. These VMs are registered from
+  # the GitLab fleet repo (brev-openshell-gpu-runners); they are GitHub
+  # Actions runners, not GitLab CI runners. After each job the *host*
+  # recreates that one VM (gha_idle_recreate.sh → recreate_fleet_vm.sh
+  # --apply --start-listener). This workflow does not implement KVM/VFIO.
   # plan_matrix main() enumerates every skill (like DAILY_RUN) so `/ok to
-  # test` runs the full RTX PRO 6000 matrix, not only the PR diff / smoke
-  # fallback. Those guests need NOPASSWD sudo for gha-runner (Harbor /logs
-  # reset) and uvx.
+  # test` runs the full OpenShell RTX + H200 matrix, not only the PR diff
+  # / smoke fallback. Those guests need NOPASSWD sudo for gha-runner
+  # (Harbor /logs reset) and uvx.
   OPENSHELL_RTXPRO6000_ONLY: "1"
 
 jobs:
@@ -211,7 +211,9 @@ jobs:
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
       - name: Assert OpenShell GPU runtime
-        if: startsWith(runner.name, 'vss-skill-eval-gpu-rtxpro6000-')
+        if: >-
+          startsWith(runner.name, 'vss-skill-eval-gpu-rtxpro6000-') ||
+          startsWith(runner.name, 'vss-skill-eval-gpu-h200-')
         run: |
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
           # Harbor/GHA call `uvx --python` and `uvx --version`. A symlink
@@ -268,7 +270,8 @@ jobs:
           printf "SKILL_EVAL_ENV_FILE=%s\n" "$COORD_ENV" >> "$GITHUB_ENV"
           printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
-          if [[ "${RUNNER_NAME:-}" == vss-skill-eval-gpu-rtxpro6000-* ]]; then
+          if [[ "${RUNNER_NAME:-}" == vss-skill-eval-gpu-rtxpro6000-* || \
+                "${RUNNER_NAME:-}" == vss-skill-eval-gpu-h200-* ]]; then
             printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
             if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
               printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"

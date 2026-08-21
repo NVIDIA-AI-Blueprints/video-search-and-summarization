@@ -585,6 +585,45 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
             list(plan_matrix.SKIP_RUNNER),
         )
 
+    def test_h200_uses_dedicated_labels_not_rtx(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("H200", {"gpu_count": 1}),
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "h200",
+                "gpu-h200",
+                "openshell-h200-active",
+                "gpus-1",
+            ],
+        )
+        labels = plan_matrix.runs_on_labels("H200", {"gpu_count": 1})
+        self.assertNotIn("rtx-pro-6000", labels)
+        self.assertNotIn("gpu-rtxpro6000bw", labels)
+        self.assertNotIn("openshell-rtxpro6000-active", labels)
+        self.assertNotIn("gpus-2", labels)
+        self.assertNotIn("ubuntu-24.04", labels)
+
+    def test_h200_kept_alongside_rtxpro(self):
+        plan_matrix.spec_platform_config = lambda p: {
+            "L40S": {"gpu_count": 1},
+            "RTXPRO6000BW": {"gpu_count": 1},
+            "H200": {"gpu_count": 1},
+        }
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(
+            [leg["platform"] for leg in inc],
+            ["H200", "RTXPRO6000BW"],
+        )
+        h200 = next(leg for leg in inc if leg["platform"] == "H200")
+        rtx = next(leg for leg in inc if leg["platform"] == "RTXPRO6000BW")
+        self.assertIn("openshell-h200-active", h200["runs_on"])
+        self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
+        self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
+        self.assertNotIn("openshell-h200-active", rtx["runs_on"])
+
     def test_openshell_main_enumerates_all_skills(self):
         src = inspect.getsource(plan_matrix.main)
         self.assertIn("OPENSHELL_RTXPRO6000_ONLY", src)

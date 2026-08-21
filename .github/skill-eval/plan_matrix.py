@@ -150,8 +150,9 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # attaches `self-hosted` to the runner; workflows must not route on that
 # label alone. `openshell-rtxpro6000-active` is the activation label:
 # register without it (or keep the listener down) until a one-VM canary
-# passes. Set OPENSHELL_RTXPRO6000_ONLY=1 to use these labels and skip
-# every other GPU SKU on this path.
+# passes. Set OPENSHELL_RTXPRO6000_ONLY=1 to use these labels for
+# RTXPRO6000BW, OPENSHELL_H200_LABELS for H200 (10.86.14.74, 8×1), and
+# skip every other GPU SKU. Do not put RTX labels on H200 boxes.
 #
 # Post-job destroy/recreate is host-side (gha_idle_recreate.sh watches
 # Runner.Worker go idle, then recreate_fleet_vm.sh --apply --start-listener).
@@ -163,6 +164,15 @@ OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "gpu-rtxpro6000bw",
     "openshell-rtxpro6000-active",
 )
+# 10.86.14.74 OpenShell H200 NVL cohort (8 VMs × 1 GPU). Separate active
+# label so RTX jobs cannot land here.
+OPENSHELL_H200_LABELS: tuple[str, ...] = (
+    "vss-skill-eval-gpu",
+    "openshell",
+    "h200",
+    "gpu-h200",
+    "openshell-h200-active",
+)
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
 
@@ -173,6 +183,7 @@ PLATFORM_LABELS: dict[str, str | None] = {
     "H100": "gpu-h100",
     "L40S": "gpu-l40s",
     "RTXPRO6000BW": "gpu-rtxpro6000bw",
+    "H200": "gpu-h200",
     "DGX-SPARK": "gpu-dgx-spark",
     "IGX-THOR": "gpu-igx-thor",
     "ANY": None,
@@ -237,6 +248,10 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
         # running or skipping honestly.
         if platform == "RTXPRO6000BW":
             labels = list(OPENSHELL_RTXPRO6000_LABELS)
+            labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
+            return labels
+        if platform == "H200":
+            labels = list(OPENSHELL_H200_LABELS)
             labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
             return labels
         return list(SKIP_RUNNER)
@@ -458,7 +473,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
             platform_config = spec_platform_config(meta["spec_path"])
             platforms = sorted(platform_config) or [""]
             if os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
-                platforms = [p for p in platforms if p == "RTXPRO6000BW"]
+                platforms = [p for p in platforms if p in ("RTXPRO6000BW", "H200")]
             for platform in platforms:
                 plat_tag = platform or "no-platform"
                 labels = runs_on_labels(
