@@ -446,7 +446,6 @@ EOF
 chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_negative_test "GB300 only valid for search" 1 up -p base -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d
-run_negative_test "GB300 search requires explicit device IDs" 1 up -p search -i 127.0.0.1 -H GB300 -d
 run_negative_test "GB300 search requires one shared device" 1 up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 0 -d
 
 # Mixed host: GPU 0 is RTX PRO and the selected GPU 1 is GB300. The helper
@@ -455,7 +454,9 @@ _mock_gb300_nvidia_smi_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_gb300_nvidia_smi_dir}")
 cat > "${_mock_gb300_nvidia_smi_dir}/nvidia-smi" <<'EOF'
 #!/bin/bash
-if [[ " $* " == *" --id=1 "* ]]; then
+if [[ "$*" == *"--query-gpu=index,name"* ]]; then
+  printf '0, NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition\n1, NVIDIA GB300\n'
+elif [[ " $* " == *" --id=1 "* ]]; then
   echo "NVIDIA GB300"
 else
   echo "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"
@@ -482,6 +483,49 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up
   "RTVI_VLM_IMAGE_TAG" '"3.3.0-26.08.2-sbsa"' \
   "RTVI_EMBED_TAG" '"3.3.0-26.07.4-sbsa"' \
   "PERCEPTION_TAG" '"3.3.0-sbsa-26.07.2"'
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= LLM_ENDPOINT_URL=http://127.0.0.1:9999 run_dry_run_up_and_check_generated_env \
+  "generated.env search GB300 supports remote LLM with local VLM" "search" \
+  -i 127.0.0.1 -H GB300 --use-remote-llm --llm remote-llm --vlm-device-id 1 -d -- \
+  "LLM_MODE" "remote" \
+  "VLM_MODE" "local_shared" \
+  "VLM_DEVICE_ID" "1" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "FIXED_SHARED_DEVICE_IDS" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1" \
+  "LLM_NAME" "remote-llm" \
+  "LLM_NAME_SLUG" "none" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4" \
+  "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env \
+  "generated.env search GB300 supports local LLM with remote VLM" "search" \
+  -i 127.0.0.1 -H GB300 --llm-device-id 1 --use-remote-vlm --vlm remote-vlm -d -- \
+  "LLM_MODE" "local_shared" \
+  "VLM_MODE" "remote" \
+  "LLM_DEVICE_ID" "1" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "FIXED_SHARED_DEVICE_IDS" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1" \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm" \
+  "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" \
+  "RTVI_VLM_MODEL_TO_USE" "openai-compat"
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env \
+  "generated.env search GB300 auto-detects device for remote LLM and VLM" "search" \
+  -i 127.0.0.1 -H GB300 --use-remote-llm --llm remote-llm --use-remote-vlm --vlm remote-vlm -d -- \
+  "LLM_MODE" "remote" \
+  "VLM_MODE" "remote" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "FIXED_SHARED_DEVICE_IDS" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1" \
+  "LLM_NAME" "remote-llm" \
+  "LLM_NAME_SLUG" "none" \
+  "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" \
+  "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
