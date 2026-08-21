@@ -143,7 +143,8 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
             return VmsErrorCode::MethodNotAllowedError;
         }
         const std::string streamId = in.get("streamId", EMPTY_STRING).asString();
-        const DashStartResult result = DashSessionManager::instance().start(streamId);
+        const DashStartResult result =
+            DashSessionManager::instance().start(streamId, in.get("overlay", Json::Value()));
         if (!result.success)
         {
             const VmsErrorCode code = dashStartErrorCode(result.error);
