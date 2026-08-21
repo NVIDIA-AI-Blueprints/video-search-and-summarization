@@ -59,10 +59,11 @@ PREAMBLE = (
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
     "setup action the trial requires. This pre-authorization covers deployment "
-    "and setup ONLY. Where the skill's own protocol requires a user-facing "
-    "confirmation or a real operator-supplied credential, follow the skill — "
-    "no interactive user will answer here, so ask the question and stop rather "
-    "than proceeding."
+    "and setup ONLY. It does not extend to a destructive call — no interactive "
+    "user exists to consent to one — so where the skill gates an action behind a "
+    "user confirmation, or requires a real operator-supplied credential, follow "
+    "the skill up to that gate and stop: ask, and do not perform the gated action "
+    "(no user will answer here)."
 )
 
 # ---------------------------------------------------------------------------
@@ -285,9 +286,12 @@ def generate_platform_mode(
             instruction_lines.append("")
         instruction_lines.append(
             "Run autonomously without prompting for confirmation, EXCEPT where the "
-            "skill's own protocol requires an explicit user confirmation or a real "
-            "operator-supplied credential. In that case follow the skill: ask the "
-            "question and stop — there is no interactive user to answer here."
+            "skill gates an action behind a user confirmation (e.g. before a "
+            "destructive call) or requires a real operator-supplied credential — "
+            "no interactive user exists to consent here, so follow the skill up to "
+            "the confirmation it requires, then stop without performing the gated "
+            "action. (Setup/deploy actions the trial pre-authorizes are not gated "
+            "this way — do those autonomously.)"
         )
         instruction_lines.append("")
         (step_dir / "instruction.md").write_text("\n".join(instruction_lines) + "\n")

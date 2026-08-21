@@ -396,13 +396,16 @@ Bridge yields empty/zero output that reads back as a real `count: 0`. Guard each
 `jq -e` and `|| { echo "...unreachable..."; exit 2; }` so silent empty output fails loudly
 instead of being reported as an answer.
 
-**Run the numbered blocks below TOGETHER as one shell session** — not each fenced block in
-its own Bash call, and not line by line — so `$NAME` resolved in step 1 survives into the
-step 2/3 queries and an `exit` actually stops the workflow instead of killing one line's
-shell. The failure detection is done by the explicit guards themselves (`jq -e`, `|| exit`,
-`${VAR:?}`, `[ … ] || exit`); do NOT wrap them in `set -e` — with `pipefail` it would abort
-the `grep`-no-match branch below (an unknown sensor) before that branch can tell the user
-what exists.
+**Keep step 1's resolution and the step 2/3 queries in ONE shell session** so `$NAME`/`$UUID`
+persist and the `${VAR:?}` / `|| exit` guards fire — each fenced block in its own Bash call
+loses the variables. But this is a **decision tree, not a top-to-bottom script**: run only
+ONE query per the prose (unscoped **vs** name-scoped), run step 3 **only** when the scoped
+count is 0, and take the unfiltered fallback **only** when VIOS is unreachable. The exit code
+says which branch: `exit 1` / a failed `${VAR:?}` = stop and tell the user; the VIOS-down
+`exit 2` = switch to the unfiltered `/incidents` fallback (do **not** report it as an error).
+The explicit guards do the failure detection — do NOT wrap the blocks in `set -e`, which
+(with `pipefail`) would abort the `grep`-no-match branch (an unknown sensor) before it can
+tell the user what exists.
 
 **If the ask names a sensor, resolve its exact stored name FIRST.** Never derive the value
 from the user's phrasing: "the warehouse sample sensor" is English, not an identifier, and
@@ -448,7 +451,7 @@ confirmed against VIOS. Counting what came back is only sound while `count == to
 When they differ the page was truncated: re-request with `--data-urlencode "limit=1000"` (the
 endpoint's cap; the default is 100) and page with `offset` if it still truncates. Do not
 narrow the asked-for window to make the numbers agree — that answers about a different period
-(the rule `:463` states). If it still truncates at the cap, say the list was cut short and
+(step 3 states the same "don't narrow the window" rule). If it still truncates at the cap, say the list was cut short and
 report the bound, not the number. This list
 is weaker than VIOS in one way worth stating to the user: it only contains sensors that have
 **produced** incidents. When nothing matches, you cannot tell "this sensor has no incidents"
