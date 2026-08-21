@@ -62,16 +62,9 @@ def test_video_file():
 
 @pytest.fixture(scope="class")
 def test_live_stream_url():
-    """Fixture providing test live stream URL"""
+    """Return the opt-in RTSP URL used by live-stream integration tests."""
 
-    test_urls = [
-        # "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/Jensen_AI_Summit_India_1080p_blackwell_opus.mp4",
-        "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/warehouse_1min.mp4",
-    ]
-    for url in test_urls:
-        if url:
-            return url
-    return None
+    return os.getenv("RTVI_TEST_LIVE_STREAM_URL") or None
 
 
 @pytest.fixture(scope="class")

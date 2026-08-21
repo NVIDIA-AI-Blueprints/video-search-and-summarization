@@ -128,6 +128,16 @@ jobs:
           git lfs install --local
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
 
+      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
+        run: |
+          for lfs_asset in \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s "$lfs_asset"
+          done
+
       - name: Compute immutable candidate coordinates
         id: meta
         run: |
@@ -137,7 +147,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -297,6 +307,16 @@ jobs:
           git lfs install --local
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
 
+      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
+        run: |
+          for lfs_asset in \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s "$lfs_asset"
+          done
+
       - name: Compute immutable candidate coordinates
         id: meta
         run: |
@@ -306,7 +326,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Compute platform staging tag
@@ -432,7 +452,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -476,15 +496,23 @@ jobs:
 
       - name: Merge native platform images into multiarch candidate
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
+        env:
+          PLATFORM_LIST: ${{ matrix.platforms }}
         run: |
+          platform_refs=()
+          for platform in ${PLATFORM_LIST//,/ }; do
+            platform_refs+=(
+              "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${platform##*/}"
+            )
+          done
+
           docker buildx imagetools create \
             --annotation "index:com.nvidia.vss.image_name=${{ matrix.name }}" \
             --annotation "index:com.nvidia.vss.source_path=${{ matrix.source_path }}" \
             --annotation "index:com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-amd64" \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-arm64"
+            "${platform_refs[@]}"
 
       - name: Verify pushed labels satisfy the container-source gate
         env:

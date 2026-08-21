@@ -57,6 +57,11 @@ HELM_VALUES = {
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/values.yaml",
+        "deploy/helm/services/rtvi/charts/rtvi-embed/overrides_rtvi_embed.yaml",
+        "deploy/helm/developer-profiles/dev-profile-search/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -99,6 +104,9 @@ HELM_HELPERS = {
     ],
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/templates/_helpers.tpl",
     ],
 }
 COMPOSE_FILES = {
@@ -143,9 +151,26 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         managed = {
             image["name"]
             for image in inventory["images"]
-            if image.get("ghcr_build") is True
+            if image.get("ghcr_build") is True and image.get("compose_image_names")
         }
         self.assertEqual(managed, set(HELM_VALUES))
+
+    def test_tagged_variants_share_a_managed_repository_without_defaults(self):
+        inventory = json.loads(
+            (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
+        )
+        variants = [
+            image
+            for image in inventory["images"]
+            if image.get("ghcr_build") is True and image.get("tag_suffix")
+        ]
+        self.assertTrue(variants)
+        for variant in variants:
+            self.assertEqual(variant.get("compose_image_names"), [])
+            self.assertEqual(variant.get("tag_variables"), [])
+            repository = variant.get("repository")
+            self.assertTrue(repository)
+            self.assertIn(repository, HELM_VALUES)
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():
