@@ -330,7 +330,7 @@ function renderCell(cell: NotebookCell, index: number, showOutputs: boolean) {
                     <div
                       key={i}
                       className="notebook-viewer__output-html"
-                      dangerouslySetInnerHTML={{ __html: out.data }}
+                      dangerouslySetInnerHTML={{ __html: escapeHtml(out.data) }}
                     />
                   ) : (
                     <pre

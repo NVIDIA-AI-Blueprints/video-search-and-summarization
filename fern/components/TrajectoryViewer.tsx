@@ -47,6 +47,15 @@ const TOOL_ICONS: Record<string, string> = {
   answer: "✓",
 };
 
+function escapeHtml(text: string): string {
+  if (typeof text !== "string") return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function ToolCallBlock({ call }: { call: ToolCall }) {
   const isAnswer = call.fn === "answer";
   const argDisplay = call.arg ?? "";
@@ -62,7 +71,7 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
         </span>
         <div
           className="trajectory-viewer__body"
-          dangerouslySetInnerHTML={{ __html: call.body }}
+          dangerouslySetInnerHTML={{ __html: escapeHtml(call.body) }}
         />
       </div>
     );
