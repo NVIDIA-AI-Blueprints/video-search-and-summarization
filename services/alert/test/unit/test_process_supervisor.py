@@ -356,5 +356,62 @@ class TestAFailedSpawnLeavesNothingRunning:
             supervisor.run()
 
 
+class TestWatchedProcessesShareTheLifecycle:
+    """Processes that belong to the instance without being pipeline slots.
+
+    The API child is one. An instance still consuming but with no health
+    endpoint is not healthy, and one left running after the instance is gone
+    orphans the port it holds.
+    """
+
+    def test_a_watched_exit_stops_the_instance(self):
+        spawn = Spawner()
+        api = FakeProcess(index=99)
+        supervisor = _supervisor(spawn, count=2, watch=[api])
+        supervisor.start()
+        api.die(exitcode=1)
+
+        with pytest.raises(SupervisedProcessError, match="exited unexpectedly"):
+            supervisor._fail_on_any_exit()
+
+    def test_a_live_watched_process_is_left_alone(self):
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=1, watch=[FakeProcess(index=99)])
+        supervisor.start()
+        supervisor._fail_on_any_exit()
+
+    def test_it_is_not_counted_as_a_pipeline_slot(self):
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=2, watch=[FakeProcess(index=99)])
+        supervisor.start()
+        assert len(supervisor.processes) == 2
+        assert len(spawn.spawned) == 2
+
+    def test_it_is_never_replaced(self):
+        spawn = Spawner()
+        api = FakeProcess(index=99)
+        supervisor = _supervisor(spawn, count=1, watch=[api])
+        supervisor.start()
+        api.die(exitcode=1)
+        with pytest.raises(SupervisedProcessError):
+            supervisor._fail_on_any_exit()
+        assert len(spawn.spawned) == 1
+
+    def test_it_is_torn_down_with_the_rest(self):
+        api = FakeProcess(index=99)
+        supervisor = _supervisor(Spawner(), count=1, watch=[api])
+        supervisor.start()
+        supervisor.stop()
+        assert api.terminated or api.killed
+
+    def test_a_watched_exit_during_shutdown_is_not_a_failure(self):
+        api = FakeProcess(index=99)
+        supervisor = _supervisor(Spawner(), count=1, watch=[api])
+        supervisor.start()
+        api.die(exitcode=0)
+        supervisor.request_shutdown()
+        supervisor._fail_on_any_exit()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

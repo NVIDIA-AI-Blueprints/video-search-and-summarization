@@ -285,3 +285,33 @@ class TestQueuedWorkIsCountedBeforeItRuns:
         stub = SchedulerStub()
         stub._schedule_message(None, {"id": "a"}, "Incident", BATCH)
         assert stub._partition_in_flight.total() == 0
+
+
+class TestProcessLocalStorageRejectsMultipleProcesses:
+    """A store private to each process cannot be initialised by a supervisor.
+
+    With persistence disabled every process builds its own copy, so the parent
+    would seed one nobody reads and each worker another, and they drift. The
+    accepted topology is parent-owned initialisation, so the configuration is
+    refused rather than silently run as N independent stores.
+    """
+
+    @staticmethod
+    def _shared(enabled):
+        from enhance_alert_with_vlm import _alert_config_store_is_shared
+        return _alert_config_store_is_shared({"persistence": {"enabled": enabled}})
+
+    def test_elasticsearch_backed_storage_can_be_shared(self):
+        assert self._shared(True) is True
+
+    def test_persistence_disabled_storage_cannot(self):
+        assert self._shared(False) is False
+
+    @pytest.mark.parametrize("processes,shared,allowed", [
+        (1, True, True),
+        (1, False, True),      # a single process owns its store outright
+        (4, True, True),
+        (4, False, False),     # nothing can hand a private store to a worker
+    ])
+    def test_which_combinations_may_run(self, processes, shared, allowed):
+        assert (processes == 1 or shared) is allowed

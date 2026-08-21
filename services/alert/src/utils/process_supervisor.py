@@ -49,6 +49,7 @@ class ProcessSupervisor:
         spawn: Callable[[int], Any],
         on_exit: Optional[Callable[[Any, bool], None]] = None,
         on_poll: Optional[Callable[[], None]] = None,
+        watch: Optional[List[Any]] = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         stop_timeout: float = DEFAULT_STOP_TIMEOUT,
     ) -> None:
@@ -58,6 +59,11 @@ class ProcessSupervisor:
         self._spawn = spawn
         self._on_exit = on_exit
         self._on_poll = on_poll
+        # Processes that belong to the instance without being pipeline slots:
+        # not counted, not replaced, but their exit ends the instance too. The
+        # API child is one -- an instance without its health endpoint is not a
+        # healthy instance, and leaving it behind orphans the port.
+        self._watch: List[Any] = list(watch or [])
         self._poll_interval = poll_interval
         self._stop_timeout = stop_timeout
         self._processes: List[Any] = []
@@ -116,6 +122,15 @@ class ProcessSupervisor:
             logger.debug("Pipeline fleet state hook failed", exc_info=True)
 
     def _fail_on_any_exit(self) -> None:
+        for label, process in self._watch_pairs():
+            if self._shutdown.is_set() or process.is_alive():
+                continue
+            logger.error("%s exited (exitcode=%s); stopping the instance",
+                         label, process.exitcode)
+            raise SupervisedProcessError(
+                f"{label} exited unexpectedly (exitcode={process.exitcode})"
+            )
+
         for index, process in enumerate(self._processes):
             if self._shutdown.is_set() or process.is_alive():
                 continue
@@ -132,6 +147,9 @@ class ProcessSupervisor:
                 f"(exitcode={process.exitcode})"
             )
 
+    def _watch_pairs(self):
+        return [(f"supervised process {p.pid}", p) for p in self._watch]
+
     def stop(self) -> None:
         """Terminate every child, escalating to kill after ``stop_timeout``."""
         # Read before the flag is set, or every exit reported from here looks
@@ -139,6 +157,11 @@ class ProcessSupervisor:
         expected = self._shutdown.is_set()
         self._shutdown.set()
         processes, self._processes = self._processes, []
+        # Watched processes are torn down with the rest, but reported through
+        # their own owner rather than the pipeline exit hook.
+        for extra in self._watch:
+            if extra.is_alive():
+                extra.terminate()
         for process in processes:
             if process.is_alive():
                 process.terminate()

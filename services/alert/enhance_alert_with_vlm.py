@@ -2546,8 +2546,12 @@ class AnomalyEnhancer(
             })
 
 
-def start_fastapi():
+def start_fastapi(parent_pid: Optional[int] = None):
     """Start FastAPI server for Alert Bridge HTTP endpoints."""
+    if parent_pid is not None:
+        # Same contract as the pipeline workers: an orphaned API child would
+        # keep answering on the health port for an instance that is gone.
+        _exit_when_parent_dies(parent_pid)
     try:
         port = int(os.getenv("FASTAPI_PORT", 9080))
         logger.info(f"Starting Alert Bridge FastAPI server on port {port}...")
@@ -2739,7 +2743,8 @@ def _announce_when_all_ready(ready_events: List[Any], on_ready: Callable[[], Non
 
 
 def run_multi_process_pipeline(config_path: str, process_count: int,
-                               on_ready: Optional[Callable[[], None]] = None) -> None:
+                               on_ready: Optional[Callable[[], None]] = None,
+                               watch: Optional[List[Any]] = None) -> None:
     """Fork ``process_count`` pipeline children and supervise them until shutdown."""
     global _pipeline_supervisor
 
@@ -2774,6 +2779,7 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
         ),
         on_exit=_on_pipeline_process_exit,
         on_poll=publish_fleet_state,
+        watch=watch,
     )
     try:
         _pipeline_supervisor.run()
@@ -2883,6 +2889,16 @@ if __name__ == "__main__":
             if not EventBridgeFactory.validate_configuration(pipeline_config):
                 raise ValueError("Invalid event bridge configuration")
 
+            if not _alert_config_store_is_shared(pipeline_config):
+                raise ValueError(
+                    f"alert_agent.processes={process_count} requires shared "
+                    f"alert-config storage, but persistence.enabled is false. "
+                    f"That store is private to each process, so the supervisor "
+                    f"cannot initialise one the workers will read: each would "
+                    f"build its own copy and they would drift apart. Enable "
+                    f"persistence, or run a single process."
+                )
+
             mode = pipeline_mode_from_config(pipeline_config)
             if mode != PIPELINE_MODE_EVENT_LOOP:
                 raise ValueError(
@@ -2933,7 +2949,9 @@ if __name__ == "__main__":
                 logger.warning("Continuing without Prometheus metrics endpoint")
 
         # Start the FastAPI server in a separate process
-        fastapi_process = _pipeline_mp_context().Process(target=start_fastapi)
+        fastapi_process = _pipeline_mp_context().Process(
+            target=start_fastapi, args=(os.getpid(),)
+        )
         fastapi_process.start()
         logger.info("FastAPI server started in separate process")
 
@@ -2973,7 +2991,8 @@ if __name__ == "__main__":
                 source_partitions,
             )
             run_multi_process_pipeline(os.path.abspath(args.config), process_count,
-                                       on_ready=announce_ready)
+                                       on_ready=announce_ready,
+                                       watch=[fastapi_process])
         else:
             if not enhancer.source.await_ready():
                 raise RuntimeError("source could not join the consumer group")
