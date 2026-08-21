@@ -28,9 +28,11 @@ from .client import list_sensors
 from .client import map_interval_to_timeline
 from .client import map_timestamp_to_timeline
 from .client import normalise_media_url
+from .client import recorded_segments
 from .client import recorded_span
 from .client import resolve_sensor
 from .client import resolve_window
+from .client import upload_from_url
 from .client import upload_media
 from .client import validate_media_name
 from .client import warm_media_url
@@ -64,9 +66,11 @@ __all__ = [
     "map_interval_to_timeline",
     "map_timestamp_to_timeline",
     "normalise_media_url",
+    "recorded_segments",
     "recorded_span",
     "resolve_sensor",
     "resolve_window",
+    "upload_from_url",
     "upload_media",
     "validate_media_name",
     "warm_media_url",

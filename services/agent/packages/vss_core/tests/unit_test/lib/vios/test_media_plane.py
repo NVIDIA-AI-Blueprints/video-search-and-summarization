@@ -705,68 +705,68 @@ SPAN = ("2025-01-01T00:00:00.000Z", "2025-01-01T00:03:30.000Z")
 
 
 def test_a_recorded_file_defaults_to_its_whole_recording() -> None:
-    assert vios.resolve_window(SPAN, None, None, "video") == SPAN
+    assert vios.resolve_window([SPAN], None, None, "video") == SPAN
 
 
 def test_either_bound_may_be_omitted_for_a_file() -> None:
-    start, end = vios.resolve_window(SPAN, "2025-01-01T00:01:00.000Z", None, "video")
+    start, end = vios.resolve_window([SPAN], "2025-01-01T00:01:00.000Z", None, "video")
     assert (start, end) == ("2025-01-01T00:01:00.000Z", SPAN[1])
 
-    start, end = vios.resolve_window(SPAN, None, "2025-01-01T00:01:00.000Z", "video")
+    start, end = vios.resolve_window([SPAN], None, "2025-01-01T00:01:00.000Z", "video")
     assert (start, end) == (SPAN[0], "2025-01-01T00:01:00.000Z")
 
 
 def test_a_file_accepts_second_offsets() -> None:
     """ "Ten seconds in" is the natural way to talk about a file."""
-    assert vios.resolve_window(SPAN, "10", "20", "video") == (
+    assert vios.resolve_window([SPAN], "10", "20", "video") == (
         "2025-01-01T00:00:10.000Z",
         "2025-01-01T00:00:20.000Z",
     )
-    assert vios.resolve_window(SPAN, "0", "30.5", "video")[1] == "2025-01-01T00:00:30.500Z"
+    assert vios.resolve_window([SPAN], "0", "30.5", "video")[1] == "2025-01-01T00:00:30.500Z"
 
 
 def test_a_malformed_timestamp_is_caught_before_vios_sees_it() -> None:
     """The reported case: `--start-time 2025-01-0Z` produced a bare HTTP 400."""
     with pytest.raises(vios.VIOSInvalidInputError, match="not an ISO-8601 timestamp"):
-        vios.resolve_window(SPAN, "2025-01-0Z", None, "video")
+        vios.resolve_window([SPAN], "2025-01-0Z", None, "video")
 
 
 def test_start_after_end_is_refused() -> None:
     with pytest.raises(vios.VIOSInvalidInputError, match="is after --end-time"):
-        vios.resolve_window(SPAN, "20", "10", "video")
+        vios.resolve_window([SPAN], "20", "10", "video")
 
 
 def test_a_start_before_the_recording_is_refused_and_names_the_range() -> None:
     with pytest.raises(vios.VIOSInvalidInputError, match="before the recording starts"):
-        vios.resolve_window(SPAN, "2024-12-31T23:59:00.000Z", None, "video")
+        vios.resolve_window([SPAN], "2024-12-31T23:59:00.000Z", None, "video")
 
 
 def test_an_end_past_the_recording_is_refused_and_names_the_range() -> None:
     with pytest.raises(vios.VIOSInvalidInputError, match="after the recording ends") as exc:
-        vios.resolve_window(SPAN, None, "9999", "video")
+        vios.resolve_window([SPAN], None, "9999", "video")
     assert SPAN[1] in str(exc.value)
 
 
 def test_a_negative_offset_is_refused() -> None:
     with pytest.raises(vios.VIOSInvalidInputError, match="negative"):
-        vios.resolve_window(SPAN, "-5", None, "video")
+        vios.resolve_window([SPAN], "-5", None, "video")
 
 
 def test_a_live_stream_must_state_both_bounds() -> None:
     with pytest.raises(vios.VIOSInvalidInputError, match="no default window"):
-        vios.resolve_window(SPAN, None, None, "stream")
+        vios.resolve_window([SPAN], None, None, "stream")
     with pytest.raises(vios.VIOSInvalidInputError, match="no default window"):
-        vios.resolve_window(SPAN, "2025-01-01T00:00:00.000Z", None, "stream")
+        vios.resolve_window([SPAN], "2025-01-01T00:00:00.000Z", None, "stream")
 
 
 def test_a_live_stream_refuses_a_second_offset() -> None:
     """There is no natural zero to count seconds from on a live stream."""
     with pytest.raises(vios.VIOSInvalidInputError, match="only means something for a recorded file"):
-        vios.resolve_window(SPAN, "10", "20", "stream")
+        vios.resolve_window([SPAN], "10", "20", "stream")
 
 
 def test_a_stream_window_inside_the_recording_is_accepted() -> None:
-    assert vios.resolve_window(SPAN, SPAN[0], SPAN[1], "stream") == SPAN
+    assert vios.resolve_window([SPAN], SPAN[0], SPAN[1], "stream") == SPAN
 
 
 @pytest.mark.asyncio
@@ -877,7 +877,7 @@ async def test_the_span_is_ordered_by_time_not_by_string(vios_http) -> None:
 def test_a_non_finite_offset_is_a_caller_error_not_a_traceback(bad: str) -> None:
     """float() accepts these; timedelta does not, and the raw error is unmapped."""
     with pytest.raises(vios.VIOSInvalidInputError, match="finite"):
-        vios.resolve_window(SPAN, bad, None, "video")
+        vios.resolve_window([SPAN], bad, None, "video")
 
 
 def test_the_typed_errors_are_importable_from_the_package() -> None:
@@ -968,3 +968,58 @@ async def test_the_stream_fallback_does_not_re_read_and_cannot_race(vios_http) -
 
     assert ref.stream_id == "sub-b"
     assert len([c for c in calls if "/streams" in c]) == 1, "the scan's read is reused"
+
+
+# ------------------------------------------- gaps are not recorded video
+
+
+GAPPED = [
+    ("2025-01-01T12:00:00.000Z", "2025-01-01T12:10:00.000Z"),
+    ("2025-01-01T13:00:00.000Z", "2025-01-01T13:10:00.000Z"),
+]
+
+
+def test_a_window_inside_a_gap_is_refused() -> None:
+    """The envelope 12:00-13:10 contains 12:30; the recordings do not."""
+    with pytest.raises(vios.VIOSInvalidInputError, match="not inside a single recorded segment"):
+        vios.resolve_window(GAPPED, "2025-01-01T12:30:00.000Z", "2025-01-01T12:40:00.000Z", "video")
+
+
+def test_a_window_spanning_two_segments_is_refused() -> None:
+    """VIOS rejects a range crossing a gap; catching it here says why."""
+    with pytest.raises(vios.VIOSInvalidInputError, match="not inside a single recorded segment"):
+        vios.resolve_window(GAPPED, "2025-01-01T12:05:00.000Z", "2025-01-01T13:05:00.000Z", "video")
+
+
+def test_a_window_inside_the_later_segment_is_accepted() -> None:
+    assert vios.resolve_window(GAPPED, "2025-01-01T13:02:00.000Z", "2025-01-01T13:03:00.000Z", "video") == (
+        "2025-01-01T13:02:00.000Z",
+        "2025-01-01T13:03:00.000Z",
+    )
+
+
+def test_defaults_and_offsets_use_the_first_segment_not_the_envelope() -> None:
+    assert vios.resolve_window(GAPPED, None, None, "video") == GAPPED[0]
+    assert vios.resolve_window(GAPPED, "30", "60", "video") == (
+        "2025-01-01T12:00:30.000Z",
+        "2025-01-01T12:01:00.000Z",
+    )
+
+
+@pytest.mark.asyncio
+async def test_recorded_segments_keeps_gaps_and_the_span_collapses_them(vios_http) -> None:
+    """delete wants the envelope; anything choosing a window wants segments."""
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/storage/timelines": {
+                "r": [
+                    {"startTime": GAPPED[1][0], "endTime": GAPPED[1][1]},
+                    {"startTime": GAPPED[0][0], "endTime": GAPPED[0][1]},
+                ]
+            }
+        }
+    )
+
+    assert await vios.recorded_segments(VST, "r") == GAPPED
+    assert await vios.recorded_span(VST, "r") == (GAPPED[0][0], GAPPED[1][1])

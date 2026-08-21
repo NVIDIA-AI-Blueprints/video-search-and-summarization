@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 from typing import Any
+import urllib.parse
 
 import click
 
@@ -108,12 +109,19 @@ def _timeline(ctx: Any, values: dict[str, Any]) -> Result:
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
-    # The envelope across every recorded segment, read strictly: `timeline` and
-    # `delete` must not disagree about whether a stream has recordings.
-    span = _run(vios.recorded_span(origin, ref.stream_id))
-    if span is None:
-        return Result(body=_with_ref(ref, {"start_time": None, "end_time": None, "recorded": False}))
-    return Result(body=_with_ref(ref, {"start_time": span[0], "end_time": span[1], "recorded": True}))
+
+    segments = _run(vios.recorded_segments(origin, ref.stream_id))
+    # Every segment, not an envelope: a stream recorded in bursts has gaps, and
+    # reporting one pair claims a continuous recording that does not exist.
+    return Result(
+        body=_with_ref(
+            ref,
+            {
+                "recorded": bool(segments),
+                "segments": [{"start_time": a, "end_time": b} for a, b in segments],
+            },
+        )
+    )
 
 
 def _clip(ctx: Any, values: dict[str, Any]) -> Result:
@@ -124,8 +132,8 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
     # Validate the window against what is actually recorded before asking VIOS.
     # VIOS answers a malformed or out-of-range window with a bare HTTP 400 that
     # names neither the offending bound nor the range that was available.
-    span = _run(vios.recorded_span(origin, ref.stream_id))
-    start, end = vios.resolve_window(span, values.get("start_time"), values.get("end_time"), ref.kind)
+    segments = _run(vios.recorded_segments(origin, ref.stream_id))
+    start, end = vios.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
     url = _run(
         vios.get_video_clip_url(
             stream_id=ref.stream_id,
@@ -176,7 +184,7 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
         # One instant, validated the same way: reuse the window check with both
         # bounds set to it.
         at, _ = vios.resolve_window(
-            _run(vios.recorded_span(origin, ref.stream_id)) if ref.kind == "video" else None,
+            _run(vios.recorded_segments(origin, ref.stream_id)) if ref.kind != "stream" else [],
             at,
             at,
             ref.kind,
@@ -207,8 +215,12 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
         sensor_id = _run(vios.add_stream(origin, source, name))
         return Result(body={"name": name, "sensor_id": sensor_id, "type": "stream", "added": True})
 
-    path = pathlib.Path(source)
-    result = _run(vios.upload_media(origin, path, name=values.get("name")))
+    if source.lower().startswith(("http://", "https://")):
+        # Streamed straight into VIOS rather than staged on disk.
+        result = _run(vios.upload_from_url(origin, source, name=values.get("name")))
+    else:
+        path = pathlib.Path(source)
+        result = _run(vios.upload_media(origin, path, name=values.get("name")))
     stream_id = str(result.get("streamId") or "")
 
     # VIOS accepts the bytes before it has indexed them, so `add` is not done
@@ -219,7 +231,7 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
 
     return Result(
         body={
-            "name": result.get("filename") or path.name,
+            "name": result.get("filename") or _fallback_name(source),
             "sensor_id": result.get("sensorId"),
             "stream_id": stream_id,
             "type": "video",
@@ -252,6 +264,11 @@ def _delete(ctx: Any, values: dict[str, Any]) -> Result:
             exit=Exit.INVALID_INPUT,
         )
     return Result(body=_run(vios.delete_media(origin, ref)))
+
+
+def _fallback_name(source: str) -> str:
+    """What we called it, when VIOS's response does not say."""
+    return pathlib.PurePosixPath(urllib.parse.urlparse(source).path).name or pathlib.Path(source).name
 
 
 def _with_ref(ref: Any, body: dict[str, Any]) -> dict[str, Any]:
@@ -365,6 +382,7 @@ def _build() -> click.Group:
             "\b\n"
             "  vss vios add ./warehouse_safety_0001.mp4\n"
             "  vss vios add ./clip.mp4 --name warehouse_safety_0002.mp4\n"
+            "  vss vios add https://example.com/clip.mp4\n"
             "  vss vios add rtsp://cam.local/stream1 --name dock-cam\n",
             [
                 click.Option(

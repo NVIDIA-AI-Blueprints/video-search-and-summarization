@@ -1001,15 +1001,25 @@ async def warm_media_url(media_url: str, timeout_seconds: float = 120.0, attempt
     and failing the whole command because the warm-up timed out would be worse
     than handing back a URL whose first read is slow.
     """
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    # One deadline across every attempt, so warm-up is bounded whatever the
+    # retries do.
+    deadline = _monotonic() + timeout_seconds
     for _ in range(attempts):
+        remaining = deadline - _monotonic()
+        if remaining <= 0:
+            break
+        timeout = aiohttp.ClientTimeout(total=remaining)
         try:
             async with (
                 aiohttp.ClientSession(timeout=timeout) as session,
                 session.get(media_url) as response,
             ):
                 if response.status == 200:
-                    await response.read()
+                    # One chunk, not the body. Rendering starts on first read,
+                    # and `read()` would pull an entire clip into memory --
+                    # gigabytes for a long recording, three times over.
+                    async for _chunk in response.content.iter_chunked(_WARM_CHUNK_BYTES):
+                        break
                     return True
         except _VST_BOUNDARY_ERRORS as exc:
             logger.info("Warm-up attempt failed for %s: %s", media_url, exc)
@@ -1106,6 +1116,81 @@ async def upload_media(
     return result
 
 
+#: A fetched source is streamed straight through, so this bounds what a URL
+#: can make the CLI pull rather than what it can hold in memory.
+_FETCH_MAX_BYTES = 8 * 1024 * 1024 * 1024
+_FETCH_TIMEOUT_SECONDS = 3600.0
+
+
+async def upload_from_url(
+    vst_internal_url: str,
+    source_url: str,
+    name: str | None = None,
+    timestamp: str = "2025-01-01T00:00:00.000Z",
+    timeout_seconds: float = _FETCH_TIMEOUT_SECONDS,
+) -> dict[str, object]:
+    """Stream an http(s) video into VIOS without landing it on disk.
+
+    The bytes are piped from the source response into the PUT, so a large
+    file costs bandwidth rather than memory or a temp file.
+
+    VIOS requires Content-Length on the upload, so the source has to declare
+    its size. A chunked source is refused with that reason rather than being
+    buffered to discover it -- buffering is exactly what this avoids.
+    """
+    parsed = urllib.parse.urlparse(source_url)
+    if parsed.scheme not in ("http", "https"):
+        raise VIOSInvalidInputError(f"{source_url!r} is not an http(s) URL")
+
+    stored_name = name or pathlib.PurePosixPath(parsed.path).name
+    if not stored_name:
+        raise VIOSInvalidInputError(f"cannot derive a name from {source_url!r}; pass --name")
+    validate_media_name(stored_name)
+
+    query = urllib.parse.urlencode({"timestamp": timestamp})
+    target = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{quote_path_segment(stored_name)}?{query}"
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+
+    try:
+        # The session and the source response are separate context managers
+        # only because the PUT below needs both open at once: the response body
+        # is the PUT's payload.
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            # max_redirects rather than allow_redirects=False: a CDN link is
+            # normally a redirect, but an unbounded chain is not.
+            session.get(source_url, max_redirects=5) as source,
+        ):
+            if source.status != 200:
+                raise VIOSInvalidInputError(f"{source_url} returned HTTP {source.status}")
+            size = source.content_length
+            if size is None:
+                raise VIOSInvalidInputError(
+                    f"{source_url} does not declare Content-Length, which VIOS requires for an "
+                    f"upload; download it first and pass the local path"
+                )
+            if size > _FETCH_MAX_BYTES:
+                raise VIOSInvalidInputError(f"{source_url} is {size} bytes, over the {_FETCH_MAX_BYTES}-byte limit")
+            headers = {"Content-Type": "application/octet-stream", "Content-Length": str(size)}
+            async with session.put(target, data=source.content, headers=headers) as response:
+                body = await response.text()
+                if response.status == 409:
+                    raise VIOSInvalidInputError(
+                        f"VIOS already holds a file named {stored_name!r}; delete it first or pass --name"
+                    )
+                if response.status not in (200, 201):
+                    raise VSTError(f"VIOS upload returned {response.status}: {_vios_error(body)}")
+                try:
+                    result = json.loads(body)
+                except Exception as e:
+                    raise VSTError(f"Error parsing upload response: {e}") from e
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError(f"Failed while streaming {source_url} into VIOS", e) from e
+    if not isinstance(result, dict):
+        raise VSTError(f"Unexpected upload response shape: {type(result).__name__}")
+    return result
+
+
 def _vios_error(body: str) -> str:
     """VIOS's `error_message` when it sent one, else the raw body."""
     try:
@@ -1180,7 +1265,7 @@ def _isoformat(moment: datetime.datetime) -> str:
 
 
 def resolve_window(
-    span: tuple[str, str] | None,
+    segments: list[tuple[str, str]],
     start: str | None,
     end: str | None,
     kind: str,
@@ -1199,7 +1284,7 @@ def resolve_window(
         raise VIOSInvalidInputError(
             "a live stream has no default window: pass both --start-time and --end-time as ISO-8601"
         )
-    if span is None:
+    if not segments:
         if not start or not end:
             raise VIOSInvalidInputError("nothing is recorded for this sensor, so there is no window to default to")
         first = _as_instant(start, iso8601_to_datetime(start), "--start-time", allow_offset=False)
@@ -1208,40 +1293,60 @@ def resolve_window(
             raise VIOSInvalidInputError(f"--start-time {_isoformat(first)} is after --end-time {_isoformat(last)}")
         return _isoformat(first), _isoformat(last)
 
-    span_start = iso8601_to_datetime(span[0])
-    span_end = iso8601_to_datetime(span[1])
+    # Default to the earliest segment, and measure offsets from its start.
+    # An envelope across segments would put "10 seconds in" inside a gap on a
+    # stream that recorded in bursts.
+    default = segments[0]
+    span_start = iso8601_to_datetime(default[0])
+    span_end = iso8601_to_datetime(default[1])
     allow_offset = kind == "video"
 
     first = span_start if not start else _as_instant(start, span_start, "--start-time", allow_offset)
     last = span_end if not end else _as_instant(end, span_start, "--end-time", allow_offset)
 
-    # Out-of-range before out-of-order: a bound outside the recording is the
-    # more specific fault, and saying "start is after end" when the real
-    # problem is "start is past the end of the video" sends the caller the
-    # wrong way.
-    window = f"recorded window is {span[0]} to {span[1]}"
-    for label, moment in (("--start-time", first), ("--end-time", last)):
-        if moment < span_start:
-            raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is before the recording starts; {window}")
-        if moment > span_end:
-            raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is after the recording ends; {window}")
     if first > last:
         raise VIOSInvalidInputError(f"--start-time {_isoformat(first)} is after --end-time {_isoformat(last)}")
-    return _isoformat(first), _isoformat(last)
+
+    # The window must sit inside ONE segment. VIOS rejects a range spanning a
+    # gap, and validating against the envelope would accept 12:30 on a stream
+    # recorded 12:00-12:10 and 13:00-13:10.
+    for seg_start, seg_end in segments:
+        if iso8601_to_datetime(seg_start) <= first and last <= iso8601_to_datetime(seg_end):
+            return _isoformat(first), _isoformat(last)
+
+    if len(segments) == 1:
+        # Nothing to disambiguate, so name the bound that is wrong rather than
+        # leaving the caller to compare two timestamps themselves.
+        only_start, only_end = segments[0]
+        window = f"recorded window is {only_start} to {only_end}"
+        for label, moment in (("--start-time", first), ("--end-time", last)):
+            if moment < iso8601_to_datetime(only_start):
+                raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is before the recording starts; {window}")
+            if moment > iso8601_to_datetime(only_end):
+                raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is after the recording ends; {window}")
+
+    listed = ", ".join(f"{a} to {b}" for a, b in segments)
+    raise VIOSInvalidInputError(
+        f"{_isoformat(first)} to {_isoformat(last)} is not inside a single recorded segment; recorded: {listed}"
+    )
 
 
-async def recorded_span(
+async def recorded_segments(
     vst_internal_url: str,
     stream_id: str,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
-) -> tuple[str, str] | None:
-    """The envelope of every recorded segment for one stream, or None if it has none.
+) -> list[tuple[str, str]]:
+    """Every recorded segment for one stream, earliest first.
 
-    Deliberately stricter than :func:`get_timelines_map`, which serves
-    best-effort screenshot enrichment and treats an unreadable payload as
-    "unmapped". That is right there and wrong here: a delete that cannot read
-    the timeline must not conclude there was nothing to reclaim. Absent from
-    the listing means no recordings; present but unparseable is an error.
+    Segments, not an envelope. A stream recorded 12:00-12:10 and 13:00-13:10
+    has nothing at 12:30, and collapsing the two into 12:00-13:10 makes the
+    CLI accept a window VIOS then rejects -- validating against a range that
+    does not exist.
+
+    Stricter than :func:`get_timelines_map`, which serves best-effort
+    screenshot enrichment and treats an unreadable payload as "unmapped".
+    That is right there and wrong here: a delete that cannot read the timeline
+    must not conclude there was nothing to reclaim.
     """
     base = vst_internal_url.rstrip("/")
     if base.endswith("/vst"):
@@ -1255,7 +1360,7 @@ async def recorded_span(
     # it knows about and could not describe, and concluding "nothing to
     # reclaim" from that is how a delete reports success over live recordings.
     if stream_id not in payload:
-        return None
+        return []
     segments = payload[stream_id]
     if segments is None:
         raise VSTError(
@@ -1264,23 +1369,17 @@ async def recorded_span(
         )
     if not isinstance(segments, list):
         raise VSTError(f"Unexpected timeline shape for {stream_id}: {type(segments).__name__}")
-    if not segments:
-        return None
 
-    starts: list[datetime.datetime] = []
-    ends: list[datetime.datetime] = []
+    out: list[tuple[datetime.datetime, datetime.datetime]] = []
     for seg in segments:
-        # Per segment, not across the list: collecting starts and ends
-        # independently would let one entry with only a start and another with
-        # only an end combine into a span neither of them describes.
         if not (isinstance(seg, dict) and seg.get("startTime") and seg.get("endTime")):
             raise VSTError(
                 f"VIOS listed a recorded segment for {stream_id} without a usable start and end time; "
                 f"refusing to report a clean delete"
             )
         # Parsed, not compared as strings: an unparseable value is truthy and
-        # would otherwise reach the delete query, and min/max over raw strings
-        # is only correct while every value happens to be uniform ISO-8601 UTC.
+        # would otherwise reach the delete query, and ordering raw strings is
+        # only correct while every value happens to be uniform ISO-8601 UTC.
         try:
             first = iso8601_to_datetime(str(seg["startTime"]))
             last = iso8601_to_datetime(str(seg["endTime"]))
@@ -1294,9 +1393,30 @@ async def recorded_span(
                 f"VIOS listed a segment for {stream_id} ending before it starts "
                 f"({seg['startTime']}..{seg['endTime']}); refusing to report a clean delete"
             )
-        starts.append(first)
-        ends.append(last)
-    return _isoformat(min(starts)), _isoformat(max(ends))
+        out.append((first, last))
+
+    out.sort()
+    return [(_isoformat(a), _isoformat(b)) for a, b in out]
+
+
+async def recorded_span(
+    vst_internal_url: str,
+    stream_id: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[str, str] | None:
+    """The envelope across every segment, or None if nothing is recorded.
+
+    For `delete`, which reclaims the whole range and does not care about gaps
+    inside it. Anything choosing a *window* wants
+    :func:`recorded_segments` -- an envelope hides the gaps.
+    """
+    segments = await recorded_segments(vst_internal_url, stream_id, timeout_seconds)
+    if not segments:
+        return None
+    # max over ends, not the last segment's: sorting by start says nothing
+    # about which segment finishes last, and a nested one would truncate the
+    # envelope a delete then reclaims.
+    return segments[0][0], max(end for _, end in segments)
 
 
 async def confirm_absent(
@@ -1326,6 +1446,9 @@ class VIOSTimeoutError(LibraryError):
 #: and a large file takes longer to index.
 _TIMELINE_WAIT_SECONDS = 60.0
 _TIMELINE_POLL_SECONDS = 2.0
+
+#: Enough to make VIOS start rendering; the bytes are discarded.
+_WARM_CHUNK_BYTES = 64 * 1024
 
 
 async def await_timeline(

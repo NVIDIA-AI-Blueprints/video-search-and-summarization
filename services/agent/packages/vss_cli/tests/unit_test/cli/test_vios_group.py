@@ -138,7 +138,7 @@ def test_clip_defaults_to_the_covering_segment_and_echoes_it(
         if len(calls) == 1:
             return _Ref()
         if len(calls) == 2:
-            return ("2026-08-01T12:00:00.000Z", "2026-08-01T12:01:00.000Z")
+            return [("2026-08-01T12:00:00.000Z", "2026-08-01T12:01:00.000Z")]
         return "https://vss.test/vst/storage/clip.mp4"
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
@@ -173,7 +173,7 @@ def test_an_assumed_main_stream_is_reported(
     def fake_run(coro: Any) -> Any:
         coro.close()
         calls.append(coro)
-        return _Assumed() if len(calls) == 1 else ("2026-08-01T12:00:00Z", "2026-08-01T12:01:00Z")
+        return _Assumed() if len(calls) == 1 else [("2026-08-01T12:00:00Z", "2026-08-01T12:01:00Z")]
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
     body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
@@ -181,7 +181,7 @@ def test_an_assumed_main_stream_is_reported(
     assert body["main_stream_assumed"] is True
 
 
-def test_timeline_reports_the_envelope_across_every_segment(
+def test_timeline_reports_every_recorded_segment(
     cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reporting only the first segment understates what is on disk."""
@@ -192,14 +192,13 @@ def test_timeline_reports_the_envelope_across_every_segment(
         calls.append(coro)
         if len(calls) == 1:
             return _Ref()
-        return "2026-08-01T12:00:00Z", "2026-08-01T18:30:00Z"
+        return [("2026-08-01T12:00:00Z", "2026-08-01T18:30:00Z")]
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
     body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
 
-    assert body["start_time"] == "2026-08-01T12:00:00Z"
-    assert body["end_time"] == "2026-08-01T18:30:00Z"
     assert body["recorded"] is True
+    assert body["segments"] == [{"start_time": "2026-08-01T12:00:00Z", "end_time": "2026-08-01T18:30:00Z"}]
 
 
 def test_timeline_says_so_when_nothing_was_recorded(
@@ -210,13 +209,13 @@ def test_timeline_says_so_when_nothing_was_recorded(
     def fake_run(coro: Any) -> Any:
         coro.close()
         calls.append(coro)
-        return _Ref() if len(calls) == 1 else None
+        return _Ref() if len(calls) == 1 else []
 
     monkeypatch.setattr(vios_group, "_run", fake_run)
     body = json.loads(CliRunner().invoke(cli, ["timeline", "--sensor", "cam"]).stdout)
 
     assert body["recorded"] is False
-    assert body["start_time"] is None
+    assert body["segments"] == []
 
 
 def test_delete_refuses_an_unknown_provenance(
