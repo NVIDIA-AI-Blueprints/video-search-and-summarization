@@ -5,8 +5,10 @@
 from __future__ import annotations
 
 from enum import Enum
+import fnmatch
 import importlib.util
 import os
+import pathlib
 from pathlib import Path
 import subprocess
 import sys
@@ -210,3 +212,108 @@ raise SystemExit("agent session outlived its work deadline")
         text=True,
         timeout=5,
     )
+
+
+# --- every leg must delegate rendering, and a silent renderer must go red --
+#
+# build_user_prompt() and missing_renderer_outputs() are pure, so these call
+# them directly. Nothing constructed a prompt in a test before, which is how
+# a change that wired only the PR branch, leaving the nightly full sweep to
+# rebuild the table by hand, could look complete.
+
+_SLUG = "vss-deploy-profile__search__RTXPRO6000BW"
+_LEG = {
+    "eval_kind": "eval",
+    "eval_skill": "vss-deploy-profile",
+    "eval_spec_path": "skills/vss-deploy-profile/evals/search.json",
+    "eval_platform": "RTXPRO6000BW",
+    "eval_slug": _SLUG,
+    "eval_spec_stem": "search",
+    "pr_repo": "NVIDIA-AI-Blueprints/video-search-and-summarization",
+    "pr_base": "develop",
+    "pr_head": "a" * 40,
+    "run_id": "987654",
+}
+
+
+def _assert_delegates(prompt: str) -> None:
+    _, summary_path, report_path = skills_eval_agent.leg_paths(_SLUG, "search")
+
+    assert "leg_report.py" in prompt, "prompt does not invoke the renderer"
+    assert "DO NOT read the results tree" in prompt, "missing no-raw-read guard"
+    assert str(summary_path) in prompt, "verdict must come from the summary"
+
+    # A fresh shell per Bash call means $RES / $SCRATCH are unset; a command
+    # written against them would render an empty results tree.
+    command = prompt[prompt.index("leg_report.py"):]
+    command = command[:command.index("Every path above")]
+    assert "$RES" not in command and "$SCRATCH" not in command, (
+        f"renderer command relies on unset shell state: {command!r}"
+    )
+
+    # Keyed by slug, never the spec stem: `search` and `standalone_deploy`
+    # each belong to more than one skill, and legs of a run share the scratch
+    # dir on a self-hosted host, so a stem-keyed body lets one leg overwrite
+    # another's comment. It must still match the glob the benchmark step uses.
+    assert str(report_path) in prompt, f"body must be {report_path}"
+    assert "/pr-search.md" not in prompt, "stem-keyed body collides across skills"
+    assert fnmatch.fnmatch(report_path.name, pathlib.Path(
+        skills_eval_agent.BENCHMARK_INPUT_GLOB).name), (
+        "slug-keyed name must still match BENCHMARK_INPUT_GLOB"
+    )
+
+    # A renderer that exits non-zero is a failed leg, not a green BLOCKED.
+    assert "DONE: 0/1 specs passed; leg_report.py failed" in prompt, (
+        "prompt must map a non-zero renderer exit to a failed leg"
+    )
+
+
+def test_pr_leg_prompt_delegates_rendering() -> None:
+    _assert_delegates(skills_eval_agent.build_user_prompt(
+        **_LEG, pr_number="1780", manual=False, daily_run=False))
+
+
+def test_nightly_leg_prompt_delegates_rendering() -> None:
+    """The nightly sweep is the bigger consumer; it must not hand-build."""
+    _assert_delegates(skills_eval_agent.build_user_prompt(
+        **_LEG, pr_number="", manual=True, daily_run=True))
+
+
+def test_leg_body_is_keyed_by_slug_not_stem() -> None:
+    """Two skills sharing a spec stem must not share an output file.
+
+    `search.json` really is shipped by both vss-deploy-profile and
+    vss-search-archive, so these two legs run in the same sweep, on hosts
+    that share the run scratch dir.
+    """
+    a = skills_eval_agent.leg_paths("vss-deploy-profile__search__RTX", "search")
+    b = skills_eval_agent.leg_paths("vss-search-archive__search__RTX", "search")
+    assert a[2] != b[2], "distinct legs resolved to the same body path"
+
+
+def test_renderer_that_wrote_nothing_is_not_green(tmp_path) -> None:
+    """A leg that really ran owes both outputs, whatever marker it ends on."""
+    results_root = tmp_path / "res"
+    results_root.mkdir()
+    (results_root / "result.json").write_text('{"trial_name": "t"}')
+    summary, report = results_root / "s.json", tmp_path / "pr-x.md"
+
+    missing = skills_eval_agent.missing_renderer_outputs(
+        "BLOCKED: leg_report.py crashed", results_root, summary, report)
+    assert missing == [summary, report], (
+        "a crashed renderer on a real leg reported nothing owed"
+    )
+
+    summary.write_text("{}")
+    report.write_text("x")
+    assert not skills_eval_agent.missing_renderer_outputs(
+        "DONE: 1/1 specs passed", results_root, summary, report)
+
+
+def test_pretrial_blocked_owes_nothing(tmp_path) -> None:
+    """No trials and no DONE means a legitimate blocker; it stays green."""
+    results_root = tmp_path / "res"
+    results_root.mkdir()
+    assert not skills_eval_agent.missing_renderer_outputs(
+        "BLOCKED: pool exhausted", results_root,
+        results_root / "s.json", tmp_path / "pr-x.md")
