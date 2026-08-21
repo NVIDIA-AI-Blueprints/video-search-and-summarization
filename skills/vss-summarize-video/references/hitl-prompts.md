@@ -18,8 +18,8 @@ video**, re-run the HITL from scratch.
 Post the message as follows (literal template — fill the `{video_name}`
 and `{duration}` placeholders):
 
-> I'm about to send **{video_name}** ({duration}s) to the video summarization service. I need three
-> parameters first:
+> Before submitting **{video_name}** ({duration}s) to the video summarization service, please provide three
+> parameters:
 >
 > 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
 >    `"traffic monitoring"`
