@@ -54,5 +54,11 @@ private:
     std::vector<std::shared_ptr<NvLLOverlay>> m_overlays;
     std::shared_ptr<NvCompositor> m_compositor = nullptr;
     std::vector<std::string> m_decoderUris;
+    /* Every decoder in m_decoders comes from the pool and is released back to it,
+     * except at most one: the gods eye view stream, which this pipeline builds
+     * itself and must therefore tear down itself. It is kept in m_decoders so the
+     * compositor wiring still sees it, and identified here so teardown can tell
+     * the two apart without relying on its position in the list. */
+    std::shared_ptr<GstNvVideoDecoder> m_godsEyeDecoder = nullptr;
     PipelineConfiguration m_config;
 };

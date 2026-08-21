@@ -31,6 +31,7 @@
 #include "osd/llosd.h"
 #include <thread>
 #include <chrono>
+#include <algorithm>
 
 
 
@@ -93,15 +94,20 @@ void CompositePipelineBuilder::buildDecoderPipelines(const PipelineConfiguration
             opts["gods_eye_view"] = "true";
         }
         
-        // Create decoder for this URL
+        // Acquire the decoder for this tile. The pool finds or creates it in one
+        // step and records this peer as one of its viewers, so a tile showing a
+        // camera that is already open elsewhere shares that decoder rather than
+        // building a second one for the same url.
         DecoderPool* pool = DecoderPool::getInstance();
-        auto decoder = pool->getDecoder(url_name_array[0]);
+        auto decoder = pool->acquireDecoder(url_name_array[0], config.getPeerId(), opts);
         if (decoder == nullptr) {
-            pool->addStream(url_name_array[0], opts);
-            decoder = pool->getDecoder(url_name_array[0]);
+            // As before, a tile whose decoder could not be built is dropped and the
+            // remaining tiles still come up, rather than failing the whole wall.
+            LOG(error) << "Error in Creating Pipeline for URL: " << url_name_array[0] << endl;
+            continue;
         }
-        
-        if (decoder) {
+
+        {
             decoder->setOptions(opts);
             if (!config.isHlsPlayback()) {
                 decoder->setNeedSharedStream();
@@ -110,13 +116,6 @@ void CompositePipelineBuilder::buildDecoderPipelines(const PipelineConfiguration
             // Set up source producer for live playback
             if (config.isLivePlayback()) {
                 setupDecoderWithProducer(decoder, url_name_array[0], config);
-            }
-            
-            dec_result result = pool->tryDecoderStart(decoder, url_name_array[0]);
-            if (!result.first) {
-                LOG(error) << "Error in Creating Pipeline for URL: " << url_name_array[0] << endl;
-                pool->removeStream(url_name_array[0]);
-                throw std::invalid_argument("Error in Creating Pipeline");
             }
             
             m_decoders.push_back(decoder);
@@ -157,9 +156,12 @@ void CompositePipelineBuilder::buildDecoderPipelines(const PipelineConfiguration
             setupDecoderWithProducer(godsEyeDecoder, config.getUri(), config);
         }
 
-        // Add to decoders list
+        // Add to decoders list. This one is private to this pipeline: it was built
+        // here rather than taken from the pool, so it must be torn down here and
+        // the pool must not be touched for it.
         m_decoders.push_back(godsEyeDecoder);
         m_decoderUris.push_back(config.getUri());  // Store URI for cleanup
+        m_godsEyeDecoder = godsEyeDecoder;         // private to this pipeline, not pooled
 
         // Create overlay for gods eye view if needed
         if (config.getCompositor().showSensorName && !GET_OSD_INSTANCE()->isError())
@@ -482,49 +484,48 @@ void CompositePipelineBuilder::destroyPipeline()
     LOG(info) << "Destroying composite pipeline" << endl;
     
     try {
-        // Phase 1: Stop data flow by removing consumers
-        LOG(info) << "Phase 1: Removing consumers from decoders" << endl;
-        for (auto& decoder : m_decoders) {
-            if (decoder) {
-                try {
+        // Phase 1: Hand every decoder back, according to how it was obtained.
+        //
+        // Pooled tile decoders may be shared with a live view or another wall, so
+        // this pipeline must not decide on its own to shut one down. releaseDecoder()
+        // detaches this peer, counts what is left, and only tears the decoder down
+        // when this was its last viewer. The gods eye view decoder is private to
+        // this pipeline and is torn down here instead.
+        LOG(info) << "Phase 1: Releasing decoders" << endl;
+        DecoderPool* pool = DecoderPool::getInstance();
+        if (m_decoders.size() != m_decoderUris.size()) {
+            LOG(warning) << "Decoder bookkeeping out of step: " << m_decoders.size()
+                         << " decoders vs " << m_decoderUris.size() << " uris" << endl;
+        }
+        const size_t decoderCount = std::min(m_decoders.size(), m_decoderUris.size());
+        for (size_t i = 0; i < decoderCount; i++) {
+            auto& decoder = m_decoders[i];
+            if (!decoder) {
+                continue;
+            }
+            const std::string& uri = m_decoderUris[i];
+            try {
+                if (decoder != m_godsEyeDecoder) {
+                    pool->releaseDecoder(decoder, uri, m_config.getPeerId());
+                } else {
                     decoder->removeConsumer(m_config.getPeerId());
-                    LOG(info) << "Removed consumer from decoder" << endl;
-                } catch (const std::exception& e) {
-                    LOG(error) << "Exception while removing consumer: " << e.what() << endl;
-                }
-            }
-        }
-        
-        // Phase 2: Clear producers from all decoders
-        LOG(info) << "Phase 2: Clearing producers from decoders" << endl;
-        for (auto& decoder : m_decoders) {
-            if (decoder) {
-                try {
-                    clearDecoderProducer(decoder, m_config);
-                } catch (const std::exception& e) {
-                    LOG(error) << "Exception while clearing producer: " << e.what() << endl;
-                }
-            }
-        }
-        
-        // Phase 3: Remove decoders from pool (for live streaming)
-        if (!m_config.isRecordedPlayback()) {
-            LOG(info) << "Phase 3: Removing decoders from pool" << endl;
-            DecoderPool* pool = DecoderPool::getInstance();
-            for (size_t i = 0; i < m_decoders.size() && i < m_decoderUris.size(); i++) {
-                if (m_decoders[i]) {
-                    try {
-                        pool->removeStream(m_decoderUris[i]);
-                        LOG(info) << "Removed composite decoder from pool for URI: " << m_decoderUris[i] << endl;
-                    } catch (const std::exception& e) {
-                        LOG(error) << "Exception while removing from pool: " << e.what() << endl;
+                    if ((m_config.isCloudStream() || m_config.isImageCapture()) && decoder->getProducer()) {
+                        clearDecoderProducer(decoder, m_config);
                     }
+                    // Explicit destroy() for the same reason as the single stream
+                    // path: StreamMonitor holds a reference to the decoder and
+                    // destroy_internal() is what unregisters it, so the destructor
+                    // can never run on its own.
+                    decoder->destroy(true);
+                    LOG(info) << "Destroyed gods eye view decoder for URI: " << uri << endl;
                 }
+            } catch (const std::exception& e) {
+                LOG(error) << "Exception while releasing decoder for " << uri << ": " << e.what() << endl;
             }
         }
-        
-        // Phase 4: Clear references in reverse dependency order
-        LOG(info) << "Phase 4: Clearing component references" << endl;
+
+        // Phase 2: Clear references in reverse dependency order
+        LOG(info) << "Phase 2: Clearing component references" << endl;
         
         // First clear compositor to break consumer chain
         m_compositor.reset();
@@ -544,9 +545,10 @@ void CompositePipelineBuilder::destroyPipeline()
         // Finally clear decoders and URIs
         m_decoders.clear();
         m_decoderUris.clear();
+        m_godsEyeDecoder.reset();
         
-        // Phase 5: Destroy common components (encoder, transform, etc.)
-        LOG(info) << "Phase 5: Destroying common components" << endl;
+        // Phase 3: Destroy common components (encoder, transform, etc.)
+        LOG(info) << "Phase 3: Destroying common components" << endl;
         destroyCommonComponents();
         
     } catch (const std::exception& e) {
