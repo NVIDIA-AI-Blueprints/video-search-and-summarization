@@ -1,9 +1,8 @@
 # AGENTS.md — driving `vss` against a VSS deployment
 
-**This file is the single source for how an agent uses the CLI.** A skill that
-needs VSS should link here rather than restate the bootstrap, the exit codes, or
-the resolution rules. Instructions that live in one skill (or worse, in an eval
-adapter) are invisible to every other caller and drift the moment the CLI moves.
+Per-command detail for the `vss` CLI: the two command shapes, how `vios`
+addresses media, and what the CLI does not cover. Setup and the cross-cutting
+contract live in [AGENTS.md at the repository root](../../../../AGENTS.md).
 
 ## What `vss` is
 
@@ -14,73 +13,15 @@ Every invocation is one process: JSON on stdout, a diagnostic on stderr, a typed
 exit code. That is the whole contract. You do not need an SDK, a server, or a
 session.
 
-## Bootstrap
+## Bootstrap, configure, exit codes
 
-Run it from the checkout. `--extra cli` is required — the base meta-package does
-not install the distribution that provides `vss`.
+All of it — `uv` setup, why the project-local form and not a global `vss`,
+`vss configure`, the exit-code table, and the rules for pipes and empty
+results — is in [AGENTS.md at the repository root](../../../../AGENTS.md).
+It is written once there because every skill needs it and none should
+restate it.
 
-```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT" >&2; exit 1; }
-# A function, not an alias: bash does not expand aliases in non-interactive
-# shells, and neither survives into a separate command invocation.
-vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
-```
-
-**Use this form, not a globally installed `vss`.** The skill evals reject one
-explicitly — *"the `--extra cli` flag is required; a globally installed `vss` is
-not an acceptable substitute"* — because a `vss` on `PATH` can be any version
-from any checkout, and nothing in the trace says which. A venv install is fine
-for human development (see [README.md](README.md#install)); agent runs use the
-project-local form above.
-
-Do **not** run it through `docker exec`, `kubectl exec`, or a pod shell. It is a
-client; it talks to the deployment over the ingress like any other client.
-
-## Configure once, then never pass an endpoint
-
-```bash
-vss configure --base-url "${VSS_PUBLIC_URL}"
-```
-
-This probes the origin's routes and records them in `~/.vss/config.json`. **Every
-other command reads that file.** No command takes a host, a port, or a service
-URL, and you should never construct one:
-
-- Do not use `kubectl port-forward`, a Service DNS name, a NodePort, or a guessed
-  Helm release name.
-- Do not read `HOST_IP`, `VST_INTERNAL_URL`, or a container's env to find a
-  backend. The CLI reads no process env for endpoints, by design — same input,
-  same behaviour, on any host.
-- If a command exits 4 saying a service is missing, the fix is `vss configure`,
-  not a flag.
-
-## Exit codes — branch on these, not on stdout
-
-| Code | Meaning | What to do |
-|------|---------|-----------|
-| 0 | Success | Parse stdout |
-| 1 | Unexpected error | Report it; do not retry blindly |
-| 2 | Invalid input | You asked for something impossible — fix the arguments |
-| 3 | Backend unreachable | VSS or one of its services is down |
-| 4 | Configuration | Run `vss configure --base-url <origin>` |
-| 5 | Not found | The handle does not exist |
-| 6 | Partial | Some results are missing; the payload says which |
-| 7 | Timeout | Bounded wait expired; a `job_id` may be resumable |
-
-**Pipe carefully.** `vss … | jq` hides the CLI's exit code behind `jq`'s, so a
-failed command with empty stdout can read as an empty answer. Use `set -o
-pipefail`, or capture first and check, before piping into anything.
-
-**A non-zero exit always writes a diagnostic to stderr.** If you get a non-zero
-exit and no message, that is a bug worth reporting — not a reason to improvise a
-substitute query. Improvising around a silent failure is how agents end up
-answering from data they invented.
-
-**An empty result is not a failure.** `{"count": 0}` at exit 0 means the
-deployment genuinely has nothing matching. A backend problem exits 3. Never
-treat the two as the same.
+This file covers what is specific to the CLI's own surface.
 
 ## The two shapes
 

@@ -161,7 +161,7 @@ even when the user names the sensor explicitly, even when the user asserts the v
 uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
 
 > **Running the CLI.** Bootstrap, `vss configure`, exit codes and the sensor-resolution
-> rules live in [`vss` AGENTS.md](../../services/agent/packages/vss_cli/AGENTS.md) — read it once rather than per skill. In short:
+> rules live in [AGENTS.md](../../AGENTS.md) at the repo root — read it once rather than per skill. In short:
 > run `vss` from the VSS checkout, `vss configure --base-url "${VSS_PUBLIC_URL}"` once per
 > deployment, and no command afterwards takes a host or port.
 
