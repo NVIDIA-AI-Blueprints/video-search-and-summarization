@@ -120,6 +120,7 @@ Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOI
 - `SLACK_BOT_TOKEN` / `SLACK_CHANNEL_ID` — ask the user to provide them.
 - `VST_ENDPOINT` — use the `vss-manage-video-io-storage` skill to discover the VST endpoint, or ask the user.
 - `NOTIFY_BACKENDS` — set to `slack` (or `slack,dashboard`); without it the relay defaults to Dashboard and no incident reaches Slack.
+- **If `NOTIFY_BACKENDS` includes `dashboard`** — also require `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN` (the Dashboard backend's `init()` raises and the server exits without them); ask the operator, same as the Slack token.
 
 Do not start the server without all four variables set.
 
@@ -193,6 +194,7 @@ VST_ENDPOINT=<host>:<port>
 NOTIFY_BACKENDS=slack
 EOF
 ```
+> If `NOTIFY_BACKENDS` includes `dashboard`, add `OPENCLAW_GATEWAY_URL=<url>` and `OPENCLAW_GATEWAY_AUTH_TOKEN=<token>` to the same file — the Dashboard backend exits at startup without them.
 
 **Do not start the server** until `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are all set. Omitting `NOTIFY_BACKENDS=slack` (or `slack,dashboard`) is the quiet failure the warning above names: the relay starts and every incident goes to the Dashboard by default, never reaching Slack.
 
@@ -224,12 +226,13 @@ curl -sf http://localhost:9090/webhook/alert-notify/health | jq .
 {
   "status": "healthy",
   "uptime_seconds": 3.1,
-  "slack_connected": true,
-  "channel_id": "C07XXXXXXXX",
-  "notifications_sent": 0,
-  "last_error": null
+  "backends": ["slack"],
+  "vst_endpoint": "<host>:<port>",
+  "vst_public_url_base": "http://<host>:<port>",
+  "notifications_sent": 0
 }
 ```
+(`status` is `degraded` if no backend is connected. Per-backend connection detail is under `/status`'s `per_backend`.)
 
 If the health check fails, check `webhook.log` for errors:
 
@@ -258,13 +261,14 @@ curl -sf http://localhost:9090/webhook/alert-notify/status | jq .
 
 | Field | Description |
 |---|---|
+| `service` | Always `alert-notify` |
 | `status` | `running` if the server is active |
 | `uptime_seconds` | How long the server has been running |
 | `started_at` | ISO timestamp when the server started |
-| `slack.connected` | Whether the Slack client is authenticated |
-| `slack.channel_id` | Target Slack channel |
+| `backends` | Active backend names — e.g. `["slack"]` or `["slack","dashboard"]` |
+| `vst` | `{ endpoint, public_url_base }` for VST clip-URL resolution |
+| `per_backend.<name>` | Per-backend status object (e.g. `per_backend.slack.connected` = whether that backend is authenticated/ready) |
 | `stats.notifications_sent` | Total notifications sent since startup |
-| `stats.last_error` | Last error message (null if none) |
 
 If the request fails (connection refused), the server is not running. Report:
 
@@ -284,12 +288,14 @@ curl -sf -X POST http://localhost:9090/webhook/alert-notify/test | jq .
 
 ```json
 {
-  "status": "sent",
-  "message": "Test notification delivered to Slack",
-  "slack_ts": "<epoch>.000100",
-  "channel": "C07XXXXXXXX"
+  "status": "ok",
+  "message": "Test notification dispatched",
+  "per_backend": {
+    "slack": { "success": true }
+  }
 }
 ```
+(`status` is `ok` when every backend delivered, `partial` when some failed; all-failed returns HTTP 502 with the same body.)
 
 Report to the user:
 
@@ -343,7 +349,7 @@ The webhook accepts VSS incident payloads via `POST /webhook/alert-notify`. The 
 |---|---|---|
 | **Verdict** | `info.verdict` | Alert verdict: confirmed, rejected, verification-failed, not-confirmed |
 | **Category** | `category` | Alert category (e.g. `protective_hat_violation`) |
-| **Sensor ID** | `sensorId` | UUID of the sensor that generated the alert |
+| **Sensor ID** | `sensorId` | Sensor identity on the incident — usually the sensor **name** (RT-VLM precedence `camera_id` → `sensor_name` → stream id); a VIOS UUID only when the rule was created without `sensor_name` |
 | **Place** | `place.name` | Human-readable location name |
 | **Timestamp** | `timestamp` | ISO 8601 timestamp of the incident |
 | **VLM Reasoning** | `info.reasoning` | Vision Language Model reasoning explanation |

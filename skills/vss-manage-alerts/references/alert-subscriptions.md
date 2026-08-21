@@ -364,7 +364,7 @@ Example: *"Stop the PPE alert on warehouse-dock-1."*
 - `sensor_name` -> `warehouse-dock-1`
 - `alert_type` -> `ppe_vest_violation` (or partial: `ppe`)
 
-**Both fields are required.** If either is missing, ask the user to clarify. Do NOT guess or reuse values from conversation context.
+**Both fields are required for a sensor + alert-type request** (e.g. "stop the PPE alert on warehouse-dock-1"). If either is missing, ask the user to clarify — do NOT guess or reuse values from conversation context. **Exception:** an exact `Stop rule <id>` request resolves by that rule ID directly (no sensor/alert_type needed); it still gets the same yes/no confirmation before any `DELETE`.
 
 **Fetch rules and filter:**
 

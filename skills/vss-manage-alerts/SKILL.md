@@ -328,7 +328,11 @@ Create / list / delete persistent realtime alert rules on Alert Bridge (`POST` /
 - **Without a condition** → use the skill's **default prompt** `"Describe any notable events or anomalies in this video stream."` and a generic `alert_type` (`general_monitoring`); don't ask the user for one.
 - **Slack** operations → Workflow E instead.
 
-Load and follow `references/alert-subscriptions.md` as the authoritative playbook for rule CRUD (incl. the two-step stop/confirm). VLM real-time mode only; refuse with the canonical refusal text on CV.
+**Stop/delete is a two-step, user-confirmed gate — stated here in full because it is the one rule agents skip.** A "stop" / "delete" / "remove" request produces a **question, never a `DELETE`**; only a subsequent explicit "yes" deletes. Resolve the rule with `GET $AB/api/v1/realtime` — for an exact `Stop rule <id>` request match that rule ID directly, otherwise filter by sensor + `alert_type` — then by match count: **0 matches** → say none found and issue **zero** `DELETE` calls; **>1** → list each as `` `<alert_type>` (rule ID: `<id>`) on **<sensor>** `` and ask which; **1** (or the exact-ID match) → reply **only** `Stop alert \`<alert_type>\` on **<sensor>**? (rule ID: \`<id>\`) — yes/no` and STOP.
+
+> **This confirmation ALWAYS applies — including under autonomous / pre-authorized / non-interactive / CI execution.** A "run autonomously, do not pause for confirmation" instruction authorizes **deploy and setup ONLY**; it does **NOT** authorize you to skip this stop/delete confirmation or to issue the `DELETE` yourself. When no interactive user can answer (e.g. an eval harness), still emit the yes/no question naming the rule ID + sensor, then STOP — do **not** `DELETE`. `DELETE` is never a diagnostic/cleanup/retry probe.
+
+`references/alert-subscriptions.md` is the full playbook. VLM real-time mode only; refuse with the canonical refusal text on CV.
 
 ---
 
@@ -341,7 +345,7 @@ Use when the user **explicitly mentions Slack or the webhook relay** (start/stop
 
 One relay, **two backends**: the `alert-notify` webhook server fans incidents out to **Slack** and/or the **OpenClaw Dashboard**, selected by `NOTIFY_BACKENDS` (default **`dashboard`** — a Slack setup MUST set `NOTIFY_BACKENDS=slack`, or `slack,dashboard` for both). The four skill-level ops all hit `:9090`: **status** (`GET /webhook/alert-notify/status`), **start** (creds gate below), **test** (POST a sample incident to `/webhook/alert-notify`), **stop**.
 
-**Credentials gate before any start — both backends have one.** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`; the Dashboard needs `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN`. Being the *default* backend does not make the Dashboard zero-config — its init raises when either is unset. Both also need `VST_ENDPOINT`, and the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT` — never start it with placeholder values. Ask for the real values and stop until provided.
+**Credentials gate before any start — both backends have one.** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`; the Dashboard needs `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN`. Being the *default* backend does not make the Dashboard zero-config — its init raises when either is unset. Both also need `VST_ENDPOINT`, and the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT` — never start it with placeholder values. Ask for the real values and stop until provided. **This gate ALWAYS applies — including under autonomous / non-interactive / CI execution:** the "run autonomously" instruction authorizes deploy and setup ONLY; it does **NOT** authorize inventing a placeholder token, copying `.env.example`, faking the Slack endpoint, editing the relay code, or starting the server without operator-supplied credentials. If the real credentials are absent, ask the operator and STOP — do not start the server.
 
 Routes here: "Set up Slack notifications", "Check if alert-notify is running", "Send a test alert to Slack". Does **not** route here: "Notify me when someone enters the zone" (→ Workflow D), "Alert and notify on my phone" (ambiguous — ask).
 
