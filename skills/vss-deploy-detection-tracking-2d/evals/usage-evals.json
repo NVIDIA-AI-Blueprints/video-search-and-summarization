@@ -8,6 +8,11 @@
         "modes": [
           "standalone"
         ]
+      },
+      "H200": {
+        "modes": [
+          "standalone"
+        ]
       }
     }
   },

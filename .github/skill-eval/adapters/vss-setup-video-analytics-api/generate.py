@@ -87,6 +87,7 @@ PLATFORMS: dict[str, dict] = {
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
     },
+    "H200": {"short_name": "h200", "gpu_type": "H200", "min_vram_per_gpu": 141, "brev_search": "H200"},
 }
 
 # ---------------------------------------------------------------------------
