@@ -482,6 +482,17 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
     }
     
     // Regular pipeline setup (non-image capture)
+    // DASH without an overlay republishes the recording's own bitstream: the
+    // decoder parses it and hands it straight to the packager.  Nothing is
+    // decoded, transformed or encoded, which also preserves the recording's
+    // GOP so segments fall where the manifest says they do.
+    if (config.isDashPlayback() && !config.getOverlay().enabled && m_decoder && getDashConsumer())
+    {
+        m_decoder->setConsumer(config.getPeerId(), getDashConsumer());
+        LOG(info) << "✅ Complete Pipeline: [Decoder (parse only)] → [DASH packager]" << endl;
+        return;
+    }
+
     LOG(info) << "🎬 REGULAR VIDEO PIPELINE SETUP" << endl;
     LOG(info) << "==========================================" << endl;
     

@@ -32,9 +32,15 @@ struct DashPackagerConfig
     unsigned targetDurationSeconds = 1;
     unsigned playlistLength = 8;
     // The recorded pipeline hands the encoder a constant presentation time, so
-    // a replay session cannot derive a media timeline from its source and uses
-    // frame arrival instead.  Live sessions carry real RTSP timestamps.
-    bool useArrivalTimestamps = false;
+    // a replay session cannot take a media timeline from its source and builds
+    // one from the frame rate instead.  Live sessions carry real RTSP
+    // timestamps and leave this off.
+    bool synthesizeTimestamps = false;
+    double sourceFrameRate = 30.0;
+    // Replay only.  Recordings are selected by whole file, so the first file
+    // usually starts before the requested window; frames earlier than this are
+    // dropped so playback begins where the caller asked.
+    int64_t startEpochMs = 0;
     bool enableAac = false;
     unsigned audioSampleRate = 48000;
     unsigned audioChannels = 2;
@@ -79,17 +85,15 @@ private:
     // Per-branch state for turning producer timestamps into a monotonic media
     // timeline.  A producer that stamps every frame identically (the recorded
     // pipeline hands the encoder a constant pts) cannot drive a muxer, so the
-    // branch falls back to arrival time once it sees the source is not
-    // advancing.
+    // branch synthesises a constant rate timeline instead.
     struct TimelineState
     {
         GstClockTime baseline = 0;
         bool baselineValid = false;
         GstClockTime lastRaw = 0;
         bool lastRawValid = false;
-        bool useArrivalClock = false;
-        std::chrono::steady_clock::time_point arrivalStart{};
-        bool arrivalStarted = false;
+        bool synthesize = false;
+        uint64_t frameIndex = 0;
     };
 
     [[nodiscard]] bool pushFrame(GstElement* appsrc, const uint8_t* data, size_t size,
@@ -113,6 +117,8 @@ private:
     mutable std::mutex m_mutex;
     mutable std::mutex m_errorMutex;
     std::string m_lastError;
+    // Set once the source's own caps have been applied to the appsrc.
+    bool m_sourceCapsSet = false;
     TimelineState m_videoTimeline;
     TimelineState m_audioTimeline;
 };

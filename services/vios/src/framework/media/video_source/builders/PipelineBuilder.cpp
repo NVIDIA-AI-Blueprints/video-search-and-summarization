@@ -16,6 +16,7 @@
  */
 
 #include "PipelineBuilder.h"
+#include <cmath>
 #include "../decoders/gstnvvideodecoder.h"
 #include "../encoders/nvvideoencoder.h"
 #include "../../overlays/ll_overlay.h"

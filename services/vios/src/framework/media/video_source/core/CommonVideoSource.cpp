@@ -458,6 +458,19 @@ void CommonVideoSource::setDecoderConsumerPipeline()
 
 void CommonVideoSource::createConsumerPipeline()
 {
+    // DASH passthrough has no chain to build: the decoder parses the recording
+    // and hands it to the packager.  Rebuilding the standard chain here would
+    // put the transform back in front of the packager and feed it compressed
+    // frames it cannot use.
+    if (m_config.isDashPlayback() && !m_config.getOverlay().enabled && m_gstdecoder != nullptr
+        && m_pipelineManager != nullptr && m_pipelineManager->getDashConsumer() != nullptr)
+    {
+        m_gstdecoder->setConsumer(m_peerid, m_pipelineManager->getDashConsumer());
+        m_gstdecoder->setConsumerReady(m_peerid);
+        LOG(info) << "DASH passthrough: decoder feeds the packager directly" << endl;
+        return;
+    }
+
     if (m_compositePlayback)
     {
         auto compositor = m_pipelineManager->getCompositor();

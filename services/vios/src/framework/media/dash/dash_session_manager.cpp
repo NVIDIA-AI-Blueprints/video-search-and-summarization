@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -318,8 +319,8 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         return result;
     }
 
-    // The recorded source is addressed as a file URI carrying its window; that
-    // is what marks the pipeline as recorded playback rather than live.
+    // The recorded pipeline addresses its source as a file URI carrying the
+    // window; that is what marks the playback as recorded rather than live.
     std::string uri = stream->replay_url;
     const std::string rtspPrefix = "rtsp://";
     if (uri.rfind(rtspPrefix, 0) == 0)
@@ -341,7 +342,9 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         packagerConfig.outputRoot = m_outputRoot;
         packagerConfig.targetDurationSeconds = m_targetDuration;
         packagerConfig.playlistLength = m_playlistLength;
-        packagerConfig.useArrivalTimestamps = true;
+        // Recordings are selected by whole file, so the first one usually starts
+        // before the requested window; the packager drops what precedes it.
+        packagerConfig.startEpochMs = static_cast<int64_t>(getEpocTimeInMS(startTime));
     }
 
     auto session = std::make_shared<Session>();
@@ -370,7 +373,10 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     }
     opts["codec"] = stream->settings.encoderValues.encoding;
     opts["framerate"] = stream->settings.encoderValues.frameRate;
-    // Terminates the pipeline in this session's packager instead of a WebRTC sink.
+    // Terminates the pipeline in this session's packager.  Without an overlay
+    // the decoder republishes the recording's own bitstream and nothing is
+    // decoded or encoded; an overlay has to burn boxes into pixels, so that
+    // case still runs the full decode, overlay and encode chain.
     opts["dash"] = "dash";
 
     // The packager must be handed to the constructor: CommonVideoSource builds
@@ -429,8 +435,7 @@ bool DashSessionManager::controlReplay(const std::string& viewerId, const std::s
             session->paused = false;
         }
     }
-    const VmsErrorCode code = session->source->controlStreamFileVideoSource(action, value);
-    if (code != VmsErrorCode::NoError)
+    if (session->source->controlStreamFileVideoSource(action, value) != VmsErrorCode::NoError)
     {
         LOG(error) << "Replay DASH control failed action=" << action << " viewer=" << viewerId << endl;
         return false;
@@ -728,6 +733,9 @@ void DashSessionManager::reaperLoop()
         {
             liveDirectories.push_back(session->packager->manifestPath().parent_path());
         }
+        // Replay is pruned on the same terms as live.  Publishing is paced at
+        // the recording's own rate, so the viewer stays within the retained
+        // window instead of trailing a session that has already run to the end.
         for (const auto& [token, session] : m_replaySessionsByToken)
         {
             liveDirectories.push_back(session->packager->manifestPath().parent_path());

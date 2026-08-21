@@ -82,6 +82,7 @@ protected:
     // consumer here keeps the branch structure identical for both.
     std::shared_ptr<IMediaDataConsumer> getSinkConsumer(const PipelineConfiguration& config) const;
 
+
     void createCommonComponents(const PipelineConfiguration& config);
     void destroyCommonComponents();
     void setupOverlay(const PipelineConfiguration& config);
