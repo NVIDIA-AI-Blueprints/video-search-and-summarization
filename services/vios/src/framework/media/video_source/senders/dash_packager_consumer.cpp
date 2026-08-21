@@ -411,6 +411,11 @@ void DashPackagerConsumer::cleanupOutput()
     }
 }
 
+constexpr int NAL_TYPE_MASK = 0x1F;
+constexpr int NAL_TYPE_IDR = 5;
+constexpr int NAL_TYPE_SPS = 7;
+constexpr int NAL_TYPE_PPS = 8;
+
 bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, size_t size,
                                      GstClockTime rawPts, TimelineState& timeline)
 {
@@ -489,20 +494,50 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
     ** like a keyframe and the muxer would be free to cut a segment anywhere -
     ** which is exactly what it did, once per frame.  The access unit says which
     ** frames are keyframes, so mark the rest as delta units.
+    **
+    ** The access unit is a sequence of NAL units and it opens with an access
+    ** unit delimiter, so reading only the first one finds a delimiter rather
+    ** than the IDR behind it, calls every frame a delta unit, and leaves the
+    ** muxer no frame it is allowed to start a segment on.  Walk the whole
+    ** access unit instead.
     */
     if (size > 5)
     {
-        size_t nalStart = 0;
-        if (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 1) { nalStart = 4; }
-        else if (data[0] == 0 && data[1] == 0 && data[2] == 1) { nalStart = 3; }
-        if (nalStart > 0)
+        bool keyframe = false;
+        size_t offset = 0;
+        while (offset + 4 <= size)
         {
-            const int nalType = data[nalStart] & 0x1F;
-            const bool keyframe = (nalType == 5) || (nalType == 7) || (nalType == 8);
-            if (!keyframe)
+            size_t startCode = 0;
+            if (data[offset] == 0 && data[offset + 1] == 0 && data[offset + 2] == 0
+                && data[offset + 3] == 1)
             {
-                GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+                startCode = 4;
             }
+            else if (data[offset] == 0 && data[offset + 1] == 0 && data[offset + 2] == 1)
+            {
+                startCode = 3;
+            }
+            if (startCode == 0)
+            {
+                ++offset;
+                continue;
+            }
+            const size_t nalPos = offset + startCode;
+            if (nalPos >= size)
+            {
+                break;
+            }
+            const int nalType = data[nalPos] & NAL_TYPE_MASK;
+            if (nalType == NAL_TYPE_IDR || nalType == NAL_TYPE_SPS || nalType == NAL_TYPE_PPS)
+            {
+                keyframe = true;
+                break;
+            }
+            offset = nalPos + 1;
+        }
+        if (!keyframe)
+        {
+            GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
         }
     }
     if (GST_CLOCK_TIME_IS_VALID(duration))
