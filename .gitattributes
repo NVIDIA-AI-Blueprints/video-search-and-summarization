@@ -1,2 +1,4 @@
 *.mp4 filter=lfs diff=lfs merge=lfs -text
 *.gem filter=lfs diff=lfs merge=lfs -text
+services/rtvi/rt-embed/docker/binaries/** filter=lfs diff=lfs merge=lfs -text
+services/rtvi/rt-embed/docker/binaries/.gitattributes -filter -diff -merge text
