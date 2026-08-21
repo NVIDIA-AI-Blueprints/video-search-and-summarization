@@ -662,11 +662,11 @@ echo "── Waiting up to ${READY_TIMEOUT}s for ${BASE}/api/v1/ready → ds-rea
 deadline=$(( SECONDS + READY_TIMEOUT ))
 state=""
 while (( SECONDS < deadline )); do
-  state=$(curl -fsS --max-time 2 "${BASE}/api/v1/ready" 2>/dev/null | python3 -c "import json, sys; print(json.load(sys.stdin).get('ready-info', {}).get('ds-ready', ''))" || true)
-  grep -q '^YES$' <<< "$state" && { echo "   ds-ready: YES (${SECONDS}s)"; break; }
+  state=$(curl -fsS --max-time 2 "${BASE}/api/v1/ready" 2>/dev/null | grep -o '"ds-ready" : "[A-Z]*"' || true)
+  grep -q '"YES"' <<< "$state" && { echo "   ds-ready: YES (${SECONDS}s)"; break; }
   sleep 3
 done
-grep -q '^YES$' <<< "$state" || { echo "ERROR: perception never reported ready" >&2; exit 1; }
+grep -q '"YES"' <<< "$state" || { echo "ERROR: perception never reported ready" >&2; exit 1; }
 
 # Streams the server accepted but which never produce frames are invisible to
 # /api/v1/stream/get-stream-info: it reports registration, not health. The

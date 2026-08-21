@@ -605,7 +605,7 @@ bev_recorder_alive || exit 1
 start_perception || exit 1
 ```
 
-For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder/visualizer running through EOS in the same long-lived shell/session and use `references/verify-and-view.md` to detect premature exit. For live display file runs, tell the user that `DeepStreamTest5App` is the camera grid and `Bird-Eye View of Multi-View 3D Tracking` is the separate BEV window; after EOS, have them press `q` in the BEV window or safely stop only the tracked current-run PID.
+For RTSP, start the BEV recorder/visualizer before the direct REST stream registration step; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder/visualizer running through EOS in the same long-lived shell/session and use `references/verify-and-view.md` to detect premature exit. For live display file runs, tell the user that `DeepStreamTest5App` is the camera grid and `Bird-Eye View of Multi-View 3D Tracking` is the separate BEV window; after EOS, have them press `q` in the BEV window or safely stop only the tracked current-run PID.
 
 Do not use `deploy/docker/compose.yml`, `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, warehouse `overrides.env`, or warehouse app-data deployment profiles in this skill.
 
@@ -634,7 +634,7 @@ If BEV recording/viewing is enabled, run the `Two-Phase Launch For BEV` recorder
 start_perception || exit 1
 ```
 
-For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because `scripts/add-streams.sh` registers streams only after REST `/api/v1/ready` reports `ds-ready=YES`:
+For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because stream registration happens only after REST `/api/v1/ready` reports `ds-ready=YES`:
 
 ```bash
 cd "${RTCV3D_APP}" || exit 1
@@ -647,4 +647,4 @@ else
 fi
 ```
 
-For stream redeploy with saved/live BEV prestart, start the BEV recorder/visualizer first with the two-phase BEV block, then register streams with `scripts/add-streams.sh`; the helper waits on REST readiness before registering.
+For stream redeploy with saved/live BEV prestart, start the BEV recorder/visualizer first with the two-phase BEV block, then register streams with the direct REST registration block in `references/configure-cameras.md`; it waits on REST readiness before registering.

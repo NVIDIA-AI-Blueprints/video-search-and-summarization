@@ -93,7 +93,7 @@ Fixes:
 - Removal also requires the original `NAME=rtsp://...` mapping: `./scripts/add-streams.sh --remove 'Camera_01=rtsp://host/cam1'`.
 - Verify each RTSP URL is reachable from the deployment host. If host probing requires TCP, set `RTSP_RTP_PROTOCOL=4` before restaging or using the static fallback.
 - Confirm streams are synchronized and close to 30 FPS.
-- After `add-streams.sh`, validate exact stream count and camera IDs with `configure-cameras.md`.
+- After stream registration, validate exact stream count and camera IDs with `configure-cameras.md`.
 - `STREAM_ADD_SUCCESS` plus a matching `stream-count` is not enough. If `Active sources : 0`, FPS remains zero, or `mdx-raw`/`mdx-bev` offsets do not grow after bounded verification, treat dynamic REST add as failed and use the generic static RTSP `[source-list]` fallback in `configure-cameras.md` with the same calibrated `sensor_id=rtsp://...` mappings.
 
 ## Bundled Resource Conflict

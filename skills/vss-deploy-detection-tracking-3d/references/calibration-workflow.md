@@ -49,7 +49,7 @@ For RTSP cameras without calibration:
 3. Let the AMC RTSP flow perform its VIOS prerequisite check and confirm that the AMC microservice has a correct `VIOS_BASE_URL`.
 4. If VIOS is reachable but the AMC microservice env is missing or has the wrong `VIOS_BASE_URL`, follow the AMC deploy reference to set `VIOS_BASE_URL` in the AMC generated env and recreate/restart AMC before capture. Do not add VIOS settings to standalone RT-CV-3D `docker/.env`; RT-CV-3D does not consume them.
 5. If VIOS is missing, route to `vss-manage-video-io-storage` by name only to bring up or verify VIOS, then return to the AMC RTSP flow and repeat the `VIOS_BASE_URL` env confirmation. Do not treat VIOS as a standalone RT-CV-3D deployment prerequisite.
-6. Preserve the final ordered RTSP URL list. The final standalone deployment will register streams with `scripts/add-streams.sh`, which waits on REST `/api/v1/ready` before registration.
+6. Preserve the final ordered RTSP URL list. The final standalone deployment will register streams with the direct REST registration block in `references/configure-cameras.md`, which waits on REST `/api/v1/ready` before registration.
 7. Return here after `project_state == COMPLETED`; then run `Fetch AMC Outputs For Standalone RT-CV-3D`.
 
 ## Fetch AMC Outputs For Standalone RT-CV-3D
