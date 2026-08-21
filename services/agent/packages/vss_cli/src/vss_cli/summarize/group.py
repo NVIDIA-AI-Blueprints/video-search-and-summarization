@@ -59,14 +59,14 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 
-from . import config as config_mod
-from . import memory as memory_mod
-from . import params as params_mod
-from .exits import Exit
-from .group import CommandGroup
-from .group import Context
-from .group import InvalidInput
-from .group import Result
+from vss_cli import config as config_mod
+from vss_cli import memory as memory_mod
+from vss_cli import params as params_mod
+from vss_cli.exits import Exit
+from vss_cli.group import CommandGroup
+from vss_cli.group import Context
+from vss_cli.group import InvalidInput
+from vss_cli.group import Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,9 +75,10 @@ if TYPE_CHECKING:
     import click
 
     from vss_core.memory import MemoryInput
-    from vss_core.memory import SummaryAdapter
-    from vss_core.memory import UnifiedMemoryRecord
+    from vss_core.memory import PersistResult
     from vss_core.memory.models import JobStatus
+
+    from .memory_adapter import SummaryAdapter
 
 #: Route the LVS service exposes under its recorded mount. ``vss configure``
 #: records the ``lvs`` service, so the full path resolves to that service's own
@@ -91,12 +92,7 @@ _JOB_DOMAIN = "summarize"
 #: Crockford base32, for ULID job ids.
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-#: Attempts allowed for the write that closes a job out, and the delay before
-#: the first retry (doubled after each one). Worth retrying because a terminal
-#: write follows a submitted write that already succeeded: the store was
-#: reachable moments ago, so the plausible failure is transient -- a rolling
-#: restart, a brief 503 -- and losing that race strands the record at
-#: ``submitted``, which `status` then reports as running forever.
+#: Kept here as group-level tuning so tests and deployments can bound retries.
 _TERMINAL_WRITE_ATTEMPTS = 3
 _TERMINAL_WRITE_BACKOFF_SECONDS = 0.5
 
@@ -341,12 +337,18 @@ def _summary_content(completion: dict[str, Any], anchor: datetime | None = None)
             parsed = None
 
     if isinstance(parsed, dict) and "video_summary" in parsed:
-        events = [
-            {key: _instant(value, anchor) if key in ("start_time", "end_time") else value for key, value in row.items()}
-            if isinstance(row, dict)
-            else row
-            for row in (parsed.get("events") or [])
-        ]
+        events = []
+        for row in parsed.get("events") or []:
+            if not isinstance(row, dict):
+                raise ValueError(f"summary event must be an object, got {type(row).__name__}")
+            event = {
+                key: _instant(value, anchor) if key in ("start_time", "end_time", "timestamp") else value
+                for key, value in row.items()
+            }
+            # Each event becomes a child record keyed on an absolute instant.
+            if "timestamp" not in event and event.get("start_time") is not None:
+                event["timestamp"] = event["start_time"]
+            events.append(event)
         return {"video_summary": parsed["video_summary"], "events": events}
     return {"video_summary": text if isinstance(text, str) else json.dumps(text), "events": []}
 
@@ -363,7 +365,7 @@ def _adapter() -> SummaryAdapter:
     ``MemoryAdapter`` protocol cannot type. The adapter holds no state, so an
     instance serves the static builders and the record builders alike.
     """
-    from vss_core.memory import SummaryAdapter
+    from .memory_adapter import SummaryAdapter
 
     return SummaryAdapter()
 
@@ -389,20 +391,14 @@ def _memory_input(inputs: SummarizeInput, options: SummarizeOptions, request: di
     )
 
 
-def _memory_output(completion: dict[str, Any], model: str, anchor: datetime | None) -> tuple[Any, dict[str, Any]]:
-    """The record's result side, plus the content it was built from."""
-    content = _summary_content(completion, anchor)
+def _memory_provenance(completion: dict[str, Any], model: str) -> dict[str, Any]:
+    """Small parent ``output.ext`` metadata — never nested event collections."""
     provenance = {
         "completion_id": completion.get("id"),
         "model": completion.get("model") or model,
         "created": completion.get("created"),
     }
-    output = _adapter().build_output(
-        answer=content["video_summary"],
-        events=content["events"],
-        ext={k: v for k, v in provenance.items() if v is not None},
-    )
-    return output, content
+    return {k: v for k, v in provenance.items() if v is not None}
 
 
 def _mark_terminal(
@@ -424,29 +420,19 @@ def _mark_terminal(
     """
     if memory is None:
         return False
-    # From .models directly: the package's lazy re-exports omit MemoryError,
-    # whose name would collide with the builtin at the top level.
-    from vss_core.memory.models import MemoryError as MemoryErrorModel
+    from vss_cli.persistence import mark_terminal
 
-    record = _adapter().terminal_record(
+    return mark_terminal(
+        memory,
+        _adapter(),
         job_id=job_id,
         created_at=created_at,
-        status=status,
         input_data=input_data,
-        error=MemoryErrorModel(code=status, message=message),
+        status=status,
+        message=message,
+        attempts=_TERMINAL_WRITE_ATTEMPTS,
+        backoff_seconds=_TERMINAL_WRITE_BACKOFF_SECONDS,
     )
-    delay = _TERMINAL_WRITE_BACKOFF_SECONDS
-    for attempt in range(1, _TERMINAL_WRITE_ATTEMPTS + 1):
-        try:
-            memory.service.upsert(record)
-        except Exception:
-            if attempt == _TERMINAL_WRITE_ATTEMPTS:
-                return False
-            time.sleep(delay)
-            delay *= 2
-        else:
-            return True
-    return False
 
 
 def _record(
@@ -458,17 +444,23 @@ def _record(
     completion: dict[str, Any],
     model: str,
     anchor: datetime | None,
-) -> tuple[UnifiedMemoryRecord, dict[str, Any]]:
-    """Build and store the completed record."""
-    output, content = _memory_output(completion, model, anchor)
-    record = _adapter().terminal_record(
+) -> tuple[PersistResult, dict[str, Any]]:
+    """Build and store the completed parent plus one child per event."""
+    content = _summary_content(completion, anchor)
+    bundle = _adapter().terminal_bundle(
         job_id=job_id,
         created_at=created_at,
         status="completed",
         input_data=input_data,
-        output=output,
+        answer=content["video_summary"],
+        events=content["events"],
+        ext=_memory_provenance(completion, model),
+        default_sensor_id=(input_data.sensors[0].id if input_data.sensors else None),
     )
-    return memory.service.upsert(record), content
+    persist = memory.service.upsert_bundle(bundle)
+    if not persist.ok:
+        raise RuntimeError(f"persistence incomplete: {persist.to_dict()}")
+    return persist, content
 
 
 class SummarizeGroup(CommandGroup):
@@ -520,6 +512,17 @@ class SummarizeGroup(CommandGroup):
         created_at = utc_now_iso()
         input_data = _memory_input(inputs, options, request)
         persist_error: str | None = None
+
+        def outcome(body: dict[str, Any], code: Exit, *, status: JobStatus) -> Result:
+            """Attach the compact §7.2 marker facts without changing the result."""
+            persisted = body.get("record") == "closed" and code != Exit.PARTIAL
+            return Result(
+                body=body,
+                exit=code,
+                job_id=job_id,
+                extra={"marker": {"asset_id": asset_id, "status": status, "persisted": persisted}},
+            )
+
         if memory is not None:
             # Write the job before doing the work. From here on every exit path
             # calls close(), which tries -- with a bounded retry -- to replace
@@ -580,10 +583,10 @@ class SummarizeGroup(CommandGroup):
             """
             record = close("failed", detail)
             click.echo(diagnostic, err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "record": record, "error": detail},
-                exit=code,
-                job_id=job_id,
+            return outcome(
+                {"job_id": job_id, "status": "failed", "record": record, "error": detail},
+                code,
+                status="failed",
             )
 
         url = deployment.endpoint("lvs").rstrip("/") + _SUMMARIZE_PATH
@@ -600,10 +603,10 @@ class SummarizeGroup(CommandGroup):
                 f"vss: summarization timed out after {options.request_timeout_seconds}s (job {job_id})",
                 err=True,
             )
-            return Result(
-                body={"job_id": job_id, "status": "timeout", "record": record},
-                exit=Exit.TIMEOUT,
-                job_id=job_id,
+            return outcome(
+                {"job_id": job_id, "status": "timeout", "record": record},
+                Exit.TIMEOUT,
+                status="timeout",
             )
         except httpx.HTTPError as error:
             return failed(str(error), f"vss: lvs unreachable at {url}: {error}", Exit.BACKEND_UNREACHABLE)
@@ -638,19 +641,20 @@ class SummarizeGroup(CommandGroup):
                 # field, not on whether that field is there. Nothing was asked
                 # to be written here, so what the handle is worth is `absent`.
                 body["record"] = "absent"
-                return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+                return outcome(body, Exit.SUCCESS, status="completed")
             # Retrieval succeeded and only the write did not: exit 6 tells the
             # harness to keep this answer instead of re-running the job.
             body["persist"] = {"status": "failed", "error": persist_error}
             body["record"] = close("partial", persist_error)
-            return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
+            return outcome(body, Exit.PARTIAL, status="partial")
 
         # ValueError joins the store's own failures: a completion this command
         # cannot shape into a record is as unpersistable as a refused write,
-        # and costs the caller the same nothing.
-        unpersistable: tuple[type[BaseException], ...] = (ValueError, *memory_mod.write_failures())
+        # and costs the caller the same nothing. RuntimeError covers a bundle
+        # that landed only in part — the parent alone is not the paid-for result.
+        unpersistable: tuple[type[BaseException], ...] = (ValueError, RuntimeError, *memory_mod.write_failures())
         try:
-            _, content = _record(
+            persist_result, content = _record(
                 memory,
                 job_id=job_id,
                 created_at=created_at,
@@ -670,18 +674,20 @@ class SummarizeGroup(CommandGroup):
             # is the only place that can say the handle went stale.
             body["persist"] = {"status": "failed", "error": str(error)}
             body["record"] = close("partial", str(error))
-            return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
+            return outcome(body, Exit.PARTIAL, status="partial")
 
         body["persist"] = {
             "status": "complete",
             "index": memory.index,
             "group": memory_mod.group_token(self.name),
             "events": len(content["events"]),
+            "expected": persist_result.expected,
+            "written": persist_result.written,
         }
         # `closed` without asking: the terminal upsert above is what closing
         # means, and it either returned or we are in the except clause.
         body["record"] = "closed"
-        return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+        return outcome(body, Exit.SUCCESS, status="completed")
 
 
 SUMMARIZE = SummarizeGroup()

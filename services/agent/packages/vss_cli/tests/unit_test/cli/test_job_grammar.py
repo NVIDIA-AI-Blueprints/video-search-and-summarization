@@ -51,6 +51,17 @@ class _Group(CommandGroup):
         return Result(body={"query": inputs.query, "attributes": inputs.attributes})
 
 
+class _MarkerGroup(_Group):
+    name = "search"
+
+    def run(self, action: str, inputs: _Input, ctx: Context) -> Result:  # type: ignore[override]
+        return Result(
+            body={"data": [{"description": "paid-for result"}]},
+            job_id="search-01",
+            extra={"marker": {"asset_id": "camera-1", "status": "completed", "persisted": True}},
+        )
+
+
 # --------------------------------------------------------------------------
 # option derivation
 # --------------------------------------------------------------------------
@@ -116,6 +127,23 @@ def test_run_parses_derived_flags_into_the_model() -> None:
     assert owner.seen.query == "forklift"
     assert owner.seen.attributes == ["red", "large"]
     assert owner.seen.top_k == 3
+
+
+def test_run_ends_with_compact_sdd_completion_marker_even_when_pretty() -> None:
+    result = CliRunner().invoke(_MarkerGroup().cli(), ["run", "--pretty"])
+    assert result.exit_code == 0, result.output
+    marker_line = result.stdout.splitlines()[-1]
+    marker = json.loads(marker_line)
+    assert marker == {
+        "event": "vss_job_completed",
+        "group": "search",
+        "job_id": "search-01",
+        "asset_id": "camera-1",
+        "status": "completed",
+        "persisted": True,
+        "exit_hint": 0,
+    }
+    assert len(marker_line.encode()) <= 1024
 
 
 def test_out_of_range_value_is_rejected() -> None:
@@ -313,7 +341,7 @@ def test_rt_vlm_is_discovered_from_the_same_origin(tmp_path, monkeypatch) -> Non
 
 
 def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
-    from vss_cli.search_group import _critic_from
+    from vss_cli.search.group import _critic_from
 
     deployment = config_mod.Deployment(
         base_url="http://h:7777",
@@ -327,7 +355,7 @@ def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
 
 
 def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli import search_group
+    from vss_cli.search import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",
@@ -357,7 +385,7 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
 
 
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli import search_group
+    from vss_cli.search import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",
