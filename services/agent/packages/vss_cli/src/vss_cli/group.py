@@ -123,6 +123,18 @@ class InvalidInput(click.ClickException):
         return f"[vss] invalid input: {self.message}"
 
 
+def requires_note(requires: frozenset[str]) -> str:
+    """The services a command calls, as a line for its help text.
+
+    Static, so it costs no probe and is true on any machine. Without it the
+    only way to learn a command needs Elasticsearch is to run it and read the
+    exit-4 -- fine as a diagnosis, poor as documentation.
+    """
+    if not requires:
+        return ""
+    return f"\n\nRequires: {', '.join(sorted(requires))} (see `vss configure show`)."
+
+
 def _exit_for(exc: Exception) -> Exit | None:
     """Map a library error to an exit code, or None to let it propagate.
 
@@ -360,7 +372,7 @@ class CommandGroup(ABC):
             # The input model's docstring is the long help. Keeping the two
             # together means the description of what a path does lives beside
             # the fields it accepts, rather than drifting from them.
-            help=inspect.cleandoc(model.__doc__ or action.summary),
+            help=inspect.cleandoc(model.__doc__ or action.summary) + requires_note(action.requires),
         )
 
     def _handle_command(self, verb: str, fn: Any) -> click.Command:

@@ -49,3 +49,20 @@ def test_sitecustomize_does_not_announce_a_missing_optional_pointer(caplog) -> N
         sitecustomize._auto_load_env_files()
 
     assert not [r for r in caplog.records if ".env_file not found" in r.getMessage()]
+
+
+def test_help_states_what_a_command_needs() -> None:
+    """Learning a command needs Elasticsearch by running it is poor documentation."""
+    from vss_cli.group import requires_note
+
+    assert requires_note(frozenset({"elasticsearch", "rt_embed"})) == (
+        "\n\nRequires: elasticsearch, rt_embed (see `vss configure show`)."
+    )
+    assert requires_note(frozenset()) == ""
+
+
+def test_a_vios_command_advertises_its_backend() -> None:
+    result = _run("vios", "list", "--help")
+
+    assert result.returncode == 0
+    assert "Requires: vst" in result.stdout

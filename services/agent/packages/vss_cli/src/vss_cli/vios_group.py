@@ -41,6 +41,7 @@ from .group import context_from
 from .group import emit
 from .group import guarded
 from .group import require_services
+from .group import requires_note
 
 #: Every command here talks to VIOS and nothing else.
 REQUIRES = frozenset({"vst"})
@@ -82,7 +83,7 @@ def _command(name: str, help_text: str, extra: list[click.Parameter], fn: Any) -
         name=name,
         callback=callback,
         params=[*extra, *params_mod.shared_options()],
-        help=help_text,
+        help=help_text + requires_note(REQUIRES),
         short_help=help_text.split("\n")[0],
     )
 
