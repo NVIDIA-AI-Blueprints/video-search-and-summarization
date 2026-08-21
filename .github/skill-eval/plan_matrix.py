@@ -148,13 +148,20 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 
 # Dedicated 10.86.16.223 OpenShell RTX PRO 6000 cohort. GitHub still
 # attaches `self-hosted` to the runner; workflows must not route on that
-# label alone. Set OPENSHELL_RTXPRO6000_ONLY=1 to use these labels and
-# skip every other GPU SKU on this path.
+# label alone. `openshell-rtxpro6000-active` is the activation label:
+# register without it (or keep the listener down) until a one-VM canary
+# passes. Set OPENSHELL_RTXPRO6000_ONLY=1 to use these labels and skip
+# every other GPU SKU on this path.
+#
+# Post-job destroy/recreate is host-side (gha_idle_recreate.sh watches
+# Runner.Worker go idle, then recreate_fleet_vm.sh --apply --start-listener).
+# This workflow does not implement KVM/VFIO.
 OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     "openshell",
     "rtx-pro-6000",
     "gpu-rtxpro6000bw",
+    "openshell-rtxpro6000-active",
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"

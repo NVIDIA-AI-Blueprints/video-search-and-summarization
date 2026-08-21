@@ -79,8 +79,13 @@ env:
   # run_leg.py, and Harbor's isolated uvx environment. Do not fall back to the
   # self-hosted runner's system python3 (currently 3.10).
   SKILL_EVAL_PYTHON_VERSION: "3.12"
-  # Route RTXPRO6000BW onto the 10.86.16.223 OpenShell cohort and skip other
-  # GPU SKUs for this PR path. Unset on develop to restore coordinator labels.
+  # Route RTXPRO6000BW onto the 10.86.16.223 OpenShell GitHub Actions
+  # runners and skip other GPU SKUs for this PR path. Unset on develop to
+  # restore coordinator labels. These VMs are registered from the GitLab
+  # fleet repo (brev-openshell-gpu-runners); they are GitHub Actions
+  # runners, not GitLab CI runners. After each job the *host* recreates
+  # that one VM (gha_idle_recreate.sh → recreate_fleet_vm.sh --apply
+  # --start-listener). This workflow does not implement KVM/VFIO.
   # plan_matrix main() enumerates every skill (like DAILY_RUN) so `/ok to
   # test` runs the full RTX PRO 6000 matrix, not only the PR diff / smoke
   # fallback. Those guests need NOPASSWD sudo for gha-runner (Harbor /logs
