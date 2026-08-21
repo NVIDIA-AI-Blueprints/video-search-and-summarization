@@ -384,6 +384,19 @@ class SelectImagesTest(unittest.TestCase):
         )
         self.assertNotIn('--tag-suffix "${{ matrix.tag_suffix }}"', workflow)
 
+    def test_native_manifest_uses_declared_platforms(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        workflow = (
+            repo_root / ".github/workflows/build-dev-images.yml"
+        ).read_text()
+
+        self.assertIn("PLATFORM_LIST: ${{ matrix.platforms }}", workflow)
+        self.assertIn("for platform in ${PLATFORM_LIST//,/ }; do", workflow)
+        self.assertIn(
+            '"${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${platform##*/}"',
+            workflow,
+        )
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
