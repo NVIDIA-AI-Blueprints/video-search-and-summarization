@@ -100,6 +100,35 @@ def _resolve_rtsp_sample_url() -> str:
     return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
 
 
+# Model-weight caches, preserved across the per-trial reset; every other
+# volume is wiped. `(^|_)` because compose creates these as `<project>_<name>`.
+#
+# Named rather than pattern-matched: test_model_cache_preserved.py re-derives
+# this list from the compose files, so a new NIM missing here fails CI.
+#
+# Excluded: `rtvi-triton-model-repo` (assembled at deploy time, not
+# downloaded), `vios_apt_cache` (APT packages).
+#
+# `rtvi-ngc-model-cache` holds RT-VLM weights, populated only when the VLM runs
+# a local model; the default `openai-compat` mode proxies a remote endpoint and
+# writes nothing here. Its downloader treats directory existence as completion,
+# so a crash mid-copy can leave a partial model that the next deploy reuses;
+# recover with SKILL_EVAL_WIPE_MODEL_CACHES=1.
+MODEL_CACHE_VOLUME_RE = r"(^|_)(cosmos3_reasoner_cache|cosmos_reason1_7b_cache|cosmos_reason2_8b_cache|gpt_oss_20b_cache|llama_3\.3_nemotron_super_49b_v1\.5_cache|nemotron_3_nano_cache|nvidia_nemotron_nano_9b_v2_cache|nvidia_nemotron_nano_9b_v2_fp8_cache|qwen3_vl_8b_instruct_cache|rtvi\-hf\-cache|rtvi\-ngc\-model\-cache)$"
+
+
+def _wipe_model_caches() -> bool:
+    """Escape hatch: force the old behaviour of wiping model caches too.
+
+    A preserved cache is a cache that can go bad. If a corrupt or partial
+    download ever survives a reset it would follow the box across trials, and
+    the operator needs a way to clear it without editing code.
+    """
+    return os.environ.get("SKILL_EVAL_WIPE_MODEL_CACHES", "").strip().lower() in (
+        "1", "true", "yes",
+    )
+
+
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
 
@@ -417,7 +446,8 @@ class BrevEnvironment(BaseEnvironment):
         # Wipe the warm-pool box's docker runtime to a clean slate so no
         # prior trial's deployment state can contaminate this one. Images are
         # preserved (re-pulling the image set is slow); all containers,
-        # user-defined networks, and volumes are removed. See
+        # all user-defined networks, and every volume except the model-weight
+        # caches are removed. See
         # _reset_docker_runtime for why this is blanket, not VSS-scoped.
         #
         # Gate: ONLY on a spec's first trial — a single-step spec (task dir is
@@ -533,10 +563,11 @@ class BrevEnvironment(BaseEnvironment):
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
 
-        Removes **all** containers (running + stopped), **all** volumes
-        (named + anonymous), and **all** user-defined networks, while
+        Removes **all** containers (running + stopped), **all** user-defined
+        networks, and every volume EXCEPT the model-weight caches, while
         **preserving images** — re-pulling the multi-GB VSS/NIM image set on
-        every trial would dominate wall-clock.
+        every trial would dominate wall-clock, and the same argument applies
+        to the weights those images then download.
 
         Why blanket, not VSS-project-scoped: trials reach a deploy through
         heterogeneous paths — direct `docker compose --profile …`, the
@@ -551,16 +582,12 @@ class BrevEnvironment(BaseEnvironment):
         last trial deployed. Safe because `vss-eval-*` boxes are a dedicated,
         flock-serialised eval pool — nothing else runs on them.
 
-        NOTE: wiping all volumes also drops the model-weight caches
-        (`rtvi-hf-cache`, `rtvi-ngc-model-cache`), so the next deploy pays the
-        full cold model-weight download (~20 min vs ~55 s warm). The caller
-        gates this to a spec's first trial only (single-step, or step-1 of a
-        multi-step spec — later steps reuse step-1's deployment), so under the
-        canonical `-n 1 --max-retries 0` invocation (one trial per spec) the
-        cost is paid once per spec, not once per step. An `-n>1` rollout, a
-        harbor retry, or a repeated manual run on the same warm box each
-        re-wipes the caches and re-pays the cold start. The per-trial harbor
-        timeout already budgets for a cold deploy.
+        Model-weight caches (`MODEL_CACHE_VOLUME_RE`) are the exception.
+        Wiping them made every spec's first trial re-download weights another
+        spec had just fetched. Measured on an L40: cosmos-reason1-7b reaches
+        ready in 501 s cold against 319 s warm, a 9.4 GB cache.
+
+        Set `SKILL_EVAL_WIPE_MODEL_CACHES=1` to wipe them too.
 
         Runs as the normal (docker-group) user — the same identity the
         trial's deploy uses; no sudo. `network prune` leaves the built-in
@@ -570,10 +597,17 @@ class BrevEnvironment(BaseEnvironment):
         half-reset box surfaces as a trial error rather than silent cross-trial
         contamination.
         """
+        keep_re = MODEL_CACHE_VOLUME_RE if not _wipe_model_caches() else "$^"
         cmd = r"""set -uo pipefail
+KEEP_RE='__KEEP_RE__'
 docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
 cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
-vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
+# Model-weight caches survive the wipe. Everything else goes, for the reasons
+# in the docstring. `grep -Ev` exits 1 on no match, hence the `|| true`;
+# without it `set -o pipefail` would abort a box whose only volumes are caches.
+vols=$(docker volume ls -q | grep -Ev "$KEEP_RE" || true)
+[ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
+kept=$(docker volume ls -q | grep -Ec "$KEEP_RE" || true)
 docker network prune -f >/dev/null 2>&1 || true
 # Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
 # died mid-script would make the count commands below print nothing and the
@@ -581,7 +615,9 @@ docker network prune -f >/dev/null 2>&1 || true
 # this check, so the remaining TOCTOU window is negligible.
 docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
 rc=$(docker ps -aq | wc -l | tr -d ' ')
-rv=$(docker volume ls -q | wc -l | tr -d ' ')
+# Count only volumes that should be gone. Counting all of them would make the
+# guard fail on exactly the caches this reset now preserves.
+rv=$(docker volume ls -q | grep -Ev "$KEEP_RE" | wc -l | tr -d ' ')
 # Only user-defined networks should be gone; the built-in bridge/host/none
 # are never removable, so filter to type=custom. A surviving user network
 # would collide ("network already exists" / address-range clash) on the next
@@ -591,10 +627,11 @@ if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
   echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
   exit 1
 fi
-echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
-"""
+echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers), model-weight cache volumes kept (${kept})"
+""".replace("__KEEP_RE__", keep_re)
         logger.info(
-            "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
+            "Resetting docker runtime on %s (all containers/networks, all "
+            "volumes except model-weight caches; images kept)",
             self._instance_name,
         )
         result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
