@@ -2,31 +2,32 @@
 
 Operational reference for **Workflow G**: checking whether always-on alerting is active, querying its incidents, and troubleshooting missing always-on alerts.
 
-> **Operate, don't author.** This workflow never creates, edits, or deletes always-on rule configuration. Authoring `always_on_rules` entries, rule lifecycle redesign, and enabling the feature on a user's behalf are **out of scope in this pass** — when asked, say so and describe the enable path instead of performing it.
+> **Operate, don't author.** This workflow never creates, edits, or deletes always-on rule configuration. Authoring `always_on_rules` entries and rule lifecycle redesign are **out of scope in this pass** — when asked, say so. Enabling/disabling the feature is a **deploy-mode choice** (`-m real-time` vs `-m verification`), not a runtime config edit.
 
 ## How always-on works
 
-SDR (sensor discovery) posts camera lifecycle events to Alert Bridge; Alert Bridge fans each `camera_streaming` event out into **one realtime rule per entry** in the always-on rules YAML, targeting that camera's stream on `rtvi-vlm`:
+VIOS posts camera lifecycle events to Alert Bridge via the real-time webhook config (`notification_config_2d_vlm.json` → `POST /api/v1/realtime/always-on`). Alert Bridge fans each `camera_streaming` event out into **one realtime rule per entry** in the always-on rules YAML, targeting that camera's stream on `rtvi-vlm`:
 
 ```
-SDR event ──POST /api/v1/realtime/always-on──▶ Alert Bridge
+VIOS webhook ──POST /api/v1/realtime/always-on──▶ Alert Bridge
   change=camera_streaming  → start every configured always_on_rule for that camera (idempotent per camera_id)
   change=camera_remove     → tear down that camera's always-on rules
 ```
 
-- Event body (top level): `{source?, alert_type?, created_at?, event: {camera_id, camera_name?, camera_url?, change, …}}` with `change ∈ {camera_streaming, camera_remove}`. `camera_name` and `camera_url` are required on `camera_streaming`, ignored on `camera_remove`.
+- Event body (top level): `{source?, alert_type?, created_at?, event: {camera_id, camera_name?, camera_url?, change, …}}` with `change ∈ {camera_streaming, camera_remove}`. `camera_name` and `camera_url` are required on `camera_streaming`, ignored on `camera_remove`. VIOS sends the raw VST envelope; body templating is not used.
 - Started rules are ordinary realtime rules — their incidents surface through Workflow C's `GET /api/v1/realtime/incidents` like any other.
-- The rules live in an **in-memory sidecar**, not the ES-backed rules index: they do not survive a restart by themselves (SDR re-announces cameras) and **may not appear in Workflow D's rules list** — that is expected, not a bug.
+- The rules live in an **in-memory sidecar**, not the ES-backed rules index: they do not survive a restart by themselves (VIOS re-fires webhooks when cameras come back online) and **may not appear in Workflow D's rules list** — that is expected, not a bug.
 
 ## Status — is always-on active?
 
 There is **no `/always-on/health` endpoint** — never invent one. Two signals, in preference order:
 
-1. **Config gate (zero side effects).** The feature is opt-in via `alert_agent.always_on` in the Alert Bridge `config.yaml` (default **false**). On a **Docker** compose deploy, check the mounted config or the container (skip `docker exec` on Kubernetes — ask the operator or use the endpoint probe below):
+1. **Config gate (zero side effects).** The feature is gated by `ALERT_AGENT_ALWAYS_ON` in the alerts profile env (substituted into `alert_agent.always_on` in the mounted verifier config). On a Docker compose deploy via `dev-profile.sh`, real-time (`MODE=2d_vlm`) sets it **true**; verification (`MODE=2d_cv`) sets it **false**. Check the env or the resolved config. On Kubernetes, skip these local-file and `docker exec` checks; ask the operator or use the endpoint probe below.
    ```bash
    if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-     docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/config.yaml' 2>/dev/null \
-       || grep -rn "always_on" deploy/docker/developer-profiles/dev-profile-alerts/ 2>/dev/null | grep -v sample
+     grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env 2>/dev/null \
+       || grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
+     docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/runtime/config.yml' 2>/dev/null
    fi
    ```
 2. **Endpoint probe (benign POST).** A `camera_remove` for a nonexistent camera is a no-op when enabled and returns the gate response when disabled. Use `$AB` from the parent skill (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge`, Docker `http://${HOST_IP}:9080`):
@@ -35,15 +36,11 @@ There is **no `/always-on/health` endpoint** — never invent one. Two signals, 
    curl -s -o /tmp/ao.json -w '%{http_code}\n' -X POST "$AB/api/v1/realtime/always-on" \
      -H 'Content-Type: application/json' \
      -d '{"source":"vst","event":{"camera_id":"00000000-0000-0000-0000-0000000000aa","change":"camera_remove"}}'
-   # 503 + {"reason":"ALWAYS_ON_DISABLED"} → feature off (the default)
-   # 200-range / REMOVE_* reason           → feature on (no-op for an unknown camera)
+   # 503 + {"reason":"ALWAYS_ON_DISABLED"} → feature off (verification / 2d_cv default)
+   # 200-range / REMOVE_* reason           → feature on (real-time / 2d_vlm)
    ```
 
-Report the state you actually observed. If the user wants it enabled, describe the path as information only — do **not** perform it. All three steps are required:
-
-1. Set `alert_agent.always_on: true` in Alert Bridge `config.yaml`.
-2. Provide a non-empty `always_on_rules` YAML through `ALWAYS_ON_RULES_CONFIG` or a rules file such as `realtime-config.yaml`.
-3. Restart `alert-bridge` so it validates and loads both the gate and the rules.
+Report the state you actually observed. If the user wants it enabled on a Docker verification deploy, tell them to redeploy with `/vss-deploy-profile -p alerts -m real-time` (do **not** hand-edit config and restart). That redeploy sets `ALERT_AGENT_ALWAYS_ON=true` and `MODE=2d_vlm`. On Kubernetes, describe the operator-managed enable path as information only: set `alert_agent.always_on: true`, provide a non-empty `always_on_rules` YAML, and restart `alert-bridge` so it validates and loads both the gate and the rules; do **not** perform those changes.
 
 ## Response envelope & reason codes
 
@@ -62,15 +59,17 @@ Every response: `{"reason": "<REASON>", "status": "HTTP/1.1 <code> <phrase>", "d
 
 ## Rules YAML (read-only knowledge)
 
-Resolution order (first match wins): `$ALWAYS_ON_RULES_CONFIG` → `./realtime-config.yaml` → `./realtime-config-sample.yaml` (sample ships at `services/alert/realtime-config-sample.yaml`). Shape: top-level `always_on_rules:` — a non-empty list with unique `rule_id`s; each entry carries `rule_id`, `alert_type`, optional `description`, and `always_on_params` where `prompt` / `system_prompt` / `model` are **required** and `live_stream_url` / `alert_type` / `sensor_name` are **derived** from the camera event (setting them is a config error). The YAML is validated at Alert Bridge startup when the gate is on.
+Resolution order (first match wins): `$ALWAYS_ON_RULES_CONFIG` → `./realtime-config.yaml` → `./realtime-config-sample.yaml` (sample ships at `services/alert/realtime-config-sample.yaml`). In Docker, the mounted source is rendered through `env-substitute.py` to `/app/runtime/realtime-config.yml`, and `ALWAYS_ON_RULES_CONFIG` points at that rendered file. This lets a rule use `model: "${VLM_NAME}"` so it follows the deployment-selected local, alternate, or remote VLM.
+
+Shape: top-level `always_on_rules:` — a non-empty list with unique `rule_id`s; each entry carries `rule_id`, `alert_type`, optional `description`, and `always_on_params` where `prompt` / `system_prompt` / `model` are **required** and `live_stream_url` / `alert_type` / `sensor_name` are **derived** from the camera event (setting them is a config error). Omitting `model` does not select an available model; it fails startup validation. The rendered YAML is validated at Alert Bridge startup when the gate is on.
 
 ## Troubleshooting — "why aren't always-on alerts appearing?"
 
 Walk the chain top-down; stop at the first broken link and report it:
 
-1. **Feature gate** — `alert_agent.always_on` false (the default) explains everything; see Status above.
+1. **Feature gate** — `ALERT_AGENT_ALWAYS_ON=false` / `alert_agent.always_on: false` (verification / 2d_cv) explains everything; see Status above. Real-time deploys should show `ALERT_AGENT_ALWAYS_ON=true` and `MODE=2d_vlm`.
 2. **Rules YAML** — resolves via the chain above and validated at boot; a `CONFIG_ERROR` in `alert-bridge` startup logs means no rule can ever start: `docker logs vss-alert-bridge 2>&1 | grep -i "always"`.
-3. **SDR events reaching Alert Bridge** — the same logs show each incoming `POST /api/v1/realtime/always-on`; no log lines = SDR never announced the camera (VIOS/SDR side, hand off to `vss-manage-video-io-storage`).
+3. **VIOS webhooks reaching Alert Bridge** — the same logs show each incoming `POST /api/v1/realtime/always-on`; no log lines = VIOS never posted the camera event (check `VST_NOTIFICATION_CONFIG_PATH` points at `notification_config_2d_vlm.json` and the sensor is online; hand off to `vss-manage-video-io-storage` if needed).
 4. **Stream registered on rtvi-vlm** — the fan-out `details` entries carry per-rule upstream errors; a 502-class `error` means `rtvi-vlm` rejected the stream.
 5. **Incidents** — finally, query Workflow C (`GET /api/v1/realtime/incidents`, scope by camera/time). Empty with all links healthy = nothing matched the rule prompts yet; report that grounded, don't fabricate.
 

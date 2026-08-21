@@ -1335,9 +1335,13 @@ function state_up() {
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
-    # Alerts VLM mode uses a different explicit service list than CV mode.
-    if [[ "${mode_env}" == "2d_vlm" ]]; then
+    # Real-time: VLM service list + always-on gate. Verification keeps overrides defaults
+    # (COMPOSE_PROFILES_CV, ALERT_AGENT_ALWAYS_ON=false).
+    if [[ "$(get_env_value "${_generated_env}" "MODE")" == "2d_vlm" ]]; then
       set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "true"
+    else
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "false"
     fi
   fi
 
