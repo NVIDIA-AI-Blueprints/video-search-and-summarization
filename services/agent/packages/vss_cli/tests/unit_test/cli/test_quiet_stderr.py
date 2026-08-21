@@ -66,3 +66,25 @@ def test_a_vios_command_advertises_its_backend() -> None:
 
     assert result.returncode == 0
     assert "Requires: vst" in result.stdout
+
+
+def test_configure_check_reports_which_groups_the_deployment_can_serve() -> None:
+    """`show` says what you have, `--help` says what a command needs.
+
+    Neither is useful alone, and doing the join by hand is the thing an
+    operator should not have to do.
+    """
+    from vss_cli import config as config_mod
+    from vss_cli.configure import _command_availability
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.test",
+        services={"vst": config_mod.Service(url="https://vss.test/vst")},
+        written_at="2026-08-20T00:00:00+00:00",
+    )
+
+    rows = {name: (ok, detail) for name, ok, detail in _command_availability(deployment)}
+
+    assert rows["vios"][0] is True
+    assert rows["search"][0] is False
+    assert "elasticsearch" in rows["search"][1]

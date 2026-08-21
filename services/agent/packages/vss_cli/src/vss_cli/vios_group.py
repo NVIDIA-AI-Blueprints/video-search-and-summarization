@@ -387,6 +387,8 @@ class _ViosGroup:
 
     api_version = 1
     name = "vios"
+    #: Read by `vss configure check` to report whether this group can be served.
+    requires = REQUIRES
     summary = "Sensors, timelines, clips and snapshots (no jobs)"
 
     def cli(self) -> click.Group:
