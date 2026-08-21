@@ -31,7 +31,7 @@ fi
 
 echo "Running video-analytics-api integration test (mode=$MODE)"
 source "$SCRIPT_DIR/generate_env.sh"
-. "$SCRIPT_DIR/docker_compose/infra/.env"
+. "$SCRIPT_DIR/docker_compose/.env"
 source "$SCRIPT_DIR/cleanup.sh"
 
 TEST_HOST="${TEST_HOST:-}"
@@ -73,9 +73,6 @@ export VIDEO_ANALYTICS_API_IMAGE
 
 # Start stack
 cd "$INTEGRATION_TEST_DIR/docker_compose"
-mkdir -p apps_data/data_log/elastic/data apps_data/data_log/elastic/logs
-mkdir -p apps_data/data_log/video-analytics-api-app/files
-chmod -R 777 apps_data/data_log
 
 # Port 9200 must be free (e.g. stop met-blueprints/mdx-elastic first if running)
 if command -v ss >/dev/null 2>&1; then
@@ -90,7 +87,7 @@ elif command -v netstat >/dev/null 2>&1; then
     fi
 fi
 
-COMPOSE_BASE="docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml"
+COMPOSE_BASE="docker compose --profile elasticsearch -f $SHARED_INFRA_COMPOSE -f apps/video-analytics-api-app.yml"
 COMPOSE_TIMEOUT="${COMPOSE_TIMEOUT:-3600}"
 echo "Starting Docker Compose (timeout ${COMPOSE_TIMEOUT}s)..."
 $COMPOSE_BASE up -d --force-recreate & COMPOSE_PID=$!
@@ -111,8 +108,8 @@ if kill -0 $COMPOSE_PID 2>/dev/null; then
     wait $COMPOSE_PID 2>/dev/null || true
     COMPOSE_EXIT=1
 fi
-echo "--- Elasticsearch container logs (web-api-elastic) ---"
-docker logs web-api-elastic 2>&1 || true
+echo "--- Elasticsearch container logs (elasticsearch) ---"
+docker logs elasticsearch 2>&1 || true
 echo "--- end logs ---"
 
 if [ "$COMPOSE_EXIT" -ne 0 ]; then
@@ -131,8 +128,8 @@ for i in $(seq 1 60); do
     fi
     if [ "$i" -eq 60 ]; then
         echo "✗ Elasticsearch did not become ready"
-        echo "--- Elasticsearch container logs (web-api-elastic) ---"
-        docker logs web-api-elastic 2>&1 || true
+        echo "--- Elasticsearch container logs (elasticsearch) ---"
+        docker logs elasticsearch 2>&1 || true
         echo "--- end logs ---"
         cleanup_docker_environment
         exit 1

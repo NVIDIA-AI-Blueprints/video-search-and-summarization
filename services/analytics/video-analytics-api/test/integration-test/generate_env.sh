@@ -32,6 +32,8 @@ if [ ! -f "$VIDEO_ANALYTICS_API_ROOT/docker/Dockerfile" ]; then
     VIDEO_ANALYTICS_API_ROOT="$(cd "$INTEGRATION_TEST_DIR/../.." && pwd)"
 fi
 DATA_DIR="$INTEGRATION_TEST_DIR/docker_compose/apps_data"
+REPO_ROOT="$(cd "$INTEGRATION_TEST_DIR/../../../../.." && pwd)"
+SHARED_INFRA_COMPOSE="$REPO_ROOT/deploy/docker/services/infra/compose.yml"
 
 # Host IP for any advertised listeners
 if command -v ip >/dev/null 2>&1; then
@@ -44,7 +46,7 @@ if [ -z "${HOST_IP:-}" ]; then
     HOST_IP="localhost"
 fi
 
-ENV_FILE="$SCRIPT_DIR/docker_compose/infra/.env"
+ENV_FILE="$SCRIPT_DIR/docker_compose/.env"
 echo "Generating environment at $ENV_FILE"
 
 cat > "$ENV_FILE" << EOF
@@ -54,6 +56,9 @@ cat > "$ENV_FILE" << EOF
 export INTEGRATION_TEST_DIR=$INTEGRATION_TEST_DIR
 export VIDEO_ANALYTICS_API_ROOT=$VIDEO_ANALYTICS_API_ROOT
 export DATA_DIR=$DATA_DIR
+export VSS_APPS_DIR=$REPO_ROOT/deploy/docker
+export VSS_DATA_DIR=$DATA_DIR
+export SHARED_INFRA_COMPOSE=$SHARED_INFRA_COMPOSE
 export HOST_IP=$HOST_IP
 export COMPOSE_PROJECT_NAME=video-analytics-api-integration
 EOF

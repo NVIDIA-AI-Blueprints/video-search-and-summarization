@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-. ./infra/.env
+. ./.env
 
 # Use sudo only when not root and sudo is available (CI often runs as root with no sudo)
 run_rm() {

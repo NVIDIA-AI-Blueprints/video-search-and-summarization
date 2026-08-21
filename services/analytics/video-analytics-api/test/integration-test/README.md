@@ -11,10 +11,10 @@ Integration tests for video-analytics-api using Docker Compose. The stack runs *
 ## Layout
 
 - **`docker_compose/`**
-  - **`infra/`** – Elasticsearch service and `.env` (generated)
   - **`apps/`** – video-analytics-api service and integration config
+- **Shared infra** – `deploy/docker/services/infra/compose.yml`
 - **`scripts/`** – `run_integration_tests.sh` (invokes Node), `run_integration_tests.js` (all HTTP checks and validate-then-upload via Node)
-- **`generate_env.sh`** – generates `docker_compose/infra/.env`
+- **`generate_env.sh`** – generates `docker_compose/.env`
 - **`cleanup.sh`** – brings down Compose and prunes volumes
 - **`test.sh`** – main integration test (build, up, wait, run tests, cleanup)
 - **`test_all.sh`** – runs all integration test profiles (currently single profile)
@@ -37,15 +37,15 @@ Manual steps:
 ```bash
 # Generate env and start stack
 source generate_env.sh
-. docker_compose/infra/.env
+. docker_compose/.env
 cd docker_compose
-docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml up -d
+docker compose --profile elasticsearch -f "$SHARED_INFRA_COMPOSE" -f apps/video-analytics-api-app.yml up -d
 
 # After services are up, run HTTP tests
 ../scripts/run_integration_tests.sh http://localhost:8081
 
 # Cleanup
-docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml down --volumes
+docker compose --profile elasticsearch -f "$SHARED_INFRA_COMPOSE" -f apps/video-analytics-api-app.yml down --volumes
 # Or from integration-test dir: ./cleanup.sh
 ```
 
@@ -62,7 +62,7 @@ docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-ap
 
 ## Environment variables
 
-Generated in `docker_compose/infra/.env` by `generate_env.sh`:
+Generated in `docker_compose/.env` by `generate_env.sh`:
 
 - `INTEGRATION_TEST_DIR` – path to the integration-test directory
 - `VIDEO_ANALYTICS_API_ROOT` – path to video-analytics-api repo root (where the Dockerfile is)
