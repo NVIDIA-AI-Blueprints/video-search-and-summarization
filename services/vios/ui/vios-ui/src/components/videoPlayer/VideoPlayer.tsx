@@ -294,6 +294,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     }, [onWebRTCStatsUpdate]);
 
     // Helper function to get the earliest start time from timelines
+    // DASH replay needs a bounded window.  Left open ended, the packager
+    // republishes the whole recording as fast as it can read it while the player
+    // follows a wall clock edge, so the two drift apart and the player asks for
+    // segments that do not exist yet.
+    const getLatestEndTime = (): string | undefined => {
+        if (!timelinesRef.current || timelinesRef.current.length === 0) {
+            return undefined;
+        }
+        return timelinesRef.current.reduce((latest, timeline) => {
+            return new Date(timeline.endTime) > new Date(latest) ? timeline.endTime : latest;
+        }, timelinesRef.current[0].endTime);
+    };
+
     const getEarliestStartTime = (): string => {
         if (!timelinesRef.current || timelinesRef.current.length === 0) {
             LOG.warn('No timelines found, using fallback start time:', FALLBACK_START_TIME);
@@ -406,10 +419,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
 
         // DASH is delivered over HTTP by streaming-lib.  The component only
         // selects the protocol; StreamManager owns the transport for both.
-        if (streamType === StreamType.Live && deliveryProtocol === 'dash' && !sensor?.streamId) {
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay)
+            && !sensor?.streamId) {
             setHasError(true);
             setIsLoading(false);
-            setErrorDetails({ message: 'A live stream ID is required for DASH playback', code: 400 });
+            setErrorDetails({ message: 'A stream ID is required for DASH playback', code: 400 });
             return;
         }
 
@@ -480,10 +495,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
 
             if (streamType === StreamType.Replay) {
                 streamConfig.startTime = getEarliestStartTime();
+                if (deliveryProtocol === 'dash') {
+                    streamConfig.endTime = getLatestEndTime();
+                }
             }
         }
 
-        if (streamType === StreamType.Live && deliveryProtocol === 'dash') {
+        if (deliveryProtocol === 'dash' && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
             streamConfig.options.streamType = 'dash';
         }
 
@@ -674,7 +692,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     };
 
     const handlePlayPause = async () => {
-        if (deliveryProtocol === 'dash' && streamType === StreamType.Live) {
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
             if (!videoRef.current) {
                 return;
             }
@@ -1573,8 +1592,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // one instance exists at a time (avoids duplicate element IDs used by automated tests).
     const controlsCluster = (
         <>
-            {streamType === StreamType.Live && (
-                <Box sx={{ display: 'flex', gap: 0.5, mr: 1 }} aria-label='Live delivery protocol'>
+            {(streamType === StreamType.Live || streamType === StreamType.Replay) && (
+                <Box sx={{ display: 'flex', gap: 0.5, mr: 1 }} aria-label='Delivery protocol'>
                     <Button
                         size='small'
                         variant={deliveryProtocol === 'webrtc' ? 'contained' : 'outlined'}
