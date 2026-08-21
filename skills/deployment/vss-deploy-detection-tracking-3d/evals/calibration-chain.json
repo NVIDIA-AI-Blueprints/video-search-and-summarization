@@ -10,6 +10,12 @@
         "modes": [
           "standalone"
         ]
+      },
+      "H200": {
+        "gpu_count": 0,
+        "modes": [
+          "standalone"
+        ]
       }
     }
   },
