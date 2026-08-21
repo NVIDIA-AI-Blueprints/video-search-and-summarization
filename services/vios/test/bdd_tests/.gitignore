@@ -28,7 +28,13 @@ ENV/
 .venv/
 
 # Poetry
-# Note: poetry.lock is intentionally not ignored (should be committed for applications)
+# poetry.lock is intentionally NOT committed. This harness is dev-only test
+# tooling that ships nothing, but a checked-in lock file is treated as a
+# dependency manifest by the OSS/nspect source scan and its pinned transitive
+# versions surface as findings. nspect can only exclude whole directories and
+# excluding all of test/ is too broad, so the lock is resolved at image build
+# time instead (see Dockerfile) and baked into the published image.
+poetry.lock
 
 # Pytest
 .pytest_cache/

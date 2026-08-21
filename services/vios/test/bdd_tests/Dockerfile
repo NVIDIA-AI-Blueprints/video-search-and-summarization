@@ -67,11 +67,27 @@ RUN curl -sSL https://install.python-poetry.org | python3 - \
 # Set working directory
 WORKDIR /app
 
-# Copy dependency files first (for better caching)
-COPY pyproject.toml poetry.lock* ./
+# Copy the dependency manifest first (for better caching).
+#
+# poetry.lock is deliberately NOT committed to the repo and NOT copied here:
+# this is a dev-only test harness that ships nothing, but a checked-in lock file
+# is picked up by the OSS/nspect source scan as a dependency manifest and its
+# pinned transitive versions get reported as findings. nspect excludes by
+# directory only, and we do not want to exclude all of test/. So the lock is
+# resolved at build time instead (see .gitignore).
+#
+# The resolved lock IS written into the image at /app/poetry.lock, so a given
+# published bdd_tests:<TAG> has one fixed dependency set -- but two builds of
+# the same source can differ. The constraints in pyproject.toml (including the
+# security floors) are the only thing bounding resolution; keep them tight.
+COPY pyproject.toml ./
 
-# Install Python dependencies (without dev dependencies)
-RUN poetry install --no-root --only main
+# Resolve and install Python dependencies (without dev dependencies).
+# poetry show records the resolved set in the build log and in the image, since
+# there is no committed lock file to diff against.
+RUN poetry lock \
+    && poetry install --no-root --only main \
+    && poetry show --only main > /app/resolved-deps.txt
 
 # Copy the entire project. This also bakes test_videos/ (the sample clips) into
 # the image -- .dockerignore explicitly un-ignores test_videos/. Unlike tests/,

@@ -453,7 +453,8 @@ update_docker_compose() {
     # Test source (tests/, features/, scripts/, data/, conftest.py) is bind-mounted
     # from the host repo so test code changes do not require rebuilding the image.
     # The image only needs rebuilding when Dockerfile, docker-entrypoint.sh,
-    # pyproject.toml, or poetry.lock change.
+    # or pyproject.toml change. poetry.lock is not in the repo -- dependencies
+    # are resolved inside the image at build time.
     #
     # Mount paths use ${BDD_TESTS_DIR:-<resolved-path>} so the generated YAML
     # works both when invoked via this script (env var set) and when a developer
