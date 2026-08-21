@@ -37,7 +37,7 @@
       ]
     },
     {
-      "query": "Deploy MV3DT on the sample dataset / 4-cam example dataset. Do not run containers.",
+      "query": "Deploy MV3DT on the sample dataset / 4-cam example dataset. Do not run containers. Provide the ordered plan, including display probing before choosing saved output, live OSD plus live fused BEV when display works, BEV start before file playback, and post-EOS live BEV closeout with q or safe tracked-PID stop.",
       "checks": [
         "The agent loads vss-deploy-detection-tracking-3d and references/sample-dataset.md for sample-dataset intent.",
         "The plan keeps the standalone RT-CV-3D compose path and does not route to vss-deploy-profile unless the user asks for the full warehouse blueprint.",
