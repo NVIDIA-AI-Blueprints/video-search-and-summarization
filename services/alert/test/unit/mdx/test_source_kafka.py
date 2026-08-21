@@ -156,9 +156,13 @@ class TestEnsureConsumer:
         source._ensure_consumer("mdx-alerts")
 
         assert "mdx-alerts" in source.topic_consumer_map
-        source.kafka_message_broker.get_consumer.assert_called_once_with(
-            "mdx-alerts", "alert-bridge", on_revoke=None, on_assignment_change=None
-        )
+        # The hooks are dereferenced when the callback fires rather than
+        # captured here, so what matters is that both are wired, not their
+        # value at subscribe time.
+        topic, group = source.kafka_message_broker.get_consumer.call_args.args
+        hooks = source.kafka_message_broker.get_consumer.call_args.kwargs
+        assert (topic, group) == ("mdx-alerts", "alert-bridge")
+        assert callable(hooks["on_revoke"]) and callable(hooks["on_assignment_change"])
 
     def test_the_consumer_is_cached(self, source):
         source._ensure_consumer("mdx-alerts")

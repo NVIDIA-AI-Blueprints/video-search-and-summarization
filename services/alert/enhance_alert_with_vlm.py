@@ -2685,6 +2685,11 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         # its own. Both have to finish before this child counts as ready, or
         # the instance announces readiness while some partitions are still
         # unowned and a producer writes past them.
+        # Registered before the wait so the first assignment is reported by
+        # the same path as every later one, rather than by a one-off call.
+        enhancer.source.set_assignment_change_hook(
+            lambda: _publish_readiness(enhancer, index, ready_event)
+        )
         if not enhancer.source.await_ready():
             # Restartable rather than fatal: a broker blip should recover on
             # the next attempt. What must not happen is reporting ready, which
@@ -2692,9 +2697,6 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
             raise RuntimeError(
                 f"pipeline process {index} could not join the consumer group"
             )
-        enhancer.source.set_assignment_change_hook(
-            lambda: _publish_readiness(enhancer, index, ready_event)
-        )
         _publish_readiness(enhancer, index, ready_event)
         logger.info("Pipeline process %d ready (pid=%d)", index, os.getpid())
         if index == 0:

@@ -199,25 +199,38 @@ class SourceKafka(SourceBase):
         )
 
     def set_assignment_change_hook(self, hook) -> None:
-        """Register what to run whenever the assignment is decided or taken."""
+        """Register what to run whenever the assignment is decided or taken.
+
+        Safe to call after the consumers exist, for the same reason as
+        ``set_revoke_hook``.
+        """
         self._assignment_change_hook = hook
 
     def set_revoke_hook(self, hook) -> None:
         """Register what to run when partitions are taken away.
 
         Set after construction because the pipeline that owns the in-flight
-        accounting is built around this source, not before it. Consumers are
-        created lazily, so a hook registered before the first read reaches all
-        of them.
+        accounting is built around this source, not before it. Registration
+        order does not matter: the consumers dereference the hook when the
+        callback fires rather than capturing it when they subscribe.
         """
         self._revoke_hook = hook
 
     def _ensure_consumer(self, topic: str) -> None:
         """Create and cache a consumer for the given topic if not already present."""
         if topic not in self.topic_consumer_map:
+            # Looked up when the callback fires, not captured here. Consumers
+            # used to be created on first read, so a hook registered any time
+            # before that reached all of them; they are now created up front,
+            # which silently turned a hook registered afterwards into a no-op.
             self.topic_consumer_map[topic] = self.kafka_message_broker.get_consumer(
-                topic, self.groupId, on_revoke=self._revoke_hook,
-                on_assignment_change=self._assignment_change_hook
+                topic, self.groupId,
+                on_revoke=lambda partitions: (
+                    self._revoke_hook(partitions) if self._revoke_hook else None
+                ),
+                on_assignment_change=lambda: (
+                    self._assignment_change_hook() if self._assignment_change_hook else None
+                ),
             )
 
     # def read_from_topic(self, topic: str, message_transfer_func: Optional[Callable] = None) -> List[Any]:

@@ -306,3 +306,67 @@ class TestHealthReflectsLiveWorkers:
 
     def test_missing_series_is_not_an_error(self):
         assert self._degraded({"alert_bridge_pipeline_processes_ready": 2.0}) is None
+
+
+class TestHooksSurviveRegistrationOrder:
+    """A hook registered after the consumers exist must still reach them.
+
+    Consumers were once created on first read, so any hook registered before
+    that reached all of them -- a docstring said exactly this. Creating them
+    up front to fix a startup deadlock silently turned a hook registered
+    afterwards into a no-op: the assignment gauge froze at its startup value,
+    readiness never dropped, and health never reported a degraded fleet.
+    """
+
+    @staticmethod
+    def _source():
+        from unittest.mock import MagicMock
+        from mdx.source.source_kafka import SourceKafka
+
+        source = SourceKafka.__new__(SourceKafka)
+        source.topic_consumer_map = {}
+        source.groupId = "g"
+        source.source_topics = ["t"]
+        source._revoke_hook = None
+        source._assignment_change_hook = None
+        source.kafka_message_broker = MagicMock()
+        return source
+
+    def _consumer_hooks(self, source):
+        source._ensure_consumer("t")
+        return source.kafka_message_broker.get_consumer.call_args.kwargs
+
+    def test_an_assignment_hook_registered_afterwards_still_fires(self):
+        source = self._source()
+        hooks = self._consumer_hooks(source)      # consumer built with none set
+
+        seen = []
+        source.set_assignment_change_hook(lambda: seen.append("assigned"))
+        hooks["on_assignment_change"]()
+
+        assert seen == ["assigned"]
+
+    def test_a_revoke_hook_registered_afterwards_still_fires(self):
+        source = self._source()
+        hooks = self._consumer_hooks(source)
+
+        seen = []
+        source.set_revoke_hook(seen.append)
+        hooks["on_revoke"]({("t", 0)})
+
+        assert seen == [{("t", 0)}]
+
+    def test_no_hook_registered_is_not_an_error(self):
+        source = self._source()
+        hooks = self._consumer_hooks(source)
+        hooks["on_assignment_change"]()
+        hooks["on_revoke"]({("t", 0)})
+
+    def test_replacing_a_hook_takes_effect_on_the_next_callback(self):
+        source = self._source()
+        hooks = self._consumer_hooks(source)
+        source.set_assignment_change_hook(lambda: seen.append("first"))
+        seen = []
+        source.set_assignment_change_hook(lambda: seen.append("second"))
+        hooks["on_assignment_change"]()
+        assert seen == ["second"]
