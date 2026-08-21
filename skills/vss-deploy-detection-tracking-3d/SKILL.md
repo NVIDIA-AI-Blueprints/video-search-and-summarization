@@ -9,7 +9,9 @@ description: >
   Trigger for generic MV3DT, RTVI-CV-3D, multi-view 3D tracking, multi-cam
   tracking, or sample MV3DT dataset requests. Explicit warehouse
   blueprint/profile MV3DT requests route to vss-deploy-profile; single-camera
-  2D tracking routes to the 2D tracking or DeepStream skills.
+  2D tracking routes to the 2D tracking or DeepStream skills. Not for full
+  warehouse blueprint deployment, single-camera 2D tracking, camera calibration
+  itself, or VSS summarization, Q&A, and RAG workflows.
 license: Apache-2.0
 metadata:
   author: NVIDIA
