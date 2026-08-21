@@ -68,13 +68,6 @@ services:
   #     broker-health-check:
   #       condition: service_completed_successfully
 
-  bp-configurator-3d-init:
-    extends:
-      file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
-      service: bp-configurator-init-base
-    profiles: ["bp-configurator-3d-init"]
-    container_name: vss-configurator-3d-init
-
   bp-configurator-3d:
     extends:
       file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
@@ -84,7 +77,7 @@ services:
       default:
         aliases:
           - vss-configurator
-    profiles: ["bp-configurator-3d"]
+    profiles: !override ["bp-configurator-3d"]
     environment:
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs
@@ -92,28 +85,18 @@ services:
       RECOMPUTE_BEV_CENTERS_ENABLED: true
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: true
+      ENABLE_SENSOR_CONFIGURATOR: true
+      CALL_SENSOR_ADD_API: true
+      SEND_CONFIG_TO_SDR: true
+      ENABLE_CALIBRATION_PROCESS: true
     env_file:
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
-    command:
-      - python
-      - -c
-      - |
-        import os
-        import sys
-
-        os.environ["SEND_CONFIG_TO_SDR"] = (
-            "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
-        )
-        os.environ["ENABLE_CALIBRATION_PROCESS"] = (
-            "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
-        )
-        os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      bp-configurator-3d-init:
+      broker-health-check:
         condition: service_completed_successfully
 
   ds-configurator-3d:

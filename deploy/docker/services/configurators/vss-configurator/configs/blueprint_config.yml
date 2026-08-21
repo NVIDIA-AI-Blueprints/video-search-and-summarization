@@ -1,0 +1,38 @@
+commons:
+  prerequisites:
+    auto-calibration:
+      - operation_type: "file_management"
+        enabled: false
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+        file_management:
+          action: "file_count" # Keep only the last ${final_stream_count} videos in the directory
+          parameters:
+            pattern: "*.mp4"          # File pattern to match
+          output_variable: NUM_STREAMS # Output the number of files matching the pattern to the NUM_STREAMS variable
+
+  file_operations:
+    auto-calibration:
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/services/nvstreamer/configs/vst-config.json"
+        backup: true 
+        updates:
+          data.nv_streamer_sync_file_count: ${NUM_STREAMS}
+
+      # Update the VST Configs
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/services/vios/configs/vst_config.json"
+        backup: true
+        updates:
+          onvif.max_devices_supported: ${NUM_STREAMS}
+          data.always_recording: true
+
+      - operation_type: "file_management"
+        enabled: false
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+        file_management:
+          action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
+          parameters:
+            count: ${NUM_STREAMS}
+            pattern: "*.mp4"

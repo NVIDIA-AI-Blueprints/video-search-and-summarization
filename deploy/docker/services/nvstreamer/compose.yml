@@ -19,15 +19,19 @@
 # The variants differ only in which configuration directory they mount and
 # which configurator they wait for; everything else comes from nvstreamer-base.
 # NVStreamer needs no GPU, so there is no runtime or device reservation here.
+#
+# Every `profiles` here carries `!override` because `extends` merges sequences:
+# without it each variant would also inherit the nvstreamer-base guard profile,
+# and selecting nvstreamer-base would start all of them at once.
 services:
   nvstreamer-2d:
     extends:
       file: base.yml
       service: nvstreamer-base
-    profiles: ["nvstreamer-2d"]
+    profiles: !override ["nvstreamer-2d"]
     volumes:
-      - ${NVSTREAMER_2D_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/tmp/nv_streamer/videos
+      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       bp-configurator-2d:
         condition: service_healthy
@@ -36,10 +40,10 @@ services:
     extends:
       file: base.yml
       service: nvstreamer-base
-    profiles: ["nvstreamer-3d"]
+    profiles: !override ["nvstreamer-3d"]
     volumes:
-      - ${NVSTREAMER_3D_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/tmp/nv_streamer/videos
+      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       bp-configurator-3d:
         condition: service_healthy
@@ -48,13 +52,26 @@ services:
     extends:
       file: base.yml
       service: nvstreamer-base
-    profiles: ["nvstreamer-mv3dt"]
+    profiles: !override ["nvstreamer-mv3dt"]
     container_name: vss-vios-nvstreamer-mv3dt
     volumes:
-      - ${NVSTREAMER_MV3DT_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/tmp/nv_streamer/videos
+      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       bp-configurator-mv3dt:
+        condition: service_healthy
+
+  nvstreamer-amc:
+    extends:
+      file: base.yml
+      service: nvstreamer-base
+    profiles: !override ["nvstreamer-amc"]
+    container_name: vss-vios-nvstreamer-amc
+    volumes:
+      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
+    depends_on:
+      bp-configurator-base:
         condition: service_healthy
 
   # Developer / smartcity variants. These carry no blueprint configuration of
@@ -64,7 +81,7 @@ services:
     extends:
       file: base.yml
       service: nvstreamer-base
-    profiles: ["nvstreamer-alerts"]
+    profiles: !override ["nvstreamer-alerts"]
     volumes:
       - ${NVSTREAMER_ALERTS_VIDEO_DIR:-${NVSTREAMER_VIDEO_DIR:-${VSS_DATA_DIR}}/videos/dev-profile-alerts}:/home/vst/vst_release/streamer_videos
       - ${VSS_DATA_DIR}/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
@@ -76,7 +93,7 @@ services:
     extends:
       file: base.yml
       service: nvstreamer-base
-    profiles: ["nvstreamer-lvs"]
+    profiles: !override ["nvstreamer-lvs"]
     container_name: vss-vios-nvstreamer-lvs
     volumes:
       - ${VSS_DATA_DIR}/videos/dev-profile-lvs:/home/vst/vst_release/streamer_videos
@@ -89,8 +106,9 @@ services:
     extends:
       file: base.yml
       service: nvstreamer-base
-    profiles: ["nvstreamer-2d-fusion"]
+    profiles: !override ["nvstreamer-2d-fusion"]
     volumes:
+      - ${NVSTREAMER_FUSION_VIDEO_DIR:-${VSS_DATA_DIR}/data_log/nvstreamer/streamer_videos}:/home/vst/vst_release/streamer_videos
       - ${VSS_DATA_DIR}/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
     depends_on:
       broker-health-check:
