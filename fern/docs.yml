@@ -19,10 +19,6 @@ navbar-links:
   - type: github
     value: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
 
-experimental:
-  mdx-components:
-    - ./components
-
 navigation:
   - page: "Introduction"
     path: ../docs/index.mdx
