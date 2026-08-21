@@ -1,0 +1,18 @@
+version = "1.0.0"
+
+[oss]
+
+# if you are not adding excluded directories then remove [oss.excluded] and [[oss.excluded.directories]] both tag from file.
+[oss.excluded]
+
+# paths also accepts file paths, so a single lockfile can be excluded without
+# excluding the directories that contain it.
+[[oss.excluded.directories]]
+paths = ['test/bdd_tests/poetry.lock']
+comment = 'BDD automation test dependencies, not shipped'
+
+[[pulse-trufflehog.files]]
+file = "src/framework/database/include/database_schema.h"
+  [[pulse-trufflehog.files.secrets]]
+  type = "Password"
+  values = [ "pas**************ORD\"" ]
