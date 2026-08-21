@@ -307,11 +307,26 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
     def test_persistence_disabled_storage_cannot(self):
         assert self._shared(False) is False
 
-    @pytest.mark.parametrize("processes,shared,allowed", [
-        (1, True, True),
-        (1, False, True),      # a single process owns its store outright
-        (4, True, True),
-        (4, False, False),     # nothing can hand a private store to a worker
-    ])
-    def test_which_combinations_may_run(self, processes, shared, allowed):
-        assert (processes == 1 or shared) is allowed
+    @staticmethod
+    def _validate(shared, mode="event_loop", processes=4):
+        from enhance_alert_with_vlm import validate_multi_process_config
+        validate_multi_process_config(
+            {"persistence": {"enabled": shared},
+             "alert_agent": {"pipeline_mode": mode}},
+            processes,
+        )
+
+    def test_a_shared_store_is_accepted(self):
+        self._validate(shared=True)
+
+    def test_a_private_store_is_refused(self):
+        with pytest.raises(ValueError, match="persistence.enabled is false"):
+            self._validate(shared=False)
+
+    def test_the_refusal_names_the_way_out(self):
+        with pytest.raises(ValueError, match="Enable persistence, or run a single process"):
+            self._validate(shared=False)
+
+    def test_the_mode_is_checked_too(self):
+        with pytest.raises(ValueError, match="requires pipeline_mode"):
+            self._validate(shared=True, mode="sync")

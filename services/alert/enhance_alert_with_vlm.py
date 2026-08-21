@@ -178,6 +178,34 @@ _VLM_API_ERROR_CLASSIFICATION = (
 )
 
 
+def validate_multi_process_config(config: dict, process_count: int) -> None:
+    """Refuse a multi-process configuration the deployment cannot honour.
+
+    Module level so it can be tested. Inside the entry point it was reachable
+    only by starting the program, so the refusals, their wording and the fact
+    that they fire before anything is spawned were all unverified.
+    """
+    if not _alert_config_store_is_shared(config):
+        raise ValueError(
+            f"alert_agent.processes={process_count} requires shared "
+            f"alert-config storage, but persistence.enabled is false. That "
+            f"store is private to each process, so the supervisor cannot "
+            f"initialise one the workers will read: each would build its own "
+            f"copy and they would drift apart. Enable persistence, or run a "
+            f"single process."
+        )
+
+    mode = pipeline_mode_from_config(config)
+    if mode != PIPELINE_MODE_EVENT_LOOP:
+        raise ValueError(
+            f"alert_agent.processes={process_count} requires "
+            f"pipeline_mode={PIPELINE_MODE_EVENT_LOOP!r}, got {mode!r}. The "
+            f"other modes hold their concurrency in threads, so several "
+            f"processes multiply the load on the VLM and VST backends by the "
+            f"process count without the per-process caps that bound it."
+        )
+
+
 def _batch_partition(batch: dict):
     """The (topic, partition) a batch came from, or None for other sources."""
     topic, partition = batch.get("topic"), batch.get("partition")
@@ -2641,7 +2669,7 @@ def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -
 
 
 def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
-                       ready_event: Optional[Any], started: bool = True) -> None:
+                       ready_event: Optional[Any], started: bool = True) -> bool:
     """Mirror the live assignment into the readiness signal and the gauge.
 
     Readiness is not a milestone that a process passes once. A rebalance can
@@ -2653,7 +2681,11 @@ def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
 
     held = enhancer.source.assigned_partition_count()
     set_assigned_partitions(held)
-    ready = enhancer.source.is_ready() and held > 0
+    # Decided, not non-empty. With more group members than a topic has
+    # partitions a member legitimately owns none of it -- the documented
+    # replicas x processes > partitions rollout -- and requiring work here
+    # would leave it unready for good. The count is reported separately.
+    ready = enhancer.source.is_ready()
     if ready_event is not None:
         if not ready:
             # Losing partitions is reported immediately, whatever else this
@@ -2816,6 +2848,11 @@ def setup_signal_handlers(fastapi_process):
         if supervisor is not None:
             logger.info("Stopping pipeline processes...")
             try:
+                # Before stop(), which reads the flag to decide whether the
+                # exits it reaps were asked for. Without this every clean
+                # shutdown is reported as a crash, which is the distinction
+                # backwards.
+                supervisor.request_shutdown()
                 supervisor.stop()
             except Exception as e:
                 logger.error(f"Error stopping pipeline processes: {e}")
@@ -2906,26 +2943,7 @@ if __name__ == "__main__":
             if not EventBridgeFactory.validate_configuration(pipeline_config):
                 raise ValueError("Invalid event bridge configuration")
 
-            if not _alert_config_store_is_shared(pipeline_config):
-                raise ValueError(
-                    f"alert_agent.processes={process_count} requires shared "
-                    f"alert-config storage, but persistence.enabled is false. "
-                    f"That store is private to each process, so the supervisor "
-                    f"cannot initialise one the workers will read: each would "
-                    f"build its own copy and they would drift apart. Enable "
-                    f"persistence, or run a single process."
-                )
-
-            mode = pipeline_mode_from_config(pipeline_config)
-            if mode != PIPELINE_MODE_EVENT_LOOP:
-                raise ValueError(
-                    f"alert_agent.processes={process_count} requires "
-                    f"pipeline_mode={PIPELINE_MODE_EVENT_LOOP!r}, got {mode!r}. "
-                    f"The other modes hold their concurrency in threads, so "
-                    f"several processes multiply the load on the VLM and VST "
-                    f"backends by the process count without the per-process "
-                    f"caps that bound it."
-                )
+            validate_multi_process_config(pipeline_config, process_count)
 
             # Blocks until the topics exist, then raises if they carry fewer
             # partitions than there are processes. Waiting is what lets the
@@ -2967,7 +2985,7 @@ if __name__ == "__main__":
 
         # Start the FastAPI server in a separate process
         fastapi_process = _pipeline_mp_context().Process(
-            target=start_fastapi, args=(os.getpid(),)
+            target=start_fastapi, args=(os.getpid(),), name="ab-fastapi"
         )
         fastapi_process.start()
         logger.info("FastAPI server started in separate process")
@@ -3011,6 +3029,11 @@ if __name__ == "__main__":
                                        on_ready=announce_ready,
                                        watch=[fastapi_process])
         else:
+            # Note: at one process there is no supervisor, so the API child is
+            # not watched. A dead endpoint there leaves the pipeline running
+            # without one -- the same state the watch exists to prevent above.
+            # Closing that means giving the single-process path a supervisor,
+            # which is a larger change than this review round.
             if not enhancer.source.await_ready():
                 raise RuntimeError("source could not join the consumer group")
             announce_ready()

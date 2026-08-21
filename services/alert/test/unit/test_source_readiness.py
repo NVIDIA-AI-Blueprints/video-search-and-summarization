@@ -204,6 +204,18 @@ class TestAssignmentIsLiveState:
         consumer.revoke()
         assert broker.owned_partitions(consumer) == set()
 
+    def test_a_revoke_makes_the_assignment_undecided_again(self):
+        # Readiness follows this. Leaving it decided made it a latch that
+        # could only ever be set, which is what let a worker report itself
+        # ready after its partitions had moved elsewhere.
+        from mdx.kafka_message_broker import KafkaMessageBroker
+        broker = KafkaMessageBroker(CONFIG)
+        consumer = wire(broker, FakeConsumer(assign_after=1))
+        broker.await_assignment(consumer, timeout=5)
+        assert broker.assignment_decided(consumer)
+        consumer.revoke()
+        assert not broker.assignment_decided(consumer)
+
     def test_a_revoke_hands_the_losing_partitions_to_the_hook(self, broker):
         seen = []
         consumer = wire(broker, FakeConsumer(assign_after=1, partitions=(2, 5)),
@@ -280,6 +292,8 @@ class TestHealthReflectsLiveWorkers:
             sample.name = name
         metric = MagicMock(samples=samples)
 
+        # The reader caches for a second; each case is a fresh read.
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
         env = {"PROMETHEUS_MULTIPROC_DIR": "/tmp/x"} if multiproc else {}
         with patch.dict("os.environ", env, clear=not multiproc), \
              patch("prometheus_client.CollectorRegistry") as reg, \
@@ -306,6 +320,22 @@ class TestHealthReflectsLiveWorkers:
 
     def test_missing_series_is_not_an_error(self):
         assert self._degraded({"alert_bridge_pipeline_processes_ready": 2.0}) is None
+
+    def test_the_answer_is_cached_between_probes(self):
+        # /health is polled often, and each read mmaps every metric shard.
+        import sys
+        from unittest.mock import patch
+        sys.modules.pop("web.main", None)
+        from web import main
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
+        with patch.dict("os.environ", {"PROMETHEUS_MULTIPROC_DIR": "/tmp/x"}), \
+             patch("prometheus_client.CollectorRegistry") as reg, \
+             patch("prometheus_client.multiprocess.MultiProcessCollector"):
+            reg.return_value.collect.return_value = []
+            main._degraded_workers()
+            main._degraded_workers()
+            main._degraded_workers()
+        assert reg.return_value.collect.call_count == 1
 
 
 class TestHooksSurviveRegistrationOrder:

@@ -249,6 +249,10 @@ alert_agent:
   the CPU count read well but hid the constraint that actually binds, and on
   a 256-core host with 8 partitions it produced 248 children that could never
   receive a partition and still cost ~140 MiB each.
+- **Shared alert-config storage is required above 1.** With
+  `persistence.enabled: false` the store is private to each process, so no
+  supervisor can initialise one the workers will read. Startup refuses the
+  combination rather than running N stores that drift apart.
 - **`event_loop` is required above 1** because the other modes hold their
   concurrency in threads. Several processes then multiply the load offered to
   the VLM and VST backends by the process count, without the per-process caps
@@ -261,8 +265,12 @@ alert_agent:
   a perfectly good configuration.
 - **Across replicas the constraint is `replicas × processes ≤ partitions`.**
   Consumer-group members are pods *and* processes: 2 replicas × 4 processes
-  needs 8 partitions, and 3 × 4 on 8 partitions leaves 4 members idle. Scale
-  partitions before scaling either dimension.
+  needs 8 partitions, and 3 × 4 on 8 partitions leaves 4 members idle. A pod
+  cannot see the replica count, so only the per-pod rule is enforced; the
+  idle members still report themselves ready, because a member that has been
+  told it owns nothing has been told, and reporting otherwise would leave a
+  correctly-running rollout permanently unhealthy. `alert_bridge_assigned_partitions`
+  is where that shows up. Scale partitions before scaling either dimension.
 - **No shared state is needed.** `mdx-incidents` is partitioned by `sensorId`
   and every dedup cohort key is prefixed with it, so Kafka routes a whole
   cohort to one partition and therefore to exactly one child; confirmed-verdict

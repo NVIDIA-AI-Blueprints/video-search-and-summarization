@@ -253,11 +253,21 @@ class TestReadinessTracksTheLiveAssignment:
         assert entry._publish_readiness(self._child(held=2), 0, event) is True
         assert event.is_set()
 
-    def test_losing_every_partition_clears_readiness(self):
+    def test_a_revoke_clears_readiness(self):
+        # A revoke makes the assignment undecided again, which is what
+        # readiness follows. Holding zero partitions with a decided assignment
+        # is a supported state and stays ready.
         event = entry._pipeline_mp_context().Event()
         entry._publish_readiness(self._child(held=2), 0, event)
-        entry._publish_readiness(self._child(held=0), 0, event)
+        entry._publish_readiness(self._child(held=0, ready=False), 0, event)
         assert not event.is_set()
+
+    def test_a_decided_but_empty_assignment_is_still_ready(self):
+        # replicas x processes > partitions leaves members legitimately empty;
+        # they are serving correctly and must not report otherwise.
+        event = entry._pipeline_mp_context().Event()
+        entry._publish_readiness(self._child(held=0, ready=True), 0, event)
+        assert event.is_set()
 
     def test_being_reassigned_raises_it_again(self):
         event = entry._pipeline_mp_context().Event()
@@ -269,6 +279,12 @@ class TestReadinessTracksTheLiveAssignment:
         event = entry._pipeline_mp_context().Event()
         assert entry._publish_readiness(self._child(held=2, ready=False), 0, event) is False
         assert not event.is_set()
+
+    def test_the_gauge_reports_the_count_even_when_empty(self):
+        # Zero partitions is worth seeing; it is just not unreadiness.
+        child = self._child(held=0, ready=True)
+        entry._publish_readiness(child, 0, None)
+        child.source.assigned_partition_count.assert_called()
 
     def test_the_hook_is_registered_so_a_revoke_reaches_it(self, enhancer):
         enhancer.source.await_ready.return_value = True
@@ -311,11 +327,11 @@ class TestReadinessWaitsForStartupToFinish:
         entry._publish_readiness(self._child(), 0, event, started=True)
         assert event.is_set()
 
-    def test_losing_partitions_lowers_it_whatever_the_startup_state(self):
-        # A revoke is reported at once; there is nothing to wait for.
+    def test_a_revoke_lowers_it_whatever_the_startup_state(self):
+        # Reported at once; there is nothing to wait for in that direction.
         event = entry._pipeline_mp_context().Event()
         entry._publish_readiness(self._child(), 0, event, started=True)
-        entry._publish_readiness(self._child(held=0), 0, event, started=False)
+        entry._publish_readiness(self._child(held=0, ready=False), 0, event, started=False)
         assert not event.is_set()
 
     def test_the_hook_cannot_raise_readiness_before_the_child_logs_ready(self, enhancer):

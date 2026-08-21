@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import time
 from typing import Optional
 
 from fastapi import FastAPI, Request, Response
@@ -192,6 +193,10 @@ async def health_check():
     return {"status": "ok", "message": "Alert Bridge is running"}
 
 
+_DEGRADED_CACHE: dict = {"at": 0.0, "value": None}
+_DEGRADED_TTL_SECONDS = 1.0
+
+
 def _degraded_workers() -> Optional[str]:
     """Describe the fleet when fewer workers hold an assignment than exist.
 
@@ -202,6 +207,16 @@ def _degraded_workers() -> Optional[str]:
     """
     if not os.getenv("PROMETHEUS_MULTIPROC_DIR"):
         return None
+
+    # Cached: reading these two numbers means mmapping and parsing every
+    # metric shard in the directory, histograms included, and /health is the
+    # most frequently polled endpoint there is. The counts behind it are
+    # refreshed on the supervisor's one-second poll, so a fresher read carries
+    # no more information than this does.
+    now = time.monotonic()
+    if now - _DEGRADED_CACHE["at"] < _DEGRADED_TTL_SECONDS:
+        return _DEGRADED_CACHE["value"]
+
     try:
         from prometheus_client import CollectorRegistry, multiprocess
 
@@ -215,12 +230,16 @@ def _degraded_workers() -> Optional[str]:
         configured = values.get("alert_bridge_pipeline_processes_configured")
         ready = values.get("alert_bridge_pipeline_processes_ready")
         if configured is None or ready is None or configured <= 0:
+            _DEGRADED_CACHE.update(at=now, value=None)
             return None
+        degraded = None
         if ready < configured:
-            return (
+            degraded = (
                 f"{int(ready)} of {int(configured)} pipeline processes hold a "
                 f"partition assignment"
             )
+        _DEGRADED_CACHE.update(at=now, value=degraded)
+        return degraded
     except Exception:
         logger.debug("Could not read pipeline readiness from metrics", exc_info=True)
     return None

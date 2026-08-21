@@ -366,6 +366,14 @@ reset_es() {
 
 # ─── Signal helpers ──────────────────────────────────────────────────────────
 
+prom_labelled_total() {
+    # Sum every labelled series of one counter. prom_value cannot read these:
+    # it compares field 1 to the metric name, and a labelled line carries
+    # name{label="..."} there.
+    curl -s "$METRICS_URL" 2>/dev/null \
+        | awk -v m="$1" 'index($1, m "{") == 1 {s += $2} END {print s + 0}'
+}
+
 prom_value() {
     curl -s "$METRICS_URL" 2>/dev/null | awk -v m="$1" '$1==m {v=$2} END{if(v=="")v=0; print v}'
 }
@@ -853,13 +861,27 @@ stop_secondary_ab() {
 
 ts_036() {
     echo ""; echo "=== TS-036: rebalance drains, and the fleet reports it ==="
+    # The secondary is validated by the same per-topic rule as anything else,
+    # so asking for more processes than partitions makes it refuse to start --
+    # and a secondary that never joins looks exactly like the regression this
+    # scenario exists to catch.
+    if [ "$SECONDARY_PROCESSES" -gt "$PARTITIONS" ]; then
+        record_result TS-036 FAIL "SECONDARY_PROCESSES=$SECONDARY_PROCESSES exceeds PARTITIONS=$PARTITIONS; it would refuse to start"
+        return
+    fi
+    if [ $(( PROCESSES + SECONDARY_PROCESSES )) -le "$PARTITIONS" ]; then
+        record_result TS-036 FAIL "PROCESSES+SECONDARY=$(( PROCESSES + SECONDARY_PROCESSES )) does not exceed PARTITIONS=$PARTITIONS; no member would lose anything"
+        return
+    fi
     prepare_run "$PROCESSES" false 1 || { record_result TS-036 FAIL "AB startup"; return; }
 
     local health_url="http://127.0.0.1:${ALERT_BRIDGE_PORT:-9080}/health"
     local before_assigned before_ready
     before_assigned=$(prom_value alert_bridge_assigned_partitions)
     before_ready=$(prom_value alert_bridge_pipeline_processes_ready)
-    local drains_before; drains_before=$(prom_value alert_bridge_rebalance_drains_total)
+    # Summed across outcome labels: prom_value matches the bare metric name,
+    # which a labelled series never presents in field 1.
+    local drains_before; drains_before=$(prom_labelled_total alert_bridge_rebalance_drains_total)
 
     # Under load, so the drain has something to wait for.
     python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
@@ -872,7 +894,8 @@ ts_036() {
     # once after it settles is how the earlier probes missed the whole thing.
     local samples="$RESULTS_DIR/ts036_samples.txt"
     : > "$samples"
-    ( for _ in $(seq 1 200); do
+    ( sampler_end=$(( $(date +%s) + 150 ))
+      while [ "$(date +%s)" -lt "$sampler_end" ]; do
           printf '%s %s %s\n' \
               "$(prom_value alert_bridge_assigned_partitions)" \
               "$(prom_value alert_bridge_pipeline_processes_ready)" \
@@ -882,7 +905,17 @@ ts_036() {
     local sampler=$!
 
     start_secondary_ab
-    sleep 45
+    local sec_waited=0
+    while [ $sec_waited -lt 120 ]; do
+        grep -q "Pipeline process .* ready" "$PID_DIR/secondary.log" 2>/dev/null && break
+        sleep 2; sec_waited=$((sec_waited+2))
+    done
+    if [ $sec_waited -ge 120 ]; then
+        kill $sampler 2>/dev/null || true; kill $inj 2>/dev/null || true; stop_secondary_ab
+        record_result TS-036 FAIL "secondary instance never joined; see $PID_DIR/secondary.log"
+        return
+    fi
+    sleep 30
     stop_secondary_ab
     sleep 20
 
@@ -890,7 +923,7 @@ ts_036() {
     wait $inj 2>/dev/null || true
     drain_to_idle 120 || true
 
-    local drains_after; drains_after=$(prom_value alert_bridge_rebalance_drains_total)
+    local drains_after; drains_after=$(prom_labelled_total alert_bridge_rebalance_drains_total)
     local after_assigned; after_assigned=$(prom_value alert_bridge_assigned_partitions)
     local timed_out; timed_out=$(curl -s "$METRICS_URL" 2>/dev/null \
         | awk '/alert_bridge_rebalance_drains_total\{outcome="timed_out"\}/ {print $2}')
@@ -926,13 +959,22 @@ detail = (f"assigned {before_assigned:.0f}->{assigned_low:.0f}->{float(after_ass
           f"ready {before_ready:.0f}->{ready_low:.0f} health503={saw_503} "
           f"health_end={rows[-1][2]} drains=+{drained:.0f} samples={len(rows)}")
 
-# Each signal is checked, because each was independently broken at some point.
+# Gated on what a rebalance must do regardless of how the coordinator splits
+# the partitions: this instance loses some, it drains them, and it recovers.
 ok = (assigned_low < before_assigned     # the gauge tracks the live assignment
-      and ready_low < before_ready       # readiness drops when work is taken
-      and saw_503                        # health reports the degraded fleet
-      and recovered_health               # and recovers when partitions return
-      and recovered_assigned
+      and recovered_assigned             # and comes back when they return
       and drained > 0)                   # the drain actually ran
+detail += " ready_dropped=%s" % (ready_low < before_ready)
+
+# Readiness and health only move when a worker of THIS instance is among the
+# members left empty, and the assignor picks those by member id. Asserting on
+# them unconditionally makes the scenario fail on a coin toss. When they do
+# move, they must move together and recover.
+if ready_low < before_ready:
+    ok = ok and saw_503 and recovered_health
+elif saw_503:
+    ok = False
+    detail += " (health reported degraded while readiness held)"
 print(("PASS " if ok else "FAIL ") + detail)
 PY
 )

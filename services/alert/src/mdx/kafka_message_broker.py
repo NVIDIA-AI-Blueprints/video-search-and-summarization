@@ -105,6 +105,9 @@ class KafkaMessageBroker:
         def revoked(_consumer, partitions):
             losing = {(p.topic, p.partition) for p in partitions}
             with self._assignment_lock:
+                # Undecided again until the coordinator answers: this member
+                # holds nothing and does not yet know what it will hold.
+                self._assignment_decided.discard(id(consumer))
                 self._owned[id(consumer)] = set()
             logger.info("Revoking %d partition(s) of %s", len(losing), topic)
             if on_assignment_change is not None:

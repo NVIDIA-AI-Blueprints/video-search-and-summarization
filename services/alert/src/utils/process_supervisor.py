@@ -148,7 +148,10 @@ class ProcessSupervisor:
             )
 
     def _watch_pairs(self):
-        return [(f"supervised process {p.pid}", p) for p in self._watch]
+        # Named, because "supervised process 41 exited" tells an operator
+        # nothing about whether the health endpoint or a pipeline slot died.
+        return [(getattr(p, "name", None) or f"supervised process {p.pid}", p)
+                for p in self._watch]
 
     def stop(self) -> None:
         """Terminate every child, escalating to kill after ``stop_timeout``."""
@@ -174,6 +177,18 @@ class ProcessSupervisor:
                 process.kill()
                 process.join()
             self._notify_exit(process, expected)
+
+        # Watched processes get the same escalation. A terminate they ignore
+        # would otherwise leave the endpoint holding its port after the
+        # instance it belongs to is gone, which is what watching them is for.
+        for extra in self._watch:
+            extra.join(timeout=max(0.0, deadline - time.monotonic()))
+            if extra.is_alive():
+                logger.warning("Supervised process %s did not stop gracefully, killing",
+                               getattr(extra, "name", None) or extra.pid)
+                extra.kill()
+                extra.join()
+        self._watch = []
 
     def _notify_exit(self, process: Any, expected: bool) -> None:
         if self._on_exit is None:
