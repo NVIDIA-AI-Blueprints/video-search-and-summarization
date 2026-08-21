@@ -32,15 +32,24 @@
 The generated-output bus is off unless `MESSAGE_BUS` is set: the root Compose
 include path does not load `services/rtvi/rtvi-embed/.env` (which sets
 `MESSAGE_BUS=kafka`), so it falls back to the compose default empty value, which
-disables Kafka output entirely. When a generated profile requires embedding
-events to flow through Kafka, set both `MESSAGE_BUS=kafka` and
-`MESSAGE_BUS_TOPIC=mdx-embed` in the build `override.env`. Without this override
-the embedding write path is broken: RT-Embed produces no Kafka output and the
-Search analytics `mdx-embed` -> `mdx-embed-filtered` indexing path stays empty.
-`ERROR_BUS` is the separate error bus, unset by the same mechanism and disabled
-by the same empty default; set `ERROR_BUS=kafka` alongside it if the build needs
-RT-Embed error events on Kafka (the error topic `RTVI_EMBED_ERROR_MESSAGE_TOPIC`
-already defaults to `vision-embed-errors`, so only the bus toggle needs setting).
+disables Kafka output entirely. Without an effective `MESSAGE_BUS` the embedding
+write path is broken: RT-Embed produces no Kafka output and the Search analytics
+`mdx-embed` -> `mdx-embed-filtered` indexing path stays empty. `ERROR_BUS` is
+the separate error bus, disabled by the same empty default (the error topic
+`RTVI_EMBED_ERROR_MESSAGE_TOPIC` already defaults to `vision-embed-errors`, so
+only the bus toggle matters).
+
+What the build must contribute depends on the Foundation:
+
+- The `search` Foundation sets `MESSAGE_BUS=kafka`, `MESSAGE_BUS_TOPIC=mdx-embed`,
+  and `ERROR_BUS=kafka` in its `.env`, matching the Helm search profile. A build
+  derived from it inherits working values, so do not repeat them in
+  `override.env` — that would copy an unchanged Foundation default. Verify they
+  are effective in `resolved.yml` instead.
+- Any other Foundation (`base`, `lvs`, `alerts`) leaves all three empty. A build
+  on those that requires embedding events must set `MESSAGE_BUS=kafka` and
+  `MESSAGE_BUS_TOPIC=mdx-embed` in `override.env`, plus `ERROR_BUS=kafka` if it
+  needs RT-Embed error events on Kafka.
 
 ## Placement and sizing
 
