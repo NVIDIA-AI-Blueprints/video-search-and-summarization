@@ -462,6 +462,7 @@ jobs:
           uv run --project services/agent pytest \
             .github/skill-eval/tests/test_generic_judge_trajectory_guidance.py \
             .github/skill-eval/tests/test_lvs_deployment_config.py \
+            .github/skill-eval/tests/test_an1_harbor_vios_timeline_contract.py \
             .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
             deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
