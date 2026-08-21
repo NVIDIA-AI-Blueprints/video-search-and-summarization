@@ -3,6 +3,8 @@
 """Reusable VST client and request helpers."""
 
 from .client import SensorRef
+from .client import VIOSInvalidInputError
+from .client import VIOSNotFoundError
 from .client import VSTClient
 from .client import VSTError
 from .client import add_stream
@@ -34,6 +36,8 @@ from .protocols import VSTSnapshot
 
 __all__ = [
     "SensorRef",
+    "VIOSInvalidInputError",
+    "VIOSNotFoundError",
     "VSTClient",
     "VSTError",
     "VSTSnapshot",

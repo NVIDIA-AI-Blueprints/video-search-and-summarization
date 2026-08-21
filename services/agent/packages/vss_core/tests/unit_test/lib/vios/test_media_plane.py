@@ -857,14 +857,32 @@ async def test_the_span_is_ordered_by_time_not_by_string(vios_http) -> None:
         **{
             "/storage/timelines": {
                 "r-stream": [
-                    {"startTime": "2025-01-01T00:10:00Z", "endTime": "2025-01-01T00:20:00.000Z"},
-                    {"startTime": "2025-01-01T00:02:00.500Z", "endTime": "2025-01-01T00:09:00Z"},
+                    # Chosen so string order and time order disagree: as text
+                    # "2025-01-01T00:09:00Z" > "2025-01-01T00:10:00.000Z"
+                    # because '9' > '1', while as instants it is earlier.
+                    {"startTime": "2025-01-01T00:10:00.000Z", "endTime": "2025-01-01T00:20:00.000Z"},
+                    {"startTime": "2025-01-01T00:09:00Z", "endTime": "2025-01-01T00:21:00Z"},
                 ]
             }
         }
     )
 
     assert await vios.recorded_span(VST, "r-stream") == (
-        "2025-01-01T00:02:00.500Z",
-        "2025-01-01T00:20:00.000Z",
+        "2025-01-01T00:09:00.000Z",
+        "2025-01-01T00:21:00.000Z",
     )
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "1e400"])
+def test_a_non_finite_offset_is_a_caller_error_not_a_traceback(bad: str) -> None:
+    """float() accepts these; timedelta does not, and the raw error is unmapped."""
+    with pytest.raises(vios.VIOSInvalidInputError, match="finite"):
+        vios.resolve_window(SPAN, bad, None, "video")
+
+
+def test_the_typed_errors_are_importable_from_the_package() -> None:
+    """The CLI maps exits by class name, so a missing export failed silently."""
+    import vss_core.vios as pkg
+
+    assert pkg.VIOSInvalidInputError is vios.VIOSInvalidInputError
+    assert pkg.VIOSNotFoundError is vios.VIOSNotFoundError

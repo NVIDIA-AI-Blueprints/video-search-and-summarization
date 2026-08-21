@@ -88,3 +88,38 @@ def test_configure_check_reports_which_groups_the_deployment_can_serve() -> None
     assert rows["vios"][0] is True
     assert rows["search"][0] is False
     assert "elasticsearch" in rows["search"][1]
+
+
+def test_stderr_stays_quiet_when_an_env_file_is_present(tmp_path, monkeypatch) -> None:
+    """The configured case is the common one; it was still printing two INFO lines."""
+    import importlib
+    import logging
+
+    sitecustomize = importlib.import_module("sitecustomize")
+    env = tmp_path / "real.env"
+    env.write_text("EXAMPLE=1\n")
+    pointer = tmp_path / ".env_file"
+    pointer.write_text(str(env))
+    monkeypatch.setattr(sitecustomize, "__file__", str(tmp_path / "pkg" / "sitecustomize.py"))
+
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    logging.getLogger("sitecustomize").addHandler(handler)
+    try:
+        sitecustomize._auto_load_env_files()
+    finally:
+        logging.getLogger("sitecustomize").removeHandler(handler)
+
+    assert [r.getMessage() for r in records if r.levelno >= logging.INFO] == []
+
+
+def test_configure_check_prints_its_block_on_one_stream() -> None:
+    """A header on stderr and rows on stdout is a block that survives neither redirect."""
+    import inspect
+
+    from vss_cli import configure as configure_mod
+
+    src = inspect.getsource(configure_mod.check.callback)
+    header = next(line for line in src.splitlines() if '"commands:"' in line)
+    assert "err=True" not in header, header

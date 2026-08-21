@@ -178,6 +178,11 @@ def _command_availability(deployment: config_mod.Deployment) -> list[tuple[str, 
     """
     from . import plugins
 
+    # A group's requirements are unioned across its actions on purpose: a
+    # partially-available group is a trap. `search` reporting "available"
+    # because one retrieval path happens to work invites a caller to use the
+    # group and fail on the path they actually wanted. Available means the
+    # whole surface is.
     rows: list[tuple[str, bool, str]] = []
     for ref in plugins.discover():
         try:
@@ -221,7 +226,7 @@ def check() -> None:
     rows = _command_availability(deployment)
     if rows:
         click.echo("", err=True)
-        click.echo("commands:", err=True)
+        click.echo("commands:")
         for name, ok, detail in rows:
             click.echo(f"  {name:<14} {'available' if ok else 'unavailable':<12} {detail}")
 

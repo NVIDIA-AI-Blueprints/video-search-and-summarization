@@ -1135,6 +1135,11 @@ def _as_instant(value: str, origin: datetime.datetime, field: str, allow_offset:
         seconds = None
 
     if seconds is not None:
+        if seconds != seconds or seconds in (float("inf"), float("-inf")):
+            # float() accepts nan/inf/1e400; timedelta does not, and the
+            # resulting ValueError/OverflowError is unmapped -- exit 1 with a
+            # traceback from a group whose contract is typed exits.
+            raise VIOSInvalidInputError(f"{field}={value!r} is not a finite number of seconds")
         if not allow_offset:
             raise VIOSInvalidInputError(
                 f"{field}={value!r} is a second offset, which only means something for a recorded "

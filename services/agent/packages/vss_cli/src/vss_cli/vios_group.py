@@ -154,11 +154,12 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
     at = values.get("at")
 
-    # A file-backed sensor has no live capture: VIOS answers 400 for a live
-    # frame. We already know the provenance, so resolve to the first recorded
+    # Only an RTSP sensor has a live frame; VIOS answers 400 for one on
+    # anything else. Keyed on "not stream" rather than "is video" because
+    # provenance can also be "unknown", which is equally not live. We already know the provenance, so resolve to the first recorded
     # frame instead of sending a request that cannot succeed. `clip` defaults
     # to the covering segment for the same reason.
-    if at is None and ref.kind == "video":
+    if at is None and ref.kind != "stream":
         span = _run(vios.recorded_span(origin, ref.stream_id))
         if span is None:
             return Result(
@@ -210,7 +211,9 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
     result = _run(vios.upload_media(origin, path, name=values.get("name")))
     return Result(
         body={
-            "name": result.get("filename") or path.name,
+            # The stored name, which is what addresses the sensor -- not the
+            # local filename, which --name may have overridden.
+            "name": result.get("filename") or values.get("name") or path.name,
             "sensor_id": result.get("sensorId"),
             "stream_id": result.get("streamId"),
             "type": "video",
@@ -275,8 +278,8 @@ def _build() -> click.Group:
             "\n"
             "--type filters by provenance; omitting it lists everything with its type resolved.\n"
             "\n"
-            "`source` is VIOS's own reference — an RTSP URL for a camera, a path inside VIOS for an "
-            "uploaded file. To get a URL you can fetch, use `vss vios clip` or `vss vios snapshot`.\n"
+            "`source` is a camera's RTSP address, reported for streams only. To get a URL you can "
+            "fetch, use `vss vios clip` or `vss vios snapshot`.\n"
             "\n"
             "\b\n"
             "  vss vios list\n"

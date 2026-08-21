@@ -320,3 +320,45 @@ def test_snapshot_of_an_rtsp_sensor_is_still_live(
 
     assert body["source"] == "live"
     assert "at" not in body
+
+
+def test_snapshot_of_an_unclassifiable_sensor_does_not_ask_for_a_live_frame(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only RTSP has a live frame; "unknown" is equally not live."""
+
+    class _Unknown(_Ref):
+        kind = "unknown"
+        url = ""
+
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Unknown()
+        if len(calls) == 2:
+            return ("2025-01-01T00:00:00.000Z", "2025-01-01T00:03:30.000Z")
+        return "https://vss.test/vst/img.jpg"
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    body = json.loads(CliRunner().invoke(cli, ["snapshot", "--sensor", "orphan"]).stdout)
+
+    assert body["source"] == "replay"
+    assert body["at"] == "2025-01-01T00:00:00.000Z"
+
+
+def test_add_reports_the_stored_name_not_the_local_filename(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """--name decides how the sensor is addressed; reporting the local name misleads."""
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), {"sensorId": "u", "streamId": "u"})[1])
+    local = tmp_path / "clip (1).mp4"
+    local.write_bytes(b"x")
+
+    body = json.loads(
+        CliRunner().invoke(cli, ["add", "--type", "video", str(local), "--name", "warehouse_0002.mp4"]).stdout
+    )
+
+    assert body["name"] == "warehouse_0002.mp4"
