@@ -51,6 +51,11 @@ struct DashAssetResult
 {
     bool valid = false;
     bool starting = false;
+    // A recording has no live edge the viewer is chasing, so a replay manifest
+    // is published further behind its newest media than a live one: the extra
+    // distance is buffer the player can absorb jitter from, and it costs only
+    // latency nobody is watching for.
+    bool replay = false;
     std::filesystem::path path;
     std::string mimeType;
 };
