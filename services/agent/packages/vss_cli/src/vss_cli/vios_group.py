@@ -120,12 +120,11 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
-    start, end = _run(vios.get_timeline(ref.stream_id, origin))
-    # Default to the covering segment rather than making the caller read the
-    # timeline and hand the bounds back -- that round trip is where invented
-    # timestamps come from.
-    start = values.get("start_time") or start
-    end = values.get("end_time") or end
+    # Validate the window against what is actually recorded before asking VIOS.
+    # VIOS answers a malformed or out-of-range window with a bare HTTP 400 that
+    # names neither the offending bound nor the range that was available.
+    span = _run(vios.recorded_span(origin, ref.stream_id))
+    start, end = vios.resolve_window(span, values.get("start_time"), values.get("end_time"), ref.kind)
     url = _run(
         vios.get_video_clip_url(
             stream_id=ref.stream_id,
@@ -171,6 +170,15 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
                 exit=Exit.NOT_FOUND,
             )
         at = span[0]
+    elif at is not None:
+        # One instant, validated the same way: reuse the window check with both
+        # bounds set to it.
+        at, _ = vios.resolve_window(
+            _run(vios.recorded_span(origin, ref.stream_id)) if ref.kind == "video" else None,
+            at,
+            at,
+            ref.kind,
+        )
 
     url = vios.normalise_media_url(_run(vios.get_snapshot_url(origin, ref.stream_id, at=at)), origin)
     body = {"media_url": url, "kind": "snapshot", "source": "replay" if at else "live"}
@@ -293,13 +301,25 @@ def _build() -> click.Group:
             "clip",
             "Mint a clip URL. Defaults to the whole covering segment.\n"
             "\n"
+            "For a recorded file either bound may be omitted, and either may be given as seconds from "
+            "the start of the recording. A live stream needs both, as ISO-8601. The window is checked "
+            "against what is recorded before VIOS is asked.\n"
+            "\n"
             "\b\n"
             "  vss vios clip --sensor warehouse_safety_0001\n"
             "  vss vios clip --sensor dock-cam --start-time 2026-08-01T12:00:00Z --end-time 2026-08-01T12:00:10Z\n",
             [
                 _sensor_option(),
-                click.Option(["--start-time"], default=None, help="ISO-8601 start; defaults to the segment start."),
-                click.Option(["--end-time"], default=None, help="ISO-8601 end; defaults to the segment end."),
+                click.Option(
+                    ["--start-time"],
+                    default=None,
+                    help="ISO-8601, or seconds from the recording start. Defaults to the recording start.",
+                ),
+                click.Option(
+                    ["--end-time"],
+                    default=None,
+                    help="ISO-8601, or seconds from the recording start. Defaults to the recording end.",
+                ),
             ],
             _clip,
         )

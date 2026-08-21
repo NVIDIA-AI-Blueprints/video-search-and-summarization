@@ -1096,6 +1096,97 @@ async def _delete(url: str, timeout_seconds: float, what: str) -> None:
         raise VSTError(f"Failed to reach VIOS during {what}", e) from e
 
 
+def _as_instant(value: str, origin: datetime.datetime, field: str, allow_offset: bool) -> datetime.datetime:
+    """One window bound, as an absolute instant.
+
+    A bare number is an offset in seconds from the start of the recording --
+    the natural way to say "ten seconds in" about a file. An ISO-8601 string
+    is absolute. A live stream accepts only the latter: there is no natural
+    zero to count from.
+    """
+    text = value.strip()
+    if not text:
+        raise VIOSInvalidInputError(f"{field} is empty")
+
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = None
+
+    if seconds is not None:
+        if not allow_offset:
+            raise VIOSInvalidInputError(
+                f"{field}={value!r} is a second offset, which only means something for a recorded "
+                f"file; a live stream needs an absolute ISO-8601 time"
+            )
+        if seconds < 0:
+            raise VIOSInvalidInputError(f"{field}={value!r} is negative")
+        return origin + datetime.timedelta(seconds=seconds)
+
+    try:
+        return iso8601_to_datetime(text)
+    except Exception as exc:
+        hint = " (or a second offset)" if allow_offset else ""
+        raise VIOSInvalidInputError(
+            f"{field}={value!r} is not an ISO-8601 timestamp{hint}; expected e.g. 2025-01-01T00:00:00.000Z"
+        ) from exc
+
+
+def _isoformat(moment: datetime.datetime) -> str:
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def resolve_window(
+    span: tuple[str, str] | None,
+    start: str | None,
+    end: str | None,
+    kind: str,
+) -> tuple[str, str]:
+    """Turn requested bounds into a window VIOS can serve, or refuse.
+
+    Checked here rather than by VIOS, which answers a malformed or
+    out-of-range window with a bare HTTP 400 that says nothing about which
+    bound was wrong or what range was available.
+
+    A recorded file may omit either bound -- the recording's own start and end
+    are the obvious defaults -- and may express one as a second offset. A live
+    stream must state both, absolutely.
+    """
+    if kind != "video" and (not start or not end):
+        raise VIOSInvalidInputError(
+            "a live stream has no default window: pass both --start-time and --end-time as ISO-8601"
+        )
+    if span is None:
+        if not start or not end:
+            raise VIOSInvalidInputError("nothing is recorded for this sensor, so there is no window to default to")
+        first = _as_instant(start, iso8601_to_datetime(start), "--start-time", allow_offset=False)
+        last = _as_instant(end, first, "--end-time", allow_offset=False)
+        if first > last:
+            raise VIOSInvalidInputError(f"--start-time {_isoformat(first)} is after --end-time {_isoformat(last)}")
+        return _isoformat(first), _isoformat(last)
+
+    span_start = iso8601_to_datetime(span[0])
+    span_end = iso8601_to_datetime(span[1])
+    allow_offset = kind == "video"
+
+    first = span_start if not start else _as_instant(start, span_start, "--start-time", allow_offset)
+    last = span_end if not end else _as_instant(end, span_start, "--end-time", allow_offset)
+
+    # Out-of-range before out-of-order: a bound outside the recording is the
+    # more specific fault, and saying "start is after end" when the real
+    # problem is "start is past the end of the video" sends the caller the
+    # wrong way.
+    window = f"recorded window is {span[0]} to {span[1]}"
+    for label, moment in (("--start-time", first), ("--end-time", last)):
+        if moment < span_start:
+            raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is before the recording starts; {window}")
+        if moment > span_end:
+            raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is after the recording ends; {window}")
+    if first > last:
+        raise VIOSInvalidInputError(f"--start-time {_isoformat(first)} is after --end-time {_isoformat(last)}")
+    return _isoformat(first), _isoformat(last)
+
+
 async def recorded_span(
     vst_internal_url: str,
     stream_id: str,

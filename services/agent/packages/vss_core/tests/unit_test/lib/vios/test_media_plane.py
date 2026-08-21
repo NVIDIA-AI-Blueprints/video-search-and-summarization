@@ -687,3 +687,76 @@ async def test_a_bad_explicit_name_is_rejected_before_the_upload(vios_http, tmp_
     with pytest.raises(vios.VIOSInvalidInputError, match="invalid media name"):
         await vios.upload_media(VST, local, name="has space.mp4")
     assert not calls
+
+
+# ------------------------------------------------------- window validation
+#
+# VIOS answers a bad window with a bare HTTP 400 naming neither the offending
+# bound nor the range that was available, so every one of these is caught here.
+
+SPAN = ("2025-01-01T00:00:00.000Z", "2025-01-01T00:03:30.000Z")
+
+
+def test_a_recorded_file_defaults_to_its_whole_recording() -> None:
+    assert vios.resolve_window(SPAN, None, None, "video") == SPAN
+
+
+def test_either_bound_may_be_omitted_for_a_file() -> None:
+    start, end = vios.resolve_window(SPAN, "2025-01-01T00:01:00.000Z", None, "video")
+    assert (start, end) == ("2025-01-01T00:01:00.000Z", SPAN[1])
+
+    start, end = vios.resolve_window(SPAN, None, "2025-01-01T00:01:00.000Z", "video")
+    assert (start, end) == (SPAN[0], "2025-01-01T00:01:00.000Z")
+
+
+def test_a_file_accepts_second_offsets() -> None:
+    """ "Ten seconds in" is the natural way to talk about a file."""
+    assert vios.resolve_window(SPAN, "10", "20", "video") == (
+        "2025-01-01T00:00:10.000Z",
+        "2025-01-01T00:00:20.000Z",
+    )
+    assert vios.resolve_window(SPAN, "0", "30.5", "video")[1] == "2025-01-01T00:00:30.500Z"
+
+
+def test_a_malformed_timestamp_is_caught_before_vios_sees_it() -> None:
+    """The reported case: `--start-time 2025-01-0Z` produced a bare HTTP 400."""
+    with pytest.raises(vios.VIOSInvalidInputError, match="not an ISO-8601 timestamp"):
+        vios.resolve_window(SPAN, "2025-01-0Z", None, "video")
+
+
+def test_start_after_end_is_refused() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError, match="is after --end-time"):
+        vios.resolve_window(SPAN, "20", "10", "video")
+
+
+def test_a_start_before_the_recording_is_refused_and_names_the_range() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError, match="before the recording starts"):
+        vios.resolve_window(SPAN, "2024-12-31T23:59:00.000Z", None, "video")
+
+
+def test_an_end_past_the_recording_is_refused_and_names_the_range() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError, match="after the recording ends") as exc:
+        vios.resolve_window(SPAN, None, "9999", "video")
+    assert SPAN[1] in str(exc.value)
+
+
+def test_a_negative_offset_is_refused() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError, match="negative"):
+        vios.resolve_window(SPAN, "-5", None, "video")
+
+
+def test_a_live_stream_must_state_both_bounds() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError, match="no default window"):
+        vios.resolve_window(SPAN, None, None, "stream")
+    with pytest.raises(vios.VIOSInvalidInputError, match="no default window"):
+        vios.resolve_window(SPAN, "2025-01-01T00:00:00.000Z", None, "stream")
+
+
+def test_a_live_stream_refuses_a_second_offset() -> None:
+    """There is no natural zero to count seconds from on a live stream."""
+    with pytest.raises(vios.VIOSInvalidInputError, match="only means something for a recorded file"):
+        vios.resolve_window(SPAN, "10", "20", "stream")
+
+
+def test_a_stream_window_inside_the_recording_is_accepted() -> None:
+    assert vios.resolve_window(SPAN, SPAN[0], SPAN[1], "stream") == SPAN
