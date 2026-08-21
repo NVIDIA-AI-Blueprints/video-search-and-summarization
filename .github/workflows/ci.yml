@@ -88,8 +88,8 @@ jobs:
           )
 
           # Folders that warrant a downstream acceptance run on their own.
-          # Image sources are absent by design: a container source change
-          # surfaces as trigger-from-new-image once the image is built, and
+          # Image sources are absent by design: a container source change is
+          # already picked up by the per-image source_path check, and
           # containers this repo does not build cannot invalidate a deployed
           # artifact from a source edit alone.
           DOWNSTREAM_TRIGGER_PATHS = ["deploy"]
@@ -475,6 +475,7 @@ jobs:
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
             .github/skill-eval/tests/test_leg_timing.py \
+            .github/skill-eval/tests/test_leg_report.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
@@ -1495,8 +1496,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 140
     outputs:
-      trigger-from-new-image: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
-      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
       run-downstream: ${{ steps.release-set.outputs.run_downstream }}
     permissions:
       actions: read

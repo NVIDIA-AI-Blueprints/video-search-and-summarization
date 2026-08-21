@@ -119,6 +119,9 @@ IMAGE_CONFIGS = {
         image_name="vss-rt-config-adaptor",
         source_path=Path("services/configurators/vss-rt-config-adaptor"),
     ),
+    "vss-rt-embed": ImageConfig(
+        image_name="vss-rt-embed", source_path=Path("services/rtvi/rt-embed")
+    ),
 }
 
 DEPLOY_DIR = Path("deploy/docker")

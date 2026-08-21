@@ -539,6 +539,13 @@ commons:
           msg-broker-proto-lib: "${msg-broker-proto-lib}"
           latency: "${ds_config_latency}"
 
+      # Update DeepStream YAML config to avoid rebuilding the engine when the batch size changes
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/ds-pgie-config.yml"
+        backup: true
+        updates:
+          property.model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b${final_stream_count}_gpu0_fp16.engine
+
       # Update NVStreamer configs
       - operation_type: "json_update"
         target_file: ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-config.json

@@ -60,6 +60,11 @@ HELM_VALUES = {
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/values.yaml",
+        "deploy/helm/services/rtvi/charts/rtvi-embed/overrides_rtvi_embed.yaml",
+        "deploy/helm/developer-profiles/dev-profile-search/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -109,6 +114,9 @@ HELM_HELPERS = {
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
     ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/templates/_helpers.tpl",
+    ],
 }
 COMPOSE_FILES = {
     "vss-agent": ["deploy/docker/services/agent/compose.yml"],
@@ -154,14 +162,32 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         # image block, so they have no image block of their own for this policy
         # to cover. Listing one here could not pass either: the check below
         # asserts repository == "<root>/<name>", and a variant's repository is
-        # deliberately the base name. This mirrors the rule release_set.py
-        # already applies to Compose references for variants.
+        # deliberately the base name. They are excluded here by the same signal
+        # release_set.py already uses for Compose references: a variant carries
+        # no ``compose_image_names`` of its own.
         managed = {
             image["name"]
             for image in inventory["images"]
-            if image.get("ghcr_build") is True and not image.get("tag_suffix")
+            if image.get("ghcr_build") is True and image.get("compose_image_names")
         }
         self.assertEqual(managed, set(HELM_VALUES))
+
+    def test_tagged_variants_share_a_managed_repository_without_defaults(self):
+        inventory = json.loads(
+            (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
+        )
+        variants = [
+            image
+            for image in inventory["images"]
+            if image.get("ghcr_build") is True and image.get("tag_suffix")
+        ]
+        self.assertTrue(variants)
+        for variant in variants:
+            self.assertEqual(variant.get("compose_image_names"), [])
+            self.assertEqual(variant.get("tag_variables"), [])
+            repository = variant.get("repository")
+            self.assertTrue(repository)
+            self.assertIn(repository, HELM_VALUES)
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():

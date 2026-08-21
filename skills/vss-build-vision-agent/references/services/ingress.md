@@ -56,7 +56,9 @@ The operate set is the read-path subset of what `vss configure` probes to resolv
 a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
 headless build **must** carry it — post-#1469 `vss search run` takes no endpoints,
 so a build missing these routes is **unqueryable from the host CLI** (no
-ingress-less read path). `vss configure` also probes `/rtvi-vlm`, but RT-VLM is
+ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
+make it queryable — an ingestion/indexing-only build that requests no read surface
+prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`, but RT-VLM is
 host-port resolved and deliberately **not** fronted here — it records `absent`,
 which is expected and harmless because no read path consumes it. Do not add the
 route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
@@ -89,16 +91,14 @@ Discipline for the trimmed config:
   is **not** a drop reason: `vss configure` records it as *absent*, not
   present-but-broken, and a re-probe after readiness resolves it — keep required
   routes exposed regardless.
-- **Guard the catch-all — do not let it preempt routes.** HAProxy runs **every
-  `http-request` rule before any `use_backend`**, regardless of line order, so
-  an unconditional `http-request redirect location /kibana/ … if h_main`
-  redirects *every* request (even `/vst`, `/kibana`) before routing runs — a
-  bug that hides until a non-Kibana surface is exercised. The template's
-  catch-all avoids this by being a `use_backend … if h_main` (routed last, a
-  true fallback). Keep it phase-correct: guard the redirect to exclude the
-  routed prefixes (`if h_main !p_routed`, with `p_routed` in sync with the
-  `use_backend` routes kept) so real routes fall through and only an
-  unmatched/bare path bounces to `/kibana/`.
+- **Redirect only the bare origin; 404 every other unmatched path.** Bounce
+  only `/` to `/kibana/` (the headless browse landing) and `http-request deny
+  deny_status 404` the rest. A blanket `redirect … if h_main !p_routed` would
+  302 unrouted probe paths (`/api`, `/rtvi-vlm`) to Kibana's 200, so `vss
+  configure` records absent services as present. HAProxy runs **every
+  `http-request` rule before any `use_backend`**, so the 404 must exclude both
+  the landing (`!p_root`) and the kept routes (`!p_routed`, in sync with the
+  `use_backend` routes) or it preempts real routing.
 - **`/kibana` stays no-strip.** Kibana runs with `server.basePath: "/kibana"` +
   `server.rewriteBasePath: true` (`kibana.yml`), so the proxy must not strip the
   prefix — unlike `alert-bridge` / `video-analytics-api`, which do strip.
@@ -232,14 +232,17 @@ frontend fe_http
     acl p_rtvi_cv path_beg /rtvi-cv/
     use_backend bk_rtvi_cv_strip if h_main p_rtvi_cv
 
-    # Catch-all: land any UNMATCHED path on Kibana (no UI in headless). Guarded
-    # because HAProxy runs all http-request rules before any use_backend: an
-    # unconditional `... if h_main` would 302 every request (even /vst, /kibana)
-    # to /kibana/. Keep p_routed in sync with the routes kept above (drop any
-    # whose backend the build does not deploy).
+    # Landing + catch-all: only the bare origin bounces to Kibana (no UI in
+    # headless); every other unmatched path 404s, so `vss configure` probes for
+    # unrouted services (agent, rt-vlm) record absent instead of following a
+    # redirect to Kibana's 200. HAProxy runs all http-request rules before any
+    # use_backend, so p_routed must exclude the kept routes from the 404 (drop
+    # any whose backend the build does not deploy).
+    acl p_root path /
     acl p_routed path_beg /kibana /vst /storage /video-analytics-api /alert-bridge /elasticsearch /rtvi-embed /rtvi-cv
     acl p_routed path_reg ^/[^/]+:[0-9]+/vst(/|$)
-    http-request redirect location /kibana/ code 302 if h_main !p_routed
+    http-request redirect location /kibana/ code 302 if h_main p_root
+    http-request deny deny_status 404 if h_main !p_root !p_routed
 ```
 
 ## Configuration knobs

@@ -106,7 +106,7 @@ For VLM and LLM weight cost + the general formula, see [`base.md` § Sizing math
 
 ### RT-Embed sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1` (SBSA: `3.3.0-26.08.1-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Image: `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest` (multi-architecture manifest). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 Per the upstream `perf/benchmark/rtvi_embed_gpu_initial_stream_counts.json`, the **dedicated-GPU ceiling** — max concurrent streams when RT-Embed has the GPU to itself with **no co-resident** model:
 
@@ -133,7 +133,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 | `VLM_BATCH_SIZE` | `VLM_BATCH_SIZE` | auto (3 / 16 / 64 / 128 by GPU mem) | Batch size for inference. Auto-clamps to GPU capacity. |
 | `RTVI_EMBED_NUM_GPUS` / `VSS_NUM_GPUS_PER_VLM_PROC` | `NUM_GPUS` | empty (1) | Multi-GPU distribution per embed process. |
 | `RT_EMBED_DEVICE_ID` | (compose `device_ids`) | `1` | Which GPU RT-Embed pins to. |
-| `RTVI_EMBED_TAG` | (image tag) | `3.3.0-26.08.1` | x86 / iGPU. For DGX Spark: use the published `3.3.0-26.08.1-sbsa` variant when available. |
+| `VSS_RT_EMBED_TAG` | (image tag) | `develop-latest` | Pin a promoted or immutable image tag when required. |
 
 **Default Cosmos-Embed1 deployment runs on Triton (ONNX), not vLLM.** From `start_rtvi_embed.sh:47-49` and `src/models/custom/samples/cosmos-embed1/inference.py:55-56`, the default `VLM_MODEL_TO_USE=custom` loads Cosmos-Embed1 via Triton-served ONNX models (`text_embeddings`, `video_embeddings`). For that path:
 

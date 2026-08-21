@@ -23,7 +23,8 @@
  * switch over the items array, alert-type trigger keys, receiver fan-out over
  * the request array with a non-blocking deliverMessage, per-receiver
  * camera_type filtering, retry_on_status and backoff handling, header
- * templating, and the deferred HMAC signature header (must be absent).
+ * templating, per-receiver user_defined_metadata merging into event.metadata,
+ * and the deferred HMAC signature header (must be absent).
  */
 
 #include "gtest/gtest.h"
@@ -380,6 +381,108 @@ TEST(WebhookNotifierTest, HeaderValuesAreSanitizedAgainstCrlfInjection)
     EXPECT_EQ(seen[0].m_headers.find("X-Evil"), seen[0].m_headers.end());
     ASSERT_NE(seen[0].m_headers.find("streamId"), seen[0].m_headers.end());
     EXPECT_EQ(seen[0].m_headers.at("streamId"), "cam-1X-Evil: injected");
+}
+
+TEST(WebhookNotifierTest, UserDefinedMetadataMergesIntoEventMetadata)
+{
+    TinyHttpServer server;
+    ASSERT_TRUE(server.start());
+
+    // Receiver with user metadata, including a key colliding with the event's
+    // own metadata, plus nested JSON; a second receiver defines none.
+    Json::Value withMetadata = makeRequest(server.url("/with"));
+    withMetadata["user_defined_metadata"]["model"] = "some_model_name";
+    withMetadata["user_defined_metadata"]["chunk"] = 123;
+    withMetadata["user_defined_metadata"]["codec"] = "user-override";
+    withMetadata["user_defined_metadata"]["nested"]["a"] = true;
+    Json::Value without = makeRequest(server.url("/without"));
+
+    WebhookNotifier notifier(
+        makeConfig({makeWebhook("camera_status_change", "camera_add", {withMetadata, without})}));
+
+    Json::Value message = makeCameraEvent("camera_add");
+    message["event"]["metadata"]["codec"] = "h264";
+    message["event"]["metadata"]["framerate"] = 30;
+    EXPECT_TRUE(notifier.deliverMessage(message));
+
+    ASSERT_TRUE(waitForRequestCount(server, 2));
+    std::this_thread::sleep_for(milliseconds(300));
+
+    const auto seen = server.requests();
+    ASSERT_EQ(seen.size(), 2u);
+    for (const auto& request : seen)
+    {
+        Json::Value body;
+        ASSERT_TRUE(Json::Reader().parse(request.m_body, body));
+        const Json::Value& metadata = body["event"]["metadata"];
+        if (request.m_path == "/with")
+        {
+            // User keys are added, collisions favor the user, others survive.
+            EXPECT_EQ(metadata["model"].asString(), "some_model_name");
+            EXPECT_EQ(metadata["chunk"].asInt(), 123);
+            EXPECT_EQ(metadata["codec"].asString(), "user-override");
+            EXPECT_TRUE(metadata["nested"]["a"].asBool());
+            EXPECT_EQ(metadata["framerate"].asInt(), 30);
+        }
+        else
+        {
+            // The receiver without user metadata gets the event verbatim.
+            EXPECT_EQ(metadata["codec"].asString(), "h264");
+            EXPECT_FALSE(metadata.isMember("model"));
+        }
+    }
+}
+
+TEST(WebhookNotifierTest, UserDefinedMetadataCreatesMissingMetadataObject)
+{
+    TinyHttpServer server;
+    ASSERT_TRUE(server.start());
+
+    Json::Value request = makeRequest(server.url("/hook"));
+    request["user_defined_metadata"]["model"] = "some_model_name";
+
+    WebhookNotifier notifier(
+        makeConfig({makeWebhook("camera_status_change", "camera_add", {request})}));
+
+    // makeCameraEvent carries no event.metadata at all.
+    Json::Value message = makeCameraEvent("camera_add");
+    EXPECT_TRUE(notifier.deliverMessage(message));
+
+    ASSERT_TRUE(waitForRequestCount(server, 1));
+    const auto seen = server.requests();
+    ASSERT_EQ(seen.size(), 1u);
+    Json::Value body;
+    ASSERT_TRUE(Json::Reader().parse(seen[0].m_body, body));
+    ASSERT_TRUE(body["event"]["metadata"].isObject());
+    EXPECT_EQ(body["event"]["metadata"]["model"].asString(), "some_model_name");
+    // The rest of the event is untouched.
+    EXPECT_EQ(body["event"]["camera_id"].asString(), "cam-1");
+}
+
+TEST(WebhookNotifierTest, NonObjectUserDefinedMetadataIsIgnored)
+{
+    TinyHttpServer server;
+    ASSERT_TRUE(server.start());
+
+    Json::Value request = makeRequest(server.url("/hook"));
+    request["user_defined_metadata"] = "not-an-object";
+
+    WebhookNotifier notifier(
+        makeConfig({makeWebhook("camera_status_change", "camera_add", {request})}));
+    EXPECT_EQ(notifier.webhookCount(), 1u);
+
+    Json::Value message = makeCameraEvent("camera_add");
+    EXPECT_TRUE(notifier.deliverMessage(message));
+
+    ASSERT_TRUE(waitForRequestCount(server, 1));
+    const auto seen = server.requests();
+    ASSERT_EQ(seen.size(), 1u);
+    Json::Value body;
+    ASSERT_TRUE(Json::Reader().parse(seen[0].m_body, body));
+    // The malformed field must not leak into the body in any form.
+    EXPECT_FALSE(body["event"].isMember("metadata"));
+    body.removeMember("webhook_id");
+    EXPECT_EQ(body, message);
 }
 
 TEST(WebhookNotifierTest, DisabledAndMalformedWebhooksAreSkipped)

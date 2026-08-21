@@ -43,8 +43,9 @@
   particular, alerts that do not derive from this owner (see the Alerts owner)
   leave incident generation off.
 - Verify the mounted config matches the request: incident workers non-zero only
-  when alerts are requested, `inSimulationMode` unset for live-stream builds, and
-  multi-capability builds on the joint config.
+  when alerts are requested, and multi-capability builds on the joint config.
+  Fork the config only to change a knob with real runtime effect (`numWorkersFor*`,
+  class scope) — never to alter a field the service does not read.
 - A combined instance writes more than one Elasticsearch index family, so its
   Kibana initializer must seed all of them — see `elk.md` (Kibana seeding).
 

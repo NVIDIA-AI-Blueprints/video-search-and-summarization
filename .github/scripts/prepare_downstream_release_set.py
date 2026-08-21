@@ -57,8 +57,7 @@ def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[boo
         OR deploy/ changed
 
     Scoped on what *changed*, not on what got built. The previous gate keyed off
-    has_ghcr_build_entries -- "did any GHCR image get rebuilt" -- which is a poor
-    proxy twice over: build avoidance means a real source change can rebuild
+    "did any GHCR image get rebuilt", which is a poor proxy twice over: build avoidance means a real source change can rebuild
     nothing, and deploy-only changes never rebuild anything yet are exactly what
     acceptance exists to catch. Config and deploy edits were getting no
     downstream coverage at all.
@@ -93,15 +92,6 @@ def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[boo
     if reasons:
         return True, "; ".join(reasons)
     return False, "no watched source or deploy/ change"
-
-
-def has_ghcr_build_entries(release_set: dict) -> bool:
-    """Whether downstream has newly built GHCR images to accept/promote."""
-    return any(
-        image.get("strategy") == "build"
-        and str(image.get("image", "")).startswith("ghcr.io/")
-        for image in release_set.get("images", [])
-    )
 
 
 def candidate_container_tag(release_set: dict) -> str:
@@ -188,8 +178,6 @@ def main() -> int:
             json.dumps(release_set, indent=2, sort_keys=True) + "\n"
         )
 
-    has_builds = has_ghcr_build_entries(release_set)
-
     if PR_REF_PATTERN.fullmatch(args.ref_name):
         try:
             base = pr_merge_base_sha(GitHubApi(token), args.repository, args.ref_name)
@@ -217,14 +205,10 @@ def main() -> int:
 
     if github_output:
         with Path(github_output).open("a") as output:
-            output.write(
-                f"has_ghcr_build_entries={'true' if has_builds else 'false'}\n"
-            )
             output.write(f"run_downstream={'true' if run_downstream else 'false'}\n")
     print(
         f"Prepared release set {release_set['release_set_id']} "
-        f"for downstream acceptance ({len(release_set['images'])} images, "
-        f"GHCR builds: {'yes' if has_builds else 'no'}).\n"
+        f"for downstream acceptance ({len(release_set['images'])} images).\n"
         f"Downstream gate: {'run' if run_downstream else 'skip'} "
         f"-- {gate_reason} (base: {base_reason})."
     )
