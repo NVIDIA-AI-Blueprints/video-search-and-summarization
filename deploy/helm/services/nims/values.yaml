@@ -25,6 +25,8 @@
 # Override-values files are kept as thin convenience wrappers for CI/scripts.
 
 global:
+  openshift:
+    enabled: false
   # NGC API key for model download and NIM authentication
   ngcApiKey: ""
   # Pre-existing pull secret name (auto-created by parent chart or by user)

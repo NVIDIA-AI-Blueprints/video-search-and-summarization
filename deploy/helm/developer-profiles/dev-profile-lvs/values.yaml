@@ -26,6 +26,8 @@ ngc:
   apiKey: ""
 
 global:
+  openshift:
+    enabled: false
   # When false (default), Service/Workload names use chart short names (redis, vss-vios-streamprocessing, vss-summarization, …). Set true for <release>-<chart> naming.
   useReleaseNamePrefix: false
   imagePullSecrets:
