@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { VideoSearchList } from '../../lib-src/components/VideoSearchList';
 import { SearchData } from '../../lib-src/types';
 
@@ -93,7 +93,7 @@ describe('VideoSearchList', () => {
     expect(screen.getByText('15:00:00')).toBeInTheDocument();
   });
 
-  it('calls onPlayVideo when play button is clicked', () => {
+  it('calls onPlayVideo when play button is clicked', async () => {
     const onPlayVideo = jest.fn();
     const item = makeItem();
 
@@ -102,10 +102,10 @@ describe('VideoSearchList', () => {
     const playOverlay = screen.getByTestId('video-play-overlay');
     expect(playOverlay).toBeTruthy();
     fireEvent.click(playOverlay);
-    expect(onPlayVideo).toHaveBeenCalledWith(item, false);
+    await waitFor(() => expect(onPlayVideo).toHaveBeenCalledWith(item, false));
   });
 
-  it('passes showObjectsBbox to onPlayVideo', () => {
+  it('passes showObjectsBbox to onPlayVideo', async () => {
     const onPlayVideo = jest.fn();
     const item = makeItem();
 
@@ -121,7 +121,96 @@ describe('VideoSearchList', () => {
     const playOverlay = screen.getByTestId('video-play-overlay');
     expect(playOverlay).toBeTruthy();
     fireEvent.click(playOverlay);
-    expect(onPlayVideo).toHaveBeenCalledWith(item, true);
+    await waitFor(() => expect(onPlayVideo).toHaveBeenCalledWith(item, true));
+  });
+
+  describe('clip playback failure notice', () => {
+    const renderCard = (onPlayVideo: jest.Mock) =>
+      render(<VideoSearchList {...defaultProps} data={[makeItem()]} onPlayVideo={onPlayVideo} />);
+
+    it('shows a notice when the clip request fails', async () => {
+      renderCard(jest.fn().mockResolvedValue(false));
+
+      fireEvent.click(screen.getByTestId('video-play-overlay'));
+
+      const notice = await screen.findByTestId('search-playback-notice');
+      expect(notice).toHaveTextContent(/video clip unavailable\. retry shortly\./i);
+    });
+
+    it('shows a notice when the clip request rejects', async () => {
+      renderCard(jest.fn().mockRejectedValue(new Error('VST unreachable')));
+
+      fireEvent.click(screen.getByTestId('video-play-overlay'));
+
+      expect(await screen.findByTestId('search-playback-notice')).toBeInTheDocument();
+    });
+
+    it('does not show a notice when the clip opens', async () => {
+      const onPlayVideo = jest.fn().mockResolvedValue(true);
+      renderCard(onPlayVideo);
+
+      fireEvent.click(screen.getByTestId('video-play-overlay'));
+
+      await waitFor(() => expect(onPlayVideo).toHaveBeenCalled());
+      expect(screen.queryByTestId('search-playback-notice')).not.toBeInTheDocument();
+    });
+
+    it('does not show a notice when the handler returns nothing', async () => {
+      const onPlayVideo = jest.fn();
+      renderCard(onPlayVideo);
+
+      fireEvent.click(screen.getByTestId('video-play-overlay'));
+
+      await waitFor(() => expect(onPlayVideo).toHaveBeenCalled());
+      expect(screen.queryByTestId('search-playback-notice')).not.toBeInTheDocument();
+    });
+
+    it('hides the notice when dismissed', async () => {
+      renderCard(jest.fn().mockResolvedValue(false));
+
+      fireEvent.click(screen.getByTestId('video-play-overlay'));
+      fireEvent.click(await screen.findByTestId('search-playback-notice-dismiss'));
+
+      expect(screen.queryByTestId('search-playback-notice')).not.toBeInTheDocument();
+    });
+
+    it('clears the notice when a retry succeeds', async () => {
+      const onPlayVideo = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      renderCard(onPlayVideo);
+
+      fireEvent.click(screen.getByTestId('video-play-overlay'));
+      fireEvent.click(await screen.findByTestId('search-playback-notice-retry'));
+
+      await waitFor(() => expect(screen.queryByTestId('search-playback-notice')).not.toBeInTheDocument());
+      expect(onPlayVideo).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the notice when a retry fails again', async () => {
+      const onPlayVideo = jest.fn().mockResolvedValue(false);
+      renderCard(onPlayVideo);
+
+      fireEvent.click(screen.getByTestId('video-play-overlay'));
+      fireEvent.click(await screen.findByTestId('search-playback-notice-retry'));
+
+      await waitFor(() => expect(onPlayVideo).toHaveBeenCalledTimes(2));
+      expect(await screen.findByTestId('search-playback-notice')).toBeInTheDocument();
+    });
+
+    it('keeps the play button busy until the clip request settles', async () => {
+      let resolvePlay: (opened: boolean) => void = () => undefined;
+      const onPlayVideo = jest.fn(
+        () => new Promise<boolean>((resolve) => { resolvePlay = resolve; })
+      );
+      renderCard(onPlayVideo);
+
+      const playOverlay = screen.getByTestId('video-play-overlay');
+      fireEvent.click(playOverlay);
+
+      expect(playOverlay).toBeDisabled();
+
+      resolvePlay(true);
+      await waitFor(() => expect(playOverlay).not.toBeDisabled());
+    });
   });
 
   it('renders with dark mode styles', () => {

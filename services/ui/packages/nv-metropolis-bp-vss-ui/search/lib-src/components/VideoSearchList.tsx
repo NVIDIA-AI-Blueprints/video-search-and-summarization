@@ -66,7 +66,8 @@ interface VideoSearchListProps {
   error: string | null;
   isDark: boolean;
   onRefresh: () => void;
-  onPlayVideo: (data: SearchData, showObjectsBbox: boolean) => void;
+  /** Resolving to `false` means the clip could not be loaded, and the card shows a notice. */
+  onPlayVideo: (data: SearchData, showObjectsBbox: boolean) => void | Promise<boolean | void>;
   showObjectsBbox?: boolean;
   onAddContext?: (ctx: QueryDataContext) => void;
 }
@@ -130,7 +131,7 @@ interface VideoCardProps {
   index: number;
   isDark: boolean;
   showObjectsBbox: boolean;
-  onPlayVideo: (data: SearchData, showObjectsBbox: boolean) => void;
+  onPlayVideo: (data: SearchData, showObjectsBbox: boolean) => void | Promise<boolean | void>;
   onAddContext?: (ctx: QueryDataContext) => void;
 }
 
@@ -143,23 +144,34 @@ const VideoCard: React.FC<VideoCardProps> = ({
   onAddContext,
 }) => {
   const [isOpeningVideo, setIsOpeningVideo] = useState(false);
-  const openingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
-      if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+      isMountedRef.current = false;
     };
   }, []);
 
-  const handleOpenVideo = useCallback(() => {
+  // The VST clip request can fail (e.g. no recorded footage for the matched
+  // window), in which case the modal never opens. Surface that instead of
+  // silently dropping back to the play icon.
+  const handleOpenVideo = useCallback(async () => {
+    if (isOpeningVideo) return;
     setIsOpeningVideo(true);
-    onPlayVideo(item, showObjectsBbox);
-    if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
-    openingTimeoutRef.current = setTimeout(() => {
-      setIsOpeningVideo(false);
-      openingTimeoutRef.current = null;
-    }, 900);
-  }, [item, onPlayVideo, showObjectsBbox]);
+    setPlaybackFailed(false);
+    try {
+      const opened = await onPlayVideo(item, showObjectsBbox);
+      if (isMountedRef.current && opened === false) {
+        setPlaybackFailed(true);
+      }
+    } catch {
+      if (isMountedRef.current) setPlaybackFailed(true);
+    } finally {
+      if (isMountedRef.current) setIsOpeningVideo(false);
+    }
+  }, [isOpeningVideo, item, onPlayVideo, showObjectsBbox]);
 
   return (
     <div 
@@ -212,6 +224,54 @@ const VideoCard: React.FC<VideoCardProps> = ({
             </div>
           </button>
           
+          {playbackFailed && (
+            <div
+              role="alert"
+              data-testid="search-playback-notice"
+              className="rounded-lg absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 p-3 text-center bg-gray-200/95 dark:bg-neutral-900/95"
+            >
+              <div className="flex items-center gap-1.5 text-red-600 dark:text-red-500">
+                <svg
+                  aria-hidden="true"
+                  data-testid="search-playback-warning-icon"
+                  className="h-4 w-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                </svg>
+                <p className="text-xs font-medium leading-snug">
+                  Video clip unavailable. Retry shortly.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  kind="secondary"
+                  size="small"
+                  onClick={handleOpenVideo}
+                  disabled={isOpeningVideo}
+                  data-testid="search-playback-notice-retry"
+                >
+                  Retry
+                </Button>
+                <Button
+                  kind="tertiary"
+                  size="small"
+                  onClick={() => setPlaybackFailed(false)}
+                  data-testid="search-playback-notice-dismiss"
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="rounded-b-lg absolute bottom-0 left-0 right-0 px-4 py-2 bg-gradient-to-t from-black/70 to-transparent flex items-end justify-between">
             <div className="text-white text-xs">
               <span className="font-medium">{formatTime(parseDateAsLocal(item.start_time))}</span>

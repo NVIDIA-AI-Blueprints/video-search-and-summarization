@@ -106,10 +106,17 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     setSearchByImageSelectedObjectId(null);
   }, [searchByImageFrameData, searchByImageActive]);
 
+  const playRequestIdRef = React.useRef(0);
+
   const handlePlayVideo = React.useCallback(
-    (data: SearchData, showBbox: boolean) => {
+    async (data: SearchData, showBbox: boolean): Promise<boolean> => {
+      const requestId = ++playRequestIdRef.current;
       setActiveVideoData(data);
-      openVideoModal(data, showBbox);
+      const opened = await openVideoModal(data, showBbox);
+      // Playing another card aborts this request, which also resolves false.
+      // Don't let the superseded card report that as a playback failure.
+      if (!opened && requestId !== playRequestIdRef.current) return true;
+      return opened;
     },
     [openVideoModal]
   );
