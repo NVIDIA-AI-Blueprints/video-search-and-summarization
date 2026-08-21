@@ -334,3 +334,32 @@ class TestReadinessWaitsForStartupToFinish:
         enhancer.source.await_ready.side_effect = fire_hook_during_join
         entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, event)
         assert event.is_set(), "readiness never raised after startup"
+
+    def test_the_child_logs_ready_before_it_signals_the_supervisor(self, enhancer, caplog):
+        # Setting the event wakes the supervisor, which announces the instance
+        # by writing to the same log. Signalling first left the two racing, and
+        # the order held only because a futex wake is slower than the next
+        # line -- a scheduler hiccup would have reversed it.
+        import logging
+        enhancer.source.await_ready.return_value = True
+        enhancer.source.assigned_partition_count.return_value = 2
+        enhancer.source.is_ready.return_value = True
+
+        order = []
+        event = MagicMock()
+        event.set.side_effect = lambda: order.append("signalled")
+
+        class Recorder(logging.Handler):
+            def emit(self, record):
+                if "ready (pid=" in record.getMessage():
+                    order.append("logged")
+
+        handler = Recorder()
+        logging.getLogger("enhance_alert_with_vlm").addHandler(handler)
+        logging.getLogger("enhance_alert_with_vlm").setLevel(logging.INFO)
+        try:
+            entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, event)
+        finally:
+            logging.getLogger("enhance_alert_with_vlm").removeHandler(handler)
+
+        assert order == ["logged", "signalled"], order

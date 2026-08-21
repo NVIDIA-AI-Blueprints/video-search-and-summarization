@@ -2707,8 +2707,13 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
                 f"pipeline process {index} could not join the consumer group"
             )
         startup["complete"] = True
-        _publish_readiness(enhancer, index, ready_event)
+        # Logged before the signal, not after. Setting the event wakes the
+        # supervisor, which announces the instance; doing that first left the
+        # two racing to write the same log, and the ordering only held because
+        # a futex wake is slower than the next line. Signalling last makes the
+        # child's own line unambiguously first.
         logger.info("Pipeline process %d ready (pid=%d)", index, os.getpid())
+        _publish_readiness(enhancer, index, ready_event)
         if index == 0:
             _log_instance_concurrency(enhancer, process_count)
         enhancer.process_anomalies()
