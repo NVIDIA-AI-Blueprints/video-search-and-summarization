@@ -51,7 +51,7 @@ use this ngc resource <WAREHOUSE_APP_DATA_NGC>
 use this model <WAREHOUSE_RTDETR_ONNX> with these videos <WAREHOUSE_VIDEOSET_NAME>
 ```
 
-Anything you omit, the skill asks for via `AskQuestion` or auto-detects from
+Anything you omit, the skill asks for via `AskUserQuestion` or auto-detects from
 the host (platform, existing containers, cached resources). At minimum you
 can say `deploy rtvi-cv warehouse 2d` and answer prompts one by one.
 
@@ -71,7 +71,7 @@ can say `deploy rtvi-cv warehouse 2d` and answer prompts one by one.
 
 ### What you can specify inline
 
-Anything *not* pinned by the user query is asked via the Step 2 `AskQuestion`
+Anything *not* pinned by the user query is asked via the Step 2 `AskUserQuestion`
 (no silent defaults — see the "What gets asked" section below).
 
 | Param            | Phrases that pin a value (skip the question)                                                            |
@@ -96,7 +96,7 @@ Anything *not* pinned by the user query is asked via the Step 2 `AskQuestion`
 | **TEARDOWN** | `stop`, `tear down`, `shutdown`, `kill`, `cleanup`, `remove container` | `teardown-flow.md`.                                            |
 
 If the user's intent is clearly deploy or teardown, do not ask — proceed
-directly to the matching flow. Only ask via `AskQuestion` when ambiguous.
+directly to the matching flow. Only ask via `AskUserQuestion` when ambiguous.
 
 ---
 
@@ -170,15 +170,15 @@ on the chosen model.
 digraph step_order {
     rankdir=LR;
     "platform + YAML defaults" [shape=box];
-    "Step 1 AskQuestion\n(image, NGC resource, model, videos)" [shape=box];
-    "Step 2 AskQuestion\n(batch, stream_mode, input, sink)" [shape=box];
+    "Step 1 AskUserQuestion\n(image, NGC resource, model, videos)" [shape=box];
+    "Step 2 AskUserQuestion\n(batch, stream_mode, input, sink)" [shape=box];
     "Step 3 launch / reuse" [shape=box];
     "Step 4 apply-config\n(includes engine-cache lookup)" [shape=box, color=red];
     "Step 5 start-app" [shape=box];
 
-    "platform + YAML defaults" -> "Step 1 AskQuestion\n(image, NGC resource, model, videos)";
-    "Step 1 AskQuestion\n(image, NGC resource, model, videos)" -> "Step 2 AskQuestion\n(batch, stream_mode, input, sink)";
-    "Step 2 AskQuestion\n(batch, stream_mode, input, sink)" -> "Step 3 launch / reuse";
+    "platform + YAML defaults" -> "Step 1 AskUserQuestion\n(image, NGC resource, model, videos)";
+    "Step 1 AskUserQuestion\n(image, NGC resource, model, videos)" -> "Step 2 AskUserQuestion\n(batch, stream_mode, input, sink)";
+    "Step 2 AskUserQuestion\n(batch, stream_mode, input, sink)" -> "Step 3 launch / reuse";
     "Step 3 launch / reuse" -> "Step 4 apply-config\n(includes engine-cache lookup)";
     "Step 4 apply-config\n(includes engine-cache lookup)" -> "Step 5 start-app";
 }
@@ -186,7 +186,7 @@ digraph step_order {
 
 **Hard rules:**
 
-1. **Step 1 `AskQuestion` fires BEFORE Step 2 `AskQuestion`.** Never merge
+1. **Step 1 `AskUserQuestion` fires BEFORE Step 2 `AskUserQuestion`.** Never merge
    them. Even when Step 1 has YAML defaults for every parameter, the user
    still picks each one in Step 1's question (defaults appear as the
    "Recommended" option). Don't skip ahead to Step 2 just because Step 1
@@ -202,10 +202,10 @@ digraph step_order {
    compatible.
 4. **No bash discovery beyond Step 1.b.** Steps 1.b (platform detect via
    `uname -m` + `nvidia-smi`) and 1.c (load YAML defaults via
-   `load_defaults.sh`) are the only allowed pre-AskQuestion bash.
+   `load_defaults.sh`) are the only allowed pre-AskUserQuestion bash.
    Everything else — `docker image inspect`, `docker ps`, listing engine
    cache, listing resources for *cosmetic* summaries — must wait until
-   the user has answered Step 1's `AskQuestion`. `docker ps` for the
+   the user has answered Step 1's `AskUserQuestion`. `docker ps` for the
    container-reuse decision belongs in Step 3, not Step 1.
 
 If the agent finds itself thinking "let me just check X to make the next
@@ -213,7 +213,7 @@ question prettier", that's the smell — stop, ask first, look later.
 If the agent finds itself thinking "the YAML defaults are good enough,
 let me skip Step 1's question", that's the same smell. Ask anyway.
 
-5. **Step 6 `AskQuestion` is the final step of every successful deploy.**
+5. **Step 6 `AskUserQuestion` is the final step of every successful deploy.**
    Right after the "Perception Application — Results" box, fire the
    Step 6 menu from `next-steps.md` § "11.c". Do NOT replace it with
    a free-form "Next steps:" bullet list. The menu is the user's
@@ -228,7 +228,7 @@ own, then runs to completion with progress prints but no further prompts.
 
 ### One-shot intake
 
-Before any work begins, the skill builds a single consolidated `AskQuestion`
+Before any work begins, the skill builds a single consolidated `AskUserQuestion`
 block covering:
 
 - Docker image ref (if not in the query).
@@ -244,12 +244,12 @@ re-prompt the user.
 
 ### What gets asked vs. applied silently
 
-**The skill drives TWO `AskQuestion` rounds in fixed order: Step 1 BEFORE
+**The skill drives TWO `AskUserQuestion` rounds in fixed order: Step 1 BEFORE
 Step 2. YAML defaults from `deploy-defaults.yml` appear inside
 each question as the "(Recommended)" option — they are NEVER applied
 silently.**
 
-**Step 1 (deploy targets) MUST drive an `AskQuestion` with exactly three
+**Step 1 (deploy targets) MUST drive an `AskUserQuestion` with exactly three
 parameters when the user query did not pin them — even if YAML defaults
 exist for the use case:**
 
@@ -324,10 +324,10 @@ Which model ONNX should I use?
      Provide a host path to a different ONNX file
 ```
 
-**Step 3 (container) MUST drive an `AskQuestion` whenever an existing
+**Step 3 (container) MUST drive an `AskUserQuestion` whenever an existing
 container is detected on the same image — never silently auto-decide:**
 
-| Detection result                              | AskQuestion fires?                                                                               |
+| Detection result                              | AskUserQuestion fires?                                                                               |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------|
 | No existing container on this image           | No — proceed straight to `docker run` (only one path).                                            |
 | Existing container, all required mounts match | **YES** — present `Reuse / Restart / New parallel container` (full JSON in `container-reuse.md`). |
@@ -337,13 +337,13 @@ The user always picks. The skill never auto-picks "reuse" just because
 mounts match — that information is presented in the question's
 description text and lets the user decide.
 
-**Step 2 (pipeline configuration) MUST drive an `AskQuestion` for these
+**Step 2 (pipeline configuration) MUST drive an `AskUserQuestion` for these
 four parameters when the user query did not pin them, AFTER Step 1 has
 finished:**
 
 | Step 2 parameter | Pin via query phrase                                                                | If unpinned                                                              |
 |------------------|-------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| `batch_size`     | `with N streams`, `batch N`, `N cameras`                                            | **ASK** — see `pipeline-config.md` (4-question `AskQuestion` block).     |
+| `batch_size`     | `with N streams`, `batch N`, `N cameras`                                            | **ASK** — see `pipeline-config.md` (4-question `AskUserQuestion` block).     |
 | `stream_mode`    | `dynamic` / `via rest` / `add via api` / `live add` → dynamic                       | **ASK** — `static` appears as the "(Recommended)" option (default).      |
 | `input_type`     | `from rtsp <url>` → rtsp                                                            | **ASK** — `filesrc` appears as the "(Recommended)" option.               |
 | `output_sink`    | `display`/`on screen` → eglsink; `save to file` → filedump; `benchmark` → fakesink  | **ASK** — `fakesink` appears as the "(Recommended)" option.              |
@@ -351,13 +351,13 @@ finished:**
 **Strict ordering rules:**
 
 1. **Step 1 questions fire before Step 2 questions.** Never merge them into
-   a single `AskQuestion` block, and never ask Step 2 first because Step 1
+   a single `AskUserQuestion` block, and never ask Step 2 first because Step 1
    "has YAML defaults available."
 2. Only mark a step `completed` AFTER the user's values are confirmed
-   (either pinned by the query or returned from `AskQuestion`). **Never**
+   (either pinned by the query or returned from `AskUserQuestion`). **Never**
    mark a step done from a partially-specified query.
 3. The presence of a YAML default does NOT permit skipping the
-   `AskQuestion`. The default is the "Recommended" option *inside* the
+   `AskUserQuestion`. The default is the "Recommended" option *inside* the
    question — the user still chooses.
 
 **Truly silent defaults (applied without asking, but announced before use):**
@@ -379,7 +379,7 @@ finished:**
 4. Credentials missing on first run — API key must come from the user.
 
 Everything else runs without asking. See `ux-conventions.md`
-for the full visibility / `AskQuestion` contract.
+for the full visibility / `AskUserQuestion` contract.
 
 ### User-facing announcements — never include substep notation
 
@@ -558,7 +558,7 @@ delay`, no `RTSP URLs`). A `dynamic + filesrc + eglsink` deploy renders
 5 rows. A `dynamic + rtsp + eglsink` deploy renders 6.
 
 **Step 3 box content rule.** Render the container-decision receipt
-AFTER the user has answered the AskQuestion — never before. The box's
+AFTER the user has answered the AskUserQuestion — never before. The box's
 `Decision` row reflects the user's choice (`REUSE` / `RESTART` /
 `NEW PARALLEL`), not an auto-decision. If no existing container was
 found, the box still renders and the `Decision` row reads `LAUNCH new
@@ -648,7 +648,7 @@ NOT add a second "deployment summary" box; the Results box already
 carries every value (use case, container, image, batch/sink, FPS,
 GPU, log path, REST endpoints).
 
-**Step 6 — post-deploy AskQuestion is REQUIRED.**
+**Step 6 — post-deploy AskUserQuestion is REQUIRED.**
 See § "Step ordering invariants — DO NOT skip ahead" rule 5 above for the
 ordering rule; the full bucket table and forbidden-patterns list live in
 `next-steps.md` § "11.c".
@@ -848,7 +848,7 @@ There is no separate deployment-summary box.
    stay outside the box.
 4. **No box from a partially-specified step.** If any field would have to
    be `<unknown>` or `<not yet asked>`, the step is not done — finish the
-   `AskQuestion`s first.
+   `AskUserQuestion`s first.
 5. **Long values overflow to a continuation row inside the box** (see
    `start-app.md` for examples in the Results-box rows). Never spill
    outside the box.

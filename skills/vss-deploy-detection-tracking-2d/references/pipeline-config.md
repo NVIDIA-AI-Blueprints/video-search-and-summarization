@@ -1,6 +1,6 @@
 # Step 2 — Pipeline Configuration (batch size, streams, sink)
 
-Collect the 4 pipeline parameters in a single `AskQuestion` interaction, then a conditional follow-up for the stream-add delay (dynamic mode only).
+Collect the 4 pipeline parameters in a single `AskUserQuestion` interaction, then a conditional follow-up for the stream-add delay (dynamic mode only).
 
 ## Defaults — the skill is **static-mode by default**
 
@@ -21,10 +21,10 @@ Why static is the default:
 
 Dynamic mode is appropriate only when the user explicitly says so, or when
 they want to add cameras to a running deployment after the fact via REST
-`/api/v1/stream/add`. The Step 2 `AskQuestion` keeps `dynamic` available as
+`/api/v1/stream/add`. The Step 2 `AskUserQuestion` keeps `dynamic` available as
 a non-default option for those cases.
 
-## Primary `AskQuestion` (4 parameters at once)
+## Primary `AskUserQuestion` (4 parameters at once)
 
 ```json
 {
@@ -75,7 +75,7 @@ a non-default option for those cases.
 
 This only applies to `usecase == warehouse-3d` AND `input_type == filesrc`. For every other case, skip this section entirely.
 
-After the primary `AskQuestion` resolves, the agent counts `.mp4` files in the resolved videos directory (or the user-supplied custom dir). If the chosen `batch_size` exceeds that count, fire a follow-up `AskQuestion` with **exactly two options, cycle = Recommended**:
+After the primary `AskUserQuestion` resolves, the agent counts `.mp4` files in the resolved videos directory (or the user-supplied custom dir). If the chosen `batch_size` exceeds that count, fire a follow-up `AskUserQuestion` with **exactly two options, cycle = Recommended**:
 
 ```json
 {
@@ -95,7 +95,7 @@ After the primary `AskQuestion` resolves, the agent counts `.mp4` files in the r
 - **`cycle`** (default): proceed with the user's requested batch size. `discover_streams.sh` cycles the available `.mp4` files into `batch` unique stream ids (cycled ids get a `_<i>` suffix so REST `/stream/add` doesn't reject duplicates). No warning prose — treat cycling as expected.
 - **`reduce`**: overwrite `batch_size` with `<N>` (the available-cam count) and continue. The Step 2 exit box reflects the reduced batch.
 
-The follow-up is silent (no `AskQuestion`) when batch ≤ available cam count, and is skipped entirely for non-warehouse-3d use cases or when `input_type == rtsp` (RTSP URLs are user-supplied — no cycling concept).
+The follow-up is silent (no `AskUserQuestion`) when batch ≤ available cam count, and is skipped entirely for non-warehouse-3d use cases or when `input_type == rtsp` (RTSP URLs are user-supplied — no cycling concept).
 
 ## Delay between stream adds — dynamic mode only
 
@@ -114,7 +114,7 @@ the minimal-interaction contract. 20s spacing is stable on all platforms
 that happens with back-to-back `/stream/add` calls.
 
 **Apply silently, but announce before use** (per SKILL.md § Announce-before-
-applying). Do NOT drive an `AskQuestion` — the user can interrupt if they
+applying). Do NOT drive an `AskUserQuestion` — the user can interrupt if they
 want a different value.
 
 ```bash
@@ -141,7 +141,7 @@ when the user picked `dynamic`).
 
 **Legacy prompt (kept for reference — do NOT use by default):** if a future
 deploy mode explicitly asks for an interactive delay choice, here's the
-`AskQuestion` JSON:
+`AskUserQuestion` JSON:
 
 ```json
 {

@@ -62,7 +62,7 @@ Unified skill for the **Real Time Video Intelligence CV (RTVI-CV)** microservice
 
 **Selection rule:** match the user's phrasing against the table above and immediately load the corresponding reference file. Do not mix the flows — DEPLOY assumes no running container yet; API USAGE assumes the container is already running on `http://<host>:9000`.
 
-If intent is genuinely ambiguous (e.g., the user says just "I want to use rtvi-cv"), ask one `AskQuestion`: deploy a new instance, or call an already-running one?
+If intent is genuinely ambiguous (e.g., the user says just "I want to use rtvi-cv"), ask one `AskUserQuestion`: deploy a new instance, or call an already-running one?
 
 ---
 
@@ -113,7 +113,7 @@ For the full inventory of helpers (cache, GPU checks, setup) browse
 1. **Read this file first.** It only routes — it does not contain workflows.
 2. **Match the user's intent** against the routing table above.
 3. **Load exactly one reference doc** (DEPLOY or API USAGE). Don't preload both — each reference is large and contains its own full contract.
-4. **Follow the loaded reference exactly.** The reference docs are the byte-for-byte preserved contracts from the predecessor skills `vss-deploy-detection-tracking-2d` (deploy/teardown/debug) and `rtvicv-api` (REST API) — every step ordering invariant, bash-batching rule, box-rendering rule, and `AskQuestion` contract is retained.
+4. **Follow the loaded reference exactly.** The reference docs are the byte-for-byte preserved contracts from the predecessor skills `vss-deploy-detection-tracking-2d` (deploy/teardown/debug) and `rtvicv-api` (REST API) — every step ordering invariant, bash-batching rule, box-rendering rule, and `AskUserQuestion` contract is retained.
 5. **For DEPLOY**, the reference doc enforces its own startup contract: one-line acknowledgement → planning-tool call (`TodoWrite` array of 5 todos, OR 5 successive `TaskCreate` calls on newer Claude Code) → Step 1 question. Do not narrate, do not pre-flight, and never print "loading TodoWrite/TaskCreate" or any deferred-tool resolution prose — the planning tool is loaded silently.
 
 ---
@@ -189,7 +189,7 @@ pressure, and they break the user's UX):
   into the DS main config's `[source-list]` block before app start.
   Switch to `dynamic` only when the user explicitly asks ("add streams
   later via REST", "use dynamic stream mode") OR when they pick `dynamic`
-  in the Step 2 AskQuestion. Picking `dynamic` for a generic "deploy
+  in the Step 2 AskUserQuestion. Picking `dynamic` for a generic "deploy
   rtvi-cv with N streams" query breaks the deploy rubric and the
   user's `/metrics` expectations. See
   [`references/pipeline-config.md`](references/pipeline-config.md)

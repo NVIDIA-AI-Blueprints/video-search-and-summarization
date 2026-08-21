@@ -36,7 +36,7 @@ The skill only prints progress narration (`→` step start, `✔` step result, `
 1. **5 separate `TaskCreate` calls back-to-back** — full set of 5 tasks (templates under "Initial `TaskCreate` calls" below). NEVER collapse all 5 into one `TaskCreate`'s `description` field.
 2. **`TaskUpdate` to pre-complete inferred tasks** — one `TaskUpdate` call per task whose value is already pinned by the query.
 
-In either case: do NOT run any bash, file read, `AskQuestion`, or other tool between actions 1 and 2 above. No platform detection, no NGC config check, no docker inspect — those belong to later steps.
+In either case: do NOT run any bash, file read, `AskUserQuestion`, or other tool between actions 1 and 2 above. No platform detection, no NGC config check, no docker inspect — those belong to later steps.
 
 ## After startup — update-on-transition pattern
 
@@ -77,7 +77,7 @@ Every todo `content` field is a **short canonical label** (≤ 30 chars) set onc
 
 When the runtime exposes `TaskCreate` instead of `TodoWrite`, issue **5 separate
 `TaskCreate` calls in immediate succession**, one per task, BEFORE any other tool
-runs (no bash, no file reads, no `AskQuestion` between them). Same 5 subjects as
+runs (no bash, no file reads, no `AskUserQuestion` between them). Same 5 subjects as
 the `TodoWrite` template, plus a `description` field that names what the task
 covers — the description is what makes each task auditable as covering a distinct
 deploy concern (platform detection, NGC resource staging, container launch,
