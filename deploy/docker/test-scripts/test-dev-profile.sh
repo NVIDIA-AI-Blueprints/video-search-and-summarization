@@ -445,6 +445,42 @@ echo "NVIDIA RTX PRO 4500 Blackwell"
 EOF
 chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+run_negative_test "GB300 only valid for search" 1 up -p base -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d
+run_negative_test "GB300 search requires explicit device IDs" 1 up -p search -i 127.0.0.1 -H GB300 -d
+run_negative_test "GB300 search requires one shared device" 1 up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 0 -d
+
+# Mixed host: GPU 0 is RTX PRO and the selected GPU 1 is GB300. The helper
+# must inspect the selected device and place every search GPU service there.
+_mock_gb300_nvidia_smi_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_gb300_nvidia_smi_dir}")
+cat > "${_mock_gb300_nvidia_smi_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ " $* " == *" --id=1 "* ]]; then
+  echo "NVIDIA GB300"
+else
+  echo "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"
+fi
+EOF
+chmod +x "${_mock_gb300_nvidia_smi_dir}/nvidia-smi"
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up_and_check_generated_env \
+  "generated.env search GB300 selects mixed-host GPU and validated runtimes" "search" \
+  -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
+  "HARDWARE_PROFILE" "GB300" \
+  "LLM_MODE" "local_shared" \
+  "VLM_MODE" "local_shared" \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "FIXED_SHARED_DEVICE_IDS" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1" \
+  "LLM_NAME" "nvidia/nvidia-nemotron-nano-9b-v2" \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4" \
+  "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN" \
+  "VSS_RT_EMBED_TAG" '"develop-latest-sbsa"' \
+  "VSS_RT_CV_TAG" '"develop-latest-sbsa"'
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
