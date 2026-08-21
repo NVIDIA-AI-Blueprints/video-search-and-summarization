@@ -910,6 +910,10 @@ ts_036() {
     fi
     prepare_run "$PROCESSES" false 1 || { record_result TS-036 FAIL "AB startup"; return; }
 
+    # /ready, not /health: fleet readiness moved off the liveness endpoint so a
+    # rebalance stops reading as an unhealthy container. /health is asserted
+    # separately below -- it must NOT move with the consumer group.
+    local ready_url="http://127.0.0.1:${ALERT_BRIDGE_PORT:-9080}/ready"
     local health_url="http://127.0.0.1:${ALERT_BRIDGE_PORT:-9080}/health"
     local before_assigned before_ready
     before_assigned=$(prom_value alert_bridge_assigned_partitions)
@@ -932,9 +936,10 @@ ts_036() {
     : > "$samples"
     ( sampler_end=$(( $(date +%s) + 150 ))
       while [ "$(date +%s)" -lt "$sampler_end" ]; do
-          printf '%s %s %s\n' \
+          printf '%s %s %s %s\n' \
               "$(prom_value alert_bridge_assigned_partitions)" \
               "$(prom_value alert_bridge_pipeline_processes_ready)" \
+              "$(curl -s -o /dev/null -w '%{http_code}' "$ready_url" 2>/dev/null)" \
               "$(curl -s -o /dev/null -w '%{http_code}' "$health_url" 2>/dev/null)" >> "$samples"
           sleep 0.25
       done ) &
@@ -973,9 +978,9 @@ samples, before_assigned, before_ready, drains_before, drains_after, after_assig
 rows = []
 for line in open(samples):
     parts = line.split()
-    if len(parts) == 3:
+    if len(parts) == 4:
         try:
-            rows.append((float(parts[0]), float(parts[1]), parts[2]))
+            rows.append((float(parts[0]), float(parts[1]), parts[2], parts[3]))
         except ValueError:
             pass
 
@@ -986,14 +991,20 @@ before_assigned, before_ready = float(before_assigned), float(before_ready)
 assigned_low = min(r[0] for r in rows)
 ready_low = min(r[1] for r in rows)
 saw_503 = any(r[2] == "503" for r in rows)
-recovered_health = rows[-1][2] == "200"
+recovered_ready = rows[-1][2] == "200"
+# The point of splitting the endpoints: losing every partition is a fleet
+# event, not a sick container. A single 503 here means /health still moves
+# with the consumer group and a liveness probe would restart a healthy pod.
+health_codes = sorted({r[3] for r in rows})
+health_held = all(r[3] == "200" for r in rows)
 
 drained = float(drains_after) - float(drains_before)
 recovered_assigned = float(after_assigned) >= before_assigned
 
 detail = (f"assigned {before_assigned:.0f}->{assigned_low:.0f}->{float(after_assigned):.0f} "
-          f"ready {before_ready:.0f}->{ready_low:.0f} health503={saw_503} "
-          f"health_end={rows[-1][2]} drains=+{drained:.0f} samples={len(rows)}")
+          f"ready {before_ready:.0f}->{ready_low:.0f} ready503={saw_503} "
+          f"ready_end={rows[-1][2]} health={'/'.join(health_codes)} "
+          f"drains=+{drained:.0f} samples={len(rows)}")
 
 # Gated on what a rebalance must do regardless of how the coordinator splits
 # the partitions: this instance loses some, it drains them, and it recovers.
@@ -1006,8 +1017,9 @@ detail = (f"assigned {before_assigned:.0f}->{assigned_low:.0f}->{float(after_ass
 ok = (assigned_low < before_assigned     # the gauge tracks the live assignment
       and recovered_assigned             # and comes back when they return
       and ready_low < before_ready       # readiness follows the revoke
-      and saw_503                        # health reports the degraded fleet
-      and recovered_health               # and recovers with it
+      and saw_503                        # /ready reports the degraded fleet
+      and recovered_ready                # and recovers with it
+      and health_held                    # while /health stays up throughout
       and drained > 0)                   # a drain completed, not merely ran
 print(("PASS " if ok else "FAIL ") + detail)
 PY

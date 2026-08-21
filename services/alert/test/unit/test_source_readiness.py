@@ -352,6 +352,59 @@ class TestHealthReflectsLiveWorkers:
         assert reg.return_value.collect.call_count == 1
 
 
+class TestHealthAndReadinessAreSeparate:
+    """Fleet state belongs on /ready, never on /health.
+
+    They were one endpoint. A multi-process instance reports no ready
+    pipelines for the whole of its startup -- through the wait for topic
+    metadata and every child's constructor -- so a startup probe on the
+    combined endpoint killed the container before the fleet could come up.
+    And in steady state every rebalance turned the endpoint fronting the
+    alert-config API into a 503 while that API was serving perfectly well.
+    """
+
+    @staticmethod
+    def _client(degraded=None, startup_ready=True):
+        import sys
+        from unittest.mock import patch
+        from fastapi.testclient import TestClient
+        sys.modules.pop("web.main", None)
+        from web import main
+
+        main._startup_ready = startup_ready
+        main._startup_error = None if startup_ready else "store unavailable"
+        patcher = patch.object(main, "_degraded_workers", lambda: degraded)
+        patcher.start()
+        return TestClient(main.app, raise_server_exceptions=False), patcher
+
+    def _codes(self, **kwargs):
+        client, patcher = self._client(**kwargs)
+        try:
+            return client.get("/health").status_code, client.get("/ready").status_code
+        finally:
+            patcher.stop()
+
+    def test_a_healthy_fleet_answers_both(self):
+        assert self._codes(degraded=None) == (200, 200)
+
+    def test_a_degraded_fleet_only_moves_ready(self):
+        # The whole point: a rebalance is a fleet event, not a sick container.
+        assert self._codes(degraded="0 of 4 pipeline processes hold a "
+                                    "partition assignment") == (200, 503)
+
+    def test_a_failed_startup_fails_both(self):
+        # This process cannot serve its own API either, so it is not liveness.
+        assert self._codes(degraded=None, startup_ready=False) == (503, 503)
+
+    def test_ready_names_the_degradation(self):
+        client, patcher = self._client(degraded="1 of 4 pipeline processes hold a "
+                                                "partition assignment")
+        try:
+            assert "1 of 4" in client.get("/ready").json()["message"]
+        finally:
+            patcher.stop()
+
+
 class TestHooksSurviveRegistrationOrder:
     """A hook registered after the consumers exist must still reach them.
 
