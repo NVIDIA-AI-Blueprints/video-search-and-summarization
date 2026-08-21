@@ -358,6 +358,44 @@ class TestEndDeltaFilterIntegration:
         assert len(send("2024-01-15T10:30:08Z")) == 0   # small from T+6
         assert len(send("2024-01-15T10:30:12Z")) == 1   # significant from T+6
 
+    def test_successive_chunks_of_one_event_are_suppressed(self, handler_enabled):
+        """Regression: consecutive chunks of a single ongoing violation.
+
+        Each chunk carries its own ``timestamp`` (its start time), and the CV
+        tracker may add ids mid-event (``['2']`` -> ``['2','3']``). Both used to
+        be part of the end-delta cohort key, so every chunk looked like a new
+        cohort and nothing was ever suppressed -- one event was recorded as N
+        incidents. Values below are from an observed DGX-SPARK failure where
+        ground truth was 1 event but 2 were counted.
+        """
+        chunk1 = _incident(
+            sensor="sample-warehouse-ladder",
+            ts="2026-08-19T21:55:17.540Z",
+            end="2026-08-19T21:55:21.173Z",
+            ids=("2",),
+            category="ladder ppe violation",
+            am="",
+        )
+        chunk2 = _incident(
+            sensor="sample-warehouse-ladder",
+            ts="2026-08-19T21:55:21.740Z",   # different start time
+            end="2026-08-19T21:55:23.773Z",  # end moved only 2.6s (< 3s threshold)
+            ids=("2", "3"),                  # tracker added an id
+            category="ladder ppe violation",
+            am="",
+        )
+        assert handler_enabled._check_end_delta(chunk1) is True
+        assert handler_enabled._check_end_delta(chunk2) is False
+
+    def test_disjoint_objects_stay_independent_across_chunks(self, handler_enabled):
+        """Distinct violations must not be merged just because the cohort key
+        no longer carries objectIds -- matching is by object-set intersection."""
+        a = _incident(ts="2026-01-01T00:00:00Z", end="2026-01-01T00:00:10Z", ids=(1, 2))
+        b = _incident(ts="2026-01-01T00:00:01Z", end="2026-01-01T00:00:11Z", ids=(7, 8))
+        assert handler_enabled._check_end_delta(a) is True
+        # Disjoint object set → own cohort → kept even though end is 1s away.
+        assert handler_enabled._check_end_delta(b) is True
+
     def test_multiple_incidents_independent(self, handler_enabled):
         incident_a = _incident(ids=(1, 2), end="2024-01-15T10:30:10Z")
         incident_b = _incident(ids=(3, 4), end="2024-01-15T10:30:10Z")
