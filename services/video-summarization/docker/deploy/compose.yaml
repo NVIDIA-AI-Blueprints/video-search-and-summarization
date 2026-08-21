@@ -332,7 +332,7 @@ services:
     - |
       set -e
       if [ -z "$${VLM_MODEL_TO_USE:-}" ]; then
-        echo "[rtvi-vlm] FATAL: VLM_MODEL_TO_USE is required (no default) -- set it to 'openai-compat' or a local model backend. See services/video-summarization/README.md#set-environment-variables." >&2
+        echo "[rtvi-vlm] FATAL: VLM_MODEL_TO_USE is required -- set it to 'openai-compat' or a local model backend. See README.md#set-environment-variables." >&2
         exit 1
       fi
       if [ "$$VLM_MODEL_TO_USE" = "openai-compat" ]; then
