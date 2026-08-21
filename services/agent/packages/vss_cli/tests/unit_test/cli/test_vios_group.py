@@ -347,3 +347,51 @@ def test_snapshot_of_an_unclassifiable_sensor_does_not_ask_for_a_live_frame(
 
     assert body["source"] == "replay"
     assert body["at"] == "2025-01-01T00:00:00.000Z"
+
+
+def test_add_waits_for_indexing_before_reporting_success(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The PUT returning is not the upload being usable."""
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return {"filename": "clip.mp4", "sensorId": "u", "streamId": "u", "bytes": 1}
+        return ("2025-01-01T00:00:00.000Z", "2025-01-01T00:03:30.000Z")
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    local = tmp_path / "clip.mp4"
+    local.write_bytes(b"x")
+
+    body = json.loads(CliRunner().invoke(cli, ["add", "--type", "video", str(local)]).stdout)
+
+    assert len(calls) == 2, "upload then wait"
+    assert body["recorded"]["start_time"] == "2025-01-01T00:00:00.000Z"
+
+
+def test_add_exits_seven_when_vios_never_indexes(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """Reporting a sensor that cannot be used is the fail-open this group keeps hitting."""
+    from vss_core.vios import VIOSTimeoutError
+
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return {"filename": "clip.mp4", "sensorId": "u", "streamId": "u"}
+        raise VIOSTimeoutError("VIOS accepted the upload but had not indexed u after 60s")
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    local = tmp_path / "clip.mp4"
+    local.write_bytes(b"x")
+
+    result = CliRunner().invoke(cli, ["add", "--type", "video", str(local)], catch_exceptions=False)
+
+    assert result.exit_code == int(Exit.TIMEOUT)
+    assert "had not indexed" in result.output

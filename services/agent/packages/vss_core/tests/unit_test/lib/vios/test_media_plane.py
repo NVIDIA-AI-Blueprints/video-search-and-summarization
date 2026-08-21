@@ -886,3 +886,65 @@ def test_the_typed_errors_are_importable_from_the_package() -> None:
 
     assert pkg.VIOSInvalidInputError is vios.VIOSInvalidInputError
     assert pkg.VIOSNotFoundError is vios.VIOSNotFoundError
+
+
+# ------------------------------------------------- add waits for indexing
+
+
+@pytest.mark.asyncio
+async def test_await_timeline_returns_once_vios_has_indexed(vios_http, monkeypatch) -> None:
+    """VIOS accepts the bytes before the timeline exists; the wait covers that gap."""
+    configure, _, _ = vios_http
+    configure(**{"/storage/timelines": {}})
+    monkeypatch.setattr(vios.asyncio, "sleep", _no_sleep)
+
+    calls = {"n": 0}
+
+    async def appears_on_third(*_a: object, **_k: object) -> tuple[str, str] | None:
+        calls["n"] += 1
+        return SPAN if calls["n"] >= 3 else None
+
+    monkeypatch.setattr(vios, "recorded_span", appears_on_third)
+
+    assert await vios.await_timeline(VST, "s-1") == SPAN
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_await_timeline_gives_up_saying_so(vios_http, monkeypatch) -> None:
+    """Never indexed is a failure, not a sensor reported as usable."""
+    configure, _, _ = vios_http
+    configure(**{"/storage/timelines": {}})
+    monkeypatch.setattr(vios.asyncio, "sleep", _no_sleep)
+
+    async def never(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(vios, "recorded_span", never)
+
+    with pytest.raises(vios.VIOSTimeoutError, match="had not indexed"):
+        await vios.await_timeline(VST, "s-1", timeout_seconds=0.0)
+
+
+@pytest.mark.asyncio
+async def test_a_backend_error_is_not_retried_as_slow_indexing(vios_http, monkeypatch) -> None:
+    """A 503 must fail now, not be polled at for a minute."""
+    configure, _, _ = vios_http
+    configure(**{"/storage/timelines": {}})
+    monkeypatch.setattr(vios.asyncio, "sleep", _no_sleep)
+
+    calls = {"n": 0}
+
+    async def boom(*_a: object, **_k: object) -> None:
+        calls["n"] += 1
+        raise vios.VSTError("VIOS timelines API returned status 503")
+
+    monkeypatch.setattr(vios, "recorded_span", boom)
+
+    with pytest.raises(vios.VSTError, match="503"):
+        await vios.await_timeline(VST, "s-1")
+    assert calls["n"] == 1
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None

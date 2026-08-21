@@ -147,6 +147,7 @@ def _exit_for(exc: Exception) -> Exit | None:
         "InvalidInputError": Exit.INVALID_INPUT,
         "VIOSInvalidInputError": Exit.INVALID_INPUT,
         "VIOSNotFoundError": Exit.NOT_FOUND,
+        "VIOSTimeoutError": Exit.TIMEOUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
         "MemoryNotFoundError": Exit.NOT_FOUND,
         "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,

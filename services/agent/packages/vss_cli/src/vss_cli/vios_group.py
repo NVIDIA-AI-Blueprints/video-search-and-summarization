@@ -209,14 +209,23 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
 
     path = pathlib.Path(source)
     result = _run(vios.upload_media(origin, path, name=values.get("name")))
+    stream_id = str(result.get("streamId") or "")
+
+    # VIOS accepts the bytes before it has indexed them, so `add` is not done
+    # when the PUT returns -- a clip taken immediately afterwards finds nothing
+    # recorded. Wait for the timeline, and fail (exit 7) rather than report a
+    # sensor that cannot yet be used.
+    recorded = _run(vios.await_timeline(origin, stream_id)) if stream_id else None
+
     return Result(
         body={
             "name": result.get("filename") or path.name,
             "sensor_id": result.get("sensorId"),
-            "stream_id": result.get("streamId"),
+            "stream_id": stream_id,
             "type": "video",
             "bytes": result.get("bytes"),
             "added": True,
+            "recorded": {"start_time": recorded[0], "end_time": recorded[1]} if recorded else None,
         }
     )
 
@@ -345,6 +354,10 @@ def _build() -> click.Group:
         _command(
             "add",
             "Register media: a local file, or an RTSP URL.\n"
+            "\n"
+            "A video upload waits until VIOS has indexed the recording, because the bytes are "
+            "accepted before the timeline exists and a clip taken in between finds nothing. Exits 7 "
+            "if that has not happened within a minute.\n"
             "\n"
             "What SOURCE is, is read from SOURCE: rtsp:// or rtsps:// is a live stream, "
             "anything else is a video. The sensor is named after the file unless --name says otherwise.\n"

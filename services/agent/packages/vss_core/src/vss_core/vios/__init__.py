@@ -5,9 +5,11 @@
 from .client import SensorRef
 from .client import VIOSInvalidInputError
 from .client import VIOSNotFoundError
+from .client import VIOSTimeoutError
 from .client import VSTClient
 from .client import VSTError
 from .client import add_stream
+from .client import await_timeline
 from .client import build_screenshot_url
 from .client import classify_media_source
 from .client import classify_source
@@ -38,10 +40,12 @@ __all__ = [
     "SensorRef",
     "VIOSInvalidInputError",
     "VIOSNotFoundError",
+    "VIOSTimeoutError",
     "VSTClient",
     "VSTError",
     "VSTSnapshot",
     "add_stream",
+    "await_timeline",
     "build_screenshot_url",
     "classify_media_source",
     "classify_source",

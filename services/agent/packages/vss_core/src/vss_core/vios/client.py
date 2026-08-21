@@ -28,12 +28,14 @@ OO wrapper.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import datetime
 import json
 import logging
 import pathlib
 import re
+import time
 from typing import Literal
 import urllib.parse
 
@@ -46,6 +48,9 @@ from vss_core._foundation.sanitize import quote_path_segment
 from vss_core._foundation.time import iso8601_to_datetime
 
 logger = logging.getLogger(__name__)
+
+#: Indirection so tests can drive the deadline without sleeping.
+_monotonic = time.monotonic
 
 _DEFAULT_TIMEOUT_SECONDS = 30
 _FILE_TIMELINE_EPOCH = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
@@ -1298,6 +1303,47 @@ async def confirm_absent(
     if remaining:
         ids = ", ".join(str(s.get("sensorId", "?")) for s in remaining)
         raise VSTError(f"VIOS still lists {name!r} after delete (sensorId: {ids})")
+
+
+class VIOSTimeoutError(LibraryError):
+    """A bounded wait expired (exit 7)."""
+
+
+#: An upload is accepted before VIOS has indexed it. The skill this replaced
+#: waited 15 x 2s; doubled here because that was tuned on small sample clips
+#: and a large file takes longer to index.
+_TIMELINE_WAIT_SECONDS = 60.0
+_TIMELINE_POLL_SECONDS = 2.0
+
+
+async def await_timeline(
+    vst_internal_url: str,
+    stream_id: str,
+    timeout_seconds: float = _TIMELINE_WAIT_SECONDS,
+    interval_seconds: float = _TIMELINE_POLL_SECONDS,
+) -> tuple[str, str]:
+    """Wait until VIOS has indexed a stream's recording, or give up saying so.
+
+    VIOS accepts an upload before its timeline exists, so a clip taken
+    immediately afterwards finds nothing recorded. Only "not indexed yet" is
+    retried: a backend error propagates on the first attempt rather than being
+    mistaken for slow indexing and retried to the bound.
+
+    Deliberately not folded into :func:`recorded_span`, which `delete` also
+    calls -- waiting a minute for recordings we are about to remove would be
+    the wrong behaviour in the one place it matters most.
+    """
+    deadline = _monotonic() + timeout_seconds
+    while True:
+        span = await recorded_span(vst_internal_url, stream_id, timeout_seconds=_DEFAULT_TIMEOUT_SECONDS)
+        if span is not None:
+            return span
+        if _monotonic() >= deadline:
+            raise VIOSTimeoutError(
+                f"VIOS accepted the upload but had not indexed {stream_id} after "
+                f"{timeout_seconds:.0f}s; it may still appear -- check `vss vios timeline`"
+            )
+        await asyncio.sleep(interval_seconds)
 
 
 async def delete_media(
