@@ -414,7 +414,7 @@ Then inspect the `mdx-vlm-incidents` Elasticsearch index — see [Consuming the 
 
 ### Consuming the Output Downstream
 
-Pluggable parser output lands in `info["vlm_response"]` as a **JSON-encoded string** (per the NvSchema map<string,string> contract). Downstream consumers must deserialize it before reading individual fields.
+Pluggable parser output lands in `info["vlm_response"]` as a **JSON-encoded string** (per the NvSchema `map<string,string>` contract). Downstream consumers must deserialize it before reading individual fields.
 
 **Reading from Elasticsearch**
 
