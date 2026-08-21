@@ -128,23 +128,20 @@ def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10
     return sum(sizes.values()) or None
 
 
-def warn_topics_short_of_processes(sizes: Dict[str, int], process_count: int) -> None:
-    """Name the topics that cannot give every process a partition.
+def topics_short_of_processes(sizes: Dict[str, int], process_count: int) -> Dict[str, int]:
+    """Topics that cannot give every process a partition.
 
-    The startup check is on the total, which is what bounds the group as a
-    whole. It is per topic that a process actually goes hungry: each one
-    subscribes to a single topic per consumer, so a topic with fewer
-    partitions than processes leaves the difference holding nothing on it,
-    however large the total.
+    Each process runs one consumer per topic, all in the same group, so Kafka
+    assigns each topic independently: a topic with fewer partitions than there
+    are processes leaves the difference holding none of it, however large the
+    total across topics. The total bounds the group; the per-topic count is
+    what decides whether a process has work.
     """
-    for topic, partitions in sorted(sizes.items()):
-        if partitions < process_count:
-            logger.warning(
-                "Topic %s has %d partitions for %d processes: %d of them will hold "
-                "none of it and consume only the other source topics. Raise the "
-                "partition count on %s to use every process fully.",
-                topic, partitions, process_count, process_count - partitions, topic,
-            )
+    return {
+        topic: partitions
+        for topic, partitions in sorted(sizes.items())
+        if partitions < process_count
+    }
 
 
 def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
@@ -197,16 +194,19 @@ def await_source_partitions(
         sizes = source_partitions_by_topic(config)
         total = sum(sizes.values()) if sizes else None
         if total:
-            if total < required:
+            short = topics_short_of_processes(sizes, required)
+            if short:
+                detail = ", ".join(f"{t} has {n}" for t, n in short.items())
                 raise RuntimeError(
-                    f"alert_agent.processes={required} exceeds the {total} partitions "
-                    f"across {', '.join(source_topics(config)) or 'the source topics'}. "
-                    f"Every process beyond the partition count joins the consumer "
-                    f"group and idles. Lower processes to at most {total}, or raise "
-                    f"the partition count; with N replicas the constraint is "
-                    f"replicas x processes <= partitions."
+                    f"alert_agent.processes={required} exceeds the partitions on "
+                    f"{detail}. Each process runs one consumer per topic in the same "
+                    f"group, so a topic is assigned independently of the others: "
+                    f"{len(short)} topic(s) would leave processes holding none of "
+                    f"them, whatever the {total} partitions total across topics. "
+                    f"Lower processes to at most {min(short.values())}, or raise the "
+                    f"partition count on the topics named; with N replicas the "
+                    f"constraint is replicas x processes <= partitions, per topic."
                 )
-            warn_topics_short_of_processes(sizes, required)
             return total
 
         if time.monotonic() >= deadline:

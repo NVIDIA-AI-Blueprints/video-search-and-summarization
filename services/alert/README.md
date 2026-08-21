@@ -239,8 +239,11 @@ alert_agent:
 ```
 
 - **The count is validated, not adjusted.** Above `1`, startup fails unless
-  the mode is `event_loop` and the source topics carry at least that many
-  partitions between them. Nothing is clamped or derived: a count the
+  the mode is `event_loop` and *every* source topic carries at least that many
+  partitions. Per topic, not in total: each process runs one consumer per
+  topic in the same group, so Kafka assigns each topic independently. Eight
+  partitions on one topic and one on another total nine, which would pass any
+  check on the sum, yet only one process can ever hold the second topic. Nothing is clamped or derived: a count the
   deployment cannot honour is a configuration error, and silently running
   fewer processes than asked hides it. There is no `"auto"` — deriving from
   the CPU count read well but hid the constraint that actually binds, and on

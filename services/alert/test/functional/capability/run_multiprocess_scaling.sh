@@ -176,7 +176,9 @@ wait_for_sim() {
 ensure_stack() {
     ensure_kafka
     ensure_partitions "$TOPIC" "$PARTITIONS" || exit 1
-    ensure_partitions mdx-alerts 1 || exit 1
+    # Per-topic rule: every source topic needs >= PROCESSES partitions,
+    # so a one-partition companion topic would now fail startup.
+    ensure_partitions mdx-alerts "$PARTITIONS" || exit 1
 
     if ! curl -sf http://127.0.0.1:9200/health >/dev/null 2>&1; then
         python3 "$REPO_ROOT/test/sim_scripts/elastic/elastic_sim.py" > "$PID_DIR/elastic_sim.log" 2>&1 &

@@ -21,7 +21,7 @@ from utils import process_scaling
 from utils.process_scaling import (
     await_source_partitions,
     resolve_process_count,
-    warn_topics_short_of_processes,
+    topics_short_of_processes,
 )
 
 
@@ -202,7 +202,7 @@ class TestAwaitSourcePartitions:
 
     def test_rejects_more_processes_than_partitions(self, monkeypatch):
         self._counts(monkeypatch, [4])
-        with pytest.raises(RuntimeError, match="exceeds the 4 partitions"):
+        with pytest.raises(RuntimeError, match="exceeds the partitions"):
             await_source_partitions({}, required=8)
 
     def test_rejection_is_immediate_rather_than_waited_out(self, monkeypatch):
@@ -228,41 +228,40 @@ class TestAwaitSourcePartitions:
             await_source_partitions({}, required=2, timeout=0.05, interval=0.01)
 
 
-class TestShortTopicsAreNamed:
-    """The startup check is on the total; hunger is per topic.
+class TestPerTopicIsWhatDecides:
+    """The total bounds the group; the per-topic count decides who has work.
 
-    Each process subscribes to a single topic per consumer, so a topic with
-    fewer partitions than processes leaves the difference holding none of it,
-    however large the total. Failing on that would be a breaking change for
-    an asymmetric layout, so it is reported rather than rejected.
+    Each process runs one consumer per topic, all in the same group, so Kafka
+    assigns each topic independently. Eight plus one partitions total nine,
+    which passes any check on the total, yet only one process can hold the
+    one-partition topic.
     """
 
-    @staticmethod
-    def _warnings(caplog, sizes, processes):
-        import logging
-        with caplog.at_level(logging.WARNING):
-            warn_topics_short_of_processes(sizes, processes)
-        return " ".join(r.getMessage() for r in caplog.records)
+    def test_a_short_topic_is_named_with_its_size(self):
+        short = topics_short_of_processes({"mdx-incidents": 8, "mdx-alerts": 1}, 4)
+        assert short == {"mdx-alerts": 1}
 
-    def test_a_short_topic_is_named(self, caplog):
-        text = self._warnings(caplog, {"mdx-incidents": 8, "mdx-alerts": 1}, 4)
-        assert "mdx-alerts" in text and "3 of them will hold" in text
+    def test_topics_that_cover_every_process_are_silent(self):
+        assert topics_short_of_processes({"mdx-incidents": 8, "mdx-alerts": 8}, 4) == {}
 
-    def test_a_topic_that_covers_every_process_is_silent(self, caplog):
-        assert self._warnings(caplog, {"mdx-incidents": 8, "mdx-alerts": 8}, 4) == ""
+    def test_equal_partitions_and_processes_is_enough(self):
+        assert topics_short_of_processes({"mdx-incidents": 4}, 4) == {}
 
-    def test_equal_partitions_and_processes_is_silent(self, caplog):
-        assert self._warnings(caplog, {"mdx-incidents": 4}, 4) == ""
+    def test_every_short_topic_is_reported(self):
+        assert topics_short_of_processes({"a": 1, "b": 2, "c": 9}, 4) == {"a": 1, "b": 2}
 
-    def test_every_short_topic_is_reported(self, caplog):
-        text = self._warnings(caplog, {"a": 1, "b": 2, "c": 9}, 4)
-        assert "Topic a" in text and "Topic b" in text and "Topic c" not in text
+    def test_eight_plus_one_partitions_do_not_serve_nine_processes(self):
+        # The total is nine, which any check on the total accepts. Per topic
+        # neither can serve nine: one process would hold nothing on
+        # mdx-incidents and eight would hold nothing on mdx-alerts.
+        assert topics_short_of_processes({"mdx-incidents": 8, "mdx-alerts": 1}, 9) == {
+            "mdx-alerts": 1, "mdx-incidents": 8
+        }
 
-    def test_a_generous_total_does_not_silence_it(self, caplog):
-        # 8 + 1 = 9 passes the total check for 4 processes, yet three of them
-        # hold nothing on mdx-alerts. That is the gap this reports.
-        text = self._warnings(caplog, {"mdx-incidents": 8, "mdx-alerts": 1}, 4)
-        assert "mdx-alerts" in text
+    def test_the_same_layout_serves_four_processes_on_one_topic_only(self):
+        assert topics_short_of_processes({"mdx-incidents": 8, "mdx-alerts": 1}, 4) == {
+            "mdx-alerts": 1
+        }
 
 
 if __name__ == "__main__":
