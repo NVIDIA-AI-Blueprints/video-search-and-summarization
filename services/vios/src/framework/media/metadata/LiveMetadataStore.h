@@ -22,6 +22,7 @@
 #include "MetadataStore.h"
 #include "syncobject.h"
 #include "NotificationFactory.h"
+#include <atomic>
 
 class LiveMetadataStore : public IMetadataStore
 {
@@ -47,6 +48,12 @@ private:
     };
 
     SyncObject                      m_metaWait = {};
+    /* Longest the overlay will hold a frame waiting for its analytics. */
+    static constexpr int            METADATA_WAIT_TIMEOUT_MS = 200;
+    /* Silent frames tolerated before the overlay stops waiting altogether. */
+    static constexpr unsigned       MAX_CONSECUTIVE_METADATA_TIMEOUTS = 3;
+    std::atomic<bool>               m_metadataIdle {false};
+    std::atomic<unsigned>           m_metadataTimeouts {0};
     nv_vms::INotificationInterface* m_notificationConsumer = nullptr;
     std::unique_ptr<NotificationListener> m_notificationListener;
     std::string                     m_sensorName = "";
