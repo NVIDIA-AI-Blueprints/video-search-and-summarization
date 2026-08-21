@@ -36,6 +36,14 @@ FROM nvcr.io/nvidia/deepstream:9.1-triton-multiarch AS base-igpu
 FROM nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark AS base-sbsa
 
 FROM base-$ARM_PLATFORM AS base-arm64
+
+# DeepStream publishes the patched RTSP plugins in /tmp99 of this image for
+# both amd64 and arm64. Copying them avoids invoking update_rtpmanager.sh and
+# retaining its source-build dependencies in the runtime image.
+FROM nvcr.io/nvidia/deepstream:9.1-triton-multiarch AS rtpmanager-prebuilt
+RUN test -s /tmp99/libgstrtpmanager.so \
+    && test -s /tmp99/libgstrtsp.so \
+    && test -s /tmp99/libgstvideoparsersbad.so
 ###############################
 
 # Build a Thor-compatible PyDS wheel from the public DeepStream Python bindings.
@@ -166,16 +174,13 @@ ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/
 
 RUN mkdir -p /tmp/huggingface
 
-# Apply DeepStream's rtpjitterbuffer fix for RTSP streams while the APT package
-# index is still available to its build script.
+# Install RT Embed runtime dependencies and remove disallowed libraries.
 RUN --mount=type=bind,source=docker/requirements_apt.txt,target=/tmp/requirements_apt.txt \
     --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
-    sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list \
-    && apt update \
+    apt update \
     && apt install -y --no-install-recommends $(cat /tmp/requirements_apt.txt) \
     && packagekit_packages="$(dpkg-query -W -f='${binary:Package}\n' packagekit packagekit-tools 2>/dev/null || true)" \
     && if [ -n "$packagekit_packages" ]; then apt-get purge -y --auto-remove $packagekit_packages; fi \
-    && /opt/nvidia/deepstream/deepstream/update_rtpmanager.sh \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/lib/*-linux-gnu/gstreamer-1.0/libgstaudioparsers.so \
         /usr/lib/*-linux-gnu/gstreamer-1.0/libgstfaad.so \
@@ -223,6 +228,23 @@ RUN --mount=type=bind,source=docker/requirements_apt.txt,target=/tmp/requirement
         /usr/lib/*-linux-gnu/libgallium* \
         /usr/share/icons/ubuntu-mono* \
         /usr/share/icons/LoginIcons
+
+# Replace the distribution plugins with the DeepStream prebuilt RTSP fixes.
+COPY --from=rtpmanager-prebuilt \
+     /tmp99/libgstrtpmanager.so \
+     /tmp99/libgstrtsp.so \
+     /tmp99/libgstvideoparsersbad.so \
+     /tmp/rtpmanager-plugins/
+RUN case "$(uname -m)" in \
+        aarch64) plugin_dir=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 ;; \
+        x86_64) plugin_dir=/usr/lib/x86_64-linux-gnu/gstreamer-1.0 ;; \
+        *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && test -d "$plugin_dir" \
+    && install -m 0644 /tmp/rtpmanager-plugins/libgstrtpmanager.so \
+        /tmp/rtpmanager-plugins/libgstrtsp.so \
+        /tmp/rtpmanager-plugins/libgstvideoparsersbad.so "$plugin_dir/" \
+    && rm -rf /tmp/rtpmanager-plugins
 
 RUN apt remove libslurm40t64 libpmi2-0t64 -y --purge && apt autoremove --purge -y
 
