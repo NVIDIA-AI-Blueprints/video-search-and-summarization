@@ -483,12 +483,15 @@ void replaceAttribute(std::string& manifest, size_t begin, size_t end,
 // jitter the buffer can absorb.  Six seconds here plus a five second delay
 // meant no first frame until eleven seconds of media existed, whatever the
 // preroll gate was set to.
-// Live needs no shift of its own.  The player already positions its playhead
-// its live delay behind the advertised edge, which is the same thing this was
-// doing, so applying both put the playhead twice as far back as intended and
-// made the media that has to exist before playback can start the sum of the
-// two.  Replay keeps a shift because it wants the deeper buffer.
-constexpr int kDashLiveAvailabilityShiftSec = 0;
+// This, not the player's configured live delay, is what actually decides how
+// far behind the edge the playhead sits.  Measured with no shift the player
+// rode within two to three seconds of the newest segment however large a delay
+// it was given, which survives a local link and vanishes on one with real round
+// trip time: the buffer reaches zero and playback stalls once per segment.
+// Publishing availability this much later moves the playhead back by the same
+// amount and gives it a cushion that does not depend on the player honouring a
+// request.
+constexpr int kDashLiveAvailabilityShiftSec = 4;
 constexpr int kDashReplayAvailabilityShiftSec = 6;
 
 // How often the player is asked to refetch the manifest.

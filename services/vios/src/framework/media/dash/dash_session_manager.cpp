@@ -81,7 +81,7 @@ constexpr uint64_t kDashRetainedSegments = 60;
 // it buys only enough catalogue for the player to start behind the edge rather
 // than on it.  Ten seconds here meant ten seconds of 202 before the first frame
 // could even be requested, which dominated startup.
-constexpr unsigned kDashPrerollSeconds = 6;
+constexpr unsigned kDashPrerollSeconds = 8;
 } // namespace
 
 DashSessionManager& DashSessionManager::instance()
