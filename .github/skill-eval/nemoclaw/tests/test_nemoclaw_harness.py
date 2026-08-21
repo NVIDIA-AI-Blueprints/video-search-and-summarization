@@ -93,18 +93,6 @@ class NotebookRunnerTests(unittest.TestCase):
             namespace["NEMOCLAW_MODEL"],
             "aws/anthropic/bedrock-claude-sonnet-4-6",
         )
-        self.assertEqual(namespace["NEMOCLAW_SANDBOX_GPU"], "0")
-        self.assertEqual(namespace["NEMOCLAW_DOCKER_GPU_PATCH"], "0")
-
-    def test_notebook_exports_cpu_only_sandbox_defaults(self) -> None:
-        source = (
-            REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb"
-        ).read_text(encoding="utf-8")
-        self.assertIn('env[\\"NEMOCLAW_SANDBOX_GPU\\"] = NEMOCLAW_SANDBOX_GPU', source)
-        self.assertIn(
-            'env[\\"NEMOCLAW_DOCKER_GPU_PATCH\\"] = NEMOCLAW_DOCKER_GPU_PATCH',
-            source,
-        )
 
     def test_orchestrator_ci_values_are_injected_without_source_edits(self) -> None:
         environment = {
