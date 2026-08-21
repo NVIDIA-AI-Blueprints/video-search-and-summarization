@@ -13,6 +13,7 @@
 # isort: skip_file
 
 import sys
+import threading
 import types
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,8 +27,14 @@ except ImportError:
     sys.modules["pandas"] = types.SimpleNamespace(DataFrame=object)
 
 import concurrent_live_streams_benchmark as concurrent_live_streams_benchmark_module  # noqa: E402
-from concurrent_live_streams_benchmark import ConcurrentLiveStreamsBenchmark  # noqa: E402
-from base import BenchmarkCleanupError  # noqa: E402
+from concurrent_live_streams_benchmark import (  # noqa: E402
+    ConcurrentLiveStreamsBenchmark,
+    concurrent_live_stream_iteration_success,
+)
+from base import (  # noqa: E402
+    BenchmarkCleanupError,
+    BenchmarkResourceUnavailableError,
+)
 from latency_tracker import LatencyTracker  # noqa: E402
 
 
@@ -74,6 +81,74 @@ def test_stream_add_retries_then_skips_bad_rtsp_source():
             "attempts": 2,
         }
     ]
+
+
+def test_stream_add_resource_boundary_is_not_retried_or_skipped():
+    benchmark = _benchmark()
+    skipped_sources = []
+    attempts = []
+
+    def reject_for_capacity(_video_config, stream_num):
+        attempts.append(stream_num)
+        raise BenchmarkResourceUnavailableError(
+            "GPU admission rejected",
+            status_code=503,
+            code="ServerBusy",
+        )
+
+    benchmark._add_live_stream = reject_for_capacity
+
+    try:
+        benchmark._add_live_stream_with_retries(
+            {
+                "rtsp_urls": ["rtsp://source-1", "rtsp://source-2"],
+                "stream_add_retry_attempts": 3,
+                "stream_add_max_rtsp_source_skips": 1,
+            },
+            stream_num=1,
+            rtsp_source_num=1,
+            skipped_rtsp_sources=skipped_sources,
+        )
+    except BenchmarkResourceUnavailableError as exc:
+        assert exc.status_code == 503
+        assert exc.code == "ServerBusy"
+    else:
+        raise AssertionError("resource boundary was retried as an RTSP source failure")
+
+    assert attempts == [1]
+    assert skipped_sources == []
+
+
+def test_concurrent_startup_timeout_signals_stop_event(tmp_path):
+    class _BlockingStartupBenchmark(ConcurrentLiveStreamsBenchmark):
+        def _monitor_stream_latency_until_stopped(self, *args, **kwargs):
+            args[6].wait(timeout=1)
+
+    benchmark = _BlockingStartupBenchmark(
+        "http://localhost:0",
+        output_base_dir=str(tmp_path),
+    )
+    stop_event = concurrent_live_streams_benchmark_module.threading.Event()
+    executor = concurrent_live_streams_benchmark_module.ThreadPoolExecutor(max_workers=1)
+    try:
+        try:
+            benchmark._start_stream_monitoring(
+                executor,
+                {"stream_startup_timeout_seconds": 0.01},
+                10,
+                {"backend_type": "rtvi_vlm"},
+                "test-model",
+                "stream-timeout",
+                1,
+                stop_event,
+            )
+        except RuntimeError as exc:
+            assert "Timed out" in str(exc)
+        else:
+            raise AssertionError("startup timeout was not surfaced")
+        assert stop_event.is_set()
+    finally:
+        executor.shutdown(wait=True)
 
 
 def test_concurrent_live_intentional_rtsp_reuse_is_not_limited_to_one_logical_stream():
@@ -186,6 +261,73 @@ def test_cleanup_failure_aborts_remaining_iterations(tmp_path):
         raise AssertionError("cleanup failure did not abort remaining iterations")
 
     assert attempts == [1]
+
+
+def test_blocking_delete_precedes_monitor_wait(monkeypatch, tmp_path):
+    benchmark = _benchmark()
+    stream_deleted = threading.Event()
+    calls = []
+
+    benchmark.DEFAULT_THREAD_WAIT_TIMEOUT = 0.5
+    benchmark._configure_http_session = lambda _pool_size: None
+    benchmark._add_live_stream_with_retries = lambda *_args: ("stream-a", 2)
+    benchmark.scrape_metrics = lambda: {}
+    benchmark.start_gpu_monitoring = lambda: None
+    benchmark.stop_gpu_monitoring = lambda **_kwargs: None
+    benchmark.process_gpu_stats = lambda _path: {}
+    benchmark._stop_live_generation_requests = lambda *_args, **_kwargs: None
+    benchmark._blocking_stream_delete_enabled = lambda: True
+
+    def delete_streams(_stream_ids):
+        calls.append("delete")
+        stream_deleted.set()
+
+    def monitor_stream(*_args, startup_future=None, **_kwargs):
+        if startup_future is not None and not startup_future.done():
+            startup_future.set_result(None)
+        assert stream_deleted.wait(timeout=0.4)
+        calls.append("monitor-finished")
+
+    benchmark._batch_delete_streams = delete_streams
+    benchmark._monitor_stream_latency_until_stopped = monitor_stream
+    monkeypatch.setattr(concurrent_live_streams_benchmark_module.time, "sleep", lambda _s: None)
+
+    benchmark._execute_concurrent_iteration(
+        iteration=1,
+        video_config={"duration_seconds": 0, "unique_rtsp_url_per_stream": False},
+        chunk_size=10,
+        stream_count=1,
+        benchmark_config={"backend_type": "rtvi_vlm"},
+        model_name="test-model",
+        iteration_dir=str(tmp_path),
+    )
+
+    assert calls == ["delete", "monitor-finished"]
+
+
+def test_execute_counts_zero_measurement_test_case_as_failed(tmp_path):
+    benchmark = _benchmark()
+    benchmark.parse_global_config = lambda _config: {}
+    benchmark.parse_benchmark_config = lambda *_args: {
+        "videos": [{"name": "test", "chunk_sizes": [10], "stream_count": [1]}]
+    }
+    benchmark.setup_scenario_directory = lambda _scenario: str(tmp_path)
+    benchmark.get_available_models = lambda: "test-model"
+    benchmark.save_json_data = lambda *_args: None
+    benchmark._execute_concurrent_live_streams_test_case = lambda *_args: {
+        "success": False,
+        "successful_iterations": 0,
+    }
+
+    result = benchmark.execute({"test_scenarios": {"zero-measurements": {}}}, "zero-measurements")
+
+    assert result["successful_test_cases"] == 0
+    assert result["failed_test_cases"] == 1
+
+
+def test_concurrent_live_iteration_requires_measurements():
+    assert concurrent_live_stream_iteration_success(16, 16, 0, 1)
+    assert not concurrent_live_stream_iteration_success(16, 16, 0, 0)
 
 
 def test_latency_tracker_preserves_record_timestamps():

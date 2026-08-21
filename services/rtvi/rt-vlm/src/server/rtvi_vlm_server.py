@@ -399,6 +399,19 @@ async def _delete_live_streams_batch_impl(
         len(deleted),
         len(errors),
     )
+    if request.blocking and not errors:
+        try:
+            released = await loop.run_in_executor(
+                executor,
+                stream_handler.release_idle_vlm_resources,
+            )
+            logger.info("Blocking batch delete idle VLM resource release: %s", released)
+        except Exception as ex:
+            logger.error(
+                "Blocking batch delete idle VLM resource release failed: %s",
+                ex,
+                exc_info=True,
+            )
     return DeleteLiveStreamsResponse(deleted=deleted, errors=errors)
 
 
@@ -1068,7 +1081,7 @@ class RTVIServer:
             )
             raise
 
-    def _build_vlm_query_from_cv_metadata(self, asset_id, metadata):
+    def _build_vlm_query_from_cv_metadata(self, asset_id, metadata, is_live=True):
         """Build VlmQuery from CV StreamMetadata for auto-inference."""
 
         if not metadata.prompt:
@@ -1079,7 +1092,7 @@ class RTVIServer:
             "id": [asset_id],
             "prompt": metadata.prompt,
             "model": model_name,
-            "stream": True,  # live streams always require streaming output
+            "stream": is_live,
             "chunk_duration": (
                 metadata.chunk_duration if metadata.chunk_duration is not None else 10
             ),
@@ -2405,7 +2418,10 @@ class RTVIServer:
                 value.camera_url,
             )
 
-            if self._is_vios_file_sensor(request, value.camera_url, value.camera_type):
+            is_vios_file_sensor = self._is_vios_file_sensor(
+                request, value.camera_url, value.camera_type
+            )
+            if is_vios_file_sensor:
                 video_id = await self._add_vios_file_sensor_asset(
                     value,
                     url_headers=_headers.url_headers if _headers else None,
@@ -2435,7 +2451,9 @@ class RTVIServer:
             # If metadata has inference params, start VLM processing
             if value.metadata and value.metadata.has_inference_params:
                 try:
-                    query = self._build_vlm_query_from_cv_metadata(video_id, value.metadata)
+                    query = self._build_vlm_query_from_cv_metadata(
+                        video_id, value.metadata, is_live=not is_vios_file_sensor
+                    )
                     logger.info(
                         "Starting VLM inference for CV stream camera_id=%s, asset_id=%s",
                         value.camera_id,
