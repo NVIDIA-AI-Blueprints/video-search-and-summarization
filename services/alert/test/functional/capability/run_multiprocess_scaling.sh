@@ -22,6 +22,7 @@
 #   TS-033  crash semantics per commit mode, measured across a hard kill
 #   TS-034  prompts seeded once up front; readiness trails the last assignment
 #   TS-035  the fleet gauges agree with the processes and partitions in play
+#   TS-036  a forced rebalance drains, drops readiness and health, and recovers
 #
 # Two harness properties are load-bearing and are asserted, not assumed:
 #   * the topic must have >= PROCESSES partitions, otherwise effective
@@ -804,6 +805,141 @@ sys.exit(0 if ok else 1)"; then
     fi
 }
 
+# ─── TS-036: a rebalance the instance survives, and reports ────────────────
+#
+# Three regressions reached this branch in the region this covers, and every
+# one of them passed the suite: an assignment hook that was never called, a
+# readiness signal raised before the pipeline could accept work, and a log
+# ordering that held only by scheduling luck. The steady-state checks cannot
+# see any of them, because at rest the startup values happen to be right.
+#
+# Forcing a rebalance needs more group members than partitions on a topic --
+# otherwise every worker keeps one and readiness has no reason to drop. A
+# second instance with more processes than the first is the cheapest way there.
+SECONDARY_PROCESSES="${SECONDARY_PROCESSES:-8}"
+SECONDARY_FASTAPI_PORT="${SECONDARY_FASTAPI_PORT:-9180}"
+SECONDARY_METRICS_PORT="${SECONDARY_METRICS_PORT:-9181}"
+
+start_secondary_ab() {
+    # Same consumer group on purpose: that is what forces the rebalance.
+    local config="$PID_DIR/secondary_config.yaml"
+    build_config "$config" "$SECONDARY_PROCESSES" "$VLM_CAP" false
+    local config_dir; config_dir="$(cd "$(dirname "$config")" && pwd)"
+    # Its own metric shard directory. Sharing one would mix this instance's
+    # gauges into the readings taken from the instance under test, which is
+    # precisely what this scenario measures.
+    local shard_dir="$PID_DIR/secondary_prom"
+    rm -rf "$shard_dir"; mkdir -p "$shard_dir"
+    ALERT_AGENT_CONFIG_DIR="$config_dir" PROMETHEUS_METRICS_ENABLED=true \
+        FASTAPI_PORT="$SECONDARY_FASTAPI_PORT" PROMETHEUS_PORT="$SECONDARY_METRICS_PORT" \
+        PROMETHEUS_MULTIPROC_DIR="$shard_dir" \
+        python3 "$REPO_ROOT/enhance_alert_with_vlm.py" --config "$config" \
+        > "$PID_DIR/secondary.log" 2>&1 &
+    echo $! > "$PID_DIR/secondary.pid"
+}
+
+stop_secondary_ab() {
+    local pid; pid=$(cat "$PID_DIR/secondary.pid" 2>/dev/null)
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null
+    pkill -9 -f "secondary_config.yaml" 2>/dev/null || true
+    rm -f "$PID_DIR/secondary.pid"
+}
+
+ts_036() {
+    echo ""; echo "=== TS-036: rebalance drains, and the fleet reports it ==="
+    prepare_run "$PROCESSES" false 1 || { record_result TS-036 FAIL "AB startup"; return; }
+
+    local health_url="http://127.0.0.1:${ALERT_BRIDGE_PORT:-9080}/health"
+    local before_assigned before_ready
+    before_assigned=$(prom_value alert_bridge_assigned_partitions)
+    before_ready=$(prom_value alert_bridge_pipeline_processes_ready)
+    local drains_before; drains_before=$(prom_value alert_bridge_rebalance_drains_total)
+
+    # Under load, so the drain has something to wait for.
+    python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+        --num-sensors "$PARTITIONS" --rate 30 --duration 90 --unique \
+        --sensor-prefix TS036 > "$RESULTS_DIR/injector_TS036.log" 2>&1 &
+    local inj=$!
+    sleep 15
+
+    # Sample while the rebalance runs: the signals are transient, and reading
+    # once after it settles is how the earlier probes missed the whole thing.
+    local samples="$RESULTS_DIR/ts036_samples.txt"
+    : > "$samples"
+    ( for _ in $(seq 1 200); do
+          printf '%s %s %s\n' \
+              "$(prom_value alert_bridge_assigned_partitions)" \
+              "$(prom_value alert_bridge_pipeline_processes_ready)" \
+              "$(curl -s -o /dev/null -w '%{http_code}' "$health_url" 2>/dev/null)" >> "$samples"
+          sleep 0.25
+      done ) &
+    local sampler=$!
+
+    start_secondary_ab
+    sleep 45
+    stop_secondary_ab
+    sleep 20
+
+    kill $sampler 2>/dev/null || true
+    wait $inj 2>/dev/null || true
+    drain_to_idle 120 || true
+
+    local drains_after; drains_after=$(prom_value alert_bridge_rebalance_drains_total)
+    local after_assigned; after_assigned=$(prom_value alert_bridge_assigned_partitions)
+    local timed_out; timed_out=$(curl -s "$METRICS_URL" 2>/dev/null \
+        | awk '/alert_bridge_rebalance_drains_total\{outcome="timed_out"\}/ {print $2}')
+
+    local verdict
+    verdict=$(python3 - "$samples" "$before_assigned" "$before_ready" \
+                        "$drains_before" "$drains_after" "$after_assigned" <<'PY'
+import sys
+
+samples, before_assigned, before_ready, drains_before, drains_after, after_assigned = sys.argv[1:7]
+rows = []
+for line in open(samples):
+    parts = line.split()
+    if len(parts) == 3:
+        try:
+            rows.append((float(parts[0]), float(parts[1]), parts[2]))
+        except ValueError:
+            pass
+
+if not rows:
+    print("FAIL no samples collected"); raise SystemExit(0)
+
+before_assigned, before_ready = float(before_assigned), float(before_ready)
+assigned_low = min(r[0] for r in rows)
+ready_low = min(r[1] for r in rows)
+saw_503 = any(r[2] == "503" for r in rows)
+recovered_health = rows[-1][2] == "200"
+
+drained = float(drains_after) - float(drains_before)
+recovered_assigned = float(after_assigned) >= before_assigned
+
+detail = (f"assigned {before_assigned:.0f}->{assigned_low:.0f}->{float(after_assigned):.0f} "
+          f"ready {before_ready:.0f}->{ready_low:.0f} health503={saw_503} "
+          f"health_end={rows[-1][2]} drains=+{drained:.0f} samples={len(rows)}")
+
+# Each signal is checked, because each was independently broken at some point.
+ok = (assigned_low < before_assigned     # the gauge tracks the live assignment
+      and ready_low < before_ready       # readiness drops when work is taken
+      and saw_503                        # health reports the degraded fleet
+      and recovered_health               # and recovers when partitions return
+      and recovered_assigned
+      and drained > 0)                   # the drain actually ran
+print(("PASS " if ok else "FAIL ") + detail)
+PY
+)
+
+    if [ "${timed_out:-0}" != "0" ] && [ -n "$timed_out" ]; then
+        verdict="$verdict timed_out=$timed_out"
+    fi
+    case "$verdict" in
+        PASS*) record_result TS-036 PASS "${verdict#PASS }" ;;
+        *)     record_result TS-036 FAIL "${verdict#FAIL }" ;;
+    esac
+}
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo "=== Multi-process scaling suite (no-GPU sim harness) ==="
@@ -840,7 +976,7 @@ fi
 # --skip-setup is most likely to be used.
 purge_stale_consumer_groups
 
-for ts in ts_030 ts_031 ts_032 ts_033 ts_034 ts_035; do
+for ts in ts_030 ts_031 ts_032 ts_033 ts_034 ts_035 ts_036; do
     ts_id="TS-${ts#ts_}"
     if [ -n "$ONLY_TEST" ] && [ "$ONLY_TEST" != "$ts_id" ]; then
         continue
