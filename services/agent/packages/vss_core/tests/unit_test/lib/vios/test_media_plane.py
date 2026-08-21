@@ -948,3 +948,23 @@ async def test_a_backend_error_is_not_retried_as_slow_indexing(vios_http, monkey
 
 async def _no_sleep(_seconds: float) -> None:
     return None
+
+
+@pytest.mark.asyncio
+async def test_the_stream_fallback_does_not_re_read_and_cannot_race(vios_http) -> None:
+    """Re-reading opened a window: the stream could vanish between the two calls,
+    and the second lookup's bare next() surfaced as
+    `RuntimeError: coroutine raised StopIteration` — exit 1 and a traceback.
+    """
+    configure, calls, _ = vios_http
+    configure(
+        **_routes(
+            sensors=[{"name": "cam", "sensorId": "cam-id"}],
+            streams={"cam-id": [{"streamId": "sub-b", "url": "rtsp://x/b"}]},
+        )
+    )
+
+    ref = await vios.resolve_sensor(VST, "sub-b")
+
+    assert ref.stream_id == "sub-b"
+    assert len([c for c in calls if "/streams" in c]) == 1, "the scan's read is reused"

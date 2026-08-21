@@ -796,6 +796,7 @@ async def resolve_sensor(
 
     match = by_name[0] if by_name else next((s for s in sensors if s.get("sensorId") == handle), None)
     wanted_stream = ""
+    scanned_entries: list[dict[str, object]] = []
     if match is None:
         # Last resort: a streamId. _pick_stream tells an ambiguous caller to
         # address one explicitly, so the resolver has to accept what it asked for.
@@ -813,7 +814,10 @@ async def resolve_sensor(
                 scan_failure = scan_failure or exc
                 continue
             if any(str(entry.get("streamId") or "") == handle for entry in entries):
-                match, wanted_stream = sensor, handle
+                # Keep what the scan already read. Re-reading the same sensor
+                # opens a window where the stream can vanish between the two
+                # calls, and the second lookup then finds nothing.
+                match, wanted_stream, scanned_entries = sensor, handle, entries
                 break
     if match is None:
         if scan_failure is not None:
@@ -825,10 +829,18 @@ async def resolve_sensor(
     if not sensor_id:
         raise VSTError(f"VIOS reported sensor {name!r} with no sensorId")
 
-    entries = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
     if wanted_stream:
-        stream, assumed = next(e for e in entries if str(e.get("streamId") or "") == wanted_stream), False
+        entries = scanned_entries
+        found = next((e for e in entries if str(e.get("streamId") or "") == wanted_stream), None)
+        if found is None:
+            # Unreachable while `scanned_entries` is what matched, but a bare
+            # `next()` raising StopIteration inside a coroutine surfaces as
+            # `RuntimeError: coroutine raised StopIteration` -- exit 1 and a
+            # traceback from a group whose contract is typed exits.
+            raise VIOSNotFoundError(f"stream {wanted_stream!r} is no longer listed under {name!r}")
+        stream, assumed = found, False
     else:
+        entries = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
         stream, assumed = _pick_stream(entries, name)
     stream_id = str(stream.get("streamId") or "")
     if not stream_id:
