@@ -857,7 +857,10 @@ class AnomalyEnhancer(
         accepted for processing, so ``WORKER_QUEUE_WAIT_DURATION`` keeps one
         meaning in every mode: "kafka_consumed -> accepted for processing".
         """
-        source_partition = _batch_partition(batch)
+        # Taken before the pool, not inside it: a message queued for a worker
+        # is already this instance's responsibility, and counting it only once
+        # it starts let a drain finish while queued records still waited.
+        admission = self._partition_in_flight.accept(_batch_partition(batch))
 
         if worker_pool is None:
             # Async modes dispatch each message onward and return, so there is
@@ -873,7 +876,7 @@ class AnomalyEnhancer(
                 batch.get("kafka_consumed_at"),
                 batch.get("kafka_published_at"),
                 datetime.now(timezone.utc).isoformat(),
-                source_partition=source_partition,
+                admission=admission,
             )
             return
 
@@ -885,7 +888,7 @@ class AnomalyEnhancer(
                 logger.debug("All workers busy. Waiting to schedule next message...")
 
         future: Future = worker_pool.submit(
-            partial(self.process_batch_vlm, source_partition=source_partition),
+            partial(self.process_batch_vlm, admission=admission),
             worker_id,
             [message],
             message_type,
@@ -1088,7 +1091,7 @@ class AnomalyEnhancer(
         kafka_consumed_at=None,
         kafka_published_at=None,
         worker_assigned_at=None,
-        source_partition=None,
+        admission=None,
     ):
         """
         Processes a batch of messages from the event bridge source.
@@ -1245,7 +1248,7 @@ class AnomalyEnhancer(
                     kafka_consumed_at,
                     kafka_published_at,
                     worker_assigned_at=worker_assigned_at,
-                    source_partition=source_partition,
+                    admission=admission,
                 )
 
         except Exception as e:
@@ -1255,6 +1258,14 @@ class AnomalyEnhancer(
                 "error_type": type(e).__name__
             }, exc_info=True)
             return
+        finally:
+            # Every way out of this frame that did not hand the message to a
+            # dispatcher ends the message here -- dropped by dedup or the rate
+            # limiter, filtered, or finished inline. The dispatched case marks
+            # the admission transferred and its completion callback releases
+            # instead, so a drain waits for exactly the work still outstanding.
+            if admission is not None and not admission.transferred:
+                admission.release()
 
     def _process_media_passthrough(self, worker_id: int, messages: List[Dict[str, Any]]) -> None:
         """

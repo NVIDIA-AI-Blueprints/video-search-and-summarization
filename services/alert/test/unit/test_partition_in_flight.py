@@ -35,8 +35,8 @@ def tracker():
 
 
 class TestCounting:
-    def test_accept_returns_the_key_to_release_with(self, tracker):
-        assert tracker.accept(P0) == P0
+    def test_accept_returns_a_token_carrying_the_key(self, tracker):
+        assert tracker.accept(P0).key == P0
 
     def test_counts_are_per_partition(self, tracker):
         tracker.accept(P0)
@@ -51,7 +51,7 @@ class TestCounting:
         assert tracker.in_flight(P0) == 0
 
     def test_a_source_without_partitions_is_not_counted(self, tracker):
-        assert tracker.accept(None) is None
+        assert tracker.accept(None).key is None
         tracker.release(None)
         assert tracker.total() == 0
 
@@ -113,7 +113,7 @@ class TestConcurrentUse:
     def test_counts_survive_parallel_accept_and_release(self, tracker):
         def churn():
             for _ in range(200):
-                tracker.release(tracker.accept(P0))
+                tracker.accept(P0).release()
 
         threads = [threading.Thread(target=churn) for _ in range(4)]
         for t in threads:
@@ -137,61 +137,48 @@ class TestConcurrentUse:
         assert result["drained"] is True
 
 
-class TestTheCountIsNeverLeaked:
-    """Taken and released in one place, so no path can leak it.
+class TestAdmissionOwnership:
+    """One accepted message, released exactly once by whoever ends up with it.
 
-    Counting where messages are scheduled would leak on every message dropped
-    by dedup or the rate limiter before it reaches dispatch, and a leaked
-    count makes the drain wait out its whole timeout on every rebalance.
+    Taken when the message is scheduled -- before any worker queue, because a
+    queued record is already this instance's responsibility and a drain that
+    ignored it would finish while work was still waiting to begin. Released by
+    the stage that drops it, or by the completion callback if it was
+    dispatched.
     """
 
-    @staticmethod
-    def _stub(mode="event_loop"):
-        from unittest.mock import MagicMock
-        from handlers.async_dispatch_mixin import AsyncDispatchMixin
+    def test_accepting_counts_the_partition(self, tracker):
+        admission = tracker.accept(P0)
+        assert tracker.in_flight(P0) == 1
+        assert admission.key == P0
 
-        stub = MagicMock()
-        stub.pipeline_mode = mode
-        stub._partition_in_flight = PartitionInFlight()
-        stub._process_single_message_with_mode = (
-            AsyncDispatchMixin._process_single_message_with_mode.__get__(stub)
-        )
-        return stub
+    def test_releasing_is_idempotent(self, tracker):
+        admission = tracker.accept(P0)
+        admission.release()
+        admission.release()
+        assert tracker.in_flight(P0) == 0
 
-    def test_sync_mode_releases_after_processing(self):
-        stub = self._stub(mode="sync")
-        stub._process_single_message_with_mode(0, {"id": "a"}, source_partition=P0)
-        assert stub._partition_in_flight.in_flight(P0) == 0
+    def test_a_source_without_partitions_counts_nothing(self, tracker):
+        admission = tracker.accept(None)
+        admission.release()
+        assert tracker.total() == 0
 
-    def test_sync_mode_releases_even_when_processing_raises(self):
-        stub = self._stub(mode="sync")
-        stub._process_single_message.side_effect = RuntimeError("boom")
-        with pytest.raises(RuntimeError):
-            stub._process_single_message_with_mode(0, {"id": "a"}, source_partition=P0)
-        assert stub._partition_in_flight.in_flight(P0) == 0
+    def test_transfer_marks_ownership_as_moved(self, tracker):
+        admission = tracker.accept(P0)
+        assert admission.transferred is False
+        assert admission.transfer() is admission
+        assert admission.transferred is True
+        assert tracker.in_flight(P0) == 1, "transfer must not release"
 
-    def test_a_missing_dispatch_target_releases_on_the_inline_fallback(self):
-        stub = self._stub()
-        stub.async_vlm_runtime = None
-        stub._process_single_message_with_mode(0, {"id": "a"}, source_partition=P0)
-        assert stub._partition_in_flight.in_flight(P0) == 0
+    def test_a_transferred_admission_is_released_by_its_new_owner(self, tracker):
+        admission = tracker.accept(P0).transfer()
+        admission.release()
+        assert tracker.in_flight(P0) == 0
 
-    def test_a_failed_submit_releases_on_the_inline_fallback(self):
-        stub = self._stub()
-        stub.async_vlm_runtime.submit_coroutine.side_effect = RuntimeError("no")
-        stub._process_single_message_with_mode(0, {"id": "a"}, source_partition=P0)
-        assert stub._partition_in_flight.in_flight(P0) == 0
-
-    def test_a_dispatched_message_stays_counted_until_it_completes(self):
-        # It outlives the call that dispatched it, so the count has to too.
-        stub = self._stub()
-        stub._process_single_message_with_mode(0, {"id": "a"}, source_partition=P0)
-        assert stub._partition_in_flight.in_flight(P0) == 1
-
-    def test_the_done_callback_carries_the_partition(self):
-        stub = self._stub()
-        stub._process_single_message_with_mode(0, {"id": "a"}, source_partition=P0)
-        assert stub._track_dispatched_future.call_args.kwargs["partition_key"] == P0
+    def test_a_queued_message_is_already_counted(self, tracker):
+        # The point of taking it at scheduling time: nothing has run yet.
+        tracker.accept(P0)
+        assert tracker.drain([P0], timeout=0.2) is False
 
 
 if __name__ == "__main__":

@@ -45,6 +45,34 @@ PartitionKey = Tuple[str, int]
 DEFAULT_DRAIN_TIMEOUT = 15.0
 
 
+class Admission:
+    """One accepted message, released exactly once by whoever ends up owning it.
+
+    Handed down the pipeline so the release travels with the work: a message
+    dropped before it runs is released by the stage that dropped it, and one
+    that is dispatched is released by its completion callback.
+    """
+
+    __slots__ = ("_tracker", "key", "_released", "transferred")
+
+    def __init__(self, tracker: "PartitionInFlight", key: Optional[PartitionKey]) -> None:
+        self._tracker = tracker
+        self.key = key
+        self._released = False
+        self.transferred = False
+
+    def transfer(self) -> "Admission":
+        """Hand ownership to a completion callback that outlives this call."""
+        self.transferred = True
+        return self
+
+    def release(self) -> None:
+        if self._released or self.key is None:
+            return
+        self._released = True
+        self._tracker.release(self.key)
+
+
 class PartitionInFlight:
     """Counts work accepted per partition, and waits for it to finish."""
 
@@ -52,13 +80,19 @@ class PartitionInFlight:
         self._state = threading.Condition()
         self._counts: Dict[PartitionKey, int] = {}
 
-    def accept(self, key: Optional[PartitionKey]) -> Optional[PartitionKey]:
-        """Record one message as in flight. Returns the key to release with."""
+    def accept(self, key: Optional[PartitionKey]) -> "Admission":
+        """Record one message as accepted, from the moment it is scheduled.
+
+        Taken here rather than where the work finally runs, because a message
+        waiting in a worker queue is already this instance's responsibility:
+        counting it only once it starts would let a rebalance drain
+        successfully while queued records were still waiting to begin.
+        """
         if key is None:
-            return None
+            return Admission(self, None)
         with self._state:
             self._counts[key] = self._counts.get(key, 0) + 1
-        return key
+        return Admission(self, key)
 
     def release(self, key: Optional[PartitionKey]) -> None:
         if key is None:

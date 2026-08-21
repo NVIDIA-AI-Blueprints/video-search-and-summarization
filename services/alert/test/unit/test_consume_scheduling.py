@@ -29,15 +29,17 @@ class SchedulerStub:
     _schedule_message = AnomalyEnhancer._schedule_message
 
     def __init__(self, num_workers=2):
+        from utils.partition_in_flight import PartitionInFlight
+        self._partition_in_flight = PartitionInFlight()
         self.config = {"alert_agent": {}}
         self.worker_queue = Queue(maxsize=num_workers)
         self.calls = []
 
     def process_batch_vlm(self, worker_id, messages, message_type,
                           kafka_consumed_at, kafka_published_at, worker_assigned_at,
-                          source_partition=None):
+                          admission=None):
         self.calls.append({
-            "source_partition": source_partition,
+            "admission": admission,
             "worker_id": worker_id,
             "messages": messages,
             "message_type": message_type,
@@ -240,3 +242,46 @@ class TestRetiredConfigWarnings:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestQueuedWorkIsCountedBeforeItRuns:
+    """A queued record is already this instance's responsibility.
+
+    Admission used to be taken where the work finally ran, which for the
+    pooled paths is on the worker thread. A rebalance could therefore drain
+    successfully while records sat in the pool queue, and they would start
+    against a partition another member had already taken over.
+    """
+
+    def test_scheduling_counts_before_the_pool_runs_anything(self):
+        stub = SchedulerStub(num_workers=2)
+        stub.worker_queue.put(0)
+        stub.worker_queue.put(1)
+        batch = dict(BATCH, topic="mdx-incidents", partition=3)
+
+        # A pool that never runs anything: the count must exist regardless.
+        class Idle:
+            def submit(self, fn, *a, **k):
+                from concurrent.futures import Future
+                return Future()
+
+        stub._schedule_message(Idle(), {"id": "a"}, "Incident", batch)
+        assert stub._partition_in_flight.in_flight(("mdx-incidents", 3)) == 1
+
+    def test_a_drain_will_not_finish_while_work_is_queued(self):
+        stub = SchedulerStub(num_workers=1)
+        stub.worker_queue.put(0)
+        batch = dict(BATCH, topic="mdx-incidents", partition=3)
+
+        class Idle:
+            def submit(self, fn, *a, **k):
+                from concurrent.futures import Future
+                return Future()
+
+        stub._schedule_message(Idle(), {"id": "a"}, "Incident", batch)
+        assert stub._partition_in_flight.drain([("mdx-incidents", 3)], timeout=0.2) is False
+
+    def test_a_source_without_partitions_is_not_counted(self):
+        stub = SchedulerStub()
+        stub._schedule_message(None, {"id": "a"}, "Incident", BATCH)
+        assert stub._partition_in_flight.total() == 0
