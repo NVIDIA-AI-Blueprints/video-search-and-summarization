@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# DGX Spark overlay for the rtvi chart — embedding subchart only.
+# Deploys a single Cosmos-Embed1 instance shared by every VSS workflow
+# (one-LLM / one-VLM / one-embedding invariant). The CV and VLM subcharts stay
+# off — they belong to other releases.
+#
+# Usage (standalone release):
+#   helm upgrade --install vss-rtvi-embed ./rtvi \
+#     -f rtvi/values-dgx-spark-embed.yaml \
+#     -n vss --create-namespace
+
+global:
+  useReleaseNamePrefix: false
+
+# CV + VLM belong to other releases — off here.
+vss-rtvi-cv:
+  enabled: false
+vss-rtvi-vlm:
+  enabled: false
+
+vss-rtvi-embed:
+  enabled: true
+  # Name the Deployment/Service vss-rt-embed (matches the cross-release
+  # endpoint the base agent is wired to: http://vss-rt-embed:8000).
+  fullnameOverride: vss-rt-embed
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+    # SBSA (arm64) build for the GB10 DGX Spark.
+    # 3.2.1-sbsa is the latest public NGC tag; 3.3.0-26.07.4-sbsa exists
+    # only in nvstaging and has not been promoted yet.
+    tag: "3.2.1-sbsa"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  # Cosmos-Embed1 (448p, anomaly-detection) served via the bundled Triton
+  # model repo. The anomaly-detection HF repo makes the NIM serve
+  # cosmos-embed1-448p-anomaly-detection — the id the agent's /complete
+  # embedding step requests.
+  modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection"
+  kafkaEnabled: true
+  kafkaTopic: "mdx-embed"
+  waitForKafka:
+    enabled: true
+  persistence:
+    storageClass: ""
+    ngcModelCache:
+      size: 50Gi
+    hfCache:
+      size: 50Gi

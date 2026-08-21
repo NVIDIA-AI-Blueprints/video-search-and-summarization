@@ -81,6 +81,15 @@ When time-slicing is enabled, each time-sliced partition appears as a separate `
 --set nims.nemotron.resources.requests."nvidia.com/gpu"="2"
 ```
 
+### DGX Spark 3-Node Cluster (Experimental)
+
+For deploying on a 3-node NVIDIA DGX Spark (GB10 Grace Blackwell) Kubernetes
+cluster with a single shared model pool, use the `values-dgx-spark.yaml`
+overlay in this directory and the deploy tooling under
+`deploy/helm/scripts/dgx-spark/`. See the
+[DGX Spark deployment guide](../../scripts/dgx-spark/README.md) for the full
+procedure, architecture, and known limitations.
+
 ## Prerequisites
 
 - **Kubernetes cluster**

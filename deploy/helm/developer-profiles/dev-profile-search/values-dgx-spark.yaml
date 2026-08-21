@@ -1,0 +1,112 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# values-dgx-spark.yaml
+# Override file for NVIDIA DGX Spark (GB10 Grace Blackwell, arm64).
+#
+# Covers platform compatibility only: arm64 image variants, the GPU runtime
+# class, and remote model serving. The LLM and VLM run as standalone
+# Deployments rather than in-cluster NIMs, so nims.enabled=false and the
+# agent is pointed at global.llmBaseUrl / global.vlmBaseUrl
+# (see deploy/helm/scripts/dgx-spark/manifests/).
+#
+# Node placement, NodePort exposure, and multi-node layout are deliberately
+# not set here — see deploy/helm/scripts/dgx-spark/README.md for a reference
+# 3-node layout expressed as --set flags.
+#
+# Usage:
+#   helm upgrade --install vss-search ./dev-profile-search \
+#     -f dev-profile-search/values-dgx-spark.yaml \
+#     -n vss --create-namespace
+
+global:
+  # Shared remote model endpoints (bare origins; chart appends /v1).
+  llmBaseUrl: "http://llm-nim.vss.svc:8000"
+  vlmBaseUrl: "http://vlm-nim.vss.svc:8000"
+  llmName: "nvidia/nemotron-nano-9b-v2"
+  vlmName: "nvidia/cosmos3-nano-reasoner"
+  ingress:
+    enabled: false
+
+ingress:
+  enabled: false
+
+# LLM and VLM are served by standalone Deployments, not in-cluster NIMs.
+nims:
+  enabled: false
+
+infra:
+  elasticsearch:
+    init:
+      env:
+        BP_PROFILE: "bp_developer_search"
+
+vios:
+  # SBSA (arm64) builds for the GB10. 3.1.0-sbsa is the newest public arm64
+  # tag; the default multi-arch tag has no arm64 variant.
+  vss-vios-sensor:
+    image:
+      repository: nvcr.io/nvidia/vss-core/vss-vios-sensor
+      tag: "3.1.0-sbsa"
+  vss-vios-streamprocessing:
+    image:
+      repository: nvcr.io/nvidia/vss-core/vss-vios-streamprocessing
+      tag: "3.1.0-sbsa"
+  vss-vios-nvstreamer:
+    enabled: false
+
+agent:
+  vss-agent:
+    # Point the agent at the standalone NIM Deployments and the single shared
+    # embedding release (fullnameOverride vss-rt-embed).
+    llmName: "nvidia/nemotron-nano-9b-v2"
+    vlmName: "nvidia/cosmos3-nano-reasoner"
+    llmBaseUrl: "http://llm-nim.vss.svc:8000"
+    vlmBaseUrl: "http://vlm-nim.vss.svc:8000"
+    cosmosEmbedEndpoint: "http://vss-rt-embed:8000"
+    rtviEmbedBaseUrl: "http://vss-rt-embed:8000"
+    elasticsearchUrl: "http://elasticsearch:9200"
+    elasticsearchIndex: "video_embeddings"
+
+vss-agent-ui:
+  # extraEnv is appended last and overrides by name. Setting envOverrides here
+  # would replace the profile's full list rather than merge into it.
+  extraEnv:
+    - name: NEXT_PUBLIC_ENABLE_CHAT_TAB
+      value: "true"
+    - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
+      value: "true"
+
+# RTVI-Embed and RTVI-VLM are installed as separate releases from the rtvi
+# service chart, so the profile's copies stay off.
+rtvi:
+  vss-rtvi-embed:
+    enabled: false
+  vss-rtvi-vlm:
+    enabled: false
+  vss-rtvi-cv:
+    image:
+      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+      # 3.2.1-sbsa is the newest public arm64 tag; 3.3.0-sbsa-26.07.2 exists
+      # only in nvstaging and has not been promoted yet.
+      tag: "3.2.1-sbsa"
+    runtimeClassName: nvidia
+    # The upstream model-download Job installs the amd64 NGC CLI, which fails
+    # on arm64. Pre-stage models on the PVC using the arm64 NGC CLI instead.
+    downloadModelsFromNgc: false
+
+analytics:
+  video-analytics-ui:
+    enabled: false
