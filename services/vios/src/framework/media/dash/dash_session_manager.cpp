@@ -279,7 +279,8 @@ DashStartResult DashSessionManager::start(const std::string& streamId)
 
 DashStartResult DashSessionManager::startReplay(const std::string& streamId,
                                                const std::string& startTime,
-                                               const std::string& endTime)
+                                               const std::string& endTime,
+                                               const Json::Value& overlay)
 {
     DashStartResult result;
     if (streamId.empty())
@@ -378,6 +379,9 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     // decoded or encoded; an overlay has to burn boxes into pixels, so that
     // case still runs the full decode, overlay and encode chain.
     opts["dash"] = "dash";
+    // Overlay flags are read from the same schema the WebRTC APIs use, so a
+    // caller describes an overlay once and every protocol understands it.
+    setOverlayOptsBasedOnJson(opts, overlay);
 
     // The packager must be handed to the constructor: CommonVideoSource builds
     // its pipeline there, and the terminal consumer is chosen while it does.

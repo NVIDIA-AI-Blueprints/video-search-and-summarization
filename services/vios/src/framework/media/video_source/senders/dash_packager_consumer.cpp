@@ -216,7 +216,13 @@ bool DashPackagerConsumer::createPipeline()
                  "minimum-update-period", static_cast<guint64>(1000),
                  "suggested-presentation-delay", static_cast<guint64>(3000),
                  "target-duration", m_config.targetDurationSeconds,
-                 "send-keyframe-requests", TRUE,
+                 /* Nothing upstream of this sink can answer a keyframe request:
+                 ** the appsrc is fed frames that are already encoded.  Leaving it
+                 ** on only makes the muxer cut segments it cannot start on a
+                 ** keyframe, which is how a one second grid ended up holding
+                 ** single frames.
+                 */
+                 "send-keyframe-requests", FALSE,
                  "muxer", 2,
                  nullptr);
     if (hasProperty(m_dashSink, "playlist-length"))
@@ -479,6 +485,26 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
 
     GST_BUFFER_PTS(buffer) = pts;
     GST_BUFFER_DTS(buffer) = pts;
+    /* A freshly allocated buffer carries no flags, so every frame would look
+    ** like a keyframe and the muxer would be free to cut a segment anywhere -
+    ** which is exactly what it did, once per frame.  The access unit says which
+    ** frames are keyframes, so mark the rest as delta units.
+    */
+    if (size > 5)
+    {
+        size_t nalStart = 0;
+        if (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 1) { nalStart = 4; }
+        else if (data[0] == 0 && data[1] == 0 && data[2] == 1) { nalStart = 3; }
+        if (nalStart > 0)
+        {
+            const int nalType = data[nalStart] & 0x1F;
+            const bool keyframe = (nalType == 5) || (nalType == 7) || (nalType == 8);
+            if (!keyframe)
+            {
+                GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+            }
+        }
+    }
     if (GST_CLOCK_TIME_IS_VALID(duration))
     {
         GST_BUFFER_DURATION(buffer) = duration;
@@ -490,11 +516,6 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
 
 void DashPackagerConsumer::onFrame(FrameParams& params)
 {
-    if (m_state.load() != DashPackagerState::Running)
-    {
-        return;
-    }
-
     std::vector<uint8_t> parsed;
     const uint8_t* data = params.m_buffer;
     size_t size = params.m_size > 0 ? static_cast<size_t>(params.m_size) : 0;

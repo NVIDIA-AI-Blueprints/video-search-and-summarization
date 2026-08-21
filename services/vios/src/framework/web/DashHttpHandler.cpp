@@ -574,7 +574,138 @@ void addUtcTiming(std::string& manifest)
     manifest.insert(close, element.str());
 }
 
-void normalizeLiveManifest(std::string& manifest)
+// dashsink advertises one fixed duration for every segment.  That only holds
+// when the source hands the muxer a keyframe on each boundary; a re-encoded
+// stream does not, so the player waits for media the segment never contained.
+// Replacing the fixed duration with the measured timeline tells the player what
+// each segment really holds.
+void applyMeasuredSegmentTimeline(std::string& manifest, const std::filesystem::path& directory,
+                                  uint32_t timescale)
+{
+    const std::map<uint64_t, uint64_t> segments = SegmentDurations::instance().refresh(directory);
+    if (segments.empty())
+    {
+        return;
+    }
+
+    constexpr const char* templateTag = "<SegmentTemplate ";
+    const size_t position = manifest.find(templateTag);
+    if (position == std::string::npos)
+    {
+        return;
+    }
+    const size_t close = manifest.find("/>", position);
+    if (close == std::string::npos)
+    {
+        return;
+    }
+
+    std::string tag = manifest.substr(position, close - position);
+    const size_t durationAttribute = tag.find(" duration=\"");
+    if (durationAttribute != std::string::npos)
+    {
+        const size_t valueEnd = tag.find('"', durationAttribute + 11);
+        if (valueEnd != std::string::npos)
+        {
+            tag.erase(durationAttribute, valueEnd - durationAttribute + 1);
+        }
+    }
+    if (tag.find("timescale=\"") == std::string::npos)
+    {
+        tag += " timescale=\"" + std::to_string(timescale) + "\"";
+    }
+
+    std::ostringstream timeline;
+    timeline << tag << ">\n<SegmentTimeline>\n";
+    uint64_t start = 0;
+    uint64_t runDuration = 0;
+    uint64_t runStart = 0;
+    uint64_t repeats = 0;
+    bool runOpen = false;
+    const auto flushRun = [&timeline, &runDuration, &runStart, &repeats, &runOpen]() {
+        if (!runOpen)
+        {
+            return;
+        }
+        timeline << "<S t=\"" << runStart << "\" d=\"" << runDuration << "\"";
+        if (repeats > 0)
+        {
+            timeline << " r=\"" << repeats << "\"";
+        }
+        timeline << "/>\n";
+        runOpen = false;
+        repeats = 0;
+    };
+    for (const auto& [number, duration] : segments)
+    {
+        (void)number;
+        // Equal length neighbours collapse into one entry with @r, which keeps
+        // the manifest small across a long session.
+        if (runOpen && duration == runDuration)
+        {
+            ++repeats;
+        }
+        else
+        {
+            flushRun();
+            runStart = start;
+            runDuration = duration;
+            runOpen = true;
+        }
+        start += duration;
+    }
+    flushRun();
+    timeline << "</SegmentTimeline>\n</SegmentTemplate>";
+
+    manifest.replace(position, close - position + 2, timeline.str());
+}
+
+
+// dashsink stamps availabilityStartTime when its pipeline is constructed, but a
+// session that decodes, draws an overlay and re-encodes does not produce its
+// first segment until seconds later.  The player then computes a live edge
+// ahead of the media that exists and sits on it with no cushion.  Anchoring
+// availability to when the first segment was actually written describes what
+// happened rather than what was intended, and it adapts to however long a
+// particular path takes to start.
+void anchorAvailabilityToFirstSegment(std::string& manifest, const std::filesystem::path& directory)
+{
+    std::error_code ec;
+    const std::filesystem::path firstSegment = directory / "video_0_1.mp4";
+    const auto written = std::filesystem::last_write_time(firstSegment, ec);
+    if (ec)
+    {
+        return;
+    }
+    const auto systemTime = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        written - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(systemTime);
+    std::tm utc{};
+    if (gmtime_r(&seconds, &utc) == nullptr)
+    {
+        return;
+    }
+    char stamp[32] = {0};
+    if (std::strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%SZ", &utc) == 0)
+    {
+        return;
+    }
+    const std::string key = "availabilityStartTime=\"";
+    const size_t begin = manifest.find(key);
+    if (begin == std::string::npos)
+    {
+        return;
+    }
+    const size_t valueBegin = begin + key.size();
+    const size_t valueEnd = manifest.find('"', valueBegin);
+    if (valueEnd == std::string::npos)
+    {
+        return;
+    }
+    manifest.replace(valueBegin, valueEnd - valueBegin, stamp);
+}
+
+void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& directory)
 {
     // dashsink writes self-initializing fMP4 segments but omits SegmentTemplate@initialization.
     // dash.js requires that attribute, so expose segment 1 as the initialization segment and
@@ -606,12 +737,15 @@ void normalizeLiveManifest(std::string& manifest)
         position = close + 2;
     }
 
+    applyMeasuredSegmentTimeline(manifest, directory, mediaTimescale(directory / "video_0_1.mp4"));
+
     // dashsink emits a valid dynamic MPD for live sessions.  Do not add a
     // finite/static duration to it: that makes dash.js prefetch the entire
     // growing stream as VOD instead of following the live edge.
     const bool isDynamic = manifest.find("type=\"dynamic\"") != std::string::npos;
     if (isDynamic)
     {
+        anchorAvailabilityToFirstSegment(manifest, directory);
         shiftAvailabilityStart(manifest, kDashAvailabilityShiftSec);
         // dashsink advertises a one second refresh.  The SegmentTemplate carries a
         // fixed duration, so the player can derive segment numbers arithmetically
@@ -664,7 +798,7 @@ bool sendManifest(struct mg_connection* connection, const DashAssetResult& asset
     {
         return false;
     }
-    normalizeLiveManifest(manifest);
+    normalizeLiveManifest(manifest, asset.path.parent_path());
     mg_printf(connection,
               "HTTP/1.1 200 OK\r\n"
               "Content-Type: application/dash+xml\r\n"

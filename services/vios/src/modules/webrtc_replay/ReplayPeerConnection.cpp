@@ -141,8 +141,8 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
         const std::string streamId = in.get("streamId", EMPTY_STRING).asString();
         const std::string startTime = in.get("startTime", EMPTY_STRING).asString();
         const std::string endTime = in.get("endTime", EMPTY_STRING).asString();
-        const DashStartResult result =
-            DashSessionManager::instance().startReplay(streamId, startTime, endTime);
+        const DashStartResult result = DashSessionManager::instance().startReplay(
+            streamId, startTime, endTime, in.get("overlay", Json::Value()));
         if (!result.success)
         {
             const VmsErrorCode code = replayDashStartErrorCode(result.error);
