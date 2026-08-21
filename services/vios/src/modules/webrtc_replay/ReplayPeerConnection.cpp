@@ -214,6 +214,12 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
             {
                 value = in.get("value", EMPTY_STRING).asString();
                 const std::string requested = in.get("action", EMPTY_STRING).asString();
+                if (value.empty())
+                {
+                    SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response,
+                                   "seek requires a value: an offset in seconds or a timestamp")
+                    return VmsErrorCode::InvalidParameterError;
+                }
                 if (requested == "seekBackward")
                 {
                     resolvedAction = "seek_backward";
@@ -222,9 +228,29 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
                 {
                     resolvedAction = "seek_forward";
                 }
-                else if (!requested.empty())
+                else if (requested.empty())
                 {
-                    resolvedAction = requested;
+                    // No direction given: a negative offset seeks back, anything
+                    // else - a positive offset or an absolute timestamp - forward.
+                    if (value.front() == '-')
+                    {
+                        resolvedAction = "seek_backward";
+                        value.erase(0, 1);
+                    }
+                    else
+                    {
+                        resolvedAction = "seek_forward";
+                    }
+                }
+                else
+                {
+                    // Never hand an unrecognised action to the decoder.  It keeps
+                    // the action as pipeline state, and one it cannot act on stops
+                    // the session advancing to its next recording at end of file -
+                    // a request that reports success and silently stalls playback.
+                    SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response,
+                                   "unsupported seek action: expected seekForward or seekBackward")
+                    return VmsErrorCode::InvalidParameterError;
                 }
             }
             if (!DashSessionManager::instance().controlReplay(viewerId, resolvedAction, value))
