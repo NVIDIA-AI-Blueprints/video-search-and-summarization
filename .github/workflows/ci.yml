@@ -88,8 +88,8 @@ jobs:
           )
 
           # Folders that warrant a downstream acceptance run on their own.
-          # Image sources are absent by design: a container source change
-          # surfaces as trigger-from-new-image once the image is built, and
+          # Image sources are absent by design: a container source change is
+          # already picked up by the per-image source_path check, and
           # containers this repo does not build cannot invalidate a deployed
           # artifact from a source edit alone.
           DOWNSTREAM_TRIGGER_PATHS = ["deploy"]
@@ -1496,8 +1496,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 140
     outputs:
-      trigger-from-new-image: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
-      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
       run-downstream: ${{ steps.release-set.outputs.run_downstream }}
     permissions:
       actions: read
