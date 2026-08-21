@@ -476,15 +476,26 @@ jobs:
 
       - name: Merge native platform images into multiarch candidate
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
+        env:
+          PLATFORMS: ${{ matrix.platforms }}
         run: |
+          # Native entries may intentionally be single-platform (for example,
+          # SBSA arm64 variants). Merge precisely the staging tags declared in
+          # the inventory instead of assuming amd64 and arm64 are both present.
+          IFS=',' read -r -a platforms <<< "$PLATFORMS"
+          platform_refs=()
+          for platform in "${platforms[@]}"; do
+            arch="${platform##*/}"
+            platform_refs+=("${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${arch}")
+          done
+
           docker buildx imagetools create \
             --annotation "index:com.nvidia.vss.image_name=${{ matrix.name }}" \
             --annotation "index:com.nvidia.vss.source_path=${{ matrix.source_path }}" \
             --annotation "index:com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-amd64" \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-arm64"
+            "${platform_refs[@]}"
 
       - name: Verify pushed labels satisfy the container-source gate
         env:

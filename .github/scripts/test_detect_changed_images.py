@@ -232,6 +232,12 @@ class SelectImagesTest(unittest.TestCase):
                 "source_path": "services/configurators/vss-rt-config-adaptor",
                 "native_platform_build": True,
             },
+            "vss-video-summarization-sbsa": {
+                "context": "services/video-summarization",
+                "source_path": "services/video-summarization",
+                "native_platform_build": True,
+                "platforms": ["linux/arm64"],
+            },
         }
         for name, expected_fields in expected.items():
             entry = by_name[name]
@@ -242,7 +248,8 @@ class SelectImagesTest(unittest.TestCase):
             if "native_platform_build" in expected_fields:
                 self.assertIs(entry["native_platform_build"], True)
             self.assertEqual(
-                entry["platforms"], ["linux/amd64", "linux/arm64"]
+                entry["platforms"],
+                expected_fields.get("platforms", ["linux/amd64", "linux/arm64"]),
             )
 
         va_entries, _ = dci.select_images(
@@ -429,6 +436,7 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-vios-streamprocessing",
                 "vss-vios-nvstreamer",
                 "vss-vios-ingress",
+                "vss-video-summarization-sbsa",
             },
         )
         self.assertNotIn(
