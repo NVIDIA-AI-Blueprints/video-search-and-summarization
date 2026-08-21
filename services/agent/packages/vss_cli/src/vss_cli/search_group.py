@@ -54,14 +54,11 @@ if TYPE_CHECKING:
     from vss_core.critic import CriticAgent
     from vss_core.vlm import OpenAIVLMAnalyzer
 
-#: Index families the deployment reports, mapped to the runtime field that
-#: consumes them. Discovered rather than declared -- `vss configure` reads
-#: them from Elasticsearch's own _cat/indices.
-_INDEX_PREFIXES = {
-    "video_embed_index": "mdx-embed-filtered-",
-    "behavior_index": "mdx-behavior-",
-    "frames_index": "mdx-raw-",
-}
+#: Prefix of the raw family. Its presence in the recorded inventory is the one
+#: thing discovery (`vss configure` reads ES `_cat/indices`) decides: whether
+#: frame-level lookups are enabled. Bases and wildcards are pinned
+#: `SearchRuntime` defaults, never discovered; see :func:`_runtime_from`.
+_RAW_INDEX_PREFIX = "mdx-raw-"
 
 
 class _Common(BaseModel):
@@ -226,8 +223,10 @@ def _deployment_or_raise() -> config_mod.Deployment:
 def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | None = None) -> Any:
     """Build a SearchRuntime from the recorded deployment.
 
-    Every endpoint and index here was reported by a backend, not typed by a
-    caller -- which is the point of `vss configure`.
+    Every endpoint here was reported by a backend, not typed by a caller -- the
+    point of `vss configure`. Indices are not: bases and wildcards are pinned
+    `SearchRuntime` defaults, and only the raw family's presence is read, to
+    enable frame lookups.
 
     Nothing is required *here*: the framework has already checked the action's
     declared :attr:`~vss_cli.group.Action.requires` against the deployment, so
@@ -235,6 +234,7 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     Resolving it to None keeps the deployment usable for the paths it can
     serve instead of failing them all on the strictest path's needs.
     """
+    from vss_core.search_core.runtime import RAW_INDEX_ANCHOR
     from vss_core.search_core.runtime import SearchRuntime
 
     es = deployment.endpoint_or_none("elasticsearch")
@@ -257,12 +257,16 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     if embed_service and embed_service.models:
         kwargs["cosmos_embed_model"] = embed_service.models[0]
 
-    available = sorted(es_service.indices) if es_service else []
-    for field_name, prefix in _INDEX_PREFIXES.items():
-        matches = [i for i in available if i.startswith(prefix)]
-        if matches:
-            kwargs[field_name] = matches[0]
-            kwargs[f"{field_name}_wildcard"] = f"{prefix}*"
+    # Bases and family wildcards are the pinned ``SearchRuntime`` anchor defaults
+    # and are NOT discovered: promoting a discovered index to a base inverts
+    # ``rtsp`` source-type selection (it subtracts the only index holding live
+    # data in a stream-first deployment), and every family wildcard already
+    # equals its default. Discovery's only load-bearing output is enabling frame
+    # lookups when the raw family exists, pinned to the raw uploads anchor;
+    # otherwise ``frames_index`` stays ``None`` and frame-level lookups are off.
+    available = es_service.indices if es_service else []
+    if any(i.startswith(_RAW_INDEX_PREFIX) for i in available):
+        kwargs["frames_index"] = RAW_INDEX_ANCHOR
 
     kwargs.update(tuning or {})
     return SearchRuntime(**kwargs)

@@ -29,6 +29,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Literal
 
 from vss_core._foundation.time import datetime_to_iso8601
 from vss_core._foundation.time import iso8601_instants_match
@@ -58,19 +59,30 @@ _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 
 def select_search_index(
-    source_type: str,
+    source_type: Literal["video_file", "rtsp"],
     *,
     video_embed_index: str,
     video_embed_index_wildcard: str,
 ) -> str | list[str]:
-    """Pick the ES index (or index list) for a given source type.
+    """Resolve the embed index(es) to query for a source type.
 
-    ``video_file`` searches the configured index; ``rtsp`` searches the
-    wildcard pattern while excluding the configured (uploaded-file) index.
+    Mirrors :func:`_attribute_helpers.resolve_index_by_source_type`:
+
+    - ``video_file`` -> the pinned uploads anchor ``video_embed_index``.
+    - ``rtsp``       -> ``[wildcard, "-" + video_embed_index]``.
+
+    ``video_embed_index`` MUST be the pinned uploads anchor
+    (``mdx-embed-filtered-2025-01-01``), never a value discovered from the live
+    index inventory: an ``rtsp`` query subtracts exactly the base, so a
+    live-dated base would exclude the very data being searched. A ``video_file``
+    query against an absent anchor is handled downstream as an empty uploads
+    partition (see :meth:`EmbedSearch.run`).
     """
     if source_type == "video_file":
         return video_embed_index
-    return [video_embed_index_wildcard, "-" + video_embed_index]
+    if source_type == "rtsp":
+        return [video_embed_index_wildcard, "-" + video_embed_index]
+    raise ValueError(f"Unsupported source_type {source_type!r}; expected 'video_file' or 'rtsp'.")
 
 
 # =============================================================================
@@ -183,13 +195,13 @@ def build_es_query(
         }
     }
 
-    if filters:
-        filter_clause = {"bool": {"must": filters}} if len(filters) > 1 else filters[0]
-        return {
-            "query": {"bool": {"must": [nested_query], "filter": [filter_clause]}},
-            "size": k_value,
-        }
-    return {"query": nested_query, "size": k_value}
+    if not filters:
+        return {"query": nested_query, "size": k_value}
+    filter_clause = {"bool": {"must": filters}} if len(filters) > 1 else filters[0]
+    return {
+        "query": {"bool": {"must": [nested_query], "filter": [filter_clause]}},
+        "size": k_value,
+    }
 
 
 # =============================================================================

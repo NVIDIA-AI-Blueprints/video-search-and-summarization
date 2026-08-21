@@ -32,15 +32,20 @@
 The generated-output bus is off unless `MESSAGE_BUS` is set: the root Compose
 include path does not load `services/rtvi/rtvi-embed/.env` (which sets
 `MESSAGE_BUS=kafka`), so it falls back to the compose default empty value, which
-disables Kafka output entirely. When a generated profile requires embedding
-events to flow through Kafka, set both `MESSAGE_BUS=kafka` and
-`MESSAGE_BUS_TOPIC=mdx-embed` in the build `override.env`. Without this override
-the embedding write path is broken: RT-Embed produces no Kafka output and the
-Search analytics `mdx-embed` -> `mdx-embed-filtered` indexing path stays empty.
-`ERROR_BUS` is the separate error bus, unset by the same mechanism and disabled
-by the same empty default; set `ERROR_BUS=kafka` alongside it if the build needs
-RT-Embed error events on Kafka (the error topic `RTVI_EMBED_ERROR_MESSAGE_TOPIC`
-already defaults to `vision-embed-errors`, so only the bus toggle needs setting).
+disables Kafka output entirely. Without an effective `MESSAGE_BUS` the embedding
+write path is broken: RT-Embed produces no Kafka output and the Search analytics
+`mdx-embed` -> `mdx-embed-filtered` indexing path stays empty. `ERROR_BUS` is
+the separate error bus, disabled by the same empty default (the error topic
+`RTVI_EMBED_ERROR_MESSAGE_TOPIC` already defaults to `vision-embed-errors`, so
+only the bus toggle matters).
+
+Read the Foundation's env before adding anything. A Foundation that already
+sets these ships working values, so repeating them in `override.env` would copy
+an unchanged Foundation default. Set `MESSAGE_BUS=kafka` and
+`MESSAGE_BUS_TOPIC=mdx-embed` in `override.env` only when the Foundation leaves
+them empty and the build needs embedding events, plus `ERROR_BUS=kafka` only if
+it also needs RT-Embed error events. Either way, confirm the effective values in
+`resolved.yml`.
 
 ## Placement and sizing
 

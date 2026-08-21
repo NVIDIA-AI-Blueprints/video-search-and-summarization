@@ -58,6 +58,7 @@ from ..errors import IndexNotFoundError
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchMetadata
 from ..models.attribute_search import AttributeSearchResult
+from ..runtime import BEHAVIOR_INDEX_ANCHOR
 
 if TYPE_CHECKING:
     from ..clients.protocols import ElasticIndex
@@ -99,10 +100,22 @@ def resolve_index_by_source_type(
     source_type: Literal["video_file", "rtsp"],
     wildcard_pattern: str,
 ) -> str | list[str]:
-    """Resolve ES index(es) by source_type.
+    """Resolve ES index(es) by source_type for the behavior/raw families.
 
     - ``video_file`` -> ``base_index`` unchanged.
     - ``rtsp``       -> ``[wildcard_pattern, "-" + base_index]``.
+
+    The embed path uses the identical subtraction
+    (:func:`_embed_helpers.select_search_index`); behavior and raw documents carry
+    only ``sensor.id`` (no media-kind field), so source partitioning relies on
+    index-name subtraction here too. For that to be
+    correct, ``base_index`` MUST be the pinned uploads anchor
+    (``mdx-behavior-2025-01-01`` / ``mdx-raw-2025-01-01``: the write-side contract
+    in ``video_delete.py`` and the ``SearchRuntime`` defaults), never a value
+    discovered from the live index inventory: an ``rtsp`` query subtracts exactly
+    the base, so a live-dated base would exclude the very data being searched. A
+    ``video_file`` query against an absent anchor is treated downstream as an empty
+    uploads partition (see :func:`_search_behavior`).
     """
     if source_type == "video_file":
         return base_index
@@ -378,6 +391,18 @@ def _is_attribute_excluded(
 # =============================================================================
 
 
+def _is_absent_uploads_anchor(index: str | list[str]) -> bool:
+    """Whether a NotFound target is the pinned uploads anchor (an empty uploads
+    partition, no files ingested) rather than a real fault.
+
+    Gated on equality with the anchor constant, not "is concrete": a customized
+    or genuinely-broken base still raises, and an ``rtsp`` wildcard list is never
+    equal. Overriding the base off the anchor therefore costs graceful-empty (see
+    the ``SearchRuntime`` base fields).
+    """
+    return index == BEHAVIOR_INDEX_ANCHOR
+
+
 async def _search_behavior(
     index: str | list[str],
     query_embedding: list[float],
@@ -408,6 +433,12 @@ async def _search_behavior(
     try:
         response = await es.search(index=search_index_str, body=search_query)
     except ESNotFoundError as e:
+        if _is_absent_uploads_anchor(index):
+            logger.warning(
+                f"Uploads anchor index '{index}' does not exist (no files ingested); "
+                f"returning no {source_type} candidates."
+            )
+            return []
         logger.error(f"Elasticsearch index '{index}' not found: {e}")
         raise IndexNotFoundError(index, e) from e
 
@@ -591,7 +622,12 @@ async def _fetch_object_embedding(
     behavior_index: str | list[str],
     es: ElasticIndex,
 ) -> list[float]:
-    """Fetch the latest behavior-index embedding vector for ``object_id``."""
+    """Fetch the latest behavior-index embedding vector for ``object_id``.
+
+    Returns ``[]`` (no seed vector) when the pinned uploads anchor is absent --
+    a live-only deployment has no uploaded objects to re-search -- so the caller
+    yields ``[]`` instead of exiting 5, matching the attribute path.
+    """
     search_index_str = behavior_index if isinstance(behavior_index, str) else ",".join(behavior_index)
     query = {
         "query": {"term": {"object.id.keyword": object_id}},
@@ -602,6 +638,12 @@ async def _fetch_object_embedding(
     try:
         response = await es.search(index=search_index_str, body=query)
     except ESNotFoundError as e:
+        if _is_absent_uploads_anchor(behavior_index):
+            logger.warning(
+                f"Uploads anchor index '{behavior_index}' does not exist (no files ingested); "
+                f"no object embedding to fetch."
+            )
+            return []
         logger.error(f"Elasticsearch index '{behavior_index}' not found: {e}")
         raise IndexNotFoundError(behavior_index, e) from e
 
@@ -851,6 +893,11 @@ async def search_by_object_embedding(
 ) -> list[AttributeSearchResult]:
     """Re-search by an existing object's embedding (fetch its vector, then kNN)."""
     embedding = await _fetch_object_embedding(object_id, behavior_index, es)
+    # An absent uploads anchor yields an empty seed vector (see
+    # :func:`_fetch_object_embedding`); there is nothing to re-search against, so
+    # return no results rather than issuing a kNN query with an empty vector.
+    if not embedding:
+        return []
     results = await search_by_attributes(
         query_embedding=embedding,
         index=behavior_index,

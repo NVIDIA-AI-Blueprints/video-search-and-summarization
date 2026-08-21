@@ -232,6 +232,61 @@ def test_config_without_services_is_refused(tmp_path, monkeypatch: pytest.Monkey
     assert "no services" in str(excinfo.value)
 
 
+def _es_deployment(indices: list[str]) -> config_mod.Deployment:
+    return config_mod.Deployment(
+        base_url="http://h:7777",
+        services={
+            "vst": config_mod.Service(url="http://h:7777/vst"),
+            "elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch", indices=indices),
+        },
+    )
+
+
+def test_runtime_from_never_promotes_discovered_index_to_base() -> None:
+    """Stream-first: the only indices are live-dated; the base must stay the
+    pinned anchor, not the earliest-sorting live index (which rtsp would
+    subtract, excluding the only index holding data)."""
+    from vss_cli.search_group import _runtime_from
+
+    rt = _runtime_from(_es_deployment(["mdx-embed-filtered-2025-06-01", "mdx-behavior-2025-06-01"]))
+    assert rt.video_embed_index == "mdx-embed-filtered-2025-01-01"
+    assert rt.behavior_index == "mdx-behavior-2025-01-01"
+    assert rt.video_embed_index_wildcard == "mdx-embed-filtered-*"
+    assert rt.behavior_index_wildcard == "mdx-behavior-*"
+
+
+def test_runtime_from_base_is_anchor_even_with_anchor_present() -> None:
+    from vss_cli.search_group import _runtime_from
+
+    rt = _runtime_from(
+        _es_deployment(["mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-2025-06-01", "mdx-behavior-2025-01-01"])
+    )
+    assert rt.video_embed_index == "mdx-embed-filtered-2025-01-01"
+    assert rt.behavior_index == "mdx-behavior-2025-01-01"
+
+
+def test_runtime_from_enables_frame_lookup_only_when_raw_present() -> None:
+    from vss_cli.search_group import _runtime_from
+
+    # raw family present -> frames_index pinned to the raw anchor (lookups on)
+    rt_raw = _runtime_from(_es_deployment(["mdx-raw-2025-06-01"]))
+    assert rt_raw.frames_index == "mdx-raw-2025-01-01"
+    assert rt_raw.frames_index_wildcard == "mdx-raw-*"
+
+    # no raw family -> frames_index stays None (lookups disabled)
+    rt_none = _runtime_from(_es_deployment(["mdx-embed-filtered-2025-06-01"]))
+    assert rt_none.frames_index is None
+
+
+def test_runtime_from_uses_anchor_defaults_when_no_indices_recorded() -> None:
+    from vss_cli.search_group import _runtime_from
+
+    rt = _runtime_from(_es_deployment([]))
+    assert rt.video_embed_index == "mdx-embed-filtered-2025-01-01"
+    assert rt.behavior_index == "mdx-behavior-2025-01-01"
+    assert rt.frames_index is None
+
+
 def test_absent_route_names_what_is_available(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     dep = config_mod.Deployment(base_url="http://h:7777", services={"vst": config_mod.Service(url="http://h:7777/vst")})
     with pytest.raises(config_mod.ConfigError) as excinfo:
