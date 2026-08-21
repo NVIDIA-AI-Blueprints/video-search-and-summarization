@@ -62,6 +62,13 @@ class SourceBase(ABC):
         notion does not apply."""
         return None
 
+    def set_admit_hook(self, hook) -> None:
+        """Accepted and ignored: only a partitioned source can account per partition."""
+
+    def is_ready(self) -> bool:
+        """Sources without a group have nothing to wait for."""
+        return True
+
     def set_revoke_hook(self, hook) -> None:
         """Register a drain callback for partitions being taken away.
 

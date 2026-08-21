@@ -885,6 +885,11 @@ start_secondary_ab() {
 stop_secondary_ab() {
     local pid descendants=""
     pid=$(cat "$PID_DIR/secondary.pid" 2>/dev/null)
+    # Same guard as stop_ab, and needed more here: a secondary that refuses to
+    # start leaves this pid file holding a pid the kernel may have recycled.
+    if [ -n "$pid" ] && ! ps -o command= -p "$pid" 2>/dev/null | grep -q secondary_config.yaml; then
+        pid=""
+    fi
     if [ -n "$pid" ]; then
         descendants=$(collect_descendants "$pid")
         kill "$pid" 2>/dev/null
@@ -939,8 +944,8 @@ ts_036() {
           printf '%s %s %s %s\n' \
               "$(prom_value alert_bridge_assigned_partitions)" \
               "$(prom_value alert_bridge_pipeline_processes_ready)" \
-              "$(curl -s -o /dev/null -w '%{http_code}' "$ready_url" 2>/dev/null)" \
-              "$(curl -s -o /dev/null -w '%{http_code}' "$health_url" 2>/dev/null)" >> "$samples"
+              "$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' "$ready_url" 2>/dev/null)" \
+              "$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' "$health_url" 2>/dev/null)" >> "$samples"
           sleep 0.25
       done ) &
     local sampler=$!

@@ -371,11 +371,24 @@ class TestHealthAndReadinessAreSeparate:
         sys.modules.pop("web.main", None)
         from web import main
 
-        main._startup_ready = startup_ready
-        main._startup_error = None if startup_ready else "store unavailable"
-        patcher = patch.object(main, "_degraded_workers", lambda: degraded)
-        patcher.start()
-        return TestClient(main.app, raise_server_exceptions=False), patcher
+        # patch.object rather than assignment: a test that left
+        # ``_startup_ready`` False would make every later one fail for a reason
+        # that has nothing to do with what it is testing.
+        patchers = [
+            patch.object(main, "_startup_ready", startup_ready),
+            patch.object(main, "_startup_error",
+                         None if startup_ready else "store unavailable"),
+            patch.object(main, "_degraded_workers", lambda: degraded),
+        ]
+        for patcher in patchers:
+            patcher.start()
+
+        class _Stack:
+            def stop(self):
+                for started in patchers:
+                    started.stop()
+
+        return TestClient(main.app, raise_server_exceptions=False), _Stack()
 
     def _codes(self, **kwargs):
         client, patcher = self._client(**kwargs)
@@ -395,6 +408,43 @@ class TestHealthAndReadinessAreSeparate:
     def test_a_failed_startup_fails_both(self):
         # This process cannot serve its own API either, so it is not liveness.
         assert self._codes(degraded=None, startup_ready=False) == (503, 503)
+
+    def test_a_single_process_instance_publishes_its_own_fleet_state(self):
+        # /ready gates on the fleet gauges, which only the supervisor wrote.
+        # At one process nothing published them, so "nothing configured" read
+        # as nothing wrong and /ready answered 200 through startup and through
+        # every rebalance -- on the default configuration.
+        from unittest.mock import MagicMock, patch
+        import enhance_alert_with_vlm as entry
+
+        published = []
+        enhancer = MagicMock()
+        enhancer._publishes_own_fleet_state = True
+        enhancer.source.is_ready.return_value = False
+        enhancer.source.assigned_partition_count.return_value = 0
+        with patch("metrics.recorder.set_pipeline_process_counts",
+                   side_effect=lambda *a: published.append(a)), \
+             patch("metrics.recorder.set_assigned_partitions"):
+            entry.AnomalyEnhancer._publish_assignment_state(enhancer)
+
+        assert published == [(1, 1, 0)]
+
+    def test_a_supervised_child_leaves_the_fleet_gauges_alone(self):
+        # A child writing 1/1 would overwrite the supervisor's totals.
+        from unittest.mock import MagicMock, patch
+        import enhance_alert_with_vlm as entry
+
+        published = []
+        enhancer = MagicMock()
+        enhancer._publishes_own_fleet_state = False
+        enhancer.source.is_ready.return_value = True
+        enhancer.source.assigned_partition_count.return_value = 4
+        with patch("metrics.recorder.set_pipeline_process_counts",
+                   side_effect=lambda *a: published.append(a)), \
+             patch("metrics.recorder.set_assigned_partitions"):
+            entry.AnomalyEnhancer._publish_assignment_state(enhancer)
+
+        assert published == []
 
     def test_ready_names_the_degradation(self):
         client, patcher = self._client(degraded="1 of 4 pipeline processes hold a "

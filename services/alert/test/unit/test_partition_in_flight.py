@@ -247,6 +247,7 @@ class TestTheBudgetIsReopenedInEveryDeployment:
         enhancer.source.is_ready.return_value = ready
         enhancer.source.assigned_partition_count.return_value = held
         enhancer._rebalance_drain_deadline = time.monotonic() + 5
+        enhancer._publishes_own_fleet_state = False
         entry.AnomalyEnhancer._publish_assignment_state(enhancer)
         return enhancer
 
@@ -257,14 +258,74 @@ class TestTheBudgetIsReopenedInEveryDeployment:
         # Still mid-rebalance: the budget bounds the whole of it.
         assert self._enhancer(ready=False)._rebalance_drain_deadline is not None
 
-    def test_every_deployment_registers_the_hook(self):
-        # The single-process path never called set_assignment_change_hook, so
-        # the reset above was unreachable there.
+    def test_the_constructor_registers_the_reset_itself(self):
+        # Asserted on the argument the constructor actually passes, not on the
+        # presence of the call: a substring match passes for a hook wired to
+        # the wrong function, and this is the regression test for a bug that
+        # broke the default configuration.
+        import ast
         import inspect
+        import textwrap
         import enhance_alert_with_vlm as entry
 
-        source = inspect.getsource(entry.AnomalyEnhancer.__init__)
-        assert "set_assignment_change_hook" in source
+        tree = ast.parse(textwrap.dedent(inspect.getsource(entry.AnomalyEnhancer.__init__)))
+        registered = [
+            ast.unparse(node.args[0])
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "set_assignment_change_hook"
+            and node.args
+        ]
+        assert registered == ["self._publish_assignment_state"]
+
+
+class TestRecordsAreOwedFromTheRead:
+    """A rebalance arrives on the poll that fills a batch.
+
+    Accounting started when a message was scheduled, but a poll batch is read
+    -- and committed -- before any of it is scheduled, and the revoke callback
+    fires from inside that same read loop. Records already read for the revoked
+    partition were invisible: the drain saw nothing owed, let the partition
+    move, and this member then processed them alongside the new owner. They
+    cannot be dropped instead; the offset is already committed.
+    """
+
+    def test_a_record_is_owed_before_it_is_scheduled(self):
+        tracker = PartitionInFlight()
+        admission = tracker.accept(P0)          # what the read hook takes
+        assert tracker.in_flight(P0) == 1
+        assert tracker.drain([P0], timeout=0.05) is False
+        admission.release()
+        assert tracker.drain([P0], timeout=0.05) is True
+
+    def test_the_batch_carries_what_was_taken(self):
+        # The batch hands its admissions on in order; scheduling must consume
+        # them rather than take new ones, or every record is counted twice.
+        import enhance_alert_with_vlm as entry
+        from unittest.mock import MagicMock
+
+        tracker = PartitionInFlight()
+        batch = {
+            "topic": P0[0], "partition": P0[1],
+            "messages": [{"id": "a"}, {"id": "b"}],
+            "admissions": [tracker.accept(P0), tracker.accept(P0)],
+        }
+        assert tracker.in_flight(P0) == 2
+
+        stub = MagicMock()
+        stub._partition_in_flight = tracker
+        stub.config = {"alert_agent": {}}
+        taken = []
+        stub.process_batch_vlm.side_effect = (
+            lambda *a, **k: taken.append(k.get("admission"))
+        )
+        for message in batch["messages"]:
+            entry.AnomalyEnhancer._schedule_message(stub, None, message, "Incident", batch)
+
+        assert tracker.in_flight(P0) == 2, "scheduling took a second admission"
+        assert batch["admissions"] == [], "the batch still owns admissions"
+        assert all(t is not None for t in taken)
 
 
 class TestSplit:

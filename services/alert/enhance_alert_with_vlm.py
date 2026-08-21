@@ -178,6 +178,39 @@ _VLM_API_ERROR_CLASSIFICATION = (
 )
 
 
+def validate_drain_fits_poll_interval(config: dict) -> None:
+    """Refuse a poll interval the rebalance drain could outlast.
+
+    Not part of the multi-process checks: the revoke hook that runs the drain
+    is installed for every deployment, so a single-process instance evicts
+    itself on the same configuration the multi-process one refuses to start on.
+    """
+    raw = (config.get("kafka", {}) or {}).get("max_poll_interval_ms")
+    if raw is None:
+        return
+    try:
+        poll_interval_ms = float(raw)
+    except (TypeError, ValueError):
+        # An unsubstituted template. Reported here rather than as a bare
+        # conversion error from inside the entry point's catch-all.
+        raise ValueError(
+            f"kafka.max_poll_interval_ms must be a number, got {raw!r}"
+        )
+    if poll_interval_ms > DEFAULT_DRAIN_TIMEOUT * 1000:
+        return
+    # A drain runs on the consume thread inside the rebalance callback, so one
+    # that outlasts the poll interval costs the member its place and starts
+    # another rebalance -- worse than the overlap it exists to prevent, and
+    # self-perpetuating under load.
+    raise ValueError(
+        f"kafka.max_poll_interval_ms={raw} is not longer than the "
+        f"{DEFAULT_DRAIN_TIMEOUT:.0f}s rebalance drain. The drain runs inside "
+        f"the rebalance callback, so the member would be evicted mid-drain and "
+        f"trigger another rebalance. Raise max_poll_interval_ms above "
+        f"{DEFAULT_DRAIN_TIMEOUT * 1000:.0f}."
+    )
+
+
 def validate_multi_process_config(config: dict, process_count: int) -> None:
     """Refuse a multi-process configuration the deployment cannot honour.
 
@@ -209,20 +242,6 @@ def validate_multi_process_config(config: dict, process_count: int) -> None:
             f"initialise one the workers will read: each would build its own "
             f"copy and they would drift apart. Enable persistence, or run a "
             f"single process."
-        )
-
-    poll_interval_ms = (config.get("kafka", {}) or {}).get("max_poll_interval_ms")
-    if poll_interval_ms is not None and float(poll_interval_ms) <= DEFAULT_DRAIN_TIMEOUT * 1000:
-        # A drain runs on the consume thread inside the rebalance callback, so
-        # one that outlasts the poll interval costs the member its place and
-        # starts another rebalance -- worse than the overlap it exists to
-        # prevent, and self-perpetuating under load.
-        raise ValueError(
-            f"kafka.max_poll_interval_ms={poll_interval_ms} is not longer than "
-            f"the {DEFAULT_DRAIN_TIMEOUT:.0f}s rebalance drain. The drain runs "
-            f"inside the rebalance callback, so the member would be evicted "
-            f"mid-drain and trigger another rebalance. Raise "
-            f"max_poll_interval_ms above {DEFAULT_DRAIN_TIMEOUT * 1000:.0f}."
         )
 
     mode = pipeline_mode_from_config(config)
@@ -345,6 +364,9 @@ class AnomalyEnhancer(
         # thread, so a per-consumer bound multiplies by the topic count against
         # a poll interval that does not.
         self._rebalance_drain_deadline: Optional[float] = None
+        # Set by the multi-process child entry point, where the supervisor owns
+        # the fleet gauges instead.
+        self._publishes_own_fleet_state = True
         self.source.set_revoke_hook(self._drain_revoked_partitions)
         # Registered here rather than only in the multi-process entry point,
         # because the revoke hook above is installed for every deployment: a
@@ -354,6 +376,12 @@ class AnomalyEnhancer(
         # multi-process path replaces this with a hook that also signals the
         # supervisor.
         self.source.set_assignment_change_hook(self._publish_assignment_state)
+        # Accounted from the read, not from the schedule: a rebalance arrives
+        # on the poll that fills a batch, so records already read for a revoked
+        # partition have to be owed before the drain looks at it.
+        self.source.set_admit_hook(
+            lambda topic, partition: self._partition_in_flight.accept((topic, partition))
+        )
         self.sink = EventBridgeFactory.create_sink(self.config)
 
         # Get source type for logging
@@ -928,10 +956,14 @@ class AnomalyEnhancer(
         accepted for processing, so ``WORKER_QUEUE_WAIT_DURATION`` keeps one
         meaning in every mode: "kafka_consumed -> accepted for processing".
         """
-        # Taken before the pool, not inside it: a message queued for a worker
-        # is already this instance's responsibility, and counting it only once
-        # it starts let a drain finish while queued records still waited.
-        admission = self._partition_in_flight.accept(_batch_partition(batch))
+        # Already taken when the record was read, and handed over here in the
+        # order the batch carries. A source that does not account per partition
+        # supplies none, so one is taken now instead.
+        pending = batch.get("admissions")
+        if pending:
+            admission = pending.pop(0)
+        else:
+            admission = self._partition_in_flight.accept(_batch_partition(batch))
 
         if worker_pool is None:
             # Async modes dispatch each message onward and return, so there is
@@ -958,15 +990,24 @@ class AnomalyEnhancer(
             except Empty:
                 logger.debug("All workers busy. Waiting to schedule next message...")
 
-        future: Future = worker_pool.submit(
-            partial(self.process_batch_vlm, admission=admission),
-            worker_id,
-            [message],
-            message_type,
-            batch.get("kafka_consumed_at"),
-            batch.get("kafka_published_at"),
-            datetime.now(timezone.utc).isoformat(),
-        )
+        try:
+            future: Future = worker_pool.submit(
+                partial(self.process_batch_vlm, admission=admission),
+                worker_id,
+                [message],
+                message_type,
+                batch.get("kafka_consumed_at"),
+                batch.get("kafka_published_at"),
+                datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception:
+            # A shutdown between reading and scheduling rejects the submit.
+            # Only process_batch_vlm releases, and it will never run, so the
+            # count would stay owed for the life of the process.
+            if admission is not None:
+                admission.release()
+            self.worker_queue.put(worker_id)
+            raise
         future.add_done_callback(
             lambda _f, released_id=worker_id: self.worker_queue.put(released_id)
         )
@@ -978,11 +1019,20 @@ class AnomalyEnhancer(
         deployment shape. The budget is closed for the rebalance that is over,
         so the next one starts with the whole of it.
         """
-        from metrics.recorder import set_assigned_partitions
+        from metrics.recorder import (
+            set_assigned_partitions, set_pipeline_process_counts,
+        )
 
+        ready = self.source.is_ready()
         set_assigned_partitions(self.source.assigned_partition_count())
-        if self.source.is_ready():
+        if ready:
             self._rebalance_drain_deadline = None
+        if self._publishes_own_fleet_state:
+            # A lone pipeline is its own fleet. The counts were published only
+            # by the supervisor, so at one process they were never written at
+            # all and /ready read "nothing configured" as nothing wrong --
+            # answering 200 through startup and through every rebalance.
+            set_pipeline_process_counts(1, 1, 1 if ready else 0)
 
     def _drain_revoked_partitions(self, partitions) -> None:
         """Finish what is owed on partitions about to move to another member.
@@ -1041,23 +1091,34 @@ class AnomalyEnhancer(
         while True:
             raw_messages = self.source.read_data()
 
-            if self._webhook_forwarder is not None:
-                self._webhook_forwarder.poll_and_forward()
+            try:
+                if self._webhook_forwarder is not None:
+                    self._webhook_forwarder.poll_and_forward()
 
-            if not raw_messages:
-                continue
-
-            # Batches already normalized by source: [{'kind','messages'}, ...]
-            for batch in raw_messages:
-                batch_messages = batch.get("messages")
-                if not batch_messages:
+                if not raw_messages:
                     continue
 
-                batch_kind = (batch.get("kind") or "").lower()
-                message_type = "Incident" if batch_kind == "incident" else "Behavior"
+                # Batches already normalized by source: [{'kind','messages'}, ...]
+                for batch in raw_messages:
+                    batch_messages = batch.get("messages")
+                    if not batch_messages:
+                        continue
 
-                for message in batch_messages:
-                    self._schedule_message(worker_pool, message, message_type, batch)
+                    batch_kind = (batch.get("kind") or "").lower()
+                    message_type = "Incident" if batch_kind == "incident" else "Behavior"
+
+                    for message in batch_messages:
+                        self._schedule_message(worker_pool, message, message_type, batch)
+            finally:
+                # Admissions are taken when a record is read, so any this pass
+                # did not hand to a stage that releases them are owed by
+                # nobody. A leaked count makes every later drain on that
+                # partition wait out its whole timeout.
+                for batch in raw_messages or ():
+                    for leftover in batch.get("admissions") or ():
+                        if leftover is not None:
+                            leftover.release()
+                    batch["admissions"] = []
 
     def process_anomalies(self):
         dispatch_executor: Optional[ThreadPoolExecutor] = None
@@ -2806,6 +2867,9 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         # instance down, so there is no state where that work has no owner.
         enhancer = AnomalyEnhancer(config_path, instance_leader=(index == 0),
                                    seed_shared_store=False)
+        # The supervisor publishes the fleet counts for every slot; a child
+        # writing its own would overwrite the fleet's totals with 1/1.
+        enhancer._publishes_own_fleet_state = False
         # Construction is where children contend on Elasticsearch, and it can
         # take tens of seconds with several of them; the group join then adds
         # its own. Both have to finish before this child counts as ready, or
@@ -3090,6 +3154,7 @@ if __name__ == "__main__":
         source_partition_sizes = None
         multi_process = process_count > 1
         enforce_log_level(args.config)
+        validate_drain_fits_poll_interval(pipeline_config)
 
         if multi_process and PROMETHEUS_ENABLED:
             # Published before anything else so the endpoint can tell "no
@@ -3148,6 +3213,11 @@ if __name__ == "__main__":
             # "healthy" metrics endpoint. The API child is already up; it keeps
             # its own registry, so it is not bound by this.
             enhancer = AnomalyEnhancer(args.config)
+            # Published before the port opens, so the first probe already sees
+            # one pipeline configured and none ready. Left unpublished, /ready
+            # read "nothing configured" as nothing wrong and answered 200 for
+            # the whole of startup.
+            enhancer._publish_assignment_state()
             bind_metrics_port()
 
         if os.environ.get("VLM_WARMUP_ENABLED", "true").lower() != "false":

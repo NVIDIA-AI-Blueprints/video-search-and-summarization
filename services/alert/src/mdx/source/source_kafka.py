@@ -116,6 +116,7 @@ class SourceKafka(SourceBase):
         self.topic_consumer_map = {}
         self.kafka_message_broker = KafkaMessageBroker(config)
         self._revoke_hook = None
+        self._admit_hook = None
         self._assignment_change_hook = None
 
         kafka_cfg = config.get('event_bridge', {}).get('kafka_source', {})
@@ -205,6 +206,17 @@ class SourceKafka(SourceBase):
         ``set_revoke_hook``.
         """
         self._assignment_change_hook = hook
+
+    def set_admit_hook(self, hook) -> None:
+        """Register what accounts for a record the moment it is read.
+
+        Called with ``(topic, partition)`` per record and expected to return
+        something the consumer of the batch will release. Read time, not
+        schedule time: a rebalance is delivered by the poll that fills a batch,
+        so records already read for a revoked partition must be owed before the
+        drain looks.
+        """
+        self._admit_hook = hook
 
     def set_revoke_hook(self, hook) -> None:
         """Register what to run when partitions are taken away.
@@ -351,11 +363,22 @@ class SourceKafka(SourceBase):
         before that partition moves to another member.
         """
         partition_to_messages: Dict[Any, List[Any]] = {}
+        partition_to_admissions: Dict[Any, List[Any]] = {}
         earliest_kafka_ts_ms: int = None
         for topic in self.source_topics:
             self._ensure_consumer(topic)
             consumer = self.topic_consumer_map[topic]
-            topic_messages = self.kafka_message_broker.get_consumed_messages(consumer)
+            admissions_by_key: Dict[str, List[Any]] = {}
+
+            def note_read(read_topic, read_partition, _sink=admissions_by_key):
+                hook = getattr(self, "_admit_hook", None)
+                _sink.setdefault(f"{read_topic}-{read_partition}", []).append(
+                    hook(read_topic, read_partition) if hook is not None else None
+                )
+
+            topic_messages = self.kafka_message_broker.get_consumed_messages(
+                consumer, on_read=note_read
+            )
 
             kind = self.topic_to_kind.get(topic, 'unknown')
 
@@ -369,6 +392,11 @@ class SourceKafka(SourceBase):
                 except (IndexError, ValueError):
                     partition = -1
                 partition_to_messages.setdefault((kind, topic, partition), []).extend(msgs)
+                # Kept parallel to the messages: each batch carries the
+                # admissions already taken for it, in the same order.
+                partition_to_admissions.setdefault((kind, topic, partition), []).extend(
+                    admissions_by_key.get(partition_key, [None] * len(msgs))
+                )
                 # Track earliest kafka timestamp in batch (producer timestamp)
                 for msg in msgs:
                     if len(msg) >= 3 and msg[2] is not None and msg[2] > 0:
@@ -394,6 +422,7 @@ class SourceKafka(SourceBase):
                     'topic': topic,
                     'partition': partition,
                     'messages': msgs,
+                    'admissions': partition_to_admissions.get((kind, topic, partition), []),
                     'kafka_consumed_at': kafka_consumed_at,
                     'kafka_published_at': kafka_published_at,
                 })

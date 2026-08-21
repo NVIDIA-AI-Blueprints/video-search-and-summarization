@@ -343,11 +343,46 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
     def test_an_absent_source_type_still_means_kafka(self):
         self._validate(shared=True, source_type=None)
 
-    def test_a_poll_interval_shorter_than_the_drain_is_refused(self):
-        # The drain runs inside the rebalance callback, so outlasting the poll
-        # interval costs the member its place and starts another rebalance.
-        with pytest.raises(ValueError, match="max_poll_interval_ms"):
-            self._validate(shared=True, max_poll_interval_ms=10000)
 
-    def test_the_default_poll_interval_leaves_room_for_the_drain(self):
-        self._validate(shared=True, max_poll_interval_ms=60000)
+class TestTheDrainMustFitThePollInterval:
+    """Checked for every deployment, not only multi-process ones.
+
+    The revoke hook that runs the drain is installed in the constructor for
+    every deployment, so a single-process instance evicts itself on the same
+    configuration a multi-process one refuses to start on. The check lived
+    inside the multi-process validation and so never ran at one process.
+    """
+
+    @staticmethod
+    def _validate(max_poll_interval_ms):
+        from enhance_alert_with_vlm import validate_drain_fits_poll_interval
+        validate_drain_fits_poll_interval(
+            {"kafka": {"max_poll_interval_ms": max_poll_interval_ms}}
+        )
+
+    def test_a_poll_interval_shorter_than_the_drain_is_refused(self):
+        with pytest.raises(ValueError, match="max_poll_interval_ms"):
+            self._validate(10000)
+
+    def test_the_drain_bound_itself_is_refused(self):
+        # Equal is not enough: the drain would consume the whole interval.
+        from utils.partition_in_flight import DEFAULT_DRAIN_TIMEOUT
+        with pytest.raises(ValueError, match="max_poll_interval_ms"):
+            self._validate(DEFAULT_DRAIN_TIMEOUT * 1000)
+
+    def test_the_default_poll_interval_leaves_room(self):
+        self._validate(60000)
+
+    def test_an_absent_setting_is_accepted(self):
+        from enhance_alert_with_vlm import validate_drain_fits_poll_interval
+        validate_drain_fits_poll_interval({})
+
+    def test_a_numeric_string_is_accepted(self):
+        # Rendered configs substitute environment variables textually.
+        self._validate("60000")
+
+    def test_an_unsubstituted_template_is_named(self):
+        # Otherwise a bare float() conversion error reaches the entry point's
+        # catch-all and is logged as an unexpected error.
+        with pytest.raises(ValueError, match="must be a number"):
+            self._validate("${AB_MAX_POLL_INTERVAL_MS}")

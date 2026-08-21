@@ -195,7 +195,8 @@ class KafkaMessageBroker:
             except KafkaException as ke:
                 logger.error(f"Failed to commit batched offset: {ke}")
 
-    def get_consumed_messages(self, consumer: Consumer, batch_size: Optional[int] = None) -> Dict[str, List[Tuple[str, str]]]:
+    def get_consumed_messages(self, consumer: Consumer, batch_size: Optional[int] = None,
+                              on_read=None) -> Dict[str, List[Tuple[str, str]]]:
         """
         Consumes a batch of messages from a Kafka topic and manually commits the offsets.
 
@@ -253,6 +254,17 @@ class KafkaMessageBroker:
                         logger.debug("Kafka message has no timestamp available")
                         kafka_timestamp_ms = None
                     messages[partition_key].append((msg.key(), msg.value(), kafka_timestamp_ms))
+                    if on_read is not None:
+                        # Counted here, not where the message is later
+                        # scheduled. A rebalance is delivered by the poll above,
+                        # so a revoke can arrive with records for the revoked
+                        # partition already read into this batch. Those were
+                        # invisible to the drain, which reported nothing owed
+                        # and let the partition move while this member went on
+                        # to process them. They cannot simply be dropped -- the
+                        # offset is already committed, so dropping them loses
+                        # them -- so the drain has to know they exist.
+                        on_read(msg.topic(), msg.partition())
                     if self.batch_commit:
                         pending_commits[(msg.topic(), msg.partition())] = msg
                     else:
