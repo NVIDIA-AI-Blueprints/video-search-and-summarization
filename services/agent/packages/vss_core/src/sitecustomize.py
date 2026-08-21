@@ -70,7 +70,11 @@ def _auto_load_env_files() -> None:
         except Exception:
             logger.exception("Error reading %s", env_pointer)
     else:
-        logger.info(".env_file not found at %s", env_pointer)
+        # The pointer is optional, so its absence is the ordinary case, not
+        # news. This runs at interpreter startup -- before a CLI parses
+        # --log-level -- so anything logged here is unconditional noise on
+        # stderr for every single invocation.
+        logger.debug(".env_file not found at %s", env_pointer)
 
 
 try:
