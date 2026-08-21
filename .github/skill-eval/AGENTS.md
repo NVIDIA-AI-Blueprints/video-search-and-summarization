@@ -390,8 +390,9 @@ The canonical harbor command is in § Harbor invocation.
    `vss-eval-*` boxes are a long-running pool managed by the
    operator; instances stay up across runs, and so do the slow caches
    that survive a volume wipe (docker **image** layers, the repo clone, the
-   `data/` sample-data extract — but NOT the model-weight *volumes*, which
-   the per-trial reset drops; see § 7).
+   `data/` sample-data extract, and the `rtvi-hf-cache` /
+   `rtvi-ngc-model-cache` model-weight volumes, which the per-trial reset
+   keeps; see § 7).
    `run_leg.py` releases the per-box lock automatically when its process
    exits; there is no shell FD for you to close. You never `brev stop` /
    `brev delete`. Pool lifecycle is strictly an operator concern.
@@ -400,8 +401,9 @@ The canonical harbor command is in § Harbor invocation.
    not on exit.** On a spec's first trial — a single-step spec, or `step-1`
    of a multi-step one — `BrevEnvironment.start()` (the env provider, before
    the agent runs) wipes the docker runtime to a clean slate: it force-removes
-   **all** containers, **all** user-defined networks, and **all** volumes
-   (images are preserved — re-pulling them is slow). So a spec always begins
+   **all** containers, **all** user-defined networks, and every volume except
+   the model-weight caches (those and the images are preserved — re-fetching
+   them is slow). So a spec always begins
    from a deterministic, leak-free runtime regardless of what the previous
    spec left — a leftover container from a *different* compose project used to
    port-conflict the new deploy (observed: a stuck `phoenix` + missing init
@@ -415,13 +417,13 @@ The canonical harbor command is in § Harbor invocation.
    You still do **not** tear anything down on *exit* — no `atexit`, no signal
    handler — and you never `brev stop` / `brev delete`; the *next* spec's
    `start()` is what cleans up, on every exit path (happy, `BLOCKED`, cancel,
-   max-turns, crash, SIGKILL, reboot). One consequence: wiping all volumes
-   drops the `rtvi-hf-cache` / `rtvi-ngc-model-cache` model-weight volumes, so
-   a spec's first deploy is cold (~20 min weight download vs ~55 s warm) under
-   the canonical `-n 1 --max-retries 0` invocation — paid once per spec; an
-   `-n>1` rollout or a harbor retry re-wipes the caches and re-pays it. The
-   per-trial harbor timeout already budgets for a cold deploy. The deploy
-   runbook may still `docker compose down` defensively, but it no longer has to.
+   max-turns, crash, SIGKILL, reboot). The `rtvi-hf-cache` /
+   `rtvi-ngc-model-cache` model-weight volumes are the one exception to the
+   volume wipe: they are read-through caches, and dropping them made a spec's
+   first deploy pay a cold weight download (~25 min measured on a WiFi-linked
+   GB10 board vs ~55 s warm) out of the same budget the agent needs for the
+   deploy itself. The deploy runbook may still `docker compose down`
+   defensively, but it no longer has to.
 
    ⚠️ **`start()` is now destructive on a spec's first trial — never run
    `harbor` manually against a box another run currently holds.** The wipe is
@@ -493,7 +495,7 @@ The canonical harbor command is in § Harbor invocation.
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
-| `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
+| `spark` | BYOH registered node `Spark-ba-WiFi` only | Edge / unified memory; GB10. Visitor network. Allowlisted via `BREV_REGISTERED_POOL`. The internal-network `SPARK` board is not agent-reachable and is not eligible. |
 
 Pool naming is operator-managed; the actual fleet is the union of managed
 instances from `brev ls --json` and connected registered nodes from
@@ -501,9 +503,10 @@ instances from `brev ls --json` and connected registered nodes from
 comma/space-separated `BREV_REGISTERED_POOL` allowlist. Registered-node
 JSON omits GPU metadata, so `run_leg.py` accepts only documented hardware
 prefixes (`vss-eval-rtx*`, `vss-eval-geforce-rtx4090-vm*`,
-`vss-eval-l40s*`, `vss-eval-h100*`) and fails closed for unknown GPU
-families. Don't hardcode a specific instance name —
-`run_leg.py`'s pool selection (§ 5a) picks the candidate. **Lifecycle is
+`vss-eval-l40s*`, `vss-eval-h100*`) plus the visitor-network Spark alias
+(`Spark-ba-WiFi`) and fails closed for unknown GPU families, including
+the internal-network `SPARK` board. Don't hardcode a specific instance
+name — `run_leg.py`'s pool selection (§ 5a) picks the candidate. **Lifecycle is
 the operator's job**; the box lock and the trials both live inside
 `run_leg.py` — see Hard rules about `brev create / start / stop / delete /
 reset`.
@@ -533,10 +536,13 @@ start / stop / reset / delete` a member; if none matches the platform,
 the wrapper waits out its budget and exits 75 — relay that as
 `BLOCKED: pool exhausted for <platform>`.
 
-**Name prefix is an anchored match, not a substring.** Only instances
-whose name starts with `vss-eval-` are eligible. Ignore everything else
-in the snapshot — personal GPU boxes, unrelated `l40s-*` / `h100-*`
-rentals, stray `harbor-*` — even if the gpu_type looks compatible. The
+**Name prefix is an anchored match, not a substring.** Managed instances
+must start with `vss-eval-`. The allowlisted visitor-network Spark
+(`Spark-ba-WiFi`) is the documented exception and is selected only for
+`GB10` legs. The internal-network `SPARK` board is not eligible. Ignore
+everything else in the snapshot — personal GPU boxes, unrelated
+`l40s-*` / `h100-*` rentals, stray `harbor-*` — even if the gpu_type
+looks compatible. The
 `gpu_count == 0` rule below skips the GPU-type check, so non-anchored
 matching is especially dangerous (a user's `l40s-48gb2x` with an L4
 passes the match but runs 2–3× slower and trips the agent-exec timeout).

@@ -32,7 +32,7 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 | `l40s` | `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2` | `massedcompute_L40S` / `massedcompute_L40Sx2` |
 | `h100` | `vss-eval-h100` (when needed) | launchpad `dmz.h100x2.pcie` preferred |
 | `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and capability-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or approved RTX 4090 |
-| `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
+| `spark` | Registered BYOH node `Spark-ba-WiFi` only (visitor network; the internal-network `SPARK` board is not agent-reachable) | GB10 |
 
 Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-deploy-profile` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 

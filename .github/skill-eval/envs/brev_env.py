@@ -551,48 +551,22 @@ class BrevEnvironment(BaseEnvironment):
         last trial deployed. Safe because `vss-eval-*` boxes are a dedicated,
         flock-serialised eval pool — nothing else runs on them.
 
-        NOTE: wiping all volumes also drops the model-weight caches
-        (`rtvi-hf-cache`, `rtvi-ngc-model-cache`), so the next deploy pays the
-        full cold model-weight download (~20 min vs ~55 s warm). The caller
-        gates this to a spec's first trial only (single-step, or step-1 of a
-        multi-step spec — later steps reuse step-1's deployment), so under the
-        canonical `-n 1 --max-retries 0` invocation (one trial per spec) the
-        cost is paid once per spec, not once per step. An `-n>1` rollout, a
-        harbor retry, or a repeated manual run on the same warm box each
-        re-wipes the caches and re-pays the cold start. The per-trial harbor
-        timeout already budgets for a cold deploy.
+        Model-weight cache volumes are the one exception (see
+        `_PRESERVED_VOLUME_RE`) — they are read-through caches, the same
+        category as the preserved images, and re-downloading them dominates
+        the per-trial agent budget. The caller gates the reset to a spec's
+        first trial only (single-step, or step-1 of a multi-step spec — later
+        steps reuse step-1's deployment).
 
         Runs as the normal (docker-group) user — the same identity the
         trial's deploy uses; no sudo. `network prune` leaves the built-in
         bridge/host/none networks, which is correct. Fails loud (`set -u`,
         explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
-        if any container, volume, or user-defined network survives, so a
-        half-reset box surfaces as a trial error rather than silent cross-trial
-        contamination.
+        if any container, non-cache volume, or user-defined network survives,
+        so a half-reset box surfaces as a trial error rather than silent
+        cross-trial contamination.
         """
-        cmd = r"""set -uo pipefail
-docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
-cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
-vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
-docker network prune -f >/dev/null 2>&1 || true
-# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
-# died mid-script would make the count commands below print nothing and the
-# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
-# this check, so the remaining TOCTOU window is negligible.
-docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
-rc=$(docker ps -aq | wc -l | tr -d ' ')
-rv=$(docker volume ls -q | wc -l | tr -d ' ')
-# Only user-defined networks should be gone; the built-in bridge/host/none
-# are never removable, so filter to type=custom. A surviving user network
-# would collide ("network already exists" / address-range clash) on the next
-# `compose up`, so it must fail the reset like a surviving container/volume.
-rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
-if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
-  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
-  exit 1
-fi
-echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
-"""
+        cmd = _docker_reset_script()
         logger.info(
             "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
             self._instance_name,
@@ -1331,6 +1305,57 @@ def _has_mappable_agent_log(target_dir: Path) -> bool:
 def _which(cmd: str) -> bool:
     import shutil
     return shutil.which(cmd) is not None
+
+
+#: Volumes holding downloaded model weights, kept across the pre-trial reset.
+#: Compose prefixes volume names with the project name, so the leading `_`
+#: alternative matches `vss_rtvi-ngc-model-cache` as well as a bare name.
+_PRESERVED_VOLUME_RE = r"(^|_)rtvi-(hf|ngc-model)-cache$"
+
+
+def _docker_reset_script() -> str:
+    """Shell for `_reset_docker_runtime`, minus the model-weight caches.
+
+    Those two volumes are read-through weight caches, the same category as the
+    images this reset already preserves, and dropping them is not free: a cold
+    RT-VLM download measured ~25 min on a WiFi-linked GB10 board, which does
+    not fit inside the per-trial agent budget it has to share with the deploy
+    itself. NIM weights already survive resets because they live in a host
+    bind-mount (`~/.cache/nim`) rather than a volume, so preserving these
+    restores symmetry instead of widening the trial's inherited state: no
+    service reads deploy state from them, and a trial that needs different
+    weights fetches under a different cache key.
+    """
+    return rf"""set -uo pipefail
+docker info >/dev/null 2>&1 || {{ echo "docker daemon unreachable" >&2; exit 1; }}
+keep='{_PRESERVED_VOLUME_RE}'
+cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
+# Containers are gone by now, so every remaining volume is detachable. `grep
+# -Ev` drops the caches from the removal list; it exits 1 when everything is
+# filtered out, which the `|| true` absorbs into an empty (no-op) list.
+vols=$(docker volume ls -q | grep -Ev "$keep" || true); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
+docker network prune -f >/dev/null 2>&1 || true
+# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
+# died mid-script would make the count commands below print nothing and the
+# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
+# this check, so the remaining TOCTOU window is negligible.
+docker info >/dev/null 2>&1 || {{ echo "docker daemon died during reset" >&2; exit 1; }}
+rc=$(docker ps -aq | wc -l | tr -d ' ')
+# Counted with the same filter used to remove them, so a surviving cache is
+# not mistaken for a failed reset -- while any other leftover volume still is.
+rv=$(docker volume ls -q | grep -Ev "$keep" | wc -l | tr -d ' ')
+# Only user-defined networks should be gone; the built-in bridge/host/none
+# are never removable, so filter to type=custom. A surviving user network
+# would collide ("network already exists" / address-range clash) on the next
+# `compose up`, so it must fail the reset like a surviving container/volume.
+rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
+  echo "docker runtime reset incomplete: ${{rc}} containers, ${{rv}} volumes, ${{rn}} user-defined networks remain" >&2
+  exit 1
+fi
+kept=$(docker volume ls -q | grep -Ec "$keep" || true)
+echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers), model-weight caches kept (${{kept}})"
+"""
 
 
 def _stray_agent_reap_command(agent_run_marker: str | None = None) -> str:

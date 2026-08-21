@@ -108,10 +108,11 @@ SKILL.md pre-flight smoke test does not install it.
 <a id="unified-memory-budget"></a>
 
 On these platforms CPU, GPU, OS page cache, and every container draw from **one**
-shared pool, so a GPU-memory *fraction* — `NIM_GPU_MEM_FRACTION` / `NIM_KVCACHE_PERCENT`
-for NIM-served models (the DGX-Spark base LLM and Cosmos VLM run as NIMs), or
-`RTVI_VLLM_GPU_MEMORY_UTILIZATION` for RT-VLM (alerts / lvs / Thor) — is a slice of
-memory that is **not all free**.
+shared pool, so a GPU-memory *fraction* — `NIM_GPU_MEM_FRACTION` /
+`NIM_KVCACHE_PERCENT` for NIM-served models (the DGX-Spark LLM runs as a
+standalone NIM), or `RTVI_VLLM_GPU_MEMORY_UTILIZATION` for RT-VLM (base / alerts /
+lvs / Thor — **base included**, since base serves its VLM from `rtvi-vlm` rather
+than a Cosmos VLM NIM) — is a slice of memory that is **not all free**.
 vLLM measures *free* at startup and aborts before loading the model if free is
 below what the fraction asks for (`desired = util × total`):
 
@@ -128,7 +129,9 @@ total** (~20%) as reserve — `util ≤ free/total − 0.2` — and for co-resid
 services keep the **sum** of their fractions `≤ 0.8`:
 
 ```bash
-# DGX Spark reports free/total via nvidia-smi (Thor/Tegra often reports N/A — see below)
+# GB10 DGX Spark also reports [N/A] here (verified on a GB10 board, driver
+# 580.173.02) — read free/total from the vLLM/RT-VLM startup log instead, which
+# prints the real numbers ("Free memory on device cuda:0 (67.92/121.69 GiB)").
 set -- $(nvidia-smi --query-gpu=memory.free,memory.total --format=csv,noheader,nounits | head -1 | tr -d ',')
 free=$1; total=$2
 awk -v f="$free" -v t="$total" 'BEGIN{u=f/t-0.2; if(u<0)u=0; printf "max util ~ %.2f  (free %d / total %d MiB; 0.2 reserve)\n", u, f, t}'
@@ -139,8 +142,17 @@ fraction ≈ 0.4, so two co-resident services sum to ≤ 0.8): the standalone DG
 LLM NIM recipe below sets `NIM_GPU_MEM_FRACTION=0.4`, and `dev-profile.sh`'s
 `get_rtvi_vllm_gpu_memory_utilization()` returns `0.4` for RT-VLM. If other tenants
 are resident (so `free` is lower than the formula's value), **lower the fractions to
-fit**. If `nvidia-smi` can't read free (Thor/Tegra often reports `[N/A]`), keep the
-conservative ~0.4 and drop by `0.05` on the first `Free … less than desired` abort.
+fit**. When `nvidia-smi` can't read free, keep the conservative ~0.4 and drop by
+`0.05` on the first `Free … less than desired` abort.
+
+> **`dev-profile.sh`'s `0.4` only applies if that script runs.** This skill writes
+> `generated.env` directly, and the checked-in default in every profile's
+> `overrides.env` is `RTVI_VLLM_GPU_MEMORY_UTILIZATION=''`. Empty does **not** mean
+> "auto-tune" — RT-VLM falls back to `0.7`, which on a 121.69 GiB board asks for
+> 85.18 GiB and aborts once the LLM NIM holds its `0.4`. Measured on a GB10 board:
+> `0.4` → RT-VLM healthy with 27.96 GiB KV cache; `''` → `Failed to load VLM on
+> GPU 0` restart loop. Write the fraction explicitly for every co-resident
+> edge deploy.
 
 ## DGX Spark - Nano 9B v2 DGX Spark NIM + local Cosmos Reason2 VLM
 
@@ -183,9 +195,9 @@ curl -sf http://localhost:30081/v1/health/ready && echo "LLM NIM ready"
 curl -s http://localhost:30081/v1/models | jq -r '.data[].id'
 ```
 
-Expected model ID is `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`. If
-`/v1/models` returns a different ID, use the returned ID as `LLM_NAME` in
-`generated.env`.
+The `1.0.0-variant` image serves `nvidia/nemotron-nano-9b-v2` (verified on GB10) —
+not the image-name-derived `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`. Use
+whatever ID `/v1/models` returns as `LLM_NAME` in `generated.env`.
 
 Then apply env overrides to `dev-profile-base/generated.env`:
 
@@ -193,12 +205,14 @@ Then apply env overrides to `dev-profile-base/generated.env`:
 |---|---|---|
 | `LLM_MODE` | `remote` | The DGX Spark NIM is standalone until it is wired into compose |
 | `LLM_BASE_URL` | `http://localhost:30081` | The local NIM started above |
-| `LLM_NAME` | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` | Expected served model ID; verify with `/v1/models` |
+| `LLM_NAME` | `nvidia/nemotron-nano-9b-v2` | Served model ID of the `1.0.0-variant` image (verified on GB10); always confirm with `/v1/models` |
 | `LLM_NAME_SLUG` | `none` | Remote mode skips local LLM compose services |
 | `HARDWARE_PROFILE` | `DGX-SPARK` | Selects the DGX Spark VLM env file |
 | `VLM_MODE` | `local_shared` | VLM stays local on the shared edge GPU |
-| `VLM_NAME` | `nvidia/cosmos3-nano-reasoner` | Default local VLM |
-| `VLM_NAME_SLUG` | `cosmos3-reasoner` | Compose-managed VLM service |
+| `VLM_NAME` | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | Must equal RT-VLM's `/v1/models` id. The friendly name `nvidia/cosmos3-nano-reasoner` is a different string and makes every request 400 |
+| `VLM_NAME_SLUG` | `none` | Base has no `vlm_local_*_<slug>` compose profile, so a slug never starts a VLM NIM — RT-VLM serves the VLM |
+| `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.4` | **Required.** RT-VLM is the VLM server on base, and its fallback is `0.7` (85 GiB of 121.69) which cannot fit beside the LLM NIM's `0.4` |
+| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.08.2-sbsa` | GB10 needs the SBSA build (see [Caveats](#caveats)) |
 | `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 | `VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 
@@ -209,9 +223,16 @@ Edge 4B-specific prompt:
 VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml
 ```
 
-Then follow `SKILL.md` Steps 3-5 (resolve compose, normalize, `up -d`). The
-`cosmos3-reasoner` NIM compose automatically loads
-`hw-DGX-SPARK-shared.env`, which caps the VLM side for shared edge memory.
+Then follow `SKILL.md` Steps 3-5 (resolve compose, normalize, `up -d`).
+
+> **The VLM cap does not come from `hw-DGX-SPARK-shared.env` on base.** That file
+> belongs to the `cosmos3-reasoner` NIM service, and base's `COMPOSE_PROFILES`
+> lists `rtvi-vlm` with no `vlm_${VLM_MODE}_${VLM_NAME_SLUG}` entry — so that NIM
+> never resolves and its `NIM_GPU_MEMORY_UTILIZATION=0.4` never loads. Confirm
+> with `grep -c cosmos3-reasoner: resolved.yml` (expect `0`) and
+> `grep VLLM_GPU_MEMORY_UTILIZATION resolved.yml` (expect `"0.4"`, **not** `""`).
+> An empty value here is the documented cause of `Engine core initialization
+> failed` / `Failed to load VLM on GPU 0` restart loops on this platform.
 
 ## Future compose-supported DGX Spark path
 

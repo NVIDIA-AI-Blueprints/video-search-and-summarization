@@ -4,8 +4,11 @@
 
 import importlib.util
 import json
-import subprocess
+import os
 from pathlib import Path
+import subprocess
+import sys
+import types
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -125,6 +128,93 @@ def test_legacy_recipe_reads_encoded_message(tmp_path: Path) -> None:
     )
 
     assert result.stdout.strip() == command
+
+
+def _fake_sdk() -> types.ModuleType:
+    module = types.ModuleType("claude_agent_sdk")
+    for name in (
+        "AssistantMessage",
+        "ClaudeAgentOptions",
+        "ClaudeSDKClient",
+        "ResultMessage",
+        "TextBlock",
+    ):
+        setattr(module, name, object)
+    return module
+
+
+def test_sdk_import_skips_install_when_already_available(monkeypatch) -> None:
+    """An installed SDK must not trigger a pip call on every check."""
+    judge = _load_generic_judge()
+    sdk = _fake_sdk()
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", sdk)
+    installs: list[list[str]] = []
+    monkeypatch.setattr(
+        judge,
+        "subprocess",
+        types.SimpleNamespace(run=lambda cmd, **kw: installs.append(cmd)),
+    )
+
+    assert judge._import_agent_sdk() is sdk
+    assert installs == []
+
+
+def test_sdk_import_retries_past_externally_managed_interpreter(monkeypatch) -> None:
+    """PEP 668 nodes (Ubuntu 24.04+, DGX Spark) need the override retry.
+
+    Without it the plain install exits non-zero, the re-import fails, and
+    every check reports ModuleNotFoundError instead of a verdict.
+    """
+    judge = _load_generic_judge()
+    sdk = _fake_sdk()
+    monkeypatch.delitem(sys.modules, "claude_agent_sdk", raising=False)
+    attempts: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        attempts.append(cmd)
+        if "--break-system-packages" in cmd:
+            sys.modules["claude_agent_sdk"] = sdk
+
+    monkeypatch.setattr(judge, "subprocess", types.SimpleNamespace(run=fake_run))
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", sdk)
+    monkeypatch.delitem(sys.modules, "claude_agent_sdk")
+
+    assert judge._import_agent_sdk() is sdk
+    assert len(attempts) == 2
+    assert "--break-system-packages" not in attempts[0]
+    assert "--break-system-packages" in attempts[1]
+
+
+def test_agent_cli_path_repair_only_when_unresolvable(tmp_path, monkeypatch) -> None:
+    """The judge SDK spawns `claude`; a fresh node hides it in ~/.local/bin."""
+    judge = _load_generic_judge()
+    local_bin = tmp_path / ".local" / "bin"
+    local_bin.mkdir(parents=True)
+    (local_bin / "claude").write_text("#!/bin/sh\n")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setattr(judge.Path, "home", staticmethod(lambda: tmp_path))
+
+    monkeypatch.setattr(judge, "shutil", types.SimpleNamespace(which=lambda _: None))
+    judge._ensure_agent_cli_on_path()
+    assert str(local_bin) in os.environ["PATH"]
+
+    # A verifier running as root still has to find the trial user's CLI.
+    trial_home_root = tmp_path / "home"
+    trial_bin = trial_home_root / "ubuntu" / ".local" / "bin"
+    trial_bin.mkdir(parents=True)
+    (trial_bin / "claude").write_text("#!/bin/sh\n")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setattr(judge.Path, "home", staticmethod(lambda: tmp_path / "root"))
+    monkeypatch.setattr(judge, "_TRIAL_HOME_ROOT", trial_home_root)
+    judge._ensure_agent_cli_on_path()
+    assert str(trial_bin) in os.environ["PATH"]
+
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setattr(
+        judge, "shutil", types.SimpleNamespace(which=lambda _: "/usr/local/bin/claude")
+    )
+    judge._ensure_agent_cli_on_path()
+    assert os.environ["PATH"] == "/usr/bin"
 
 
 def test_normalized_jsonl_recipe_reads_canonical_call(tmp_path: Path) -> None:

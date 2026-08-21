@@ -6,6 +6,9 @@
     "platforms": {
       "RTXPRO6000BW": {
         "gpu_count": 1
+      },
+      "DGX-SPARK": {
+        "gpu_count": 1
       }
     }
   },
@@ -19,7 +22,9 @@
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-vios-postgres` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0"
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+        "`docker inspect vss-rtvi-vlm --format '{{.State.Health.Status}}'` prints `healthy` (RT-VLM serves the VLM for the base profile, so a crash-looping or unhealthy container means no VLM even when every other service is up)",
+        "The model id returned by `curl -sf --max-time 15 http://localhost:8018/v1/models` matches the `VLM_NAME` value in `developer-profiles/dev-profile-base/generated.env` (a mismatch makes the agent request a model RT-VLM does not serve, and every summarization returns 400)"
       ]
     }
   ]
