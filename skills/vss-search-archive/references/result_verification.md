@@ -95,9 +95,20 @@ a cached/local copy.
 
 ## Invoke ordinary ask-video
 
-Pass the complete original visual intent and the resolved `VIDEO_URL`. Ask the
-VLM to analyze only that bounded clip, ignore scores, filenames, object IDs,
-and other retrieval metadata, and return exactly one JSON object:
+Pass exactly two inputs to `vss-ask-video`: the resolved `VIDEO_URL` and a
+`QUESTION`. Do not pass the sensor or stream ID, timestamps, source name, model,
+endpoint, retrieval metadata, or request/retry instructions as skill arguments.
+The caller retains that operational context and validates the returned verdict.
+Invoke the skill exactly once. Its confirmed-search handoff must finish all
+read-only endpoint selection first, then make one inference request. Permit one
+additional request only when a 2xx answer is malformed JSON, and only as a
+same-endpoint, same-model, same-clip repair. An HTTP/auth/media/model failure is
+technical and must not trigger another inference request; a valid semantic
+verdict must never be retried.
+
+Build `QUESTION` from the complete original visual intent. Require analysis of
+only the bounded clip, ignore scores, filenames, object IDs, and other retrieval
+metadata, and request exactly one JSON object with exactly these four keys:
 
 ```json
 {
@@ -109,6 +120,23 @@ and other retrieval metadata, and return exactly one JSON object:
   "evidence": "The bounded clip visibly shows the requested subject and action.",
   "media_evaluated": true
 }
+```
+
+Require no Markdown fence, preamble, summary, or fields beyond `result`,
+`criteria_met`, `evidence`, and `media_evaluated`. A suitable handoff is:
+
+```text
+VIDEO_URL=<resolved bounded clip URL>
+QUESTION=Evaluate only this bounded clip for: <complete original visual intent>.
+Ignore retrieval scores, filenames, object IDs, and metadata as evidence. Return
+only one JSON object with exactly these keys: result, criteria_met, evidence,
+media_evaluated. result must be confirmed, rejected, or unverified;
+criteria_met must be an object whose values are booleans; evidence must be a
+nonempty string; media_evaluated must be true. Use confirmed only when every
+criterion is true, rejected when any criterion is visibly false, and unverified
+only when the visual evidence is genuinely inconclusive. Evidence must describe
+only visible content and must not mention a VLM, model, endpoint, API, request,
+retry, or backend. Add no prose or fields.
 ```
 
 Require `result` to be `confirmed`, `rejected`, or `unverified`, every
@@ -124,6 +152,11 @@ missing criteria or broaden the interval. State that fallback evidence is one
 representative image. If it is unavailable, retain the retrieval hit and report
 verification as unavailable.
 
-Keep progress implementation-neutral: say that verification is running or
-that a secondary method is being used. Do not expose skill, model, endpoint, or
-parser details.
+Keep progress implementation-neutral: say only that verification is running or
+that a secondary method is being used. The final reply must contain only the
+verdict, boolean criteria, and visual evidence useful to the user. Do not expose
+skill names, model or vendor names, VLM terminology, endpoints or URLs, parser
+details, source/sensor/stream IDs or UUIDs, timeline-rebasing mechanics, or
+request/retry counts. Do not append an operational summary to the validated
+result. In particular, the final reply must not contain the term `VLM`, even
+when reporting a technical failure.

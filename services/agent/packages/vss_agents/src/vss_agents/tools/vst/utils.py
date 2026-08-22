@@ -14,6 +14,7 @@
 # limitations under the License.
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -65,6 +66,27 @@ class VSTError(Exception):
     """Base exception for VST errors."""
 
     pass
+
+
+def _sensor_is_present(payload: object, sensor_id: str, sensor_name: str = "") -> bool:
+    """Return whether VST still lists the source by UUID or canonical name."""
+    return isinstance(payload, list) and any(
+        isinstance(sensor, dict)
+        and (sensor.get("sensorId") == sensor_id or bool(sensor_name and sensor.get("name") == sensor_name))
+        for sensor in payload
+    )
+
+
+def _is_sensor_list(payload: object) -> bool:
+    """Return whether a VST sensor-list payload has the expected shape."""
+    return isinstance(payload, list) and all(
+        isinstance(sensor, dict)
+        and isinstance(sensor.get("sensorId"), str)
+        and bool(sensor["sensorId"])
+        and isinstance(sensor.get("name"), str)
+        and bool(sensor["name"])
+        for sensor in payload
+    )
 
 
 async def get_name_to_stream_id_map(vst_internal_url: str | None = None) -> dict[str, str]:
@@ -226,7 +248,7 @@ async def validate_video_url(url: str, timeout: int = 30) -> bool:
         raise VSTError(f"Unexpected error validating URL {url}: {e}") from e
 
 
-async def delete_vst_sensor(vst_url: str, sensor_id: str) -> tuple[bool, str]:
+async def delete_vst_sensor(vst_url: str, sensor_id: str, sensor_name: str = "") -> tuple[bool, str]:
     """
     Delete a sensor registration from VST.
 
@@ -236,6 +258,7 @@ async def delete_vst_sensor(vst_url: str, sensor_id: str) -> tuple[bool, str]:
     Args:
         vst_url: Base VST URL (e.g., http://localhost:30888)
         sensor_id: The sensor UUID to delete
+        sensor_name: Canonical source name used to detect VST UUID suffix changes
 
     Returns:
         (success, message) tuple
@@ -250,16 +273,26 @@ async def delete_vst_sensor(vst_url: str, sensor_id: str) -> tuple[bool, str]:
             if response.status in (200, 204):
                 logger.info("VST sensor deleted: %s", scrub_log(sensor_id))
                 return True, "OK"
-            if response.status == 404:
-                # Idempotent delete: VST storage deletion can cascade the
-                # sensor registration away before this paired call runs, so
-                # "not found" means the goal state (absent) is already met.
-                # Counting it as failure downgrades fully-clean deletions to
-                # status "partial" (observed live in the search Harbor eval).
-                logger.info("VST sensor already absent: %s", scrub_log(sensor_id))
-                return True, "already absent"
             text = await response.text()
-            return False, f"VST returned {response.status}: {text}"
+            delete_error = f"VST returned {response.status}: {text}"
+
+        # VST can remove a file sensor from its cache and still return an
+        # error when a secondary sensor-control cleanup fails. Read back the
+        # durable source registry before reporting a partial Agent deletion.
+        # This also keeps route/proxy errors fail-closed: if the exact UUID is
+        # still listed, the original DELETE error is preserved.
+        list_url = f"{vst_url.rstrip('/')}/vst/api/v1/sensor/list"
+        async with (
+            aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session,
+            session.get(list_url) as response,
+        ):
+            if response.status == 200:
+                payload = json.loads(await response.text())
+                sensor_present = _sensor_is_present(payload, sensor_id, sensor_name)
+                if _is_sensor_list(payload) and not sensor_present:
+                    logger.info("VST sensor already absent: %s", scrub_log(sensor_id))
+                    return True, "already absent"
+        return False, delete_error
     except Exception as e:
         logger.error("VST sensor delete failed: %s", e, exc_info=True)
         return False, str(e)
@@ -317,10 +350,78 @@ async def delete_vst_storage(vst_url: str, sensor_id: str) -> tuple[bool, str]:
                     logger.info("VST storage deleted: %s", scrub_log(sensor_id))
                     return True, "OK"
                 text = await del_response.text()
-                return False, f"VST storage returned {del_response.status}: {text}"
+                delete_error = f"VST storage returned {del_response.status}: {text}"
+
+            # A storage delete can complete while its HTTP response reports an
+            # error (for example, a concurrent file-sensor lifecycle event may
+            # finish the same cleanup). Verify the durable postcondition before
+            # downgrading the aggregate Agent response. This also fails closed
+            # for a missing/misrouted DELETE endpoint: the still-present
+            # timeline keeps the operation unsuccessful.
+            async with (
+                aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session,
+                session.get(timeline_url) as verify_response,
+            ):
+                if verify_response.status == 200:
+                    verify_text = await verify_response.text()
+                    verify_timelines = json.loads(verify_text)
+                    if not verify_timelines.get(sensor_id):
+                        logger.info(
+                            "VST storage already absent after delete response for %s",
+                            scrub_log(sensor_id),
+                        )
+                        return True, "already absent"
+            return False, delete_error
     except Exception as e:
         logger.error("VST storage delete failed: %s", e, exc_info=True)
         return False, str(e)
+
+
+async def verify_vst_cleanup(
+    vst_url: str,
+    sensor_id: str,
+    sensor_name: str = "",
+    attempts: int = 5,
+    interval_seconds: float = 1.0,
+) -> tuple[bool, str]:
+    """Verify that a source and its storage timeline are both absent.
+
+    VST may finish storage cleanup as a consequence of removing the file
+    sensor.  Call this only after both delete operations have been attempted;
+    it performs bounded read-only convergence checks and never retries a
+    mutation.
+    """
+    vst_url = vst_url.rstrip("/")
+    list_url = f"{vst_url}/vst/api/v1/sensor/list"
+    timeline_url = f"{vst_url}/vst/api/v1/storage/timelines"
+    last_error = "cleanup state did not converge"
+
+    for attempt in range(attempts):
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                async with session.get(list_url) as sensor_response:
+                    if sensor_response.status != 200:
+                        raise VSTError(f"VST sensor readback returned {sensor_response.status}")
+                    sensors = json.loads(await sensor_response.text())
+
+                async with session.get(timeline_url) as timeline_response:
+                    if timeline_response.status != 200:
+                        raise VSTError(f"VST timeline readback returned {timeline_response.status}")
+                    timelines = json.loads(await timeline_response.text())
+
+            sensor_absent = _is_sensor_list(sensors) and not _sensor_is_present(sensors, sensor_id, sensor_name)
+            storage_absent = isinstance(timelines, dict) and not timelines.get(sensor_id)
+            if sensor_absent and storage_absent:
+                logger.info("VST source and storage absent: %s", scrub_log(sensor_id))
+                return True, "source and storage absent"
+            last_error = f"sensor_absent={sensor_absent}, storage_absent={storage_absent}"
+        except Exception as e:
+            last_error = str(e)
+
+        if attempt + 1 < attempts:
+            await asyncio.sleep(interval_seconds)
+
+    return False, last_error
 
 
 class VSTDirectUploader:

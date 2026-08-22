@@ -31,6 +31,7 @@ from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.tools.vst.utils import get_storage_timeline
 from vss_agents.tools.vst.utils import validate_video_url
+from vss_agents.tools.vst.utils import verify_vst_cleanup
 
 # Sample mock data based on real VST server responses
 MOCK_STREAMS_RESPONSE = [
@@ -401,6 +402,129 @@ class TestDeleteVSTResources:
         assert message == "No storage to delete"
         mock_session.delete.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_delete_vst_storage_error_is_success_when_timeline_is_gone(self):
+        """A failed response is idempotent only when a fresh read proves absence."""
+        timeline = {
+            "stream-1": [
+                {
+                    "startTime": "2025-01-01T00:00:00Z",
+                    "endTime": "2025-01-01T00:00:30Z",
+                }
+            ]
+        }
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
+            side_effect=[
+                create_mock_response(200, json.dumps(timeline)),
+                create_mock_response(200, json.dumps({})),
+            ]
+        )
+        mock_session.delete = MagicMock(return_value=create_mock_response(500, "delete raced with cleanup"))
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_storage("http://localhost:30888", "stream-1")
+
+        assert success is True
+        assert message == "already absent"
+        assert mock_session.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_storage_error_fails_when_timeline_remains(self):
+        """A route or backend error cannot be hidden while storage remains."""
+        timeline = {
+            "stream-1": [
+                {
+                    "startTime": "2025-01-01T00:00:00Z",
+                    "endTime": "2025-01-01T00:00:30Z",
+                }
+            ]
+        }
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
+            side_effect=[
+                create_mock_response(200, json.dumps(timeline)),
+                create_mock_response(200, json.dumps(timeline)),
+            ]
+        )
+        mock_session.delete = MagicMock(return_value=create_mock_response(404, "route not found"))
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_storage("http://localhost:30888", "stream-1")
+
+        assert success is False
+        assert "404" in message
+        assert mock_session.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_verify_vst_cleanup_requires_sensor_and_storage_absence(self):
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
+            side_effect=[
+                create_mock_response(200, "[]"),
+                create_mock_response(200, "{}"),
+            ]
+        )
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await verify_vst_cleanup("http://localhost:30888", "stream-1")
+
+        assert success is True
+        assert message == "source and storage absent"
+
+    @pytest.mark.asyncio
+    async def test_verify_vst_cleanup_remains_fail_closed(self):
+        sensors = json.dumps([{"sensorId": "stream-1"}])
+        timelines = json.dumps({"stream-1": [{"startTime": "now", "endTime": "later"}]})
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
+            side_effect=[
+                create_mock_response(200, sensors),
+                create_mock_response(200, timelines),
+            ]
+        )
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await verify_vst_cleanup(
+                "http://localhost:30888",
+                "stream-1",
+                attempts=1,
+            )
+
+        assert success is False
+        assert "sensor_absent=False" in message
+        assert "storage_absent=False" in message
+
+    @pytest.mark.asyncio
+    async def test_verify_vst_cleanup_rejects_malformed_sensor_entries(self):
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
+            side_effect=[
+                create_mock_response(200, "[{}]"),
+                create_mock_response(200, "{}"),
+            ]
+        )
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await verify_vst_cleanup(
+                "http://localhost:30888",
+                "stream-1",
+                attempts=1,
+            )
+
+        assert success is False
+        assert "sensor_absent=False" in message
+
 
 class TestLegacyDeleteResources:
     """Legacy deletion helpers must encode request-derived path segments."""
@@ -609,8 +733,10 @@ class TestDeleteVSTSensorIdempotency:
     @pytest.mark.asyncio
     async def test_delete_vst_sensor_404_is_success(self):
         mock_delete_response = create_mock_response(404, "{}")
+        mock_list_response = create_mock_response(200, "[]")
         mock_session = MagicMock()
         mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.get = MagicMock(return_value=mock_list_response)
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
@@ -619,3 +745,97 @@ class TestDeleteVSTSensorIdempotency:
 
         assert success is True
         assert message == "already absent"
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_sensor_error_is_success_when_readback_is_absent(self):
+        mock_delete_response = create_mock_response(500, "sensor-control cleanup failed")
+        mock_list_response = create_mock_response(200, "[]")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.get = MagicMock(return_value=mock_list_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_sensor("http://localhost:30888", "removed-sensor")
+
+        assert success is True
+        assert message == "already absent"
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_sensor_error_fails_when_readback_still_lists_sensor(self):
+        mock_delete_response = create_mock_response(404, "route not found")
+        mock_list_response = create_mock_response(
+            200,
+            json.dumps([{"sensorId": "still-present", "name": "warehouse-ladder"}]),
+        )
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.get = MagicMock(return_value=mock_list_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_sensor("http://localhost:30888", "still-present")
+
+        assert success is False
+        assert "404" in message
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_sensor_error_rejects_malformed_readback_entries(self):
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=create_mock_response(404, "not found"))
+        mock_session.get = MagicMock(return_value=create_mock_response(200, "[{}]"))
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_sensor("http://localhost:30888", "sensor-1")
+
+        assert success is False
+        assert "404" in message
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_sensor_fails_for_same_name_under_suffixed_id(self):
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=create_mock_response(404, "not found"))
+        mock_session.get = MagicMock(
+            return_value=create_mock_response(
+                200,
+                json.dumps([{"sensorId": "sensor-1_1", "name": "warehouse-ladder"}]),
+            )
+        )
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_sensor("http://localhost:30888", "sensor-1", "warehouse-ladder")
+
+        assert success is False
+        assert "404" in message
+
+    @pytest.mark.asyncio
+    async def test_verify_vst_cleanup_checks_canonical_name(self):
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
+            side_effect=[
+                create_mock_response(
+                    200,
+                    json.dumps([{"sensorId": "sensor-1_1", "name": "warehouse-ladder"}]),
+                ),
+                create_mock_response(200, "{}"),
+            ]
+        )
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await verify_vst_cleanup(
+                "http://localhost:30888",
+                "sensor-1",
+                "warehouse-ladder",
+                attempts=1,
+            )
+
+        assert success is False
+        assert "sensor_absent=False" in message

@@ -51,6 +51,7 @@ Usage from the repository root:
         --video-io-skill-dir skills/vss-manage-video-io-storage \\
         --ask-video-skill-dir skills/vss-ask-video
 """
+
 from __future__ import annotations
 
 import argparse
@@ -66,11 +67,16 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 PLATFORMS: dict[str, dict] = {
-    "H100":          {"short_name": "h100",          "gpu_type": "H100",         "min_vram_per_gpu": 80, "brev_search": "H100"},
-    "L40S":          {"short_name": "l40s",          "gpu_type": "L40S",         "min_vram_per_gpu": 48, "brev_search": "L40S"},
-    "RTXPRO6000BW":  {"short_name": "rtxpro6000bw",  "gpu_type": "RTX PRO 6000", "min_vram_per_gpu": 96, "brev_search": "RTX PRO"},
-    "DGX-SPARK":     {"short_name": "spark",         "gpu_type": "GB10",         "min_vram_per_gpu": 96, "brev_search": "GB10"},
-    "IGX-THOR":      {"short_name": "thor",          "gpu_type": "Thor",         "min_vram_per_gpu": 64, "brev_search": "Thor"},
+    "H100": {"short_name": "h100", "gpu_type": "H100", "min_vram_per_gpu": 80, "brev_search": "H100"},
+    "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S"},
+    "RTXPRO6000BW": {
+        "short_name": "rtxpro6000bw",
+        "gpu_type": "RTX PRO 6000",
+        "min_vram_per_gpu": 96,
+        "brev_search": "RTX PRO",
+    },
+    "DGX-SPARK": {"short_name": "spark", "gpu_type": "GB10", "min_vram_per_gpu": 96, "brev_search": "GB10"},
+    "IGX-THOR": {"short_name": "thor", "gpu_type": "Thor", "min_vram_per_gpu": 64, "brev_search": "Thor"},
 }
 
 PREAMBLE = (
@@ -80,126 +86,51 @@ PREAMBLE = (
 )
 
 DEPLOYMENT_PREAMBLE = (
-    PREAMBLE
-    + " This step deploys and validates the search profile only; do not download or ingest sample "
+    PREAMBLE + " This step deploys and validates the search profile only; do not download or ingest sample "
     "media. Work from the validated project checkout and use `/vss-deploy-profile -p search -m "
     "remote-all`. Compose commands executed by that deployment workflow are expected. Once it "
     "returns, require local Agent and VST health, the project-local `vss search run --help`, the "
-    "running `vss-rtvi-vlm` proxy, and a nonempty bounded `/v1/models` response. On Brev, let the "
+    "running `vss-rtvi-vlm` proxy, a nonempty bounded RT-VLM `/v1/models` response, and a "
+    "nonempty bounded model list from the configured RT-Embed `/v1/models` route. Resolve the "
+    "configured RT-CV URL and boundedly require `/api/v1/ready` to report `ds-ready` exactly "
+    "`YES` at the top level or under `ready-info`. On Brev, let the "
     "deployment workflow mint the public secure-link origin from environment-provided values. Use "
     "the bundled `scripts/select_brev_origin.sh` to make the single public-origin decision and do not issue "
     "a public-origin curl yourself. Let that request, with redirects disabled, select the documented "
     "host-reachable fallback only when semantic validation fails, and record the final origin with "
-    "`vss configure --base-url`. Do not edit `VST_EXTERNAL_URL` or loop on routing. Initial profile "
+    "the project-local `vss configure --base-url`. Do not edit `VST_EXTERNAL_URL` or loop on routing. Initial profile "
     "deployment activity is not a routing violation. Stop after deployment validation; fixture "
     "ingestion belongs to the next persisted step."
 )
 
 INGESTION_PREAMBLE = (
-    PREAMBLE
-    + " The preceding step already deployed, validated, and configured the search profile. Reuse "
-    "that state. Read the origin from `vss configure show`; do not invoke `/vss-deploy-profile`, "
-    "`docker compose up`, restart or recreate containers, edit routing, or repeat public-origin "
-    "selection. If the prepared deployment is unavailable, report the prerequisite failure and stop "
-    "instead of repairing it. Initialize the source-lifecycle deadline once at the start of this "
-    "ingestion step. Make fixture setup idempotent through Agent-backed deletion, download the exact "
-    "pinned NGC bundle into a fresh directory, derive both upload paths only from that extraction rather "
-    "than a cached host file, and ingest only the two named files through the "
-    "three-step Agent workflow. Reconfigure once after ingestion so lazy indexes are discovered, "
-    "then require both canonical VST sources and the exact embedding, behavior, and raw index tuples. "
-    "Logs are diagnostics only. If bounded readiness expires, print diagnostics and fail; do not "
-    "reset the deadline, redeploy, restart, or re-ingest."
+    PREAMBLE + " The preceding step already deployed, validated, and configured the search profile. Reuse "
+    "that state and follow the skill's bundled self-contained fixture-ingestion operation exactly once. "
+    "Do not invoke `/vss-deploy-profile`, run `docker compose`, restart or recreate containers, edit "
+    "routing, repeat public-origin selection, or reconstruct the ingestion workflow in ad hoc shell. "
+    "If the prepared deployment or operation fails, report the structured failure and stop."
 )
 
 OPERATION_PREAMBLE = (
-    PREAMBLE
-    + " The search profile "
-    "and evaluation fixtures were prepared by the preceding deployment and ingestion steps. Do not redeploy "
-    "the profile and do not ingest or re-ingest any source during this step. Set "
-    "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
-    "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, and work from that checkout. "
-    "List registered sources through the prepared deployment's discovered VST/VIOS "
-    "connectivity: read the origin from `vss configure show` and "
-    "GET its `/vst/api/v1/sensor/list`; do not assume a fixed port. If "
-    "the requested source is not registered, follow the skill's missing-source rule: list "
-    "registered sources, report the missing source, and stop without silently substituting "
-    "another source. Do not test or invoke the search CLI for a missing source. When it is "
-    "missing, end by asking the user to clarify the source or explicitly request ingestion; "
-    "that clarification is "
-    "not a request for setup confirmation. For a resolved search request, decompose the request, "
-    "pass the decomposed visual query with `--query` (never as a positional argument), select an "
-    "retrieval path, and pass it as the sub-action of `run` -- `run embed` for a text query, "
-    "`run attribute` for attributes only, `run fusion` for both, `run object` for tracked ids -- "
-    "then run the host checkout's project-local `cd \"${VSS_REPO_ROOT}\" && uv run --project "
-    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run <path>` with no endpoint, index "
-    "or model flags (they come from `vss configure`). Preserve both the resolved source name and sensor ID: "
-    "pass the sensor ID as `--video-source` for `embed` and `fusion`, the name for `attribute` and `object`, "
-    "and pass `--source-type video_file` for these uploaded fixtures. Also pass `--raw` and any result "
-    "limit stated in the query. Put that fully constructed invocation in a `SEARCH_COMMAND` "
-    "bash array and execute it with `if ! SEARCH_JSON=$(\"${SEARCH_COMMAND[@]}\"); then` so only "
-    "the command's exact stdout is captured as `SEARCH_JSON`; fail on "
-    "a nonzero command status, and use `jq -e` to require a SearchOutput object with a data "
-    "array before parsing it. The forklift and ladder queries explicitly require results, so "
-    "require a nonempty data array for those two steps; the neon-pink negative retrieval step "
-    "may legitimately return zero and must report the exact count without failing. Always "
-    "assert that the number of successfully validated hits equals its length. Parse that compact JSON "
-    "internally. The CLI automatically attempts critic verification when the configured deployment "
-    "exposes VST and RT-VLM; preserve each hit's `verification.result` as confirmed, rejected, or "
-    "unverified. A missing or failed verifier is fail-open and must not fail retrieval. Do not download "
-    "or visually inspect screenshot pixels during the search query. Offer a `Verification Step` only "
-    "when every hit in the nonempty displayed result set remains unverified; if any hit is confirmed "
-    "or rejected, do not offer fallback verification. Never paste raw JSON "
-    "into the reply. For nonempty results, clearly summarize the CLI evidence fields; a particular heading "
-    "or prose layout is not required. Use a verification question only under the all-unverified rule above. "
-    "Preserve the CLI evidence "
-    "fields, and explicitly say that "
-    "similarity scores are retrieval evidence rather than visual confirmation. Preserve the exact returned "
-    "media URL from each CLI hit and verify that URL's "
-    "scheme, hostname, and effective port match the origin recorded by `vss configure show`, which "
-    "is the origin the CLI stamps into every hit. Prefer the Brev public HTTPS origin and reject "
-    "localhost, single-label/internal hostnames, and private, loopback, link-local, reserved, or "
-    "otherwise non-global IP addresses when that public origin was recorded. If setup used the "
-    "documented host-reachable fallback after its single bounded public probe failed, accept only "
-    "that exact recorded fallback origin and explicitly label the media URLs host-local. If a bounded GET "
-    "is needed for a later media action, use that same unmodified returned URL without a VST `streamId` "
-    "routing header. Never substitute `VST_EXTERNAL_URL`, localhost, or a reconstructed URL for the returned "
-    "screenshot URL; report media unavailability without invalidating successful retrieval. URL availability "
-    "is not visual evidence. If every displayed hit was unverified "
-    "and the user later confirms delegated verification, hand those bounded hits to vss-ask-video and use screenshot inspection "
-    "only after that workflow reports a technical failure. For a deletion request, do "
-    "not run search; use the skill's agent-backed cleanup workflow. Resolve the agent endpoint and "
-    "the distinct embedding, behavior, and raw indexes from `vss configure show` as during setup, "
-    "save the source UUID and canonical name before DELETE, require status `success`, "
-    "and poll the exact three index/field/value tuples to zero. Never use the embedding index for "
-    "behavior or raw cleanup validation. Do not look for a global executable. If the host command "
-    "fails, report its error and stop instead of substituting another search interface."
+    PREAMBLE + " The search profile and fixtures are prepared by preceding steps. Do not deploy, ingest, "
+    "restart, or change routing. Perform only the requested search or deletion and follow the "
+    "bundled vss-search-archive skill for source resolution, project-local CLI use, result "
+    "reporting, verification, and cleanup. Stop on a structured operation failure."
 )
 
 VERIFICATION_PREAMBLE = (
-    PREAMBLE
-    + " The search profile and fixtures remain prepared from earlier steps. This is an explicit "
-    "post-results confirmation for one already-displayed, unverified bounded hit. Do not rerun "
-    "search, deploy, ingest, delete, or inspect screenshot pixels. Resolve the exact current "
-    "warehouse-ladder sensor ID from the origin recorded by `vss configure show`, map the supplied "
-    "synthetic file-search timestamps onto that sensor's current VST timeline as required by the "
-    "search-result verification reference, and resolve exactly that bounded clip. Invoke the bundled "
-    "vss-ask-video skill through its ordinary pre-resolved `VIDEO_URL` path. Ask it to evaluate only "
-    "that clip against the complete supplied visual intent and return the structured result contract. "
-    "Validate `result`, boolean `criteria_met`, nonempty `evidence`, and `media_evaluated: true`. Make one "
-    "VLM request, with at most one additional request solely to repair malformed structured output; never retry "
-    "a semantic verdict. "
-    "A semantic `unverified` is a completed visual check. Screenshot inspection is permitted only "
-    "after a technical clip, endpoint, media, or model failure, and must be labeled representative-image "
-    "evidence. Keep the final response implementation-neutral."
+    PREAMBLE + " The profile and fixtures remain prepared. This is explicit confirmation for one previously "
+    "displayed unverified hit. Do not search, deploy, ingest, delete, or inspect screenshots. Follow "
+    "the search skill's result-verification reference exactly, including its bounded clip, request, "
+    "structured-result, fallback, and implementation-neutral reporting rules."
 )
 
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
-    PREAMBLE
-    + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
+    PREAMBLE + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
     "redeploy, execute the example commands, inspect a cluster, or reuse the Docker "
     "deployment from earlier steps. Kubernetes and Compose use the same commands and "
     "differ only in the origin: source listing uses that origin's public /vst route, and "
-    "search runs `vss configure --base-url <origin>` once followed by `vss search run "
+    "search runs the project-local `vss configure --base-url <origin>` once followed by the project-local `vss search run "
     "<path>`. Do not use kubectl, port-forward, Service DNS, NodePorts, localhost ports, "
     "or direct Elasticsearch/RTVI access."
 )
@@ -303,11 +234,7 @@ def _validate_spec(spec: dict) -> None:
     expects = spec.get("expects")
     if not isinstance(expects, list) or not expects:
         raise ValueError("spec.expects must be a non-empty list")
-    if (
-        len(expects) < 2
-        or not isinstance(expects[0], dict)
-        or expects[0].get("scenario") != "deploy-search-profile"
-    ):
+    if len(expects) < 2 or not isinstance(expects[0], dict) or expects[0].get("scenario") != "deploy-search-profile":
         raise ValueError("spec.expects[0] must be the deploy-search-profile scenario")
     if not isinstance(expects[1], dict) or expects[1].get("scenario") != "ingest-search-fixtures":
         raise ValueError("spec.expects[1] must be the ingest-search-fixtures scenario")
@@ -317,8 +244,10 @@ def _validate_spec(spec: dict) -> None:
         if not isinstance(expect.get("query"), str) or not expect["query"].strip():
             raise ValueError(f"spec.expects[{index}].query must be a non-empty string")
         checks = expect.get("checks")
-        if not isinstance(checks, list) or not checks or not all(
-            isinstance(check, str) and check.strip() for check in checks
+        if (
+            not isinstance(checks, list)
+            or not checks
+            or not all(isinstance(check, str) and check.strip() for check in checks)
         ):
             raise ValueError(f"spec.expects[{index}].checks must be a non-empty list of strings")
     if "vss-ask-video" not in skills and any(
@@ -341,17 +270,20 @@ def _render_spec(value: object, *, platform: str, profile: str) -> object:
     if isinstance(value, list):
         return [_render_spec(item, platform=platform, profile=profile) for item in value]
     if isinstance(value, dict):
-        return {
-            key: _render_spec(item, platform=platform, profile=profile)
-            for key, item in value.items()
-        }
+        return {key: _render_spec(item, platform=platform, profile=profile) for key, item in value.items()}
     return value
 
 
-def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
-                  skill_dir: Path, deploy_skill_dir: Path | None,
-                  video_io_skill_dir: Path | None,
-                  ask_video_skill_dir: Path | None) -> None:
+def generate_task(
+    platform: str,
+    profile: str,
+    spec: dict,
+    output_root: Path,
+    skill_dir: Path,
+    deploy_skill_dir: Path | None,
+    video_io_skill_dir: Path | None,
+    ask_video_skill_dir: Path | None,
+) -> None:
     _validate_spec(spec)
     if platform not in PLATFORMS:
         raise ValueError(f"unsupported platform: {platform}")
@@ -402,10 +334,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # brev_env.py::_check_instance_matches enforces strict equality, so the
         # task.toml value must match the operator's pool allocation exactly.
         gpu_count = int(
-            ((spec.get("resources") or {}).get("platforms") or {})
-            .get(platform, {})
-            .get("gpu_count", 1)
-            or 1
+            ((spec.get("resources") or {}).get("platforms") or {}).get(platform, {}).get("gpu_count", 1) or 1
         )
 
         meta_lines = [
@@ -430,8 +359,8 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
-            f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            f'gpu_count = {gpu_count}',
+            f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
+            f"gpu_count = {gpu_count}",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -459,10 +388,12 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
 
         # skills/ — primary + deploy + VIOS + ask-video. The affirmative
         # verification step must exercise its actual bundled dependency.
-        copies = [(skill_dir, "vss-search-archive"),
-                  (deploy_skill_dir, "vss-deploy-profile"),
-                  (video_io_skill_dir, "vss-manage-video-io-storage"),
-                  (ask_video_skill_dir, "vss-ask-video")]
+        copies = [
+            (skill_dir, "vss-search-archive"),
+            (deploy_skill_dir, "vss-deploy-profile"),
+            (video_io_skill_dir, "vss-manage-video-io-storage"),
+            (ask_video_skill_dir, "vss-ask-video"),
+        ]
         for src, name in copies:
             if src and src.exists():
                 dst = step_dir / "skills" / name
@@ -475,25 +406,37 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
 # CLI
 # ---------------------------------------------------------------------------
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--output-dir", required=True,
-                        help="Dataset output root (e.g. .github/skill-eval/datasets/vss-search-archive)")
-    parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/vss-search-archive")
-    parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
-    parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
-                        help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)")
-    parser.add_argument("--ask-video-skill-dir", default=None,
-                        help="Path to skills/vss-ask-video (optional — required by the confirmed verification step)")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--output-dir", required=True, help="Dataset output root (e.g. .github/skill-eval/datasets/vss-search-archive)"
+    )
+    parser.add_argument("--skill-dir", required=True, help="Path to skills/vss-search-archive")
+    parser.add_argument(
+        "--deploy-skill-dir",
+        default=None,
+        help="Path to skills/vss-deploy-profile (optional — included for agent debug)",
+    )
+    parser.add_argument(
+        "--video-io-skill-dir",
+        dest="video_io_skill_dir",
+        default=None,
+        help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)",
+    )
+    parser.add_argument(
+        "--ask-video-skill-dir",
+        default=None,
+        help="Path to skills/vss-ask-video (optional — required by the confirmed verification step)",
+    )
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
-    parser.add_argument("--spec", default=None,
-                        help="Path to search.json (default: <skill-dir>/evals/search.json)")
-    parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()),
-                        help="Generate for one platform only (overrides spec.resources.platforms)")
+    parser.add_argument("--spec", default=None, help="Path to search.json (default: <skill-dir>/evals/search.json)")
+    parser.add_argument(
+        "--platform",
+        default=None,
+        choices=list(PLATFORMS.keys()),
+        help="Generate for one platform only (overrides spec.resources.platforms)",
+    )
     args = parser.parse_args()
 
     output_root = Path(args.output_dir)
@@ -537,8 +480,9 @@ def main() -> None:
     for platform in platforms:
         task_id = PLATFORMS[platform]["short_name"]
         print(f"  GEN  vss-search-archive/{profile}/{task_id}")
-        generate_task(platform, profile, spec, output_root, skill_dir,
-                      deploy_skill_dir, video_io_skill_dir, ask_video_skill_dir)
+        generate_task(
+            platform, profile, spec, output_root, skill_dir, deploy_skill_dir, video_io_skill_dir, ask_video_skill_dir
+        )
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
 

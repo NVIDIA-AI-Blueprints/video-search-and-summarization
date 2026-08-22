@@ -1352,6 +1352,15 @@ def run_invocations(
                     )
                 return 124
 
+        # Harbor can flatten ``environment_dir`` to the platform directory,
+        # so the Brev environment cannot safely infer step-N from that path.
+        # Pass the invocation's authoritative chain metadata explicitly; a
+        # mistaken step-1 classification wipes the deployment before step-2.
+        if invocation.step_index is None:
+            env.pop("HARBOR_SKILL_EVAL_STEP_INDEX", None)
+        else:
+            env["HARBOR_SKILL_EVAL_STEP_INDEX"] = str(invocation.step_index)
+
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
