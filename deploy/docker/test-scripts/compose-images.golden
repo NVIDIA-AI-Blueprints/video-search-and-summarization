@@ -73,6 +73,10 @@ deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blue
 deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
 deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
 deploy/docker/services/vios/initiator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
+deploy/docker/services/vios/streamprocessing/docker-compose.prebaked.yaml vss-vios-streamprocessing-prebaked:develop-latest
+deploy/docker/services/vios/streamprocessing/docker-compose.prebaked.yaml vss-vios-streamprocessing-prebaked:develop-latest
+deploy/docker/services/vios/streamprocessing/docker-compose.prebaked.yaml vss-vios-streamprocessing-prebaked:develop-latest
+deploy/docker/services/vios/streamprocessing/docker-compose.prebaked.yaml vss-vios-streamprocessing-prebaked:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
