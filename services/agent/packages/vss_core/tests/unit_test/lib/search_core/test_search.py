@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +15,7 @@ import pytest
 from vss_core.search_core.agent_chunks import AgentMessageChunk
 from vss_core.search_core.agent_chunks import AgentMessageChunkType
 from vss_core.search_core.errors import BackendUnreachableError
+from vss_core.search_core.errors import ConfigurationError
 from vss_core.search_core.errors import IndexNotFoundError
 from vss_core.search_core.errors import InvalidInputError
 from vss_core.search_core.errors import NoFinalResultError
@@ -26,6 +28,8 @@ from vss_core.search_core.models.attribute_search import AttributeSearchResult
 from vss_core.search_core.models.embed_search import EmbedSearchOutput
 from vss_core.search_core.models.embed_search import EmbedSearchResultItem
 from vss_core.search_core.models.search import SearchInput
+from vss_core.search_core.models.tag_search import TagSearchOutput
+from vss_core.search_core.models.tag_search import TagSearchResultItem
 from vss_core.search_core.primitives._search_helpers import execute_core_search_wrapper
 from vss_core.search_core.primitives.search import Search
 from vss_core.search_core.primitives.search import _coerce_attribute_payload
@@ -61,6 +65,19 @@ class _FakeAttr:
         if self._error is not None:
             raise self._error
         return list(self._results)
+
+
+class _FakeTag:
+    def __init__(self, output: TagSearchOutput | None = None, error: Exception | None = None) -> None:
+        self.output = output or TagSearchOutput()
+        self.error = error
+        self.calls: list[Any] = []
+
+    async def ainvoke(self, payload: Any) -> TagSearchOutput:
+        self.calls.append(payload)
+        if self.error:
+            raise self.error
+        return self.output
 
 
 class _FakeBehaviorEs:
@@ -140,6 +157,7 @@ def _config(**overrides: Any) -> SimpleNamespace:
         "fusion_method": "rrf",
         "w_attribute": 0.55,
         "w_embed": 0.35,
+        "w_tag": 0.45,
         "rrf_k": 60,
         "rrf_w": 0.5,
         "top_percent_filter": None,
@@ -154,6 +172,8 @@ def _config(**overrides: Any) -> SimpleNamespace:
 
 
 async def _run(inp: SearchInput, **kwargs: Any) -> Any:
+    if inp.search_mode == "fusion" and "tag_search" not in kwargs:
+        kwargs["tag_search"] = _FakeTag()
     return await execute_core_search_wrapper(search_input=inp, **kwargs)
 
 
@@ -161,6 +181,116 @@ async def _run(inp: SearchInput, **kwargs: Any) -> Any:
 
 
 class TestExecutionPaths:
+    @pytest.mark.asyncio
+    async def test_fusion_requires_tag_provider(self):
+        with pytest.raises(ConfigurationError, match="tag_search must be pre-loaded"):
+            await execute_core_search_wrapper(
+                search_input=SearchInput(
+                    query="forklift", source_type="video_file", video_sources=["cam1"], search_mode="fusion"
+                ),
+                embed_search=_FakeEmbed([_embed_output([])]),
+                config=_config(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_fusion_propagates_provider_cancellation(self):
+        tag = _FakeTag(error=asyncio.CancelledError())
+        with pytest.raises(asyncio.CancelledError):
+            await _run(
+                SearchInput(query="forklift", source_type="video_file", video_sources=["cam1"], search_mode="fusion"),
+                embed_search=_FakeEmbed([_embed_output([])]),
+                tag_search=tag,
+                config=_config(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_fusion_propagates_provider_input_errors(self):
+        tag = _FakeTag(error=InvalidInputError("unknown source"))
+        with pytest.raises(InvalidInputError, match="unknown source"):
+            await _run(
+                SearchInput(query="forklift", source_type="video_file", video_sources=["cam1"], search_mode="fusion"),
+                embed_search=_FakeEmbed([_embed_output([])]),
+                tag_search=tag,
+                config=_config(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_tag_only_path(self):
+        tag = _FakeTag(
+            TagSearchOutput(
+                results=[
+                    TagSearchResultItem(
+                        video_name="tagged",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:00:00Z",
+                        end_time="2025-01-01T00:00:05Z",
+                        lexical_score=3.2,
+                        tags=["red forklift"],
+                    )
+                ]
+            )
+        )
+        out = await _run(
+            SearchInput(query="red forklift", source_type="video_file", search_mode="tag"),
+            embed_search=_FakeEmbed([_embed_output([])]),
+            tag_search=tag,
+            config=_config(),
+        )
+        assert [result.video_name for result in out.data] == ["tagged"]
+        assert tag.calls[0]["query"] == "red forklift"
+        assert tag.calls[0]["video_sources"] is None
+
+    @pytest.mark.asyncio
+    async def test_fusion_unions_tag_only_and_embed_only_hits(self):
+        embed = _FakeEmbed([_embed_output([_embed_item(video_name="embed-only", sensor_id="camE")])])
+        tag = _FakeTag(
+            TagSearchOutput(
+                results=[
+                    TagSearchResultItem(
+                        video_name="tag-only",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:00:00Z",
+                        end_time="2025-01-01T00:00:05Z",
+                        lexical_score=2.0,
+                        tags=["forklift"],
+                    )
+                ]
+            )
+        )
+        out = await _run(
+            SearchInput(query="forklift", source_type="video_file", search_mode="fusion"),
+            embed_search=embed,
+            tag_search=tag,
+            config=_config(),
+        )
+        assert {result.video_name for result in out.data} == {"embed-only", "tag-only"}
+        assert tag.calls[0]["video_sources"] is None
+
+    @pytest.mark.asyncio
+    async def test_fusion_respects_no_merge_adjacent(self):
+        tag = _FakeTag(
+            TagSearchOutput(
+                results=[
+                    TagSearchResultItem(
+                        video_name=f"tag-{index}",
+                        sensor_id="camT",
+                        start_time=f"2025-01-01T00:00:0{index * 4}Z",
+                        end_time=f"2025-01-01T00:00:0{index * 4 + 5}Z",
+                        lexical_score=2.0 - index,
+                        tags=["forklift"],
+                    )
+                    for index in range(2)
+                ]
+            )
+        )
+        out = await _run(
+            SearchInput(query="forklift", source_type="video_file", video_sources=["cam1"], search_mode="fusion"),
+            embed_search=_FakeEmbed([_embed_output([])]),
+            tag_search=tag,
+            config=_config(merge_adjacent=False),
+        )
+        assert len(out.data) == 2
+
     @pytest.mark.asyncio
     async def test_embed_only_path(self):
         embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", similarity=0.8)])])
@@ -203,6 +333,7 @@ class TestExecutionPaths:
             SearchInput(
                 query="person climbing ladder",
                 source_type="video_file",
+                video_sources=["cam1"],
                 attributes=["white jacket"],
                 search_mode="fusion",
             ),
@@ -223,6 +354,7 @@ class TestExecutionPaths:
             SearchInput(
                 query="person climbing ladder",
                 source_type="video_file",
+                video_sources=["cam1"],
                 attributes=["white jacket"],
                 search_mode="fusion",
             ),
@@ -241,6 +373,7 @@ class TestExecutionPaths:
             SearchInput(
                 query="q",
                 source_type="video_file",
+                video_sources=["cam1"],
                 attributes=["white jacket"],
                 search_mode="fusion",
             ),
@@ -252,13 +385,14 @@ class TestExecutionPaths:
         assert out.data[0].object_ids == ["42"]
 
     @pytest.mark.asyncio
-    async def test_fusion_without_embed_candidates_does_not_drop_action_query(self):
+    async def test_fusion_without_embed_candidates_retains_attribute_only_hit(self):
         embed = _FakeEmbed([_embed_output([])])
         attr = _FakeAttr([_attr_result(object_id="42", sensor_id="camX")])
         out = await _run(
             SearchInput(
                 query="person climbing ladder",
                 source_type="video_file",
+                video_sources=["cam1"],
                 attributes=["white jacket"],
                 search_mode="fusion",
             ),
@@ -267,11 +401,8 @@ class TestExecutionPaths:
             attribute_search_fn=attr,
         )
         assert len(embed.calls) == 1
-        assert attr.calls == []
-        assert out.data == []
-        assert out.search_messages == [
-            "Fusion search found no semantic candidates; attribute-only fallback was not used."
-        ]
+        assert len(attr.calls) == 1
+        assert [result.sensor_id for result in out.data] == ["camX"]
 
     @pytest.mark.asyncio
     async def test_object_id_path(self):
@@ -362,6 +493,7 @@ class TestFusionErrorSemantics:
             SearchInput(
                 query="q",
                 source_type="video_file",
+                video_sources=["cam1"],
                 attributes=["white jacket"],
                 search_mode="fusion",
                 top_k=5,
@@ -374,16 +506,24 @@ class TestFusionErrorSemantics:
         assert {r.video_name for r in out.data} == {"vA", "vB"}
 
     @pytest.mark.asyncio
-    async def test_fusion_propagates_index_not_found(self):
+    async def test_fusion_degrades_attribute_index_not_found(self):
         embed = _FakeEmbed([_embed_output([_embed_item(video_name="vA", sensor_id="camA", similarity=0.9)])])
         attr = _FakeAttr(error=IndexNotFoundError("behavior_index"))
-        with pytest.raises(IndexNotFoundError):
-            await _run(
-                SearchInput(query="q", source_type="video_file", attributes=["white jacket"], search_mode="fusion"),
-                embed_search=embed,
-                config=_config(),
-                attribute_search_fn=attr,
-            )
+        out = await _run(
+            SearchInput(
+                query="q",
+                source_type="video_file",
+                video_sources=["cam1"],
+                attributes=["white jacket"],
+                search_mode="fusion",
+            ),
+            embed_search=embed,
+            config=_config(),
+            attribute_search_fn=attr,
+        )
+
+        assert [result.video_name for result in out.data] == ["vA"]
+        assert any(message.startswith("Attribute provider degraded:") for message in out.search_messages)
 
 
 class TestFinalCapping:
@@ -535,6 +675,7 @@ class TestSingleWordAttributes:
             SearchInput(
                 query="q",
                 source_type="video_file",
+                video_sources=["cam1"],
                 attributes=["person", "red"],
                 search_mode="fusion",
             ),

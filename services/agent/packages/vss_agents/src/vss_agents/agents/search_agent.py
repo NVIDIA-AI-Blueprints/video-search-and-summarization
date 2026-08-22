@@ -167,6 +167,8 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         default=None, description="Attribute search tool for fusion (optional)"
     )
 
+    tag_search_tool: FunctionRef | None = Field(default=None, description="VLM tag BM25 search tool (optional)")
+
     agent_mode_llm: LLMRef | None = Field(
         default=None, description="LLM for query decomposition (required if agent_mode=True)"
     )
@@ -199,7 +201,7 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         ),
     )
 
-    fusion_method: Literal["weighted_linear", "rrf", "rrf_with_attribute_rank"] = Field(
+    fusion_method: Literal["weighted_linear", "weighted_rrf", "rrf", "rrf_with_attribute_rank"] = Field(
         default="rrf",
         description="Fusion method: 'weighted_linear' for weighted linear fusion, 'rrf' for Reciprocal Rank Fusion using embed rank, 'rrf_with_attribute_rank' for RRF using both embed and attribute ranks",
     )
@@ -213,6 +215,8 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         default=0.35,
         description="Weight for embed score in weighted linear fusion (default: 0.35)",
     )
+
+    w_tag: float = Field(default=0.45, ge=0.0, description="VLM tag rank weight for candidate-union fusion")
 
     rrf_k: int = Field(
         default=60,
@@ -437,6 +441,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
 
     # Load function references (for execute_core_search)
     embed_search_fn = await builder.get_function(config.embed_search_tool)
+    tag_search_fn = await builder.get_function(config.tag_search_tool) if config.tag_search_tool else None
     attribute_search_fn = None  # Function reference for fusion_search_rerank
 
     stream_name_resolver = _StreamNameResolver(config.vst_internal_url)
@@ -493,6 +498,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             builder=builder,
             attribute_search_fn=attribute_search_fn,
             critic_agent=critic_agent,
+            tag_search_fn=tag_search_fn,
         ):
             if isinstance(update, SearchOutput):
                 search_output = update
@@ -569,6 +575,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                 builder=builder,
                 attribute_search_fn=attribute_search_fn,
                 critic_agent=critic_agent,
+                tag_search_fn=tag_search_fn,
             ):
                 if isinstance(update, AgentMessageChunk):
                     # Forward progress updates directly

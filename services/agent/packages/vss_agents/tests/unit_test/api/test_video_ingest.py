@@ -371,6 +371,39 @@ class TestRunPostUploadProcessing:
         assert client.post.call_count == 0
 
     @pytest.mark.asyncio
+    async def test_uploaded_video_tagging_reuses_resolved_vst_url_and_embedding_timeline(self):
+        storage_resp = self._mock_response(200, {"videoUrl": "http://public-vst/storage/clip.mp4"})
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        tag_ingest = AsyncMock(return_value=2)
+
+        with (
+            self._timeline_patch(start="2026-08-11T10:00:00.000Z"),
+            patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client),
+            patch("vss_agents.api.video_ingest.ingest_uploaded_video_tags", tag_ingest),
+        ):
+            await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="",
+                vlm_tagging_base_url="http://rt-vlm:8018",
+                vlm_tagging_model="vlm-model",
+            )
+
+        tag_ingest.assert_awaited_once_with(
+            vlm_base_url="http://rt-vlm:8018",
+            vlm_model="vlm-model",
+            sensor_id="sensor-abc",
+            video_url="http://vst:8000/storage/clip.mp4",
+            creation_time="2025-01-01T00:00:00.000Z",
+            chunk_duration=5,
+        )
+
+    @pytest.mark.asyncio
     async def test_storage_api_missing_video_url_is_502(self):
         storage_resp = self._mock_response(200, {"unexpected": "shape"})
 

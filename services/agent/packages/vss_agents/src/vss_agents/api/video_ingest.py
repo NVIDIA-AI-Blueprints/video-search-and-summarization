@@ -55,6 +55,7 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from vss_agents.api.vlm_tagging import ingest_uploaded_video_tags
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
 from vss_agents.utils.time_measure import TimeMeasure
@@ -244,6 +245,9 @@ class _VideoUploadConfig(BaseModel):
     rtvi_cv_base_url: str = ""
     rtvi_embed_model: str = "cosmos-embed1-448p"
     rtvi_embed_chunk_duration: int = 5
+    vlm_tagging_base_url: str = ""
+    vlm_tagging_model: str = ""
+    vlm_tagging_chunk_duration: int = 5
     disable_audio: bool = True
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS
@@ -266,6 +270,14 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
         rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+        raw_vlm_tagging_base_url = getattr(streaming_config, "vlm_tagging_base_url", "")
+        raw_vlm_tagging_model = getattr(streaming_config, "vlm_tagging_model", "")
+        raw_vlm_tagging_chunk_duration = getattr(streaming_config, "vlm_tagging_chunk_duration", 5)
+        vlm_tagging_base_url = raw_vlm_tagging_base_url if isinstance(raw_vlm_tagging_base_url, str) else ""
+        vlm_tagging_model = raw_vlm_tagging_model if isinstance(raw_vlm_tagging_model, str) else ""
+        vlm_tagging_chunk_duration = (
+            raw_vlm_tagging_chunk_duration if isinstance(raw_vlm_tagging_chunk_duration, int) else 5
+        )
         disable_audio = not bool(getattr(streaming_config, "enable_audio", False))
     else:
         # NAT may strip unknown config sections — fall back to env vars set by
@@ -281,6 +293,9 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
         rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = 5
+        vlm_tagging_base_url = os.getenv("RTVI_VLM_BASE_URL", "")
+        vlm_tagging_model = os.getenv("VLM_NAME", "")
+        vlm_tagging_chunk_duration = 5
         disable_audio = os.getenv("ENABLE_AUDIO", "false").strip().lower() not in ("true", "1", "yes")
 
     if not vst_internal_url:
@@ -318,6 +333,9 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url=rtvi_cv_base_url,
         rtvi_embed_model=rtvi_embed_model,
         rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+        vlm_tagging_base_url=vlm_tagging_base_url,
+        vlm_tagging_model=vlm_tagging_model,
+        vlm_tagging_chunk_duration=vlm_tagging_chunk_duration,
         disable_audio=disable_audio,
         rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
         rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
@@ -453,6 +471,9 @@ async def _run_post_upload_processing(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    vlm_tagging_base_url: str = "",
+    vlm_tagging_model: str = "",
+    vlm_tagging_chunk_duration: int = 5,
     disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
@@ -526,14 +547,15 @@ async def _run_post_upload_processing(
 
         logger.info(f"VST video URL obtained: {vst_file_path}")
 
-    # Register with RTVI-CV and trigger embedding generation concurrently.
-    # The two services are independent — they both consume the VST storage URL
-    # but write to disjoint backends — so running them in parallel cuts the
+    # Register with RTVI-CV, generate embeddings, and generate VLM tags concurrently.
+    # The services are independent — they consume the VST storage URL but write
+    # to disjoint backends — so running them in parallel cuts the
     # post-upload wall time roughly down to max(cv_time, embed_time) instead
     # of cv_time + embed_time. The embed call is the long pole (it blocks
     # until generation completes, up to 600s), so the savings are real.
     parsed_cv = _parse_optional_http_url(rtvi_cv_base_url)
     parsed_embed = _parse_optional_http_url(rtvi_embed_base_url)
+    parsed_vlm_tagging = _parse_optional_http_url(vlm_tagging_base_url)
 
     rtvi_tasks: list[tuple[str, Any]] = []
 
@@ -574,8 +596,29 @@ async def _run_post_upload_processing(
     else:
         logger.info("RTVI Embed not configured, skipping embedding generation")
 
+    if parsed_vlm_tagging is not None and vlm_tagging_model:
+        parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
+        if not parsed_vst.hostname:
+            raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
+        tag_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
+        rtvi_tasks.append(
+            (
+                "vlm-tagging",
+                ingest_uploaded_video_tags(
+                    vlm_base_url=vlm_tagging_base_url,
+                    vlm_model=vlm_tagging_model,
+                    sensor_id=sensor_id,
+                    video_url=tag_video_url,
+                    creation_time=start_timestamp,
+                    chunk_duration=vlm_tagging_chunk_duration,
+                ),
+            )
+        )
+    else:
+        logger.info("VLM tagging not fully configured, skipping tag generation")
+
     if rtvi_tasks:
-        with TimeMeasure("video_ingest: RTVI-CV register + embedding generation (parallel)"):
+        with TimeMeasure("video_ingest: RTVI-CV + embeddings + VLM tags (parallel)"):
             results = await asyncio.gather(
                 *(coro for _, coro in rtvi_tasks),
                 return_exceptions=True,
@@ -643,6 +686,9 @@ def create_video_upload_complete_router(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    vlm_tagging_base_url: str = "",
+    vlm_tagging_model: str = "",
+    vlm_tagging_chunk_duration: int = 5,
     disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
@@ -689,6 +735,9 @@ def create_video_upload_complete_router(
                 rtvi_cv_base_url=rtvi_cv_base_url,
                 rtvi_embed_model=rtvi_embed_model,
                 rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                vlm_tagging_base_url=vlm_tagging_base_url,
+                vlm_tagging_model=vlm_tagging_model,
+                vlm_tagging_chunk_duration=vlm_tagging_chunk_duration,
                 disable_audio=disable_audio,
                 rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
@@ -743,6 +792,9 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 rtvi_cv_base_url=cfg.rtvi_cv_base_url,
                 rtvi_embed_model=cfg.rtvi_embed_model,
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
+                vlm_tagging_base_url=cfg.vlm_tagging_base_url,
+                vlm_tagging_model=cfg.vlm_tagging_model,
+                vlm_tagging_chunk_duration=cfg.vlm_tagging_chunk_duration,
                 disable_audio=cfg.disable_audio,
                 rtvi_cv_timeout_seconds=cfg.rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=cfg.rtvi_embed_timeout_seconds,

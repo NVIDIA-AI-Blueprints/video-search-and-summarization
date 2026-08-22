@@ -24,18 +24,20 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 from typing import Any
 
-__all__ = ["AttributeSearch", "EmbedSearch", "Search"]
+__all__ = ["AttributeSearch", "EmbedSearch", "Search", "TagSearch"]
 
 _LAZY_EXPORTS = {
     "AttributeSearch": ".attribute_search",
     "EmbedSearch": ".embed_search",
     "Search": ".search",
+    "TagSearch": ".tag_search",
 }
 
 if TYPE_CHECKING:
     from .attribute_search import AttributeSearch
     from .embed_search import EmbedSearch
     from .search import Search
+    from .tag_search import TagSearch
 
 
 def __getattr__(name: str) -> Any:

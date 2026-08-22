@@ -907,6 +907,33 @@ class TestAddStreamEndpoint:
         assert "camera-1" in response.message
 
     @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.start_live_tagging", new_callable=AsyncMock)
+    @patch("vss_agents.api.rtsp_ingest.add_to_vst", new_callable=AsyncMock)
+    async def test_search_path_starts_vlm_tagging_for_vst_rtsp_url(self, mock_add_vst, mock_start_tagging):
+        router = create_rtsp_ingest_router(
+            ServiceConfig(
+                vst_internal_url="http://vst:30888",
+                vlm_tagging_base_url="http://rt-vlm:8018",
+                vlm_tagging_model="vlm-model",
+            )
+        )
+        mock_add_vst.return_value = (True, "OK", "sensor-123", "rtsp://vst:554/sensor-123")
+
+        response = await router.routes[0].endpoint(
+            AddStreamRequest(sensor_url="rtsp://camera:554/stream", name="camera-1")
+        )
+
+        assert response.status == "success"
+        mock_start_tagging.assert_awaited_once_with(
+            vlm_base_url="http://rt-vlm:8018",
+            vlm_model="vlm-model",
+            sensor_id="sensor-123",
+            source_name="camera-1",
+            stream_url="rtsp://vst:554/sensor-123",
+            chunk_duration=5,
+        )
+
+    @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_ingest.cleanup_vst_storage")
     @patch("vss_agents.api.rtsp_ingest.cleanup_vst_sensor")
     @patch("vss_agents.api.rtsp_ingest.add_to_rtvi_vlm")

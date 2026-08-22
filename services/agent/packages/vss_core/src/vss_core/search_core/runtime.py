@@ -88,6 +88,7 @@ class SearchRuntime:
     # tools/embed_search.py:615 for the RTSP search-index selection. The library
     # extracts it for the same reason as behavior_index_wildcard.
     video_embed_index_wildcard: str = "mdx-embed-filtered-*"
+    tag_index: str = "default_*"
     frames_index: str | None = None  # None disables frame-level lookups
     # NEW in v1: today's code hardcodes "mdx-raw-*" at tools/attribute_search.py:1223
     # for the RTSP frames-index wildcard. Extracted for the same reason.
@@ -98,9 +99,10 @@ class SearchRuntime:
     # Search orchestrator default from functions.search.default_max_results.
     default_max_results: int = 10
     embed_confidence_threshold: float = 0.1  # config.yml:80 override; code default is 0.2
-    fusion_method: FusionMethod = "rrf"
+    fusion_method: FusionMethod = "weighted_rrf"
     w_attribute: float = 0.55
     w_embed: float = 0.35
+    w_tag: float = 0.45
     rrf_k: int = 60
     rrf_w: float = 0.5
     top_percent_filter: float | None = None
@@ -131,16 +133,19 @@ class SearchRuntime:
             raise ConfigurationError("request_timeout_seconds must be >= 1")
         if self.rrf_k < 1:
             raise ConfigurationError("rrf_k must be >= 1")
-        if self.fusion_method not in {"weighted_linear", "rrf", "rrf_with_attribute_rank"}:
+        if self.fusion_method not in {"weighted_rrf", "rrf"}:
             raise ConfigurationError(f"unsupported fusion_method: {self.fusion_method!r}")
-        for name in ("embed_confidence_threshold", "w_attribute", "w_embed", "rrf_w"):
+        for name in ("embed_confidence_threshold", "w_attribute", "w_embed", "w_tag", "rrf_w"):
             value = getattr(self, name)
             if not math.isfinite(value):
                 raise ConfigurationError(f"{name} must be finite")
         if not -1.0 <= self.embed_confidence_threshold <= 1.0:
             raise ConfigurationError("embed_confidence_threshold must be in [-1, 1]")
-        if self.w_attribute < 0 or self.w_embed < 0 or self.rrf_w < 0:
-            raise ConfigurationError("fusion weights must be non-negative")
+        for name in ("w_attribute", "w_embed", "w_tag", "rrf_w"):
+            if getattr(self, name) < 0:
+                raise ConfigurationError(f"{name} must be non-negative")
+        if self.w_attribute + self.w_embed + self.w_tag <= 0:
+            raise ConfigurationError("at least one fusion provider weight must be positive")
         if self.top_percent_filter is not None and not 0 < self.top_percent_filter < 1:
             raise ConfigurationError("top_percent_filter must be in (0, 1) when provided")
 

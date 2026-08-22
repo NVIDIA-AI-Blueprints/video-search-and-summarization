@@ -153,7 +153,10 @@ class _MockSearchServices:
             # itself, so the mock has to answer it.
             self._send_json(
                 handler,
-                [{"index": "mdx-embed-filtered-2025-01-01"}, {"index": "mdx-behavior-2025-01-01"}],
+                [
+                    {"index": "mdx-embed-filtered-2025-01-01"},
+                    {"index": "mdx-behavior-2025-01-01"},
+                ],
             )
             return
         if method == "POST" and path.endswith("/_search"):
@@ -175,6 +178,8 @@ class _MockSearchServices:
         self._send_json(handler, {"error": f"unexpected {method} {path}"}, status=404)
 
     def _search_response_for(self, path: str, body: Any) -> dict[str, Any]:
+        if path.startswith("/default_"):
+            return {"hits": {"hits": []}}
         if path == "/mdx-embed-filtered-2025-01-01/_search":
             return self.search_response
         if isinstance(body, dict) and body.get("query", {}).get("term", {}).get("object.id.keyword") is not None:
@@ -418,6 +423,8 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
         "person in a white jacket climbing a ladder",
         "--attribute",
         "white jacket",
+        "--video-source",
+        "warehouse_clip",
         "--top-k",
         "1",
         # search_mode is the sub-action now
@@ -432,6 +439,7 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
     ]
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body["text_input"] == "white jacket"
     search_paths = [request.path for request in mock_services.requests_ending_with("/_search")]
+    assert search_paths.count(f"/default_{_STREAM_ID.replace('-', '_')}/_search") == 1
     assert search_paths.count("/mdx-embed-filtered-2025-01-01/_search") == 1
     assert search_paths.count("/mdx-behavior-2025-01-01/_search") == 1
 

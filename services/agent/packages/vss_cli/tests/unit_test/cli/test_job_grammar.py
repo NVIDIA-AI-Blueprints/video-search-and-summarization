@@ -12,6 +12,7 @@ import click
 from click.testing import CliRunner
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import ValidationError
 import pytest
 
 from vss_cli import config as config_mod
@@ -20,6 +21,10 @@ from vss_cli.exits import Exit
 from vss_cli.group import CommandGroup
 from vss_cli.group import Context
 from vss_cli.group import Result
+from vss_cli.search_group import SEARCH
+from vss_cli.search_group import FusionInput
+from vss_cli.search_group import SearchTuning
+from vss_cli.search_group import TagInput
 
 
 class _Input(BaseModel):
@@ -89,6 +94,24 @@ def test_unset_options_do_not_override_model_defaults() -> None:
     """Click yields None/() for untouched flags; those must not reach the model."""
     supplied = params_mod.collect(_Input, {"query": "forklift", "top_k": None, "attributes": ()})
     assert supplied == {"query": "forklift"}
+
+
+def test_search_group_exposes_tag_and_configurable_union_fusion() -> None:
+    assert {action.name for action in SEARCH.actions} == {"embed", "attribute", "tag", "fusion", "object"}
+    tuning_options = {option.opts[0]: option for option in params_mod.options_from_model(SearchTuning)}
+    assert "--w-tag" in tuning_options
+    fusion_option = tuning_options["--fusion-method"]
+    assert isinstance(fusion_option.type, click.Choice)
+    assert set(fusion_option.type.choices) == {"weighted_rrf", "rrf"}
+
+
+def test_tag_and_fusion_cli_inputs_require_a_source() -> None:
+    with pytest.raises(ValidationError):
+        TagInput(query="forklift")  # type: ignore[call-arg]
+    with pytest.raises(ValidationError):
+        FusionInput(query="forklift")  # type: ignore[call-arg]
+    assert TagInput(query="forklift", video_sources=["dock camera"]).video_sources == ["dock camera"]
+    assert FusionInput(query="forklift", video_sources=["dock camera"]).attributes == []
 
 
 # --------------------------------------------------------------------------

@@ -120,6 +120,90 @@ def test_build_candidates_skips_unprocessable_item():
     assert candidates[0].normalised_attribute_score == pytest.approx(0.4)
 
 
+def test_weighted_rrf_union_keeps_tag_only_candidates() -> None:
+    shared_embed = _embed_result(video_name="shared", sensor_id="cam1")
+    shared_tag = _embed_result(
+        video_name="shared",
+        sensor_id="cam1",
+        start="2025-01-01T00:00:02Z",
+        end="2025-01-01T00:00:06Z",
+    )
+    tag_only = _embed_result(video_name="tag-only", sensor_id="cam2")
+    fused = _fusion.weighted_rrf_union(
+        {"embed": [shared_embed], "tag": [shared_tag, tag_only]},
+        weights={"embed": 0.35, "tag": 0.45},
+        rrf_k=60,
+    )
+    assert [result.video_name for result in fused] == ["shared", "tag-only"]
+    assert fused[0].similarity == pytest.approx((0.35 + 0.45) / 61)
+
+
+def test_weighted_rrf_union_deduplicates_object_ids() -> None:
+    left = _embed_result(object_ids=["1"])
+    right = _embed_result(object_ids=["1", "2", "2"])
+    fused = _fusion.weighted_rrf_union(
+        {"embed": [left], "attribute": [right]},
+        weights={"embed": 1.0, "attribute": 1.0},
+        rrf_k=60,
+    )
+    assert fused[0].object_ids == ["1", "2"]
+
+
+def test_weighted_rrf_union_does_not_collapse_same_provider_chunks() -> None:
+    first = _embed_result(
+        video_name="first",
+        sensor_id="cam1",
+        start="2025-01-01T00:00:00Z",
+        end="2025-01-01T00:00:05Z",
+    )
+    second = _embed_result(
+        video_name="second",
+        sensor_id="cam1",
+        start="2025-01-01T00:00:05Z",
+        end="2025-01-01T00:00:10Z",
+    )
+
+    fused = _fusion.weighted_rrf_union(
+        {"tag": [first, second]},
+        weights={"tag": 1.0},
+        rrf_k=60,
+    )
+
+    assert [(result.start_time, result.end_time) for result in fused] == [
+        ("2025-01-01T00:00:00Z", "2025-01-01T00:00:05Z"),
+        ("2025-01-01T00:00:05Z", "2025-01-01T00:00:10Z"),
+    ]
+    assert fused[0].similarity == pytest.approx(1.0 / 61)
+    assert fused[1].similarity == pytest.approx(1.0 / 62)
+
+
+def test_fuse_ranked_union_dispatches_weighted_and_equal_rrf() -> None:
+    shared_embed = _embed_result(video_name="shared", sensor_id="cam1")
+    shared_tag = _embed_result(video_name="shared", sensor_id="cam1")
+    providers = {"embed": [shared_embed], "tag": [shared_tag]}
+
+    weighted = _fusion.fuse_ranked_union(
+        providers,
+        method="weighted_rrf",
+        weights={"embed": 0.25, "tag": 0.75},
+        rrf_k=60,
+    )
+    equal = _fusion.fuse_ranked_union(
+        providers,
+        method="rrf",
+        weights={"embed": 0.25, "tag": 0.75},
+        rrf_k=60,
+    )
+
+    assert weighted[0].similarity == pytest.approx(1.0 / 61)
+    assert equal[0].similarity == pytest.approx(2.0 / 61)
+
+
+def test_fuse_ranked_union_rejects_unknown_method() -> None:
+    with pytest.raises(InvalidInputError, match="Unknown union fusion_method"):
+        _fusion.fuse_ranked_union({}, method="bogus", weights={}, rrf_k=60)
+
+
 # ------------------------------------------------------------------- fusion math
 
 

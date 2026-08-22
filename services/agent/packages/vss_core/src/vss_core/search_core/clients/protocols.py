@@ -66,11 +66,11 @@ class CVTextEmbedder(TextEmbedder, Protocol):
 class ElasticIndex(Protocol):
     """Elasticsearch surface used by primitives.
 
-    Matches the subset of elasticsearch.AsyncElasticsearch that primitives
-    actually use today — raw .search(index=..., body=...) calls. Keeping
+    Matches the subset of elasticsearch.AsyncElasticsearch that search and
+    tag ingestion use today — raw search and single-document index calls. Keeping
     the surface minimal makes primitives mockable without spinning up ES.
     The concrete ElasticClient (clients/elastic.py) wraps the existing
-    VSSESClient registry and forwards .search() through to its underlying
+    endpoint registry and forwards calls through to its underlying
     AsyncElasticsearch.
 
     NOTE: an earlier design draft proposed higher-level knn_search/term_search
@@ -84,6 +84,15 @@ class ElasticIndex(Protocol):
         *,
         index: str | list[str],
         body: Mapping[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Any: ...
+
+    async def index(
+        self,
+        *,
+        index: str,
+        document: Mapping[str, Any],
+        id: str | None = None,
         **kwargs: Any,
     ) -> Any: ...
 

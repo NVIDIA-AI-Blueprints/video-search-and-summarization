@@ -37,6 +37,7 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from vss_agents.api.vlm_tagging import start_live_tagging
 from vss_agents.tools.vst.utils import add_sensor as vst_add_sensor
 from vss_agents.tools.vst.utils import delete_sensor as vst_delete_sensor
 from vss_agents.tools.vst.utils import delete_storage as vst_delete_storage
@@ -69,6 +70,10 @@ class ServiceConfig:
         rtvi_cv_base_url: str = "",
         rtvi_embed_base_url: str = "",
         rtvi_vlm_base_url: str = "",
+        vlm_tagging_base_url: str = "",
+        vlm_tagging_model: str = "",
+        vlm_tagging_chunk_duration: int = 5,
+        elasticsearch_url: str = "",
         rtvi_embed_model: str = "cosmos-embed1-448p",
         rtvi_embed_chunk_duration: int = 5,
         delete_vst_storage_on_stream_remove: bool = True,
@@ -78,6 +83,10 @@ class ServiceConfig:
         self.rtvi_cv_url = rtvi_cv_base_url.rstrip("/") if rtvi_cv_base_url else ""
         self.rtvi_embed_url = rtvi_embed_base_url.rstrip("/") if rtvi_embed_base_url else ""
         self.rtvi_vlm_url = rtvi_vlm_base_url.rstrip("/") if rtvi_vlm_base_url else ""
+        self.vlm_tagging_url = vlm_tagging_base_url.rstrip("/") if vlm_tagging_base_url else ""
+        self.vlm_tagging_model = vlm_tagging_model
+        self.vlm_tagging_chunk_duration = vlm_tagging_chunk_duration
+        self.elasticsearch_url = elasticsearch_url.rstrip("/") if elasticsearch_url else ""
         self.rtvi_embed_model = rtvi_embed_model
         self.rtvi_embed_chunk_duration = rtvi_embed_chunk_duration
         self.delete_vst_storage_on_stream_remove = delete_vst_storage_on_stream_remove
@@ -103,6 +112,10 @@ def _resolve_service_config(config: Any) -> ServiceConfig:
         rtvi_cv_base_url=getattr(streaming_config, "rtvi_cv_base_url", "") or "",
         rtvi_embed_base_url=getattr(streaming_config, "rtvi_embed_base_url", "") or "",
         rtvi_vlm_base_url=getattr(streaming_config, "rtvi_vlm_base_url", "") or "",
+        vlm_tagging_base_url=getattr(streaming_config, "vlm_tagging_base_url", "") or "",
+        vlm_tagging_model=getattr(streaming_config, "vlm_tagging_model", "") or "",
+        vlm_tagging_chunk_duration=getattr(streaming_config, "vlm_tagging_chunk_duration", 5),
+        elasticsearch_url=getattr(streaming_config, "elasticsearch_url", "") or "",
         rtvi_embed_model=getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p"),
         rtvi_embed_chunk_duration=getattr(streaming_config, "rtvi_embed_chunk_duration", 5),
         delete_vst_storage_on_stream_remove=bool(
@@ -688,6 +701,36 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                     message=f"Failed at embedding generation: {msg}",
                     error=msg,
                 )
+
+            # Step 5: start the independently configured VLM tag stream. The
+            # The Agent owns the SSE consumer; RT-VLM publishes chunks through
+            # Kafka and Logstash owns Elasticsearch persistence.
+            if config.vlm_tagging_url and config.vlm_tagging_model:
+                try:
+                    with TimeMeasure("rtsp_stream: start VLM tagging"):
+                        await start_live_tagging(
+                            vlm_base_url=config.vlm_tagging_url,
+                            vlm_model=config.vlm_tagging_model,
+                            sensor_id=sensor_id,
+                            source_name=request.name,
+                            stream_url=rtsp_url,
+                            chunk_duration=config.vlm_tagging_chunk_duration,
+                        )
+                except Exception as exc:
+                    if rtvi_embed_added:
+                        await cleanup_rtvi_embed_generation(client, config, rtvi_embed_stream_id)
+                        await cleanup_rtvi_embed_stream(client, config, rtvi_embed_stream_id)
+                    if rtvi_cv_added:
+                        await cleanup_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
+                    await cleanup_vst_sensor(config, sensor_id)
+                    await cleanup_vst_storage(config, sensor_id)
+                    return AddStreamResponse(
+                        status="failure",
+                        message=f"Failed at VLM tagging: {exc}",
+                        error=str(exc),
+                    )
+            else:
+                logger.info("VLM tagging not fully configured, skipping")
 
         # Success
         return AddStreamResponse(
