@@ -491,8 +491,13 @@ mkdir -p generated/run-state
 RTSP_STREAMS_FILE="${RTSP_STREAMS_FILE:-generated/run-state/rtsp-streams.txt}"
 test -f "${RTSP_STREAMS_FILE}" || { echo "ERROR: missing RTSP mapping file: ${RTSP_STREAMS_FILE}" >&2; exit 1; }
 
-DS_PORT_EFFECTIVE="${DS_PORT:-${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT || true)}}"
-BASE="http://${DS_HOST:-localhost}:${DS_PORT_EFFECTIVE:-9000}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+DS_HOST_EFFECTIVE="${DS_HOST:-localhost}"
+DS_PORT_EFFECTIVE="${DS_PORT:-${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}}"
+DS_PORT_EFFECTIVE="${DS_PORT_EFFECTIVE:-9000}"
+BASE="http://${DS_HOST_EFFECTIVE}:${DS_PORT_EFFECTIVE}"
 READY_TIMEOUT="${READY_TIMEOUT:-600}"
 
 deadline=$((SECONDS + READY_TIMEOUT))
@@ -520,8 +525,14 @@ Validate exact stream count and camera IDs after registration. Listing can use t
 ```bash
 cd "${RTCV3D_APP}"
 mkdir -p generated/run-state
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+DS_HOST_EFFECTIVE="${DS_HOST:-localhost}"
+DS_PORT_EFFECTIVE="${DS_PORT:-${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}}"
+DS_PORT_EFFECTIVE="${DS_PORT_EFFECTIVE:-9000}"
 EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f\n' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
-./scripts/add-streams.sh --list > generated/run-state/stream-info.txt
+./scripts/add-streams.sh --ds-host "${DS_HOST_EFFECTIVE}" --ds-port "${DS_PORT_EFFECTIVE}" --list > generated/run-state/stream-info.txt
 EXPECTED_IDS="${EXPECTED_IDS}" python3 - <<'PY'
 import os, re
 expected = [x for x in os.environ['EXPECTED_IDS'].split(',') if x]
@@ -540,7 +551,14 @@ PY
 For removal, pass the original mapping to the helper:
 
 ```bash
-./scripts/add-streams.sh --remove '<sensor_id_1>=rtsp://host/path1'
+cd "${RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+DS_HOST_EFFECTIVE="${DS_HOST:-localhost}"
+DS_PORT_EFFECTIVE="${DS_PORT:-${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}}"
+DS_PORT_EFFECTIVE="${DS_PORT_EFFECTIVE:-9000}"
+./scripts/add-streams.sh --ds-host "${DS_HOST_EFFECTIVE}" --ds-port "${DS_PORT_EFFECTIVE}" --remove '<sensor_id_1>=rtsp://host/path1'
 ```
 
 ## Static RTSP Source-List Fallback
