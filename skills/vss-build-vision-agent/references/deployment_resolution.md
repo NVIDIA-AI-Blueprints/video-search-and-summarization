@@ -132,9 +132,13 @@ adds archive search and a separate NvStreamer host:
 
 Search mounts every backend by service name rather than at the origin root, so
 these are the same paths `vss configure` records (`vss_cli/config.py:INGRESS_SERVICES`).
-The RT-VLM, Elasticsearch, RT-Embed, and RT-CV rows are gated on the profile's
-CLI-routes toggle; a build that prunes them is unqueryable from the host CLI and
-leaves `vss-ask-video` with no VLM to resolve.
+The RT-VLM, Elasticsearch, RT-Embed, and RT-CV mounts are all off by default.
+`ingress.cliRoutes.enabled` publishes RT-VLM and Elasticsearch. RT-Embed and
+RT-CV come from that toggle or from `global.rtviInternalIngress`, whose own
+Ingress claims both paths and makes the main one skip them, so those two can be
+public with CLI routes off. Probe rather than infer: a build exposing none of
+them leaves search, ask, and report Mode A without the backends they call
+directly.
 
 ### LVS profile public routes
 
