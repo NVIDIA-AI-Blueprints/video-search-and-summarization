@@ -28,6 +28,14 @@
 # locally. A service with `build:` is built instead of pulled, and Docker's layer
 # cache makes every deploy after the first a no-op.
 #
+# `vios-apt-cache-init` is deliberately NOT disabled here. It looks redundant
+# once streamprocessing carries the packages, but the same shared cache feeds the
+# NVStreamer services (services/nvstreamer/base.yml mounts vios_apt_cache and
+# depends on the init), and this overlay does not prebake those. Turning the init
+# into a no-op left every NVStreamer on an empty cache doing a full network
+# install, which is worse than the status quo for the lvs, alerts, 2d, 3d and
+# mv3dt profiles.
+#
 # The derived image is never pushed. These packages are not redistributable,
 # which is why the published image ships without them.
 #
@@ -38,10 +46,6 @@
 # it is never released.
 
 services:
-  # Nothing left to cache: the consumers below already carry the packages.
-  vios-apt-cache-init:
-    entrypoint: ["/bin/true"]
-
   streamprocessing-ms:
     image: vss-vios-streamprocessing-prebaked:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     build:
