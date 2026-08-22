@@ -283,9 +283,12 @@ reachable OpenAI-compatible `chat/completions` endpoint:
 ```
 
 Or, when only a **deployed VSS** is reachable (you have its **public URL**, not the VLM's own
-port), route through the public Ingress VLM path. Stock **base** Helm exposes RT-VLM under
-`${VSS_PUBLIC_URL}/v1` (OpenAI-compatible root ending in `/v1`). Do **not** use `/vlm/v1` —
-that path is not present on current base Ingress or Docker HAProxy:
+port), route through the public Ingress VLM path. The mount is **profile-dependent**: stock
+**base** and **LVS** Helm expose RT-VLM at the origin root `${VSS_PUBLIC_URL}/v1`, while
+**search** mounts it by service name at `${VSS_PUBLIC_URL}/rtvi-vlm/v1` (behind that profile's
+CLI-routes toggle) and serves no bare `/v1`. Probe both rather than assuming one — either way
+the adopted value is an OpenAI-compatible root ending in `/v1`. Do **not** use `/vlm/v1` —
+that path is present on no Ingress or Docker HAProxy:
 
 ```bash
 # Prefer VSS_PUBLIC_URL; VSS_ENDPOINT is a legacy alias for the same origin.
@@ -293,14 +296,20 @@ if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
   VSS_PUBLIC_URL="${VSS_ENDPOINT}"
 fi
 if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  _proxy="${VSS_PUBLIC_URL%/}/v1"                   # base Ingress RT-VLM route
-  if _models=$(curl -sf --max-time 5 "${_proxy}/models") \
-    && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
-    && [ -n "${_model}" ]; then
-    VLM_ENDPOINT="${_proxy}"
-    VLM_MODEL="${VLM_MODEL:-${_model}}"
-    # If the VLM is token-gated behind the proxy, add: -H "Authorization: Bearer <token>"
-  fi
+  # Ordered candidates, most specific first: a search Ingress answers only the
+  # /rtvi-vlm mount, and a base/LVS Ingress answers only the root. Probing the
+  # path mount first costs one 404 on base and is the difference between
+  # resolving and falling through to "no default VLM selection" on search.
+  for _proxy in "${VSS_PUBLIC_URL%/}/rtvi-vlm/v1" "${VSS_PUBLIC_URL%/}/v1"; do
+    if _models=$(curl -sf --max-time 5 "${_proxy}/models") \
+      && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
+      && [ -n "${_model}" ]; then
+      VLM_ENDPOINT="${_proxy}"
+      VLM_MODEL="${VLM_MODEL:-${_model}}"
+      # If the VLM is token-gated behind the proxy, add: -H "Authorization: Bearer <token>"
+      break
+    fi
+  done
 fi
 ```
 
@@ -389,10 +398,12 @@ place — follow *No default VLM selection?* below instead of silently failing.
 ### No default VLM selection? Discover first, then prompt (VIA-E-114-04)
 
 Discovery above always runs **first** — an explicit `VLM_ENDPOINT`, then a deployed VSS via its
-public URL (`VSS_PUBLIC_URL` / legacy `VSS_ENDPOINT` → Ingress `${origin}/v1`), then — on Docker
-only — the running `vss-agent` env and default ports (`:30082` NIM / `:8018` RT-VLM), each
-confirmed live with `/v1/models`. When that yields a reachable endpoint, use it and continue to
-Step 3 — **do not prompt**.
+public URL (`VSS_PUBLIC_URL` / legacy `VSS_ENDPOINT` → Ingress `${origin}/rtvi-vlm/v1`, then
+`${origin}/v1`), then — on Docker only — the running `vss-agent` env and default ports
+(`:30082` NIM / `:8018` RT-VLM), each confirmed live with `/v1/models`. When that yields a
+reachable endpoint, use it and continue to Step 3 — **do not prompt**. Reaching this section on
+Kubernetes means **both** Ingress mounts were probed and neither answered; a single `/v1` 404 is
+not exhausted discovery.
 
 Only when **no** endpoint resolves (no default selection is in place) prompt the user for how to
 supply a VLM (HITL-optional — see the non-interactive default below). Offer three choices:
@@ -400,11 +411,11 @@ supply a VLM (HITL-optional — see the non-interactive default below). Offer th
 1. **Provide a VLM endpoint** — take `VLM_ENDPOINT` (+ optional `VLM_MODEL`), then re-probe
    `/v1/models` and continue.
 2. **Provide a deployed VSS public URL** — take `VSS_PUBLIC_URL` (or legacy `VSS_ENDPOINT`);
-   resolve the VLM through `${VSS_PUBLIC_URL%/}/v1`, confirm with `/v1/models`, then continue.
-   Use this when the VLM/RT-VLM port isn't directly reachable but the VSS Ingress is. Do **not**
-   probe `/vlm/v1`.
-3. **Pick a discovered suggestion** — list any endpoints that responded (the public `/v1`
-   proxy, the `vss-agent` env on Docker, or the default `:30082` / `:8018` ports) and let the
+   resolve the VLM through `${VSS_PUBLIC_URL%/}/rtvi-vlm/v1` (search) or `${VSS_PUBLIC_URL%/}/v1`
+   (base, LVS), confirm with `/v1/models`, then continue. Use this when the VLM/RT-VLM port isn't
+   directly reachable but the VSS Ingress is. Do **not** probe `/vlm/v1`.
+3. **Pick a discovered suggestion** — list any endpoints that responded (either public Ingress
+   mount, the `vss-agent` env on Docker, or the default `:30082` / `:8018` ports) and let the
    user choose one.
 4. **Deploy a local RT-VLM** — hand off to
    [`/vss-deploy-dense-captioning`](../vss-deploy-dense-captioning/SKILL.md) (default model
@@ -514,9 +525,11 @@ fi
 # (nim_nvidia_cosmos-reason2-8b_hf-…), so matching *cosmos* first labels RT-VLM as NIM Cosmos and
 # drops the sampling fields it needs — the exact defect this ordering exists to prevent.
 if [ -z "${VLM_BACKEND:-}" ]; then
-  # The RT-VLM port, when the agent resolved the endpoint itself instead of running Step 2.
+  # The RT-VLM host port (Docker) or its Ingress mount (Kubernetes), when the agent resolved
+  # the endpoint itself instead of running Step 2. The mount matters as much as the port: on a
+  # search profile the endpoint is :80 like every other route, so the port test never fires.
   case "${VLM_ENDPOINT:-}" in
-    *":${RTVI_VLM_PORT:-8018}"|*":${RTVI_VLM_PORT:-8018}/"*) VLM_BACKEND="rtvlm" ;;
+    *"/rtvi-vlm/"*|*":${RTVI_VLM_PORT:-8018}"|*":${RTVI_VLM_PORT:-8018}/"*) VLM_BACKEND="rtvlm" ;;
   esac
 fi
 # Otherwise ask the server: RT-VLM reports an audio_support flag on /v1/models, a NIM does not.

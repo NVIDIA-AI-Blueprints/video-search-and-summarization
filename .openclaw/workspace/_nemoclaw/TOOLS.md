@@ -215,6 +215,58 @@ healthy?" check, use:
 These are also robust to orchestrator restarts since container state lives
 in Docker, not in the orchestrator's process memory.
 
+## VSS CLI checkout
+
+Kubernetes deployments do not go through the orchestrator MCP. The skills
+that operate them (`vss-search-archive`, `vss-summarize-video`) run the
+project CLI directly — `uv run --project <checkout>/services/agent --no-dev
+--extra cli vss` — against the Ingress origin in `VSS_PUBLIC_URL`. That
+needs `uv` and a checkout, both of which you can set up yourself: the
+egress policy already names GitHub for `git` and PyPI for `uv`. Do not ask
+the user to prepare anything on the host.
+
+Both commands are idempotent, so run them whenever the CLI is missing:
+
+```bash
+command -v uv >/dev/null ||
+  pip install --user --break-system-packages uv
+
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+test -d "${VSS_REPO_ROOT}/.git" ||
+  git clone -b develop \
+    https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git \
+    "${VSS_REPO_ROOT}"
+```
+
+`-b develop` is required. The default branch (`main`) predates the split
+into `packages/`, so `--extra cli` there fails with "Extra `cli` is not
+defined" — the `vss` executable does not exist on it. Keep the checkout at
+the skills' default location above unless you have a reason to move it;
+exporting `VSS_REPO_ROOT` is only needed for a checkout somewhere else.
+
+After `pip install`, `uv` may not be on `PATH` in the shell that installed
+it — re-run the `ENV.md` exports rather than hunting for the binary. The
+first `uv run` resolves the whole dependency closure and can take several
+minutes; later ones are cached.
+
+Point the CLI at the deployment once, then re-run the same command after
+every ingestion, because the recorded index inventory is a snapshot:
+
+```bash
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
+  vss configure --base-url "${VSS_PUBLIC_URL}"
+```
+
+If `VSS_PUBLIC_URL` is empty, stop and follow `ENV.md` "Empty
+VSS_PUBLIC_URL" — ask the user for the origin instead of guessing one.
+Include the port (`:80` for a plain-HTTP Ingress); the Elasticsearch client
+rejects a URL without one.
+
+A `CONNECT tunnel failed, response 403` here is an egress-policy gap, not a
+broken deployment: either the Ingress host or the calling binary is not
+named in the host-side policy. Report it and stop; do not try to work
+around it.
+
 ## Skills
 
 Skills are managed by the agent runtime. In OpenClaw sandboxes, discover and
