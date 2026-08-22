@@ -22,6 +22,7 @@ Do not use this skill for:
 |---|---|---|
 | `scripts/normalize_resolved_yml.py` | Strip optional `depends_on` entries for services filtered out of `resolved.yml` before deploy. | Path to `resolved.yml` |
 | `scripts/probe_remote_models.sh` | Probe an OpenAI-compatible remote LLM/VLM endpoint and verify the selected model id. | Base URL, optional expected model id |
+| `scripts/deploy.sh` | For an authorized autonomous deploy: initialize `generated.env`, apply Brev and caller overrides, resolve and normalize Compose, prepare the bind directories, `up -d`, and wait for the container-state gate. Does not tear down, check credentials, probe entitlement, pause for review, or run endpoint probes. | `--profile <name>`, repeatable `--set KEY=VALUE`, optional `--timeout` and `--repo` |
 | `scripts/check_credentials.sh` | Probe `NGC_CLI_API_KEY`/`NGC_API_KEY`, `NVIDIA_API_KEY`, and `HF_TOKEN` against their services; see [`references/credentials.md`](references/credentials.md). | None (reads env vars) |
 
 ## Profile Routing
@@ -127,6 +128,26 @@ If no combination on this host satisfies the profile's sizing requirements, **st
 ## Deployment Flow
 
 Always follow this sequence. Never skip the dry-run.
+
+[`scripts/deploy.sh`](scripts/deploy.sh) runs the mechanical parts: Steps 1c,
+1d, 3, 3b, 3d, 5 and the container-state half of 5b.
+
+```bash
+skills/vss-deploy-profile/scripts/deploy.sh --profile base \
+  --set 'LLM_MODE=remote' \
+  --set 'LLM_BASE_URL=https://integrate.api.nvidia.com'
+```
+
+Each `--set` is one `env_overrides` entry from Step 2, and a caller override
+beats anything the script derived. It goes from resolution straight to `up -d`,
+so use it only when the request already authorizes an autonomous deploy; for an
+interactive one, follow the steps below so the user can review `resolved.yml`
+first. On Brev it derives the documented secure-link host, protocol and port.
+
+Step 0 teardown, Step 0a credentials, Step 3c entitlement, Step 4 review and the
+profile's endpoint probes stay with you, as does every placement and endpoint
+decision. The script exits non-zero and prints container state and the failing
+containers' logs when its gate fails.
 
 ### Step 0 — Tear down any existing deployment + clear data volumes
 
