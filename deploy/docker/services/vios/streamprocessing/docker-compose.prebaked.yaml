@@ -13,37 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Paths here are relative to the project directory (deploy/docker), not to this
-# file: Compose resolves a `-f` overlay against the project, not the overlay.
+# Moves the runtime-media apt install from container start to image build.
+# Opt in with `dev-profile.sh up --prebake-vios-packages`.
 #
-# Overlay that moves the runtime-media apt install from container start to image
-# build. Opt in with `dev-profile.sh up --prebake-vios-packages`.
+# Four things here are load-bearing:
+#   - paths resolve against the project dir (deploy/docker), not this file
+#   - `build:`, not a prebuilt tag: the deploy runs `--pull always`, which fails
+#     on an image that exists only locally
+#   - the image name must stay off the first-party registry, or release-set
+#     assembly sees two tags for one image name and fails
+#   - `vios-apt-cache-init` stays enabled: NVStreamer shares that cache and is
+#     not prebaked here
 #
-# The install runs on every start today and is on the critical path of the whole
-# deploy, because every consumer waits for it. Building it into a local image
-# instead makes that start cost a marker-file check.
-#
-# `build:` rather than a pre-built tag on purpose: the deploy runs
-# `docker compose up --pull always`, which fails on an image that exists only
-# locally. A service with `build:` is built instead of pulled, and Docker's layer
-# cache makes every deploy after the first a no-op.
-#
-# `vios-apt-cache-init` is deliberately NOT disabled here. It looks redundant
-# once streamprocessing carries the packages, but the same shared cache feeds the
-# NVStreamer services (services/nvstreamer/base.yml mounts vios_apt_cache and
-# depends on the init), and this overlay does not prebake those. Turning the init
-# into a no-op left every NVStreamer on an empty cache doing a full network
-# install, which is worse than the status quo for the lvs, alerts, 2d, 3d and
-# mv3dt profiles.
-#
-# The derived image is never pushed. These packages are not redistributable,
-# which is why the published image ships without them.
-#
-# Its name is deliberately NOT a first-party registry coordinate. Release-set
-# assembly requires one tag per image name across deploy/docker, so reusing the
-# published name with a second tag makes the release set ambiguous. A local-only
-# name keeps this overlay out of the release set entirely, which is correct:
-# it is never released.
+# The derived image is local only and never pushed.
 
 services:
   streamprocessing-ms:

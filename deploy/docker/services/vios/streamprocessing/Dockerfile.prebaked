@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Run the runtime-media install once at build time instead of on every container
-# start. The install is unchanged: same script, same package list. It writes its
-# own marker, so the entrypoint's invocation takes the existing skip path.
+# Runs the runtime-media install at build time instead of on every container
+# start. Same script, same package list; it writes its own marker, so the
+# entrypoint takes the existing skip path.
 #
-# For locally built images only. The packages are not redistributable, which is
-# why the published image ships without them and installs them at start.
+# Locally built images only. Never pushed.
 
 ARG VSS_VIOS_STREAMPROCESSING_BASE
 FROM ${VSS_VIOS_STREAMPROCESSING_BASE}

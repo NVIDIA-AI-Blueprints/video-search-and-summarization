@@ -1641,9 +1641,8 @@ function state_up() {
   # shellcheck disable=SC1091
   source "${deployment_directory}/containers.env"
   set +a
-  # Passing -f disables Compose's default file discovery, so the base file has to
-  # be named explicitly alongside any overlay. Paths inside an overlay resolve
-  # against the project directory, not against the overlay file.
+  # -f disables Compose's default file discovery, so the base file must be named
+  # explicitly alongside any overlay.
   local compose_files=(-f compose.yml)
   if [[ "${prebake_vios_packages}" == "true" ]]; then
     compose_files+=(-f services/vios/streamprocessing/docker-compose.prebaked.yaml)
