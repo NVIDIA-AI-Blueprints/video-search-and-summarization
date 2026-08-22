@@ -40,6 +40,7 @@ dry_run="false"
 llm_mode=""
 llm=""
 llm_device_id=""
+hardware_device_id=""
 llm_base_url=""
 
 # VLM configuration
@@ -62,10 +63,17 @@ options_provided=()
 # Edge hardware profiles (e.g. DGX-SPARK, IGX-THOR, AGX-THOR): device ID options not accepted
 edge_hardware_profiles=('DGX-SPARK' 'IGX-THOR' 'AGX-THOR')
 
-# Returns the first GPU's product name from nvidia-smi (display name), or empty string if nvidia-smi fails or no GPU.
+# Returns a GPU product name from nvidia-smi (display name), or empty string if
+# nvidia-smi fails or no GPU is found. When a device ID is provided, inspect
+# that device instead of assuming GPU 0.
 function get_nvidia_smi_gpu_name() {
+  local _device_id="${1:-}"
   local _name
-  _name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1)"
+  if [[ -n "${_device_id}" ]]; then
+    _name="$(nvidia-smi --id="${_device_id}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1)"
+  else
+    _name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1)"
+  fi
   _name="${_name#"${_name%%[![:space:]]*}"}"
   _name="${_name%"${_name##*[![:space:]]}"}"
   echo "${_name}"
@@ -78,6 +86,26 @@ function get_nvidia_smi_gpu_count() {
   echo "${_count}"
 }
 
+# Returns the indices of GPUs whose product name matches the requested hardware
+# profile, one per line. This is used when a service-specific device ID cannot
+# identify the deployment GPU (for example, when both LLM and VLM are remote).
+function get_matching_gpu_indices() {
+  local _requested_canonical
+  _requested_canonical="$(get_canonical_hardware_profile "${1}")"
+  local _index _name _detected_canonical
+  while IFS=',' read -r _index _name; do
+    _index="${_index#"${_index%%[![:space:]]*}"}"
+    _index="${_index%"${_index##*[![:space:]]}"}"
+    _name="${_name#"${_name%%[![:space:]]*}"}"
+    _name="${_name%"${_name##*[![:space:]]}"}"
+    [[ -n "${_index}" && -n "${_name}" ]] || continue
+    _detected_canonical="$(get_detected_hardware_profile "${_name}")"
+    if [[ "${_detected_canonical}" == "${_requested_canonical}" ]]; then
+      echo "${_index}"
+    fi
+  done < <(nvidia-smi --query-gpu=index,name --format=csv,noheader 2>/dev/null)
+}
+
 # Maps GPU product name (from nvidia-smi) to a canonical hardware type for detection. Returns OTHER if no match.
 # AGX-THOR and IGX-THOR both map to THOR (single canonical type). Matching is case-insensitive.
 function get_detected_hardware_profile() {
@@ -88,6 +116,7 @@ function get_detected_hardware_profile() {
     *l40s*) echo "L40S" ;;
     *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
+    *gb300*) echo "GB300" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
     *) echo "OTHER" ;;
@@ -404,7 +433,7 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
+      DGX-SPARK|GB300|H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -496,12 +525,14 @@ function usage() {
   echo "                                     - L40S"
   echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
+  echo "                                     - GB300"
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
   echo "                                     - AGX-THOR"
   echo "                                     - OTHER"
   echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: --llm-device-id, --vlm-device-id not accepted"
+  echo "                                   • GB300 is valid for search; local model device IDs must match. A unique GB300 is auto-detected when IDs are omitted"
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
   echo "  -e, --external-ip                Externally accessible IP."
@@ -798,10 +829,72 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'GB300' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, GB300, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
+      fi
+
+      # Compute remote predicates before resolving GB300 placement: remote
+      # services must not need (or accept) local model device IDs.
+      local _llm_is_remote _vlm_is_remote
+      _llm_is_remote=0
+      _vlm_is_remote=0
+      if contains_element "use-remote-llm" "${options_provided[@]}" && [[ -n "${llm_base_url}" ]]; then
+        _llm_is_remote=1
+      fi
+      if contains_element "use-remote-vlm" "${options_provided[@]}" && [[ -n "${vlm_base_url}" ]]; then
+        _vlm_is_remote=1
+      fi
+
+      # GB300 is currently validated for the search profile only. Resolve the
+      # deployment GPU from an explicitly selected local model, or auto-detect
+      # it when exactly one GB300 is present (including remote+remote).
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        if [[ "${profile}" != "search" ]]; then
+          echo "[ERROR] Hardware profile 'GB300' is only valid for profile search, not '${profile}'"
+          ((_all_good++))
+        fi
+
+        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm-device-id" "${options_provided[@]}"; then
+          hardware_device_id="${llm_device_id}"
+        fi
+        if [[ "${_vlm_is_remote}" -eq 0 ]] && contains_element "vlm-device-id" "${options_provided[@]}"; then
+          if [[ -n "${hardware_device_id}" ]] && [[ "${hardware_device_id}" != "${vlm_device_id}" ]]; then
+            echo "[ERROR] GB300 search requires local LLM and VLM device IDs to select the same GPU"
+            ((_all_good++))
+          else
+            hardware_device_id="${vlm_device_id}"
+          fi
+        fi
+
+        if [[ -z "${hardware_device_id}" ]]; then
+          local _gb300_matches=()
+          local _gb300_index
+          while IFS= read -r _gb300_index; do
+            [[ -n "${_gb300_index}" ]] && _gb300_matches+=("${_gb300_index}")
+          done < <(get_matching_gpu_indices "GB300")
+          if [[ "${#_gb300_matches[@]}" -eq 1 ]]; then
+            hardware_device_id="${_gb300_matches[0]}"
+          elif [[ "${#_gb300_matches[@]}" -eq 0 ]]; then
+            echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected"
+            ((_all_good++))
+          else
+            echo "[ERROR] Multiple GB300 GPUs were detected; select the deployment GPU with the device ID of a local LLM or VLM"
+            ((_all_good++))
+          fi
+        fi
+
+        if [[ "${_llm_is_remote}" -eq 0 ]]; then
+          llm_device_id="${hardware_device_id}"
+        fi
+        if [[ "${_vlm_is_remote}" -eq 0 ]]; then
+          vlm_device_id="${hardware_device_id}"
+        fi
+        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" && [[ "${llm}" != "nvidia/nvidia-nemotron-nano-9b-v2" ]]; then
+          echo "[ERROR] GB300 search supports only the local LLM nvidia/nvidia-nemotron-nano-9b-v2"
+          ((_all_good++))
+        fi
       fi
 
       # Fail fast: requested hardware_profile must match detected GPU (from nvidia-smi display name).
@@ -810,7 +903,11 @@ function process_args() {
       # Set SKIP_HARDWARE_CHECK=true to skip (e.g. in CI/tests without matching GPU).
       if [[ -n "${hardware_profile}" ]] && [[ "$(get_canonical_hardware_profile "${hardware_profile}")" != "OTHER" ]] && [[ "${SKIP_HARDWARE_CHECK,,}" != "true" ]]; then
         local _gpu_name _detected_canonical
-        _gpu_name="$(get_nvidia_smi_gpu_name)"
+        local _hardware_check_device_id="${llm_device_id}"
+        if [[ "${hardware_profile}" == "GB300" ]]; then
+          _hardware_check_device_id="${hardware_device_id}"
+        fi
+        _gpu_name="$(get_nvidia_smi_gpu_name "${_hardware_check_device_id}")"
         if [[ -z "${_gpu_name}" ]]; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match detected hardware (no NVIDIA GPU detected)."
           ((_all_good++))
@@ -859,17 +956,6 @@ function process_args() {
         fi
       fi
 
-      # Remote predicates (must match llm_mode/vlm_mode == remote) for same-GPU local_shared checks; computed before modes so LLM and VLM branches stay symmetric.
-      local _llm_is_remote _vlm_is_remote
-      _llm_is_remote=0
-      _vlm_is_remote=0
-      if contains_element "use-remote-llm" "${options_provided[@]}" && [[ -n "${llm_base_url}" ]]; then
-        _llm_is_remote=1
-      fi
-      if contains_element "use-remote-vlm" "${options_provided[@]}" && [[ -n "${vlm_base_url}" ]]; then
-        _vlm_is_remote=1
-      fi
-
       # Derive LLM mode: remote only when --use-remote-llm is passed and LLM_ENDPOINT_URL is set (non-empty llm_base_url); else local_shared if device ID is in RESERVED_DEVICE_IDS, FIXED_SHARED_DEVICE_IDS, or (VLM not remote and equals VLM_DEVICE_ID), else local. Do not use vlm_device_id when VLM is remote.
       if [[ "${_llm_is_remote}" -eq 1 ]]; then
         llm_mode="remote"
@@ -901,6 +987,13 @@ function process_args() {
         else
           vlm_mode="local"
         fi
+      fi
+
+      # Every local model on the single selected GB300 shares that GPU with the
+      # search runtime services, even when the other model uses a remote endpoint.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        [[ "${llm_mode}" != "remote" ]] && llm_mode="local_shared"
+        [[ "${vlm_mode}" != "remote" ]] && vlm_mode="local_shared"
       fi
 
       # --use-remote-* without a host URL is invalid (remote mode requires both the flag and the endpoint env var).
@@ -1086,7 +1179,7 @@ function process_args() {
       # with RT-CV, while RT-Embed and the LLM share GPU 1, so two GPUs are the floor
       # unless --use-remote-vlm is provided. A single-GPU Brev launchable cannot host
       # that layout, so fail fast instead of a broken deployment.
-      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+      if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" != "GB300" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
         local _brev_gpu_count
         _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
         if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -lt 2 ]]; then
@@ -1361,6 +1454,12 @@ function state_up() {
     set_env_var "LLM_NAME" "${llm}"
     set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
   fi
+  # The Nemotron NIM image is not available for the validated GB300 SBSA host.
+  # Select the optional BF16 DLFW service while preserving NIM elsewhere.
+  if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" == "GB300" ]] && [[ "${llm_mode}" != "remote" ]]; then
+    set_env_var "LLM_NAME" "nvidia/nvidia-nemotron-nano-9b-v2"
+    set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm"
+  fi
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
@@ -1371,6 +1470,13 @@ function state_up() {
     if [[ "${vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
+  fi
+  if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" == "GB300" ]]; then
+    local _gb300_device_id="${hardware_device_id}"
+    set_env_var "SHARED_LLM_VLM_DEVICE_ID" "${_gb300_device_id}"
+    set_env_var "FIXED_SHARED_DEVICE_IDS" "${_gb300_device_id}"
+    set_env_var "RT_CV_DEVICE_ID" "${_gb300_device_id}"
+    set_env_var "RT_EMBED_DEVICE_ID" "${_gb300_device_id}"
   fi
   if [[ -n "${llm_base_url}" ]]; then
     set_env_var "LLM_BASE_URL" "${llm_base_url}"
@@ -1486,6 +1592,9 @@ function state_up() {
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
+      fi
       local _rtvi_vlm_max_model_len
       _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
       if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
@@ -1504,6 +1613,10 @@ function state_up() {
         set_env_var "RT_VLM_DEVICE_ID" "0"
       else
         set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
+      fi
+      # RT-VLM remains a local proxy for remote VLM endpoints on GB300.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
@@ -1549,10 +1662,10 @@ function state_up() {
     esac
   fi
 
-  # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
+  # For SBSA hardware: for any env var that has a commented line with sbsa in the value,
   # comment the uncommented line (non-sbsa) and uncomment the sbsa line. Discover keys from the file.
   # Comment format may be "# VAR=..." or "#VAR=..." (optional space after #).
-  if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
+  if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${hardware_profile}" == "GB300" ]]; then
     local _key
     while IFS= read -r _key; do
       [[ -z "${_key}" ]] && continue
@@ -1560,7 +1673,7 @@ function state_up() {
       sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
       # Uncomment the commented line for this key when value contains sbsa
       sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (DGX-SPARK): ${_key}"
+      echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
 
