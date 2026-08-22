@@ -51,6 +51,9 @@ services:
       EXTERNAL_IP: ${EXTERNAL_IP}
       VSS_PUBLIC_HOST: ${VSS_PUBLIC_HOST}
       VSS_PUBLIC_PORT: ${VSS_PUBLIC_PORT}
+      VSS_GATEWAY_HOST: ${VSS_GATEWAY_HOST:-vss.local}
+      VSS_GATEWAY_PORT: ${VSS_GATEWAY_PORT:-${HAPROXY_PORT:-7777}}
+      VSS_GATEWAY_ORIGIN: ${VSS_GATEWAY_ORIGIN:-}
       VSS_UI_SERVICE_HOST: ${VSS_UI_SERVICE_HOST:-vss-ui}
       VSS_UI_PORT: ${VSS_UI_PORT:-3000}
       VSS_AGENT_SERVICE_HOST: ${VSS_AGENT_SERVICE_HOST:-vss-agent}
@@ -73,3 +76,7 @@ services:
       PHOENIX_PORT: ${PHOENIX_PORT:-6006}
     volumes:
       - ./haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      default:
+        aliases:
+          - ${VSS_GATEWAY_HOST:-vss.local}

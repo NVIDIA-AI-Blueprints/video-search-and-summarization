@@ -687,9 +687,8 @@ class TestResolveVideoUploadConfig:
         env = {
             "VST_INTERNAL_URL": "http://vst:30888",
             "VST_EXTERNAL_URL": "http://vst.public:30888",
-            "HOST_IP": "10.0.0.5",
-            "RTVI_EMBED_PORT": "8017",
-            "RTVI_CV_PORT": "9000",
+            "COSMOS_EMBED_ENDPOINT": "http://rtvi-embed:8000",
+            "RTVI_CV_ENDPOINT": "http://rtvi-cv:9000",
         }
         with patch.dict("os.environ", env, clear=False):
             resolved = _resolve_video_upload_config(config)
@@ -697,8 +696,27 @@ class TestResolveVideoUploadConfig:
         assert resolved is not None
         assert resolved.vst_internal_url == "http://vst:30888"
         assert resolved.vst_external_url == "http://vst.public:30888"
-        assert resolved.rtvi_embed_base_url == "http://10.0.0.5:8017"
-        assert resolved.rtvi_cv_base_url == "http://10.0.0.5:9000"
+        assert resolved.rtvi_embed_base_url == "http://rtvi-embed:8000"
+        assert resolved.rtvi_cv_base_url == "http://rtvi-cv:9000"
+
+    def test_env_fallback_does_not_construct_rtvi_urls_from_host_ports(self):
+        config = MagicMock()
+        config.general.front_end.streaming_ingest = None
+
+        env = {
+            "VST_INTERNAL_URL": "http://vst:30888",
+            "HOST_IP": "10.0.0.5",
+            "RTVI_EMBED_PORT": "8017",
+            "RTVI_CV_PORT": "9000",
+            "COSMOS_EMBED_ENDPOINT": "",
+            "RTVI_CV_ENDPOINT": "",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            resolved = _resolve_video_upload_config(config)
+
+        assert resolved is not None
+        assert resolved.rtvi_embed_base_url == ""
+        assert resolved.rtvi_cv_base_url == ""
 
     def test_falls_back_to_env_timeout_overrides_when_streaming_ingest_missing(self):
         config = MagicMock()
