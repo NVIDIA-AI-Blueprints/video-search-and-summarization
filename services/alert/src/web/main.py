@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import os
+import time
+from typing import Optional
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -159,26 +161,120 @@ async def shutdown_event():
     """Stop background services when FastAPI shuts down."""
     logger.info("Shutting down FastAPI application")
 
-# Health / readiness endpoint.
-#
-# Reports readiness: once startup has run, ``/health`` returns 503 while
-# the alert-config store could not be initialised (persistence enabled but ES
-# unreachable, or a non-dev profile with persistence disabled). A readiness
-# probe pointed at this endpoint therefore keeps traffic away from a pod
-# whose mandatory durable-config subsystem is unusable, instead of the pod
-# looking healthy while silently serving a degraded/non-durable store.
+_NOT_READY = "not_ready"
+
+
+def _startup_failure() -> Optional[JSONResponse]:
+    """503 while the alert-config store could not be initialised.
+
+    Persistence enabled but Elasticsearch unreachable, or a non-dev profile
+    with persistence disabled. This process cannot serve its own API in that
+    state, so it is a failure for both endpoints below.
+    """
+    if _startup_ready:
+        return None
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": _NOT_READY,
+            "message": _startup_error or "service is not ready",
+        },
+    )
+
+
+# ``/health`` answers for this process; ``/ready`` answers for the pipeline
+# fleet. They were one endpoint, which made a Kafka rebalance look like an
+# unhealthy container: every 503 the fleet produced was also a 503 on the
+# endpoint fronting the alert-config API, which was serving perfectly well.
+# Worse, a multi-process instance reports no ready pipelines for the whole of
+# its startup -- through the wait for topic metadata and every child's
+# constructor -- so a startup probe on the combined endpoint killed the
+# container long before the fleet could come up.
 @app.get("/health")
 async def health_check():
-    """Health + readiness check for Alert Bridge."""
-    if not _startup_ready:
+    """Liveness for the API process: is this container worth keeping?"""
+    failure = _startup_failure()
+    if failure is not None:
+        return failure
+    return {"status": "ok", "message": "Alert Bridge is running"}
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness for the pipeline fleet: is the instance consuming?
+
+    503 until every pipeline process holds a decided assignment, and again
+    whenever a rebalance takes them away. Point a readiness probe here when
+    the deployment should stop being counted as serving while that is true;
+    a startup or liveness probe belongs on ``/health``, which does not move
+    with the consumer group.
+    """
+    failure = _startup_failure()
+    if failure is not None:
+        return failure
+    degraded = _degraded_workers()
+    if degraded:
         return JSONResponse(
             status_code=503,
-            content={
-                "status": "not_ready",
-                "message": _startup_error or "service is not ready",
-            },
+            content={"status": _NOT_READY, "message": degraded},
         )
-    return {"status": "ok", "message": "Alert Bridge is running"}
+    return {"status": "ok", "message": "Alert Bridge is ready"}
+
+
+_DEGRADED_CACHE: dict = {"at": 0.0, "value": None}
+_DEGRADED_TTL_SECONDS = 1.0
+
+
+def _degraded_workers() -> Optional[str]:
+    """Describe the fleet when fewer workers hold an assignment than exist.
+
+    Read from the multiprocess metric shards, which is the channel the
+    pipeline processes already publish through -- no other one crosses from
+    them to this process. Silent when metrics are off, since there is then
+    nothing to read rather than nothing wrong.
+    """
+    if not os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+        return None
+
+    # Cached: reading these two numbers means mmapping and parsing every
+    # metric shard in the directory, histograms included, and /health is the
+    # most frequently polled endpoint there is. The counts behind it are
+    # refreshed on the supervisor's one-second poll, so a fresher read carries
+    # no more information than this does.
+    now = time.monotonic()
+    if now - _DEGRADED_CACHE["at"] < _DEGRADED_TTL_SECONDS:
+        return _DEGRADED_CACHE["value"]
+
+    try:
+        from prometheus_client import CollectorRegistry, multiprocess
+
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        values = {
+            sample.name: sample.value
+            for metric in registry.collect()
+            for sample in metric.samples
+        }
+        configured = values.get("alert_bridge_pipeline_processes_configured")
+        ready = values.get("alert_bridge_pipeline_processes_ready")
+        if configured is None or ready is None or configured <= 0:
+            _DEGRADED_CACHE.update(at=now, value=None)
+            return None
+        degraded = None
+        if ready < configured:
+            degraded = (
+                f"{int(ready)} of {int(configured)} pipeline processes hold a "
+                f"partition assignment"
+            )
+        _DEGRADED_CACHE.update(at=now, value=degraded)
+        return degraded
+    except Exception:
+        # Cached like any other answer: a shard that keeps failing to parse
+        # would otherwise remove the gate entirely, and every request would
+        # re-read every shard on the most frequently polled endpoint there is.
+        _DEGRADED_CACHE.update(at=now, value=None)
+        logger.debug("Could not read pipeline readiness from metrics", exc_info=True)
+    return None
 
 
 # Prometheus metrics endpoint info

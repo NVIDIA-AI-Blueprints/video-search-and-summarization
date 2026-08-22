@@ -108,7 +108,6 @@ alert_agent:
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
-  chunk_size: 1
 
   # Dedup / filter tuning (in-process dedup + ES-backed verdict protection).
   event_filters:
@@ -144,10 +143,6 @@ alert_agent:
   pipeline_mode: event_loop
   async_dispatch_max_in_flight: 16              # Global in-flight bound, 2-4x max_vlm_concurrent
   async_io:
-    enabled: true                               # Ignored when pipeline_mode is set; kept for config-only rollback
-    vst_enabled: true                           # Guardrail: async-submit VST lookup path (thread_bridge only)
-    elastic_enabled: true                       # Guardrail: async-submit Elastic sink publishing path (thread_bridge only)
-    dedup_enabled: true                         # Guardrail: async-submit in-process dedup/state operations (thread_bridge only)
     external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
     sink_warn_in_flight: 20                      # Warning threshold for in-flight async sink operations
     # event_loop per-service caps. max_vlm_concurrent MUST be set explicitly

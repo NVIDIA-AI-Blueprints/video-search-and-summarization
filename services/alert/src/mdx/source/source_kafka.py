@@ -15,6 +15,7 @@
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -114,6 +115,9 @@ class SourceKafka(SourceBase):
         super().__init__(config)
         self.topic_consumer_map = {}
         self.kafka_message_broker = KafkaMessageBroker(config)
+        self._revoke_hook = None
+        self._admit_hook = None
+        self._assignment_change_hook = None
 
         kafka_cfg = config.get('event_bridge', {}).get('kafka_source', {})
         topics_cfg = kafka_cfg.get("topics")
@@ -144,11 +148,101 @@ class SourceKafka(SourceBase):
             self.source_topics = [self.anomaly_topic]
             self.topic_to_kind = {self.anomaly_topic: 'anomaly'}
 
+    def await_ready(self, timeout: float = 60.0) -> bool:
+        """Create every source consumer, then wait for all their assignments.
+
+        Every consumer is created before any of them is waited on. They share
+        a group, so each subscription forces a rebalance that only completes
+        once all members poll; creating and waiting one at a time leaves the
+        earlier consumers unpolled and the rebalance never finishes.
+        """
+        for topic in self.source_topics:
+            self._ensure_consumer(topic)
+
+        consumers = [
+            self.topic_consumer_map[topic]
+            for topic in self.source_topics
+            if topic in self.topic_consumer_map
+        ]
+        if self.kafka_message_broker.await_assignments(consumers, timeout):
+            return True
+
+        for topic in self.source_topics:
+            consumer = self.topic_consumer_map.get(topic)
+            if consumer is None or self.kafka_message_broker.assignment_decided(consumer):
+                continue
+            logging.warning(
+                "Consumer for topic %s was given no assignment in group %s "
+                "within %.0fs; records published before it is assigned may "
+                "be skipped",
+                topic, self.groupId, timeout,
+            )
+        return False
+
+    def is_ready(self) -> bool:
+        """Whether every source consumer currently holds a decided assignment.
+
+        Goes false again while a rebalance is in flight, which is what makes
+        it usable as live state rather than a latch that can only ever be set.
+        """
+        if not self.topic_consumer_map:
+            return False
+        return all(
+            self.kafka_message_broker.assignment_decided(self.topic_consumer_map[topic])
+            for topic in self.source_topics
+            if topic in self.topic_consumer_map
+        )
+
+    def assigned_partition_count(self) -> int:
+        return sum(
+            len(self.kafka_message_broker.owned_partitions(consumer))
+            for consumer in self.topic_consumer_map.values()
+        )
+
+    def set_assignment_change_hook(self, hook) -> None:
+        """Register what to run whenever the assignment is decided or taken.
+
+        Safe to call after the consumers exist, for the same reason as
+        ``set_revoke_hook``.
+        """
+        self._assignment_change_hook = hook
+
+    def set_admit_hook(self, hook) -> None:
+        """Register what accounts for a record the moment it is read.
+
+        Called with ``(topic, partition)`` per record and expected to return
+        something the consumer of the batch will release. Read time, not
+        schedule time: a rebalance is delivered by the poll that fills a batch,
+        so records already read for a revoked partition must be owed before the
+        drain looks.
+        """
+        self._admit_hook = hook
+
+    def set_revoke_hook(self, hook) -> None:
+        """Register what to run when partitions are taken away.
+
+        Set after construction because the pipeline that owns the in-flight
+        accounting is built around this source, not before it. Registration
+        order does not matter: the consumers dereference the hook when the
+        callback fires rather than capturing it when they subscribe.
+        """
+        self._revoke_hook = hook
+
     def _ensure_consumer(self, topic: str) -> None:
         """Create and cache a consumer for the given topic if not already present."""
         if topic not in self.topic_consumer_map:
+            # Looked up when the callback fires, not captured here. Consumers
+            # used to be created on first read, so a hook registered any time
+            # before that reached all of them; they are now created up front,
+            # which silently turned a hook registered afterwards into a no-op.
             self.topic_consumer_map[topic] = self.kafka_message_broker.get_consumer(
-                topic, self.groupId
+                topic, self.groupId,
+                on_revoke=lambda partitions: (
+                    self._revoke_hook(partitions) if self._revoke_hook else None
+                ),
+                on_assignment_change=lambda: (
+                    self._assignment_change_hook() if self._assignment_change_hook else None
+                ),
             )
 
     # def read_from_topic(self, topic: str, message_transfer_func: Optional[Callable] = None) -> List[Any]:
@@ -257,24 +351,52 @@ class SourceKafka(SourceBase):
 
     def read_data(self) -> List[Any]:
         """
-        Read data from kafka and return aggregated batches per kind.
-        Shape: [ { 'kind': 'incident'|'alert', 'messages': [(key, value, kafka_ts_ms), ...], 'kafka_consumed_at': ..., 'kafka_published_at': ... }, ... ]
+        Read data from kafka and return batches, one per source partition.
+
+        Shape: [ { 'kind': 'incident'|'alert', 'topic': ..., 'partition': int,
+                   'messages': [(key, value, kafka_ts_ms), ...],
+                   'kafka_consumed_at': ..., 'kafka_published_at': ... }, ... ]
+
+        Split per partition rather than per kind so the partition a message
+        came from survives into dispatch. Work in flight has to be
+        attributable to a partition for a rebalance to be able to drain it
+        before that partition moves to another member.
         """
-        kind_to_messages: Dict[str, List[Any]] = {}
+        partition_to_messages: Dict[Any, List[Any]] = {}
+        partition_to_admissions: Dict[Any, List[Any]] = {}
         earliest_kafka_ts_ms: int = None
         for topic in self.source_topics:
             self._ensure_consumer(topic)
             consumer = self.topic_consumer_map[topic]
-            topic_messages = self.kafka_message_broker.get_consumed_messages(consumer)
+            admissions_by_key: Dict[str, List[Any]] = {}
+
+            def note_read(read_topic, read_partition, _sink=admissions_by_key):
+                hook = getattr(self, "_admit_hook", None)
+                _sink.setdefault(f"{read_topic}-{read_partition}", []).append(
+                    hook(read_topic, read_partition) if hook is not None else None
+                )
+
+            topic_messages = self.kafka_message_broker.get_consumed_messages(
+                consumer, on_read=note_read
+            )
 
             kind = self.topic_to_kind.get(topic, 'unknown')
-            if kind not in kind_to_messages:
-                kind_to_messages[kind] = []
 
-            for _, msgs in topic_messages.items():
+            for partition_key, msgs in topic_messages.items():
                 if not msgs:
                     continue
-                kind_to_messages[kind].extend(msgs)
+                # Keys are "<topic>-<partition>" and topic names contain
+                # hyphens, so take the partition off the right.
+                try:
+                    partition = int(str(partition_key).rsplit('-', 1)[1])
+                except (IndexError, ValueError):
+                    partition = -1
+                partition_to_messages.setdefault((kind, topic, partition), []).extend(msgs)
+                # Kept parallel to the messages: each batch carries the
+                # admissions already taken for it, in the same order.
+                partition_to_admissions.setdefault((kind, topic, partition), []).extend(
+                    admissions_by_key.get(partition_key, [None] * len(msgs))
+                )
                 # Track earliest kafka timestamp in batch (producer timestamp)
                 for msg in msgs:
                     if len(msg) >= 3 and msg[2] is not None and msg[2] > 0:
@@ -292,13 +414,15 @@ class SourceKafka(SourceBase):
         if earliest_kafka_ts_ms:
             kafka_published_at = datetime.fromtimestamp(earliest_kafka_ts_ms / 1000, tz=timezone.utc).isoformat()
 
-        # Build list of batches without partition/topic metadata
         batches: List[Dict[str, Any]] = []
-        for kind, msgs in kind_to_messages.items():
+        for (kind, topic, partition), msgs in partition_to_messages.items():
             if msgs:
                 batches.append({
                     'kind': kind,
+                    'topic': topic,
+                    'partition': partition,
                     'messages': msgs,
+                    'admissions': partition_to_admissions.get((kind, topic, partition), []),
                     'kafka_consumed_at': kafka_consumed_at,
                     'kafka_published_at': kafka_published_at,
                 })

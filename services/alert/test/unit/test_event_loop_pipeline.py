@@ -72,7 +72,6 @@ class _GatedVLM:
 def _build_pipeline_stub(runtime, max_in_flight, vlm_cap, vst_cap):
     stub = _PipelineStub()
     stub.pipeline_mode = "event_loop"
-    stub.async_io_enabled = False
     stub._message_dispatch_lock = threading.Lock()
     stub._message_dispatch_futures = set()
     stub.async_dispatch_max_in_flight = max_in_flight
@@ -266,7 +265,6 @@ def _scrub(payload):
 def _build_parity_enhancer(mode, runtime=None, analyze_error=None):
     enhancer = AnomalyEnhancer.__new__(AnomalyEnhancer)
     enhancer.pipeline_mode = mode
-    enhancer.async_io_enabled = False
     enhancer.async_vlm_runtime = runtime
     enhancer._vlm_capacity = asyncio.Semaphore(4) if mode == "event_loop" else None
     enhancer._vst_capacity = asyncio.Semaphore(4) if mode == "event_loop" else None

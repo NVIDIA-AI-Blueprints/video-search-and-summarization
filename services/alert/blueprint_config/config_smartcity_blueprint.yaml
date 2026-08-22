@@ -96,7 +96,6 @@ alert_agent:
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
-  chunk_size: 1
 
   # In-process event filtering / dedup tuning (no external store).
   event_filters:
