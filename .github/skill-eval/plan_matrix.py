@@ -17,8 +17,9 @@ Rules (see docs/matrix-dispatch-design.md):
         -> dispatch every spec under <skill>
   - harness files (envs/, verifiers/, skills_eval_agent.py, AGENTS.md,
     plan_matrix.py, skills-eval.yml) match no rule, so a harness-only
-    diff yields an empty matrix and the eval job is skipped. Validate
-    those via the manual workflow_dispatch sweep.
+    diff yields an empty matrix — except OPENSHELL_RTXPRO6000_ONLY, which
+    enumerates every skill (like a daily sweep) so `/ok to test` runs the
+    full RTX PRO 6000 matrix. Other SKUs stay skipped.
 
 A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
@@ -145,6 +146,36 @@ EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
 # processes, which are not the machines the trials run on.
 BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 
+# Dedicated 10.86.16.223 OpenShell RTX PRO 6000 cohort. GitHub still
+# attaches `self-hosted` to the runner; workflows must not route on that
+# label alone. `openshell-rtxpro6000-active` is the activation label:
+# register without it (or keep the listener down) until a one-VM canary
+# passes. Set OPENSHELL_RTXPRO6000_ONLY=1 to use these labels for
+# RTXPRO6000BW, OPENSHELL_H200_LABELS for H200 (10.86.14.74, 8×1), and
+# skip every other GPU SKU. Do not put RTX labels on H200 boxes.
+#
+# Post-job destroy/recreate is host-side (gha_idle_recreate.sh watches
+# Runner.Worker go idle, then recreate_fleet_vm.sh --apply --start-listener).
+# This workflow does not implement KVM/VFIO.
+OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
+    "vss-skill-eval-gpu",
+    "openshell",
+    "rtx-pro-6000",
+    "gpu-rtxpro6000bw",
+    "openshell-rtxpro6000-active",
+)
+# 10.86.14.74 OpenShell H200 NVL cohort (8 VMs × 1 GPU). Separate active
+# label so RTX jobs cannot land here.
+OPENSHELL_H200_LABELS: tuple[str, ...] = (
+    "vss-skill-eval-gpu",
+    "openshell",
+    "h200",
+    "gpu-h200",
+    "openshell-h200-active",
+)
+SKIP_RUNNER = ["ubuntu-24.04"]
+SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
+
 # `resources.platforms` key -> GPU-type label. `ANY` is GPU-independent
 # and contributes no `gpu-*` label. Keys mirror the PLATFORMS tables in
 # .github/skill-eval/adapters/*/generate.py.
@@ -152,6 +183,7 @@ PLATFORM_LABELS: dict[str, str | None] = {
     "H100": "gpu-h100",
     "L40S": "gpu-l40s",
     "RTXPRO6000BW": "gpu-rtxpro6000bw",
+    "H200": "gpu-h200",
     "DGX-SPARK": "gpu-dgx-spark",
     "IGX-THOR": "gpu-igx-thor",
     "ANY": None,
@@ -208,8 +240,22 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
     detection-tracking-3d/routing on RTXPRO6000BW) — under labels they
     stop competing for GPU boxes at all.
     """
-    labels = list(BASE_LABELS)
     count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
+    if os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
+        # RTXPRO6000BW — including gpu_count: 0 routing/calibration-chain —
+        # must land on the OpenShell cohort. Never ubuntu-24.04: that runner
+        # has no ~/.eval_env and no GPU, so the job fails env-load instead of
+        # running or skipping honestly.
+        if platform == "RTXPRO6000BW":
+            labels = list(OPENSHELL_RTXPRO6000_LABELS)
+            labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
+            return labels
+        if platform == "H200":
+            labels = list(OPENSHELL_H200_LABELS)
+            labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
+            return labels
+        return list(SKIP_RUNNER)
+    labels = list(BASE_LABELS)
     if count <= 0:
         return labels
     if platform:
@@ -416,14 +462,23 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "slug": f"{skill}__missing-adapter",
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
-                "runs_on": list(BASE_LABELS),
+                "runs_on": (
+                    [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"]
+                    if os.environ.get("OPENSHELL_RTXPRO6000_ONLY")
+                    else list(BASE_LABELS)
+                ),
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
             platform_config = spec_platform_config(meta["spec_path"])
             platforms = sorted(platform_config) or [""]
+            if os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
+                platforms = [p for p in platforms if p in ("RTXPRO6000BW", "H200")]
             for platform in platforms:
                 plat_tag = platform or "no-platform"
+                labels = runs_on_labels(
+                    platform, platform_config.get(platform)
+                )
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
@@ -433,10 +488,29 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "kind": "eval",
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
-                    "runs_on": runs_on_labels(
-                        platform, platform_config.get(platform)
-                    ),
+                    "runs_on": labels,
                 })
+    if os.environ.get("OPENSHELL_RTXPRO6000_ONLY") and not any(
+        leg.get("kind") == "eval" for leg in include
+    ):
+        # Harness-only diffs (no skills/ files) still need a GPU canary.
+        # If the input named a skill and every RTXPRO6000BW leg was
+        # filtered out, do not substitute vss-deploy-profile/base — that
+        # would report Skills Eval success without testing the named skill.
+        named_a_skill = any(f.startswith("skills/") for f in changed)
+        if not named_a_skill:
+            include.append({
+                "skill": "vss-deploy-profile",
+                "spec_path": SMOKE_SPEC,
+                "spec_stem": "base",
+                "eval_dir": "evals",
+                "platform": "RTXPRO6000BW",
+                "kind": "eval",
+                "skip_reason": "",
+                "slug": "vss-deploy-profile__base__RTXPRO6000BW",
+                "name": "vss-deploy-profile · base · RTXPRO6000BW",
+                "runs_on": [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"],
+            })
     return include
 
 
@@ -493,7 +567,11 @@ def emit(include: list[dict]) -> None:
 
 def main() -> int:
     DAILY_RUN = os.environ.get("DAILY_RUN")
-    if DAILY_RUN:
+    # OpenShell `/ok to test` must run every RTX PRO 6000 spec on this
+    # fleet, not only the files in the PR diff (and not only the
+    # vss-deploy-profile/base smoke fallback). Other SKUs stay skipped
+    # inside build_matrix via OPENSHELL_RTXPRO6000_ONLY.
+    if DAILY_RUN or os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
         changed = list_skill_file_paths()
     else:
         changed = list_changed_files()

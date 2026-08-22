@@ -929,14 +929,15 @@ the PR-driven path.
 - **Mandatory final marker.** Your last printed line MUST start with
   either `DONE:` or `BLOCKED:`. A `DONE:` marker MUST report a positive
   complete count as `DONE: N/N specs passed; ...`. The Python wrapper fails
-  malformed markers with exit code 4 and completed partial/zero-pass outcomes
-  with exit code 5. Neither a missing verdict nor a reported eval failure can
-  produce a green check.
+  malformed markers with exit code 4, completed partial/zero-pass outcomes
+  with exit code 5, and a well-formed `BLOCKED:` with exit code 7 so the
+  GitHub Actions job is red (capacity, missing docker/uvx, or adapter
+  reruns must not look like success).
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
     - `DONE: 0/1 specs passed; timeout` (valid syntax, failing exit code 5)
-    - `BLOCKED: anthropic rate limit after 3 retries`
-    - `BLOCKED: lock timeout on vss-eval-l40s`
+    - `BLOCKED: anthropic rate limit after 3 retries` (exit 7)
+    - `BLOCKED: lock timeout on vss-eval-l40s` (exit 7)
   If you ran trials, you MUST also have posted the per-spec result before
   printing `DONE:` — via `gh pr comment $PR_NUMBER` on a PR run, or, on a
   manual sweep (`PR_NUMBER` empty), appended to `$GITHUB_STEP_SUMMARY`

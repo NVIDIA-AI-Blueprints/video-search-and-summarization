@@ -26,7 +26,19 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
         )
         assert workflow.count("name: Prepare isolated agent runtime") == 1
         assert SDK_REQUIREMENT in workflow
-        assert 'export PATH="$skill_eval_venv_dir/bin:$PATH"' in workflow
+        assert 'export PATH=' in workflow
+        assert "$skill_eval_venv_dir/bin" in workflow
+        if relative_path.endswith("skills-eval.yml"):
+            assert 'export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:$PATH"' in workflow
+            assert '"$skill_eval_venv_dir/bin/python" .github/skill-eval/skills_eval_agent.py' in workflow
+            assert "python3 .github/skill-eval/skills_eval_agent.py" not in workflow
+            assert "Assert OpenShell GPU runtime" in workflow
+            assert "uv tool run" in workflow
+            assert "base64 -d" in workflow
+            assert "python3.12" in workflow
+            assert not any(
+                line.startswith("#!/bin/sh") for line in workflow.splitlines()
+            )
 
 
 def test_ci_executes_harness_contracts_on_production_python() -> None:

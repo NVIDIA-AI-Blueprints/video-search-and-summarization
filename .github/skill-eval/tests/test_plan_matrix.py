@@ -15,6 +15,7 @@ Or directly:
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import os
 import tempfile
 import unittest
@@ -486,6 +487,147 @@ class EmitSlugSafety(unittest.TestCase):
         finally:
             if orig is not None:
                 os.environ["GITHUB_OUTPUT"] = orig
+
+
+class OpenshellRtxpro6000Only(unittest.TestCase):
+    """OPENSHELL_RTXPRO6000_ONLY routes RTXPRO6000BW to the OpenShell cohort."""
+
+    def setUp(self):
+        self._orig_specs = plan_matrix.specs_for_skill
+        self._orig_adapter = plan_matrix.adapter_exists
+        self._orig_platforms = plan_matrix.spec_platform_config
+        self._orig_isfile = plan_matrix.Path.is_file
+        plan_matrix.specs_for_skill = lambda s: FAKE_SPECS.get(s, [])
+        plan_matrix.adapter_exists = lambda s: s in SKILLS_WITH_ADAPTERS
+        plan_matrix.spec_platform_config = lambda p: {"L40S": {"gpu_count": 1}}
+        plan_matrix.Path.is_file = lambda self: True  # type: ignore
+        os.environ["OPENSHELL_RTXPRO6000_ONLY"] = "1"
+
+    def tearDown(self):
+        plan_matrix.specs_for_skill = self._orig_specs
+        plan_matrix.adapter_exists = self._orig_adapter
+        plan_matrix.spec_platform_config = self._orig_platforms
+        plan_matrix.Path.is_file = self._orig_isfile
+        os.environ.pop("OPENSHELL_RTXPRO6000_ONLY", None)
+
+    def test_zero_gpu_count_stays_on_openshell(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("RTXPRO6000BW", {"gpu_count": 0}),
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "rtx-pro-6000",
+                "gpu-rtxpro6000bw",
+                "openshell-rtxpro6000-active",
+                "gpus-1",
+            ],
+        )
+        self.assertNotIn("ubuntu-24.04", plan_matrix.runs_on_labels(
+            "RTXPRO6000BW", {"gpu_count": 0}
+        ))
+
+    def test_dedicated_labels_for_rtxpro6000(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("RTXPRO6000BW", {"gpu_count": 1}),
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "rtx-pro-6000",
+                "gpu-rtxpro6000bw",
+                "openshell-rtxpro6000-active",
+                "gpus-1",
+            ],
+        )
+
+    def test_other_platforms_are_omitted(self):
+        plan_matrix.spec_platform_config = lambda p: {
+            "L40S": {"gpu_count": 1},
+            "RTXPRO6000BW": {"gpu_count": 2},
+        }
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual([leg["platform"] for leg in inc], ["RTXPRO6000BW"])
+        self.assertEqual(
+            inc[0]["runs_on"],
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "rtx-pro-6000",
+                "gpu-rtxpro6000bw",
+                "openshell-rtxpro6000-active",
+                "gpus-2",
+            ],
+        )
+
+    def test_harness_only_diff_emits_smoke_leg(self):
+        # build_matrix() itself still has a smoke fallback when given a
+        # harness-only file list. `/ok to test` goes through main(), which
+        # enumerates every skill file when OPENSHELL_RTXPRO6000_ONLY is set.
+        inc = plan_matrix.build_matrix(
+            [".github/workflows/skills-eval.yml"]
+        )
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["skill"], "vss-deploy-profile")
+        self.assertEqual(inc[0]["spec_stem"], "base")
+        self.assertEqual(inc[0]["platform"], "RTXPRO6000BW")
+        self.assertEqual(inc[0]["kind"], "eval")
+
+    def test_skill_without_rtxpro_is_not_replaced_by_smoke(self):
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(inc, [])
+
+    def test_non_rtxpro_labels_are_skip_runner(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("L40S", {"gpu_count": 1}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+
+    def test_h200_uses_dedicated_labels_not_rtx(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("H200", {"gpu_count": 1}),
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "h200",
+                "gpu-h200",
+                "openshell-h200-active",
+                "gpus-1",
+            ],
+        )
+        labels = plan_matrix.runs_on_labels("H200", {"gpu_count": 1})
+        self.assertNotIn("rtx-pro-6000", labels)
+        self.assertNotIn("gpu-rtxpro6000bw", labels)
+        self.assertNotIn("openshell-rtxpro6000-active", labels)
+        self.assertNotIn("gpus-2", labels)
+        self.assertNotIn("ubuntu-24.04", labels)
+
+    def test_h200_kept_alongside_rtxpro(self):
+        plan_matrix.spec_platform_config = lambda p: {
+            "L40S": {"gpu_count": 1},
+            "RTXPRO6000BW": {"gpu_count": 1},
+            "H200": {"gpu_count": 1},
+        }
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(
+            [leg["platform"] for leg in inc],
+            ["H200", "RTXPRO6000BW"],
+        )
+        h200 = next(leg for leg in inc if leg["platform"] == "H200")
+        rtx = next(leg for leg in inc if leg["platform"] == "RTXPRO6000BW")
+        self.assertIn("openshell-h200-active", h200["runs_on"])
+        self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
+        self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
+        self.assertNotIn("openshell-h200-active", rtx["runs_on"])
+
+    def test_openshell_main_enumerates_all_skills(self):
+        src = inspect.getsource(plan_matrix.main)
+        self.assertIn("OPENSHELL_RTXPRO6000_ONLY", src)
+        self.assertIn("list_skill_file_paths", src)
 
 
 if __name__ == "__main__":

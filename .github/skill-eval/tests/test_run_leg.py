@@ -110,13 +110,18 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(run_leg.SKILL_EVAL_PYTHON_VERSION, (3, 12))
         self.assertEqual(run_leg.HARBOR_REQUIREMENT, "harbor==0.20.0")
         self.assertEqual(
-            cmd[:7],
+            run_leg.CLAUDE_AGENT_SDK_REQUIREMENT, "claude-agent-sdk==0.2.128"
+        )
+        self.assertEqual(
+            cmd[:9],
             [
                 "uvx",
                 "--python",
                 run_leg.sys.executable,
                 "--from",
                 run_leg.HARBOR_REQUIREMENT,
+                "--with",
+                run_leg.CLAUDE_AGENT_SDK_REQUIREMENT,
                 "harbor",
                 "run",
             ],
@@ -353,6 +358,66 @@ class HarborEnvironment(unittest.TestCase):
             run_leg.HARBOR_TRANSFER_OPERATION_BUDGET_SEC,
         )
 
+    def test_local_gpu_strips_remote_placement_and_raises_agent_budget(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base"),
+            include_task_name="rtxpro6000bw",
+            chain_key="base_rtxpro6000bw",
+        )
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {
+                "SKILL_EVAL_LOCAL_GPU_INSTANCE": (
+                    "vss-skill-eval-gpu-rtxpro6000-1"
+                ),
+                "BREV_EXEC_TIMEOUT": "60",
+                "LLM_REMOTE_URL": "http://10.86.6.50:32081",
+                "LLM_REMOTE_MODEL": "remote-llm",
+                "VLM_REMOTE_URL": "http://10.86.6.50:32086",
+                "VLM_REMOTE_MODEL": "remote-vlm",
+            },
+            clear=True,
+        ):
+            env = run_leg.harbor_env("vss-skill-eval-gpu-rtxpro6000-1")
+            cmd = run_leg.build_harbor_command(
+                invocation,
+                Path("/tmp/results"),
+                "aws/anthropic/bedrock-claude-sonnet-4-6",
+                "https://inference-api.nvidia.com/v1",
+            )
+            args = run_leg.parse_args(
+                [
+                    "--dataset-root", "/tmp/data",
+                    "--results-root", "/tmp/results",
+                ]
+            )
+
+        self.assertNotIn("LLM_REMOTE_URL", env)
+        self.assertNotIn("LLM_REMOTE_MODEL", env)
+        self.assertNotIn("VLM_REMOTE_URL", env)
+        self.assertNotIn("VLM_REMOTE_MODEL", env)
+        self.assertEqual(int(env["BREV_EXEC_TIMEOUT"]), 7830)
+        self.assertEqual(
+            cmd[cmd.index("--agent-timeout-multiplier") + 1],
+            "12.0",
+        )
+        self.assertEqual(args.harbor_timeout_sec, 15_000)
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {
+                "SKILL_EVAL_LOCAL_GPU_INSTANCE": (
+                    "vss-skill-eval-gpu-rtxpro6000-1"
+                ),
+            },
+            clear=True,
+        ):
+            self.assertEqual(run_leg.min_brev_exec_timeout_sec(), 7830)
+            self.assertEqual(run_leg.min_harbor_backstop_sec(), 13680)
+            self.assertGreater(
+                run_leg.LOCAL_GPU_HARBOR_TIMEOUT_SEC,
+                run_leg.min_harbor_backstop_sec(),
+            )
+
 
 class RunCommand(unittest.TestCase):
     COMMAND = ["uvx", "harbor", "run"]
@@ -373,6 +438,32 @@ class RunCommand(unittest.TestCase):
 
         self.assertEqual(rc, 7)
         proc.wait.assert_called_once_with(timeout=42)
+        killpg.assert_not_called()
+
+    def test_clean_harbor_exit_reaps_leftover_transports_and_keeps_zero(self):
+        proc = mock.Mock(pid=4321)
+        proc.wait.return_value = 0
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(
+                run_leg, "_registered_transport_groups", return_value=[18398, 18399]
+            ),
+            mock.patch.object(
+                run_leg, "_signal_registered_transport_groups"
+            ) as signal_groups,
+            mock.patch.object(
+                run_leg, "_wait_for_process_group_exit", return_value=False
+            ) as wait_group,
+            mock.patch.object(run_leg.os, "killpg") as killpg,
+        ):
+            rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [call.args[1] for call in signal_groups.call_args_list],
+            [run_leg.signal.SIGTERM, run_leg.signal.SIGKILL],
+        )
+        wait_group.assert_called_once()
         killpg.assert_not_called()
 
     def test_signal_exit_is_normalized_and_reaps_remaining_tree(self):

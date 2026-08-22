@@ -51,6 +51,9 @@ from leg_timing import HEARTBEAT_SEC, leg_log, phase
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
 HARBOR_REQUIREMENT = "harbor==0.20.0"
+# Harbor's uvx env is isolated from SKILL_EVAL_VENV. The generic verifier
+# imports claude-agent-sdk (and cannot `pip install` into a uvx runtime).
+CLAUDE_AGENT_SDK_REQUIREMENT = "claude-agent-sdk==0.2.128"
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
@@ -75,7 +78,16 @@ HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
+# Local OpenShell NIMs need a second hour after image pull to load
+# weights into VRAM. The Brev remote-endpoint path stays at 6.0.
+LOCAL_GPU_AGENT_TIMEOUT_MULTIPLIER = 12.0
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
+_REMOTE_PLACEMENT_KEYS = frozenset({
+    "LLM_REMOTE_URL",
+    "LLM_REMOTE_MODEL",
+    "VLM_REMOTE_URL",
+    "VLM_REMOTE_MODEL",
+})
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
     HARBOR_BASE_PHASE_TIMEOUT_SEC
     * HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
@@ -112,6 +124,9 @@ MIN_HARBOR_BACKSTOP_SEC = (
 # itself the default.  The round 200-minute backstop leaves another 32 minutes
 # for scheduling jitter and bounded teardown that does not transfer files.
 DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
+# 12× agent budget (7200s) + other phases + 4 transfer windows is 13680s.
+# Stay above that floor the same way the Brev default stays above 10080s.
+LOCAL_GPU_HARBOR_TIMEOUT_SEC = 15_000
 
 # A single remote agent command must not be killed by Brev before Harbor's own
 # agent deadline can fire and drive normal artifact/environment cleanup.
@@ -248,15 +263,54 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
+def _local_gpu_eval() -> bool:
+    """True on OpenShell GPU runners pinned by SKILL_EVAL_LOCAL_GPU_INSTANCE."""
+    return bool(os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip())
+
+
+def harbor_agent_timeout_multiplier() -> float:
+    if _local_gpu_eval():
+        return LOCAL_GPU_AGENT_TIMEOUT_MULTIPLIER
+    return HARBOR_AGENT_TIMEOUT_MULTIPLIER
+
+
+def harbor_agent_budget_sec() -> int:
+    return int(HARBOR_BASE_PHASE_TIMEOUT_SEC * harbor_agent_timeout_multiplier())
+
+
+def harbor_phase_budget_sec() -> int:
+    return (
+        HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC
+        + HARBOR_AGENT_SETUP_BUDGET_SEC
+        + harbor_agent_budget_sec()
+        + HARBOR_VERIFIER_BUDGET_SEC
+    )
+
+
+def min_harbor_backstop_sec() -> int:
+    return harbor_phase_budget_sec() + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
+
+
+def min_brev_exec_timeout_sec() -> int:
+    return harbor_agent_budget_sec() + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+
+
+def default_harbor_timeout_sec() -> int:
+    if _local_gpu_eval():
+        return LOCAL_GPU_HARBOR_TIMEOUT_SEC
+    return DEFAULT_HARBOR_TIMEOUT_SEC
+
+
 def validate_harbor_timeout_sec(timeout_sec: int) -> int:
     """Require the outer backstop to leave every Harbor phase recovery room."""
-    if timeout_sec <= MIN_HARBOR_BACKSTOP_SEC:
+    min_backstop = min_harbor_backstop_sec()
+    if timeout_sec <= min_backstop:
         raise ValueError(
             "harbor timeout must be greater than "
-            f"{MIN_HARBOR_BACKSTOP_SEC}s: environment "
+            f"{min_backstop}s: environment "
             f"{HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC}s + agent setup "
             f"{HARBOR_AGENT_SETUP_BUDGET_SEC}s + agent "
-            f"{HARBOR_AGENT_BUDGET_SEC}s + verifier "
+            f"{harbor_agent_budget_sec()}s + verifier "
             f"{HARBOR_VERIFIER_BUDGET_SEC}s + cleanup/recovery "
             f"{HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC}s"
         )
@@ -345,6 +399,8 @@ def build_harbor_command(
         sys.executable,
         "--from",
         HARBOR_REQUIREMENT,
+        "--with",
+        CLAUDE_AGENT_SDK_REQUIREMENT,
         "harbor",
         "run",
         "--environment-import-path",
@@ -357,7 +413,7 @@ def build_harbor_command(
         "--environment-build-timeout-multiplier",
         str(environment_build_timeout_multiplier),
         "--agent-timeout-multiplier",
-        str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
+        str(harbor_agent_timeout_multiplier()),
         "--verifier-timeout-multiplier",
         str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         "--max-retries",
@@ -372,6 +428,29 @@ def build_harbor_command(
 
 def harbor_env(instance: str) -> dict[str, str]:
     env = os.environ.copy()
+    if env.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        for key in list(env):
+            if (
+                key in {
+                    "GH_TOKEN",
+                    "GITHUB_TOKEN",
+                    "SYSTEM_ACCESSTOKEN",
+                }
+                or key.startswith("ACTIONS_")
+                or (
+                    key.startswith("RUNNER_")
+                    and key != "RUNNER_TRACKING_ID"
+                )
+                or (
+                    key.startswith("GITHUB_")
+                    and key not in {"GITHUB_RUN_ID", "GITHUB_WORKSPACE"}
+                )
+            ):
+                env.pop(key, None)
+        env.pop("SSH_AGENT_PID", None)
+        env.pop("SSH_AUTH_SOCK", None)
+        for key in _REMOTE_PLACEMENT_KEYS:
+            env.pop(key, None)
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
     pythonpath = env.get("PYTHONPATH", "")
@@ -388,7 +467,7 @@ def harbor_env(instance: str) -> dict[str, str]:
             "BREV_EXEC_TIMEOUT must be an integer number of seconds"
         ) from exc
     env["BREV_EXEC_TIMEOUT"] = str(
-        max(configured_brev_timeout, MIN_BREV_EXEC_TIMEOUT_SEC)
+        max(configured_brev_timeout, min_brev_exec_timeout_sec())
     )
     # The outer backstop's recovery budget is derived from this exact per-call
     # cap. Do not let a larger inherited runner value invalidate that bound.
@@ -1027,6 +1106,33 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                     if not detached:
                         cleanup_started = True
                         return rc
+                    if rc == 0:
+                        # Harbor finished the trial. Leftover Brev/SSH
+                        # transport PGIDs are teardown residue on OpenShell
+                        # (observed: reward 1.0 then outcome=124 skipped the
+                        # rest of a multi-step chain). Reap them and keep
+                        # Harbor's success so later steps still run.
+                        print(
+                            "[run-leg] Harbor exited 0 with leftover "
+                            "transport groups "
+                            + ", ".join(map(str, detached))
+                            + "; reaping and keeping rc=0",
+                            flush=True,
+                        )
+                        _signal_registered_transport_groups(
+                            registry_path, signal.SIGTERM
+                        )
+                        _wait_for_process_group_exit(
+                            proc,
+                            pgid,
+                            HARBOR_SIGTERM_GRACE_SEC,
+                            registry_path,
+                        )
+                        _signal_registered_transport_groups(
+                            registry_path, signal.SIGKILL
+                        )
+                        cleanup_started = True
+                        return 0
                     cleanup_started = True
                     outcome = 124
                     reason = (
@@ -1420,7 +1526,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--lock-timeout-sec", default=21000, type=int)
     parser.add_argument(
         "--harbor-timeout-sec",
-        default=DEFAULT_HARBOR_TIMEOUT_SEC,
+        default=default_harbor_timeout_sec(),
         type=int,
     )
     args = parser.parse_args(argv)
@@ -1489,8 +1595,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
+        # > SKILL_EVAL_LOCAL_GPU_INSTANCE (direct OpenShell runner)
         # > task.toml brev_instance > pool selection.
-        pinned = args.instance or metadata.get("brev_instance") or None
+        local_pin = os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+        pinned = args.instance or local_pin or metadata.get("brev_instance") or None
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)
