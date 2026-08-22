@@ -71,6 +71,14 @@ functions:
     _type: search
     embed_search_tool: embed_search
     attribute_search_tool: attribute_search
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
+    cosmos_embed_model: {{ .Values.rtviEmbedModel | default "cosmos-embed1-448p-anomaly-detection" }}
+    rtvi_cv_endpoint: ${RTVI_CV_BASE_URL}
+    video_embed_index: ${ELASTIC_SEARCH_INDEX}
+    behavior_index: mdx-behavior-2025-01-01
+    frames_index: mdx-raw-2025-01-01
+    enable_frame_lookup: false
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true
     critic_agent: critic_agent
@@ -85,6 +93,14 @@ functions:
     _type: search_agent
     embed_search_tool: embed_search
     attribute_search_tool: attribute_search
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
+    cosmos_embed_model: {{ .Values.rtviEmbedModel | default "cosmos-embed1-448p-anomaly-detection" }}
+    rtvi_cv_endpoint: ${RTVI_CV_BASE_URL}
+    video_embed_index: ${ELASTIC_SEARCH_INDEX}
+    behavior_index: mdx-behavior-2025-01-01
+    frames_index: mdx-raw-2025-01-01
+    enable_frame_lookup: false
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true
     vst_internal_url: ${VST_INTERNAL_URL}
