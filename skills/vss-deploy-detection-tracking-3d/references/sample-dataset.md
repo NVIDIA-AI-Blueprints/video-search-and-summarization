@@ -157,7 +157,7 @@ After the bundled preflight has exported/persisted the selected broker values, c
 
 For a generic sample request such as "deploy MV3DT on the sample dataset", do not force saved output before probing display availability. Use the display probe in `references/configure-cameras.md` first:
 
-- If a working display is found and the user did not ask to save, stage `INPUT_MODE=file OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and start live fused BEV before perception so both the `DeepStreamTest5App` camera grid and `Bird-Eye View of Multi-View 3D Tracking` BEV windows can render.
+- If a working display is found and the user did not ask to save, stage `INPUT_MODE=file OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and start live fused BEV before perception so both the `DeepStreamTest5App` camera grid and `Bird-Eye View of Multi-View 3D Tracking` BEV windows can render. After file EOS, finalize live BEV by asking the user to press `q` in the BEV window, or safely stop only the tracked current-run BEV PID through the teardown identity checks for unattended closeout.
 - If no working display is found, state the probe result and use the saved fallback: stage `INPUT_MODE=file OSD=0 SAVE_VIDEO=1`, set `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`, and verify saved grid plus fused BEV artifacts.
 - If the user explicitly asked to save, stage with `SAVE_VIDEO=1` even when display is available; use `OSD=1 SAVE_VIDEO=1` only when the user asked for both live and saved output.
 
