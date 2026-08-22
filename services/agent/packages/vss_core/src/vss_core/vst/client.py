@@ -33,6 +33,7 @@ import json
 import logging
 from typing import Literal
 import urllib.parse
+import urllib.request
 
 import aiohttp
 
@@ -69,8 +70,17 @@ def _session(timeout: aiohttp.ClientTimeout) -> aiohttp.ClientSession:
     resolves DNS itself. Wherever egress is proxy-only -- the NemoClaw or
     OpenShell sandbox the host CLI runs in -- that surfaces as a DNS
     resolution failure against a host the proxy reaches perfectly well.
+
+    Enabled only when a proxy is actually configured: ``trust_env`` also makes
+    aiohttp read ``~/.netrc`` and attach basic auth to any matching host, which
+    is not wanted on the in-cluster calls that make up every stock deployment.
+    The probe is ``getproxies()`` filtered to the schemes aiohttp acts on --
+    the same call ``proxies_from_env`` makes, so the two cannot disagree about
+    variable casing or which names count. Read per call so an environment
+    exported after import still applies.
     """
-    return aiohttp.ClientSession(timeout=timeout, trust_env=True)
+    trust_env = any(scheme in ("http", "https", "ws", "wss") for scheme in urllib.request.getproxies())
+    return aiohttp.ClientSession(timeout=timeout, trust_env=trust_env)
 
 
 # ---------------------------------------------------------------------- types
