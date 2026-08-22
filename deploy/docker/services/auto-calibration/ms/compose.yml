@@ -62,3 +62,4 @@ services:
       timeout: 10s
       retries: 3
       start_period: 1000s
+      start_interval: 5s

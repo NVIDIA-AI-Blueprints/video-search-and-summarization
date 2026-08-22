@@ -93,7 +93,8 @@ services:
       interval: 20s
       timeout: 10s
       retries: 75
-      start_period: 20s
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       centralizedb:
         condition: service_healthy
@@ -163,7 +164,8 @@ services:
       interval: 20s
       timeout: 10s
       retries: 75
-      start_period: 20s
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       turnserver-init:
         condition: service_completed_successfully
@@ -237,7 +239,8 @@ services:
       interval: 20s
       timeout: 10s
       retries: 75
-      start_period: 20s
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       turnserver-init:
         condition: service_completed_successfully
@@ -311,7 +314,8 @@ services:
       interval: 20s
       timeout: 10s
       retries: 75
-      start_period: 20s
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       turnserver-init:
         condition: service_completed_successfully

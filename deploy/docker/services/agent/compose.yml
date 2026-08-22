@@ -54,7 +54,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 1200s
+      start_interval: 5s
     restart: unless-stopped
 
   vss-agent:
@@ -169,7 +170,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 240s
+      start_period: 1200s
+      start_interval: 5s
     restart: unless-stopped
     depends_on:
       nvidia-nemotron-nano-9b-v2:

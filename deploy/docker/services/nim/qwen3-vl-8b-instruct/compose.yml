@@ -54,6 +54,8 @@ services:
       timeout: 650s
       retries: 2
 
+      start_period: 1200s
+      start_interval: 5s
   qwen3-vl-8b-instruct-shared-gpu:
     image: nvcr.io/nvidia/vllm:25.12.post1-py3
     command: python3 -m vllm.entrypoints.openai.api_server --model
@@ -94,5 +96,7 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
 volumes:
   qwen3_vl_8b_instruct_cache:
