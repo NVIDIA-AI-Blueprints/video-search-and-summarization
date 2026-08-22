@@ -30,7 +30,7 @@ from vss_core.critic import CriticAgent
 from vss_core.critic import VideoInfo
 from vss_core.critic.models import CriticAgentInput
 from vss_core.critic.models import CriticAgentResult
-from vss_core.vst import VSTError
+from vss_core.vios import VSTError
 
 # ---------------------------------------------------------------------- mocks
 

@@ -302,7 +302,10 @@ Hand off to `/vss-manage-video-io-storage` to:
 3. Request a clip URL:
 
    ```bash
-   curl -s "${VST_API_BASE}/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
+   # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
+   # Omit the window to take the whole covering segment; the response echoes what it resolved.
+   # CLI bootstrap and exit codes: AGENTS.md at the repo root
+   vss vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>] | jq -r .media_url
    ```
 
 Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
