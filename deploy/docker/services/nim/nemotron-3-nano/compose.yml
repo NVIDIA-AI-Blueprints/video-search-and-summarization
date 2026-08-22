@@ -61,6 +61,8 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       nemotron-3-nano-init:
         condition: service_completed_successfully
@@ -123,5 +125,7 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
 volumes:
   nemotron_3_nano_cache:

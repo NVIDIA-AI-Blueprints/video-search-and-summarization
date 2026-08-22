@@ -50,6 +50,8 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
   llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
     image: nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:1
     container_name: llama-3.3-nemotron-super-49b-v1.5
@@ -86,6 +88,8 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       cosmos-reason2-8b-shared-gpu:
         condition: service_healthy

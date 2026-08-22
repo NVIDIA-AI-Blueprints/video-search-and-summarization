@@ -60,6 +60,8 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       gpt-oss-20b-init:
         condition: service_completed_successfully
@@ -100,6 +102,8 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       gpt-oss-20b-init:
         condition: service_completed_successfully
