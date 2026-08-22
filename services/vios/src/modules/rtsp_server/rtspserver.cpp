@@ -797,7 +797,16 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
 
             stream->name           = name;
             stream->live_proxy_url = proxyUrl;
-            stream->replay_url     = vodUrl;
+            /* For mms (Milestone) sensors, recordings live on the external VMS.
+            ** Preserve the VMS-direct replay URL resolved at discovery instead of
+            ** overwriting it with the local /vod/ proxy URL, which VIOS's RTSP
+            ** server can only serve from locally-recorded files (404 for mms).
+            ** The camera_streaming handler below (SENSOR_TYPE_MMS_ONVIF branch)
+            ** reads back this replay_url, so it must not be clobbered here. */
+            if (sensor->type != SENSOR_TYPE_MMS_ONVIF)
+            {
+                stream->replay_url = vodUrl;
+            }
 
             SensorVideoEncoderSettingsValues vEnc = stream->getvideoEncoderValues();
             if (!codec.empty())      vEnc.encoding   = codec;

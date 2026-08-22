@@ -173,6 +173,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         bool isSeeking() { return m_isSeeking; }
         gint64 getAbsPosition();
         void updateDecoderElement();
+        /* Milestone (mms) VOD recorded-playback seek: instead of a GStreamer
+        ** pipeline seek (which does not apply to a live RTSP/appsrc source), flush
+        ** the appsrc and re-PLAY the same RTSP session at the new absolute time
+        ** (RTSP Range) via the producer. */
+        VmsErrorCode seekMmsVodPlayback(const std::string& action, const std::string& seek_value);
         uint64_t getLastTS();
         int64_t getFileStartTime();
         uint32_t getDurationStream();
@@ -295,6 +300,9 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::string             m_sensorName;
         std::mutex              m_debugData;
         uint64_t                m_firstFrameTS = 0;
+        /* Epoch (ms) of the most recently delivered frame; used to report the
+        ** current position and to anchor relative seeks for mms VOD playback. */
+        std::atomic<int64_t>    m_lastFramePtsMs {0};
         std::queue<std::pair< int64_t, uint64_t >>    m_frameTsQueue;
         std::mutex              m_frameTsQueueLock;
         std::condition_variable m_frameTsQueueCond;
@@ -317,7 +325,31 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::string             m_objectId{""};
         std::string             m_isoStartTime{""};
         std::string             m_isoEndTime{""};
-        int64_t                 m_epochStartTime{0};
+        /* Frame-gate anchor for mms VOD: written by the seek thread in
+        ** seekMmsVodPlayback() and read by the GStreamer streaming thread in the
+        ** onFrame gate, so it must be atomic to avoid a data race. */
+        std::atomic<int64_t>    m_epochStartTime{0};
+        /* In-session mms VOD seek guard. A seek re-PLAYs the RTSP session; issuing
+        ** the next seek before the previous one has resumed frames churns the VOD
+        ** session and can stall it (tripping the data-timeout watchdog that then
+        ** tears the RTSP client down). While a seek is in progress we reject new
+        ** seeks, UNLESS the in-flight one has failed to settle within the watchdog
+        ** window (so a stalled seek can never permanently block seeking).
+        ** m_mmsSeekInProgress: set on re-PLAY, cleared when the first post-seek
+        ** frame is delivered. m_mmsSeekIssuedAtMs: wall-clock ms of that re-PLAY. */
+        std::atomic<bool>       m_mmsSeekInProgress{false};
+        std::atomic<int64_t>    m_mmsSeekIssuedAtMs{0};
+        /* One-shot marker to log the first RTSP frame received from the Milestone VOD
+        ** server. Armed at start (default true) and re-armed on each seek. Kept as an
+        ** always-on general diagnostic of when frames start flowing and at what PTS. */
+        std::atomic<bool>       m_logFirstRtspFrameAfterSeek{true};
+        /* After an mms seek, drop stale in-flight frames from the OLD position (which
+        ** arrive before the new RTSP Range takes effect) so they do not advance the
+        ** decoder PTS and cause the real target frames to be rejected as backward --
+        ** the cause of backward-seek freezes. Fail-open after a bounded number of
+        ** drops so a mis-estimate can never permanently freeze playback. */
+        std::atomic<bool>       m_awaitTargetFrameAfterSeek{false};
+        std::atomic<int>        m_staleFrameDropCount{0};
         int64_t                 m_epochEndTime{0};
         int64_t                 m_fileStartTime{0};
         bool                    m_continuosPlayback = false;

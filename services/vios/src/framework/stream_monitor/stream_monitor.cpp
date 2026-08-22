@@ -3046,6 +3046,27 @@ void StreamMonitor::unregisterConsumer(std::shared_ptr<IMediaDataConsumer> consu
     deregisterDataCallback(consumer, url, doNotRemoveClient);
 }
 
+bool StreamMonitor::seekToTime(const std::string& identifier, int64_t targetEpochMs)
+{
+    // Re-PLAY the SAME RTSP client at an absolute time (RTSP Range), without
+    // tearing it down/recreating it. This keeps the stream-monitor/QoS state and
+    // any concurrent live view untouched. Used for mms VOD recorded-playback seek.
+    QosRtspClient* rtspSrc = getRtspClient(identifier);
+    if (rtspSrc == nullptr)
+    {
+        LOG(error) << "[streamMonitor] seek: no active RTSP client for url:"
+                   << secureUrlForLogging(identifier) << endl;
+        return false;
+    }
+    // convertEpocToISO8601 takes microseconds and yields the compact RTSP time
+    // format that sendPlayCommand's Range expects (same as the relative-seek path).
+    std::string rtspTime = convertEpocToISO8601(targetEpochMs * 1000);
+    LOG(info) << "[streamMonitor] seek to epochMs=" << targetEpochMs
+              << " (" << rtspTime << ") for " << rtspSrc->getDevName() << endl;
+    rtspSrc->controlStreamLiveVideoSource("seek_absolute", rtspTime);
+    return true;
+}
+
 void StreamMonitor::distributeToConsumers(std::shared_ptr<RawFrameParams> frameData)
 {
     std::lock_guard<std::mutex> lock(m_streamConsumerLock);

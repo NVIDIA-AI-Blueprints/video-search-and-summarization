@@ -62,6 +62,22 @@ constexpr auto MAX_BUFFER_WAIT_TIMEOUT = 15s;
 constexpr int MAX_FRAMES_FOR_LATENCY = 30;
 constexpr auto DEFAULT_FRAME_LATENCY = (1000 / DEFAULT_FRAME_RATE) * MAX_FRAMES_FOR_LATENCY;
 
+/* Max time an in-session mms VOD seek may stay "in progress" (awaiting its first
+** post-seek frame) before a new seek is allowed through regardless. Prevents a
+** stalled seek from permanently blocking further seeking. */
+constexpr int64_t MMS_SEEK_SETTLE_TIMEOUT_MS = 5000;
+
+/* After an mms seek, an input frame whose epoch PTS is more than this far from the
+** seek target is treated as a stale old-position frame (it arrived before the new
+** RTSP Range took effect) and dropped before it reaches the decoder. This keeps the
+** decoder PTS aligned to the seek target so the real target frames are not rejected
+** as backward (the cause of backward-seek freezes). Generous enough to keep
+** keyframe-aligned starts that begin a few seconds before the requested time. */
+constexpr int64_t SEEK_STALE_WINDOW_MS = 30000;
+/* Fail-open: stop dropping after this many consecutive drops so a bad estimate can
+** never permanently starve the decoder. */
+constexpr int SEEK_STALE_MAX_DROP = 30;
+
 constexpr const char* GST_CAPS_FEATURES_NVMM = "memory:NVMM";
 constexpr int CONFIRM_DEC_OUT_FRAMES = 5;
 constexpr int GST_DEBUG_PROBE_BUFFER_COUNT = 10;
@@ -405,6 +421,25 @@ void GstNvVideoDecoder::pushBufferToDecoder(const unsigned char *buffer, ssize_t
     GstBuffer *gstbuffer = nullptr;
     GstMapInfo map;
 
+    /* Right after an mms seek, drop stale in-flight frames from the previous
+    ** position (their epoch PTS is far from the seek target) before they reach the
+    ** decoder. Otherwise a stale frame advances the decoder PTS ahead of the target
+    ** and the real target frames get rejected as backward -> backward-seek freeze.
+    ** Fail-open after SEEK_STALE_MAX_DROP so a bad estimate can never starve it. */
+    if (m_sensorType == SENSOR_TYPE_MMS_ONVIF && m_awaitTargetFrameAfterSeek.load())
+    {
+        int64_t diff = (int64_t)ts - m_epochStartTime.load();
+        if ((diff > SEEK_STALE_WINDOW_MS || diff < -SEEK_STALE_WINDOW_MS)
+            && m_staleFrameDropCount.fetch_add(1) < SEEK_STALE_MAX_DROP)
+        {
+            LOG(verbose) << "[seek] dropping stale post-seek frame ptsMs=" << ts
+                         << " target=" << m_epochStartTime.load() << " diff=" << diff << "ms" << endl;
+            return;
+        }
+        /* First frame at/near the target (or fail-open): resume normal delivery. */
+        m_awaitTargetFrameAfterSeek.store(false);
+    }
+
     /* Allocate a new Gst Buffer */
     gstbuffer = gst_buffer_new_allocate (nullptr, size, nullptr);
 
@@ -453,6 +488,20 @@ void GstNvVideoDecoder::pushBufferToDecoder(const unsigned char *buffer, ssize_t
 #ifdef DUMP_INPUT_NALS
     dump_input_stream(content);
 #endif
+
+    /* First RTSP frame received from the Milestone VOD server (at stream start and
+    ** after each seek). Always-on general diagnostic: when frames start flowing and
+    ** at what epoch PTS; includes the latency since the last seek when applicable. */
+    if (m_sensorType == SENSOR_TYPE_MMS_ONVIF && m_logFirstRtspFrameAfterSeek.exchange(false))
+    {
+        int64_t issuedAt = m_mmsSeekIssuedAtMs.load();
+        int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count();
+        LOG(info) << "[rtsp] first frame from Milestone: peer=" << m_peerid
+                  << " framePtsMs=" << ts
+                  << (issuedAt != 0 ? (" (+" + std::to_string(nowMs - issuedAt) + "ms after seek)") : "")
+                  << endl;
+    }
 
     /* Push the Gst Buffer in pipeline */
     gst_app_src_push_buffer((GstAppSrc*)m_source, gstbuffer);
@@ -2599,6 +2648,17 @@ VmsErrorCode GstNvVideoDecoder::update (std::string action, std::string seek_val
         LOG(info) << "Rewind not supported with overlay enabled" << endl;
         goto exit;
     }
+    /* Milestone (mms) VOD recorded playback is served live over RTSP with epoch
+    ** PTS, so a GStreamer pipeline seek does not apply (query_position returns a
+    ** wall-clock epoch, not an in-file offset). Seek by restarting the VOD RTSP
+    ** producer at the requested startTime instead. */
+    if (m_sensorType == SENSOR_TYPE_MMS_ONVIF &&
+        (action == "seek_forward" || action == "seek_backward" ||
+         action == "seek_forward_custom" || action == "seek_backward_custom"))
+    {
+        return_err = seekMmsVodPlayback(action, seek_value);
+        goto exit;
+    }
     if (!eos && !gst_element_query_position  (m_pipeline, GST_FORMAT_TIME, &position))
     {
         LOG(error) << "Failed to query position of pipeline" << endl;
@@ -3119,6 +3179,21 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
         return GST_FLOW_ERROR;
     }
 
+    /* This is the real WebRTC video-delivery path for mms VOD recorded playback
+    ** (processJpegImageFromSink is only used for image capture). Track the epoch of
+    ** the latest delivered frame for position/relative-seek reference, and clear
+    ** the in-session seek guard once a frame at/after the seek target arrives so the
+    ** next seek is allowed without waiting out the settle-watchdog. */
+    if (m_sensorType == SENSOR_TYPE_MMS_ONVIF)
+    {
+        int64_t buf_time_ms = GST_BUFFER_PTS (gstBuffer) / 1000000;
+        if (buf_time_ms >= m_epochStartTime.load())
+        {
+            m_lastFramePtsMs = buf_time_ms;
+            m_mmsSeekInProgress.store(false);
+        }
+    }
+
     if (m_godsEyeView)
     {
         LOG(error) << "Creating cached frame" << endl;
@@ -3480,6 +3555,15 @@ GstFlowReturn GstNvVideoDecoder::processJpegImageFromSink(GstElement *appsink)
             {
                 goto exit_func;
             }
+            /* Track the epoch of the latest delivered frame so replay position
+            ** queries and relative seeks have a reference point for mms VOD. */
+            if (m_sensorType == SENSOR_TYPE_MMS_ONVIF)
+            {
+                m_lastFramePtsMs = buf_time;
+                /* A frame at/after the seek target has been delivered: the
+                ** in-session seek has settled, so allow the next one. */
+                m_mmsSeekInProgress.store(false);
+            }
         }
     }
 
@@ -3732,6 +3816,14 @@ bool GstNvVideoDecoder::getDuration (gint64& duration)
 
 gint64 GstNvVideoDecoder::getAbsPosition()
 {
+    if (m_sensorType == SENSOR_TYPE_MMS_ONVIF)
+    {
+        /* mms VOD frames carry an absolute epoch PTS; report the latest delivered
+        ** frame time (ms) rather than a pipeline/in-file offset. Falls back to the
+        ** requested startTime before the first frame arrives. */
+        int64_t pos = m_lastFramePtsMs.load();
+        return pos != 0 ? pos : m_epochStartTime.load();
+    }
     gint64 abs_position = 0;
     if (getPosition(abs_position) == false)
     {
@@ -3747,6 +3839,123 @@ gint64 GstNvVideoDecoder::getAbsPosition()
         abs_position /= GST_MSECOND;
     }
     return abs_position;
+}
+
+VmsErrorCode GstNvVideoDecoder::seekMmsVodPlayback(const std::string& action, const std::string& seek_value)
+{
+    /* Resolve the absolute seek target (epoch ms). The replay seekbar sends an
+    ** absolute ISO-8601 time in seek_value for *_custom actions; the fixed-step
+    ** actions and numeric *_custom values are relative to the current position. */
+    int64_t currentEpochMs = m_lastFramePtsMs.load();
+    if (currentEpochMs == 0)
+    {
+        currentEpochMs = m_epochStartTime;
+    }
+
+    int64_t targetEpochMs = 0;
+    if ((action == "seek_forward_custom" || action == "seek_backward_custom") && !isNumber(seek_value))
+    {
+        targetEpochMs = getEpocTimeInMS(seek_value);   // absolute ISO-8601
+    }
+    else
+    {
+        int64_t deltaMs = 0;
+        if (action == "seek_forward")
+        {
+            deltaMs = 10 * 1000;
+        }
+        else if (action == "seek_backward")
+        {
+            deltaMs = -10 * 1000;
+        }
+        else
+        {
+            int64_t secs = stringToInt(seek_value, 0);
+            deltaMs = secs * 1000 * (action == "seek_backward_custom" ? -1 : 1);
+        }
+        targetEpochMs = currentEpochMs + deltaMs;
+    }
+
+    if (targetEpochMs <= 0)
+    {
+        LOG(error) << "seekMmsVodPlayback: invalid seek target for action=" << action
+                   << ", seek_value=" << seek_value << endl;
+        return VmsErrorCode::InvalidParameterError;
+    }
+
+    if (!m_producer)
+    {
+        LOG(error) << "seekMmsVodPlayback: no producer to reseek, peer=" << m_peerid << endl;
+        return VmsErrorCode::VMSInternalError;
+    }
+
+    /* Serialize in-session seeks. Each seek re-PLAYs the same RTSP VOD session;
+    ** issuing the next one before the previous has resumed frames churns the
+    ** session and can stall it (which trips the data-timeout watchdog that then
+    ** tears the RTSP client down and kills playback). So while a seek is still
+    ** settling we reject a new one. Watchdog: if the in-flight seek has not
+    ** settled within MMS_SEEK_SETTLE_TIMEOUT_MS, proceed anyway so a stalled
+    ** seek can never permanently block seeking. */
+    int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+    if (m_mmsSeekInProgress.load())
+    {
+        int64_t inFlightMs = nowMs - m_mmsSeekIssuedAtMs.load();
+        if (inFlightMs < MMS_SEEK_SETTLE_TIMEOUT_MS)
+        {
+            LOG(warning) << "seekMmsVodPlayback: previous seek still settling ("
+                         << inFlightMs << "ms), ignoring new seek. peer=" << m_peerid << endl;
+            /* Return NoError, NOT an error: a throttled seek is intentionally
+            ** ignored (debounced), not a failure. The "control" task handler tears
+            ** the whole pipeline down on a VMSInternalError from update(), so
+            ** returning an error here would destroy the session on every rejected
+            ** seek. Playback simply continues at the in-flight target. */
+            return VmsErrorCode::NoError;
+        }
+        LOG(warning) << "seekMmsVodPlayback: previous seek did not settle within "
+                     << MMS_SEEK_SETTLE_TIMEOUT_MS << "ms (" << inFlightMs
+                     << "ms), proceeding. peer=" << m_peerid << endl;
+    }
+    /* Mark in progress before issuing the re-PLAY; cleared when the first
+    ** post-seek frame is delivered (see processJpegImageFromSink), or superseded
+    ** by the watchdog above on a later seek. */
+    m_mmsSeekInProgress.store(true);
+    m_mmsSeekIssuedAtMs.store(nowMs);
+    // Re-arm the first-RTSP-frame marker and stale-frame dropping for this seek.
+    m_logFirstRtspFrameAfterSeek.store(true);
+    m_awaitTargetFrameAfterSeek.store(true);
+    m_staleFrameDropCount.store(0);
+
+    LOG(info) << "seekMmsVodPlayback: peer=" << m_peerid << " action=" << action
+              << " targetEpochMs=" << targetEpochMs << endl;
+
+    /* In-session seek: flush stale (pre-seek) frames out of the appsrc, then ask
+    ** the producer to re-PLAY the SAME RTSP session at the new absolute time via
+    ** an RTSP Range request. This reuses the existing RTSP client (no teardown/
+    ** recreate), so it does NOT churn the shared stream-monitor/QoS state or
+    ** disturb any concurrent live view, and completes in a single PLAY round-trip.
+    ** The stream URL is unchanged (the new position is conveyed by the Range). */
+    if (m_source)
+    {
+        gst_element_send_event(m_source, gst_event_new_flush_start());
+        gst_element_send_event(m_source, gst_event_new_flush_stop(TRUE));
+    }
+
+    // Re-anchor the frame gate before the re-PLAY so any residual pre-seek frames
+    // are dropped and only frames at/after the target are delivered downstream.
+    m_epochStartTime = targetEpochMs;
+    m_lastFramePtsMs = 0;
+
+    if (!m_producer->seekToTime(m_uri, targetEpochMs))
+    {
+        LOG(error) << "seekMmsVodPlayback: producer seek failed (no active RTSP session?) for peer="
+                   << m_peerid << endl;
+        /* The re-PLAY was not issued, so no post-seek frame will arrive to clear
+        ** the guard; clear it now so the next seek is not wrongly rejected. */
+        m_mmsSeekInProgress.store(false);
+        return VmsErrorCode::VMSInternalError;
+    }
+    return VmsErrorCode::NoError;
 }
 
 gint64 GstNvVideoDecoder::seekToEpoch (time_t final_epoch)

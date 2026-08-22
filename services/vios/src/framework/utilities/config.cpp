@@ -367,6 +367,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.onvif_request_timeout_secs = onvif.get("onvif_request_timeout_secs", 10).asInt();
         m_vmsConfig.onvif_sensor_time_sync_interval_secs = onvif.get("onvif_sensor_time_sync_interval_secs", 60).asInt();
         m_vmsConfig.onvif_sensor_time_sync_compensation_ms = onvif.get("onvif_sensor_time_sync_compensation_ms", 20).asInt();
+        m_vmsConfig.onvif_cache_device_time_offset = onvif.get("onvif_cache_device_time_offset", true).asBool();
         Json::Value discovery_interfaces = onvif.get("device_discovery_interfaces", Json::nullValue);
         if(discovery_interfaces.isArray())
         {

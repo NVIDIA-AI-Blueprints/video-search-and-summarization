@@ -392,6 +392,22 @@ void RTSPConnection::RTSPClientConnection::doPauseResume(uint64_t* resume_time_i
 		LOG(info) << "Seek 10 secs backward to time: " << m_resumeTime << endl;
 		this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator.get());
 	}
+	else if (action == "seek_absolute")
+	{
+		// Absolute-time seek: seek_value already carries the target in the compact
+		// RTSP time format (produced by convertEpocToISO8601).
+		//
+		// Milestone VOD does NOT reliably restart the RTP stream when a PLAY(Range)
+		// is issued against an already-playing session: the first seek works, but
+		// subsequent in-session re-PLAYs are acked (200) yet deliver zero packets,
+		// freezing playback. Reposition the RTSP-standard way instead: PAUSE first,
+		// then send PLAY with the new Range from continueAfterPAUSE. This mirrors the
+		// existing rewind/fast_forward path, which already PAUSE-then-PLAYs reliably.
+		envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalTimeoutTask);
+		m_resumeTime = seek_value;
+		LOG(info) << "Seek (absolute) -> PAUSE then PLAY(Range) to time: " << m_resumeTime << endl;
+		this->sendPauseCommand(*m_session, continueAfterPAUSE, m_authenticator);
+	}
 	else if (action == "rewind" || action == "fast_forward")
 	{
 		m_playback_speed = stringToInt(seek_value, 1);
@@ -555,7 +571,13 @@ void RTSPConnection::RTSPClientConnection::continueAfterPAUSE(int resultCode, ch
 
 	m_playbackState = "PAUSED";
 
-	m_resumeTime = convertEpocToISO8601(*m_resumeTimeEpoch);
+	// For seek_absolute, m_resumeTime already holds the absolute target set in
+	// doPauseResume; do NOT overwrite it from m_resumeTimeEpoch (which is not set
+	// on that path). Other actions derive the resume time from the epoch as before.
+	if (m_action != "seek_absolute")
+	{
+		m_resumeTime = convertEpocToISO8601(*m_resumeTimeEpoch);
+	}
 
 	if (m_session)
 	{
@@ -567,6 +589,12 @@ void RTSPConnection::RTSPClientConnection::continueAfterPAUSE(int resultCode, ch
 		else if (m_action == "resume")
 		{
 			this->sendPlayCommand(*m_session, continueAfterPLAY, -1, -1, 1.0, m_authenticator.get());
+		}
+		else if (m_action == "seek_absolute")
+		{
+			// PAUSE has completed; now reposition and resume with the new Range.
+			LOG(info) << "Seek (absolute) PLAY(Range) after pause to time: " << m_resumeTime << endl;
+			this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator);
 		}
 		else
 		{
