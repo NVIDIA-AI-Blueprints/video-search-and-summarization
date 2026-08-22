@@ -83,6 +83,10 @@ env:
   # Point APT at an internal/nearby mirror. Empty uses the public archive.
   - name: VST_APT_MIRROR
     value: ""
+  # Number of parallel connections used to fetch APT packages. Values below 2
+  # download serially, as before.
+  - name: VST_APT_PARALLEL_DOWNLOADS
+    value: "8"
   - name: CONTAINER_NAME
     value: vss-vios-streamprocessing
   - name: ADAPTOR

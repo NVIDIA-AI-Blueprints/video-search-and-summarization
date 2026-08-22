@@ -138,6 +138,8 @@ spec:
               value: {{ .Values.env.NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES | quote }}
             - name: VST_APT_MIRROR
               value: {{ .Values.env.VST_APT_MIRROR | default "" | quote }}
+            - name: VST_APT_PARALLEL_DOWNLOADS
+              value: {{ .Values.env.VST_APT_PARALLEL_DOWNLOADS | default "" | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}

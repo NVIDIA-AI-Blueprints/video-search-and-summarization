@@ -39,6 +39,9 @@ env:
   NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES: "true"
   # Point APT at an internal/nearby mirror. Empty uses the public archive.
   VST_APT_MIRROR: ""
+  # Number of parallel connections used to fetch APT packages. Values below 2
+  # download serially, as before.
+  VST_APT_PARALLEL_DOWNLOADS: "8"
 
 service:
   port: 31000
