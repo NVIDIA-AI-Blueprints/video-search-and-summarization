@@ -73,18 +73,13 @@ services:
         required: false
       # nginx resolves a literal proxy_pass host once, at config load, and this
       # config names vss-vios-streamprocessing with no resolver. Without this
-      # wait nginx starts before that container exists, fails to resolve it,
-      # exits, and restart: always puts it into exponential backoff: measured 6
-      # restarts and 13.0 s to healthy for a 5 s wait, 8 and 32.4 s for 15 s,
-      # 11 and 169.8 s for 128 s. The backoff overshoots by up to one interval,
-      # so it costs more than the wait it is covering.
+      # wait nginx exits before that container exists and `restart: always`
+      # backs it off, which costs more than the wait itself.
       #
-      # service_started, not service_healthy: Compose registers the network
-      # alias when it creates the container, so this is satisfied as soon as
-      # streamprocessing is running and long before it finishes its startup
-      # install. nginx then resolves, starts first try, and 502s until the
-      # backend listens. Waiting for service_healthy would instead hold ingress
-      # down for the whole install and make it come up later than it does today.
+      # service_started, not service_healthy: the network alias exists as soon
+      # as the container runs, so nginx resolves and 502s until the backend
+      # listens. service_healthy would hold ingress down for the whole
+      # streamprocessing install and bring it up later than it does today.
       streamprocessing-ms:
         condition: service_started
         required: false
