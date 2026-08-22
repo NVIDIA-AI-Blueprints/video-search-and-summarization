@@ -179,6 +179,13 @@ services:
     depends_on:
       sensor-ms:
         condition: service_healthy
+      # See the note in deploy/docker/services/vios/foundational/docker-compose.yaml:
+      # nginx resolves the literal proxy_pass host once at config load, so without
+      # this wait it crash-loops through restart backoff until streamprocessing
+      # exists. service_started is satisfied as soon as the container runs.
+      streamprocessing-ms-1:
+        condition: service_started
+        required: false
 
   # Redis is the message broker SDR consumes from, and the routing-table
   # backing store Envoy's Lua filter reads. It's only used in SDRC mode. Profile-
