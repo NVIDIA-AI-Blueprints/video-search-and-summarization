@@ -21,11 +21,29 @@ import logging
 from typing import Any, Dict
 
 from .sink_base import VLMEnhancedSink
+from .sink_console import VLMEnhancedConsoleSink
 from .sink_elastic import VLMEnhancedElasticSink
 from .sink_kafka import VLMEnhancedKafkaSink
 
 
 logger = logging.getLogger(__name__)
+
+#: Accepted spellings per sink type. Matching is case- and
+#: separator-insensitive so ``redisStream``, ``redis_stream`` and
+#: ``redis-stream`` all select the Redis Streams sink.
+_SINK_ALIASES = {
+    "elastic": "elastic",
+    "elasticsearch": "elastic",
+    "kafka": "kafka",
+    "redisstream": "redisStream",
+    "redis": "redisStream",
+    "console": "console",
+}
+
+
+def _normalize_sink_type(value: str) -> str:
+    """Resolve a configured sink type to its canonical name."""
+    return _SINK_ALIASES.get(value.strip().lower().replace("_", "").replace("-", ""), value)
 
 
 def _load_category_mapping(config: Dict[str, Any]) -> Dict[str, str]:
@@ -85,7 +103,7 @@ def build_vlm_enhanced_sink(
     """
 
     sink_root = config.get("vlm_enhanced_sink", {}) or {}
-    sink_type = (sink_root.get("type") or "elastic").lower()
+    sink_type = _normalize_sink_type(sink_root.get("type") or "elastic")
 
     category_mapping = _load_category_mapping(config)
     verdict_description_mapping = _load_verdict_description_mapping(config)
@@ -112,6 +130,27 @@ def build_vlm_enhanced_sink(
             alert_config_store=alert_config_store,
         )
 
-    raise ValueError(f"Unsupported vlm_enhanced_sink.type: {sink_type}")
+    if sink_type == "redisStream":
+        # Imported here rather than at module scope so the `redis` package is
+        # only required by deployments that actually select this transport.
+        from .sink_redis_stream import VLMEnhancedRedisStreamSink
+
+        return VLMEnhancedRedisStreamSink.from_config(
+            config,
+            category_mapping=category_mapping,
+            alert_config_store=alert_config_store,
+        )
+
+    if sink_type == "console":
+        return VLMEnhancedConsoleSink.from_config(
+            config,
+            category_mapping=category_mapping,
+            alert_config_store=alert_config_store,
+        )
+
+    raise ValueError(
+        f"Unsupported vlm_enhanced_sink.type: {sink_type} "
+        "(supported: 'elastic', 'kafka', 'redisStream', 'console')"
+    )
 
 
