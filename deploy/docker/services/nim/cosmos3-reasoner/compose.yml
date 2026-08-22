@@ -64,6 +64,8 @@ services:
       timeout: 650s
       retries: 2
 
+      start_period: 1200s
+      start_interval: 5s
   cosmos3-reasoner-shared-gpu:
     image: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
     container_name: nvidia-cosmos3-reasoner
@@ -108,5 +110,7 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
 volumes:
   cosmos3_reasoner_cache:

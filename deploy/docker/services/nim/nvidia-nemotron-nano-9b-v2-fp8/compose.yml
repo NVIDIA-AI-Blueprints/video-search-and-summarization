@@ -87,6 +87,8 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
         condition: service_completed_successfully
@@ -150,6 +152,8 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
     depends_on:
       nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
         condition: service_completed_successfully

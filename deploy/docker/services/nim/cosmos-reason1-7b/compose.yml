@@ -60,6 +60,8 @@ services:
       timeout: 650s
       retries: 2
 
+      start_period: 1200s
+      start_interval: 5s
   cosmos-reason1-7b-shared-gpu:
     image: nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.1
     container_name: cosmos-reason1-7b
@@ -104,5 +106,7 @@ services:
       interval: 60s
       timeout: 650s
       retries: 2
+      start_period: 1200s
+      start_interval: 5s
 volumes:
   cosmos_reason1_7b_cache:
