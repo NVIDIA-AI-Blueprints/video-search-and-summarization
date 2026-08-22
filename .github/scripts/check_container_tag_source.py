@@ -88,6 +88,10 @@ IMAGE_CONFIGS = {
         image_name="vss-behavior-analytics",
         source_path=Path("services/analytics/behavior-analytics"),
     ),
+    "vss-rt-cv": ImageConfig(
+        image_name="vss-rt-cv",
+        source_path=Path("services/rtvi/rt-cv"),
+    ),
     "vss-vios-sensor": ImageConfig(
         image_name="vss-vios-sensor",
         source_path=Path("services/vios"),
