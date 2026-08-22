@@ -74,6 +74,16 @@ spec:
             {{- $vstMcp := .Values.vstMcpUrl | default (ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx) }}
             - name: VST_MCP_URL
               value: {{ $vstMcp | quote }}
+          # Mirrors compose start_period=1200s / start_interval=5s (bumped from
+          # start_period=40s in this PR): probe every 5s for up to 20 minutes
+          # before falling through to livenessProbe.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 240
           livenessProbe:
             httpGet:
               path: /health

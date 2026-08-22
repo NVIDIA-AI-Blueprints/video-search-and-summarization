@@ -169,8 +169,11 @@ startupProbe:
   httpGet:
     path: /v1/ready
     port: backend
-  periodSeconds: 30
-  failureThreshold: 24
+  # Mirrors compose healthcheck start_period=1200s / start_interval=5s
+  # (bumped from start_period=120s in this PR) so a slow first-time
+  # init has the same 20-minute window on either deployment path.
+  periodSeconds: 5
+  failureThreshold: 240
   timeoutSeconds: 10
 nodeSelector: {}
 tolerations: []

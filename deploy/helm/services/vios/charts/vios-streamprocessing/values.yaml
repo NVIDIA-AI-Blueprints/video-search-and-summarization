@@ -34,7 +34,16 @@ service:
 # Compose parity: entrypoint, healthcheck, env and volumes
 command: ["/bin/bash", "-c"]
 args: ["if [ \"$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
-# Compose healthcheck: tcp 30001; timeout 3s, interval 15s, retries 30, start_period 20s
+# Compose healthcheck: tcp 30001; timeout 3s, interval 15s, retries 30,
+# start_period 1200s, start_interval 5s (updated in-tree for slow first-time init).
+# Mirrors compose start_period=1200s / start_interval=5s: probe every 5s for up
+# to 20 minutes before falling through to livenessProbe.
+startupProbe:
+  tcpSocket:
+    port: 30001
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 240
 livenessProbe:
   tcpSocket:
     port: 30001

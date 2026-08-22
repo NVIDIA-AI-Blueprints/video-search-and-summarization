@@ -210,14 +210,16 @@ spec:
               mountPath: /home/vst/vst_release/streamer_videos
             - name: shm
               mountPath: /dev/shm
-          # Holds liveness/readiness until first success; if the app never becomes ready, ~15 min before restart (31 failures @ 30s).
+          # Holds liveness/readiness until first success; mirrors compose
+          # start_period=1200s / start_interval=5s (added in this PR) so
+          # slow first-time init has the same 20-minute window before restart.
           startupProbe:
             httpGet:
               path: /v1/health/ready
               port: http
-            periodSeconds: 30
+            periodSeconds: 5
             timeoutSeconds: 10
-            failureThreshold: 31
+            failureThreshold: 240
           livenessProbe:
             httpGet:
               path: /v1/health/ready

@@ -150,6 +150,10 @@ spec:
               mountPath: /home/vst/vst_release/streamer_videos
             - name: temp-files
               mountPath: /home/vst/vst_release/webroot/temp_files
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

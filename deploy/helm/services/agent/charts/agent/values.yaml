@@ -68,8 +68,11 @@ startupProbe:
   httpGet:
     path: /health
     port: 8000
-  periodSeconds: 30
-  failureThreshold: 8
+  # Mirrors compose healthcheck start_period=1200s / start_interval=5s
+  # so a slow first-time init has the same 20-minute window before the
+  # container is marked unhealthy on either deployment path.
+  periodSeconds: 5
+  failureThreshold: 240
   timeoutSeconds: 10
 phoenixEndpoint: ""
 llmBaseUrl: ""
