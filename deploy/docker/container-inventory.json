@@ -188,7 +188,7 @@
       "platforms": ["linux/arm64"],
       "compose_image_names": [],
       "tag_variables": [],
-      "notes": "SBSA (Grace/DGX-Spark) build of vss-rt-cv. It cannot be a platform of the multiarch entry: SBSA reports the same linux/arm64 TARGETARCH as Jetson, so buildx cannot tell them apart, and it needs a different base image (deepstream:9.1-triton-sbsa-dgx-spark). It therefore shares the vss-rt-cv GHCR repository via `repository` and stays collision-free via the -sbsa tag_suffix. No compose reference by design: compose and Helm select SBSA by overriding only the tag on the shared vss-rt-cv image, so this entry is a tagged variant with no dedicated coordinate."
+      "notes": "SBSA (Grace/DGX-Spark) build of vss-rt-cv. It cannot be a platform of the multiarch entry: SBSA reports the same linux/arm64 TARGETARCH as Jetson, so buildx cannot tell them apart, and it needs a different base image (deepstream:rtvi_ds9.1plus-sbsa). It therefore shares the vss-rt-cv GHCR repository via `repository` and stays collision-free via the -sbsa tag_suffix. No compose reference by design: compose and Helm select SBSA by overriding only the tag on the shared vss-rt-cv image, so this entry is a tagged variant with no dedicated coordinate."
     },
     {
       "name": "vss-vios-sensor",
