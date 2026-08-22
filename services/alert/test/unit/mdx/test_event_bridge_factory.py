@@ -15,15 +15,20 @@
 
 """Unit tests for ``mdx.event_bridge_factory`` and the ``SinkBase`` contract.
 
-Kafka is the only supported transport: the ``redisStream`` / ``elasticsearch``
-source implementations still exist in the tree but the factory refuses to
-construct them. Pinning that refusal matters — a config carrying the legacy
-``sourceType: redisStream`` must fail loudly at boot rather than silently
-falling back to Kafka and reading the wrong topic.
+Kafka is the default source and sink; Redis Streams is an optional alternative
+for either, and a console sink exists for local debugging. The two roles are
+resolved independently, so the mixed combinations are pinned here — a config
+that selects Redis for ingest must not quietly drag the sink along with it.
 
-``validate_configuration`` is deliberately more permissive than
-``create_source``: it accepts a config with no ``kafka_source`` block (legacy
-layout, warns only) but rejects an unknown transport.
+Transport names are matched case- and separator-insensitively so the
+``redisStream`` spelling used by vss-behavior-analytics configs works alongside
+``redis_stream``. An unrecognised transport must still fail loudly at boot
+rather than falling back to Kafka and reading the wrong topic.
+
+``validate_configuration`` is deliberately asymmetric: Kafka may omit its
+``kafka_source`` / ``kafka_sink`` block because a legacy top-level ``kafka``
+block can supply the topics (warns only), but Redis Streams has no such
+fallback, so a missing ``redis_source`` / ``redis_sink`` is rejected.
 """
 
 from unittest.mock import MagicMock, patch
@@ -53,15 +58,53 @@ class TestCreateSource:
             EventBridgeFactory.create_source({"kafka": {}})
         source_cls.assert_called_once()
 
-    @pytest.mark.parametrize("source_type", ["redisStream", "elasticsearch", "rabbitmq", ""])
+    def test_redis_stream_source_is_constructed_with_the_config(self):
+        config = {"event_bridge": {"sourceType": "redisStream"}}
+        with patch("mdx.source.source_redis_stream.SourceRedisStream") as source_cls:
+            result = EventBridgeFactory.create_source(config)
+
+        source_cls.assert_called_once_with(config)
+        assert result is source_cls.return_value
+
+    @pytest.mark.parametrize("spelling", ["redisStream", "redisstream", "redis_stream", "redis-stream", "REDISSTREAM"])
+    def test_redis_stream_spellings_all_resolve(self, spelling):
+        """Config files and Helm values disagree on casing; none of them should
+        silently fall through to Kafka."""
+        with patch("mdx.source.source_redis_stream.SourceRedisStream") as source_cls:
+            EventBridgeFactory.create_source({"event_bridge": {"sourceType": spelling}})
+        source_cls.assert_called_once()
+
+    def test_console_is_not_a_valid_source(self):
+        """The console transport is output-only."""
+        with pytest.raises(ValueError, match="Unsupported source type"):
+            EventBridgeFactory.create_source({"event_bridge": {"sourceType": "console"}})
+
+    @pytest.mark.parametrize("source_type", ["elasticsearch", "rabbitmq", None, 7])
     def test_unsupported_source_type_raises(self, source_type):
         with pytest.raises(ValueError, match="Unsupported source type"):
             EventBridgeFactory.create_source({"event_bridge": {"sourceType": source_type}})
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_a_blank_source_type_falls_back_to_kafka(self, blank):
+        """Deployment configs are rendered by substituting ``${VAR}``, and an
+        unset variable becomes an empty string. A Kafka deployment upgraded
+        before its environment gains the Redis variables must keep working."""
+        with patch("mdx.source.source_kafka.SourceKafka") as source_cls:
+            EventBridgeFactory.create_source({"event_bridge": {"sourceType": blank}})
+        source_cls.assert_called_once()
 
     def test_constructor_failure_propagates(self):
         with patch("mdx.source.source_kafka.SourceKafka", side_effect=RuntimeError("no brokers")):
             with pytest.raises(RuntimeError, match="no brokers"):
                 EventBridgeFactory.create_source({"event_bridge": {"sourceType": "kafka"}})
+
+    def test_redis_constructor_failure_propagates(self):
+        with patch(
+            "mdx.source.source_redis_stream.SourceRedisStream",
+            side_effect=RuntimeError("no redis"),
+        ):
+            with pytest.raises(RuntimeError, match="no redis"):
+                EventBridgeFactory.create_source({"event_bridge": {"sourceType": "redisStream"}})
 
 
 class TestCreateSink:
@@ -78,10 +121,31 @@ class TestCreateSink:
             EventBridgeFactory.create_sink({})
         sink_cls.assert_called_once_with({})
 
-    @pytest.mark.parametrize("sink_type", ["redisStream", "elasticsearch", ""])
+    def test_redis_stream_sink_is_constructed_with_the_config(self):
+        config = {"event_bridge": {"sinkType": "redisStream"}}
+        with patch("mdx.sink.sink_redis_stream.SinkRedisStream") as sink_cls:
+            result = EventBridgeFactory.create_sink(config)
+
+        sink_cls.assert_called_once_with(config)
+        assert result is sink_cls.return_value
+
+    def test_console_sink_is_constructed_with_the_config(self):
+        config = {"event_bridge": {"sinkType": "console"}}
+        with patch("mdx.sink.sink_console.ConsoleSink") as sink_cls:
+            result = EventBridgeFactory.create_sink(config)
+
+        sink_cls.assert_called_once_with(config)
+        assert result is sink_cls.return_value
+
+    @pytest.mark.parametrize("sink_type", ["elasticsearch", "rabbitmq", None])
     def test_unsupported_sink_type_raises(self, sink_type):
         with pytest.raises(ValueError, match="Unsupported sink type"):
             EventBridgeFactory.create_sink({"event_bridge": {"sinkType": sink_type}})
+
+    def test_a_blank_sink_type_falls_back_to_kafka(self):
+        with patch("mdx.sink.sink_kafka.KafkaSink") as sink_cls:
+            EventBridgeFactory.create_sink({"event_bridge": {"sinkType": ""}})
+        sink_cls.assert_called_once()
 
     def test_constructor_failure_propagates(self):
         with patch("mdx.sink.sink_kafka.KafkaSink", side_effect=RuntimeError("no brokers")):
@@ -89,16 +153,45 @@ class TestCreateSink:
                 EventBridgeFactory.create_sink({"event_bridge": {"sinkType": "kafka"}})
 
 
-class TestAvailableTypes:
-    def test_only_kafka_is_advertised_as_a_source(self):
-        assert list(EventBridgeFactory.get_available_source_types()) == ["kafka"]
+class TestIndependentSourceAndSinkSelection:
+    """Source and sink transports are chosen separately."""
 
-    def test_only_kafka_is_advertised_as_a_sink(self):
-        assert list(EventBridgeFactory.get_available_sink_types()) == ["kafka"]
+    def test_redis_source_with_a_kafka_sink(self):
+        config = {"event_bridge": {"sourceType": "redisStream", "sinkType": "kafka"}}
+        with patch("mdx.source.source_redis_stream.SourceRedisStream") as source_cls, \
+             patch("mdx.sink.sink_kafka.KafkaSink") as sink_cls:
+            EventBridgeFactory.create_source(config)
+            EventBridgeFactory.create_sink(config)
+        source_cls.assert_called_once()
+        sink_cls.assert_called_once()
+
+    def test_kafka_source_with_a_redis_sink(self):
+        config = {"event_bridge": {"sourceType": "kafka", "sinkType": "redisStream"}}
+        with patch("mdx.source.source_kafka.SourceKafka") as source_cls, \
+             patch("mdx.sink.sink_redis_stream.SinkRedisStream") as sink_cls:
+            EventBridgeFactory.create_source(config)
+            EventBridgeFactory.create_sink(config)
+        source_cls.assert_called_once()
+        sink_cls.assert_called_once()
+
+
+class TestAvailableTypes:
+    def test_kafka_and_redis_streams_are_advertised_as_sources(self):
+        assert sorted(EventBridgeFactory.get_available_source_types()) == ["kafka", "redisStream"]
+
+    def test_console_is_advertised_as_a_sink_but_not_a_source(self):
+        assert sorted(EventBridgeFactory.get_available_sink_types()) == [
+            "console", "kafka", "redisStream",
+        ]
 
     def test_descriptions_are_present(self):
-        assert EventBridgeFactory.get_available_source_types()["kafka"]
-        assert EventBridgeFactory.get_available_sink_types()["kafka"]
+        assert all(EventBridgeFactory.get_available_source_types().values())
+        assert all(EventBridgeFactory.get_available_sink_types().values())
+
+    def test_the_advertised_types_are_a_copy(self):
+        """Callers must not be able to mutate the factory's registry."""
+        EventBridgeFactory.get_available_sink_types()["bogus"] = "x"
+        assert "bogus" not in EventBridgeFactory.get_available_sink_types()
 
 
 class TestValidateConfiguration:
@@ -122,7 +215,7 @@ class TestValidateConfiguration:
         assert EventBridgeFactory.validate_configuration(config) is True
 
     def test_unknown_source_type_is_rejected(self):
-        config = {"event_bridge": {"sourceType": "redisStream", "sinkType": "kafka"}}
+        config = {"event_bridge": {"sourceType": "rabbitmq", "sinkType": "kafka"}}
         assert EventBridgeFactory.validate_configuration(config) is False
 
     def test_unknown_sink_type_is_rejected(self):
@@ -131,6 +224,51 @@ class TestValidateConfiguration:
 
     def test_malformed_config_is_rejected_rather_than_raising(self):
         assert EventBridgeFactory.validate_configuration(None) is False
+
+    def test_full_redis_stream_config_is_valid(self):
+        config = {
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "redisStream",
+                "redis_source": {"streams": {"incident": "mdx-incidents"}},
+                "redis_sink": {"streams": {"incidents": "out"}},
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_redis_source_without_its_section_is_rejected(self):
+        """Unlike Kafka there is no legacy block to fall back to, so booting
+        would fail later with a less obvious error."""
+        config = {"event_bridge": {"sourceType": "redisStream", "sinkType": "kafka"}}
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_redis_sink_without_its_section_is_rejected(self):
+        config = {
+            "event_bridge": {
+                "sourceType": "kafka",
+                "sinkType": "redisStream",
+                "kafka_source": {"topics": {}},
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_an_empty_redis_section_is_rejected(self):
+        config = {
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {},
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_console_sink_needs_no_configuration_section(self):
+        config = {"event_bridge": {"sourceType": "kafka", "sinkType": "console"}}
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_blank_transports_validate_as_kafka(self):
+        config = {"event_bridge": {"sourceType": "", "sinkType": ""}}
+        assert EventBridgeFactory.validate_configuration(config) is True
 
 
 class TestSinkBaseContract:

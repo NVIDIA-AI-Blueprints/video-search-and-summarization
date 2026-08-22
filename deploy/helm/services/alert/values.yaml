@@ -24,10 +24,38 @@ image:
 replicas: 1
 
 # Parameterized from parent / profile. In K8s use service names. Leave "" for release-based defaults.
-# Redis has been removed from Alert MS: dedup/filter state is in-process
-# and durable state (verdict protection, alert configs) lives in Elasticsearch.
+# Note: dedup/filter state is in-process and durable state (verdict protection,
+# alert configs) lives in Elasticsearch — the redis settings below are only for
+# the optional Redis Streams transports, not for state.
 kafkaBootstrapServers: ""
 elasticHosts: ""
+
+# Event bridge transports, selected independently. Kafka is the default for
+# both, so existing deployments are unaffected.
+#   eventSourceType: kafka | redisStream
+#   eventSinkType:   kafka | redisStream | console
+# The event bridge sink carries validation-error responses; VLM-enhanced results
+# are published by the sink selected with vlmSinkType.
+eventSourceType: "kafka"
+eventSinkType: "kafka"
+
+# Transport for VLM-enhanced Alert and Incident results.
+#   elastic (default) | kafka | redisStream | console
+vlmSinkType: "elastic"
+
+# Connection for the optional Redis Streams transports. Only read when a
+# redisStream transport is selected above. Alert MS does not deploy Redis —
+# point host at an instance you provide, or enable the infra redis chart.
+# Leave host "" for the release-based default (<release>-redis or redis).
+redis:
+  host: ""
+  port: 6379
+  db: 0
+  password: ""
+  # Approximate MAXLEN cap applied when publishing, matching what
+  # vss-behavior-analytics and rt-vlm use.
+  maxlen: 10000
+  consumerGroup: "alert-bridge-vlm-group"
 vlmBaseUrl: ""
 vlmName: "nvidia/cosmos3-nano-reasoner"
 # VST base for Alert Bridge media lookup (vst_config.base_url). Default: in-cluster
@@ -61,9 +89,11 @@ resources: {}
 nodeSelector: {}
 tolerations: []
 
-# Block the main container until Kafka and Elasticsearch accept TCP (avoids
-# startup crashes when alert-bridge runs before infra stack services are listening).
-# Redis is no longer a dependency of Alert MS.
+# Block the main container until its dependencies accept TCP (avoids startup
+# crashes when alert-bridge runs before infra stack services are listening).
+# Which endpoints are waited on follows the selected transports: Kafka is
+# skipped when neither the source nor the sink uses it, and Redis is added when
+# either does.
 waitForDependencies:
   enabled: false
   image:
@@ -74,5 +104,8 @@ waitForDependencies:
   kafkaPort: "9092"
   elasticsearchHost: ""
   elasticsearchPort: "9200"
+  # Leave "" to reuse the redis.host / redis.port values above.
+  redisHost: ""
+  redisPort: ""
   maxRetries: "90"
   retryInterval: "2"

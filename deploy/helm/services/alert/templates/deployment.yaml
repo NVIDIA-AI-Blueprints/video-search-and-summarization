@@ -44,27 +44,51 @@ spec:
       {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
       {{- $kafkaDef := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
       {{- $esDef := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+      {{- $redisDef := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+      {{- $redis := .Values.redis | default dict }}
       {{- $kafkaH := .Values.waitForDependencies.kafkaHost | default $kafkaDef }}
       {{- $esH := .Values.waitForDependencies.elasticsearchHost | default $esDef }}
+      {{- $redisH := .Values.waitForDependencies.redisHost | default $redis.host | default $redisDef }}
+      {{- $redisP := .Values.waitForDependencies.redisPort | default $redis.port | default 6379 }}
+      {{- /* Only wait on the brokers the selected transports actually use, so a
+             Redis-only deployment does not block on an absent Kafka. */}}
+      {{- $sourceType := .Values.eventSourceType | default "kafka" }}
+      {{- $sinkType := .Values.eventSinkType | default "kafka" }}
+      {{- $vlmSink := .Values.vlmSinkType | default "elastic" }}
+      {{- $usesRedis := or (eq $sourceType "redisStream") (eq $sinkType "redisStream") (eq $vlmSink "redisStream") }}
+      {{- $usesKafka := or (eq $sourceType "kafka") (eq $sinkType "kafka") (eq $vlmSink "kafka") }}
+      {{- $endpoints := list (printf "%s:%v" $esH .Values.waitForDependencies.elasticsearchPort) }}
+      {{- if $usesKafka }}
+      {{- $endpoints = append $endpoints (printf "%s:%v" $kafkaH .Values.waitForDependencies.kafkaPort) }}
+      {{- end }}
+      {{- if $usesRedis }}
+      {{- $endpoints = append $endpoints (printf "%s:%v" $redisH $redisP) }}
+      {{- end }}
       initContainers:
-        - name: wait-for-kafka-elasticsearch
+        - name: wait-for-dependencies
           image: {{ .Values.waitForDependencies.image.repository }}:{{ .Values.waitForDependencies.image.tag }}
           imagePullPolicy: {{ .Values.waitForDependencies.image.pullPolicy }}
           command:
             - sh
             - -c
             - |
-              echo "Waiting for Kafka {{ $kafkaH }}:{{ .Values.waitForDependencies.kafkaPort }}, Elasticsearch {{ $esH }}:{{ .Values.waitForDependencies.elasticsearchPort }}"
+              ENDPOINTS="{{ join " " $endpoints }}"
+              echo "Waiting for: $ENDPOINTS"
               for i in $(seq 1 {{ .Values.waitForDependencies.maxRetries }}); do
-                if nc -z {{ $kafkaH }} {{ .Values.waitForDependencies.kafkaPort }} 2>/dev/null \
-                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null; then
-                  echo "Kafka and Elasticsearch are accepting connections"
+                PENDING=""
+                for endpoint in $ENDPOINTS; do
+                  host=$(echo "$endpoint" | cut -d: -f1)
+                  port=$(echo "$endpoint" | cut -d: -f2)
+                  nc -z "$host" "$port" 2>/dev/null || PENDING="$PENDING $endpoint"
+                done
+                if [ -z "$PENDING" ]; then
+                  echo "All dependencies are accepting connections"
                   exit 0
                 fi
-                echo "Attempt $i: waiting..."
+                echo "Attempt $i: still waiting for$PENDING"
                 sleep {{ .Values.waitForDependencies.retryInterval }}
               done
-              echo "Timeout waiting for Kafka or Elasticsearch"
+              echo "Timeout waiting for$PENDING"
               exit 1
       {{- end }}
       containers:

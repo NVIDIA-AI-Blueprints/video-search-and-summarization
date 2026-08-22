@@ -58,6 +58,17 @@ kafka:
   enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"     # Not currently used will be removed in the next version
   incidents_topic: "alert-bridge-incidents" # Not currently used will be removed in the next version
 
+# Redis connection shared by every Redis Streams component. Only read when a
+# redisStream source or sink is selected below, so these values are inert in the
+# default Kafka deployment. Alert MS does not deploy Redis — point REDIS_HOST at
+# an instance you provide.
+redis:
+  host: "${REDIS_HOST}"
+  port: ${REDIS_PORT}
+  db: ${REDIS_DB}
+  password: "${REDIS_PASSWORD}"
+  maxlen: ${REDIS_STREAM_MAXLEN}
+
 #VLM Configuration
 vlm:
   base_url: ${VLM_BASE_URL}/v1
@@ -165,15 +176,36 @@ vlm:
   #   num_requests: 3         # number of warmup inferences to send
 
 # Event Bridge Configuration - Kafka source/sink (Redis removed)
+# Source and sink transports are selected independently. Both default to kafka;
+# set ALERT_EVENT_SOURCE_TYPE / ALERT_EVENT_SINK_TYPE to redisStream to switch
+# either one. This sink carries validation-error responses — VLM-enhanced
+# results are published by vlm_enhanced_sink further down.
 event_bridge:
-  sourceType: "kafka"
-  sinkType: "kafka"
+  sourceType: "${ALERT_EVENT_SOURCE_TYPE}"
+  sinkType: "${ALERT_EVENT_SINK_TYPE}"
 
   kafka_source:
     group_id: 'alert-bridge-vlm-group'
     topics:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
+
+  # Stream names match what vss-behavior-analytics publishes in redisStream
+  # mode, so the same upstream feeds either transport.
+  redis_source:
+    streams:
+      incident: 'mdx-incidents'
+      alert: 'mdx-alerts'
+    consumer_group: "${ALERT_REDIS_CONSUMER_GROUP}"
+    consumer_config:
+      count: 10
+      block_time: 100
+      start_id: '$'
+
+  redis_sink:
+    streams:
+      enhanced_anomaly: 'alert-bridge-enhanced-alerts'
+      incidents: 'alert-bridge-incidents'
 
 prompt:
   prefer_payload_prompt: false
@@ -339,15 +371,28 @@ persistence:
   #   hosts:
   #     - http://elasticsearch:9200
 
+# Transport for VLM-enhanced results, set via ALERT_VLM_SINK_TYPE:
+# elastic (default) | kafka | redisStream | console. The per-kind blocks for
+# every transport are listed together; only the selected one is read.
+# The redisStream routes publish the same protobuf messages as the kafka routes
+# wrapped in the MDX envelope, so the Logstash redis_stream input decodes them
+# exactly as it decodes the kafka topics.
 vlm_enhanced_sink:
+  type: "${ALERT_VLM_SINK_TYPE}"
   incident:
     type: "elastic"
     elastic:
       index: "mdx-vlm-incidents"
+    redisStream:
+      stream: "mdx-vlm-incidents"
+      message_type: "incident"
   alert:
     type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
+    redisStream:
+      stream: "mdx-vlm-alerts"
+      message_type: "alert"
 # vlm_enhanced_sink:
 #   incident:
 #     type: "kafka"

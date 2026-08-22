@@ -169,6 +169,76 @@ class TestFromKafkaMessage:
             StreamMessage.from_kafka_message(make_kafka_message(value=b"\xff\xfe"))
 
 
+class TestFromRedisStream:
+    """The Redis constructor keeps the entry ID in metadata because that is
+    where Redis records the publish time — there is no separate timestamp field
+    like the Kafka record header."""
+
+    def test_builds_message_from_the_mdx_envelope(self, extractor):
+        message = StreamMessage.from_redis_stream(
+            "mdx-incidents",
+            b"1700000000000-0",
+            {b"key": b"cam-1", b"value": b'{"eventId": "evt-1"}', b"headers": b"{}"},
+        )
+
+        assert message.data == {"eventId": "evt-1"}
+        assert message.core_fields == CORE_FIELDS
+
+    def test_metadata_records_the_stream_and_entry_id(self, extractor):
+        message = StreamMessage.from_redis_stream(
+            "mdx-incidents", b"1700000000000-0", {b"value": b"{}"}
+        )
+
+        assert message.metadata["source"] == "redisStream"
+        assert message.metadata["stream"] == "mdx-incidents"
+        assert message.metadata["entry_id"] == "1700000000000-0"
+        assert message.metadata["published_at_ms"] == 1700000000000
+
+    def test_envelope_key_is_preferred_as_the_id(self, extractor):
+        message = StreamMessage.from_redis_stream("s", b"1-0", {b"key": b"cam-1", b"value": b"{}"})
+        assert message.id == "cam-1"
+
+    def test_headers_are_preserved_for_downstream_use(self, extractor):
+        message = StreamMessage.from_redis_stream(
+            "s", b"1-0", {b"value": b"{}", b"headers": b'{"trace": "abc"}'}
+        )
+        assert message.metadata["headers"] == {"trace": "abc"}
+
+    def test_an_entry_without_a_payload_raises(self, extractor):
+        with pytest.raises(ValueError, match="carries no payload field"):
+            StreamMessage.from_redis_stream("s", b"1-0", {b"headers": b"{}"})
+
+    def test_a_non_json_payload_raises(self, extractor):
+        """Protobuf entries are decoded by the source, not here."""
+        with pytest.raises(Exception):
+            StreamMessage.from_redis_stream("s", b"1-0", {b"value": b"\x08\x01"})
+
+
+class TestToRedisFields:
+    def test_emits_the_canonical_mdx_envelope(self):
+        message = make_message({"id": "evt-1"}, core_fields={"sensor_id": "cam-1"})
+        fields = message.to_redis_fields()
+
+        assert fields[b"key"] == b"cam-1"
+        assert json.loads(fields[b"value"]) == {"id": "evt-1"}
+        assert fields[b"headers"] == "{}"
+
+    def test_falls_back_to_the_message_id_for_the_key(self):
+        message = make_message({"id": "evt-1"})
+        assert message.to_redis_fields()[b"key"] == b"evt-1"
+
+    def test_headers_round_trip_from_metadata(self):
+        message = make_message({})
+        message.metadata = {"headers": {"trace": "abc"}}
+        assert json.loads(message.to_redis_fields()[b"headers"]) == {"trace": "abc"}
+
+    def test_the_payload_matches_what_the_kafka_sink_writes(self):
+        """Both event-bridge sinks carry byte-identical JSON bodies so a
+        deployment can switch transports without downstream changes."""
+        message = make_message({"id": "evt-1", "verdict": "confirmed"})
+        assert message.to_redis_fields()[b"value"] == message.to_json().encode("utf-8")
+
+
 class TestParseTimestamp:
     def test_parses_z_suffixed_iso(self):
         assert StreamMessage._parse_timestamp("2021-01-01T00:00:00Z") == datetime(

@@ -995,9 +995,10 @@ class AnomalyEnhancer(
                             "Skipping malformed JSON message in batch: %s", exc
                         )
             else:
-                # Kafka sources provide protobuf tuples; Redis Stream sources
-                # provide JSON strings. Only run protobuf decoding for the
-                # Kafka-shaped tuple path.
+                # Remaining shape is the (key, value, timestamp) tuple batch that
+                # carries protobuf. Both transports can produce it: Kafka always
+                # does, and the Redis Streams source does when the envelope
+                # payload is protobuf rather than JSON text.
                 messages_input = messages if isinstance(messages, dict) else {'batch': messages}
                 decoded_messages = protobuf_anomalies_to_json_string_list(
                     messages_input,

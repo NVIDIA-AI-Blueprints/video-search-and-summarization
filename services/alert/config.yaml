@@ -157,7 +157,26 @@ vlm:
   #   inference_timeout: 120  # seconds for first (cold) inference
   #   num_requests: 3         # number of warmup inferences to send
 
-# Event Bridge Configuration - Kafka transport (Redis has been removed).
+# Redis connection shared by every Redis Streams component (the analogue of
+# kafka.bootstrap_servers). Only read when a redisStream source or sink is
+# selected; the event_bridge and vlm_enhanced_sink blocks below may override
+# any field here. Alert MS never deploys Redis itself — point this at an
+# existing instance.
+# redis:
+#   host: "redis"
+#   port: 6379
+#   db: 0
+#   password: ""            # omit or leave empty when auth is disabled
+#   maxlen: 10000           # approximate MAXLEN cap applied on publish
+#   socket_timeout: 30
+#   socket_connect_timeout: 30
+
+# Event Bridge Configuration.
+# sourceType: kafka (default) | redisStream
+# sinkType:   kafka (default) | redisStream | console
+# The two are independent: either can use Redis Streams while the other stays
+# on Kafka. This sink carries validation-error responses; VLM-enhanced results
+# are published by vlm_enhanced_sink further down.
 event_bridge:
   sourceType: "kafka"
   sinkType: "kafka"
@@ -167,6 +186,32 @@ event_bridge:
     topics:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
+
+  # Redis Streams source. Payloads use the MDX envelope
+  # (key / value / headers) with protobuf or JSON in `value`, matching what
+  # vss-behavior-analytics publishes in redisStream mode.
+  # redis_source:
+  #   streams:
+  #     incident: 'mdx-incidents'
+  #     alert: 'mdx-alerts'
+  #     # heartbeat: 'mdx-heartbeats'
+  #   consumer_group: 'alert-bridge-vlm-group'
+  #   consumer_config:
+  #     count: 10             # max entries per XREADGROUP
+  #     block_time: 100       # XREADGROUP BLOCK in ms; keeps the poll loop idle
+  #     start_id: '$'         # '$' = new entries only (matches kafka auto_offset_reset: latest)
+  #     error_backoff: 1.0    # seconds to wait before retrying an unreachable broker
+
+  # Redis Streams sink for validation-error responses.
+  # redis_sink:
+  #   streams:
+  #     enhanced_anomaly: 'alert-bridge-enhanced-alerts'
+  #     incidents: 'alert-bridge-incidents'
+
+  # Console sink options (sinkType: console).
+  # console_sink:
+  #   pretty: true
+  #   max_chars: 0            # 0 disables truncation
 
 prompt:
   prefer_payload_prompt: false
@@ -350,6 +395,8 @@ persistence:
   #   hosts:
   #     - http://localhost:9200
 
+# Sink for VLM-enhanced results. `type` selects the transport for both kinds:
+# elastic (default) | kafka | redisStream | console
 vlm_enhanced_sink:
   incident:
     type: "elastic"
@@ -359,6 +406,34 @@ vlm_enhanced_sink:
     type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
+
+# Redis Streams output. Publishes the same protobuf messages as the kafka sink
+# wrapped in the MDX envelope, so the Logstash redis_stream input decodes these
+# streams exactly as it decodes the kafka topics. Set payload_format: json to
+# publish JSON instead.
+# vlm_enhanced_sink:
+#   type: "redisStream"
+#   redisStream:
+#     host: "redis"           # optional; defaults to the top-level redis block
+#     port: 6379
+#   incident:
+#     redisStream:
+#       stream: "mdx-vlm-incidents"
+#       message_type: "incident"
+#       key_field: "sensorId"
+#   alert:
+#     redisStream:
+#       stream: "mdx-vlm-alerts"
+#       message_type: "alert"
+#       key_field: "sensor.id"
+
+# Log-only output for local development. Needs no broker or Elasticsearch.
+# vlm_enhanced_sink:
+#   type: "console"
+#   console:
+#     pretty: true
+#     max_chars: 0
+
 # vlm_enhanced_sink:
 #   type: "kafka"
 #   incident:

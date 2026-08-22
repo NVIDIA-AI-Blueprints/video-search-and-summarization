@@ -36,6 +36,20 @@ services:
       ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
+      # Event bridge transports. Kafka is the default for both; set either to
+      # redisStream to consume from / publish to a Redis instance you provide.
+      # sinkType also accepts console for local debugging.
+      ALERT_EVENT_SOURCE_TYPE: ${ALERT_EVENT_SOURCE_TYPE:-kafka}
+      ALERT_EVENT_SINK_TYPE: ${ALERT_EVENT_SINK_TYPE:-kafka}
+      # Transport for VLM-enhanced results: elastic (default) | kafka | redisStream | console
+      ALERT_VLM_SINK_TYPE: ${ALERT_VLM_SINK_TYPE:-elastic}
+      ALERT_REDIS_CONSUMER_GROUP: ${ALERT_REDIS_CONSUMER_GROUP:-alert-bridge-vlm-group}
+      # Only read when a redisStream transport is selected.
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_STREAM_MAXLEN: ${REDIS_STREAM_MAXLEN:-10000}
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
@@ -44,12 +58,23 @@ services:
     tmpfs:
       - /app/runtime:mode=1777,size=10M
     depends_on:
+      # `required: false` only lifts alert-bridge's own hard dependency on the
+      # kafka profiles, so this service can run against Redis alone. The
+      # condition is untouched: when the kafka profile is active — which is the
+      # default — startup is still gated on a healthy broker exactly as before.
+      # Note this does not by itself make the whole Alerts profile Kafka-free;
+      # peers such as perception-alerts still require kafka-topic-init-container.
       kafka:
         condition: service_healthy
+        required: false
       elasticsearch:
         condition: service_healthy
       kafka-topic-init-container:
         condition: service_completed_successfully
+        required: false
+      redis:
+        condition: service_started
+        required: false
       nvstreamer-alerts:
         condition: service_started
         required: false

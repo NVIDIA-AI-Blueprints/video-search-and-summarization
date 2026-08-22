@@ -17,6 +17,9 @@
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $kafkaHost := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
 {{- $esHost := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+{{- $redisDef := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+{{- $redis := .Values.redis | default dict }}
+{{- $redisHost := $redis.host | default $redisDef }}
 {{- $cosmosHost := ternary (printf "%s-nvidia-cosmos3-reasoner" .Release.Name) "nvidia-cosmos3-reasoner" $pfx }}
 {{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
 {{- $rawSubVlm := .Values.vlmBaseUrl | default "" | toString }}
@@ -65,6 +68,16 @@ kafka:
   enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"
   incidents_topic: "alert-bridge-incidents"
 
+# Connection shared by every Redis Streams component. Only read when a
+# redisStream transport is selected, so it is inert in the default Kafka
+# deployment.
+redis:
+  host: "{{ $redisHost }}"
+  port: {{ $redis.port | default 6379 }}
+  db: {{ $redis.db | default 0 }}
+  password: "{{ $redis.password | default "" }}"
+  maxlen: {{ $redis.maxlen | default 10000 }}
+
 vlm:
   base_url: "{{ $vlmUrl | default (printf "http://%s:8000" $cosmosHost) }}/v1"
   model: "{{ $vlmNameStr }}"
@@ -76,13 +89,30 @@ vlm:
   request_timeout: 60
   use_vlm_media_defaults: true
 
+# Source and sink transports are selected independently via eventSourceType /
+# eventSinkType. Both default to kafka. This sink carries validation-error
+# responses — VLM-enhanced results go to the vlm_enhanced_sink below.
 event_bridge:
-  sourceType: "kafka"
-  sinkType: "kafka"
+  sourceType: "{{ .Values.eventSourceType | default "kafka" }}"
+  sinkType: "{{ .Values.eventSinkType | default "kafka" }}"
   kafka_source:
     group_id: 'alert-bridge-vlm-group'
     topics:
       incident: 'mdx-incidents'
+
+  redis_source:
+    streams:
+      incident: 'mdx-incidents'
+    consumer_group: "{{ $redis.consumerGroup | default "alert-bridge-vlm-group" }}"
+    consumer_config:
+      count: 10
+      block_time: 100
+      start_id: '$'
+
+  redis_sink:
+    streams:
+      enhanced_anomaly: 'alert-bridge-enhanced-alerts'
+      incidents: 'alert-bridge-incidents'
 
 prompt:
   prefer_payload_prompt: false
@@ -153,15 +183,24 @@ elastic:
   hosts:
     - {{ .Values.elasticHosts | default (printf "http://%s:9200" $esHost) | quote }}
 
+# Transport for VLM-enhanced results, selected via vlmSinkType. The per-kind
+# blocks for every transport are listed together; only the selected one is read.
 vlm_enhanced_sink:
+  type: "{{ .Values.vlmSinkType | default "elastic" }}"
   incident:
     type: "elastic"
     elastic:
       index: "mdx-vlm-incidents"
+    redisStream:
+      stream: "mdx-vlm-incidents"
+      message_type: "incident"
   alert:
     type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
+    redisStream:
+      stream: "mdx-vlm-alerts"
+      message_type: "alert"
 
 logging:
   level: "INFO"

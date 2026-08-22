@@ -56,6 +56,17 @@ kafka:
   poll_timeout: 1                            # Increased to 1 second for better polling efficiency
   message_type: "Incident"  # Protobuf message type: "Behavior" or "Incident"
 
+# Redis connection shared by every Redis Streams component. Only read when a
+# redisStream source or sink is selected below, so these values are inert in the
+# default Kafka deployment. Alert MS does not deploy Redis — point REDIS_HOST at
+# an instance you provide.
+redis:
+  host: "${REDIS_HOST}"
+  port: ${REDIS_PORT}
+  db: ${REDIS_DB}
+  password: "${REDIS_PASSWORD}"
+  maxlen: ${REDIS_STREAM_MAXLEN}
+
 #VLM Configuration
 vlm:
   base_url: "${VLM_BASE_URL}/v1"
@@ -80,14 +91,32 @@ rtvi_vlm:
 
 # Event Bridge Configuration - Kafka source/sink (Redis removed)
 event_bridge:
-  sourceType: "kafka"
-  sinkType: "kafka"
+  sourceType: "${ALERT_EVENT_SOURCE_TYPE}"
+  sinkType: "${ALERT_EVENT_SINK_TYPE}"
 
   kafka_source:
     group_id: 'alert-bridge-vlm-group-ab'
     topics:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
+
+  # Read only when sourceType is redisStream. Stream names match what
+  # vss-behavior-analytics publishes in its own redisStream mode.
+  redis_source:
+    streams:
+      incident: 'mdx-incidents'
+      alert: 'mdx-alerts'
+    consumer_group: "${ALERT_REDIS_CONSUMER_GROUP}"
+    consumer_config:
+      count: 10
+      block_time: 100
+      start_id: '$'
+
+  # Read only when sinkType is redisStream.
+  redis_sink:
+    streams:
+      enhanced_anomaly: 'alert-bridge-enhanced-alerts'
+      incidents: 'alert-bridge-incidents'
 
 prompt:
   prefer_payload_prompt: false
@@ -123,15 +152,25 @@ elastic:
   hosts:
     - http://elasticsearch:9200
 
+# Transport for VLM-enhanced results, selected via ALERT_VLM_SINK_TYPE
+# (elastic by default). The redisStream routes publish the same protobuf
+# messages as the kafka routes, wrapped in the MDX envelope.
 vlm_enhanced_sink:
+  type: "${ALERT_VLM_SINK_TYPE}"
   incident:
     type: "elastic"
     elastic:
       index: "mdx-vlm-incidents"
+    redisStream:
+      stream: "mdx-vlm-incidents"
+      message_type: "incident"
   alert:
     type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
+    redisStream:
+      stream: "mdx-vlm-alerts"
+      message_type: "alert"
 
 logging:
   level: "DEBUG"                                # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL (applies to all components)
