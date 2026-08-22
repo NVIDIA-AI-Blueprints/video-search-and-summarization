@@ -529,6 +529,7 @@ class SelectImagesTest(unittest.TestCase):
                 "sdr-mw-l",
                 "vss-configurator",
                 "vss-rt-config-adaptor",
+                "vss-rt-vlm",
                 "vss-vios-sensor",
                 "vss-vios-streamprocessing",
                 "vss-vios-nvstreamer",
