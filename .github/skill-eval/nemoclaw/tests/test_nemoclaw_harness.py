@@ -394,12 +394,21 @@ class HarnessScopeTests(unittest.TestCase):
     def test_environment_defaults_hold_nemoclaw_runtime_assumptions(self) -> None:
         with mock.patch.dict(
             os.environ,
-            {"GITHUB_RUN_ID": "123", "EVAL_PLATFORM": "L40S"},
+            {
+                "GITHUB_RUN_ID": "123",
+                "EVAL_PLATFORM": "L40S",
+                "NEMOCLAW_INSTALL_REF": "must-not-be-forwarded",
+                "NEMOCLAW_SANDBOX_GPU": "1",
+                "NEMOCLAW_DOCKER_GPU_PATCH": "1",
+            },
             clear=True,
         ):
             forwarded = self.env_module._forwarded_nemoclaw_env()
         self.assertIn("export NEMOCLAW_SANDBOX_NAME=skill-eval", forwarded)
+        self.assertNotIn("NEMOCLAW_INSTALL_REF", forwarded)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", forwarded)
+        self.assertNotIn("NEMOCLAW_SANDBOX_GPU", forwarded)
+        self.assertNotIn("NEMOCLAW_DOCKER_GPU_PATCH", forwarded)
         self.assertIn("export NEMOCLAW_DASHBOARD_PORT=20123", forwarded)
         self.assertIn("export HARDWARE_PROFILE=L40S", forwarded)
 
@@ -417,13 +426,19 @@ class HarnessScopeTests(unittest.TestCase):
             encoding="utf-8"
         )
         start = source.split("    async def start", 1)[1]
-        self.assertIn("openshell sandbox get skill-eval", command)
+        self.assertNotIn("nemoclaw list --json", command)
+        self.assertNotIn("openshell sandbox get", command)
         self.assertIn('export HOME="$host_home/.skill-eval/nemoclaw-home"', command)
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', command)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=8991", command)
         self.assertIn(
-            "nemoclaw skill-eval destroy --yes --cleanup-gateway",
+            "nemoclaw skill-eval destroy --yes --force --cleanup-gateway",
             command,
         )
+        self.assertIn('grep -Fq "does not exist"', command)
+        self.assertIn('gateway=nemoclaw-$NEMOCLAW_GATEWAY_PORT', command)
+        self.assertIn('openshell gateway stop -g "$gateway"', command)
+        self.assertIn('openshell gateway remove "$gateway"', command)
         self.assertLess(
             start.index("_destroy_sandbox_command(sandbox, gateway_port)"),
             start.index("await super().start(force_build)"),
@@ -438,6 +453,7 @@ class HarnessScopeTests(unittest.TestCase):
         )
         self.assertIn("class NemoClaw(OpenClaw)", source)
         self.assertIn("headless_runner.py", source)
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', source)
         self.assertNotIn("populate_context_post_run", source)
         self.assertNotIn("trajectory.json", source)
 
