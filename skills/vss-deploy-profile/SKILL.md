@@ -299,6 +299,50 @@ docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d
 
 Cold deploys can take 10–20 min, and each profile reference lists the required endpoints. **Never declare deploy done after `up -d`; only after every documented endpoint succeeds.**
 
+### Step 5c — Validation loop for deployment
+
+Before reporting success, run a whole-project container-state gate. This must
+inspect **all** containers from the resolved Compose project, including exited
+containers; `docker ps` alone is not enough because it hides crashed services.
+One-shot init containers may be `exited 0`, but every long-running service must
+be running and no required container may be `unhealthy`, `restarting`, or
+`exited` with a non-zero code.
+
+```bash
+expected=$(docker compose --env-file "$ENV_GEN" -f "$REPO/deploy/docker/resolved.yml" config --services | wc -l)
+actual=$(docker compose -f "$REPO/deploy/docker/resolved.yml" ps -a -q | wc -l)
+if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
+  echo "FAIL: expected $expected services, got $actual" >&2
+  exit 1
+fi
+
+bad=$(
+  docker compose -f "$REPO/deploy/docker/resolved.yml" ps -a --format json \
+    | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
+             | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
+)
+if [ -n "$bad" ]; then
+  echo "FAIL: failing containers:" >&2
+  echo "$bad" >&2
+  exit 1
+fi
+```
+
+If this container gate fails, report the failing container names, inspect their
+logs, and attempt a targeted fix for each failing container. Do not declare the
+deploy complete until this container check gate and the profile's endpoint
+checks pass.
+
+If the deploy completes in the end, call out what additional fixes were
+necessary with two concise sentences explaining what the issue was and what fix
+was applied dynamically.
+
+If targeted fix attempts do not work after multiple iterations to get the
+container check gate passing, gather useful evidence. These issues must be surfaced
+in the final deploy summary. Do not declare the deploy complete by silently ignoring
+failed containers. Call them out explicitly with two concise sentences explaining what
+the issue is and what was attempted.
+
 ## Tear Down
 
 To tear down a deployment — full host reclaim or cache-preserving redeploy / profile
@@ -315,8 +359,8 @@ Each profile reference has a **Debugging** section listing the exact commands an
 ### Quick checks (all profiles)
 
 ```bash
-# 1. All expected containers Up
-docker ps --format 'table {{.Names}}\t{{.Status}}'
+# 1. Run the Step 5c container-state gate.
+docker compose --env-file "$ENV_GEN" -f "$REPO/deploy/docker/resolved.yml" ps -a
 
 # 2. Agent API + UI responding
 curl -sf http://localhost:8000/health >/dev/null && echo "agent OK"
