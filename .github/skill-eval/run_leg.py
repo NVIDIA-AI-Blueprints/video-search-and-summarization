@@ -47,6 +47,7 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
+from model_config import resolve_model_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -320,9 +321,16 @@ def build_harbor_command(
         agent_flags = [
             "-a", "claude-code",
             "--model", model,
-            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
+            # Keep ANTHROPIC_BASE_URL in Harbor's parent environment for the
+            # verifier, but clear it for the evaluated Claude process so the
+            # Anthropic SDK uses its native endpoint.
+            "--ae", "ANTHROPIC_BASE_URL=",
         ]
+        if anthropic_base_url:
+            agent_flags.extend(
+                ["--ak", f"api_base={_api_base_v1(anthropic_base_url)}"]
+            )
     elif agent == "nemoclaw":
         environment_import_path = (
             "envs.nemoclaw_brev_env:NemoClawBrevEnvironment"
@@ -1274,38 +1282,19 @@ def run_invocations(
     work_deadline: float | None = None,
 ) -> int:
     env = harbor_env(instance)
-    agent = os.environ.get("EVAL_AGENT", "claude-code")
-    # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
-    # silently fall through to the claude-code path and be indistinguishable
-    # from a real claude-code run in the logs.
-    if agent not in ("claude-code", "codex", "nemoclaw"):
-        print(
-            f"FATAL: unsupported EVAL_AGENT {agent!r} "
-            "(expected claude-code | codex | nemoclaw)",
-            file=sys.stderr,
-        )
+    try:
+        model_config = resolve_model_config(os.environ)
+    except ValueError as exc:
+        print(f"FATAL: {exc}", file=sys.stderr)
         return 1
-    model = os.environ.get("ANTHROPIC_MODEL", "")
-    base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if not base_url:
-        print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
-        return 1
+    agent = model_config.runtime
+    model = model_config.model
+    base_url = model_config.endpoint_url
     if agent == "codex":
-        model = os.environ.get("CODEX_MODEL", "")
-        if not model:
-            print("FATAL: CODEX_MODEL not set (required for EVAL_AGENT=codex)",
-                  file=sys.stderr)
-            return 1
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not anthropic_key:
-            print("FATAL: ANTHROPIC_API_KEY not set (required for EVAL_AGENT=codex)",
-                  file=sys.stderr)
-            return 1
-        env["OPENAI_API_KEY"] = anthropic_key
+        env["OPENAI_API_KEY"] = model_config.api_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
-    if not model:
-        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
-        return 1
+    elif agent == "claude-code":
+        env["ANTHROPIC_API_KEY"] = model_config.api_key
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;

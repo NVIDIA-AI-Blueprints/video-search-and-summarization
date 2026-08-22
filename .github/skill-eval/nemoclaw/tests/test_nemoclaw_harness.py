@@ -150,6 +150,25 @@ class NotebookRunnerTests(unittest.TestCase):
         )
         self.assertEqual(environment["VLM_NAME"], "vlm-model")
 
+    def test_nvidia_build_maps_to_notebook_build_provider(self) -> None:
+        environment = {
+            "EVAL_AGENT": "nemoclaw",
+            "SKILLS_EVAL_PROVIDER": "nvidia-build",
+            "SKILLS_EVAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "NVIDIA_API_KEY": "build-key",
+            "NGC_CLI_API_KEY": "ngc-test",
+        }
+
+        self.adapter.prepare_environment(environment, root=REPO_ROOT)
+
+        self.assertEqual(environment["NEMOCLAW_ENDPOINT_URL"], "")
+        self.assertEqual(
+            environment["NEMOCLAW_MODEL"],
+            "nvidia/nemotron-3.5-lightning-30b-a3b",
+        )
+        self.assertEqual(environment["NVIDIA_API_KEY"], "build-key")
+        self.assertEqual(environment["COMPATIBLE_API_KEY"], "")
+
     def test_runtime_env_contains_coordinates_but_not_credentials(self) -> None:
         environment = {
             "NEMOCLAW_SANDBOX_NAME": "demo",
@@ -447,13 +466,20 @@ class HarnessScopeTests(unittest.TestCase):
         )
         eval_job = workflow.split("\n  eval:\n", 1)[1]
         self.assertIn('default: "claude-code"', workflow)
+        self.assertIn('default: "default"', workflow)
+        self.assertIn("nvidia-build", workflow)
+        self.assertIn("custom", workflow)
+        self.assertIn("SKILLS_EVAL_MODEL_INPUT", workflow)
+        self.assertIn("SKILLS_EVAL_ENDPOINT_INPUT", workflow)
+        self.assertIn("SKILLS_EVAL_HARNESS_INPUT", workflow)
+        self.assertIn("model_config.py", workflow)
         self.assertIn("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}", eval_job)
         self.assertIn("max-parallel: 8", eval_job)
         self.assertEqual(workflow.count("Run skills eval agent (single spec)"), 1)
-        self.assertIn("EVAL_AGENT:", workflow)
+        self.assertIn('export EVAL_AGENT="$skills_eval_harness_input"', workflow)
         self.assertNotIn("nemoclaw_instance", workflow)
         self.assertNotIn("NEMOCLAW_INSTANCE", workflow)
-        self.assertNotIn("inputs.runner != 'nemoclaw'", workflow)
+        self.assertNotIn("inputs.agent != 'nemoclaw'", workflow)
         self.assertNotIn("single_scenario.py", workflow)
         self.assertNotIn("Run selected skill through NemoClaw", workflow)
         self.assertIn("Collect results for workflow artifact", workflow)

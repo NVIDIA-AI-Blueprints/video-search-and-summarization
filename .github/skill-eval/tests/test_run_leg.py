@@ -93,7 +93,7 @@ class DiscoverInvocations(unittest.TestCase):
 
 
 class HarborCommand(unittest.TestCase):
-    def test_build_command_uses_env_and_v1_suffix(self):
+    def test_build_command_uses_native_anthropic_endpoint(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
             include_task_name="rtxpro6000bw",
@@ -103,8 +103,8 @@ class HarborCommand(unittest.TestCase):
         cmd = run_leg.build_harbor_command(
             invocation,
             Path("/tmp/results"),
-            "aws/anthropic/bedrock-claude-opus-4-6",
-            "https://inference-api.nvidia.com/v1",
+            "claude-opus-4-6",
+            "",
         )
 
         self.assertEqual(run_leg.SKILL_EVAL_PYTHON_VERSION, (3, 12))
@@ -124,8 +124,9 @@ class HarborCommand(unittest.TestCase):
         self.assertIn("--include-task-name", cmd)
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
         self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
-        self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
-        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "claude-opus-4-6")
+        self.assertNotIn("--ak", cmd)
+        self.assertIn("ANTHROPIC_BASE_URL=", cmd)
         self.assertEqual(cmd[cmd.index("-o") + 1], "/tmp/results")
         self.assertEqual(
             cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
@@ -677,7 +678,108 @@ class RunInvocations(unittest.TestCase):
     ENV = {
         "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+        "ANTHROPIC_API_KEY": "test-key",
     }
+
+    def test_nemoclaw_uses_selected_nvidia_build_model(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/spec"),
+            include_task_name="task",
+            chain_key="spec",
+        )
+        env = {
+            "EVAL_AGENT": "nemoclaw",
+            "SKILLS_EVAL_PROVIDER": "nvidia-build",
+            "SKILLS_EVAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "NVIDIA_API_KEY": "build-key",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg,
+                    "build_harbor_command",
+                    return_value=["harbor"],
+                ) as build,
+                mock.patch.object(run_leg, "run_command", return_value=0),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            build.call_args.args[2:],
+            (
+                "nvidia/nemotron-3.5-lightning-30b-a3b",
+                "",
+                "nemoclaw",
+            ),
+        )
+
+    def test_claude_code_uses_native_anthropic_credentials(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/spec"),
+            include_task_name="task",
+            chain_key="spec",
+        )
+        selected = {
+            "SKILLS_EVAL_PROVIDER": "default",
+            "SKILLS_EVAL_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_BASE_URL": "https://must-not-be-used.example.test",
+            "ANTHROPIC_API_KEY": "anthropic-key",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, selected, clear=True),
+                mock.patch.object(
+                    run_leg,
+                    "harbor_env",
+                    return_value=selected.copy(),
+                ),
+                mock.patch.object(
+                    run_leg,
+                    "build_harbor_command",
+                    return_value=["harbor"],
+                ) as build,
+                mock.patch.object(
+                    run_leg,
+                    "run_command",
+                    return_value=0,
+                ) as execute,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            build.call_args.args[2:],
+            ("claude-opus-4-6", "", "claude-code"),
+        )
+        command_env = execute.call_args.args[1]
+        self.assertEqual(command_env["ANTHROPIC_API_KEY"], "anthropic-key")
+        self.assertEqual(
+            command_env["ANTHROPIC_BASE_URL"],
+            "https://must-not-be-used.example.test",
+        )
 
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [

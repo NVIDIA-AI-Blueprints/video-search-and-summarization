@@ -37,14 +37,34 @@ on:
         required: false
         default: "*"
         type: string
-      runner:
-        description: "Execution runtime. Both options use the same per-spec matrix dispatch."
+      agent:
+        description: "Agent harness used for the skill eval."
         required: false
         default: "claude-code"
         type: choice
         options:
           - claude-code
           - nemoclaw
+      provider:
+        description: "NemoClaw model provider. Keep default for Claude Code."
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - nvidia-inference
+          - nvidia-build
+          - custom
+      model:
+        description: "Model ID. Blank keeps the harness default when one is configured."
+        required: false
+        default: ""
+        type: string
+      endpoint_url:
+        description: "Custom NemoClaw endpoint. Required only when provider is custom."
+        required: false
+        default: ""
+        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -193,16 +213,6 @@ jobs:
           echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
           echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
 
-      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
-        run: |
-          # The runner host (vss-skill-validator-v2) keeps coordinator
-          # secrets in a single .env. Don't echo contents.
-          set -a
-          source /home/ubuntu/eval-coordinator/.env
-          set +a
-          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
-          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
-
       - name: Run skills eval agent (single spec)
         id: agent
         env:
@@ -213,7 +223,10 @@ jobs:
           # below, then this value is restored so it cannot overwrite the
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
+          SKILLS_EVAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.agent || 'claude-code' }}
+          SKILLS_EVAL_PROVIDER_INPUT: ${{ inputs.provider || 'default' }}
+          SKILLS_EVAL_MODEL_INPUT: ${{ inputs.model || '' }}
+          SKILLS_EVAL_ENDPOINT_INPUT: ${{ inputs.endpoint_url || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -235,6 +248,10 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
+          skills_eval_harness_input="$SKILLS_EVAL_HARNESS_INPUT"
+          skills_eval_provider_input="$SKILLS_EVAL_PROVIDER_INPUT"
+          skills_eval_model_input="$SKILLS_EVAL_MODEL_INPUT"
+          skills_eval_endpoint_input="$SKILLS_EVAL_ENDPOINT_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -245,6 +262,7 @@ jobs:
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="$skill_eval_venv_dir/bin:$PATH"
+          export CLAUDE_CODE_DISABLE_THINKING=1
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
@@ -253,6 +271,20 @@ jobs:
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
           fi
+          export SKILLS_EVAL_HARNESS="$skills_eval_harness_input"
+          export EVAL_AGENT="$skills_eval_harness_input"
+          export SKILLS_EVAL_PROVIDER="$skills_eval_provider_input"
+          if [ -n "$skills_eval_model_input" ]; then
+            export SKILLS_EVAL_MODEL="$skills_eval_model_input"
+          else
+            unset SKILLS_EVAL_MODEL
+          fi
+          if [ -n "$skills_eval_endpoint_input" ]; then
+            export SKILLS_EVAL_ENDPOINT_URL="$skills_eval_endpoint_input"
+          else
+            unset SKILLS_EVAL_ENDPOINT_URL
+          fi
+          python3 .github/skill-eval/model_config.py
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
           # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that

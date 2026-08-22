@@ -13,6 +13,12 @@ from envs.brev_env import BrevEnvironment, _run_brev_exec
 logger = logging.getLogger(__name__)
 
 _SETUP_KEYS = (
+    "SKILLS_EVAL_HARNESS",
+    "EVAL_AGENT",
+    "SKILLS_EVAL_PROVIDER",
+    "SKILLS_EVAL_MODEL",
+    "SKILLS_EVAL_ENDPOINT_URL",
+    "SKILLS_EVAL_API_KEY",
     "NGC_CLI_API_KEY",
     "NGC_API_KEY",
     "NVIDIA_API_KEY",
