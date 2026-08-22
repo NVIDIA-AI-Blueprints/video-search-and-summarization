@@ -32,7 +32,7 @@ export VSS_PUBLIC_URL=""
 # resolve. `pip install --user` puts it here, and this directory is not on
 # the default PATH. Harmless when uv is not installed; TOOLS.md "VSS CLI
 # checkout" sets it up.
-export PATH="${HOME}/.local/bin:${PATH}"
+export PATH="/tmp/.local/bin:${HOME}/.local/bin:${PATH}"
 ```
 
 ## Empty VSS_PUBLIC_URL
@@ -48,7 +48,12 @@ Then `export VSS_PUBLIC_URL=<answer>` for the session and write it to
 asking again. Keep the port in it: `vss configure` records the origin
 verbatim, and the Elasticsearch client rejects a URL without one.
 
-The Ingress host must also be named in the `vss-k8s-ingress` egress
-policy. That file lives on the host, out of your reach, so a first call
-failing with `CONNECT tunnel failed, response 403` means the user has to
-add the host there and re-apply the policy. Report that and stop.
+Expect the first call to fail anyway. The Ingress host must also be named
+in the `vss-k8s-ingress` egress policy, and that entry is filled from the
+same notebook setting that fills this file — so an empty export here means
+the policy is almost certainly carrying its unreachable placeholder host
+too. The policy lives on the host, out of your reach. On `CONNECT tunnel
+failed, response 403`, report this and stop:
+
+> Egress to that host is not allowed yet. Set `VSS_PUBLIC_URL` in section
+> 1.3 of `deploy_nemoclaw.ipynb` and re-run 3.2 to re-apply the policy.

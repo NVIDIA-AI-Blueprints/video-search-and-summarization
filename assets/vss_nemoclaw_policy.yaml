@@ -331,15 +331,16 @@ network_policies:
 
   # Kubernetes developer profiles publish nothing on host.openshell.internal:
   # every HTTP surface sits behind one path-based Ingress on the node running
-  # the controller, so the Ingress host has to be named here. Set it to the
-  # deployment's `global.externalHost` (`vss-<profile>.<node-ip>.nip.io`) and
-  # re-apply; the value below is an example, not a fixture. Port 80 is the
-  # HAProxy Ingress hostPort from the profile READMEs -- use 443 instead when
-  # ingress.tls is configured.
+  # the controller, so the Ingress host has to be named here. The host below is
+  # a placeholder under RFC 2606 `.invalid`, so an unfilled entry resolves
+  # nowhere and allowlists nothing. Section 3.2 of `deploy_nemoclaw.ipynb`
+  # rewrites it from that notebook's VSS_PUBLIC_URL when applying the policy,
+  # taking the port from the same origin (80 for a plain-HTTP Ingress, 443 with
+  # ingress.tls).
   vss-k8s-ingress:
     name: vss-k8s-ingress
     endpoints:
-      - host: vss-search.140.238.93.91.nip.io
+      - host: vss-ingress.unset.invalid
         port: 80
         access: full
     binaries:
