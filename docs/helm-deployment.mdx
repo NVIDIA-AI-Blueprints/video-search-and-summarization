@@ -1,0 +1,71 @@
+---
+title: "Helm Deployment"
+description: ""
+position: 3
+---
+This guide covers deploying VSS **developer profiles** on Kubernetes using Helm. It is an
+alternative to the Docker Compose method used in [quickstart](/quickstart) and the [agent-workflows](/agent-workflows)
+guides.
+
+Install steps, values files, GPU sizing, ingress setup, and troubleshooting for each profile are
+documented in the chart **README.md** under
+`deploy/helm/developer-profiles/` in the
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/deploy/helm/developer-profiles)
+GitHub repository.
+
+## Available developer profiles
+
+- `base`
+- `alerts`
+- `search`
+- `lvs`
+
+## Prerequisites
+
+- A Kubernetes cluster (version **1.34** or greater) you can reach with **kubectl**
+- **Helm 3.x**
+- [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html) on the cluster
+- [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) when deploying in-cluster LLM and VLM models
+- **StorageClass** - for PVC provisioning
+- **NGC API key** — for image pull and NIM model access
+
+GPU requirements depend on the profile and values you choose (for example, in-cluster NIMs vs
+remote LLM/VLM endpoints). See the **GPU requirements** section in the chart README for the
+profile you are deploying.
+
+### Steps to deploy a profile
+
+1. Clone the blueprint repository:
+
+   ```bash
+   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+   cd video-search-and-summarization
+   git checkout tags/v3.2.1
+   git lfs install
+   git lfs pull
+   ```
+
+2. Change into the Helm developer-profiles directory:
+
+   ```bash
+   cd ./deploy/helm/developer-profiles
+   ```
+
+3. Open the chart **README.md** for the profile you are deploying and follow the installation
+   and uninstall instructions there:
+
+| Workflow | Developer Profile | Chart documentation |
+| --- | --- | --- |
+| Q&A and Report Generation | `base` | [dev-profile-base](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-base/README.md) |
+| Alerts | `alerts` | [dev-profile-alerts](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-alerts/README.md) |
+| Search | `search` | [dev-profile-search](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-search/README.md) |
+| Video Summarization | `lvs` | [dev-profile-lvs](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-lvs/README.md) |
+
+<Note>
+After `helm upgrade --install`, wait until **all** pods in the release namespace are in
+**Running** state and show **Ready** (for example, `kubectl get pods -n <NAMESPACE>`)
+before opening the UI or sending requests. Image pulls, persistent volume binding, and
+in-cluster NIM model download and warm-up add startup time. For some profiles, bringing
+every pod to Ready can take **20–25 minutes** depending on cluster resources and network
+speed.
+</Note>

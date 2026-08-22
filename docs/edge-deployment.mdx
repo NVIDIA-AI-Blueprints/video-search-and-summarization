@@ -1,0 +1,150 @@
+---
+title: "Edge Deployment"
+description: ""
+position: 2
+---
+This guide covers deploying the base vision agent with **NVIDIA Nemotron 3 Nano 4B** or **NVIDIA Nemotron Nano 9B v2** as the
+LLM on edge platforms (DGX Spark, IGX Thor, AGX Thor).
+
+For small models like **NVIDIA Nemotron 3 Nano 4B**, a dedicated configuration file (`config_edge.yml`) is provided.
+It inherits all settings from the standard `config.yml` and overrides only the planning prompt with a simplified
+version optimized for smaller models.
+
+<Note>
+The edge configuration does not encourage clarifying questions from the agent prompt. Hence, in ambiguous situations,
+the agent with `config_edge.yml` may tend to not request more context from the user.
+If this behavior is not desired, use a larger model like **NVIDIA Nemotron Nano 9B v2** which will ask clarifying questions
+when the user's request does not contain enough context.
+</Note>
+
+## Prerequisites
+
+Before deploying, complete the [prerequisites](/prerequisites) for your platform.
+Also ensure to reboot the system and free up the GPU completely before deploying.
+
+You will also need:
+
+- **NGC CLI API Key** — for pulling container images
+- **HF Token** — for pulling model weights from Hugging Face
+- **NVIDIA Nemotron 3 Nano 4B** running locally or on a reachable endpoint (e.g. via vLLM on port 30081)
+
+For more details on VSS configurations and how to get API tokens, refer to:
+
+- [vss-agent/VSS-Agent-Customization](/vss-agent/VSS-Agent-Customization)
+- [vss-agent/VSS-Agent-Configuration](/vss-agent/VSS-Agent-Configuration) and [vss-agent/configure-llm](/vss-agent/configure-llm)
+
+## DGX Spark
+
+1. Start the Nemotron 3 Nano 4B model. For example, using vLLM:
+
+   ```bash
+   export HF_TOKEN=$HF_TOKEN
+   
+   docker run --gpus all -d --name nemotron-edge -p 30081:8000 \
+       -e HF_TOKEN=$HF_TOKEN \
+       nvcr.io/nvidia/vllm:26.02-py3 \
+       python3 -m vllm.entrypoints.openai.api_server \
+       --model nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
+       --trust-remote-code \
+       --gpu-memory-utilization 0.25 \
+       --enable-auto-tool-choice \
+       --tool-call-parser qwen3_coder \
+       --port 8000
+   ```
+
+2. Deploy the agent workflow:
+
+   ```bash
+   export NVIDIA_API_KEY=$NVIDIA_API_KEY
+   export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
+   export LLM_ENDPOINT_URL=http://localhost:30081
+   export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
+   
+   deploy/docker/scripts/dev-profile.sh up -p base \
+       --use-remote-llm \
+       --llm nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
+       --hardware-profile DGX-SPARK \
+       --vlm-env-file deploy/docker/services/nim/cosmos3-reasoner/hw-DGX-SPARK-shared.env
+   ```
+
+   The `--vlm-env-file` limits the VLM KV-cache (`NIM_KVCACHE_PERCENT=0.4`) so both
+   models fit in GPU memory.
+
+<Note>
+If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B** model.
+This larger model should also be able to handle more complex user queries and situations.
+In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
+
+``bash
+# Free up GPU for a full blueprint deployment
+# docker stop nemotron-edge && docker rm nemotron-edge
+
+deploy/docker/scripts/dev-profile.sh up -p base \
+--hardware-profile DGX-SPARK \
+--llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 \
+
+This uses the standard `config.yml` (no `config_edge.yml` override needed) since
+the 9B model handles complex and ambiguous queries better.
+</Note>
+
+## AGX Thor / IGX Thor
+
+On AGX Thor and IGX Thor, the Nemotron 3 Nano 4B LLM runs locally alongside `rtvi-vlm` (the VLM
+used by the blueprint on Thor). Both models share the same GPU, so their memory budgets
+must be tuned to coexist.
+
+1. Start the Nemotron 3 Nano 4B model on the device:
+
+   ```bash
+   export HF_TOKEN=$HF_TOKEN
+   
+   docker run --gpus all -d --name nemotron-edge -p 30081:8000 \
+       --runtime=nvidia \
+       -e NVIDIA_VISIBLE_DEVICES=0 \
+       -e HF_TOKEN=$HF_TOKEN \
+       ghcr.io/nvidia-ai-iot/vllm:latest-jetson-thor \
+       python3 -m vllm.entrypoints.openai.api_server \
+       --model nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
+       --trust-remote-code \
+       --gpu-memory-utilization 0.25 \
+       --enable-auto-tool-choice \
+       --tool-call-parser qwen3_coder \
+       --port 8000
+   ```
+
+2. Deploy the agent workflow:
+
+   ```bash
+   export NVIDIA_API_KEY=$NVIDIA_API_KEY
+   export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
+   export LLM_ENDPOINT_URL=http://localhost:30081
+   export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
+   
+   # Uses the default GPU memory utilization of 0.35 for rtvi-vlm
+   deploy/docker/scripts/dev-profile.sh up -p base \
+       --use-remote-llm \
+       --llm nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
+       --hardware-profile AGX-THOR
+   ```
+
+<Note>
+If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B** model.
+This larger model should also be able to handle more complex user queries and situations.
+In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
+
+``bash
+# Free up GPU for a full blueprint deployment
+# docker stop nemotron-edge && docker rm nemotron-edge
+
+deploy/docker/scripts/dev-profile.sh up -p base \
+--hardware-profile AGX-THOR \
+
+# --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+
+This uses the standard `config.yml` (no `config_edge.yml` override needed) since
+the 9B model handles complex and ambiguous queries better.
+</Note>
+
+<Note>
+For IGX Thor, replace `AGX-THOR` with `IGX-THOR` in the commands above.
+</Note>

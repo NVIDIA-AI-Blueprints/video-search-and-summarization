@@ -1,0 +1,44 @@
+---
+title: "Model customization overview"
+description: ""
+position: 1
+---
+The Video Search and Summarization (VSS) blueprint uses **embedding models** in two places: **object-level** embeddings from the Real-Time Computer Vision (RT-CV) microservice for detection crops and text queries, and **video-level** embeddings from the Real-Time Embedding microservice for clip- and stream-based semantic search. Recent TAO Toolkit releases support fine-tuning the same foundation models that these services use, so you can specialize embeddings for your domain and swap the artifacts into your deployment.
+
+Industry blueprint deployments (for example [Warehouse Operations ](/warehouse-docs/warehouse-toc)) also ship **computer vision** perception models (Sparse4D, RT-DETR) that you can fine-tune with TAO and integrate into the Perception microservice. See [sparse4d](/models/sparse4d) and [rt-detr](/models/rt-detr).
+
+This section maps **which components accept customized weights**, **where to fine-tune** (documentation and NGC model cards), and **how to integrate** fine-tuned models. For low-level service settings (environment variables, DeepStream config keys, APIs), see the linked microservice guides.
+
+<Note>
+Changing embedding dimension or similarity geometry usually requires **re-indexing** stored vectors (for example Elasticsearch indices used by search workflows) and revisiting **similarity thresholds** in analytics. Plan a full pipeline validation after swapping models.
+</Note>
+
+## Summary
+
+| VSS component | Embedding role | Supported model families | Primary integration surface |
+| --- | --- | --- | --- |
+| [Object Detection and Tracking ](/object-detection-tracking) (RT-CV) | Object crop embeddings and optional text embeddings (ReID, text-to-image alignment) | [SigLIP 2](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/siglip_v2) | DeepStream INI: vision encoder + text embedder (ONNX / TensorRT); see [ReID and Embeddings](/object-detection-tracking#reid-and-embeddings-rest-api-and-config-reference) on that page |
+| [Real-Time Embedding ](/real-time-embedding) (RT-Embedding) | Video and text embeddings for semantic search and Kafka-published clip features | [Cosmos-Embed1](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/cosmos-embed1) | Container environment: `MODEL_PATH`, optional `MODEL_IMPLEMENTATION_PATH` / Triton repo scripts; see [Customizations](/real-time-embedding#customization) on that page |
+
+## Per-model guides
+
+* [clip-object-embeddings](/models/clip-object-embeddings) — **SigLIP 2** for RT-CV
+* [cosmos-embed1](/models/cosmos-embed1) — Cosmos-Embed1 for RT-Embedding
+* [sparse4d](/models/sparse4d) — TAO Sparse4D for multi-camera 3D detection and tracking (warehouse blueprint)
+* [rt-detr](/models/rt-detr) — TAO RT-DETR for 2D warehouse detection (warehouse blueprint)
+
+## Agent and search workflows
+
+Developer profiles and agent tools that call **embedding endpoints** or query **Elasticsearch** (see [VSS-Agent-Profiles ](/vss-agent/VSS-Agent-Profiles)) assume compatible embedding spaces with the indexed documents. After swapping RT-CV or RT-Embedding models, confirm:
+
+* API payloads still match expected vector sizes.
+* Search and fusion logic (for example multi-embedding or attribute search) still uses comparable similarity scales.
+
+For LLM and VLM configuration (not embedding fine-tuning), see [Configure the LLM ](/vss-agent/configure-llm) and [Configure the VLM ](/vss-agent/configure-vlm).
+
+## Related documentation
+
+* [Object Detection and Tracking ](/object-detection-tracking) — RT-CV pipelines, ReID, ONNX/TRT embedding configuration
+* [Real-Time Embedding ](/real-time-embedding) — RT-Embedding deployment, `MODEL_PATH`, Kafka output
+* [../agent-workflow-search](/agent-workflow-search) — Search workflow architecture (embeddings → message bus → Elasticsearch)
+* [NVIDIA TAO Toolkit](https://docs.nvidia.com/tao/tao-toolkit/latest/index.html) — Training, export, and deployment guides

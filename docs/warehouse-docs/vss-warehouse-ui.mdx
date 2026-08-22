@@ -1,0 +1,46 @@
+---
+title: "Reference Agentic UI"
+description: ""
+position: 5
+---
+This blueprint enables the following components of the [../vss-ui](/vss-ui):
+
+* [Global Chat Sidebar](/vss-ui#global-chat-sidebar) — persistent conversational interface for the Warehouse Agent.
+* [Alerts Tab](/vss-ui) — monitor, investigate, and manage AI-detected incidents.
+* [Dashboard Tab](/vss-ui) — Kibana dashboard view embedded in the UI.
+
+Use the links above to navigate to the respective documentation.
+
+<Note>
+The Global Chat Sidebar is available across multiple tabs and provides an integrated experience. The Search and Video Management tabs are not enabled in the Warehouse Blueprint deployment.
+</Note>
+
+Following sections provide example screenshots for each tab where applicable.
+
+## Examples
+
+1. **Query:** Provide Sensors list.
+
+   ![VSS Warehouse BP UI - Chat Tab - Provide Sensors list](/assets/images/vss-warehouse-bp-ui/vss-warehouse-bp-ui-chat-mode-query-example-1.png)
+
+   ![VSS Warehouse BP UI - Chat Tab - Fetch the video for Camera_01](/assets/images/vss-warehouse-bp-ui/vss-warehouse-bp-ui-chat-mode-query-example-2.png)
+
+   ![VSS Warehouse BP UI - Chat Tab - Can you generate a report for Camera_01?](/assets/images/vss-warehouse-bp-ui/vss-warehouse-bp-ui-chat-mode-query-example-3.png)
+
+   ![VSS Warehouse BP UI - Chat Tab - A snapshot/picture from Camera_01](/assets/images/vss-warehouse-bp-ui/vss-warehouse-bp-ui-chat-mode-query-example-4.png)
+
+### Alerts Tab
+
+The Alerts Tab provides a complete interface for monitoring, investigating, and managing AI-detected incidents in the warehouse. It is organized into a **View Alerts** monitoring dashboard and a **Manage Alerts** view for creating real-time alert rules. Alert rows expose a **Generate Report** action that sends alert metadata to the Global Chat Sidebar so the Warehouse Agent can perform AI-powered analysis with the alert context pre-filled.
+
+![VSS Warehouse BP UI - Alerts Tab](/assets/images/vss-warehouse-bp-ui/vss-warehouse-bp-ui-alerts-mode.png)
+
+### Dashboard Tab
+
+This tab is standard across all blueprints. For details, see the [Dashboard Tab](/vss-ui).
+
+![VSS Warehouse BP UI - Dashboard Tab](/assets/images/vss-ui/dashboard-mode/dashboard-main.png)
+
+### References
+
+For more information on details related to the user interface, refer to the [../vss-ui](/vss-ui) documentation.

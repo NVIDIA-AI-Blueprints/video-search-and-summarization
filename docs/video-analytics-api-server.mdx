@@ -1,0 +1,538 @@
+---
+title: "Video Analytics API"
+description: ""
+position: 1
+---
+The Video Analytics API microservice is built using Node.js with Express.js as the web application framework. The service exposes multiple REST API endpoints.
+
+These endpoints enable you to:
+- Retrieve events and alerts
+- Calculate metrics
+- Access tracked objects across camera feeds
+- Obtain behavior clusters
+- Check the timestamp of the most recent data transmission
+
+Additionally, the API supports configuration management through endpoints for inserting and retrieving configuration data.
+
+## Overview
+
+The architecture of the API can be explained using the following block diagram.
+
+![Block Diagram - Architecture](/assets/images/video-analytics-api/architecture-video-analytics-api.png)
+
+The data sent by sensor processing module is processed in streaming pipelines to create behavior, track objects across cameras and detect event/anomalies. The processed data is inserted into Elasticsearch.
+Video Analytics API comprises of REST API endpoints which queries Elasticsearch to obtain relevant data based on the input of client requests. To obtain real time data, certain endpoints use Kafka as their data source. Kafka is also used to handle notification related messages.
+
+The response is aggregated (if required) and formatted appropriately before responding to clients.
+
+<Note>
+Kafka is optional. If Kafka is not configured (`"brokers": null`) and a request is made to an API endpoint which uses it, an appropriate error message is returned in the response.
+</Note>
+
+## Configurations
+
+### API Bootstrap Config
+
+The `Utils.Config` class of the `web-api-core` library initializes the default bootstrap config. You can override this config by passing either the entire config or a minimal config. The API reads the config while starting the server. It remains constant as long as the server runs. If anything needs to be modified then the server must be restarted.
+
+The bootstrap config's attributes are as follows:
+
+```json
+{
+    "server":{
+        "port": "<Server port (e.g., 8081)>",
+        "configs":[
+            {
+                "name": "postBodySizeLimit",
+                "value": "<Body size for post requests (e.g., 50mb)>"
+            },
+            {
+                "name": "amrRetentionInSec",
+                "value": "<Retention of AMR data in seconds (e.g., 3)>"
+            },
+            {
+                "name": "inSimulationMode",
+                "value": "<Boolean value to indicate if the server is running in simulation mode>"
+            },
+            {
+                "name": "configStatusTimeoutMs",
+                "value": "<Timeout in milliseconds for dynamic config update status requests (e.g., 30000)>"
+            },
+            {
+                "name": "configStatusTimeoutCheckFrequencyMs",
+                "value": "<Frequency in milliseconds for dynamic config update status cleanup checks (e.g., 900000)>"
+            }
+        ]
+    },
+    "elasticsearch":{
+        "node": "<Elasticsearch URL (e.g., http://localhost:9200)>",
+        "indexPrefix": "<Index prefix (e.g., mdx-)>",
+        "rawIndex": "<Raw index pattern (e.g., mdx-raw-*)>",
+        "retries": "<Elasticsearch client max retries per request (e.g., 15)>"
+    },
+    "kafka":{
+        "brokers": "<List of Kafka brokers or (null or empty array) - if it is not applicable.>",
+        "retries": "<KafkaJS client max retries (e.g., null)>"
+    }
+}
+```
+
+<Note>
+When using Redis as the message broker instead of Kafka, set `"brokers": null`.
+</Note>
+
+### Calibration Config
+
+Calibration file is generated either by the Calibration Toolkit or by Omniverse's Calibration tool. See [here ](/calibration) for more details.
+
+## Library
+
+### Overview
+
+The `web-api-core` library consists of four namespaces.
+
+1. Metrics
+2. Errors
+3. Services
+4. Utils
+
+Each namespace consists of classes which helps to either compute metrics, get records from database or provide utilities with helper functions.
+
+### Metrics
+
+The Metrics namespace consists of following classes:
+
+1. `Behavior`: Used to compute metrics related to behavior.
+2. `TripwireEvent`: Used to find the total number of events (eg: effective and actual tripwire crossing events) that have occurred. It is also used to compute Tripwire Histogram.
+3. `LastProcessedTimestamp`: Used to find the timestamp of last processed object.
+4. `Occupancy`: Used to find current occupancy of a place based on tripwire events. It also enables to reset occupancy. It helps in computing the average occupancy/histogram for objects in FOV and ROI.
+5. `SpaceUtilization`: Used to compute space utilization metrics like histogram.
+
+### Errors
+
+The Errors namespace consists of following classes:
+
+1. `BadRequestError`: Error to be used when the request sent by client is a Bad Request.
+2. `IndexNotFoundError`: Error to be used when Elasticsearch index is not found.
+3. `InternalServerError`: Error to be used when there is a server side error.
+4. `InvalidInputError`: Error to be used when the input is not valid.
+5. `ResourceNotFoundError`: Error to be used when a resource is not found.
+6. `ServiceUnavailableError`: Error to be used when a service is not available.
+
+### Services
+
+The Services namespace consists of following classes:
+
+1. `Alerts`: Used to fetch alerts and indicate if a place or a sensor has severe alerts. Also supports fetching VLM-verified alerts and severe alerts detection.
+2. `Behavior`: Used to fetch behavior, a behavior's timestamp or to calculate a behavior's start and end pts.
+3. `Calibration`: Used to upload/insert, update or delete sensors in calibration. It is also used to produce/consumer Kafka messages. It can also be used to upload/retrieve calibration related images.
+4. `Clustering`: Used to obtain behavior cluster. It is also used to add cluster labels.
+5. `ConfigManager`: Used to update the configs of other microservices. It is also used to obtain the current config of a microservice.
+6. `Events`: Used to fetch events data (eg: tripwire).
+7. `Frames`: Used to fetch clusters of objects which are in proximity of each other. Also used to fetch raw, enhanced and bev frames. It is also used to fetch frame based alerts. It is used to calculate pts and also fetch object with max confidence.
+8. `Incidents`: Used to fetch incidents and indicate if a place or a sensor has severe incidents. Also supports fetching VLM-verified incidents and severe incidents detection.
+9. `MTMC`: Used to obtain unique object and unique object counts. It can also be used for Query-by-Example (QBE) and to obtain locations of matched behaviors.
+10. `NotificationManager`: Used to produce and consume notification messages.
+11. `Place`: Used to build aggregation queries for places, including sensor ID aggregation for leaf places and place successor aggregation for non-leaf places.
+12. `RoadNetwork`: Used to upload and retrieve road network config.
+13. `Sensor`: Used to lookup which sensors are overlooking a coordinate of a place.
+14. `UsdAssets`: Used to upload and retrieve USD assets config.
+
+### Utils
+
+The Utils namespace consists of following classes:
+
+1. `Config`: Provides the utility which initializes server config with default values. It also reads the bootstrap config provided by user which is used to override config values.
+2. `Database`: Wrapper class for various databases.
+3. `Elasticsearch`: Utilities related to Elasticsearch are provided in this class.
+4. `FileUploadHandler`: Provides helper functions related to file uploads.
+5. `Histogram`: Provides helper functions related to histogram.
+6. `Kafka`: Utilities related to Kafka are provided in this class.
+7. `MessageBroker`: Wrapper class for various message brokers.
+8. `Utils`: Provides helper functions used by Video Analytics API.
+9. `Validator`: Utilities which help to validate inputs are provided in this class.
+
+## API
+
+### Documentation
+
+Open API Specification can be found [here ](/video-analytics-api).
+
+The following sections describe the various API endpoints along with their respective sequence diagrams.
+
+### Frame Based Alerts
+
+#### Library Usage
+
+The `web-api-core` package has function which helps to retrieve frame based alerts.
+
+For example:
+
+```javascript
+const mdx = require("@nvidia-mdx/web-api-core");
+const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+let input = {sensorId:"abc",fromTimestamp: "2025-01-10T11:10:00.000Z", toTimestamp: "2025-01-10T11:12:00.000Z"}
+let framesMetadata = new mdx.Services.Frames();
+let alerts = await framesMetadata.getAlerts(elastic,input);
+```
+
+In the above example, `getAlerts` is an async function which returns confined area, restricted area and proximity alerts.
+
+<Note>
+The confined area alert occurs when one of the confined object types moves out of the ROI.
+Similarly, the restricted area alert occurs when one of the restricted object types enters the ROI.
+The proximity alert occurs when one object of type 'x' is closer to another object of type 'y' than the defined proximity threshold config.
+</Note>
+
+#### REST API
+
+**Sequence Diagram**
+
+![Sequence Diagram - Frame Based Alerts](/assets/images/video-analytics-api/Frame-Based-Alerts.png)
+
+The **http request** sent to the **/frames/alerts** route is redirected to the controller function where the query input is validated and an Elasticsearch query object is generated.
+The Elasticsearch is queried as a promise (async call) which then responds with results. The results are formatted appropriately and sent back to the client.
+
+### Multi Camera Tracking: Unique Objects
+
+#### Library Usage
+
+The `web-api-core` package has function which helps to retrieve unique objects tracked across sensors.
+
+For example:
+
+```javascript
+const mdx = require("@nvidia-mdx/web-api-core");
+const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+let input = {sensorIds:["abc","def"],fromTimestamp: "2025-01-10T11:10:05.000Z", toTimestamp: "2025-01-10T11:10:10.000Z"}
+let mtmc = new mdx.Services.MTMC();
+let uniqueObjects = await mtmc.getUniqueObjects(elastic, input);
+```
+
+In the above example, `getUniqueObjects` is an async function which returns unique objects which were identified by MTMC microservice.
+
+#### REST API
+
+**Sequence Diagram**
+
+![Sequence Diagram - Multi Camera Tracking: Unique Objects](/assets/images/video-analytics-api/Unique-Objects.png)
+
+The **http request** sent to the **/tracker/unique-objects** route is redirected to the controller function where the query input is validated and an Elasticsearch query object is generated.
+The Elasticsearch is queried as a promise (async call) which then responds with results. The results are formatted appropriately and sent back to the client.
+
+<Note>
+The query parameter 'place' sent as part of request is a hierarchy of places. For example, a room of a building located in a particular city will be in the following format: `city=abc/building=pqr/room=xyz`.
+</Note>
+
+### Tripwire Events
+
+#### Library Usage
+
+The `web-api-core` package enables the user to retrieve tripwire events. For example:
+
+```javascript
+const mdx = require("@nvidia-mdx/web-api-core");
+const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+let input = {sensorId:"abc",fromTimestamp: "2025-01-10T11:10:05.000Z", toTimestamp: "2025-01-10T11:10:10.000Z"}
+let tripwireMetadata = new mdx.Services.Events();
+let tripwireEvents = await tripwireMetadata.getTripwireEvents(elastic,input);
+```
+
+In the above example `getTripwireEvents` is an async function which returns tripwire events.
+
+#### REST API
+
+**Sequence Diagram**
+
+![Sequence Diagram - Tripwire Events](/assets/images/video-analytics-api/Tripwire-Events.png)
+
+The **http request** sent to the **/events/tripwire** route is redirected to the controller function where the query input is validated and an Elasticsearch query object is generated.
+The Elasticsearch is queried as a promise (async call) which then responds with results. The results are formatted appropriately and sent back to the client.
+
+<Note>
+The query parameter 'place' sent as part of request is a hierarchy of places. For example, a room of a building located in a particular city will be in the following format: `city=abc/building=pqr/room=xyz`.
+</Note>
+
+### Metrics: Tripwire Counts
+
+#### Library Usage
+
+The `web-api-core` package has helpful functions which can be used to calculate Tripwire related metrics.
+
+For example:
+
+```javascript
+const mdx = require("@nvidia-mdx/web-api-core");
+const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+let input = {sensorId:"abc",fromTimestamp: "2025-01-10T11:10:05.000Z", toTimestamp: "2025-01-10T11:10:10.000Z"}
+let tripwireMetricObject = new mdx.Metrics.TripwireEvent();
+let tripwireCounts = await tripwireMetricObject.getTripwireCounts(elastic,input);
+```
+
+In the above example, `getTripwireCounts` is being used to get tripwire counts for each tripwire of sensor `abc`. It is also used to get effective tripwire counts for each tripwire of sensor `abc`.
+
+Effective counts are used to count only the effective event generated by an object. An effective tripwire event can be defined with the following example: Suppose an object generates tripwire events in the following sequence: `IN --> OUT --> IN`, then the effective count in this case considers only the final `IN` event. This is helpful to handle loitering behavior of an object.
+
+#### REST API
+
+1. The **http request** sent to the **/metrics/tripwire/counts** route is redirected to the controller function where the query input is validated and an Elasticsearch query object is generated.
+2. The Elasticsearch is queried as a promise (async call) to calculate detailed count and effective count for each tripwire of the sensor.
+3. The API receives the result for both the queries which is formatted appropriately before sending the response to the client.
+
+**Example:**
+
+A client sends a request to obtain tripwire counts of sensorId `abc` which has 2 tripwires.
+Let's assume the query was sent for the time period `t1` - `t2` when `tripwire-id-1` had `IN`, `OUT` and `IN` events produced by the same object and `tripwire-id-2` had a single `IN` event.
+Then the response in this scenario should look as follows:
+
+```json
+{
+    "tripwireMetrics":[
+        {
+            "id": "tripwire-id-1",
+            "events":[
+                {
+                    "type": "IN",
+                    "count": 1,
+                    "actualCount":2,
+                    "objectType": "Person"
+                },
+                {
+                    "type": "OUT",
+                    "count": 0,
+                    "actualCount":1,
+                    "objectType": "Person"
+                }
+            ]
+        },
+        {
+            "id": "tripwire-id-2",
+            "events":[
+                {
+                    "type": "IN",
+                    "count": 1,
+                    "actualCount": 1,
+                    "objectType": "Person"
+                },
+                {
+                    "type": "OUT",
+                    "count": 0,
+                    "actualCount": 0,
+                    "objectType": "Person"
+                }
+            ]
+        }
+    ],
+    "aggregatedMetrics":{
+        "events": [
+            {
+                "type": "IN",
+                "count": 2,
+                "actualCount": 3,
+                "objectType": "Person"
+            },
+            {
+                "type": "OUT",
+                "count": 0,
+                "actualCount": 1,
+                "objectType": "Person"
+            }
+        ]
+    }
+}
+```
+
+The `count` attribute in the above response is the effective count of events.
+
+<Note>
+The query parameter 'place' sent as part of request is a hierarchy of places. For example, a room of a building located in a particular city will be in the following format: `city=abc/building=pqr/room=xyz`.
+</Note>
+
+### Other API Endpoints
+
+The following grid groups the REST endpoints by controller area. Endpoints that have detailed sections above are included for completeness. For full request and response schemas, see the Open API specification.
+
+| Area | Method | Endpoint | Description |
+| --- | --- | --- | --- |
+| Metrics | `GET` | `/metrics/average-speed` | Calculates average speed for behaviors in a time range for a sensor or place. |
+| Metrics | `GET` | `/metrics/flowrate` | Calculates object flowrate in a time range for a sensor or place. |
+| Metrics | `GET` | `/metrics/average-speed-with-flowrate` | Calculates average speed and flowrate in a time range for a sensor or place. |
+| Metrics | `GET` | `/metrics/average-speed-with-travel-time` | Calculates average speed and travel time for a corridor or place. |
+| Metrics | `GET` | `/metrics/last-processed-timestamp` | Finds the latest processed timestamp for a sensor, place, or place successors. |
+| Metrics | `GET` | `/metrics/tripwire/counts` | Returns effective and actual tripwire counts. |
+| Metrics | `GET` | `/metrics/tripwire/histogram` | Builds a histogram for tripwire events. |
+| Metrics | `GET` | `/metrics/occupancy/tripwire` | Calculates occupancy from IN/OUT tripwire events and reset occupancy. |
+| Metrics | `POST` | `/metrics/occupancy/reset` | Resets the occupancy of a place. |
+| Metrics | `GET` | `/metrics/occupancy/fov` | Calculates field-of-view occupancy by object type. |
+| Metrics | `GET` | `/metrics/occupancy/fov/histogram` | Builds a field-of-view occupancy histogram. |
+| Metrics | `GET` | `/metrics/occupancy/roi` | Calculates ROI occupancy by object type. |
+| Metrics | `GET` | `/metrics/occupancy/roi/histogram` | Builds an ROI occupancy histogram. |
+| Metrics | `GET` | `/metrics/occupancy/roi/mutually-exclusive` | Calculates occupancy for mutually exclusive ROIs. |
+| Metrics | `GET` | `/metrics/occupancy/tracker` | Returns occupancy from tracker, RTLS, or AMR data for a place and timestamp. |
+| Metrics | `GET` | `/metrics/occupancy/tracker/histogram` | Builds an average occupancy histogram from tracker, RTLS, or AMR data. |
+| Metrics | `GET` | `/metrics/space-utilization/histogram` | Returns a space utilization metric histogram for ROIs. |
+| Metrics | `GET` | `/metrics/road-network/segment-speed` | Calculates road network segment speed data. |
+| Tracker | `GET` | `/tracker/unique-object-count` | Gets unique object counts across sensors or for a place. |
+| Tracker | `GET` | `/tracker/unique-object-count-with-locations` | Gets unique object counts by object type with locations. |
+| Tracker | `GET` | `/tracker/unique-objects` | Retrieves MTMC unique objects tracked across sensors. |
+| Tracker | `GET` | `/tracker/behavior-locations` | Gets locations of behaviors matched to a global object. |
+| Tracker | `GET` | `/tracker/last-record` | Retrieves the last RTLS or AMR source record. |
+| Frames | `GET` | `/frames` | Retrieves raw frame metadata. |
+| Frames | `GET` | `/frames/enhanced` | Retrieves enhanced frame metadata. |
+| Frames | `GET` | `/frames/bev` | Retrieves BEV frame metadata. |
+| Frames | `GET` | `/frames/alerts` | Retrieves frame based alerts. |
+| Frames | `GET` | `/frames/high-confidence-objects` | Retrieves high-confidence object detections for reference embeddings and object search. |
+| Frames | `GET` | `/frames/proximity-detection` | Retrieves latest proximity clusters for a sensor and time range. |
+| Frames | `GET` | `/frames/pts` | Calculates current or estimated PTS for NVStreamer video sources. |
+| Behavior | `GET` | `/behavior` | Retrieves behavior metadata from the database. |
+| Behavior | `GET` | `/behavior/pts` | Gets behavior start and end PTS for NVStreamer video sources. |
+| Clustering | `GET` | `/clustering/behavior` | Retrieves sampled behavior clusters for a sensor and time range. |
+| Clustering | `POST` | `/clustering/add-label` | Adds a label to a behavior cluster. |
+| Events | `GET` | `/events/tripwire` | Retrieves tripwire events. |
+| Events | `GET` | `/events/roi` | Retrieves ROI events such as ENTRY and EXIT. |
+| Events | `GET` | `/events/amr` | Retrieves mission control AMR events for a place and time range. |
+| Sensor | `GET` | `/sensor/lookup` | Lists sensors overlooking a coordinate in the floorplan of a place. |
+| Config | `POST` | `/config/upload-file/{docType}` | Uploads config files such as `calibration.json`, `roadNetwork.json`, and `usdAssets.json`. |
+| Config | `POST` | `/config/update/{docType}` | Dynamically updates microservice configurations. |
+| Config | `GET` | `/config/update/status/{docType}/{referenceId}` | Gets the status of a behavior analytics config update request. |
+| Config | `GET` | `/config/calibration` | Retrieves calibration config from the database. |
+| Config | `POST` | `/config/calibration/upsert` | Inserts or updates sensor calibration config. |
+| Config | `POST` | `/config/calibration/delete-sensor` | Deletes sensor calibration entries. |
+| Config | `GET` | `/config/calibration/last-modified-timestamp` | Gets the last modification timestamp of calibration data. |
+| Config | `POST` | `/config/calibration/images` | Uploads calibration images and image metadata. |
+| Config | `GET` | `/config/calibration/image` | Retrieves a calibration image. |
+| Config | `GET` | `/config/calibration/image-metadata` | Retrieves metadata for calibration images. |
+| Config | `POST` | `/config/calibration/delete-images` | Deletes calibration images. |
+| Config | `GET` | `/config/road-network` | Retrieves road network config from the database. |
+| Config | `GET` | `/config/usd-assets` | Retrieves USD assets config from the database. |
+| Alerts | `GET` | `/alerts` | Retrieves behavior based alerts. |
+| Alerts | `GET` | `/alerts/severe` | Indicates whether a place or sensor has severe alerts. |
+| Incidents | `GET` | `/incidents` | Retrieves incidents. |
+| Incidents | `GET` | `/incidents/severe` | Indicates whether a place or sensor has severe incidents. |
+| Livez | `GET` | `/livez` | Responds with `{ "isAlive": true }` if the API server has started successfully. |
+
+## Skill
+
+The `vss-setup-video-analytics-api` Agent Skill deploys the Video Analytics API
+microservice **standalone** - without the perception layer, Behavior Analytics,
+agent, or UI - by editing the existing
+`services/analytics/video-analytics-api/compose.yml` and bringing up only the
+`vss-video-analytics-api` container. Use it when you want to run the REST API
+against an existing Elasticsearch cluster, point it at a different Kafka broker,
+switch to a custom bootstrap config, or expose the API layer without redeploying
+the full warehouse blueprint stack.
+
+The Skill is published in the `skills/vss-setup-video-analytics-api` folder of the VSS Blueprint repository.
+Install it the same way as any other VSS Agent Skill - see
+[Installing Skills](/agent-skills#installing-skills) for the catalog-wide install flow.
+
+### When to invoke
+
+Ask your coding agent (Claude Code or Codex) for any of the following:
+
+* "Deploy video analytics api" or "run video-analytics-api standalone"
+* "I just want to run the REST APIs of video-analytics-api, not the full stack"
+* "Use my own video-analytics-api config"
+* "Point the Video Analytics API at a different Elasticsearch / Kafka"
+* "Start the Video Analytics API without Kafka" or "run the Video Analytics API broker-less"
+* "Check what REST endpoints are available in the Video Analytics API"
+
+### What the Skill walks through
+
+The Skill drives the operator through four decisions, then deploys:
+
+1. **Config (required)** - choose the image-baked default, the
+   service-shipped config, or a custom JSON file. The config is passed to the
+   Node.js server with `--config` and controls `server`, `elasticsearch`,
+   and `kafka` bootstrap settings.
+
+| Config source | When to use it |
+| --- | --- |
+| `/configs/default-configs/config.json` | Image-baked default. Uses port `8081`, Elasticsearch at `http://localhost:9200`, `mdx-` index prefix, and Kafka disabled. |
+| `services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json` | Service-shipped default used by the compose file. Same defaults as the image-baked config, except Kafka is enabled with `["localhost:9092"]`. |
+| Custom absolute host path | Use when the API must target a different Elasticsearch endpoint, index prefix, Kafka broker list, server port, or app tuning value. |
+
+2. **Data log volume (optional)** - keep or remove the
+   `$VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files` mount.
+   It is needed for file-upload endpoints such as calibration images and sensor
+   assets. Without the mount, uploads write to the container's ephemeral
+   filesystem.
+
+3. **Infrastructure dependencies** - Elasticsearch is required because the
+   server pings `elasticsearch.node` during startup and exits if it cannot
+   connect. Kafka is optional; set `kafka.brokers` to `null` or `[]` to
+   run without a broker.
+
+4. **Deploy and verify** - export `VSS_APPS_DIR` from `<repo>/deploy/docker`,
+   start `vss-video-analytics-api` with Docker Compose, inspect the logs for
+   the server listening message, and verify `GET /livez` on the configured
+   port.
+
+### Kafka-dependent runtime features
+
+When the API is running and a Kafka broker is reachable, the Skill can also
+walk through the runtime features that depend on `mdx-notification`:
+
+* **Dynamic config** - API `/config` requests publish `upsert` messages with
+  Kafka key `behavior-analytics-config`. The Behavior Analytics service ACKs
+  the update, and the API exposes status through its config-update status
+  endpoint.
+* **Dynamic calibration** - calibration upload/update/delete requests publish
+  `calibration` notifications supporting `upsert-all`, `upsert`, and
+  `delete` actions for downstream analytics consumers.
+* **RTLS / AMR** - the API consumes real-time location and AMR messages from
+  Kafka and serves them through the tracker-related REST endpoints.
+
+### Example
+
+After installing the `vss-setup-video-analytics-api` skill, drive it from
+your coding agent.
+
+```text
+run video-analytics-api standalone
+```
+
+Starting from a clean host, a single `run video-analytics-api standalone`
+prompt drives the skill through the steps below. It checks each dependency
+before deploying, so you rarely need to intervene:
+
+1. **Check Elasticsearch.** The server pings `elasticsearch.node` on startup
+   and exits if it cannot connect, so the skill first probes
+   `GET http://localhost:9200/_cluster/health`. If Elasticsearch is down it
+   brings the infra container up before continuing.
+2. **Set `HOST_IP`.** The infra compose interpolates `HOST_IP` and aborts
+   with `required variable HOST_IP is missing a value` if it is unset. The
+   skill resolves the host address (`hostname -I`) and exports it alongside
+   `VSS_APPS_DIR` (`<repo>/deploy/docker`) and `VSS_DATA_DIR`.
+3. **Fix data-log permissions if needed.** A fresh `$VSS_DATA_DIR/data_log`
+   can leave Elasticsearch unable to write `gc.log` (``Could not create the
+   Java Virtual Machine``). The skill relaxes permissions on the
+   `elastic/data` and `elastic/logs` directories and restarts the container.
+4. **Deploy the API.** With Elasticsearch healthy, the skill brings up only the
+   `vss-video-analytics-api` container from
+   `services/analytics/video-analytics-api/compose.yml`.
+5. **Verify.** `GET /livez` returns `{"isAlive": true}` and the server log
+   shows `[APP] Server initialization successful` with every router
+   (`/alerts`, `/behavior`, `/clustering`, `/config`, `/events`,
+   `/frames`, `/incidents`, `/livez`, `/metrics`, `/sensor`,
+   `/tracker`) initialized.
+
+![Coding agent checking Elasticsearch, setting HOST_IP, and starting the infra stack](/assets/images/video-analytics-api/standalone-deploy-bringup.png)
+
+![Both services healthy and the API server log showing all routers initialized](/assets/images/video-analytics-api/standalone-deploy-verify.png)
+
+<Note>
+With the service-shipped config, `kafka.brokers` points at
+`localhost:9092`. Without a reachable broker the KafkaJS client retries
+with growing backoff and the Kafka-dependent endpoints (dynamic config,
+dynamic calibration, RTLS/AMR) stay unavailable - but the container keeps
+running (it does not restart on Kafka failure) and every Elasticsearch-backed
+read/query endpoint is live. To run truly broker-less, set `kafka.brokers`
+to `null` or `[]` in a custom config.
+</Note>
+
+For the standalone-service walkthrough, configuration field guide, deploy and
+verify commands, endpoint summary, and troubleshooting guidance, refer to the
+Skill's bundled references under
+`skills/vss-setup-video-analytics-api/references/` in the VSS Blueprint
+repository.

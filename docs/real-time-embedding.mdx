@@ -1,0 +1,1126 @@
+---
+title: "Video Embedding Generation"
+description: ""
+position: 3
+---
+## Overview
+
+The Real-Time Embedding microservice (RTVI-Embed, container image `vss-rt-embed`) is a FastAPI-based REST API service
+that provides video and text embedding generation capabilities. It supports video/image files,
+live RTSP streams, and text inputs, enabling real-time analysis and batch processing of visual media content.
+
+All REST endpoints use the `/v1` prefix. The service listens on port `8000` inside the
+container; map it to the host with `BACKEND_PORT` (default `8000`).
+
+## Key Features
+
+* **Video Embeddings**: Generate embeddings from video files with configurable chunk duration
+  and overlap
+* **Image Embeddings**: Process single or multiple images for embedding generation
+* **Live Stream Support**: Real-time embedding generation from RTSP camera streams
+* **Text Embeddings**: Generate embeddings from text inputs
+* **Streaming Responses**: Server-Sent Events (SSE) for real-time streaming output
+* **Kafka Integration**: Kafka messages containing generated embeddings for video input
+* **Redis Integration**: Error messages on Redis channel
+* **Batch Operations**: Bulk upload and deletion of live streams
+* **Health Monitoring**: Comprehensive health check endpoints (liveness, readiness, startup)
+* **Metrics**: Prometheus-format metrics for monitoring and observability
+* **OpenTelemetry Integration**: Distributed tracing and metrics collection
+
+## Architecture
+
+The diagram below shows the DeepStream Accelerated Pipeline architecture of the microservice.
+
+![Real-Time Embedding DeepStream Pipeline](/assets/images/real-time-embed/real-time-embed.png)
+
+### DeepStream Pipeline
+
+The microservice uses the DeepStream SDK to process video and image files.
+For video input, the video is segmented into chunks as per requested chunk duration, overlap.
+For each video chunk,the microservice uniformly samples frames and generates embeddings for the sampled frames.
+The number of frames sampled is determined by the model configuration (8 in case of Cosmos-Embed1).
+
+For image input, the microservice generates embeddings for the list of images provided in the request.
+For less than 8 images, the microservice pads the images to 8 images.
+
+For text input, the text is tokenized and embeddings are generated for the tokenized text.
+The model pads or truncates the input text tokens to 128 tokens.
+
+## Supported Models
+
+The microservice supports the Cosmos-Embed1 model, a joint video-text embedder.
+It supports both video and text input for embedding generation.
+
+| Model variant | Resolution | Repository | Use case |
+| --- | --- | --- | --- |
+| **Cosmos-Embed1-448p** | 448p | [Cosmos-Embed1-448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p) | Default model |
+| **Cosmos-Embed1-336p** | 336p | [Cosmos-Embed1-336p](https://huggingface.co/nvidia/Cosmos-Embed1-336p) | Lower-resolution variant |
+| **Cosmos-Embed1-224p** | 224p | [Cosmos-Embed1-224p](https://huggingface.co/nvidia/Cosmos-Embed1-224p) | Lowest-resolution variant |
+| **Cosmos-Embed1-448p-anomaly-detection** | 448p | [Cosmos-Embed1-448p-anomaly-detection](https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection) | Anomaly detection; default for [search workflow ](/agent-workflow-search) |
+
+To fine-tune Cosmos-Embed1 with NVIDIA TAO and integrate custom checkpoints, see [Model customization overview ](/models/model-customization) and [Cosmos-Embed1 (video embedding) ](/models/cosmos-embed1).
+
+## Supported Inputs
+
+| Category | Supported values |
+| --- | --- |
+| Video codecs | H.264 (AVC), H.265 (HEVC), VP8, VP9 |
+| Image formats | JPEG, PNG |
+| Container formats | MP4, MKV, MOV, WebM |
+| Streaming protocols | RTSP over TCP, RTSP over UDP |
+| File upload | Video and image files via `POST /v1/files` |
+
+## API Reference
+
+For complete API documentation including all endpoints, request/response
+schemas, and interactive examples, see the
+[Real-Time Embedding API Reference ](/real-time-embedding-api).
+
+The API is organized into the following categories:
+
+* **Embeddings**: Generate video, image, live-stream, and text embeddings
+* **Files**: Upload and manage video/image files
+* **Live Stream**: Add, list, and manage RTSP live streams
+* **Stream**: RTVI-CV compatible stream add, remove, and list APIs
+* **Models**: List available embedding models
+* **Health Check**: Service health and readiness probes
+* **Metrics**: Prometheus metrics endpoint
+* **Metadata**: Service metadata and version information
+* **NIM Compatible**: Version and manifest endpoints for interoperability
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/v1/metrics` | `GET` | Get Prometheus-format RTVI metrics |
+| `/v1/ready` | `GET` | Get RTVI Embed Microservice readiness status |
+| `/v1/live` | `GET` | Get RTVI Embed Microservice liveness status |
+| `/v1/startup` | `GET` | Get RTVI Embed Microservice startup status |
+| `/v1/assets/stats` | `GET` | Get asset storage statistics |
+| `/v1/metadata` | `GET` | Get RTVI Embed Microservice metadata |
+| `/v1/files` | `POST` | Upload a media file or register media by path |
+| `/v1/files` | `GET` | List uploaded files |
+| `/v1/files/{file_id}` | `DELETE` | Delete a file |
+| `/v1/files/{file_id}` | `GET` | Get file information |
+| `/v1/files/{file_id}/content` | `GET` | Get file content |
+| `/v1/streams/add` | `POST` | Add one or more live streams |
+| `/v1/streams/get-stream-info` | `GET` | List live streams |
+| `/v1/streams/delete/{stream_id}` | `DELETE` | Remove a live stream |
+| `/v1/streams/delete-batch` | `DELETE` | Remove multiple live streams |
+| `/v1/stream/add` | `POST` | Add a stream using the RTVI-CV compatible format |
+| `/v1/stream/remove` | `POST` | Remove a stream using the RTVI-CV compatible format |
+| `/v1/stream/get-stream-info` | `GET` | List streams using the RTVI-CV compatible format |
+| `/v1/models` | `GET` | List available models |
+| `/v1/generate_video_embeddings` | `POST` | Generate embeddings for a video, image, or live stream |
+| `/v1/generate_video_embeddings/{stream_id}` | `DELETE` | Stop live stream embedding generation |
+| `/v1/generate_text_embeddings` | `POST` | Generate embeddings for text input |
+| `/v1/version` | `GET` | Get release and API versions |
+| `/v1/manifest` | `GET` | Get service manifest information |
+
+All endpoints are prefixed with `/v1`. The API is available at
+`http://<host>:8000`.
+
+## Deployment
+
+### Prerequisites
+
+**Validated GPUs:**
+
+The Real-Time Embedding Microservice has been validated and tested on the
+following NVIDIA GPUs:
+
+* NVIDIA H100
+* NVIDIA RTX PRO 6000 Blackwell
+* NVIDIA L40S
+* NVIDIA DGX Spark
+* NVIDIA IGX Thor
+* NVIDIA AGX Thor
+
+**Software:**
+
+* **OS**: Ubuntu 24.04/22.04 or compatible Linux distribution (x86); DGX OS
+  7.5.0 (DGX Spark); IGX-SW 2.0 Production/LTS (IGX Thor); JetPack 7.2
+  (Jetson Linux/L4T r39.2) for Jetson AGX Thor and AGX Orin
+* **Docker**: Version 28.2+ and earlier than 29.5.0
+* **Docker Compose**: Version 2.36+
+* **NVIDIA Driver**: 580+ (non-Tegra); 580.159.03 (DGX Spark), the IGX-SW 2.0 bundled 580-series driver (IGX Thor),
+  or 595.78 (Jetson AGX Thor and AGX Orin)
+* **NVIDIA Container Toolkit**: Latest version
+
+**NGC container registry:**
+
+Generate an API key at https://ngc.nvidia.com (**Setup** → **API Keys**), then authenticate Docker before pulling images:
+
+```bash
+export NGC_API_KEY=<your-key>
+echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+```
+
+### Quick Start
+
+To deploy the RTVI-Embed microservice, clone the
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1)
+repository and change into the Docker directory:
+
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git checkout tags/v3.2.1
+cd services/rtvi/rt-embed/docker
+```
+
+Then follow these sections on this page:
+
+1. Prerequisites (NGC container registry)
+2. Environment Variables
+3. Sample docker-compose.yml file
+4. Deployment Commands
+5. Kafka Integration
+
+### Docker Compose
+
+The microservice can be deployed using Docker Compose.
+The deployment is defined in the `docker-compose.yml` file.
+
+### Environment Variables
+
+Create a `.env` file with the following variables and update the values as per your requirements.
+See [Environment Variables Reference](/real-time-embedding#environment-variables-reference) for the complete list.
+Use `RTVI_IMAGE` for `compose.yaml`; use the `RTVI_EMBED_*` lines only with legacy image compose (see sample below).
+
+```bash
+BACKEND_PORT=<port>                         # Host port on which the service will be available
+RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1 # Real-Time Embedding Microservice image tag
+# On DGX Spark / ARM SBSA, use the SBSA tag, e.g.:
+# RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1-sbsa
+
+# Legacy split-image compose:
+# RTVI_EMBED_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed
+# RTVI_EMBED_TAG=3.2.1
+# On DGX Spark / ARM SBSA, use the SBSA tag, e.g.:
+# RTVI_EMBED_TAG=3.2.1-sbsa
+# On Jetson Thor, the default tag is a multiarch image that supports ARM64.
+
+# Storage
+ASSET_STORAGE_DIR=/path/to/assets           # Host path for uploaded files (optional)
+EXAMPLE_STREAMS_DIR=/path/to/sample-videos  # Host path for example streams (optional)
+
+# GPU Configuration
+NVIDIA_VISIBLE_DEVICES=0                    # Use specific GPUs (default: all)
+
+# Logging
+LOG_LEVEL=INFO                              # DEBUG, INFO, WARNING, ERROR
+
+# Kafka server config
+KAFKA_ENABLED=<true/false>                  # Enable Kafka messages containing generated embeddings
+KAFKA_BOOTSTRAP_SERVERS=<ip_address:port>   # Kafka server
+KAFKA_TOPIC=mdx-embed                       # Kafka message topic
+ERROR_MESSAGE_TOPIC=mdx-embed-errors        # Kafka error topic (or Redis channel when Redis is enabled)
+```
+
+### Sample docker-compose.yml file
+
+For the current deployment stack, use the compose file: [services/rtvi/rt-embed/docker/compose.yaml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/services/rtvi/rt-embed/docker/compose.yaml) (uses `RTVI_IMAGE`).
+
+The sample below is a **legacy** compose (`RTVI_EMBED_IMAGE` / `RTVI_EMBED_TAG`); use the linked `compose.yaml` for deployment.
+
+```yaml
+version: '3.8'
+services:
+  rtvi-server:
+    image: ${RTVI_EMBED_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-embed}:${RTVI_EMBED_TAG:-3.2.1}
+    shm_size: '16gb'
+    runtime: nvidia
+    user: "1001:1001"
+    ports:
+      - "${BACKEND_PORT?}:8000"
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
+      - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
+      - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
+      - rtvi-hf-cache:/tmp/huggingface
+      - rtvi-triton-model-repo:/tmp/triton_model_repo
+
+    environment:
+      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
+      MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
+      MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
+      NGC_API_KEY: "${NGC_API_KEY:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
+      NUM_GPUS: "${NUM_GPUS:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
+      FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
+      RTVI_RTSP_LATENCY: "${RTVI_RTSP_LATENCY:-2000}"
+      RTVI_RTSP_TIMEOUT: "${RTVI_RTSP_TIMEOUT:-2000}"
+      RTVI_RTSP_RECONNECTION_INTERVAL: "${RTVI_RTSP_RECONNECTION_INTERVAL:-5}"
+      RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_RTSP_RECONNECTION_WINDOW:-60}"
+      RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
+      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
+      ENABLE_OTEL_MONITORING: "${ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
+      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-}"
+      OTEL_TRACES_EXPORTER: "${OTEL_TRACES_EXPORTER:-otlp}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
+      OTEL_METRIC_EXPORT_INTERVAL: "${OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
+      KAFKA_ENABLED: "${KAFKA_ENABLED:-false}"
+      KAFKA_TOPIC: "${KAFKA_TOPIC:-mdx-embed}"
+      ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-mdx-embed-errors}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_DB: "${REDIS_DB:-0}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      ASSET_DOWNLOAD_TOTAL_TIMEOUT: "${ASSET_DOWNLOAD_TOTAL_TIMEOUT:-300}"
+      ASSET_DOWNLOAD_CONNECT_TIMEOUT: "${ASSET_DOWNLOAD_CONNECT_TIMEOUT:-10}"
+      ENABLE_REQUEST_PROFILING: "${ENABLE_REQUEST_PROFILING:-false}"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+      nofile:
+        soft: 65535
+        hard: 65535
+    ipc: host
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      host.docker.internal: host-gateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1200s
+
+volumes:
+  rtvi-hf-cache:
+  rtvi-ngc-model-cache:
+  rtvi-triton-model-repo:
+```
+
+<Note>
+**Platform-specific images:**
+
+* For **DGX Spark** with the legacy sample below, set `RTVI_EMBED_TAG` in
+  your `.env` file (`compose.yaml` uses `RTVI_IMAGE=...-sbsa` instead):
+
+  ```bash
+  RTVI_EMBED_TAG=3.2.1-sbsa
+  ```
+
+* For **Jetson Thor**, the default image is a multiarch image that
+  supports ARM64.
+</Note>
+
+### Deployment Commands
+
+```bash
+# Start the service
+docker compose up -d
+
+# View logs
+docker compose logs -f rtvi-server
+
+# Check service health
+curl http://localhost:${BACKEND_PORT:-8000}/v1/ready?detailed=false
+
+# Stop the service
+docker compose down
+
+# Stop and remove volumes
+docker compose down -v
+
+# Remove all containers and volumes
+docker compose down -v --rmi all
+```
+
+### Standalone Helm Chart Deployment
+
+Use the standalone Helm chart when running only RTVI-Embed on Kubernetes. The
+chart is in `deploy/helm/services/rtvi/charts/rtvi-embed` in the
+`video-search-and-summarization` repository. In the standalone profile
+(`overrides_rtvi_embed.yaml`), Kafka and Redis are not required
+(`kafkaEnabled: false`, `waitForKafka.enabled: false`).
+
+1. Clone the repository and change into the chart directory:
+
+   ```bash
+   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+   cd video-search-and-summarization
+   git checkout tags/v3.2.1
+   cd deploy/helm/services/rtvi/charts/rtvi-embed
+   ```
+
+2. Create the namespace and secrets:
+
+   ```bash
+   kubectl create namespace rtvi-embed
+   # nvcr.io image pull secret (referenced as ngc-image-pull-secret).
+   kubectl create secret docker-registry ngc-image-pull-secret \
+     --docker-server=nvcr.io \
+     --docker-username='$oauthtoken' \
+     --docker-password="$NGC_API_KEY" \
+     -n rtvi-embed
+   # Hugging Face token for the gated Cosmos-Embed1 checkpoint.
+   kubectl create secret generic hf-token-secret \
+     --from-literal=HF_TOKEN="$HF_TOKEN" \
+     -n rtvi-embed
+   ```
+
+3. Install the chart with the standalone override:
+
+   ```bash
+   helm upgrade --install vss-rtvi-embed . \
+     -n rtvi-embed \
+     -f overrides_rtvi_embed.yaml \
+     --wait --timeout 45m
+   ```
+
+   The override wires `hfTokenSecret.name=hf-token-secret` and
+   `hfTokenSecret.key=HF_TOKEN`; adjust these if you use different secret
+   names. First startup can take several minutes while the Cosmos-Embed1 model
+   downloads and the Triton model repository is built.
+
+4. Expose the API for local testing:
+
+   ```bash
+   kubectl port-forward -n rtvi-embed svc/vss-rtvi-embed 8000:8000
+   ```
+
+The API is available at `http://localhost:8000/docs`.
+
+## Configuration
+
+### Environment Variables Reference
+
+#### Core Configuration
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `BACKEND_PORT` | Port for REST API server | `8000` | Yes |
+| `LOG_LEVEL` | Logging verbosity | `INFO` | No |
+
+#### Hugging Face Token Configuration
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `HF_TOKEN` | Hugging Face access token with **READ** permissions | - | No |
+
+#### Model Configuration
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `VLM_BATCH_SIZE` | Inference batch size | Auto-calculated | No |
+| `NUM_VLM_PROCS` | Number of inference processes | `10` | No |
+| `NUM_GPUS` | Number of GPUs to use | Auto-detected | No |
+| `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
+| `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
+| `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
+| `NGC_API_KEY` | NGC API key for downloading models via the `ngc:` scheme | - | No |
+| `COSMOS_EMBED1_TRT_PRECISION` | trtexec network precision for Cosmos-Embed1 video/text TRT engines (`fp32`, `fp16`, `bf16`, `int8`, `fp8`, `best`). Engine filename includes the precision so engines are rebuilt on change. | `fp16` | No |
+| `COSMOS_EMBED1_TRT_EXTRA_ARGS` | Extra trtexec args (shell-quoted string) appended verbatim to both video and text engine builds, e.g. `--stronglyTyped --builderOptimizationLevel=5`. Note: `--stronglyTyped` is mutually exclusive with `--fp16`/`--bf16`/`--int8`/`--fp8`/`--best`; pair it with `COSMOS_EMBED1_TRT_PRECISION=fp32`. Engine filename includes a short hash of these args so engines are rebuilt on change. | - | No |
+
+#### Storage and Caching
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `ASSET_STORAGE_DIR` | Host path for uploaded files. When set, Docker bind-mounts this path over the default tmpfs at `/tmp/assets`. | - | No |
+| `MAX_ASSET_STORAGE_SIZE_GB` | Numeric max asset storage in GB; enables automatic age-out eviction. When `ASSET_STORAGE_DIR` is set to a bind mount, set this to match available disk space. | `8` | No |
+| `EXAMPLE_STREAMS_DIR` | Sample streams directory | - | No |
+| `RTVI_LOG_DIR` | Log output directory | - | No |
+| `NGC_MODEL_CACHE` | Path for NGC/git model cache directory | - | No |
+| `ASSET_MAX_AGE_HOURS` | TTL-based asset eviction in hours. `0` disables age-based eviction. | `0` | No |
+| `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` | Maximum file size for HTTP/data URI asset ingestion (GB). Direct multipart uploads are instead constrained by `ASSET_TMPFS_SIZE` or `ASSET_STORAGE_DIR` plus `MAX_ASSET_STORAGE_SIZE_GB`. | `8` | No |
+| `ASSET_DOWNLOAD_MAX_REDIRECTS` | Maximum redirect hops for URL downloads (`0` = disabled). Set to 3-5 for URLs behind CDNs/load balancers. Redirect targets are SSRF-validated. Clamped to 0-10. | `0` | No |
+| `ASSET_DOWNLOAD_AUTH_TOKENS` | Server-level authentication for URL downloads. Format: `domain1=Bearer token1;domain2=Basic xyz`. Auto-injects the `Authorization` header for matching domains. Request-level `url_headers` overrides this. | - | No |
+| `FILE_URL_ALLOWED_DIRS` | Comma-separated list of absolute directory paths allowed for `file://` URLs in `/v1/generate_video_embeddings`. Paths are resolved via `realpath` to prevent traversal. Empty value disables `file://` URLs. | - | No |
+
+#### Feature Toggles
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `ENABLE_NSYS_PROFILER` | Enable NSYS profiling | `false` | No |
+| `INSTALL_PROPRIETARY_CODECS` | Install additional codecs | `false` | No |
+| `FORCE_SW_AV1_DECODER` | Force software AV1 decode | `false` | No |
+| `RTVI_ENABLE_GOP_DECODE_OPT` | Attach GOP-aware decode probe on `h264parse`/`h265parse`/`mpeg4videoparse` to drop delta frames in GOPs that contain no selected target frame (file-based decoding only; no effect on live RTSP or when all frames are selected). | `true` | No |
+
+#### RTSP Streaming
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `RTVI_RTSP_LATENCY` | RTSP latency (ms) | `2000` | No |
+| `RTVI_RTSP_TIMEOUT` | RTSP timeout (ms) | `2000` | No |
+| `RTVI_RTSP_RECONNECTION_INTERVAL` | Time to detect stream interruption and wait for reconnection (seconds) | `5.0` | No |
+| `RTVI_RTSP_RECONNECTION_WINDOW` | Duration to attempt reconnection after interruption before terminating the session (seconds) | `60.0` | No |
+| `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Max attempts for reconnection after interruption before terminating the session (no.) | `10` | No |
+| `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete upper bound (seconds) shared by the pre-delete setup wait and the pipeline drain of in-flight chunks. On timeout each stage logs a warning and proceeds. | `30` | No |
+
+#### OpenTelemetry / Monitoring
+
+When `ENABLE_OTEL_MONITORING` is `true`, RTVI-Embed exports Prometheus-format
+metrics and OpenTelemetry traces (request latencies, embedding throughput, GPU
+utilization, and error rates).
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `ENABLE_OTEL_MONITORING` | Enable OpenTelemetry monitoring | `false` | No |
+| `OTEL_SERVICE_NAME` | Service name for traces | `rtvi` | No |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint | `http://otel-collector:4318` | No |
+| `OTEL_TRACES_EXPORTER` | Traces exporter type | `otlp` | No |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Metrics export interval in milliseconds | `60000` | No |
+| `ENABLE_REQUEST_PROFILING` | Enable per-request profiling and traces dump | `false` | No |
+
+#### Kafka Configuration
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `KAFKA_ENABLED` | Enable Kafka integration | `false` | No |
+| `KAFKA_PORT` | Host port to expose Kafka (Docker Compose only) | `9092` | No |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker addresses | `kafka:9092` | No |
+| `KAFKA_TOPIC` | Kafka topic name for embedding messages | `mdx-embed` | No |
+| `ERROR_MESSAGE_TOPIC` | Kafka topic name for error messages (or Redis channel when Redis is enabled) | `mdx-embed-errors` | No |
+| `ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT` | Enable streaming text embeddings results to Kafka | `false` | No |
+| `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` | Max queued Kafka producer send jobs before dropping during broker metadata stalls | `1024` | No |
+
+#### Redis Error Messages Configuration
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `ENABLE_REDIS_ERROR_MESSAGES` | Enable Redis for error messages instead of Kafka | `false` | No |
+| `ERROR_MESSAGE_TOPIC` | Redis channel name for error messages | `mdx-embed-errors` | No |
+| `REDIS_HOST` | Redis server hostname | `redis` | No |
+| `REDIS_PORT` | Redis container/service port for application connections | `6379` | No |
+| `REDIS_HOST_PORT` | Host machine port to expose Redis (Docker Compose only) | `6379` | No |
+| `REDIS_DB` | Redis database number | `0` | No |
+| `REDIS_PASSWORD` | Redis authentication password | - | No |
+
+#### Advanced Performance
+
+| Variable | Description | Default | Required |
+| --- | --- | --- | --- |
+| `VSS_NUM_GPUS_PER_VLM_PROC` | GPUs per Embedding process | - | No |
+| `DISABLE_DECODER_REUSE` | Disable decoder reuse | Auto | No |
+
+## Kafka Integration
+
+When you deploy with the compose file (`services/rtvi/rt-embed/docker/compose.yaml`), **Kafka and Redis containers are started automatically** and `rtvi-server` depends on them. The compose defaults are `KAFKA_ENABLED=true` and `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`. Set `KAFKA_ENABLED=false` and `ENABLE_REDIS_ERROR_MESSAGES=false` in `.env` only when you intentionally run without those dependencies.
+RTVI-Embed sends Kafka messages containing generated embeddings for video input.
+The messages are sent to the `mdx-embed` topic.
+The microservice sends the Kafka messages as Protobuf messages with the `nv.VisionLLM` message type.
+Please refer to the [Protobuf-Schema](/Protobuf-Schema) documentation for more details on the Kafka message schema.
+
+Note: Kafka messages are not sent for the text embeddings.
+
+### Kafka Topics
+
+The microservice publishes to the following Kafka topic:
+
+* **VisionLLM Messages** (default: `mdx-embed`): Contains
+  VisionLLM protobuf messages with embedding results for video input
+
+**Configuration:**
+
+Kafka integration is controlled by the following environment variables:
+
+* **KAFKA_ENABLED**: Enable/disable Kafka integration (`true` /
+  `false`). Default: `false`
+* **KAFKA_BOOTSTRAP_SERVERS**: Comma-separated list of Kafka broker
+  addresses (e.g., `localhost:9092` or `kafka:9092` for Docker)
+* **KAFKA_TOPIC**: Topic for VisionLLM messages. Default:
+  `mdx-embed`
+* **ERROR_MESSAGE_TOPIC**: Topic for error messages (or Redis channel when Redis is enabled). Default:
+  `mdx-embed-errors`
+
+### Message Format
+
+### VisionLLM Embedding Messages
+
+VisionLLM embedding messages contain video embedding results and are serialized as
+Protocol Buffer messages using the `VisionLLM` message type.
+
+**Message Header:**
+
+* **message_type**: `"vision_llm"`
+* **key**: `{request_id}:{chunk_idx}` - Used for Kafka partitioning and ordering
+
+**Message Structure:**
+
+See the protobuf schema documentation for complete `VisionLLM` message
+structure. Key fields include:
+
+* **version**: Model version identifier
+* **timestamp**: Start timestamp (protobuf Timestamp)
+* **end**: End timestamp (protobuf Timestamp)
+* **startFrameId**: Start frame identifier
+* **endFrameId**: End frame identifier
+* **sensor**: Sensor information including:
+
+   * `id`: Sensor/stream identifier
+   * `type`: "Camera" for live streams, "Video" for files
+   * `description`: Asset description
+   * `info`: Additional metadata (path, assetDir, url, videoFps)
+
+* **frames**: Array of Frame messages with frame-level information:
+
+   * `id`: Frame identifier
+   * `timestamp`: Frame timestamp
+   * `info`: Frame metadata
+
+* **llm**: LLM information containing:
+
+   * `info`: Model metadata (modelId, modelApiType, modelOwnedBy)
+   * `queries`: Array of query objects with:
+
+      * `id`: Query identifier
+      * `params`: Query parameters (chunkIdx, streamId, requestId, startNtp, endNtp)
+      * `prompts`: Input prompts (if provided)
+      * `response`: Empty string for embedding-only requests
+
+   * `visionEmbeddings`: Array of Embedding messages with:
+
+      * `vector`: Float array containing the embedding vector
+
+* **info**: Additional metadata map including:
+
+   * `requestId`: Request ID
+   * `chunkIdx`: Chunk index
+   * `streamId`: Stream/asset identifier
+   * `frameCount`: Number of frames processed
+   * `inputTokens`: Number of input tokens (if available)
+   * `outputTokens`: Number of output tokens (if available)
+   * `decodeLatencyMs`: Video decode latency in milliseconds
+   * `vlmLatencyMs`: Inference latency in milliseconds
+   * `chunkLatencyMs`: Total chunk processing latency in milliseconds
+   * `queueTimeS`: Time spent in queue in seconds
+   * `processingLatencyS`: Total processing latency in seconds
+
+**Example Message Flow:**
+
+```text
+1. Video chunk is processed through the pipeline
+2. Embeddings are generated by the Cosmos-Embed1 model
+3. VisionLLM protobuf message is constructed with:
+   - Chunk timing information (timestamp, end)
+   - Frame metadata (frames, startFrameId, endFrameId)
+   - Sensor information
+   - Embedding vectors (in llm.visionEmbeddings)
+   - Performance metrics (latencies, token counts)
+4. Message is serialized to protobuf binary format
+5. Message is sent to Kafka with:
+   - Topic: mdx-embed
+   - Key: {request_id}:{chunk_idx}
+   - Header: message_type=vision_llm
+   - Value: Serialized protobuf bytes
+```
+
+### Redis Error Messages
+
+Error messages can be sent to Redis instead of Kafka. To use Redis for error
+messages, set the following environment variables in your `.env` file:
+
+```bash
+ENABLE_REDIS_ERROR_MESSAGES=true         # Enable Redis for error messages instead of Kafka
+REDIS_HOST=redis.example.com             # Redis server hostname
+REDIS_PORT=6379                          # Redis server port
+REDIS_DB=0                               # Redis database number
+REDIS_PASSWORD=your_password             # Optional, only if Redis requires authentication
+ERROR_MESSAGE_TOPIC=mdx-embed-errors     # Redis channel name for error messages
+```
+
+**Note**: If Redis authentication is required, set the `REDIS_PASSWORD` environment variable.
+
+**Redis Error Message Format Details:**
+
+Each error message published to the Redis channel is a JSON object containing:
+
+- `streamId`: The unique identifier of the stream where the error occurred (string)
+- `timestamp`: ISO 8601 formatted timestamp with milliseconds indicating when the error occurred (format: `YYYY-MM-DDTHH:MM:SS.sssZ`)
+- `type`: The error severity level. Common values:
+
+  - `"functional"`: Default error type for operational errors (default)
+  - `"critical"`: Critical errors that prevent service initialization or operation
+
+- `source`: The hostname or service name of the pod/container that generated the error (e.g., the pod's hostname or `"rtvi-embed"` if hostname is unavailable)
+- `event`: A detailed description of the error event, including any relevant error messages or context (string)
+
+**Example Redis Error Messages:**
+
+Critical error during service initialization:
+
+```json
+{
+  "streamId": "",
+  "timestamp": "2026-02-05T10:30:45.123Z",
+  "type": "critical",
+  "source": "rtvi-embed-pod-7f9c8b",
+  "event": "Failed to initialize Inference pipeline: CUDA device not available"
+}
+```
+
+Functional error during stream processing:
+
+```json
+{
+  "streamId": "stream-abc-12345",
+  "timestamp": "2026-02-05T10:35:22.456Z",
+  "type": "functional",
+  "source": "rtvi-embed-pod-7f9c8b",
+  "event": "Failed to decode frame: Invalid video format"
+}
+```
+
+Subscribers to the Redis channel can consume these error messages in real-time for monitoring, logging, or alerting purposes.
+
+## Usage Examples
+
+### Required Packages for Usage Examples
+
+The Python examples require the following packages. Install with:
+
+```bash
+pip install requests sseclient-py
+```
+
+* **requests** – HTTP client for all examples
+* **sseclient-py** – Server-Sent Events client (required only for streaming examples)
+
+### List available models
+
+```python
+import requests
+import json
+
+BACKEND_PORT = 8000
+BASE_URL = f"http://localhost:{BACKEND_PORT}/v1"
+
+response = requests.get(f"{BASE_URL}/models")
+models = response.json()
+print(f"Available models: {models['data']}")
+model_id = models["data"][0]["id"]   # use in embedding requests below
+```
+
+### Video File Embeddings Example
+
+```python
+import requests
+import json
+
+BACKEND_PORT = 8000
+BASE_URL = f"http://localhost:{BACKEND_PORT}/v1"
+model_id = requests.get(f"{BASE_URL}/models").json()["data"][0]["id"]
+
+# Step 1: Upload a video file
+with open("video.mp4", "rb") as f:
+    response = requests.post(
+        f"{BASE_URL}/files",
+        files={"file": f},
+        data={
+            "purpose": "vision",
+            "media_type": "video",
+            "creation_time": "2024-06-09T18:32:11.123Z"
+        }
+    )
+file_info = response.json()
+file_id = file_info["id"]
+print(f"Uploaded file: {file_id}")
+
+# Step 2: Generate video embeddings
+embedding_request = {
+    "id": [file_id],
+    "model": model_id,   # from GET /v1/models, e.g. cosmos-embed1-448p
+    "chunk_duration": 10,
+    "chunk_overlap_duration": 0
+}
+response = requests.post(
+    f"{BASE_URL}/generate_video_embeddings",
+    json=embedding_request
+)
+embeddings = response.json()
+print(f"Generated embeddings for {len(embeddings['chunk_responses'])} chunks")
+
+# Step 3: Process results
+for chunk in embeddings["chunk_responses"]:
+    print(f"[{chunk['start_time']} - {chunk['end_time']}]: Embedding size: {len(chunk['embeddings'])}")
+
+# Step 4: Clean up
+requests.delete(f"{BASE_URL}/files/{file_id}")
+print("File deleted")
+```
+
+### Live Stream Example
+
+The following example demonstrates generating embeddings from a live RTSP stream:
+
+```python
+import requests
+import json
+import sseclient
+
+BACKEND_PORT = 8000
+BASE_URL = f"http://localhost:{BACKEND_PORT}/v1"
+model_id = "cosmos-embed1-448p"   # or from GET /v1/models
+
+# Step 1: Add live stream
+stream_request = {
+    "streams": [{
+        "liveStreamUrl": "rtsp://example.com/stream",
+        "description": "Main warehouse camera"
+    }]
+}
+response = requests.post(
+    f"{BASE_URL}/streams/add",
+    json=stream_request
+)
+stream_info = response.json()
+stream_id = stream_info["results"][0]["id"]
+print(f"Added stream: {stream_id}")
+
+# Step 2: Start embedding generation with streaming
+embedding_request = {
+    "id": [stream_id],
+    "model": model_id,
+    "stream": True,
+    "chunk_duration": 10,
+    "chunk_overlap_duration": 0
+}
+response = requests.post(
+    f"{BASE_URL}/generate_video_embeddings",
+    json=embedding_request,
+    stream=True
+)
+
+# Step 3: Process streaming responses
+client = sseclient.SSEClient(response)
+for event in client.events():
+    if event.data == "[DONE]":
+        break
+    data = json.loads(event.data)
+    if "chunk_responses" in data:
+        for chunk in data["chunk_responses"]:
+            print(f"[{chunk['start_time']}]: Embedding size: {len(chunk['embeddings'])}")
+
+# Step 4: Stop processing and remove stream
+requests.delete(f"{BASE_URL}/generate_video_embeddings/{stream_id}")
+requests.delete(f"{BASE_URL}/streams/delete/{stream_id}")
+print("Stream removed")
+```
+
+### RTVI-CV Compatible Stream API
+
+In addition to the `/v1/streams/*` endpoints, the RTVI Embed service exposes
+an RTVI-CV schema-compatible stream API for cross-service interoperability with
+RTVI-CV pipelines: `POST /v1/stream/add`, `POST /v1/stream/remove`, and
+`GET /v1/stream/get-stream-info`. The request payloads follow the RTVI-CV
+`key`/`value` schema, where `value` carries `camera_id`,
+`camera_url`, and `change`.
+
+```python
+import requests
+
+BACKEND_PORT = 8000
+BASE_URL = f"http://localhost:{BACKEND_PORT}/v1"
+
+# Register a stream using the RTVI-CV compatible format
+add_payload = {
+    "key": "sensor",
+    "value": {
+        "camera_id": "camera-entrance-east-01",
+        "camera_url": "rtsp://example.com/stream",
+        "change": "camera_add"
+    }
+}
+response = requests.post(f"{BASE_URL}/stream/add", json=add_payload)
+response.raise_for_status()
+
+# List registered streams (RTVI-CV compatible format)
+streams = requests.get(f"{BASE_URL}/stream/get-stream-info").json()
+print(streams)
+
+# Remove the stream
+remove_payload = {
+    "key": "sensor",
+    "value": {
+        "camera_id": "camera-entrance-east-01",
+        "change": "camera_remove"
+    }
+}
+requests.post(f"{BASE_URL}/stream/remove", json=remove_payload)
+```
+
+### Text Embeddings Example
+
+The following example demonstrates generating embeddings from text input:
+
+```python
+import requests
+import json
+
+BACKEND_PORT = 8000
+BASE_URL = f"http://localhost:{BACKEND_PORT}/v1"
+model_id = "cosmos-embed1-448p"   # or from GET /v1/models
+
+# Generate text embeddings
+text_request = {
+    "text_input": [
+        "A person walking in a warehouse",
+        "A forklift moving pallets"
+    ],
+    "model": model_id
+}
+response = requests.post(
+    f"{BASE_URL}/generate_text_embeddings",
+    json=text_request
+)
+result = response.json()
+
+# Process results
+print(f"Model: {result['model']}")
+for item in result["data"]:
+    print(f"Text: {item['text_input']}")
+    print(f"Embedding size: {len(item['embeddings'])}")
+    print(f"First 5 values: {item['embeddings'][:5]}")
+```
+
+## Customization
+
+### Customizing the Model
+
+The Real-Time Embedding Microservice can be configured to run with different variants of the Cosmos-Embed1 model or custom models.
+
+### Model Variant Selection
+
+The microservice can be configured to run with variants of the Cosmos-Embed1 model by setting the `MODEL_PATH` environment variable. Three source schemes are supported:
+
+**HuggingFace (`git:` scheme)** — downloads from HuggingFace Hub on first startup:
+
+```bash
+MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
+```
+
+Supported Cosmos-Embed1 variants include:
+
+- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` (default)
+- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` (default for [search workflow ](/agent-workflow-search))
+- `git:https://huggingface.co/nvidia/Cosmos-Embed1-336p`
+- `git:https://huggingface.co/nvidia/Cosmos-Embed1-224p`
+
+For private HuggingFace repositories, set the `HF_TOKEN` environment variable to a token with **READ** permissions.
+
+**NGC (`ngc:` scheme)** — downloads from the NGC model registry on first startup:
+
+```bash
+NGC_API_KEY=<your-ngc-api-key>
+# Format: ngc:<org/team/model:ver>
+MODEL_PATH=ngc:nvidia/tao/cosmos-embed1:v1.0
+```
+
+Generate an NGC API key at https://ngc.nvidia.com under **Org** → **API Keys**. The model is downloaded once and cached in `NGC_MODEL_CACHE` (default: `/opt/nvidia/rtvi/.rtvi/ngc_model_cache/`).
+
+**Local path** — points directly to a pre-downloaded model directory:
+
+```bash
+MODEL_PATH=/path/to/cosmos-embed1
+```
+
+Use the `/v1/models` API to get the name of the model once the server is up.
+
+### Batch Size Configuration
+
+The inference batch size can be tuned for optimal performance using the `VLM_BATCH_SIZE` environment variable.
+
+**Example:**
+
+```bash
+VLM_BATCH_SIZE=32
+```
+
+If not specified, the microservice automatically calculates an appropriate batch size based on available GPU memory.
+
+### Custom Model Implementation
+
+To run a custom model, set the `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`, and `MODEL_REPOSITORY_SCRIPT_PATH` environment variables
+to point to your custom model code directory, model implementation code directory, and model repository script respectively.
+
+`MODEL_PATH` is the local model path shared with the container or a Hugging Face/NGC model repository URL.
+`MODEL_IMPLEMENTATION_PATH` is the path to the custom model implementation code directory that contains the custom model inference code and is shared with the container.
+`MODEL_REPOSITORY_SCRIPT_PATH` is the path to the custom model repository script that contains the custom model repository creation code.
+If the model is a variant of the Cosmos-Embed1 model, set the `MODEL_PATH` environment variable to appropriate custom model repository.
+The `MODEL_IMPLEMENTATION_PATH` and `MODEL_REPOSITORY_SCRIPT_PATH` are set to the default values.
+
+#### Using a model other than Cosmos-Embed1
+
+To run a model that is not a Cosmos-Embed1 variant, provide your own model
+implementation and point `MODEL_IMPLEMENTATION_PATH` at it. Use the
+Cosmos-Embed1 reference implementation as a template for your own model. The
+source is available in the
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1)
+repository at
+`services/rtvi/rt-embed/src/models/custom/samples/cosmos-embed1` (the base
+class it subclasses is at
+`services/rtvi/rt-embed/src/models/base_vlm_model.py`). The same files are
+also bundled in the container at the default `MODEL_IMPLEMENTATION_PATH`
+(`/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1`).
+
+1. Review the reference implementation, in particular `inference.py` and the
+   `BaseVlmModel` base class. Either read them in the repository or inspect
+   the copies on a running container:
+
+   ```bash
+   docker compose exec rtvi-server \
+     ls /opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1
+   docker compose exec rtvi-server \
+     cat /opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/inference.py
+   ```
+
+2. Copy the sample directory to a host location, then update the inference code
+   in `inference.py` (model loading, preprocessing, and the inference calls)
+   to run your model. **Keep the interface the same** — your model class must
+   still subclass `BaseVlmModel` (from `models.base_vlm_model`) and
+   implement the same methods that the reference `CosmosEmbedModel` provides, so the microservice can load and call it without changes: * `_initialize_model(self, **kwargs)` — load the model and processor. * `_shutdown_model(self)` — release GPU memory and stop any server.
+   * `model_name` (property) — the model name surfaced by `/v1/models`.
+   * `generate(self, query, chunks, video_frames=None, video_frames_times=None, generation_config=None, **kwargs)`
+     — run inference over the video/text chunks and return a list of
+     `VlmModelOutput` objects, one per chunk, with the `embeddings` field
+     populated.
+   * `can_enqueue_requests(self)` — whether the model accepts concurrent
+     requests.
+   * `get_model_info(model_path, vlm_model_type="")` and
+     `get_input_config(model_path, vlm_model_type="")` (static methods) —
+     return the model identity tuple and the `InputConfig` (frame count,
+     resolution) for your model.
+
+   Only the body of these methods (how your model is loaded and how inference
+   is run) should change; the method names, signatures, and return types must
+   match the base class. The reference implementation supports both an
+   optimized Triton path and a PyTorch fallback (selected by the
+   `DISABLE_OPTIMIZATION` environment variable) — implement whichever your
+   model needs.
+
+3. If your model needs a different Triton model repository layout, update the
+   repository creation script (`create_triton_model_repo.py` in the same
+   sample directory) accordingly and point `MODEL_REPOSITORY_SCRIPT_PATH` at
+   it. If you only use the PyTorch path (`DISABLE_OPTIMIZATION=true`), the
+   Triton repository script is not required.
+
+4. Mount your implementation (and the model weights) into the container and
+   set the environment variables to point at them:
+
+   ```bash
+   MODEL_PATH=/path/to/your/model
+   MODEL_IMPLEMENTATION_PATH=/path/to/your/model_implementation
+   MODEL_REPOSITORY_SCRIPT_PATH=/path/to/your/create_triton_model_repo.py
+   ```
+
+After the service starts, use the `/v1/models` API to confirm your model is
+loaded and to retrieve its model name for embedding requests.
+
+## Troubleshooting
+
+### Common Issues
+
+**File Upload Fails**
+   * Check file size limits
+   * Verify media type matches content
+   * Ensure filename uses valid characters
+
+**Embeddings Generation Timeout**
+   * Increase timeout settings
+   * Reduce chunk duration
+   * Check GPU availability
+
+**Live Stream Connection Fails**
+   * Verify RTSP URL is accessible
+   * Check authentication credentials
+   * Confirm network connectivity
+
+**Service Not Ready**
+   * Wait for startup completion
+   * Check GPU availability
+   * Review service logs
+
+**Error: Hugging Face API rate limit exceeded**
+   * Check Hugging Face token configuration
+   * Ensure token has **READ** permissions and is added to the environment variable `HF_TOKEN`
+
+**Internal Server Error**
+   * Check model configuration
+   * Ensure model is available
+   * Check GPU availability
+   * Check network connectivity
+   * Check service logs
+   * Delete the triton model repository and restart the service to avoid engine build issues
+
+**Duplicate live-stream / camera IDs rejected with HTTP 409**
+
+In 3.2.0, adding a stream with a `camera_id` (RTVI-CV API) or `streamId`
+that is already registered returns HTTP 409 (`DuplicateCameraId` /
+`DuplicateStreamId`). In 3.1.0 the existing registration was silently
+overwritten. Handle the 409 error by removing the prior stream first
+or surface the 409 to the caller.
+
+### Error Response Format
+
+All errors return a consistent JSON format:
+
+```json
+{
+    "code": "ErrorCode",
+    "message": "Human-readable error description"
+}
+```
+
+### Common Error Codes
+
+**400 - Bad Request**
+    * `InvalidParameters`: Request parameters are invalid
+    * `BadParameters`: Parameter values are incorrect
+    * `InvalidFile`: File format or content is invalid
+
+**401 - Unauthorized**
+    * Authentication required
+
+**409 - Conflict**
+    * Resource is in use or conflict exists
+
+**422 - Unprocessable Entity**
+    * `InvalidParameters`: Request validation failed
+
+**429 - Rate Limit Exceeded**
+    * Too many requests
+
+**500 - Internal Server Error**
+    * `InternalServerError`: Unexpected server error
+    * `TextEmbeddingsError`: Text embedding generation failed
+
+**503 - Service Unavailable**
+    * Service is not ready or unhealthy
+
+## Glossary
+
+**Asset**
+    A file or live stream managed by the AssetManager
+
+**Chunk**
+    A segment of video/audio processed as a single unit
+
+**Embedding**
+    A vector representation of visual or textual content
+
+**NTP Timestamp**
+    Network Time Protocol timestamp in ISO8601 format
+
+**PTS**
+    Presentation Timestamp — time offset in nanoseconds from file start
+
+**RTSP**
+    Real-Time Streaming Protocol for live video streams
+
+**SSE**
+    Server-Sent Events — HTTP protocol for streaming data to clients
+
+**UUID**
+    Universally Unique Identifier (36 characters with hyphens)

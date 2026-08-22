@@ -1,0 +1,25 @@
+---
+title: "API Reference"
+description: ""
+position: 1
+---
+This page provides API reference for the Video Summarization microservice.
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `http://<host>:38111`
+* **MCP Server**: `http://<host>:38112`
+
+If `VSS_API_ENABLE_VERSIONING` is enabled, all endpoints are prefixed with `/v1`.
+
+## Authentication
+
+The API supports Bearer token authentication. Include your token in the `Authorization` header:
+
+```bash
+Authorization: Bearer <your-token>
+```
+
+## Reference
