@@ -29,6 +29,9 @@ HELM_VALUES = {
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/values.yaml",
     ],
+    "vss-rt-cv": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
     "vss-vios-sensor": [
         "deploy/helm/services/vios/charts/vios-sensor/values.yaml",
     ],
@@ -81,6 +84,12 @@ HELM_HELPERS = {
     ],
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/templates/_helpers.tpl",
+    ],
+    # The chart is named rtvi-cv and its helpers are "vss-rtvi-cv.*", but the
+    # managed image is vss-rt-cv -- so the printf target below is the image
+    # name, not the helper prefix.
+    "vss-rt-cv": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
     ],
     "vss-vios-sensor": [
         "deploy/helm/services/vios/charts/vios-sensor/templates/_helpers.tpl",
@@ -160,6 +169,14 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         inventory = json.loads(
             (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
         )
+        # Tagged variants (tag_suffix, e.g. -sbsa) share their base image's GHCR
+        # repository and are selected by overriding the tag on that same Helm
+        # image block, so they have no image block of their own for this policy
+        # to cover. Listing one here could not pass either: the check below
+        # asserts repository == "<root>/<name>", and a variant's repository is
+        # deliberately the base name. They are excluded here by the same signal
+        # release_set.py already uses for Compose references: a variant carries
+        # no ``compose_image_names`` of its own.
         managed = {
             image["name"]
             for image in inventory["images"]

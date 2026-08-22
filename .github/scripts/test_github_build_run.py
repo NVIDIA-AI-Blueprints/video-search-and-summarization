@@ -11,19 +11,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-SCRIPT = Path(__file__).with_name("update_pr_ghcr_candidates.py")
-SPEC = importlib.util.spec_from_file_location("update_pr_ghcr_candidates", SCRIPT)
+SCRIPT = Path(__file__).with_name("github_build_run.py")
+SPEC = importlib.util.spec_from_file_location("github_build_run", SCRIPT)
 assert SPEC and SPEC.loader
 module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
 
 
-class CandidateCommentTest(unittest.TestCase):
-    def test_pr_number_only_accepts_synthetic_ref(self):
-        self.assertEqual(module.pr_number("pull-request/1190"), 1190)
-        self.assertIsNone(module.pr_number("develop"))
-        self.assertIsNone(module.pr_number("pull-request/not-a-number"))
-
+class GitHubApiTest(unittest.TestCase):
     def test_select_release_set_run_requires_exact_ref_and_sha(self):
         """Exact match only; conclusion is the caller's business, not the selector's."""
         runs = [
@@ -67,48 +62,6 @@ class CandidateCommentTest(unittest.TestCase):
             module.select_release_set_run(runs, "a" * 40, "pull-request/1190")["id"], 2
         )
 
-
-    def test_comment_lists_only_immutable_ghcr_builds(self):
-        release_set = {
-            "release_set_id": "sha256:" + "1" * 64,
-            "images": [
-                {
-                    "name": "vss-agent",
-                    "strategy": "build",
-                    "image": "ghcr.io/nvidia-ai-blueprints/vss/vss-agent",
-                    "tag": "pr-1190-deadbeef",
-                    "digest": "sha256:" + "2" * 64,
-                },
-                {
-                    "name": "vss-configurator",
-                    "strategy": "reuse-pinned",
-                    "image": "nvcr.io/nvidia/vss-core/vss-configurator",
-                    "tag": "3.2.1",
-                    "digest": None,
-                },
-            ],
-        }
-        body = module.render_comment(release_set, "a" * 40)
-        self.assertIn(module.MARKER, body)
-        self.assertIn("ghcr.io/nvidia-ai-blueprints/vss/vss-agent", body)
-        self.assertIn("pr-1190-latest", body)
-        self.assertNotIn("vss-configurator", body)
-        self.assertIn("does not rebuild", body)
-
-    def test_moving_alias_derives_from_immutable_tag(self):
-        self.assertEqual(module.moving_alias("develop-deadbeef"), "develop-latest")
-        self.assertEqual(
-            module.moving_alias("pr-1190-deadbeef"), "pr-1190-latest"
-        )
-        self.assertEqual(
-            module.moving_alias("develop-deadbeef-sbsa"),
-            "develop-latest-sbsa",
-        )
-        self.assertEqual(
-            module.moving_alias("pr-1190-deadbeef-sbsa"),
-            "pr-1190-latest-sbsa",
-        )
-        self.assertEqual(module.moving_alias("release-3.2.0"), "")
 
     def test_github_network_adapter_is_injected(self):
         requests = []
@@ -233,96 +186,6 @@ class CandidateCommentTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "exceeded 4 bytes"):
                 api.request("GET", "/example")
 
-    def test_main_dry_run_needs_no_network(self):
-        sha = "a" * 40
-        release_set = {
-            "release_set_id": "sha256:" + "1" * 64,
-            "source": {"commit": sha},
-            "images": [],
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "release-set.json"
-            path.write_text(json.dumps(release_set))
-            argv = [
-                "update_pr_ghcr_candidates.py",
-                "--repository",
-                "org/repo",
-                "--sha",
-                sha,
-                "--ref-name",
-                "pull-request/1190",
-                "--release-set",
-                str(path),
-                "--dry-run",
-            ]
-            with mock.patch("sys.argv", argv), mock.patch.dict(
-                os.environ, {}, clear=True
-            ):
-                self.assertEqual(module.main(), 0)
-
-    def test_upsert_comment_finds_marker_after_first_page(self):
-        class FakeApi:
-            def __init__(self):
-                self.calls = []
-
-            def request(self, method, path, payload=None):
-                self.calls.append((method, path, payload))
-                if method == "GET" and path.endswith("&page=1"):
-                    return [{"id": index, "body": "other"} for index in range(100)]
-                if method == "GET" and path.endswith("&page=2"):
-                    return [{"id": 999, "body": module.MARKER}]
-                return {}
-
-        api = FakeApi()
-        module.upsert_comment(api, "org/repo", 1190, "updated")
-        self.assertIn(
-            (
-                "PATCH",
-                "/repos/org/repo/issues/comments/999",
-                {"body": "updated"},
-            ),
-            api.calls,
-        )
-        self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
-
-    def test_upsert_comment_stops_repeating_full_pages(self):
-        class FakeApi:
-            def __init__(self):
-                self.calls = []
-
-            def request(self, method, path, payload=None):
-                self.calls.append((method, path, payload))
-                page = int(path.rsplit("page=", 1)[1])
-                return [
-                    {"id": page * 100 + index, "body": "other"}
-                    for index in range(100)
-                ]
-
-        api = FakeApi()
-        with mock.patch.object(module, "MAX_COMMENT_PAGES", 3):
-            with self.assertRaisesRegex(RuntimeError, "exceeded 3 pages"):
-                module.upsert_comment(api, "org/repo", 1190, "updated")
-        self.assertEqual(
-            [path for method, path, _ in api.calls if method == "GET"],
-            [
-                "/repos/org/repo/issues/1190/comments?per_page=100&page=1",
-                "/repos/org/repo/issues/1190/comments?per_page=100&page=2",
-                "/repos/org/repo/issues/1190/comments?per_page=100&page=3",
-            ],
-        )
-        self.assertFalse(
-            any(method in {"POST", "PATCH"} for method, _, _ in api.calls)
-        )
-
-    def test_upsert_comment_rejects_repeated_page(self):
-        class FakeApi:
-            def request(self, method, path, payload=None):
-                return [{"id": index, "body": "other"} for index in range(100)]
-
-        with self.assertRaisesRegex(RuntimeError, "repeated a page"):
-            module.upsert_comment(FakeApi(), "org/repo", 1190, "updated")
-
-
 class BuildWaitTest(unittest.TestCase):
     """The defect: a failed companion build was invisible, so the poller
     retried 520 times over ~130 minutes for a run that would never appear."""
@@ -347,9 +210,7 @@ class BuildWaitTest(unittest.TestCase):
         what made a failed companion build indistinguishable from an absent
         one, so the query must stay unfiltered by status."""
         api = self._api([self._run(status="completed", conclusion="success")])
-        with mock.patch.object(module, "download_release_set_artifact",
-                               return_value={"ok": True}):
-            module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
+        module.await_build_run(api, "o/r", self.SHA, self.REF, 520, 15)
         url = api.request.call_args[0][1]
         self.assertIn("head_sha=", url)
         self.assertNotIn("status=", url)
@@ -359,7 +220,7 @@ class BuildWaitTest(unittest.TestCase):
         api = self._api([self._run(status="completed", conclusion="failure")])
         with mock.patch.object(module.time, "sleep") as slept:
             with self.assertRaises(RuntimeError) as ctx:
-                module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
+                module.await_build_run(api, "o/r", self.SHA, self.REF, 520, 15)
         slept.assert_not_called()
         self.assertIn("failure", str(ctx.exception))
         self.assertIn("7", str(ctx.exception))
@@ -373,7 +234,7 @@ class BuildWaitTest(unittest.TestCase):
                                            conclusion=conclusion)])
                 with mock.patch.object(module.time, "sleep") as slept:
                     with self.assertRaises(RuntimeError) as ctx:
-                        module.download_release_set(
+                        module.await_build_run(
                             api, "o/r", self.SHA, self.REF, 520, 15)
                 slept.assert_not_called()
                 self.assertIn(conclusion, str(ctx.exception))
@@ -384,13 +245,9 @@ class BuildWaitTest(unittest.TestCase):
             [self._run(status="completed", conclusion="action_required")],
             [self._run(status="completed", conclusion="success")],
         )
-        with mock.patch.object(module.time, "sleep"), mock.patch.object(
-            module, "download_release_set_artifact", return_value={"ok": True}
-        ):
-            self.assertEqual(
-                module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15),
-                {"ok": True},
-            )
+        with mock.patch.object(module.time, "sleep"):
+            run = module.await_build_run(api, "o/r", self.SHA, self.REF, 520, 15)
+        self.assertEqual(run["conclusion"], "success")
 
     def test_in_flight_github_rerun_is_not_aborted(self):
         """A GitHub re-run reuses the run id and resets status to in_progress
@@ -400,11 +257,9 @@ class BuildWaitTest(unittest.TestCase):
             [self._run(run_attempt=2, status="in_progress", conclusion="failure")],
             [self._run(run_attempt=2, status="completed", conclusion="success")],
         )
-        with mock.patch.object(module.time, "sleep") as slept, mock.patch.object(
-            module, "download_release_set_artifact", return_value={"ok": True}
-        ):
-            out = module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
-        self.assertEqual(out, {"ok": True})
+        with mock.patch.object(module.time, "sleep") as slept:
+            out = module.await_build_run(api, "o/r", self.SHA, self.REF, 520, 15)
+        self.assertEqual(out["conclusion"], "success")
         self.assertEqual(slept.call_count, 1)
 
     def test_in_progress_keeps_waiting_then_succeeds(self):
@@ -412,13 +267,10 @@ class BuildWaitTest(unittest.TestCase):
             [self._run(status="in_progress", conclusion=None)],
             [self._run(status="completed", conclusion="success")],
         )
-        with mock.patch.object(module.time, "sleep") as slept, mock.patch.object(
-            module, "download_release_set_artifact", return_value={"ok": True}
-        ) as dl:
-            out = module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
-        self.assertEqual(out, {"ok": True})
+        with mock.patch.object(module.time, "sleep") as slept:
+            out = module.await_build_run(api, "o/r", self.SHA, self.REF, 520, 15)
+        self.assertEqual(out["conclusion"], "success")
         self.assertEqual(slept.call_count, 1)
-        dl.assert_called_once()
 
     def test_still_in_progress_at_the_final_attempt_times_out(self):
         """Guards the reset at the end of the loop: a non-terminal run on the
@@ -427,14 +279,11 @@ class BuildWaitTest(unittest.TestCase):
         api.request.return_value = {
             "workflow_runs": [self._run(status="in_progress", conclusion=None)]
         }
-        with mock.patch.object(module.time, "sleep") as slept, mock.patch.object(
-            module, "download_release_set_artifact"
-        ) as dl:
+        with mock.patch.object(module.time, "sleep") as slept:
             with self.assertRaises(RuntimeError) as ctx:
-                module.download_release_set(api, "o/r", self.SHA, self.REF, 3, 15)
+                module.await_build_run(api, "o/r", self.SHA, self.REF, 3, 15)
         self.assertEqual(api.request.call_count, 3)
         self.assertEqual(slept.call_count, 2)
-        dl.assert_not_called()
         self.assertIn("3 polling attempts", str(ctx.exception))
 
     def test_absent_run_still_exhausts_its_budget(self):
@@ -445,7 +294,7 @@ class BuildWaitTest(unittest.TestCase):
         api.request.return_value = {"workflow_runs": []}
         with mock.patch.object(module.time, "sleep") as slept:
             with self.assertRaises(RuntimeError):
-                module.download_release_set(api, "o/r", self.SHA, self.REF, 3, 15)
+                module.await_build_run(api, "o/r", self.SHA, self.REF, 3, 15)
         self.assertEqual(api.request.call_count, 3)
         self.assertEqual(slept.call_count, 2)
 
@@ -459,11 +308,9 @@ class BuildWaitTest(unittest.TestCase):
             self._run(id=2, run_number=2, status="completed", conclusion="success",
                       created_at="2026-07-02T00:00:00Z"),
         ])
-        with mock.patch.object(module.time, "sleep"), mock.patch.object(
-            module, "download_release_set_artifact", return_value={"ok": True}
-        ):
-            out = module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
-        self.assertEqual(out, {"ok": True})
+        with mock.patch.object(module.time, "sleep"):
+            out = module.await_build_run(api, "o/r", self.SHA, self.REF, 520, 15)
+        self.assertEqual(out["conclusion"], "success")
 
 if __name__ == "__main__":
     module.enforce_memory_ceiling()

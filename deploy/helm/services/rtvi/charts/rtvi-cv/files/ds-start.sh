@@ -354,8 +354,32 @@ start_rtdetr_gdino()
     mkdir -p "${ENGINES_DIR}/gdino" "${ENGINES_DIR}/rtdetr-its"
     GDINO_TRT_PLAN="${ENGINES_DIR}/gdino/model_gdino_trt.plan"
 
-    local reid_src="${DS_APP_DIR}/models/rtdetr-its/resnet50_market1501.etlt"
-    require_file "$reid_src" "Required tracker artifact missing from image/models volume."
+    # NvDCF_accuracy ReID etlt. Prefer the copy download-models.sh fetched into
+    # the shared model root; fall back to the copy bundled inside the image.
+    #
+    # The NGC image ships this under DS_APP_DIR/models. GHCR-built images do not
+    # ship models at all, so there it arrives only via the models-download.json
+    # manifest (nvidia/tao/reidentificationnet:deployable_v1.0). Checking the
+    # download first means one code path serves both, and a profile that has
+    # pinned an older in-image copy still gets the manifest's version.
+    local reid_src=""
+    local reid_cand
+    for reid_cand in \
+        "${MODELS_DEST_ROOT:-/opt/storage}/rtdetr-its/resnet50_market1501.etlt" \
+        "${DS_APP_DIR}/models/rtdetr-its/resnet50_market1501.etlt"; do
+        if [[ -f "$reid_cand" ]]; then
+            reid_src="$reid_cand"
+            break
+        fi
+    done
+    if [[ -z "$reid_src" ]]; then
+        echo "ERROR: ReID model resnet50_market1501.etlt not found." >&2
+        echo "Hint: add nvidia/tao/reidentificationnet:deployable_v1.0 to this profile's" >&2
+        echo "      models-download.json (destPath rtdetr-its/resnet50_market1501.etlt)," >&2
+        echo "      or mount an image that bundles it under DS_APP_DIR/models." >&2
+        exit 1
+    fi
+    echo "##### ReID model: ${reid_src} #####"
     ENGINE_CACHE_DIR="${ENGINE_CACHE_DIR:-/opt/engines}"
     export ENGINE_CACHE_DIR STORAGE_UID STORAGE_GID
     bash "${SETUP_TRACKER_REID_SCRIPT:-/startup-script/setup-tracker-reid.sh}" --src "$reid_src"

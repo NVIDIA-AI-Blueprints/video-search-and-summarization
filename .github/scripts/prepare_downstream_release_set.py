@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Wait for this commit's GHCR release set and pass it to downstream CI."""
+"""Gate and parameterise the downstream acceptance run for this commit.
+
+Waits for Build Dev Images to succeed, decides whether downstream is
+warranted from what changed, and emits the variables the GitLab pipeline
+reads. The release set itself is consumed inside the build workflow (it
+drives the candidate alias publication); nothing is fetched here.
+"""
 from __future__ import annotations
 
 import argparse
@@ -16,8 +22,8 @@ from detect_changed_images import (
     commit_exists,
     resolve_diff_base,
 )
-from release_set import load_inventory, validate_release_set
-from update_pr_ghcr_candidates import GitHubApi, download_release_set
+from github_build_run import GitHubApi, await_build_run
+from release_set import load_inventory
 
 
 DEPLOY_PREFIX = "deploy/"
@@ -57,8 +63,7 @@ def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[boo
         OR deploy/ changed
 
     Scoped on what *changed*, not on what got built. The previous gate keyed off
-    has_ghcr_build_entries -- "did any GHCR image get rebuilt" -- which is a poor
-    proxy twice over: build avoidance means a real source change can rebuild
+    "did any GHCR image get rebuilt", which is a poor proxy twice over: build avoidance means a real source change can rebuild
     nothing, and deploy-only changes never rebuild anything yet are exactly what
     acceptance exists to catch. Config and deploy edits were getting no
     downstream coverage at all.
@@ -95,35 +100,27 @@ def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[boo
     return False, "no watched source or deploy/ change"
 
 
-def has_ghcr_build_entries(release_set: dict) -> bool:
-    """Whether downstream has newly built GHCR images to accept/promote."""
-    return any(
-        image.get("strategy") == "build"
-        and str(image.get("image", "")).startswith("ghcr.io/")
-        for image in release_set.get("images", [])
-    )
+def candidate_container_tag(ref_name: str, sha: str) -> str:
+    """The shared immutable GHCR tag this ref publishes for every image.
 
-
-def candidate_container_tag(release_set: dict) -> str:
-    """Return the shared immutable GHCR tag published for this release set."""
-    source = release_set.get("source") or {}
-    commit = str(source.get("commit") or "")
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
-        raise ValueError("release-set source commit must be a 40-hex SHA")
-
-    ref = str(source.get("ref") or "")
-    if ref == "develop":
+    Same scheme as container_build_plan.py: the build tags every GHCR image
+    with it, including ones it did not rebuild, so a consumer can derive the
+    coordinate from the ref and commit alone.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("commit must be a 40-hex SHA")
+    if ref_name == "develop":
         prefix = "develop"
-    elif match := re.fullmatch(r"pull-request/(\d+)", ref):
+    elif match := PR_REF_PATTERN.fullmatch(ref_name):
         prefix = f"pr-{match.group(1)}"
     else:
         raise ValueError(
-            f"release-set source ref {ref!r} does not publish a shared candidate tag"
+            f"ref {ref_name!r} does not publish a shared candidate tag"
         )
-    return f"{prefix}-{commit[:12]}"
+    return f"{prefix}-{sha[:12]}"
 
 
-def downstream_variables(release_set: dict) -> dict[str, str]:
+def downstream_variables(ref_name: str, sha: str) -> dict[str, str]:
     """Variables the downstream GitLab pipeline actually reads.
 
     The release set itself is no longer sent. ci-vss-oss retired every
@@ -134,7 +131,7 @@ def downstream_variables(release_set: dict) -> dict[str, str]:
     """
     return {
         "BUILD_TYPE": "ghcr-acceptance",
-        "VSS_CONTAINER_TAG": candidate_container_tag(release_set),
+        "VSS_CONTAINER_TAG": candidate_container_tag(ref_name, sha),
     }
 
 
@@ -147,8 +144,6 @@ def main() -> int:
     parser.add_argument("--before", default=os.environ.get("GITHUB_EVENT_BEFORE", ""))
     parser.add_argument("--attempts", type=int, default=240)
     parser.add_argument("--interval-seconds", type=int, default=15)
-    parser.add_argument("--release-set", type=Path)
-    parser.add_argument("--release-set-output", type=Path)
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -159,36 +154,16 @@ def main() -> int:
             "SHA and GITHUB_ENV are required"
         )
 
-    if args.release_set:
-        release_set = json.loads(args.release_set.read_text())
-    else:
-        if not token or not args.repository:
-            raise SystemExit(
-                "GITHUB_TOKEN and repository are required without --release-set"
-            )
-        release_set = download_release_set(
-            GitHubApi(token),
-            args.repository,
-            args.sha,
-            args.ref_name,
-            args.attempts,
-            args.interval_seconds,
-        )
-    if release_set.get("source", {}).get("commit") != args.sha:
-        raise RuntimeError("release-set source commit does not match downstream SHA")
-    problems = validate_release_set(
-        release_set, load_inventory(Path.cwd())
+    if not token or not args.repository:
+        raise SystemExit("GITHUB_TOKEN and repository are required")
+    await_build_run(
+        GitHubApi(token),
+        args.repository,
+        args.sha,
+        args.ref_name,
+        args.attempts,
+        args.interval_seconds,
     )
-    if problems:
-        raise RuntimeError("invalid release set: " + "; ".join(problems))
-
-    if args.release_set_output:
-        args.release_set_output.parent.mkdir(parents=True, exist_ok=True)
-        args.release_set_output.write_text(
-            json.dumps(release_set, indent=2, sort_keys=True) + "\n"
-        )
-
-    has_builds = has_ghcr_build_entries(release_set)
 
     if PR_REF_PATTERN.fullmatch(args.ref_name):
         try:
@@ -209,7 +184,7 @@ def main() -> int:
     )
     run_downstream = relevant
 
-    variables = downstream_variables(release_set)
+    variables = downstream_variables(args.ref_name, args.sha)
     with Path(github_env).open("a") as output:
         output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
         output.write(json.dumps(variables, separators=(",", ":")) + "\n")
@@ -217,14 +192,9 @@ def main() -> int:
 
     if github_output:
         with Path(github_output).open("a") as output:
-            output.write(
-                f"has_ghcr_build_entries={'true' if has_builds else 'false'}\n"
-            )
             output.write(f"run_downstream={'true' if run_downstream else 'false'}\n")
     print(
-        f"Prepared release set {release_set['release_set_id']} "
-        f"for downstream acceptance ({len(release_set['images'])} images, "
-        f"GHCR builds: {'yes' if has_builds else 'no'}).\n"
+        f"Downstream acceptance for {args.sha[:12]} on {args.ref_name}.\n"
         f"Downstream gate: {'run' if run_downstream else 'skip'} "
         f"-- {gate_reason} (base: {base_reason})."
     )
@@ -236,7 +206,7 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception as exc:
         print(
-            f"[downstream-release-set] ERROR {type(exc).__name__}: {exc}",
+            f"[downstream-gate] ERROR {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
         raise
