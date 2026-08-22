@@ -53,6 +53,19 @@ backend bk_vst_storage_compat
     http-request replace-path ^/storage$ /vst/storage
     server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
 
+# Storage management API, sent to VST directly rather than through the VST
+# ingress. In SDRC profiles that ingress forwards /vst/api/v1/ to the Envoy
+# listener in sdr-controller, which rewrites Access-Control-Allow-Methods to
+# "GET, POST, OPTIONS" on every response, so a browser DELETE never clears
+# preflight. These calls carry no streamid header and so gain nothing from
+# Envoy's stream routing. Matches the storage bypass the Helm ingress already
+# performs (helm/services/vios/charts/vios-ingress/configs/nginx-vst.conf.template).
+backend bk_vst_storage_api_direct
+    http-request replace-path ^/vst/api/v1/(.*) /api/v1/\1
+    # Uploads of whole videos outlast the 120s default.
+    timeout server 3600s
+    server s1 "${VST_STREAMPROCESSING_SERVICE_HOST}:${STREAM_PROCESSOR_HTTP_PORT}" check resolvers docker init-addr none
+
 backend bk_vst_prefixed_compat
     http-request replace-path ^/[^/]+:[0-9]+/vst/(.*) /vst/\1
     http-request replace-path ^/[^/]+:[0-9]+/vst$ /vst
@@ -251,6 +264,11 @@ frontend fe_http
     acl p_static path /static
     acl p_static path_beg /static/
     use_backend bk_vss_agent if h_main p_static
+
+    # Must precede p_vst, which would otherwise send these to the VST ingress.
+    acl p_vst_storage_api path_beg /vst/api/v1/storage/
+    acl p_vst_storage_api path /vst/api/v1/storage
+    use_backend bk_vst_storage_api_direct if h_main p_vst_storage_api
 
     acl p_vst path /vst
     acl p_vst path_beg /vst/
