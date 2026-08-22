@@ -773,9 +773,7 @@ def test_upsert_bundle_counts_distinct_storage_ids_on_child_collision() -> None:
     assert parent.output is not None
     assert parent.output.ext is not None
     assert parent.output.ext["event_count"] == 1
-    assert service.get_record(
-        "summarize-collision", "event", "evt-72d73704a0ef2ce7"
-    ).output is not None
+    assert service.get_record("summarize-collision", "event", "evt-72d73704a0ef2ce7").output is not None
 
 
 def test_upsert_bundle_skips_children_when_parent_fails() -> None:
