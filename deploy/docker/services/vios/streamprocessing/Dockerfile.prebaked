@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Run the runtime-media install once at build time instead of on every container
+# start. The install is unchanged: same script, same package list. It writes its
+# own marker, so the entrypoint's invocation takes the existing skip path.
+#
+# For locally built images only. The packages are not redistributable, which is
+# why the published image ships without them and installs them at start.
+
+ARG VSS_VIOS_STREAMPROCESSING_BASE
+FROM ${VSS_VIOS_STREAMPROCESSING_BASE}
+
+USER 0:0
+COPY scripts/user_additional_install.sh /home/vst/vst_release/tools/user_additional_install.sh
+RUN VST_INSTALL_ADDITIONAL_PACKAGES=true \
+      /home/vst/vst_release/tools/user_additional_install.sh \
+ && rm -rf /var/lib/apt/lists/*
+USER 1000:1000
