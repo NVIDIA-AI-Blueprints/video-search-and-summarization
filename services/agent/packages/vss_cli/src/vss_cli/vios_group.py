@@ -383,6 +383,10 @@ def _build() -> click.Group:
             "  vss vios add ./warehouse_safety_0001.mp4\n"
             "  vss vios add ./clip.mp4 --name warehouse_safety_0002.mp4\n"
             "  vss vios add https://example.com/clip.mp4\n"
+            "\n"
+            "An http(s) source is fetched with your own network access, exactly as `curl` would "
+            "be — the CLI adds no boundary you do not already cross. Treat an untrusted URL "
+            "accordingly.\n"
             "  vss vios add rtsp://cam.local/stream1 --name dock-cam\n",
             [
                 click.Option(

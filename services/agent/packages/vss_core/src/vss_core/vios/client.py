@@ -930,6 +930,12 @@ async def list_media(
                 row["source"] = stream_url
             if not stream_id:
                 row["error"] = "VIOS reported a stream with no streamId"
+            elif not stream_url:
+                # Without a url the provenance is unknowable, so this row is as
+                # unclassifiable as the other two -- and the filter keeps a row
+                # only when it matches --type or carries an error. One rule:
+                # unclassifiable carries an error, so it is never hidden.
+                row["error"] = "VIOS reported a stream with no url"
             rows.append(row)
     if kind is None:
         return rows
@@ -1264,6 +1270,26 @@ def _isoformat(moment: datetime.datetime) -> str:
     return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _segment_holding(
+    moment: datetime.datetime,
+    segments: list[tuple[str, str]],
+    label: str,
+) -> tuple[str, str]:
+    """The recorded segment containing `moment`, or a caller error naming it."""
+    for seg_start, seg_end in segments:
+        if iso8601_to_datetime(seg_start) <= moment <= iso8601_to_datetime(seg_end):
+            return seg_start, seg_end
+    if len(segments) == 1:
+        # Nothing to disambiguate, so say which end it fell outside rather than
+        # making the caller compare timestamps.
+        only_start, only_end = segments[0]
+        window = f"recorded window is {only_start} to {only_end}"
+        side = "before the recording starts" if moment < iso8601_to_datetime(only_start) else "after the recording ends"
+        raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is {side}; {window}")
+    listed = ", ".join(f"{a} to {b}" for a, b in segments)
+    raise VIOSInvalidInputError(f"{label} {_isoformat(moment)} is not inside a recorded segment; recorded: {listed}")
+
+
 def resolve_window(
     segments: list[tuple[str, str]],
     start: str | None,
@@ -1293,16 +1319,27 @@ def resolve_window(
             raise VIOSInvalidInputError(f"--start-time {_isoformat(first)} is after --end-time {_isoformat(last)}")
         return _isoformat(first), _isoformat(last)
 
-    # Default to the earliest segment, and measure offsets from its start.
-    # An envelope across segments would put "10 seconds in" inside a gap on a
-    # stream that recorded in bursts.
-    default = segments[0]
-    span_start = iso8601_to_datetime(default[0])
-    span_end = iso8601_to_datetime(default[1])
+    # Offsets count from the start of the recording, which is the earliest
+    # segment: "ten seconds in" means ten seconds into the video.
     allow_offset = kind == "video"
+    origin = iso8601_to_datetime(segments[0][0])
+    given_first = _as_instant(start, origin, "--start-time", allow_offset) if start else None
+    given_last = _as_instant(end, origin, "--end-time", allow_offset) if end else None
 
-    first = span_start if not start else _as_instant(start, span_start, "--start-time", allow_offset)
-    last = span_end if not end else _as_instant(end, span_start, "--end-time", allow_offset)
+    if given_first is None and given_last is None:
+        return segments[0]
+
+    # One bound given: complete it from the segment that bound falls in, not
+    # from the earliest. Defaulting to the earliest refuses a window that
+    # genuinely exists -- `--start-time 13:02` on a stream recorded 12:00-12:10
+    # and 13:00-13:10 would pair with 12:10 and fail as "start after end".
+    if given_last is None and given_first is not None:
+        return _isoformat(given_first), _segment_holding(given_first, segments, "--start-time")[1]
+    if given_first is None and given_last is not None:
+        return _segment_holding(given_last, segments, "--end-time")[0], _isoformat(given_last)
+
+    assert given_first is not None and given_last is not None
+    first, last = given_first, given_last
 
     if first > last:
         raise VIOSInvalidInputError(f"--start-time {_isoformat(first)} is after --end-time {_isoformat(last)}")

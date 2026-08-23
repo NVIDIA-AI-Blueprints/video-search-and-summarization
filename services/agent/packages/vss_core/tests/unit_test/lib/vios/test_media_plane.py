@@ -20,9 +20,11 @@ from vss_core.vios import validate_media_name
 
 
 class _Response:
-    def __init__(self, payload: Any, status: int = 200) -> None:
+    def __init__(self, payload: Any, status: int = 200, content_length: int | None = None) -> None:
         self._payload = payload
         self.status = status
+        #: None models a chunked source, which is the case upload_from_url refuses.
+        self.content_length = content_length
 
     async def __aenter__(self) -> _Response:
         return self
@@ -1023,3 +1025,84 @@ async def test_recorded_segments_keeps_gaps_and_the_span_collapses_them(vios_htt
 
     assert await vios.recorded_segments(VST, "r") == GAPPED
     assert await vios.recorded_span(VST, "r") == (GAPPED[0][0], GAPPED[1][1])
+
+
+# ------------------------------- guards for the fixes that had none
+
+
+@pytest.mark.asyncio
+async def test_warm_up_reads_one_chunk_not_the_whole_clip(monkeypatch) -> None:
+    """`read()` pulls the entire body — gigabytes for a long recording."""
+    read_calls: list[str] = []
+
+    class _Content:
+        async def read(self) -> bytes:
+            read_calls.append("read")
+            return b"x" * 1024
+
+        async def iter_chunked(self, size: int):
+            read_calls.append(f"iter_chunked({size})")
+            yield b"x" * size
+            raise AssertionError("warm-up consumed a second chunk")
+
+    class _Resp:
+        status = 200
+        content = _Content()
+
+        async def read(self) -> bytes:
+            read_calls.append("read")
+            return b"x"
+
+        async def __aenter__(self) -> _Resp:
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+    class _Session:
+        async def __aenter__(self) -> _Session:
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+        def get(self, _url: str, **_kw: object) -> _Resp:
+            return _Resp()
+
+    monkeypatch.setattr(vios.aiohttp, "ClientSession", lambda **_kw: _Session())
+
+    assert await vios.warm_media_url("https://vss.test/vst/clip.mp4") is True
+    assert read_calls == ["iter_chunked(65536)"], read_calls
+
+
+@pytest.mark.asyncio
+async def test_a_source_without_content_length_is_refused_not_buffered(vios_http) -> None:
+    """VIOS needs Content-Length; discovering it by buffering is what this avoids."""
+    configure, calls, _ = vios_http
+    configure(**{"example.com": {}})
+
+    with pytest.raises(vios.VIOSInvalidInputError, match="Content-Length"):
+        await vios.upload_from_url(VST, "https://example.com/clip.mp4")
+
+    assert not [c for c in calls if c.startswith("PUT")], "nothing should be uploaded"
+
+
+@pytest.mark.asyncio
+async def test_a_stream_with_no_url_stays_visible_under_a_filter(vios_http) -> None:
+    """The third hiding path: an id but no url is unclassifiable too.
+
+    `type` becomes "unknown", which matches no --type, so without an `error`
+    the filter drops it and the sensor reads as absent.
+    """
+    configure, _, _ = vios_http
+    configure(
+        **_routes(
+            sensors=[{"name": "urlless", "sensorId": "u0"}],
+            streams={"u0": [{"streamId": "u0", "isMain": True}]},
+        )
+    )
+
+    rows = await vios.list_media(VST, kind="video")
+
+    assert [r["name"] for r in rows] == ["urlless"]
+    assert rows[0]["error"] == "VIOS reported a stream with no url"
