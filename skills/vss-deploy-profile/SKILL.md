@@ -278,10 +278,35 @@ Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 
 ### Step 5 — Deploy
 
+**Launch this detached. A foreground `up -d` will be killed by your tool
+timeout before it returns.** `up -d` does not return once the containers are
+created: it blocks until every `depends_on` with `condition: service_healthy`
+is satisfied. The `lvs` profile resolves to 29 services with 14 such
+conditions, gating on `rtvi-vlm` and the LLM NIM among others, and each of
+those takes 10 to 20 minutes on a cold cache. That is far beyond any agent
+Bash timeout, so a plain foreground call cannot succeed on this profile.
+
+Start it in the background, writing to a log, then poll:
+
 ```bash
 cd $REPO/deploy/docker
-docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d
+# Background tool call, NOT a foreground one. If your runtime offers a
+# background execution flag, use it; otherwise detach with setsid/nohup.
+docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d \
+  > /tmp/vss-up.log 2>&1
 ```
+
+Then poll in bounded steps until the container count stops changing:
+
+```bash
+docker compose -f resolved.yml ps --format '{{.Name}}\t{{.State}}' | sort
+tail -20 /tmp/vss-up.log
+```
+
+**Never end your turn while the deploy is still running.** In a non-interactive
+harness the session ends with your turn and the backgrounded deploy is killed
+with it, leaving a box with zero containers and a green exit code. Keep polling
+until Step 5b's gates pass or you hit a real error.
 
 > **Both `--env-file` arguments are mandatory and ordered.** Without the same `.env` + `generated.env` pair used in Step 3, `COMPOSE_PROFILES` may be unset or incomplete and `up -d` can exit 0 with zero selected services.
 
@@ -291,7 +316,9 @@ docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d
 > use targeted `--force-recreate --no-deps <service...>` only when a profile
 > reference documents it as the recovery path.
 
-`docker compose up -d` only creates containers; it does not wait for internal services to finish warming. Never declare deploy success until the readiness gates pass.
+`docker compose up -d` returns once its `depends_on` conditions are met; it does
+not wait for the services behind them to finish warming internally. Never declare
+deploy success until the readiness gates pass.
 
 ### Step 5b — Wait until the stack is actually healthy
 
