@@ -290,11 +290,19 @@ Start it in the background, writing to a log, then poll:
 
 ```bash
 cd $REPO/deploy/docker
-# Background tool call, NOT a foreground one. If your runtime offers a
-# background execution flag, use it; otherwise detach with setsid/nohup.
-docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d \
-  > /tmp/vss-up.log 2>&1
+setsid docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml \
+  up -d > /tmp/vss-up.log 2>&1 < /dev/null &
+echo "launched pid $!"
 ```
+
+**`setsid` is mandatory, and a background tool call is not a substitute for
+it.** A backgrounded tool call is still a child of the agent session: when the
+session ends, the process group is signalled and the deploy dies partway
+through, typically leaving the GPU services up and everything gated behind
+them missing. Measured directly: an arm that used `setsid` reached 30
+containers and 6/6 checks, while an otherwise identical arm that used a plain
+background call reached 16 containers and 2/6. `setsid` detaches into a new
+session so the deploy survives.
 
 Then poll in bounded steps until the container count stops changing:
 
