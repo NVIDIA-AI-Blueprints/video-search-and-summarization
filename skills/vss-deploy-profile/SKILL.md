@@ -146,6 +146,39 @@ into `generated.env`. Map the result against the chosen mode: missing
 or invalid required credentials/endpoints are blockers, optional credentials
 are not.
 
+### Step 0b — Start the image pull now, in the background
+
+The images do not depend on anything decided in Steps 1 to 3, and pulling them
+is the longest genuinely useful thing this deploy does. Started here it runs
+underneath the reasoning in Steps 1 to 4 instead of after it. Started at Step 5
+it runs while nothing else can.
+
+Issue this as **one background tool call** and move straight on to Step 1. Do
+not wait for it, do not poll it, and do not re-run it at Step 5: `up -d` reuses
+the layer cache.
+
+`$PROFILE` is not set yet -- Step 1c is what introduces it. Substitute the
+profile you routed to in Step 1 directly, e.g. `dev-profile-lvs`:
+
+```bash
+cd "$REPO/deploy/docker" && VSS_APPS_DIR="$PWD" docker compose \
+  --env-file "developer-profiles/dev-profile-<profile>/.env" \
+  --env-file "developer-profiles/dev-profile-<profile>/overrides.env" \
+  pull --ignore-pull-failures > /tmp/vss-pull.log 2>&1
+```
+
+No `-f` is needed: `deploy/docker/compose.yml` is picked up from the working
+directory, and the two env files supply `COMPOSE_PROFILES` so only this
+profile's services are selected.
+
+`--ignore-pull-failures` is required. `docker compose pull` is otherwise
+all-or-nothing: a single unresolvable reference marks every other image
+`Interrupted` and the call downloads nothing.
+
+This runs before `generated.env` exists, so it pulls the profile's checked-in
+defaults. Any image whose coordinate changes in Step 2 is simply pulled again
+at Step 5; nothing is lost.
+
 ### Step 1 — Gather context
 
 Before building env overrides, confirm:
