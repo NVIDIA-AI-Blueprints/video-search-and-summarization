@@ -106,6 +106,22 @@ If the smoke test fails, do not proceed; open
 [`references/prerequisites.md`](references/prerequisites.md#preflight)
 for the remediation tree.
 
+## RT-VLM image coordinates
+
+Every profile that runs `rtvi-vlm` (`base`, `alerts`, `lvs`, `search`,
+`warehouse`, `smartcities`) pins its image in that profile's `overrides.env`:
+
+```
+VSS_RT_VLM_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm
+VSS_RT_VLM_TAG=3.3.0-26.08.2
+```
+
+Those are the names Compose interpolates
+(`services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`). **`RTVI_VLM_IMAGE_TAG`
+is read by no compose file**; profiles that set it were relying on the Compose
+default, which resolves to a private ghcr repository and returns HTTP 403 even
+after a successful `docker login`. Do not reintroduce it.
+
 ## Model Selection
 
 - `$LLM_REMOTE_URL` / `$VLM_REMOTE_URL` if the user asks for remote
