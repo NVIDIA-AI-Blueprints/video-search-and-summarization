@@ -65,7 +65,7 @@ services:
       start_period: 5s
     depends_on:
       centralizedb:
-        condition: service_healthy
+        condition: service_started
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false

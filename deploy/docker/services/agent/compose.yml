@@ -227,7 +227,7 @@ services:
         condition: service_healthy
         required: false
       rtvi-vlm:
-        condition: service_healthy
+        condition: service_started
         required: false
       rtvi-embed:
         condition: service_healthy
@@ -236,7 +236,7 @@ services:
         condition: service_healthy
         required: false
       lvs-server:
-        condition: service_healthy
+        condition: service_started
         required: false
 
 volumes:

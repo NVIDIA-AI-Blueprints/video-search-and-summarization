@@ -63,7 +63,7 @@ services:
       start_period: 2s
     depends_on:
       sensor-ms:
-        condition: service_healthy
+        condition: service_started
         required: false
       sensor-ms-2d:
         condition: service_healthy

@@ -24,7 +24,7 @@ services:
     restart: always
     depends_on:
       vss-agent:
-        condition: service_healthy
+        condition: service_started
     environment:
       RUN_APP_NAME: nv-metropolis-bp-vss-ui
       NEXT_PUBLIC_APP_TITLE: '${NEXT_PUBLIC_APP_TITLE:-VSS BLUEPRINT}'

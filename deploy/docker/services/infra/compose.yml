@@ -147,7 +147,7 @@ services:
       "
     depends_on:
       elasticsearch:
-        condition: service_healthy
+        condition: service_started
     restart: "on-failure:5"
 
   kafka:
@@ -231,7 +231,7 @@ services:
         {"name": "mdx-embed-filtered"}]'
     depends_on:
       kafka:
-        condition: service_healthy
+        condition: service_started
     command: "bash /usr/bin/create-kafka-topics.sh"  
 
   redis:
@@ -258,7 +258,7 @@ services:
       - ${KIBANA_HOST_PORT:-5601}:5601
     depends_on:
       elasticsearch:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5601/kibana/api/status"]
       interval: 10s
