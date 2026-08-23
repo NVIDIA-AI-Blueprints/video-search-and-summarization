@@ -1,0 +1,5 @@
+# Paths under services/rtvi/rt-vlm/ that are not copied into the VLM image.
+# docker/ remains deliberate build input: changing Dockerfile must rebuild.
+README.md
+tests/
+.ignore_source_code_check

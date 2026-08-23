@@ -236,6 +236,18 @@ BUILD_DIR="$REPO/_builds/<name>"
 FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
 FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 
+if command -v uv >/dev/null 2>&1; then
+  VSS_SKILL_PY=(uv run)
+elif python3 - <<'PY' >/dev/null 2>&1
+import yaml
+PY
+then
+  VSS_SKILL_PY=(python3)
+else
+  echo "Install uv or install PyYAML for python3 before normalizing resolved.yml." >&2
+  exit 1
+fi
+
 env_args=(
   --env-file "$REPO/deploy/docker/containers.env"
   --env-file "$FOUNDATION_DIR/.env"
@@ -247,10 +259,10 @@ docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
 
-uv run "$REPO/skills/vss-build-vision-agent/scripts/normalize_resolved_yml.py" \
+"${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-agent/scripts/normalize_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml"
 
-uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
+"${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 ```
 
@@ -287,7 +299,19 @@ rerun normalization and validation. Escaped container-shell variables such as
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
 
-uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
+if command -v uv >/dev/null 2>&1; then
+  VSS_SKILL_PY=(uv run)
+elif python3 - <<'PY' >/dev/null 2>&1
+import yaml
+PY
+then
+  VSS_SKILL_PY=(python3)
+else
+  echo "Install uv or install PyYAML for python3 before validating resolved.yml." >&2
+  exit 1
+fi
+
+"${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 
 docker compose -f "$BUILD_DIR/resolved.yml" config --quiet

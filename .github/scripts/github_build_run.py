@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Publish immutable GHCR candidate coordinates after downstream CI passes."""
+"""Locate and await the Build Dev Images run that publishes a commit's GHCR set.
+
+Shared by the downstream gate. Polls the workflow-run API for the run matching an
+exact commit and ref, and reports success only on a terminal successful conclusion.
+"""
 from __future__ import annotations
 
-import argparse
-import io
 import json
 import os
 import re
-import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import zipfile
-from pathlib import Path
 from typing import Any
 
-MARKER = "<!-- vss-ghcr-candidates -->"
 API_ROOT = "https://api.github.com"
-COMMENT_PAGE_SIZE = 100
-MAX_COMMENT_PAGES = 100
 MAX_API_RESPONSE_BYTES = 64 * 1024 * 1024
-MAX_RELEASE_SET_BYTES = 8 * 1024 * 1024
 
 
 class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -80,68 +75,6 @@ def enforce_memory_ceiling() -> None:
     if hard != resource.RLIM_INFINITY:
         requested = min(requested, hard)
     resource.setrlimit(resource.RLIMIT_AS, (requested, requested))
-
-
-def pr_number(ref_name: str) -> int | None:
-    match = re.fullmatch(r"pull-request/(\d+)", ref_name)
-    return int(match.group(1)) if match else None
-
-
-def candidate_entries(release_set: dict[str, Any]) -> list[dict[str, Any]]:
-    return sorted(
-        (
-            entry
-            for entry in release_set.get("images", [])
-            if entry.get("strategy") == "build"
-            and str(entry.get("image", "")).startswith("ghcr.io/")
-        ),
-        key=lambda entry: str(entry.get("name", "")),
-    )
-
-
-def moving_alias(tag: str) -> str:
-    suffix_pattern = r"(?P<suffix>-[A-Za-z0-9_.-]+)?"
-    match = re.fullmatch(rf"develop-[0-9a-f]{{7,40}}{suffix_pattern}", tag)
-    if match:
-        return f"develop-latest{match.group('suffix') or ''}"
-    match = re.fullmatch(
-        rf"pr-(?P<number>\d+)-[0-9a-f]{{7,40}}{suffix_pattern}",
-        tag,
-    )
-    if not match:
-        return ""
-    return f"pr-{match.group('number')}-latest{match.group('suffix') or ''}"
-
-
-def render_comment(release_set: dict[str, Any], sha: str) -> str:
-    entries = candidate_entries(release_set)
-    lines = [
-        MARKER,
-        "## GHCR candidates validated downstream",
-        "",
-        f"Downstream validation passed for commit `{sha}`.",
-        f"Release set: `{release_set.get('release_set_id', 'unknown')}`",
-        "",
-    ]
-    if not entries:
-        lines.append("No GHCR image was rebuilt for this commit.")
-    else:
-        lines.append("Immutable candidates:")
-        for entry in entries:
-            lines.append(
-                f"- `{entry['name']}`: "
-                f"`{entry['image']}:{entry['tag']}@{entry['digest']}`"
-            )
-            alias = moving_alias(str(entry["tag"]))
-            if alias:
-                lines.append(f"  - developer alias: `{entry['image']}:{alias}`")
-    lines.extend(
-        [
-            "",
-            "These tags are immutable. Promotion copies the same manifest digests to NGC; it does not rebuild them.",
-        ]
-    )
-    return "\n".join(lines)
 
 
 class GitHubApi:
@@ -227,7 +160,7 @@ def select_release_set_run(
     )
 
 
-def download_release_set(
+def await_build_run(
     api: GitHubApi,
     repository: str,
     sha: str,
@@ -235,6 +168,12 @@ def download_release_set(
     attempts: int,
     interval_seconds: int,
 ) -> dict[str, Any]:
+    """Block until Build Dev Images succeeds for this exact commit and ref.
+
+    Returns the run. Raises on a terminal failure conclusion, or once the
+    polling budget is exhausted. The run's success is the completion signal:
+    the release set it publishes is consumed inside that workflow, not here.
+    """
     query = urllib.parse.urlencode(
         {"head_sha": sha, "branch": ref_name, "per_page": 100}
     )
@@ -260,7 +199,7 @@ def download_release_set(
                 # has finished and will never publish a release set.
                 raise RuntimeError(
                     f"GHCR build run {run.get('id')} for {sha[:12]} on {ref_name} "
-                    f"concluded {conclusion!r}; it will not produce a release set. "
+                    f"concluded {conclusion!r}; its GHCR images were not published. "
                     f"See {run.get('html_url') or 'the Build Dev Images run'}."
                 )
             # Present but not finished: keep waiting.
@@ -280,138 +219,6 @@ def download_release_set(
             f"{interval_seconds}s intervals"
         )
 
-    return download_release_set_artifact(api, repository, int(run["id"]))
+    return run
 
 
-def download_release_set_artifact(
-    api: GitHubApi, repository: str, run_id: int
-) -> dict[str, Any]:
-    artifacts = api.request(
-        "GET",
-        f"/repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100",
-    ).get("artifacts", [])
-    artifact = next(
-        (
-            item
-            for item in artifacts
-            if item.get("name") == "release-set" and not item.get("expired")
-        ),
-        None,
-    )
-    if artifact is None:
-        raise RuntimeError(f"release-set artifact missing from workflow run {run_id}")
-
-    archive = api.request("GET", artifact["archive_download_url"])
-    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
-        matches = [name for name in bundle.namelist() if name.endswith("release-set.json")]
-        if len(matches) != 1:
-            raise RuntimeError("release-set artifact has an unexpected shape")
-        if bundle.getinfo(matches[0]).file_size > MAX_RELEASE_SET_BYTES:
-            raise RuntimeError("release-set artifact is too large")
-        return json.loads(bundle.read(matches[0]))
-
-
-def upsert_comment(
-    api: GitHubApi, repository: str, number: int, body: str
-) -> None:
-    existing: dict[str, Any] | None = None
-    seen_comment_ids: set[Any] = set()
-    for page in range(1, MAX_COMMENT_PAGES + 1):
-        comments = api.request(
-            "GET",
-            f"/repos/{repository}/issues/{number}/comments"
-            f"?per_page={COMMENT_PAGE_SIZE}&page={page}",
-        )
-        if not isinstance(comments, list):
-            raise RuntimeError("GitHub comments response was not a list")
-        page_ids = {
-            comment.get("id")
-            for comment in comments
-            if isinstance(comment, dict) and comment.get("id") is not None
-        }
-        if page_ids and page_ids.issubset(seen_comment_ids):
-            raise RuntimeError("GitHub comment pagination repeated a page")
-        seen_comment_ids.update(page_ids)
-        existing = next(
-            (
-                comment
-                for comment in comments
-                if MARKER in str(comment.get("body", ""))
-            ),
-            None,
-        )
-        if existing is not None or len(comments) < COMMENT_PAGE_SIZE:
-            break
-    else:
-        raise RuntimeError(
-            f"GitHub comment pagination exceeded {MAX_COMMENT_PAGES} pages"
-        )
-    if existing:
-        api.request(
-            "PATCH",
-            f"/repos/{repository}/issues/comments/{existing['id']}",
-            {"body": body},
-        )
-        print(f"Updated GHCR candidate comment on PR #{number}.")
-    else:
-        api.request(
-            "POST",
-            f"/repos/{repository}/issues/{number}/comments",
-            {"body": body},
-        )
-        print(f"Created GHCR candidate comment on PR #{number}.")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
-    parser.add_argument("--sha", default=os.environ.get("GITHUB_SHA", ""))
-    parser.add_argument("--ref-name", default=os.environ.get("GITHUB_REF_NAME", ""))
-    parser.add_argument("--attempts", type=int, default=20)
-    parser.add_argument("--interval-seconds", type=int, default=15)
-    parser.add_argument("--release-set", type=Path)
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
-
-    number = pr_number(args.ref_name)
-    if number is None:
-        print(f"{args.ref_name!r} is not a synthetic PR ref; nothing to update.")
-        return 0
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
-    api = GitHubApi(token) if token else None
-    if args.release_set:
-        release_set = json.loads(args.release_set.read_text())
-    else:
-        if api is None or not args.repository or not args.sha:
-            raise SystemExit("GITHUB_TOKEN, repository, and SHA are required")
-        release_set = download_release_set(
-            api,
-            args.repository,
-            args.sha,
-            args.ref_name,
-            args.attempts,
-            args.interval_seconds,
-        )
-    if release_set.get("source", {}).get("commit") != args.sha:
-        raise RuntimeError("release-set source commit does not match downstream SHA")
-    body = render_comment(release_set, args.sha)
-    if args.dry_run:
-        print("[ghcr-candidate-reporter] DRY RUN comment body:")
-        print(body)
-        return 0
-    if api is None:
-        raise SystemExit("GITHUB_TOKEN is required unless --dry-run is used")
-    upsert_comment(api, args.repository, number, body)
-    return 0
-
-
-if __name__ == "__main__":
-    try:
-        enforce_memory_ceiling()
-        raise SystemExit(main())
-    except Exception as exc:
-        print(
-            f"[ghcr-candidate-reporter] ERROR {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
-        raise
