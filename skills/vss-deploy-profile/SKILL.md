@@ -48,10 +48,16 @@ The deployment flow is always: copy `overrides.env` to `generated.env`, apply ov
 ```bash
 # 1. cp dev-profile-<profile>/overrides.env dev-profile-<profile>/generated.env  (clean copy)
 # 2. Apply env overrides to generated.env  (source .env and overrides.env stay untouched)
-# 3. docker compose --env-file .env --env-file generated.env config > resolved.yml  (dry-run)
+# 3. docker compose --env-file containers.env --env-file .env --env-file generated.env config > resolved.yml
 # 4. Review resolved.yml
-# 5. docker compose --env-file .env --env-file generated.env -f resolved.yml up -d
+# 5. docker compose --env-file containers.env --env-file .env --env-file generated.env -f resolved.yml up -d
 ```
+
+**There are THREE env layers and `containers.env` is the first.** It is the
+single source of truth for every first-party image coordinate, and both
+`dev-profile.sh` and `blueprint-deploy.sh` pass it. Omitting it silently drops
+every curated image default and falls back to the compose-level ones, several
+of which resolve to registries this deployment cannot pull from.
 
 `.env` is the read-only checked-in stable-default layer. `overrides.env` is the read-only checked-in profile override layer for values the deploy scripts may modify per host/profile. `generated.env` is the per-deploy working copy created from `overrides.env`. Step 1c covers this in full.
 
@@ -222,9 +228,10 @@ reference has worked examples for that profile's common scenarios.
 #   sed -i "s|^LLM_MODE=.*|LLM_MODE=remote|" "$ENV_GEN"
 #   sed -i "s|^LLM_BASE_URL=.*|LLM_BASE_URL=http://localhost:30081|" "$ENV_GEN"
 
-# Resolve compose
+# Resolve compose. containers.env FIRST; see "Instructions" above.
 cd $REPO/deploy/docker
-docker compose --env-file $ENV_SRC --env-file $ENV_GEN config > resolved.yml
+docker compose --env-file containers.env --env-file $ENV_SRC --env-file $ENV_GEN \
+  config > resolved.yml
 ```
 
 The resolved YAML is saved to `<repo>/deploy/docker/resolved.yml`.
@@ -278,12 +285,42 @@ Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 
 ### Step 5 — Deploy
 
+`up -d` does NOT return once the containers are created. It blocks until every
+`depends_on` with `condition: service_healthy` is satisfied. The `lvs` profile
+resolves to 29 services with 14 such gates, two of them model servers that take
+10 to 20 minutes on a cold cache. That is longer than an agent Bash tool can
+run, so a foreground call is killed part-way (observed: exit 143 at exactly
+2m00s) and the deploy is left half-built.
+
+Run it as a supervised detached job that records its own exit status:
+
 ```bash
 cd $REPO/deploy/docker
-docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d
+RUN_DIR=$(mktemp -d /tmp/vss-deploy-XXXXXX)          # unique; never a fixed path
+setsid bash -c "
+  docker compose --env-file containers.env --env-file $ENV_SRC --env-file $ENV_GEN \
+    -f resolved.yml up -d
+  printf '%s' \$? > $RUN_DIR/exit-code
+" > "$RUN_DIR/up.log" 2>&1 < /dev/null &
+echo "deploy log: $RUN_DIR/up.log   status: $RUN_DIR/exit-code"
 ```
 
-> **Both `--env-file` arguments are mandatory and ordered.** Without the same `.env` + `generated.env` pair used in Step 3, `COMPOSE_PROFILES` may be unset or incomplete and `up -d` can exit 0 with zero selected services.
+`setsid` puts the job in its own session so it is not signalled when the agent's
+turn ends. Verify it is present in pre-flight; it is not POSIX. Note that
+`setsid` protects against session and terminal signals, **not** against a
+harness that kills descendants by cgroup or ancestry, so this is a mitigation
+rather than a guarantee.
+
+**Use `$RUN_DIR/exit-code`, not `$!`, as the completion signal.** `$!` is the
+pid of the launcher, which may exec or fork depending on whether it is already
+a process-group leader, so it is not a reliable handle on Compose itself. The
+status file is written exactly once and is the only durable record of how the
+job ended.
+
+> **All THREE `--env-file` arguments are mandatory and ordered**, matching
+> Step 3 exactly. Drop `containers.env` and curated image coordinates revert to
+> compose-level defaults; drop the others and `COMPOSE_PROFILES` may be unset,
+> in which case `up -d` exits 0 having selected zero services.
 
 > **Avoid broad `--force-recreate` on ordinary retries** — it destroys warm
 > NIM containers (another 3–5 min torch.compile + CUDA-graph capture each).
@@ -291,7 +328,36 @@ docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d
 > use targeted `--force-recreate --no-deps <service...>` only when a profile
 > reference documents it as the recovery path.
 
-`docker compose up -d` only creates containers; it does not wait for internal services to finish warming. Never declare deploy success until the readiness gates pass.
+### Step 5a — Wait on the job, not on the container count
+
+Poll in bounded chunks and **never end your turn while the job is running**.
+Stop only when one of these is true:
+
+1. `$RUN_DIR/exit-code` exists. Read it. Non-zero means the deploy failed and
+   `$RUN_DIR/up.log` says why.
+2. A concrete terminal error appears in `$RUN_DIR/up.log`.
+3. A documented overall deadline is reached (see the profile reference).
+
+```bash
+# One bounded wait. Repeat across turns until a stop condition holds.
+timeout 540 bash -c 'until [ -s '"$RUN_DIR"'/exit-code ]; do sleep 10; done' \
+  || echo "still running after 9 min, poll again"
+[ -s "$RUN_DIR/exit-code" ] && echo "compose exited: $(cat $RUN_DIR/exit-code)"
+tail -20 "$RUN_DIR/up.log"
+docker compose -f resolved.yml ps --format '{{.Name}}\t{{.State}}' | sort
+```
+
+**Do not treat a stable container count as completion.** A health-gated deploy
+sits at an unchanged count for the entire 10 to 20 minutes a model server takes
+to load: no containers are created, none change state, and nothing is wrong.
+Anything that stops on "the count stopped changing" will declare success or
+failure part-way through a perfectly healthy deploy. Containers in `created`
+state, or with health `starting`, mean the deploy is still in progress
+regardless of how quiet things look.
+
+A zero exit code means Compose finished its own work. It does **not** mean the
+services behind those gates have finished warming internally, which is what
+Step 5b checks.
 
 ### Step 5b — Wait until the stack is actually healthy
 
