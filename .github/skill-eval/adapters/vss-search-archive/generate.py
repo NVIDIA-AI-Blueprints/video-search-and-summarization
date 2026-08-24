@@ -201,10 +201,13 @@ KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
     + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
     "redeploy, execute the example commands, inspect a cluster, or reuse the Docker "
     "deployment from earlier steps. Kubernetes and Compose use the same commands and "
-    "differ only in the origin: source listing uses that origin's public /vst route, and "
-    "search runs `vss configure --base-url <origin>` once followed by `vss search run "
-    "<path>`. Do not use kubectl, port-forward, Service DNS, NodePorts, localhost ports, "
-    "or direct Elasticsearch/RTVI access."
+    "differ only in the origin: `vss configure --base-url <origin>` runs once, source "
+    "listing is `vss vios list`, and search is `vss search run <path>`. Do not use "
+    "kubectl, port-forward, Service DNS, NodePorts, localhost ports, or direct "
+    "Elasticsearch/RTVI access. Your answer must also say what happens when the Ingress "
+    "does not expose a route: `vss configure` records it as absent, and a search path "
+    "needing it exits 4. That is the answer — do not propose exposing or forwarding the "
+    "route instead."
 )
 
 
