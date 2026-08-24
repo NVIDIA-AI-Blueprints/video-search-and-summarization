@@ -79,6 +79,7 @@ _REMOTE_PLACEMENT_KEYS = (
     "VLM_REMOTE_URL",
     "VLM_REMOTE_MODEL",
 )
+_MAX_DIRECT_EXPECTED_SERVICES = 64
 
 
 def _direct_agent_hook_documents(expected_services: object) -> tuple[str, str]:
@@ -92,6 +93,8 @@ def _direct_agent_hook_documents(expected_services: object) -> tuple[str, str]:
     ]
     if len(safe_services) != len(expected_services):
         raise ValueError("expected_services contains an unsafe service name")
+    if len(safe_services) > _MAX_DIRECT_EXPECTED_SERVICES:
+        raise ValueError("expected_services exceeds direct watchdog service limit")
     hook = (
         "python3 $HOME/video-search-and-summarization/"
         ".github/skill-eval/direct_agent_progress.py hook"
@@ -619,22 +622,18 @@ class BrevEnvironment(BaseEnvironment):
         settings, config = _direct_agent_hook_documents(
             metadata.get("expected_services", [])
         )
-        command = (
-            "mkdir -p /logs/agent/sessions && "
-            "rm -f /logs/agent/direct-progress.jsonl "
-            "/logs/agent/direct-progress-state.json && "
-            f"printf %s {shlex.quote(settings)} > "
-            "/logs/agent/sessions/settings.json && "
-            f"printf %s {shlex.quote(config)} > "
-            "/logs/agent/direct-progress-config.json"
+        agent_logs = Path("/logs/agent")
+        sessions = agent_logs / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        for stale_name in (
+            "direct-progress.jsonl",
+            "direct-progress-state.json",
+        ):
+            (agent_logs / stale_name).unlink(missing_ok=True)
+        (sessions / "settings.json").write_text(settings, encoding="utf-8")
+        (agent_logs / "direct-progress-config.json").write_text(
+            config, encoding="utf-8"
         )
-        result = await _run_brev_exec(
-            self._instance_name, command, timeout=30
-        )
-        if result.return_code != 0:
-            raise RuntimeError(
-                "direct agent progress hook installation failed"
-            )
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
