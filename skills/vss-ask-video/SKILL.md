@@ -123,9 +123,7 @@ fi
 
 No VIOS URL is built here. `vss configure` records the deployment once and every
 `vss vios` call reads it, so the sensor path never needs a host, a port or
-`/vst/api/v1`. Run it before any `vss vios` call — one without it exits 4.
-**Only if you need VIOS**: a user-supplied file or URL (Path A) never touches
-it, and on a box with no VSS deployed this step has nothing to record.
+`/vst/api/v1`. Run it now — a `vss vios` call without it exits 4:
 
 ```bash
 # The CLI lives in the VSS checkout; --extra cli is what installs it.
@@ -135,9 +133,7 @@ VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 # An array, not a string: an unquoted string does not word-split in every shell.
 VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
 
-# Path B only — skip this entirely when the user supplied the video (Path A),
-# which needs no VIOS. Once per deployment; on Docker the origin is the single
-# ingress on :7777.
+# Once per deployment. On Docker the origin is the single ingress on :7777.
 VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"
 ```
@@ -249,10 +245,12 @@ Then go straight to Step 2 — **skip the Sensor check**.
 ### Path B — resolve from VST/VIOS (optional)
 
 > **Hard rule — a question that names a sensor is Path B, and the clip URL MUST come from VST.**
-> When the question references a VST sensor/`streamId` (e.g. `warehouse_safety_0001`), obtain the
-> clip via the `/url` GET below and bind its `videoUrl` to `VIDEO_URL` — **even if a local copy of
-> the same video exists**. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
-> Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `videoUrl`.
+> When the question references a VIOS sensor (e.g. `warehouse_safety_0001`), obtain the clip with
+> `vss vios clip --sensor <name>` and bind its `media_url` to `VIDEO_URL` — **even if a local copy
+> of the same video exists**. Never hand-build a `/storage/file/<streamId>/url` call: its
+> startTime/endTime are mandatory and the only source for them is a separate `/storage/timelines`
+> read, which is the step this skill exists to remove. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
+> Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `media_url`.
 > Applies even to temporal questions ("at what timestamp…").
 >
 > **A follow-up that names no video stays on the sensor already in play.** "At what timestamp did
@@ -493,7 +491,7 @@ base64 **string** to 10M characters, which — since base64 adds ~33% — means 
 > `VIDEO_URL`) as a `video_url` block — the CLI has already normalised it onto the configured
 > origin, so an in-cluster VLM (incl. base NIM Cosmos) can fetch it as given. Never
 > inline a stray local copy as `file_base64`; do that only for a genuinely remote VLM, and only by
-> downloading *that* `videoUrl`. Applies to temporal questions too. (Enforced by the guard below.)
+> downloading *that* `media_url`. Applies to temporal questions too. (Enforced by the guard below.)
 
 On a NIM Cosmos **video block** — *both* the `video_url` path and the `file_base64` data-URI
 path — also send `mm_processor_kwargs` / `media_io_kwargs` to match the agent's frame-sampling and
@@ -569,13 +567,14 @@ if [ -z "${VLM_BACKEND:-}" ]; then
   esac
 fi
 
-# Path B guard: a VST-sourced clip is ALWAYS the VST videoUrl, never a stray local copy.
-# If this run came from VST (VST_SOURCED=1) but VIDEO_URL is empty, the VST /url GET was skipped —
-# stop and fetch it (Step 1 Path B) instead of inlining a local file as base64.
+# Path B guard: a sensor-sourced clip is ALWAYS the media_url from `vss vios clip`,
+# never a stray local copy. If this run came from a sensor (VST_SOURCED=1) but
+# VIDEO_URL is empty, Step 1 Path B was skipped — run it instead of inlining a
+# local file as base64.
 if [ "${VST_SOURCED:-0}" = "1" ] && [ -z "${VIDEO_URL:-}" ]; then
-  echo "VST-sourced clip but VIDEO_URL is empty — you skipped the VST /url GET (Path B). Fetch the clip URL first, do not inline a local copy."; exit 1
+  echo "Sensor-sourced clip but VIDEO_URL is empty — run \`vss vios clip --sensor <name>\` (Step 1 Path B) and use its media_url; do not inline a local copy."; exit 1
 fi
-# On Path B, ignore any stray local file: the VST videoUrl is the source of truth.
+# On Path B, ignore any stray local file: the minted media_url is the source of truth.
 [ "${VST_SOURCED:-0}" = "1" ] && VIDEO_FILE=""
 
 # Pick the format from the input you have (override by setting UPLOAD_FORMAT):
