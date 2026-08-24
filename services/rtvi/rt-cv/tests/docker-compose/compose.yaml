@@ -20,7 +20,7 @@
 #
 #   docker pull apache/kafka:3.9.0
 #   ngc registry login && docker pull --platform linux/amd64 nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
-# Or build RT-CV: cd ../.. && docker build -f docker/x86.Dockerfile -t rtvi-cv:3.3.0-custom-x86 .
+# Or build RT-CV: cd ../.. && docker build --platform linux/amd64 -f docker/Dockerfile -t rtvi-cv:3.3.0-custom-x86 .
 #
 # Usage:
 #   cp .env.example .env

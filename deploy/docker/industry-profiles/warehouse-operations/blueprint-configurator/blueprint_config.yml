@@ -143,13 +143,13 @@ commons:
         error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
-      - variable: PERCEPTION_TAG
+      - variable: VSS_RT_CV_TAG
         condition:
           variable: HARDWARE_PROFILE
           equals: "DGX-SPARK"
         allowed_patterns:
           - "*sbsa*"
-        error_message: "When HARDWARE_PROFILE is DGX-SPARK, PERCEPTION_TAG must contain 'sbsa'"
+        error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
       - variable: SAMPLE_VIDEO_DATASET
         when_equals: "nv-warehouse-4cams"
@@ -229,13 +229,13 @@ commons:
         error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
-      - variable: PERCEPTION_TAG
+      - variable: VSS_RT_CV_TAG
         condition:
           variable: HARDWARE_PROFILE
           equals: "DGX-SPARK"
         allowed_patterns:
           - "*sbsa*"
-        error_message: "When HARDWARE_PROFILE is DGX-SPARK, PERCEPTION_TAG must contain 'sbsa'"
+        error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
       - variable: SAMPLE_VIDEO_DATASET
         when_equals: "warehouse-4cams-20mx20m-synthetic"
@@ -300,13 +300,13 @@ commons:
         error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
-      - variable: PERCEPTION_TAG
+      - variable: VSS_RT_CV_TAG
         condition:
           variable: HARDWARE_PROFILE
           equals: "DGX-SPARK"
         allowed_patterns:
           - "*sbsa*"
-        error_message: "When HARDWARE_PROFILE is DGX-SPARK, PERCEPTION_TAG must contain 'sbsa'"
+        error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
       - variable: SAMPLE_VIDEO_DATASET
         when_equals: "warehouse-4cams-20mx20m-synthetic"
@@ -538,6 +538,13 @@ commons:
           msg-broker-config: "${msg-broker-config}"
           msg-broker-proto-lib: "${msg-broker-proto-lib}"
           latency: "${ds_config_latency}"
+
+      # Update DeepStream YAML config to avoid rebuilding the engine when the batch size changes
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/ds-pgie-config.yml"
+        backup: true
+        updates:
+          property.model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b${final_stream_count}_gpu0_fp16.engine
 
       # Update NVStreamer configs
       - operation_type: "json_update"

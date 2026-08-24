@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). <br>
+Use when the user asks to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -62,7 +62,7 @@ Reported benchmark dimensions: <br>
 | Efficiency | N/A | N/A | N/A |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+3.2.1 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

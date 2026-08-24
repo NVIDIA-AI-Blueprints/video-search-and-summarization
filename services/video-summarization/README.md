@@ -179,6 +179,10 @@ export RTVI_VLM_URL=http://rtvi-vlm:8000     # URL of the RT-VLM service
 # Optional: override the default local RT-VLM image
 # export RTVI_VLM_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
 
+# RT-VLM model backend (mandatory when using `--profile rtvi`; no default —
+# rtvi-vlm refuses to start without it, see "RT-VLM model configuration" below)
+export VLM_MODEL_TO_USE=<>         # e.g. "cosmos-reason3" for local inference, or "openai-compat"
+
 # Optional — Secrets
 export HF_TOKEN=<>                 # HuggingFace token for gated models
 export OPENAI_API_KEY=<>           # OpenAI-compatible endpoint swaps
@@ -300,6 +304,22 @@ docker compose -f docker/deploy/compose.yaml --profile kafka up
 # Both RT-VLM and Kafka:
 docker compose -f docker/deploy/compose.yaml --profile rtvi --profile kafka up
 ```
+
+#### RT-VLM model configuration
+
+`--profile rtvi` has no default model — `VLM_MODEL_TO_USE` is mandatory and `rtvi-vlm`
+refuses to start without it (it used to silently fall back to `openai-compat` with an
+unset OpenAI endpoint and a placeholder API key, so it reported readiness while every
+inference call failed with a 401 from `api.openai.com`). Pick one:
+
+- **Local inference** — set `VLM_MODEL_TO_USE` to a local backend (e.g. `cosmos-reason3`)
+  and set `MODEL_PATH` to the model to load (e.g.
+  `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`).
+- **OpenAI-compatible endpoint** — set `VLM_MODEL_TO_USE=openai-compat`, and set both
+  `VIA_VLM_ENDPOINT` (there is no default endpoint) and `OPENAI_API_KEY` or
+  `RTVI_VLM_API_KEY` (falls back to `NGC_CLI_API_KEY`) to a real credential.
+  Note: set `RTVI_VLM_API_KEY` on the host — Compose maps it to the container's
+  `VIA_VLM_API_KEY`; setting `VIA_VLM_API_KEY` on the host has no effect.
 
 Logs will show the ports the services are running at. The LVS API defaults to port `38111`.
 

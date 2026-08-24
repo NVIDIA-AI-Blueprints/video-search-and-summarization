@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -116,6 +118,42 @@ class ManifestValidationTest(unittest.TestCase):
         manifest = inspect_manifest("ghcr.io/org/vss/image:tag", runner)
         self.assertEqual(manifest["digest"], DIGEST)
         self.assertEqual(commands[0][0:4], ["docker", "buildx", "imagetools", "inspect"])
+
+
+class WorkflowTagSuffixInvocationTest(unittest.TestCase):
+    """A tag suffix starts with '-', so it must be passed as --tag-suffix=VALUE.
+
+    With a space, argparse reads the leading '-' as the start of another option
+    and dies with "argument --tag-suffix: expected one argument", failing every
+    variant build before it starts.
+    """
+
+    def test_workflow_passes_tag_suffix_with_equals(self):
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows" / "build-dev-images.yml"
+        ).read_text()
+        self.assertNotIn('--tag-suffix "', workflow)
+        self.assertIn('--tag-suffix="', workflow)
+
+    def test_leading_dash_suffix_parses_in_equals_form(self):
+        import container_build_plan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "github-output"
+            out.touch()
+            argv = [
+                "container_build_plan.py", "metadata",
+                "--ref-name", "pull-request/1", "--commit-sha", "0" * 40,
+                "--owner", "NVIDIA-AI-Blueprints", "--image-name", "vss-rt-cv",
+                "--tree-sha", "a" * 40, "--tag-suffix=-sbsa",
+                "--github-output", str(out),
+            ]
+            with unittest.mock.patch.object(sys, "argv", argv):
+                self.assertEqual(container_build_plan.main(), 0)
+            written = out.read_text()
+
+        self.assertIn("tag=pr-1-000000000000-sbsa", written)
+        self.assertIn(f"content_tag=tree-{'a' * 40}-sbsa", written)
 
 
 if __name__ == "__main__":
