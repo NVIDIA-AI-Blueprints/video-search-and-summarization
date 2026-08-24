@@ -14,7 +14,7 @@
 
 name: Model Routing Notebook
 
-on:
+"on":
   push:
     branches:
       - "pull-request/[0-9]+"
