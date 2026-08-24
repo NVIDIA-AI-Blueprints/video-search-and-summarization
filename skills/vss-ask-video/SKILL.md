@@ -149,6 +149,8 @@ host-port discovery below when `VLM_ENDPOINT` is still unset.
 Probe what's actually available — only the VLM endpoint is mandatory:
 
 ```bash
+# Each block is its own shell; define what it uses.
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 # REQUIRED: VLM endpoint reachable? (caller-provided, public /v1, or auto-discovered — see Step 2)
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
 
@@ -186,6 +188,8 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 1. List sensors (capture first — a bare pipe into `jq` would hide a failed
    `vss` behind `jq`'s exit code and read as "no sensors"):
    ```bash
+   # Each block is its own shell; define what it uses.
+   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
    set -o pipefail
    SENSORS=$("${VSS[@]}" vios list --type video) || { echo ""${VSS[@]}" vios list failed" >&2; exit 1; }
    printf '%s' "${SENSORS}" | jq -r '.sensors[].name'
@@ -205,6 +209,8 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new
    sensor appears:
    ```bash
+   # Each block is its own shell; define what it uses.
+   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
    # The filename becomes the sensor name, so it must have no whitespace; the CLI
    # rejects a non-conforming name before spending the upload on it.
    "${VSS[@]}" vios add /path/to/<filename>
@@ -265,6 +271,8 @@ path, or a `localhost` host the VLM's container cannot reach) and warms the lazy
 which this skill used to do by hand.
 
 ```bash
+# Each block is its own shell; define what it uses.
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 SENSOR_NAME='<the sensor name / filename stem the question named>'
 
 # One call: name → sensorId → main streamId → recorded range → normalised, warmed clip URL.

@@ -295,6 +295,8 @@ VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss
 2. If missing, onboard with `"${VSS[@]}" vios add rtsp://<url> --name <name>`. The CV pipeline auto-picks up the stream once registered and online.
 3. Confirm online — assert it, do not just print it:
    ```bash
+   # Each block is its own shell; define what it uses.
+   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
    set -o pipefail   # else a failed `vss` hides behind jq and reads as "absent"
    ROWS=$("${VSS[@]}" vios list --type stream --sensor <name>) || {
      echo "vss vios list failed for <name>" >&2; exit 1; }
@@ -484,6 +486,8 @@ is weaker than VIOS in one way worth stating to the user: it only contains senso
 from "that is not its stored name" — report that ambiguity instead of reporting `0`.
 
 ```bash
+# Each block is its own shell; define what it uses.
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 # 2. query — run ONE of these two, never both: the unscoped call answers a different
 #    question, and its count is the one that gets misreported as a single sensor's.
 
