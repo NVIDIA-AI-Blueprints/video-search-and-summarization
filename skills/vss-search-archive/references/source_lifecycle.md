@@ -58,10 +58,11 @@ resolve_search_indexes() {
 }
 ```
 
-Do not call `resolve_search_indexes` on a fresh stack. Indexes are created
-lazily by ingestion. After every intended upload completes, re-run
-`vss configure --base-url "${VSS_ORIGIN}"`, refresh `CONFIG_JSON`, and call
-`resolve_search_indexes` before readiness checks.
+Indexes are created lazily by ingestion, so `resolve_search_indexes` fails on a
+fresh stack and keeps failing until the embedding index exists. Never call it
+once and treat the failure as fatal — pair it with `vss configure --base-url
+"${VSS_ORIGIN}"` inside the bounded readiness wait below, so each pass re-reads
+the deployment and a late-created index is picked up.
 Never use `ELASTIC_SEARCH_INDEX`, an index template, or a guessed date in place
 of `vss configure show`.
 
@@ -321,26 +322,37 @@ bounded wait:
 ```bash
 : "${WAREHOUSE_SAMPLE_SENSOR:?preserve warehouse_sample upload sensorId}"
 : "${WAREHOUSE_LADDER_SENSOR:?preserve warehouse-ladder upload sensorId}"
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
-resolve_search_indexes || exit 1
 : "${SEARCH_READINESS_DEADLINE:?initialize once when source setup begins}"
 while :; do
-  SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
-    "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
-  LADDER_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
-    "${WAREHOUSE_LADDER_SENSOR}" 2>/dev/null || echo 0)
-  LADDER_BEHAVIOR_COUNT=$(index_count "${BEHAVIOR_INDEX}" sensor.id.keyword \
-    warehouse-ladder 2>/dev/null || echo 0)
-  LADDER_RAW_COUNT=$(index_count "${RAW_INDEX}" sensorId.keyword \
-    warehouse-ladder 2>/dev/null || echo 0)
-  if (( SAMPLE_EMBED_COUNT > 0 && LADDER_EMBED_COUNT > 0 &&
-        LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )); then
-    break
+  # Re-read the deployment every pass. Indexes are created lazily by ingestion,
+  # so `configure` + `resolve_search_indexes` run inside this wait, not before
+  # it: resolving once while the embedding index does not yet exist fails
+  # outright and never reaches the document counts below.
+  if "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" >/dev/null 2>&1 &&
+     resolve_search_indexes; then
+    SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
+      "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
+    LADDER_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
+      "${WAREHOUSE_LADDER_SENSOR}" 2>/dev/null || echo 0)
+    LADDER_BEHAVIOR_COUNT=$(index_count "${BEHAVIOR_INDEX}" sensor.id.keyword \
+      warehouse-ladder 2>/dev/null || echo 0)
+    LADDER_RAW_COUNT=$(index_count "${RAW_INDEX}" sensorId.keyword \
+      warehouse-ladder 2>/dev/null || echo 0)
+    if (( SAMPLE_EMBED_COUNT > 0 && LADDER_EMBED_COUNT > 0 &&
+          LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )); then
+      break
+    fi
   fi
   CURRENT_EPOCH=$(date +%s)
   (( CURRENT_EPOCH < SEARCH_READINESS_DEADLINE )) || break
   sleep 15
 done
+# Fail loudly if the wait expired without the indexes appearing, rather than
+# falling through with EMBED_INDEX unset into a search that reads nothing.
+resolve_search_indexes || {
+  echo "search indexes never appeared before the deadline (embedding index missing)" >&2
+  exit 1
+}
 printf 'indexes=%s,%s,%s sensors=%s,%s counts=%s,%s,%s,%s\n' \
   "${EMBED_INDEX}" "${BEHAVIOR_INDEX}" "${RAW_INDEX}" \
   "${WAREHOUSE_SAMPLE_SENSOR}" "${WAREHOUSE_LADDER_SENSOR}" \
