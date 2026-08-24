@@ -1,7 +1,13 @@
+import logging
+
 from fastapi import FastAPI, HTTPException
 
 from app.agent import run_agent_async
 from app.config import get_settings
+from app.models import InvocationRequest
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ava.agent.server")
 
 app = FastAPI(title="video-analysis-agent")
 
@@ -12,13 +18,11 @@ async def health() -> dict:
 
 
 @app.post("/invocations")
-async def invocations(payload: dict) -> dict:
-    question = payload.get("question")
-    video_ids = payload.get("video_ids", [])
-    if not question or not isinstance(question, str):
-        raise HTTPException(status_code=400, detail="'question' is required")
-
+async def invocations(request: InvocationRequest) -> dict:
+    logger.info("invocation video_ids=%s question_len=%d", request.video_ids, len(request.question))
     try:
-        return await run_agent_async(question, [str(v) for v in video_ids])
+        answer = await run_agent_async(request.question, request.video_ids)
+        return answer.model_dump()
     except Exception as exc:
+        logger.exception("agent invocation failed")
         raise HTTPException(status_code=500, detail=f"Agent failure: {exc}") from exc

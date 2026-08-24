@@ -2,15 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.dependencies import get_current_user
 from app.models.video import (
+    ChatRequest,
+    ChatResponse,
     VideoCreatedResponse,
     VideoListResponse,
     VideoMetadata,
 )
-from app.services.agent_client import AgentClientError
+from app.services.agent_client import AgentClientError, ask_agent
 from app.services.db import VideoRepository
 from app.services.storage import StorageService
 
-router = APIRouter(prefix="/v1/videos", tags=["videos"])
+router = APIRouter(prefix="/videos", tags=["videos"])
 
 _db = VideoRepository()
 _storage = StorageService()
@@ -64,3 +66,18 @@ async def get_stream_url(video_id: str, user: dict = Depends(get_current_user)) 
     if video is None:
         raise HTTPException(status_code=404, detail="Video not found")
     return {"url": _storage.media_stream_url(video.owner_id, video.video_id, video.filename)}
+
+
+@router.post("/{video_id}/chat", response_model=ChatResponse)
+async def chat_with_video(
+    video_id: str, request: ChatRequest, user: dict = Depends(get_current_user)
+) -> ChatResponse:
+    video = _db.get(user["user_id"], video_id)
+    if video is None:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if video.status != "READY":
+        raise HTTPException(status_code=409, detail=f"Video is not ready ({video.status})")
+    try:
+        return await ask_agent(request.question, [video_id])
+    except AgentClientError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

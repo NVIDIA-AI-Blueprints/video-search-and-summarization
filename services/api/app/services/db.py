@@ -19,26 +19,34 @@ class VideoRepository:
     """
 
     def __init__(self) -> None:
-        settings = get_settings()
-        endpoint = os.environ.get("DYNAMODB_ENDPOINT_URL")
-        resource = boto3.resource(
-            "dynamodb",
-            region_name=settings.aws_region,
-            endpoint_url=endpoint,
-        )
-        self._table = resource.Table(settings.videos_table)
+        self._table = None
+
+    @property
+    def table(self):
+        if self._table is None:
+            settings = get_settings()
+            resource = boto3.resource(
+                "dynamodb",
+                region_name=settings.aws_region,
+                endpoint_url=os.environ.get("DYNAMODB_ENDPOINT_URL"),
+            )
+            self._table = resource.Table(settings.videos_table)
+        return self._table
 
     def create(self, video: VideoMetadata) -> VideoMetadata:
-        self._table.put_item(Item=video.model_dump())
+        item = video.model_dump()
+        item["pk"] = f"USER#{video.owner_id}"
+        item["sk"] = f"VIDEO#{video.video_id}"
+        self.table.put_item(Item=item)
         return video
 
     def get(self, owner_id: str, video_id: str) -> VideoMetadata | None:
-        response = self._table.get_item(Key={"pk": f"USER#{owner_id}", "sk": f"VIDEO#{video_id}"})
+        response = self.table.get_item(Key={"pk": f"USER#{owner_id}", "sk": f"VIDEO#{video_id}"})
         item = response.get("Item")
         return _deserialize(item) if item else None
 
     def list_for_owner(self, owner_id: str, limit: int = 100) -> list[VideoMetadata]:
-        response = self._table.query(
+        response = self.table.query(
             KeyConditionExpression=Key("pk").eq(f"USER#{owner_id}"),
             FilterExpression=Attr("entity_type").eq("video"),
             Limit=limit,
@@ -49,7 +57,7 @@ class VideoRepository:
     def update_fields(self, owner_id: str, video_id: str, fields: dict[str, Any]) -> None:
         expr_names = {f"#{k}": k for k in fields}
         update_expr = "SET " + ", ".join(f"#{k} = :{k}" for k in fields)
-        self._table.update_item(
+        self.table.update_item(
             Key={"pk": f"USER#{owner_id}", "sk": f"VIDEO#{video_id}"},
             UpdateExpression=update_expr,
             ExpressionAttributeNames=expr_names,
@@ -57,4 +65,4 @@ class VideoRepository:
         )
 
     def delete(self, owner_id: str, video_id: str) -> None:
-        self._table.delete_item(Key={"pk": f"USER#{owner_id}", "sk": f"VIDEO#{video_id}"})
+        self.table.delete_item(Key={"pk": f"USER#{owner_id}", "sk": f"VIDEO#{video_id}"})

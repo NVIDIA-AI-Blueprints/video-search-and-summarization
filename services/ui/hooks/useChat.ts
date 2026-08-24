@@ -20,7 +20,7 @@ export function useChat(videoId: string) {
       setMessages((prev) => [...prev, { role: "user", text: question }]);
       setBusy(true);
       try {
-        const response = await api.chat(question, [videoId]);
+        const response = await api.chatWithVideo(videoId, question);
         setMessages((prev) => [
           ...prev,
           { role: "assistant", text: response.answer, citations: response.citations },

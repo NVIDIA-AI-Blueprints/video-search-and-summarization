@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "video-analysis-api"
-    environment: str = "local"
+    environment: str = "dev"
 
     aws_region: str = "us-east-1"
     media_bucket: str = "ava-media-dev"

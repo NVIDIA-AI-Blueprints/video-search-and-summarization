@@ -2,13 +2,21 @@
 
 - [Architecture](./architecture.md) — system overview, service map, pipeline contract
 - [Migration plan](./migration-plan.md) — disposition of legacy NVIDIA VSS code, ports checklist, risks
+- [Local development](./local-development.md) — docker compose, environment variables, test commands
 
-## Quick start (local)
+## Quick start (docker compose)
+
+```bash
+cd infrastructure/docker
+docker compose up --build
+```
+
+## Quick start (manual)
 
 ```bash
 # API
 cd services/api && pip install -r requirements.txt
-DYNAMODB_ENDPOINT_URL=http://localhost:8000 uvicorn app.main:app --reload
+DYNAMODB_ENDPOINT_URL=http://localhost:8001 uvicorn app.main:app --reload
 
 # Agent
 cd services/agent && pip install -r requirements.txt

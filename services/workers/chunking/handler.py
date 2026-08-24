@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import os
-
-from workers.common.artifacts import ArtifactStore, ChunkRecord, VisualEvent, TranscriptSegment
+from workers.common.artifacts import (
+    ArtifactStore,
+    ChunkRecord,
+    TranscriptSegment,
+    VisualEvent,
+)
 
 MAX_CHUNK_MS = 30_000
 MIN_CHUNK_MS = 8_000
@@ -80,4 +83,4 @@ def _boundaries(transcript: list[TranscriptSegment], visual: list[VisualEvent]) 
     return sorted(e for e in edges if e <= video_end)
 
 
-__all__ = ["lambda_handler", "build_chunks"]
+__all__ = ["build_chunks", "lambda_handler"]

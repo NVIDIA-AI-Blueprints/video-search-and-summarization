@@ -2,9 +2,9 @@ import json
 from typing import Any
 
 import jwt
-from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import PyJWKClient
 
 from app.core.config import get_settings
 
@@ -38,7 +38,10 @@ def verify_token(token: str) -> dict[str, Any]:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> dict[str, Any]:
+    settings = get_settings()
     if credentials is None:
+        if settings.environment == "local":
+            return local_dev_user()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer token",

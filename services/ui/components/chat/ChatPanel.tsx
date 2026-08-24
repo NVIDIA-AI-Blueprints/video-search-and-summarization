@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CitationChip } from "@/components/CitationChip";
-import type { Citation } from "@/lib/types";
+import { Citation } from "@/components/chat/Citation";
+import type { Citation as CitationType } from "@/lib/types";
 
 export function ChatPanel({
   messages,
@@ -10,10 +10,10 @@ export function ChatPanel({
   onSend,
   onCitationClick,
 }: {
-  messages: { role: "user" | "assistant"; text: string; citations?: Citation[] }[];
+  messages: { role: "user" | "assistant"; text: string; citations?: CitationType[] }[];
   busy: boolean;
   onSend: (question: string) => void;
-  onCitationClick?: (citation: Citation) => void;
+  onCitationClick?: (citation: CitationType) => void;
 }) {
   const [draft, setDraft] = useState("");
 
@@ -35,7 +35,7 @@ export function ChatPanel({
             {message.citations && message.citations.length > 0 && (
               <div className="chat-citations">
                 {message.citations.map((citation, cIndex) => (
-                  <CitationChip key={cIndex} citation={citation} onClick={onCitationClick} />
+                  <Citation key={cIndex} citation={citation} onClick={onCitationClick} />
                 ))}
               </div>
             )}

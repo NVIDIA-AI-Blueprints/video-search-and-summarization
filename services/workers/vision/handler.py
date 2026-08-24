@@ -8,10 +8,8 @@ import shutil
 import subprocess
 import tempfile
 
-import boto3
-
 from workers.common.artifacts import ArtifactStore, VisualEvent, video_id_from_s3_key
-
+from workers.common.timeutil import seconds_to_ms
 
 FRAME_INTERVAL_SECONDS = 5.0
 MAX_FRAMES = 120
@@ -45,7 +43,7 @@ def extract_frames(local_video: str, interval: float = FRAME_INTERVAL_SECONDS,
     for index, name in enumerate(sorted(os.listdir(workdir))):
         if index >= max_frames:
             break
-        frames.append((index * interval, os.path.join(workdir, name)))
+        frames.append((seconds_to_ms(index * interval), os.path.join(workdir, name)))
     return frames
 
 
@@ -89,9 +87,9 @@ def cleanup(frames_dir: str) -> None:
 
 
 __all__ = [
-    "lambda_handler",
-    "extract_frames",
-    "describe_frame",
-    "VisualEvent",
     "ArtifactStore",
+    "VisualEvent",
+    "describe_frame",
+    "extract_frames",
+    "lambda_handler",
 ]

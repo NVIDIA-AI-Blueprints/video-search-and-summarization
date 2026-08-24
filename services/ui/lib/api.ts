@@ -28,7 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   createVideo: (filename: string, contentType: string) =>
     request<VideoCreated>(
-      `/v1/videos?filename=${encodeURIComponent(filename)}&content_type=${encodeURIComponent(contentType)}`,
+      `/videos?filename=${encodeURIComponent(filename)}&content_type=${encodeURIComponent(contentType)}`,
       { method: "POST" },
     ),
 
@@ -41,18 +41,24 @@ export const api = {
     if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
   },
 
-  listVideos: () => request<{ videos: VideoMetadata[] }>("/v1/videos"),
+  listVideos: () => request<{ videos: VideoMetadata[] }>("/videos"),
 
-  getVideo: (videoId: string) => request<VideoMetadata>(`/v1/videos/${videoId}`),
+  getVideo: (videoId: string) => request<VideoMetadata>(`/videos/${videoId}`),
 
-  deleteVideo: (videoId: string) => request<void>(`/v1/videos/${videoId}`, { method: "DELETE" }),
+  deleteVideo: (videoId: string) => request<void>(`/videos/${videoId}`, { method: "DELETE" }),
 
   getStreamUrl: (videoId: string) =>
-    request<{ url: string }>(`/v1/videos/${videoId}/stream-url`),
+    request<{ url: string }>(`/videos/${videoId}/stream-url`),
 
   chat: (question: string, videoIds: string[]) =>
-    request<ChatResponse>("/v1/agent/chat", {
+    request<ChatResponse>("/agent/chat", {
       method: "POST",
       body: JSON.stringify({ question, video_ids: videoIds }),
+    }),
+
+  chatWithVideo: (videoId: string, question: string) =>
+    request<ChatResponse>(`/videos/${videoId}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
     }),
 };

@@ -12,7 +12,11 @@ from urllib.parse import urlparse
 
 import boto3
 
-from workers.common.artifacts import ArtifactStore, TranscriptSegment, video_id_from_s3_key
+from workers.common.artifacts import (
+    ArtifactStore,
+    TranscriptSegment,
+    video_id_from_s3_key,
+)
 
 
 def _transcribe_client():

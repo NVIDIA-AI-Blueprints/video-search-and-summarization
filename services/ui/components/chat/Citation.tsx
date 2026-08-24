@@ -2,7 +2,7 @@
 
 import { formatTimecode, type Citation } from "@/lib/types";
 
-export function CitationChip({
+export function Citation({
   citation,
   onClick,
 }: {

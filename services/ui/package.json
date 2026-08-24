@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "^15.5.4",
@@ -14,9 +15,15 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "typescript": "^5.8.3"
+    "@vitejs/plugin-react": "^6.1.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.11"
   }
 }

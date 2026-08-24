@@ -9,7 +9,6 @@ import boto3
 
 from workers.common.artifacts import ArtifactStore
 
-
 EMBED_BATCH_SIZE = 20
 
 
@@ -48,4 +47,4 @@ def embed_text(client, model_id: str, text: str) -> list[float]:
     return json.loads(response["body"].read())["embedding"]
 
 
-__all__ = ["lambda_handler", "embed_text"]
+__all__ = ["embed_text", "lambda_handler"]

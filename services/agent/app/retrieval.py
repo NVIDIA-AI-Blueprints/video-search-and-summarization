@@ -41,19 +41,35 @@ class Chunk:
 
 class RetrievalBackend:
     def __init__(self) -> None:
-        settings = get_settings()
-        self._bucket = settings.artifacts_bucket
-        self._s3 = boto3.client("s3", region_name=settings.aws_region)
-        self._bedrock_runtime = boto3.client("bedrock-runtime", region_name=settings.aws_region)
-        self._settings = settings
+        self._settings = get_settings()
+        self._s3 = None
+        self._bedrock_runtime = None
+
+    @property
+    def settings(self):
+        return self._settings
+
+    @property
+    def s3(self):
+        if self._s3 is None:
+            self._s3 = boto3.client("s3", region_name=self._settings.aws_region)
+        return self._s3
+
+    @property
+    def bedrock_runtime(self):
+        if self._bedrock_runtime is None:
+            self._bedrock_runtime = boto3.client(
+                "bedrock-runtime", region_name=self._settings.aws_region
+            )
+        return self._bedrock_runtime
 
     # ---- artifact loading -------------------------------------------------
 
     def _load_json(self, key: str) -> Any:
         try:
-            response = self._s3.get_object(Bucket=self._bucket, Key=key)
+            response = self.s3.get_object(Bucket=self.settings.artifacts_bucket, Key=key)
             return json.loads(response["Body"].read().decode("utf-8"))
-        except self._s3.exceptions.NoSuchKey:
+        except self.s3.exceptions.NoSuchKey:
             return []
 
     def transcript(self, video_id: str) -> list[Segment]:
@@ -95,7 +111,7 @@ class RetrievalBackend:
     # ---- embedding + scoring ----------------------------------------------
 
     def embed_text(self, text: str) -> list[float]:
-        response = self._bedrock_runtime.invoke_model(
+        response = self.bedrock_runtime.invoke_model(
             modelId=self._settings.bedrock_embedding_model_id,
             body=json.dumps({"inputText": text}),
             accept="application/json",

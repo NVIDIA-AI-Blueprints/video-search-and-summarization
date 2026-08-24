@@ -1,0 +1,72 @@
+name: ava-local
+
+services:
+  ui:
+    build:
+      context: ../../services/ui
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api:
+    build:
+      context: ../../services/api
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: local
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local}
+      DYNAMODB_ENDPOINT_URL: http://dynamodb-local:8000
+      MEDIA_BUCKET: ava-media-dev
+      ARTIFACTS_BUCKET: ava-artifacts-dev
+      AGENT_SERVICE_URL: http://agent:8100
+      ALLOWED_ORIGINS: '["http://localhost:3000"]'
+      # Local mode skips Cognito JWT validation; set COGNITO_* to enforce auth.
+      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID:-}
+    depends_on:
+      agent:
+        condition: service_healthy
+      dynamodb-local:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  agent:
+    build:
+      context: ../../services/agent
+    ports:
+      - "8100:8100"
+    environment:
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-anthropic.claude-3-5-haiku-20241022-v1:0}
+      ARTIFACTS_BUCKET: ${ARTIFACTS_BUCKET:-ava-artifacts-dev}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8100/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8001:8000"
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]

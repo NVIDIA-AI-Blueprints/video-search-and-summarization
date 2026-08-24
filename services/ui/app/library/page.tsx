@@ -1,6 +1,6 @@
 "use client";
 
-import { VideoLibraryGrid } from "@/features/library/VideoLibraryGrid";
+import { VideoLibrary } from "@/components/video/VideoLibrary";
 import { useVideos } from "@/hooks/useVideos";
 
 export default function LibraryPage() {
@@ -8,12 +8,12 @@ export default function LibraryPage() {
 
   return (
     <main className="page">
-      <div className="cta-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ margin: 0 }}>Video Library</h1>
-        <button className="secondary" onClick={() => void refresh()}>Refresh</button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      <VideoLibraryGrid videos={videos} loading={loading} />
+      <VideoLibrary
+        videos={videos}
+        loading={loading}
+        error={error}
+        onRefresh={() => void refresh()}
+      />
     </main>
   );
 }

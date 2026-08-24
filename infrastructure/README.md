@@ -1,11 +1,21 @@
 # Infrastructure
 
+- `docker/` — local development compose stack (ui, api, agent, dynamodb-local).
 - `terraform/` — S3 media/artifact buckets, DynamoDB tables, EventBridge rule,
   Step Functions state machine, Cognito, IAM.
   Worker Lambda ARNs are injected via variables (defaults are placeholders)
   until the workers module is added.
 
 ## Usage
+
+Local stack:
+
+```bash
+cd docker && docker compose up --build
+../../scripts/create_local_tables.sh   # one time
+```
+
+AWS stack:
 
 ```bash
 ./scripts/bootstrap.sh          # init + validate + plan

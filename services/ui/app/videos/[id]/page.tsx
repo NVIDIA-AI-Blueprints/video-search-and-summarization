@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ChatPanel } from "@/components/ChatPanel";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { StatusBadge } from "@/components/StatusBadge";
-import { TranscriptViewer } from "@/components/TranscriptViewer";
-import { VideoPlayer } from "@/components/VideoPlayer";
+import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
+import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { useChat } from "@/hooks/useChat";
 import { useTranscript } from "@/hooks/useTranscript";
 import { useVideoStatus } from "@/hooks/useVideoStatus";
