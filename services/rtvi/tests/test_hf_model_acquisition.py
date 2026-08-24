@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -26,6 +27,7 @@ DOWNLOADER_PATHS = (
     ROOT / "services/rtvi/rt-vlm/src/vlm_pipeline/ngc_model_downloader.py",
 )
 SINGLE_FILE_SCRIPT = ROOT / "deploy/docker/scripts/download_hf_file.py"
+EXEC_SCRIPT = ROOT / "deploy/docker/scripts/exec_with_hf_hub.py"
 
 
 class _Logger:
@@ -231,6 +233,11 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                 self.assertEqual(
                     (model_dir / ".hf-revision").read_text().strip(), REVISION
                 )
+                self.assertEqual(model_dir.stat().st_mode & 0o777, 0o755)
+                self.assertFalse((model_dir / ".cache").exists())
+                self.assertFalse(
+                    any(path.is_symlink() for path in model_dir.rglob("*"))
+                )
                 self.assertTrue(
                     all(
                         f"/{REVISION}" in path or f"/{REVISION}/" in path
@@ -272,6 +279,11 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                 ):
                     downloader.download_model_hf(f"owner/repo@{REVISION}", root)
                 with (
+                    environment(HF_ENDPOINT="https://cache.invalid/unsupported"),
+                    self.assertRaisesRegex(ValueError, "origin"),
+                ):
+                    downloader.download_model_hf(f"owner/repo@{REVISION}", root)
+                with (
                     environment(HF_ENDPOINT=self.hub.endpoint),
                     mock.patch.object(downloader, "version", return_value="0.35.0"),
                     self.assertRaisesRegex(RuntimeError, "expected 0.36.2"),
@@ -308,6 +320,31 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                 self.assertIsNone(captured["token"])
                 self.assertNotEqual(captured["cache_dir"], os.environ.get("HF_HOME"))
                 self.assertFalse(Path(str(captured["cache_dir"])).exists())
+
+    def test_empty_compose_endpoint_restores_official_default_before_import(
+        self,
+    ) -> None:
+        for downloader in self.downloaders:
+            with (
+                self.subTest(module=downloader.__file__),
+                tempfile.TemporaryDirectory() as root,
+            ):
+                captured: dict[str, object] = {}
+
+                def fake_snapshot_download(**kwargs: object) -> str:
+                    captured.update(kwargs)
+                    Path(str(kwargs["local_dir"]), "config.json").write_text("{}\n")
+                    return str(kwargs["local_dir"])
+
+                with (
+                    environment(HF_ENDPOINT="", HF_HUB_DISABLE_XET="1"),
+                    mock.patch(
+                        "huggingface_hub.snapshot_download", fake_snapshot_download
+                    ),
+                ):
+                    downloader.download_model_hf(f"owner/repo@{REVISION}", root)
+                    self.assertNotIn("HF_ENDPOINT", os.environ)
+                self.assertIsNone(captured["endpoint"])
 
     def test_single_file_helper_uses_hf_hub_download_with_exact_revision(self) -> None:
         helper = load_module(SINGLE_FILE_SCRIPT, "download_hf_file_test")
@@ -347,6 +384,90 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                 for _, path, auth in self.hub.requests
             )
         )
+
+    def test_single_file_helper_clears_empty_compose_endpoint(self) -> None:
+        helper = load_module(SINGLE_FILE_SCRIPT, "download_hf_file_empty_test")
+        captured: dict[str, object] = {}
+
+        def fake_hf_hub_download(**kwargs: object) -> str:
+            captured.update(kwargs)
+            destination = Path(str(kwargs["local_dir"]), str(kwargs["filename"]))
+            destination.write_text("{}\n")
+            return str(destination)
+
+        with (
+            tempfile.TemporaryDirectory() as root,
+            tempfile.TemporaryDirectory() as hf_home,
+            environment(
+                HF_ENDPOINT="",
+                HF_HOME=hf_home,
+                HF_HUB_DISABLE_XET="1",
+            ),
+            mock.patch("huggingface_hub.hf_hub_download", fake_hf_hub_download),
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    str(SINGLE_FILE_SCRIPT),
+                    "--repo-id",
+                    "owner/repo",
+                    "--revision",
+                    REVISION,
+                    "--filename",
+                    "config.json",
+                    "--local-dir",
+                    root,
+                ],
+            ),
+        ):
+            self.assertEqual(helper.main(), 0)
+            self.assertNotIn("HF_ENDPOINT", os.environ)
+        self.assertIsNone(captured["endpoint"])
+
+    def test_exec_wrapper_restores_official_endpoint_for_empty_compose_value(
+        self,
+    ) -> None:
+        env = {
+            **os.environ,
+            "HF_ENDPOINT": "",
+            "HF_HUB_DISABLE_XET": "1",
+        }
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(EXEC_SCRIPT),
+                sys.executable,
+                "-c",
+                "from huggingface_hub import constants; print(constants.ENDPOINT)",
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "https://huggingface.co")
+
+    def test_exec_wrapper_normalizes_custom_endpoint_and_rejects_paths(self) -> None:
+        command = [
+            sys.executable,
+            str(EXEC_SCRIPT),
+            sys.executable,
+            "-c",
+            "from huggingface_hub import constants; print(constants.ENDPOINT)",
+        ]
+        env = {
+            **os.environ,
+            "HF_ENDPOINT": f"{self.hub.endpoint}/",
+            "HF_HUB_DISABLE_XET": "1",
+        }
+        result = subprocess.run(
+            command, env=env, check=True, capture_output=True, text=True
+        )
+        self.assertEqual(result.stdout.strip(), self.hub.endpoint)
+        env["HF_ENDPOINT"] = f"{self.hub.endpoint}/unsupported"
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("origin", result.stderr)
 
     def test_active_acquisition_configs_have_no_hardcoded_hub_transport(self) -> None:
         active_paths = (

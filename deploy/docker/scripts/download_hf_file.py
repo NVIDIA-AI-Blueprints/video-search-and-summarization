@@ -46,6 +46,7 @@ def main() -> int:
             or not parsed.netloc
             or parsed.username
             or parsed.password
+            or parsed.path not in {"", "/"}
             or parsed.query
             or parsed.fragment
         ):
@@ -53,6 +54,11 @@ def main() -> int:
                 "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
             )
         endpoint = endpoint.rstrip("/")
+        os.environ["HF_ENDPOINT"] = endpoint
+    else:
+        # An empty Compose expansion overrides huggingface_hub's official
+        # default during import even when endpoint=None is passed below.
+        os.environ.pop("HF_ENDPOINT", None)
 
     os.environ["HF_HUB_DISABLE_XET"] = "1"
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"

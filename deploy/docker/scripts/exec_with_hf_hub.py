@@ -35,12 +35,19 @@ def main() -> int:
             or not parsed.netloc
             or parsed.username
             or parsed.password
+            or parsed.path not in {"", "/"}
             or parsed.query
             or parsed.fragment
         ):
             raise SystemExit(
                 "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
             )
+        os.environ["HF_ENDPOINT"] = endpoint.rstrip("/")
+    else:
+        # Compose expands an unset variable to an empty string. In
+        # huggingface_hub==0.36.2 that overrides the official default with an
+        # unusable empty endpoint, so remove it before the client is imported.
+        os.environ.pop("HF_ENDPOINT", None)
     if len(sys.argv) < 2:
         raise SystemExit("a command is required")
     os.execvp(sys.argv[1], sys.argv[1:])
