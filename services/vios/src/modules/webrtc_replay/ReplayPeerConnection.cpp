@@ -266,7 +266,27 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
     };
     m_func["/api/v1/replay/dash/pause"] = dashControl("pause");
     m_func["/api/v1/replay/dash/resume"] = dashControl("resume");
-    m_func["/api/v1/replay/dash/seek"] = dashControl("seek");
+    m_func["/api/v1/replay/dash/seek"] = [](const Json::Value& req_info, const Json::Value& in,
+                                             Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        const std::string viewerId = in.get("viewerId", EMPTY_STRING).asString();
+        const std::string startTime = in.get("startTime", EMPTY_STRING).asString();
+        const DashStartResult result = DashSessionManager::instance().seekReplay(viewerId, startTime);
+        if (!result.success)
+        {
+            const VmsErrorCode code = replayDashStartErrorCode(result.error);
+            SET_VMS_ERROR2(code, response, result.error.c_str())
+            return code;
+        }
+        fillReplayDashResponse(result, response);
+        response["previousViewerId"] = viewerId;
+        return VmsErrorCode::NoError;
+    };
 
     m_func["/api/v1/replay/stream/start"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
