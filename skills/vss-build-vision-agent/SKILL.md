@@ -1,7 +1,7 @@
 ---
 name: vss-build-vision-agent
 description: >-
-  Add agent-ready vision capabilities — dense captioning, detection, search, alerting, summarization — to an agent or application through a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint. Use this skill when a developer or agent wants to give their app vision: pick capabilities via guided intake ("build a vision agent", "add vision capabilities") or describe them in natural language ("create a profile for streaming dense captioning", "add agentic search to my base deployment"). Route, compose, configure, and deploy stock base, alerts, LVS, or search developer profiles and lean custom combinations expressed as delta overlays using one current developer profile as the Foundation. Use this skill also when the user asks to route VSS LLM traffic through a model router, use NVIDIA Switchyard, split requests across weak and frontier models, or configure cost-based model selection.
+  Add agent-ready vision capabilities — dense captioning, detection, search, alerting, summarization — to an agent or application through a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint. Use this skill when a developer or agent wants to give their app vision: pick capabilities via guided intake ("build a vision agent", "add vision capabilities") or describe them in natural language ("create a profile for streaming dense captioning", "add agentic search to my base deployment"). Route, compose, configure, and deploy stock base, alerts, LVS, or search developer profiles and lean custom combinations expressed as delta overlays using one current developer profile as the Foundation.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -39,7 +39,6 @@ metadata:
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
-| Route LLM traffic through a model router, or ask about Switchyard / cost-based model selection | [`references/services/model-routing.md`](references/services/model-routing.md) — configuration only. It adds **no service** and changes no Compose file; the router is operator-run infrastructure. |
 | Warehouse or another industry profile | Stop: this skill currently covers developer examples only. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 

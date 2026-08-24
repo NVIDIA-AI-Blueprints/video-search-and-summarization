@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Model-routing notebook — end-to-end execution of
+# deploy/docker/scripts/deploy_model_routing.ipynb via the notebook adapter:
+# builds Switchyard from its pinned source ref, routes live requests across
+# both targets, and validates the (undeployed) VSS repoint build. CPU-only —
+# no GPU, no brev, no compose deploy.
+#
+# Same dispatch model as skills-eval.yml: mirror-branch push, with the diff
+# gate done in-job against the cumulative head...base range (a top-level
+# `paths:` filter only sees the pushed commits and silently skips on mirror
+# merge commits).
+
+name: Model Routing Notebook
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-routing-notebook-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SKILL_EVAL_PYTHON_VERSION: "3.12"
+
+jobs:
+  notebook:
+    name: deploy_model_routing.ipynb end to end
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gate on the cumulative PR diff
+        id: gate
+        run: |
+          base="$(git merge-base origin/develop HEAD)"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             || git diff --name-only "$base"...HEAD \
+                  | grep -qE '^(deploy/docker/scripts/deploy_model_routing\.ipynb|\.github/skill-eval/model-routing/|\.github/workflows/model-routing-notebook\.yml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No model-routing changes in the PR diff; skipping."
+          fi
+
+      - name: Set up notebook Python
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Prepare isolated notebook runtime
+        if: steps.gate.outputs.run == 'true'
+        env:
+          NOTEBOOK_VENV: ${{ runner.temp }}/model-routing-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 -m venv "$NOTEBOOK_VENV"
+          "$NOTEBOOK_VENV/bin/python" -m pip install --quiet --no-cache-dir \
+            nbformat nbclient ipykernel
+          echo "NOTEBOOK_VENV=$NOTEBOOK_VENV" >> "$GITHUB_ENV"
+          echo "$NOTEBOOK_VENV/bin" >> "$GITHUB_PATH"
+
+      - name: Run the notebook end to end
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # The coordinator .env holds the existing NVIDIA inference key
+          # (Anthropic-compatible name). Don't echo contents; the adapter
+          # maps it and never writes it anywhere.
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          export PATH="$NOTEBOOK_VENV/bin:$PATH"
+          hash -r
+          python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
+
+      - name: Remove isolated notebook runtime
+        if: always() && steps.gate.outputs.run == 'true'
+        run: |
+          # runner.temp is not reliably purged between jobs on self-hosted
+          # runners; leaked venvs have filled the coordinator disk before.
+          rm -rf "$NOTEBOOK_VENV"
+          docker rm -f vss-model-router-ci 2>/dev/null || true
+          rm -rf /tmp/skill-eval/model-routing
