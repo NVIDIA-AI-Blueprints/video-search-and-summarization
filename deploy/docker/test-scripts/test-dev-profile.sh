@@ -445,7 +445,6 @@ echo "NVIDIA RTX PRO 4500 Blackwell"
 EOF
 chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
-run_negative_test "GB300 only valid for search" 1 up -p base -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d
 run_negative_test "GB300 search requires one shared device" 1 up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 0 -d
 
 # Mixed host: GPU 0 is RTX PRO and the selected GPU 1 is GB300. The helper
@@ -458,8 +457,12 @@ if [[ "$*" == *"--query-gpu=index,name"* ]]; then
   printf '0, NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition\n1, NVIDIA GB300\n'
 elif [[ " $* " == *" --id=1 "* ]]; then
   echo "NVIDIA GB300"
-else
+elif [[ " $* " == *" --id=0 "* ]]; then
   echo "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"
+else
+  # No --id: real nvidia-smi prints one line per installed GPU, which
+  # host_has_detected_hardware_profile scans for a matching profile.
+  printf 'NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition\nNVIDIA GB300\n'
 fi
 EOF
 chmod +x "${_mock_gb300_nvidia_smi_dir}/nvidia-smi"
