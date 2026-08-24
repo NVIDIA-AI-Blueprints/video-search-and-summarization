@@ -580,6 +580,9 @@ fi
 # Pick the format from the input you have (override by setting UPLOAD_FORMAT):
 #   a URL        -> video_url   (the VLM fetches it)
 #   a local file -> file_base64 (inline the MP4 as a data: URI; the VLM ingests the video)
+# Both send the VIDEO. Never extract frames with ffmpeg and send them as images:
+# these VLMs do their own frame sampling, a handful of stills answers a temporal
+# question wrongly, and the frame-sampling kwargs below then apply to nothing.
 if [ -z "${UPLOAD_FORMAT:-}" ]; then
   if [ -n "${VIDEO_URL:-}" ]; then
     UPLOAD_FORMAT="video_url"
