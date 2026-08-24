@@ -1,0 +1,181 @@
+---
+title: "Model Fine Tuning"
+description: ""
+position: 1
+---
+The Smart City Blueprint uses two classes of models: computer vision models for object detection based on [RT-DETR](https://docs.nvidia.com/tao/tao-toolkit/latest/text/cv_finetuning/pytorch/object_detection/rt_detr.html) and [Mask Grounding DINO](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/mask_grounding_dino), and vision language models (VLMs) based on [NVIDIA Cosmos3 Nano Reasoner](https://docs.nvidia.com/nim/vision-language-models/1.7.0/examples/cosmos-reason3/api.html). Usage of these models is described in the Blueprint Deep Dive section [Blueprint Deep Dive ](/smartcity-docs/Blueprint-deep-dive).
+
+Users can fine tune these models to further specialize their object detection accuracy for specific object classes (for CV models). This section describes procedure for fine tuning the CV model; fine tuning recipe for the Cosmos3 Nano Reasoner model is forthcoming.
+
+## CV model fine tuning
+
+### Fine-tuning TrafficCamNet Transformer Lite with TAO RT-DETR
+
+The TrafficCamNet Transformer Lite model is based on the RT-DETR (Real-Time DEtection TRansformer)
+architecture and can be fine-tuned using NVIDIA TAO Toolkit to improve detection accuracy for
+specific traffic scenarios or new object classes.
+
+#### Prerequisites
+
+1. **NVIDIA TAO Toolkit**: Install TAO Toolkit following the [official documentation](https://docs.nvidia.com/tao/tao-toolkit/latest/index.html).
+2. **Dataset**: Prepare your dataset in COCO format with:
+
+   - Directory of training/validation images
+   - Annotation files in COCO JSON format
+   - Class mapping file (`labels.txt`)
+
+3. **NGC CLI**: Install NGC CLI following the [NGC CLI documentation](https://docs.ngc.nvidia.com/cli/index.html).
+4. **Base Model**: Download the TrafficCamNet Transformer Lite pretrained model from the TAO Model Zoo using the NGC CLI.
+
+    ```bash
+    ngc registry model download-version nvidia/trafficcamnet_transformer_lite:trainable_resnet50_v2.0 --destination /path/to/model
+    ```
+
+#### Dataset Preparation
+
+Organize your dataset in the following structure:
+
+```bash
+dataset/
+├── train/
+│   ├── images/
+│   └── annotations.json
+├── val/
+│   ├── images/
+│   └── annotations.json
+└── labels.txt
+```
+
+The annotations should follow [COCO format](https://docs.nvidia.com/tao/tao-toolkit/latest/text/data_annotation_format.html#object-detection-coco-format)
+with bounding boxes for objects like vehicles, pedestrians, and cyclists.
+
+#### Creating the Experiment Spec File
+
+Create a YAML specification file (e.g., `rtdetr_trafficcam_finetune.yaml`) with the following configuration:
+
+```yaml
+dataset:
+  train_data_sources:
+    - image_dir: /path/to/dataset/train/images
+      json_file: /path/to/dataset/train/annotations.json
+  val_data_sources:
+    image_dir: /path/to/dataset/val/images
+    json_file: /path/to/dataset/val/annotations.json
+  batch_size: 8
+  workers: 4
+  num_classes: 4  # e.g., car, person, bicycle, truck
+  augmentation:
+    multi_scales:
+    - - 480
+      - 832
+    - - 512
+      - 896
+    - - 544
+      - 960
+    - - 544
+      - 960
+    - - 544
+      - 960
+    - - 576
+      - 992
+    - - 608
+      - 1056
+    - - 672
+      - 1184
+    - - 704
+      - 1216
+    - - 736
+      - 1280
+    - - 768
+      - 1344
+    - - 800
+      - 1408
+    train_spatial_size: [544, 960]
+    eval_spatial_size: [544, 960]
+    distortion_prob: 0.8
+    iou_crop_prob: 0.8
+
+model:
+  backbone: resnet_50
+  train_backbone: true
+  pretrained_backbone_path: /path/to/trafficcamnet_transformer_lite.pth
+  num_queries: 300
+  dec_layers: 6
+  enc_layers: 1
+
+train:
+  optim:
+    lr: 0.0001
+    lr_backbone: 0.00001
+    lr_scheduler: MultiStep
+    lr_steps: [30, 45]
+    lr_decay: 0.1
+    optimizer: AdamW
+    weight_decay: 0.0001
+  num_epochs: 50
+  checkpoint_interval: 5
+  validation_interval: 5
+  num_gpus: 1
+  gpu_ids: [0]
+  pretrained_model_path: /path/to/trafficcamnet_transformer_lite.pth
+```
+
+#### Running Fine-Tuning
+
+Execute the training command:
+
+```bash
+tao model rtdetr train -e rtdetr_trafficcam_finetune.yaml \
+                       results_dir=/results/trafficcam_finetuned
+```
+
+The training process will:
+
+- Load the pretrained TrafficCamNet Transformer Lite weights
+- Fine-tune on your custom dataset
+- Save checkpoints every 5 epochs
+- Run validation every 5 epochs
+
+#### Resuming Training
+
+If training is interrupted, resume from a checkpoint:
+
+```bash
+tao model rtdetr train -e rtdetr_trafficcam_finetune.yaml \
+                       train.resume_training_checkpoint_path=/results/trafficcam_finetuned/model_epoch_020.pth
+```
+
+#### Evaluating the Fine-Tuned Model
+
+After training, evaluate the model on your validation set:
+
+```bash
+tao model rtdetr evaluate -e rtdetr_trafficcam_finetune.yaml \
+                          evaluate.checkpoint=/results/trafficcam_finetuned/model_epoch_050.pth
+```
+
+This will output mAP (mean Average Precision) and per-class detection metrics.
+
+#### Exporting for Deployment
+
+Export the fine-tuned model to ONNX format for deployment:
+
+```bash
+tao model rtdetr export -e rtdetr_trafficcam_finetune.yaml \
+                        export.checkpoint=/results/trafficcam_finetuned/model_epoch_050.pth \
+                        export.onnx_file=/results/trafficcam_finetuned.onnx \
+                        export.input_width=960 \
+                        export.input_height=544
+```
+
+The exported ONNX model can then be converted to TensorRT for optimized inference in production environments.
+
+#### Fine-Tuning Tips
+
+- **Learning Rate**: Start with a lower learning rate (0.0001) when fine-tuning from a pretrained model
+- **Data Augmentation**: Adjust `distortion_prob` and `iou_crop_prob` based on your dataset characteristics
+- **Epochs**: Monitor validation mAP; typically 30-50 epochs are sufficient for fine-tuning
+- **Backbone Freezing**: Set `train_backbone: false` to freeze backbone weights if you have limited data
+- **Multi-GPU Training**: Increase `num_gpus` and adjust `batch_size` proportionally for faster training
+
+For more detailed information on RT-DETR configuration options, refer to the [TAO RT-DETR documentation](https://docs.nvidia.com/tao/tao-toolkit/latest/text/cv_finetuning/pytorch/object_detection/rt_detr.html).

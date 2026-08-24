@@ -1,0 +1,5 @@
+Parameter,Type,Description
+_type,string,Telemetry provider (e.g. ``phoenix``)
+endpoint,string,Tracing endpoint URL (e.g. ``${PHOENIX_ENDPOINT}/v1/traces``)
+project,string,Project name for trace grouping
+

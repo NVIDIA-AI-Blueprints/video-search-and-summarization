@@ -1,0 +1,55 @@
+---
+title: "Secure Deployment"
+description: ""
+position: 4
+---
+This recipe describes a minimal network-segmentation pattern for deploying VSS
+when users, services, or networks outside a trusted administrative boundary may
+be present. It complements the current security constraints documented in
+[Known Limitations ](/Known-Limitations).
+
+## Deployment Scope
+
+VSS is intended to run inside a trusted, isolated network. Do not expose the
+Agent UI, Agent API, MCP servers, NIM endpoints, databases, brokers, or VIOS/VST
+APIs directly to the public internet or to untrusted users. Provide external
+authentication, TLS, rate limiting, and monitoring at the infrastructure layer.
+
+## Reference Segmentation Pattern
+
+Use a network boundary such as a VPN, private subnet, security group, or
+authenticated reverse proxy in front of VSS:
+
+| Network path | Allow | Block |
+| --- | --- | --- |
+| Trusted browser clients to edge proxy or VPN | HTTPS access from approved user or administrator CIDRs | Direct access from the public internet |
+| Edge proxy or VPN to VSS host | TCP `7777` for the VSS UI ingress | Direct access to Agent API, MCP, NIM, database, broker, and VIOS/VST ports |
+| VSS host to internal services | Required container, Docker bridge, or private-subnet traffic between VSS services | Traffic from untrusted networks to internal service ports |
+| Administrator workstation to VSS host | SSH or management access from approved administrator CIDRs | Broad management access from general user networks |
+
+## Recommended Controls
+
+1. Put VSS behind a VPN or authenticated reverse proxy with TLS enabled.
+2. Restrict inbound access to the VSS host to approved CIDRs and required ports
+   only, typically UI ingress on TCP `7777` and administrator SSH.
+3. Keep Agent API, MCP, NIM, database, broker, and VIOS/VST service ports on a
+   private host, Docker, Kubernetes, or VPC network.
+4. Apply rate limits and request timeouts at the proxy or gateway layer for
+   user-facing routes.
+5. Collect proxy, firewall, container, and application logs so security events
+   can be investigated.
+
+## Example Firewall Intent
+
+For a single-host developer-profile deployment, the firewall policy should read
+like this:
+
+* Allow TCP `7777` only from trusted browser-client CIDRs or from the reverse
+  proxy.
+* Allow SSH only from administrator CIDRs.
+* Keep service ports such as Agent API `8000`, VA-MCP `9901`, model-serving
+  ports, database ports, broker ports, and VIOS/VST APIs unavailable to
+  untrusted networks.
+* Allow Docker bridge or private-subnet traffic needed for VSS services to call
+  each other. If healthy containers cannot reach host services from a Docker
+  bridge network, see [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).

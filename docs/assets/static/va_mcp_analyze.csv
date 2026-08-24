@@ -1,0 +1,6 @@
+Parameter,Type,Description
+source,string,Sensor ID or place name
+source_type,string,"``sensor`` or ``place``"
+start_time,string,ISO format: ``YYYY-MM-DDTHH:MM:SS.sssZ``
+end_time,string,ISO format: ``YYYY-MM-DDTHH:MM:SS.sssZ``
+analysis_type,string,"One of: ``max_min_incidents``, ``average_speed``, ``avg_num_people``, ``avg_num_vehicles``"

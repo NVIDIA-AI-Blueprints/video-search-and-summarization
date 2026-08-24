@@ -1,0 +1,42 @@
+---
+title: "VST Replay Stream Management API"
+description: ""
+position: 3
+---
+This page provides API reference for the VST Replay Stream Service.
+
+## Overview
+
+The Replay Stream service is designed to facilitate the replay or recorded streaming of sensors. This service encompasses recorded video streaming capabilities with comprehensive control and monitoring features.
+
+## Key Features
+
+The service provides the following capabilities:
+
+- **Recorded Streaming**: Recorded streaming of sensors using WebRTC protocol
+- **Listing Recorded Streams**: The list of available recorded streams can be queried
+- **Snapshot Capturing**: Ability to capture snapshot or picture of a recorded stream
+- **Recorded Stream Monitoring**: Real-time status update for the recorded stream
+- **Trick Modes Support**: Various trick modes can be performed on the recorded stream like fast forward, rewind, seek +10, seek -10, play and pause
+- **Performance Analytics**: Ability to get stats for recorded stream to measure performance
+- **Stream Operations**: The stream supports various operations like querying the stream to get the current position and metadata of stream
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `https://localhost/api`
+
+All API endpoints are prefixed with `/v1/replay`.
+
+## Authentication
+
+The VST Replay Stream Management API uses optional bearer token authentication for endpoints that modify stream configuration or perform operations. GET requests typically do not require authentication.
+
+<Note>
+Endpoints that require authentication are marked with a security requirement in the API specification.
+</Note>
+
+## Reference
+
+OpenAPI Specification can be found [here ](/vst-replay-stream-management-api-reference).

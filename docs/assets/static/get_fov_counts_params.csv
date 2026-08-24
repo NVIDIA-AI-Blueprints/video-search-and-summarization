@@ -1,0 +1,5 @@
+Parameter,Default,Description
+get_fov_histogram_tool,(required),Tool for FOV histogram data
+chart_generator_tool,(required),Tool for chart generation
+chart_base_url,http://localhost:38000/reports/,Base URL for chart images
+
