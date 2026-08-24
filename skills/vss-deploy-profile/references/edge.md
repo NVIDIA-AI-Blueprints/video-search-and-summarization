@@ -305,7 +305,7 @@ Then follow `SKILL.md` Steps 3-5. Thor uses the default 35% GPU budget for
   auto-swaps the `-sbsa` variants for `HARDWARE_PROFILE=DGX-SPARK`. When writing
   `generated.env` directly, set each image tag to its `-sbsa` variant (the commented
   `# …-sbsa` line in the profile's `.env`): `RTVI_VLM_IMAGE_TAG` (RT-VLM),
-  `PERCEPTION_TAG` (RT-CV), and `LVS_TAG` (LVS).
+  `VSS_RT_CV_TAG` (RT-CV), and `LVS_TAG` (LVS).
 - **DGX Spark NIM is local but configured as remote in VSS.** This is only
   because the image is not wired into compose yet. `LLM_MODE=remote` skips the
   local LLM compose service and points the agent at `localhost:30081`.
