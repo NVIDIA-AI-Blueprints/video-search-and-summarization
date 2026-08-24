@@ -303,9 +303,17 @@ Hand off to `/vss-manage-video-io-storage` to:
 
    ```bash
    # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
-   # Omit the window to take the whole covering segment; the response echoes what it resolved.
+   # Omit the window to take the whole recorded segment; the response echoes what it resolved.
    # CLI bootstrap and exit codes: AGENTS.md at the repo root
-   vss vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>] | jq -r .media_url
+   VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+   VSS="uv run --project ${VSS_REPO_ROOT}/services/agent --no-dev --extra cli vss"
+   ${VSS} configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP}:7777}"   # once per deployment
+
+   # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
+   # so a failed command with empty stdout reads as an empty answer.
+   CLIP=$(${VSS} vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
+     echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
+   VIDEO_URL=$(printf '%s' "${CLIP}" | jq -r .media_url)
    ```
 
 Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.

@@ -121,9 +121,23 @@ else
 fi
 ```
 
-No VIOS URL is built here. `vss configure --base-url` records the deployment once
-and every `vss vios` call reads it, so the sensor path never needs a host, a port
-or `/vst/api/v1`. See [AGENTS.md](../../AGENTS.md).
+No VIOS URL is built here. `vss configure` records the deployment once and every
+`vss vios` call reads it, so the sensor path never needs a host, a port or
+`/vst/api/v1`. Run it now — a `vss vios` call without it exits 4:
+
+```bash
+# The CLI lives in the VSS checkout; --extra cli is what installs it.
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+[ -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" ] || {
+  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT" >&2; exit 1; }
+VSS="uv run --project ${VSS_REPO_ROOT}/services/agent --no-dev --extra cli vss"
+
+# Once per deployment. On Docker the origin is the ingress on :7777.
+${VSS} configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP}:7777}"
+```
+
+Bootstrap detail, exit codes and the rules that go with them are in
+[AGENTS.md](../../AGENTS.md).
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
 `docker inspect` / `docker ps` to find the VLM. When `VSS_PUBLIC_URL` is set,
@@ -137,9 +151,9 @@ Probe what's actually available — only the VLM endpoint is mandatory:
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
 
 # OPTIONAL: VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
-# `vss configure check` re-probes what was recorded and reports which command
-# groups the deployment can serve; `vios available` is the line that matters here.
-vss configure check
+# Reports which command groups the deployment can serve; `vios available` is the
+# line that matters here.
+${VSS} configure check
 ```
 
 **If no VLM endpoint is reachable**, ask the user to provide one (host:port + model id), or — only
@@ -171,7 +185,7 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
    `vss` behind `jq`'s exit code and read as "no sensors"):
    ```bash
    set -o pipefail
-   SENSORS=$(vss vios list --type video) || { echo "vss vios list failed" >&2; exit 1; }
+   SENSORS=$(${VSS} vios list --type video) || { echo "${VSS} vios list failed" >&2; exit 1; }
    printf '%s' "${SENSORS}" | jq -r '.sensors[].name'
    ```
 
@@ -191,7 +205,7 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
    ```bash
    # The filename becomes the sensor name, so it must have no whitespace; the CLI
    # rejects a non-conforming name before spending the upload on it.
-   vss vios add --type video /path/to/<filename>
+   ${VSS} vios add /path/to/<filename>
    ```
    See `/vss-manage-video-io-storage` for the REST-level upload semantics (v1 vs v2, conflict
    handling, delete flow). In interactive runs, confirm with the user before uploading. **Never**
@@ -253,8 +267,7 @@ SENSOR_NAME='<the sensor name / filename stem the question named>'
 
 # One call: name → sensorId → main streamId → recorded range → normalised, warmed clip URL.
 # Endpoints come from the deployment `vss configure` recorded; this command takes none.
-CLIP=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
-  vss vios clip --sensor "${SENSOR_NAME}") || {
+CLIP=$(${VSS} vios clip --sensor "${SENSOR_NAME}") || {
   echo "vss vios clip failed for '${SENSOR_NAME}' — do NOT answer from a local copy" >&2; exit 1; }
 
 VIDEO_URL=$(printf '%s' "${CLIP}" | jq -er '.media_url')
