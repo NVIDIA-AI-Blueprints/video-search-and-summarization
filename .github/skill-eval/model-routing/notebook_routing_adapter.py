@@ -10,15 +10,25 @@ the executed copy is never persisted. The run is end to end and real — the
 router is built from the pinned Switchyard ref, serves live requests to the
 upstream, and the VSS repoint is composed and validated offline. Routing
 stays disabled by default: the notebook deploys nothing.
+
+Unlike the NemoClaw adapter this one is standard-library only. The
+model-routing notebook is deliberately plain Python — no cell magics, no
+shell cells, no notebook-display calls — so its code cells execute directly
+in one shared namespace. That keeps the CI path free of third-party
+packages (no jupyter stack, no pip install, no venv) while an interactive
+user still runs the very same notebook under Jupyter.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
+import json
 import os
 import sys
+import traceback
+from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Any
 
 NOTEBOOK_RELATIVE_PATH = Path("deploy/docker/scripts/deploy_model_routing.ipynb")
 
@@ -32,6 +42,7 @@ _DERIVED_SETTINGS_MARKER = (
 _NOTEBOOK_PARAMETERS = (
     "NVIDIA_API_KEY",
     "UPSTREAM_BASE_URL",
+    "UPSTREAM_API_KEY",
     "ROUTER_TARGET_CAPABLE",
     "ROUTER_TARGET_EFFICIENT",
     "ROUTER_PORT",
@@ -51,7 +62,7 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def prepare_environment(env: os._Environ | dict | None = None) -> None:
+def prepare_environment(env=None) -> None:
     """Map the CI provider contract to the notebook's native variables."""
     e = env if env is not None else os.environ
     # The coordinator's inference credential is the same NVIDIA hub key under
@@ -73,13 +84,38 @@ def prepare_environment(env: os._Environ | dict | None = None) -> None:
     e.setdefault("ROUTER_PORT", "14000")
     e.setdefault("ROUTER_CONTAINER", "vss-model-router-ci")
     e["ROUTER_TEARDOWN"] = "true"
-    e.setdefault(
-        "MODEL_ROUTING_WORK_DIR", "/tmp/skill-eval/model-routing"
-    )
+    e.setdefault("MODEL_ROUTING_WORK_DIR", "/tmp/skill-eval/model-routing")
 
 
-def _parameterize_notebook(notebook: Any, name: str) -> None:
-    """Apply CI inputs to the in-memory notebook without changing its source."""
+def _cell_source(cell: dict) -> str:
+    source = cell.get("source", "")
+    return source if isinstance(source, str) else "".join(source)
+
+
+def _code_cells(notebook: dict) -> list[str]:
+    return [
+        _cell_source(cell)
+        for cell in notebook.get("cells", [])
+        if cell.get("cell_type") == "code"
+    ]
+
+
+def _reject_non_plain_python(cells: list[str], name: str) -> None:
+    """This runner only supports plain-Python cells; refuse anything else
+    loudly instead of mis-executing it."""
+    for index, source in enumerate(cells):
+        for line in source.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith(("%", "!")):
+                raise RuntimeError(
+                    f"{name} cell {index} uses notebook-only syntax "
+                    f"({stripped.split()[0]!r}); this adapter executes plain "
+                    "Python cells only"
+                )
+
+
+def _parameterize(cells: list[str], name: str) -> list[str]:
+    """Apply CI inputs to the in-memory cells without changing the source."""
     assignments = [
         "# Injected by the skill-eval notebook adapter; never persisted.",
         "import os as _skill_eval_os",
@@ -89,63 +125,61 @@ def _parameterize_notebook(notebook: Any, name: str) -> None:
         ),
     ]
     parameter_source = "\n".join(assignments)
-    for cell in notebook.get("cells", []):
-        source_value = cell.get("source", "")
-        source = (
-            source_value if isinstance(source_value, str) else "".join(source_value)
-        )
+    for index, source in enumerate(cells):
         if _DERIVED_SETTINGS_MARKER not in source:
             continue
-        cell["source"] = source.replace(
+        cells[index] = source.replace(
             _DERIVED_SETTINGS_MARKER,
             f"{parameter_source}\n\n{_DERIVED_SETTINGS_MARKER}",
             1,
         )
-        return
+        return cells
     raise RuntimeError(f"Could not locate Derived settings in {name}")
 
 
-def _output_text(notebook: Any) -> str:
-    chunks: list[str] = []
-    for cell in notebook.get("cells", []):
-        for output in cell.get("outputs", []):
-            if "text" in output:
-                text = output["text"]
-                chunks.append(text if isinstance(text, str) else "".join(text))
-            for value in output.get("data", {}).values():
-                chunks.append(value if isinstance(value, str) else "".join(value))
-    return "\n".join(chunks)
+def execute_notebook(path: Path, *, cwd: Path) -> str:
+    """Run every code cell in order in one namespace; return combined stdout."""
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+    cells = _code_cells(notebook)
+    _reject_non_plain_python(cells, path.name)
+    cells = _parameterize(cells, path.name)
 
+    namespace: dict = {"__name__": "__main__"}
+    captured = io.StringIO()
 
-def execute_notebook(path: Path, *, cwd: Path, timeout: int) -> Any:
+    class _Tee(io.TextIOBase):
+        def write(self, text: str) -> int:  # stream to CI log AND capture
+            sys.__stdout__.write(text)
+            captured.write(text)
+            return len(text)
+
+        def flush(self) -> None:
+            sys.__stdout__.flush()
+
+    previous_cwd = Path.cwd()
+    os.chdir(cwd)
     try:
-        import nbformat
-        from nbclient import NotebookClient
-    except ImportError as exc:  # pragma: no cover - environment guard
-        raise RuntimeError(
-            "Notebook execution requires nbformat, nbclient, and ipykernel"
-        ) from exc
-
-    notebook = nbformat.read(path, as_version=4)
-    _parameterize_notebook(notebook, path.name)
-    client = NotebookClient(
-        notebook,
-        timeout=timeout,
-        kernel_name=os.environ.get("MODEL_ROUTING_CI_KERNEL", "python3"),
-        allow_errors=False,
-        resources={"metadata": {"path": str(cwd)}},
-    )
-    executed = client.execute()
+        for index, source in enumerate(cells):
+            code = compile(source, f"{path.name}:cell-{index}", "exec")
+            with redirect_stdout(_Tee()):
+                try:
+                    exec(code, namespace)  # noqa: S102 - checked-in notebook
+                except Exception:
+                    traceback.print_exc()
+                    raise RuntimeError(
+                        f"{path.name} failed in code cell {index}"
+                    ) from None
+    finally:
+        os.chdir(previous_cwd)
     print(f"Executed {path.name} from beginning to end; outputs were not persisted.")
-    return executed
+    return captured.getvalue()
 
 
-def run_notebook(*, root: Path, timeout: int) -> None:
+def run_notebook(*, root: Path) -> None:
     path = root / NOTEBOOK_RELATIVE_PATH
     if not path.is_file():
         raise FileNotFoundError(f"Missing notebook: {path}")
-    executed = execute_notebook(path, cwd=root, timeout=timeout)
-    output = _output_text(executed)
+    output = execute_notebook(path, cwd=root)
     missing = [marker for marker in _READINESS_MARKERS if marker not in output]
     if missing:
         raise RuntimeError(
@@ -159,16 +193,9 @@ def run_notebook(*, root: Path, timeout: int) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=int(os.environ.get("MODEL_ROUTING_CELL_TIMEOUT_SEC", "1800")),
-    )
-    args = parser.parse_args(argv)
-    if args.timeout < 60:
-        parser.error("--timeout must be at least 60 seconds")
+    parser.parse_args(argv)
     prepare_environment()
-    run_notebook(root=_repo_root(), timeout=args.timeout)
+    run_notebook(root=_repo_root())
     return 0
 
 

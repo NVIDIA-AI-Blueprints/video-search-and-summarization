@@ -36,9 +36,6 @@ defaults:
   run:
     shell: bash
 
-env:
-  SKILL_EVAL_PYTHON_VERSION: "3.12"
-
 jobs:
   notebook:
     name: deploy_model_routing.ipynb end to end
@@ -97,31 +94,20 @@ jobs:
           docker container prune -f --filter until=24h 2>/dev/null || true
           df -h "$HOME" | tail -1
 
-      - name: Set up notebook Python
+      # The adapter is standard-library only: no jupyter stack, no pip
+      # install, no venv. The host python3 is sufficient.
+      - name: Set per-run isolation names
         if: steps.gate.outputs.run == 'true'
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
-
-      - name: Prepare isolated notebook runtime
-        if: steps.gate.outputs.run == 'true'
-        env:
-          NOTEBOOK_VENV: ${{ runner.temp }}/model-routing-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          # Publish the per-run names BEFORE any step that can fail, so the
-          # always-cleanup step still knows what to remove. Router port,
-          # container name, and work dir are all run-scoped: concurrent PR
-          # runs share this host and must not stomp each other.
+          # Router port, container name, and work dir are all run-scoped:
+          # concurrent PR runs share this host and must not stomp each other.
+          # Published BEFORE any step that can fail, so the always-cleanup
+          # step knows what to remove.
           {
-            echo "NOTEBOOK_VENV=$NOTEBOOK_VENV"
             echo "ROUTER_CONTAINER=vss-model-router-ci-${{ github.run_id }}"
             echo "ROUTER_PORT=$((14000 + ${{ github.run_id }} % 1000))"
             echo "MODEL_ROUTING_WORK_DIR=/tmp/skill-eval/model-routing-${{ github.run_id }}"
           } >> "$GITHUB_ENV"
-          python3 -m venv "$NOTEBOOK_VENV"
-          "$NOTEBOOK_VENV/bin/python" -m pip install --quiet --no-cache-dir \
-            nbformat nbclient ipykernel
-          echo "$NOTEBOOK_VENV/bin" >> "$GITHUB_PATH"
 
       - name: Run the notebook end to end
         if: steps.gate.outputs.run == 'true'
@@ -132,15 +118,10 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env
           set +a
-          export PATH="$NOTEBOOK_VENV/bin:$PATH"
-          hash -r
           python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
 
-      - name: Remove isolated notebook runtime
+      - name: Remove per-run state
         if: always() && steps.gate.outputs.run == 'true'
         run: |
-          # runner.temp is not reliably purged between jobs on self-hosted
-          # runners; leaked venvs have filled the coordinator disk before.
-          rm -rf "$NOTEBOOK_VENV"
           [ -n "${ROUTER_CONTAINER:-}" ] && docker rm -f "$ROUTER_CONTAINER" 2>/dev/null || true
           [ -n "${MODEL_ROUTING_WORK_DIR:-}" ] && rm -rf "$MODEL_ROUTING_WORK_DIR" || true
