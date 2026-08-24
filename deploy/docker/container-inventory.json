@@ -127,10 +127,28 @@
       "source_path": "services/rtvi/rt-vlm",
       "context": "services/rtvi/rt-vlm",
       "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
-      "lfs_include": "services/rtvi/rt-vlm/docker/base/binaries/**,services/rtvi/rt-vlm/artifacts/vss-rt-vlm-3.3.0-26.07.4-*-evs-cython/**",
+      "lfs_include": "services/rtvi/rt-vlm/artifacts/vss-rt-vlm-3.3.0-26.07.4-*-evs-cython/**",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-vlm"],
-      "tag_variables": ["VSS_RT_VLM_TAG"]
+      "tag_variables": ["VSS_RT_VLM_TAG"],
+      "build_args": {"ARM_PLATFORM": "igpu"}
+    },
+    {
+      "name": "vss-rt-vlm-sbsa",
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "repository": "vss-rt-vlm",
+      "tag_suffix": "-sbsa",
+      "source_path": "services/rtvi/rt-vlm",
+      "context": "services/rtvi/rt-vlm",
+      "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+      "lfs_include": "services/rtvi/rt-vlm/artifacts/vss-rt-vlm-3.3.0-26.07.4-*-evs-cython/**",
+      "build_args": {"ARM_PLATFORM": "sbsa"},
+      "platforms": ["linux/arm64"],
+      "compose_image_names": [],
+      "tag_variables": [],
+      "notes": "SBSA (Grace/DGX-Spark) build of vss-rt-vlm. SBSA and Jetson both report linux/arm64 but require different DeepStream bases, so this variant shares the vss-rt-vlm GHCR repository and publishes -sbsa tags."
     },
     {
       "name": "vss-rt-embed",
