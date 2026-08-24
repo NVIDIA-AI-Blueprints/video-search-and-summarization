@@ -58,7 +58,9 @@ def mock_args():
     args.vlm_batch_size = 4
     args.vlm_model_type = VlmModelType("custom")
     args.model_implementation_path = "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
-    args.model_path = "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+    args.model_path = (
+        "hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3"
+    )
     args.model_repository_script_path = (
         "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
     )

@@ -234,14 +234,14 @@ function get_rtvi_vlm_model_to_use() {
 
 # Derive the /v1/models id RT-VLM advertises from MODEL_PATH.
 # NGC: ngc:nim/<org>/<model>:<tag> → nim_<org>_<model>_<tag> ('.' in tag → '_', matching ngc_model_downloader).
-# HF git: git:https://huggingface.co/<org>/<repo> → <repo> (best-effort; confirm via /v1/models after boot).
+# HF snapshot: hf:<org>/<repo>@<commit> → <repo> (confirm via /v1/models after boot).
 function get_rtvi_vlm_name_from_model_path() {
   local _path="${1}"
   if [[ "${_path}" == ngc:* ]]; then
     local _rest="${_path#ngc:}"
     echo "${_rest}" | tr '/:' '__' | tr '.' '_'
-  elif [[ "${_path}" == git:* ]]; then
-    basename "${_path#git:}"
+  elif [[ "${_path}" == hf:* ]]; then
+    basename "${_path#hf:}" | cut -d@ -f1
   else
     basename "${_path}"
   fi

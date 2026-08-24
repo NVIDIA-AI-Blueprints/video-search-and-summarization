@@ -340,7 +340,7 @@ The API is available at `http://localhost:8000/docs`.
 | `NUM_VLM_PROCS` | Number of inference processes | `10` | No |
 | `NUM_GPUS` | Number of GPUs to use | Auto-detected | No |
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
-| `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
+| `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `hf:<repo>@<immutable-commit>`, or local path | `hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. | - | No |
 | `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | Model deployment name sent to the CE1 NIM backend and used as the RTVI model id. | `nvidia/cosmos-embed1` | No |
@@ -973,13 +973,13 @@ The microservice can be configured to run with variants of the Cosmos-Embed1 mod
 **HuggingFace (`git:` scheme)** — downloads from HuggingFace Hub on first startup:
 
 ```bash
-MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
+MODEL_PATH=hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3
 ```
 
 Supported Cosmos-Embed1 variants include:
 
-- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` (default)
-- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` (default for [search workflow](/vss/vision-agent/agent-workflows/search))
+- `hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3` (default)
+- `hf:nvidia/Cosmos-Embed1-448p-anomaly-detection@3b1455ed97c7b1d5419c0c3129b7199ca4cd9382` (default for [search workflow](/vss/vision-agent/agent-workflows/search))
 - `git:https://huggingface.co/nvidia/Cosmos-Embed1-336p`
 - `git:https://huggingface.co/nvidia/Cosmos-Embed1-224p`
 

@@ -51,7 +51,7 @@ _CALLER_MODEL_IMPLEMENTATION_PATH_SET="${MODEL_IMPLEMENTATION_PATH+x}"
 _CALLER_MODEL_PATH_SET="${MODEL_PATH+x}"
 _CALLER_MODEL_REPOSITORY_SCRIPT_PATH_SET="${MODEL_REPOSITORY_SCRIPT_PATH+x}"
 _DEFAULT_EMBED_MODEL_IMPLEMENTATION_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
-_DEFAULT_EMBED_MODEL_PATH="git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+_DEFAULT_EMBED_MODEL_PATH="hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3"
 _DEFAULT_EMBED_MODEL_REPOSITORY_SCRIPT_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
 
 VLM_MODEL_TO_USE="${VLM_MODEL_TO_USE:-custom}"
