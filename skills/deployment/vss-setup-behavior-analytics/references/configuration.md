@@ -2,7 +2,7 @@
 # Configuration Guide
 
 ## Overview
-Configurations are JSON files consumed by `AppConfig` (`video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/schema/config.py`).
+Configurations are JSON files consumed by `AppConfig` (`services/analytics/behavior-analytics/src/mdx/analytics/core/schema/config.py`).
 
 ## Structure
 ```json
@@ -30,7 +30,7 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 - `sourceType` / `sinkType`: typically "kafka" (also supports `redisStream`, `mqtt`)
 - `spaceAnalyticsIntervalSec`: "5.0"
 - Playback: `playbackLoop`, `playbackSensors`, `playbackInSimulationMode`, etc.
-- Trajectory/space: `traj*`, `spaceAnalytics*`, see `video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/schema/config.py` for full list.
+- Trajectory/space: `traj*`, `spaceAnalytics*`, see `services/analytics/behavior-analytics/src/mdx/analytics/core/schema/config.py` for full list.
 
 ## Common sensor keys (examples)
 - `tripwireMinPoints`: "5"
@@ -71,17 +71,18 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 - Each type has its own `...Threshold` (duration in sec, default `"1"`, min `0.0`) and `...ExpirationWindow` (gap
   tolerance in sec, default `"0.5"`, min `0.1`). Both accept **fractional** seconds — `"0.5"` is valid. The only
   incident knob that must stay a whole number is `fovCountViolationIncidentObjectThreshold`, which is an object count.
-- FOV count uses two keys: `fovCountViolationIncidentObjectType` — the object **class** to count (e.g. `person`; must match the detector's label casing) — and `fovCountViolationIncidentObjectThreshold` — the **count** above which an incident fires.
-- Details and timing: `video-search-and-summarization/services/analytics/behavior-analytics/docs/incident-detection.md`.
+- FOV count uses two keys: `fovCountViolationIncidentObjectType` — the object **class** to count (e.g. `person`; must match the detector's label casing) — and `fovCountViolationIncidentObjectThreshold` — the **count at which** an incident fires. The comparison is `count >= threshold`, **not** `>` (`frame_state_management.py`: `if fov_metric.count < threshold: return`), so the default of `1` makes a single object a violation. To alert on "more than N", set it to `N + 1`.
+- Details and timing: `services/analytics/behavior-analytics/docs/incident-detection.md`.
 
 ## Examples directory
 
-Under `video-search-and-summarization/services/analytics/behavior-analytics/configs/`:
+Under `services/analytics/behavior-analytics/configs/`:
 
 - `smart_city_config*.json`
 - `warehouse_2d_config.json`
 - `warehouse_3d_config.json`
 - `public_safety_config.json`
+- `composite_config.json` (every `numWorkersFor*` is `0` on purpose — set the ones you want or the app exits 0 at startup)
 - `frame_playback_config.json`
 - `rtls_amr_playback_config.json`
 

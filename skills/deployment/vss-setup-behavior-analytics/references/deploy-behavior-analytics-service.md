@@ -3,7 +3,7 @@
 Deploy **just** `vss-behavior-analytics` (no agent, no perception, no UI) — useful when you want to:
 
 - Run a behavior-analytics pipeline against an existing broker (or no broker at all).
-- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts) without modifying the image.
+- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts, public_safety, smart_city, composite) without modifying the image.
 
 Required host runtime: **Docker Engine 28.3.3** with **Docker Compose plugin v2.39.1+**.
 
@@ -34,8 +34,27 @@ Set the first half of `command:` to one of the following:
 | `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` | 2D spatial pipeline — operates on **(X, Y) world-plane coordinates** lifted from the image plane via per-sensor homography. Two parallel processors: **behavior creation** (object tracking → behavior + ROI / tripwire / proximity events, plus map-matching) and **frame enhancement** (calibration transform → per-frame state → FOV-count / restricted-area / confined-area incidents). **The default.** |
 | `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` | Operates on **full (X, Y, Z) 3D world coordinates** — fed from upstream multi-view 3D tracking (mv3dt) that produces 3D bounding boxes. Same two processors as 2D (with the 3D calibration class), plus a third **space-analyzer** processor that estimates space utilization per region on a periodic interval. Use this for 3D warehouse / multi-view 3D tracking (mv3dt). |
 | `apps/search_and_alerts/main_search_and_alerts_app.py` | `SearchAndAlertsApp` | Three processors, each registered only if its worker count is non-zero: **incident generation** (`numWorkersForIncidentGeneration`) — calibration transform → per-frame state → FOV-count / restricted-area / confined-area / proximity incidents; **behavior creation** (`numWorkersForBehaviorCreation`) — object tracking from raw frames, including ROI / tripwire events; **embedding downsampling** (`numWorkersForEmbedFiltering`) — reads chunked video embeddings and writes the survivors. The three modes are just which counts you set: all three = search + alerts; `numWorkersForIncidentGeneration=0` = search only (`dev-profile-search`); `numWorkersForBehaviorCreation=0` + `numWorkersForEmbedFiltering=0` = alerts only (`dev-profile-alerts`). |
-| `apps/smart_city/main_smart_city_app.py` | `SmartCityApp` | Geo-oriented pipeline for street/city scenes. **Behavior creation** (`numWorkersForBehaviorCreation`) with anomaly detection built **unconditionally** — unlike every other entrypoint there is no `anomalyDetectionEnable` gate, so speed/stop anomalies and the road-network CRS load are always paid for. Collision detection is opt-in via the sensor `collisionDetection.enable` block and writes collision incidents. A second **behavior clustering** processor (`numWorkersForBehaviorClustering`) registers only when the config's `inference.enable` is `true` — worker count alone is not enough here, which differs from `CompositeApp`. **Constraints:** both worker counts are read with no fallback, so a config omitting either key crashes at startup with `ValueError: invalid literal for int()`; the shipped `smart_city_config.json` / `smart_city_config_image.json` set them (4 and 2) with `inference.enable: false`. |
+| `apps/public_safety/main_public_safety_app.py` | `PublicSafetyApp` | Same two-processor shape as `Analytics2DApp` — **behavior creation** (`numWorkersForBehaviorCreation`) with ROI / tripwire events, and **frame enhancement** (`numWorkersForFrameEnhancement`) producing FOV-count / restricted-area / confined-area / proximity incidents — tuned for public-safety scenes. **Constraints:** no profile ships a config — start from the service's own `configs/public_safety_config.json`. |
+| `apps/smart_city/main_smart_city_app.py` | `SmartCityApp` | Geo-oriented pipeline for street/city scenes. **Behavior creation** (`numWorkersForBehaviorCreation`) with anomaly detection built **unconditionally** — unlike every other entrypoint there is no `anomalyDetectionEnable` gate, so speed/stop anomalies and the road-network CRS load are always paid for. Collision detection is opt-in via the sensor `collisionDetection.enable` block and writes collision incidents. A second **behavior clustering** processor (`numWorkersForBehaviorClustering`) registers only when the config's `inference.enable` is `true` — worker count alone is not enough here, which differs from `CompositeApp`. **Constraints:** the shipped `smart_city_config.json` / `smart_city_config_image.json` set the two worker counts (4 and 2) with `inference.enable: false`. |
 | `apps/composite/main_composite_app.py` | `CompositeApp` | **Last resort — prefer one of the apps above.** It is the heavyweight option: it constructs every capability's state (behavior state, frame state, ROI/tripwire generators, space analyzer, embedding state) at startup regardless of which processors you enabled, and the enabled ones are CPU-hungry per batch. Reproducing a shipped profile through it costs more than running that profile's own entrypoint for identical output. Pick it **only** when the capability set you want does not exist as a single shipped app. Every capability in one app, each registered only if its worker count is non-zero: **behavior creation** (`numWorkersForBehaviorCreation`), **frame enhancement** (`numWorkersForFrameEnhancement`), **space estimation** (`numWorkersForSpaceEstimation`), **embedding downsampling** (`numWorkersForEmbedFiltering`), **behavior clustering** (`numWorkersForBehaviorClustering`). These come from different per-profile apps and can be combined freely, which no other entrypoint allows. Detection stages inside behavior creation are opt-in: `anomalyDetectionEnable`, `actionDetectionEnable`, `collisionDetection.enable`. **Constraints:** space estimation needs cartesian 3D and silently produces nothing otherwise; clustering needs a Triton `inference` block; run only one behavior producer per deployment. |
+
+**Worker counts: which entrypoints tolerate a missing key.** Every processor is registered with
+`int(config.get_app_config("numWorkersFor<X>"))`. `get_app_config` defaults to an **empty string**, so an app that
+reads the key with no fallback dies at startup with `ValueError: invalid literal for int() with base 10: ''` — a
+message that names no key, which makes a hand-written config the hard case to debug.
+
+| Fallback | Entrypoints (worker keys read) | Effect of omitting a key |
+|---|---|---|
+| **none** | `Analytics2DApp` (2), `Analytics3DApp` (3), `PublicSafetyApp` (2), `SmartCityApp` (2) | **startup crash** |
+| `"0"` | `SearchAndAlertsApp` (3), `CompositeApp` (5) | processor silently not registered |
+
+This is why `SearchAndAlertsApp` and `CompositeApp` can be mode-switched by simply omitting counts, while the other
+four cannot. Note `Analytics2DApp` — **the default** — is in the crashing group, as is `Analytics3DApp` with one
+extra key (`numWorkersForSpaceEstimation`) to miss.
+
+Every shipped config in `configs/` and every profile-shipped config sets the keys its entrypoint needs, so this only
+bites a config written from scratch (Option B below). The keys must be **present**, not non-zero: the profile 3D
+configs ship `numWorkersForSpaceEstimation: "0"` while `configs/warehouse_3d_config.json` ships `"1"` — both parse.
 
 **Which topics each processor needs.** A destination the config omits is a *disabled output*, not an error: the
 sink logs `No destination configured for '<key>'` once and drops the rest, so an unconfigured topic looks like an
@@ -77,6 +96,7 @@ Recommended pairings (entrypoint → existing config):
 | `main_search_and_alerts_app.py` (search + alerts) | Use the shipped repository-root `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`. It is outside `VSS_APPS_DIR` (`deploy/docker`), so mount it by absolute host path as in Option B. Copy and edit it only for bespoke topic mappings or worker counts. |
 | `main_search_and_alerts_app.py` (alerts only) | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` (behavior + embed workers set to `0`) |
 | `main_search_and_alerts_app.py` (search only) | `developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-<stream>-config.json` (incident-generation workers set to `0`) |
+| `main_public_safety_app.py` | No profile ships one. Start from the service's own `configs/public_safety_config.json` and mount it as a custom config (Option B). |
 | `main_smart_city_app.py` | No profile ships one. Start from the service's own `configs/smart_city_config.json` (geo calibration) or `configs/smart_city_config_image.json` (image calibration) and mount it as a custom config (Option B). |
 | `main_composite_app.py` | No profile ships one. `configs/composite_config.json` is a starter that defines every topic but sets every `numWorkersFor*` to `0` — copy it and set the counts you want, or the app exits immediately (see Troubleshooting). |
 

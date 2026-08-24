@@ -63,7 +63,7 @@ The action prefix is parsed by `reload_data` (`os.path.basename(file_path).split
 
 ## Component map
 
-Under `video-search-and-summarization/services/analytics/behavior-analytics/`:
+Under `services/analytics/behavior-analytics/`:
 
 ```
 src/mdx/analytics/core/transform/calibration/
@@ -79,10 +79,10 @@ src/mdx/analytics/core/transform/calibration/
 │                              # no-file to a typed calibration when the
 │                              # first event lands
 └── schemas/calibration.schema.json  # Vendored from
-                                     # video-search-and-summarization/services/analytics/video-analytics-api/src/web-api-core/schemas/ajv/calibration.json
+                                     # services/analytics/video-analytics-api/src/web-api-core/schemas/ajv/calibration.json
 ```
 
-The split mirrors dynamic config. The **main process** runs a single `CalibrationListener` (wired up in `video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_runner.py`): it drains `mdx-notification` and atomic-writes files into `CALIBRATION_DIR`. **Each worker** — spawned, not forked (`mp.get_context("spawn")`), so it starts a fresh interpreter with no inherited parent state — builds its own `CalibrationBase`-derived instance in `BaseApp.__init__` and calls `start_listen()`, which runs a **per-worker** watchdog `Observer` on `CALIBRATION_DIR`. Workers race each other to apply the same file in their own process (`on_moved -> reload_data`), so every worker independently reloads the new sensor map. There is no shared parent calibration object and nothing is pickled across the process boundary.
+The split mirrors dynamic config. The **main process** runs a single `CalibrationListener` (wired up in `services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_runner.py`): it drains `mdx-notification` and atomic-writes files into `CALIBRATION_DIR`. **Each worker** — spawned, not forked (`mp.get_context("spawn")`), so it starts a fresh interpreter with no inherited parent state — builds its own `CalibrationBase`-derived instance in `BaseApp.__init__` and calls `start_listen()`, which runs a **per-worker** watchdog `Observer` on `CALIBRATION_DIR`. Workers race each other to apply the same file in their own process (`on_moved -> reload_data`), so every worker independently reloads the new sensor map. There is no shared parent calibration object and nothing is pickled across the process boundary.
 
 ---
 
@@ -145,7 +145,7 @@ DynamicCalibration(config, calibration_path=None)
 
 After the one-time switch, the inherited `CalibrationBase` watcher continues to drive `reload_data`, which now delegates to the typed `_calibrator`. The switch is guarded by `_switch_lock` so a burst of file events can't double-switch.
 
-See `video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/transform/calibration/calibration_dynamic.py` and the unit tests in `video-search-and-summarization/services/analytics/behavior-analytics/tests/unit/mdx/analytics/core/transform/calibration/test_calibration_dynamic.py` for the contract.
+See `services/analytics/behavior-analytics/src/mdx/analytics/core/transform/calibration/calibration_dynamic.py` and the unit tests in `services/analytics/behavior-analytics/tests/unit/mdx/analytics/core/transform/calibration/test_calibration_dynamic.py` for the contract.
 
 ---
 

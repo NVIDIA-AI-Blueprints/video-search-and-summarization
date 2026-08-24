@@ -13,7 +13,7 @@ The `frame_state_management.py` module processes **enhanced frames** to detect v
 ## Key Concepts
 
 **Enhanced Frame** → Frame with pre-calculated violation data (proximity, ROI violations, FOV metrics, etc.)  
-**Violation** → Detected event from enhanced frame (e.g., people too close, unauthorized area access, objects in FOV more than a threshold)
+**Violation** → Detected event from enhanced frame (e.g., people too close, unauthorized area access, object count in FOV reaching a threshold)
 **Violation State** → Internal tracking of violation duration  
 **Incident** → Violation that exceeds time threshold and needs reporting  
 
