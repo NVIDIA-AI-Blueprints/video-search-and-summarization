@@ -570,8 +570,9 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["skill"], "vss-deploy-profile")
         self.assertEqual(inc[0]["spec_stem"], "base")
-        self.assertEqual(inc[0]["platform"], "RTXPRO6000BW")
+        self.assertEqual(inc[0]["platform"], "H200")
         self.assertEqual(inc[0]["kind"], "eval")
+        self.assertEqual(inc[0]["hardware_profile"], "H100")
 
     def test_skill_without_rtxpro_is_not_replaced_by_smoke(self):
         inc = plan_matrix.build_matrix(
@@ -615,28 +616,20 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
             ],
         )
 
-    def test_one_gpu_rtx_only_also_emits_h200_leg(self):
-        """RTX-only gpus-1 specs get a sibling H200 leg; 2-GPU does not."""
+    def test_one_gpu_rtx_only_moves_to_h200(self):
+        """1-GPU RTX-only specs run on H200 instead of Blackwell (not twice)."""
         plan_matrix.spec_platform_config = lambda p: {
             "RTXPRO6000BW": {"gpu_count": 1},
         }
         inc = plan_matrix.build_matrix(
             ["skills/vss-search-archive/evals/search.json"]
         )
-        self.assertEqual(
-            [leg["platform"] for leg in inc],
-            ["RTXPRO6000BW", "H200"],
-        )
-        h200 = next(leg for leg in inc if leg["platform"] == "H200")
-        rtx = next(leg for leg in inc if leg["platform"] == "RTXPRO6000BW")
-        self.assertEqual(h200["slug"], "vss-search-archive__search__H200")
-        self.assertIn("openshell-h200-active", h200["runs_on"])
-        self.assertIn("gpus-1", h200["runs_on"])
-        self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
-        self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
-        self.assertNotIn("openshell-h200-active", rtx["runs_on"])
-        self.assertEqual(h200["hardware_profile"], "H100")
-        self.assertEqual(rtx["hardware_profile"], "RTXPRO6000BW")
+        self.assertEqual([leg["platform"] for leg in inc], ["H200"])
+        self.assertEqual(inc[0]["slug"], "vss-search-archive__search__H200")
+        self.assertIn("openshell-h200-active", inc[0]["runs_on"])
+        self.assertIn("gpus-1", inc[0]["runs_on"])
+        self.assertNotIn("openshell-rtxpro6000-active", inc[0]["runs_on"])
+        self.assertEqual(inc[0]["hardware_profile"], "H100")
 
     def test_h200_hardware_profile_is_h100(self):
         self.assertEqual(plan_matrix.hardware_profile_for("H200"), "H100")
@@ -653,18 +646,28 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         inc = plan_matrix.build_matrix(
             ["skills/vss-search-archive/evals/search.json"]
         )
+        # Both platforms are 1-GPU: one H200 leg, no duplicate RTX.
+        self.assertEqual([leg["platform"] for leg in inc], ["H200"])
+        h200 = inc[0]
+        self.assertIn("openshell-h200-active", h200["runs_on"])
+        self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
+        self.assertEqual(h200["hardware_profile"], "H100")
+
+    def test_two_gpu_rtx_stays_when_h200_one_gpu_exists(self):
+        plan_matrix.spec_platform_config = lambda p: {
+            "RTXPRO6000BW": {"gpu_count": 2},
+            "H200": {"gpu_count": 1},
+        }
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
         self.assertEqual(
             [leg["platform"] for leg in inc],
             ["H200", "RTXPRO6000BW"],
         )
-        h200 = next(leg for leg in inc if leg["platform"] == "H200")
         rtx = next(leg for leg in inc if leg["platform"] == "RTXPRO6000BW")
-        self.assertIn("openshell-h200-active", h200["runs_on"])
+        self.assertIn("gpus-2", rtx["runs_on"])
         self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
-        self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
-        self.assertNotIn("openshell-h200-active", rtx["runs_on"])
-        self.assertEqual(h200["hardware_profile"], "H100")
-        self.assertEqual(rtx["hardware_profile"], "RTXPRO6000BW")
 
     def test_h200_two_gpu_is_skip_runner_and_omitted(self):
         """74 is 8×1; gpus-2 must not land on H200 VMs."""

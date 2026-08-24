@@ -166,7 +166,7 @@ OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
 )
 # 10.86.14.74 OpenShell H200 NVL cohort (8 VMs × 1 GPU). Separate active
 # label (do not put RTX labels on H200 boxes). 1-GPU RTXPRO6000BW specs
-# also emit a sibling H200 / gpus-1 leg so those jobs can land on 74.
+# 1-GPU OpenShell work is scheduled on 74 (not also on 223).
 # 2-GPU specs stay on 223 (gpus-2); never advertise gpus-2 on this packing.
 OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
@@ -504,13 +504,17 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     # Do not emit a skip-runner ubuntu job for 2-GPU H200
                     # entries. Those specs run on RTX 223 when declared.
                     continue
-                if platform == "H200":
-                    emitted_h200 = True
                 if (
-                    platform == "RTXPRO6000BW"
+                    os.environ.get("OPENSHELL_RTXPRO6000_ONLY")
+                    and platform == "RTXPRO6000BW"
                     and _gpu_count(plat_cfg or {}) < 2
                 ):
+                    # 1-GPU (and gpu_count:0 → gpus-1) is H200 instead of
+                    # Blackwell — do not also emit an RTX leg (doubles hours).
                     rtx_one_gpu = True
+                    continue
+                if platform == "H200":
+                    emitted_h200 = True
                 plat_tag = platform or "no-platform"
                 labels = runs_on_labels(platform, plat_cfg)
                 include.append({
@@ -530,9 +534,6 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 and rtx_one_gpu
                 and not emitted_h200
             ):
-                # RTX-only 1-GPU (or gpu_count:0 → gpus-1) specs also run
-                # on the 8×1 H200 cohort. Separate slug / runs_on: GitHub
-                # ANDs labels, so one job cannot match both cohorts.
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
@@ -559,13 +560,13 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "spec_path": SMOKE_SPEC,
                 "spec_stem": "base",
                 "eval_dir": "evals",
-                "platform": "RTXPRO6000BW",
-                "hardware_profile": hardware_profile_for("RTXPRO6000BW"),
+                "platform": "H200",
+                "hardware_profile": hardware_profile_for("H200"),
                 "kind": "eval",
                 "skip_reason": "",
-                "slug": "vss-deploy-profile__base__RTXPRO6000BW",
-                "name": "vss-deploy-profile · base · RTXPRO6000BW",
-                "runs_on": [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"],
+                "slug": "vss-deploy-profile__base__H200",
+                "name": "vss-deploy-profile · base · H200",
+                "runs_on": [*OPENSHELL_H200_LABELS, "gpus-1"],
             })
     return include
 
