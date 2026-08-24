@@ -1818,10 +1818,20 @@ function state_up() {
   fi
 
   # Resolve and display the managed container channel before deployment.
-  set -a
-  # shellcheck disable=SC1091
-  source "${deployment_directory}/containers.env"
-  set +a
+  # Read containers.env in a subshell: `set -a` exports everything it defines,
+  # and Compose gives the process environment precedence over every --env-file.
+  # Leaking those exports silently overrode the image tags this script wrote to
+  # generated.env -- including the SBSA tag swap, which appeared to succeed
+  # while Compose kept deploying the default tags.
+  (
+    set -a
+    # shellcheck disable=SC1091
+    source "${deployment_directory}/containers.env"
+    set +a
+    echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+    echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  )
+
   # -f disables Compose's default file discovery, so the base file must be named
   # explicitly alongside any overlay.
   local compose_files=(-f compose.yml)
@@ -1829,9 +1839,6 @@ function state_up() {
     compose_files+=(-f services/vios/streamprocessing/docker-compose.prebaked.yaml)
     echo "[INFO] Prebaking VIOS runtime-media packages into a local image."
   fi
-
-  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
-  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
   echo "[INFO] Resolved compose images:"
   (
     cd "${deployment_directory}"
