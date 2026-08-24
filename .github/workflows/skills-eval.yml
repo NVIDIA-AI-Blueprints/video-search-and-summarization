@@ -389,6 +389,9 @@ jobs:
           export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
+          # NIM compose `hw-${HARDWARE_PROFILE}.env`. H200 runners use the
+          # H100 SKU — there is no hw-H200.env.
+          export HARDWARE_PROFILE="${{ matrix.hardware_profile }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —

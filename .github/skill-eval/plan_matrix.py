@@ -215,6 +215,18 @@ def _platform_label(platform: str) -> str | None:
     return f"gpu-{slug}" if slug else None
 
 
+def hardware_profile_for(platform: str) -> str:
+    """NIM `hw-<SKU>.env` name for a matrix platform.
+
+    H200 boxes have no `hw-H200.env`. Use the H100 sizing / SKU (operator
+    ruling). Runner routing stays on H200 labels; only the compose profile
+    is remapped. 2-GPU Blackwell work never reaches this path.
+    """
+    if platform == "H200":
+        return "H100"
+    return platform
+
+
 def _gpu_count(config: dict) -> int:
     """Declared GPU demand, matching run_leg's coercion exactly."""
     raw = config.get("gpu_count", DEFAULT_GPU_COUNT)
@@ -507,6 +519,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "spec_stem": meta["spec_stem"],
                     "eval_dir": meta["eval_dir"],
                     "platform": platform,
+                    "hardware_profile": hardware_profile_for(platform),
                     "kind": "eval",
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
@@ -526,6 +539,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "spec_stem": meta["spec_stem"],
                     "eval_dir": meta["eval_dir"],
                     "platform": "H200",
+                    "hardware_profile": hardware_profile_for("H200"),
                     "kind": "eval",
                     "slug": f"{skill}__{meta['spec_stem']}__H200",
                     "name": f"{skill} · {meta['spec_stem']} · H200",
@@ -546,6 +560,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "spec_stem": "base",
                 "eval_dir": "evals",
                 "platform": "RTXPRO6000BW",
+                "hardware_profile": hardware_profile_for("RTXPRO6000BW"),
                 "kind": "eval",
                 "skip_reason": "",
                 "slug": "vss-deploy-profile__base__RTXPRO6000BW",

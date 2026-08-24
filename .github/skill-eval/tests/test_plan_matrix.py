@@ -635,6 +635,14 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
         self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
         self.assertNotIn("openshell-h200-active", rtx["runs_on"])
+        self.assertEqual(h200["hardware_profile"], "H100")
+        self.assertEqual(rtx["hardware_profile"], "RTXPRO6000BW")
+
+    def test_h200_hardware_profile_is_h100(self):
+        self.assertEqual(plan_matrix.hardware_profile_for("H200"), "H100")
+        self.assertEqual(
+            plan_matrix.hardware_profile_for("RTXPRO6000BW"), "RTXPRO6000BW"
+        )
 
     def test_h200_kept_alongside_rtxpro(self):
         plan_matrix.spec_platform_config = lambda p: {
@@ -655,6 +663,8 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
         self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
         self.assertNotIn("openshell-h200-active", rtx["runs_on"])
+        self.assertEqual(h200["hardware_profile"], "H100")
+        self.assertEqual(rtx["hardware_profile"], "RTXPRO6000BW")
 
     def test_h200_two_gpu_is_skip_runner_and_omitted(self):
         """74 is 8×1; gpus-2 must not land on H200 VMs."""

@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -324,10 +325,15 @@ def generate_solve_script(profile: str, platform: str) -> str:
 
     is_warehouse = (env_profile == "warehouse")
 
+    # H200 boxes: use H100 NIM sizing (hw-H100.env). No hw-H200.env ships.
+    nim_profile = os.environ.get("HARDWARE_PROFILE") or (
+        "H100" if platform == "H200" else platform
+    )
+
     if is_warehouse:
         env_file_line = 'ENV_FILE=$REPO/deploy/docker/industry-profiles/warehouse-operations/.env'
         overrides: dict[str, str] = {
-            "HARDWARE_PROFILE": platform,
+            "HARDWARE_PROFILE": nim_profile,
             "VSS_APPS_DIR": "$REPO/deploy/docker",
             "VSS_DATA_DIR": "$REPO/data",
             "HOST_IP": "$(hostname -I | awk '{print $1}')",
@@ -335,7 +341,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
     else:
         env_file_line = 'ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env'
         overrides = {
-            "HARDWARE_PROFILE": platform,
+            "HARDWARE_PROFILE": nim_profile,
             "VSS_APPS_DIR": "$REPO/deployments",
             "VSS_DATA_DIR": "$REPO/data",
             "HOST_IP": "$(hostname -I | awk '{print $1}')",
