@@ -17,10 +17,11 @@ Anywhere the VSS agent can reach over the network. Two common placements:
   host address and port. Do not assume `localhost` from inside a container.
 - **A different host.** Reachable by IP or DNS name.
 
-VSS containers on the developer profiles run with `network_mode: host`, so a
-router on the same box is reachable on that box's address. A router run as a
-container on the default bridge is *not* reachable at `172.17.0.1` from a
-host-mode VSS container; use the host's real address.
+VSS containers run on Compose's default bridge network with published ports.
+`network_mode: host` appears in `services/video-summarization/compose.yml` but
+is commented out, so `localhost` inside the agent container is the container
+itself and not the box. Give the router the host's routable address; that holds
+whether or not the operator uncomments host mode.
 
 ## Obtaining Switchyard
 
