@@ -622,8 +622,14 @@ void addUtcTiming(std::string& manifest)
 // stream does not, so the player waits for media the segment never contained.
 // Replacing the fixed duration with the measured timeline tells the player what
 // each segment really holds.
+// windowTicks bounds how much of the session the timeline describes; zero keeps
+// all of it.  A live manifest that advertises a thirty second window while
+// listing every segment back to the start of the session contradicts itself, and
+// a player is entitled to believe the listing: it then treats the whole session
+// as seekable and may begin playback at the far end of it, which leaves it as
+// far behind live as the session is old.
 void applyMeasuredSegmentTimeline(std::string& manifest, const std::filesystem::path& directory,
-                                  uint32_t timescale)
+                                  uint32_t timescale, uint64_t windowTicks)
 {
     const std::map<uint64_t, uint64_t> segments = SegmentDurations::instance().refresh(directory);
     if (segments.empty())
@@ -658,30 +664,48 @@ void applyMeasuredSegmentTimeline(std::string& manifest, const std::filesystem::
         tag += " timescale=\"" + std::to_string(timescale) + "\"";
     }
 
-    std::ostringstream timeline;
-    timeline << tag << ">\n<SegmentTimeline>\n";
+    uint64_t total = 0;
+    for (const auto& [number, duration] : segments)
+    {
+        (void)number;
+        total += duration;
+    }
+    const uint64_t cutoff = (windowTicks > 0 && total > windowTicks) ? total - windowTicks : 0;
+
+    std::ostringstream entries;
+    uint64_t firstPublished = 0;
     uint64_t start = 0;
     uint64_t runDuration = 0;
     uint64_t runStart = 0;
     uint64_t repeats = 0;
     bool runOpen = false;
-    const auto flushRun = [&timeline, &runDuration, &runStart, &repeats, &runOpen]() {
+    const auto flushRun = [&entries, &runDuration, &runStart, &repeats, &runOpen]() {
         if (!runOpen)
         {
             return;
         }
-        timeline << "<S t=\"" << runStart << "\" d=\"" << runDuration << "\"";
+        entries << "<S t=\"" << runStart << "\" d=\"" << runDuration << "\"";
         if (repeats > 0)
         {
-            timeline << " r=\"" << repeats << "\"";
+            entries << " r=\"" << repeats << "\"";
         }
-        timeline << "/>\n";
+        entries << "/>\n";
         runOpen = false;
         repeats = 0;
     };
     for (const auto& [number, duration] : segments)
     {
-        (void)number;
+        // Segments that have fallen out of the advertised window are still on
+        // disk for a moment, but listing them invites a player to start there.
+        if (start + duration <= cutoff)
+        {
+            start += duration;
+            continue;
+        }
+        if (firstPublished == 0)
+        {
+            firstPublished = number;
+        }
         // Equal length neighbours collapse into one entry with @r, which keeps
         // the manifest small across a long session.
         if (runOpen && duration == runDuration)
@@ -698,7 +722,27 @@ void applyMeasuredSegmentTimeline(std::string& manifest, const std::filesystem::
         start += duration;
     }
     flushRun();
-    timeline << "</SegmentTimeline>\n</SegmentTemplate>";
+
+    // The listing and startNumber must name the same first segment, or the
+    // player asks for one that was pruned and takes a 404 on its first fetch.
+    if (firstPublished > 0)
+    {
+        const std::string key = "startNumber=\"";
+        const size_t at = tag.find(key);
+        if (at != std::string::npos)
+        {
+            const size_t valueBegin = at + key.size();
+            const size_t valueEnd = tag.find('"', valueBegin);
+            if (valueEnd != std::string::npos)
+            {
+                tag.replace(valueBegin, valueEnd - valueBegin, std::to_string(firstPublished));
+            }
+        }
+    }
+
+    std::ostringstream timeline;
+    timeline << tag << ">\n<SegmentTimeline>\n" << entries.str()
+             << "</SegmentTimeline>\n</SegmentTemplate>";
 
     manifest.replace(position, close - position + 2, timeline.str());
 }
@@ -781,7 +825,13 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
         position = close + 2;
     }
 
-    applyMeasuredSegmentTimeline(manifest, directory, mediaTimescale(directory / "video_0_1.mp4"));
+    // Live publishes only its advertised window; replay publishes the whole
+    // recording the viewer asked for.
+    const uint32_t timescale = mediaTimescale(directory / "video_0_1.mp4");
+    const uint64_t windowTicks = replay
+        ? 0
+        : static_cast<uint64_t>(kDashTimeShiftBufferDepthSec) * timescale;
+    applyMeasuredSegmentTimeline(manifest, directory, timescale, windowTicks);
 
     // dashsink emits a valid dynamic MPD for live sessions.  Do not add a
     // finite/static duration to it: that makes dash.js prefetch the entire
