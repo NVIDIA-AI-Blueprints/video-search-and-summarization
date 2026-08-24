@@ -72,6 +72,14 @@ jobs:
             \( -name 'skill-eval-*' -o -name 'model-routing-*' \) \
             -exec rm -rf {} + 2>/dev/null || true
           python3 -m pip cache purge 2>/dev/null || true
+          # The venv sweep alone recovered ~0.1G on a 125G disk at 100%; the
+          # bulk is docker state (buildkit snapshots from interrupted builds
+          # included). Prune only what is safe to lose: build cache older
+          # than a day, dangling images, and containers that exited over a
+          # day ago. Tagged images other jobs pinned are not touched.
+          docker builder prune -af --filter until=24h 2>/dev/null || true
+          docker image prune -f 2>/dev/null || true
+          docker container prune -f --filter until=24h 2>/dev/null || true
           df -h "$HOME" | tail -1
 
       - name: Set up notebook Python
