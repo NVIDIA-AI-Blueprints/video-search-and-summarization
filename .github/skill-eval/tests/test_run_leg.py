@@ -1051,6 +1051,12 @@ class TraceUrls(unittest.TestCase):
 
 
 class PoolCandidates(unittest.TestCase):
+    RTX4090_TEST_CAPABILITIES = {
+        "vss-ask-video": frozenset({"base_profile_video_understanding"}),
+        "vss-deploy-profile": frozenset({"alerts_cv"}),
+        "vss-manage-alerts": frozenset({"subscriptions_lifecycle"}),
+    }
+
     FLEET = [
         {"name": "vss-eval-rtx-1g-2", "status": "RUNNING",
          "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
@@ -1181,7 +1187,12 @@ class PoolCandidates(unittest.TestCase):
                 "vss-eval-geforce-rtx4090-vm2"
             ),
         }
-        with mock.patch.dict(run_leg.os.environ, env, clear=True):
+        with (
+            mock.patch.dict(run_leg.os.environ, env, clear=True),
+            mock.patch.object(
+                run_leg, "RTX4090_TESTS", self.RTX4090_TEST_CAPABILITIES
+            ),
+        ):
             approved = run_leg._registered_pool_allowlist(
                 "vss-ask-video", "base_profile_video_understanding"
             )
@@ -1200,25 +1211,28 @@ class PoolCandidates(unittest.TestCase):
         self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
 
     def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "alerts_cv"
-        ))
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-manage-alerts", "subscriptions_lifecycle"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "search"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "warehouse"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-dense-captioning", "alerts_profile_api"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-detection-tracking-3d", "deploy"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+        with mock.patch.object(
+            run_leg, "RTX4090_TESTS", self.RTX4090_TEST_CAPABILITIES
+        ):
+            self.assertTrue(run_leg._rtx4090_supports(
+                "vss-deploy-profile", "alerts_cv"
+            ))
+            self.assertTrue(run_leg._rtx4090_supports(
+                "vss-manage-alerts", "subscriptions_lifecycle"
+            ))
+            self.assertFalse(run_leg._rtx4090_supports(
+                "vss-deploy-profile", "search"
+            ))
+            self.assertFalse(run_leg._rtx4090_supports(
+                "vss-deploy-profile", "warehouse"
+            ))
+            self.assertFalse(run_leg._rtx4090_supports(
+                "vss-deploy-dense-captioning", "alerts_profile_api"
+            ))
+            self.assertFalse(run_leg._rtx4090_supports(
+                "vss-deploy-detection-tracking-3d", "deploy"
+            ))
+            self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
 
     def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
         fleet = [{
@@ -1233,14 +1247,17 @@ class PoolCandidates(unittest.TestCase):
         )
         requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
 
-        approved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-ask-video",
-        }, "base_profile_video_understanding")
-        unapproved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-deploy-dense-captioning",
-        }, "alerts_profile_api")
+        with mock.patch.object(
+            run_leg, "RTX4090_TESTS", self.RTX4090_TEST_CAPABILITIES
+        ):
+            approved = run_leg.pool_candidates({
+                **requirements,
+                "skill": "vss-ask-video",
+            }, "base_profile_video_understanding")
+            unapproved = run_leg.pool_candidates({
+                **requirements,
+                "skill": "vss-deploy-dense-captioning",
+            }, "alerts_profile_api")
 
         self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
         self.assertEqual(unapproved, [])
