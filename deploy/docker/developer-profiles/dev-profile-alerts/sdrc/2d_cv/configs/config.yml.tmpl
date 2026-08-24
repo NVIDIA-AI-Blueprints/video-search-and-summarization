@@ -19,7 +19,6 @@ docker-workload-streamprocessing:
   WDM_WL_DELETE_URL: /api/v1/proxy/stream/
   WDM_WL_CHANGE_ID_ADD: camera_proxy
   WDM_WL_CHANGE_ID_DEL: camera_remove
-  WDM_WL_HEALTH_CHECK_URL: /api/v1/proxy/configuration
   WDM_WL_THRESHOLD: 100
   WDM_CONTROLLER_REPROVISION: true
   WDM_RESET_ON_WLOBJ_CRASH: false
@@ -43,7 +42,10 @@ docker-workload-streamprocessing:
   WDM_WL_REDIS_MSG_FIELD: sensor.id
   WDM_MSG_KEY: vst_events
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json
-  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
+  WDM_WL_HEALTH_CHECK_URL: '/vst/api/v1/sensor/version'
+  WDM_ADD_CALL_DELAY: 1
+  WDM_PROVISION_ASYNC: false
 
 docker-workload-rtvi-cv:
   wl_obj_name: perception-sdr
