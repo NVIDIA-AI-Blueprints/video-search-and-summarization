@@ -84,6 +84,10 @@ public:
     DashStartResult startReplay(const std::string& streamId, const std::string& startTime,
                                 const std::string& endTime,
                                 const Json::Value& overlay = Json::Value());
+    // Replay seeking replaces only this viewer's private DASH session.  A new
+    // token prevents a browser from mixing fMP4 fragments from before and
+    // after the decoder flush.
+    DashStartResult seekReplay(const std::string& viewerId, const std::string& startTime);
     bool controlReplay(const std::string& viewerId, const std::string& action, const std::string& value);
     bool stopViewer(const std::string& viewerId);
     std::optional<DashStartResult> status(const std::string& viewerId);
@@ -103,12 +107,16 @@ private:
         std::string streamToken;
         std::string mediaUrl;
         std::shared_ptr<DashPackagerConsumer> packager;
-        // Replay only: the recorded source feeding the packager, and the window
-        // it was opened for.  Live sessions are fed by StreamMonitor instead
-        // and leave this null.
+        // True only for a recorded replay.  This controls the MPD shape and
+        // replay-specific controls such as seek; a live overlay is still live
+        // even though it owns a private source pipeline.
         bool replay = false;
+        // Private-source sessions (recorded replay and live overlay) are kept
+        // in the token-keyed collection and must tear down their own pipeline.
+        bool ownsSource = false;
         std::string startTime;
         std::string endTime;
+        Json::Value overlay;
         std::shared_ptr<CommonVideoSource> source;
         bool paused = false;
         std::set<std::string> viewerIds;

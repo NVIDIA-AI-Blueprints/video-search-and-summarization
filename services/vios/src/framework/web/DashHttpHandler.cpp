@@ -172,6 +172,47 @@ uint64_t readFragmentDuration(const std::filesystem::path& file)
     return fragmentDurationTicks(body);
 }
 
+// dashsink creates the next file before it has finished writing the current
+// one.  Looking only for a moof (or for a briefly stable file size) can
+// therefore serve a truncated mdat under load.  Validate the top-level ISO
+// BMFF boxes instead: every sized box must be wholly present in the file, and
+// a media response must contain both the movie fragment and its media data.
+bool hasCompleteMediaFragment(const std::filesystem::path& file)
+{
+    std::ifstream input(file, std::ios::binary);
+    if (!input)
+    {
+        return false;
+    }
+    const std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    bool hasMoof = false;
+    bool hasMdat = false;
+    size_t offset = 0;
+    while (offset + 8 <= body.size())
+    {
+        const uint32_t size = readBigEndianUint32(body, offset);
+        const std::string_view type(body.data() + offset + 4, 4);
+        if (size == 0)
+        {
+            // A zero-sized mdat extends to EOF, so the bytes currently on disk
+            // are its complete payload.  Other zero-sized boxes are not valid
+            // before a media fragment in our dashsink output.
+            return type == "mdat" && hasMoof;
+        }
+        if (size == 1 || size < 8 || static_cast<uint64_t>(offset) + size > body.size())
+        {
+            // dashsink's output uses 32-bit box sizes.  Treat a large-size box
+            // as unavailable rather than risk serving it without its 64-bit
+            // length field and payload.
+            return false;
+        }
+        hasMoof = hasMoof || type == "moof";
+        hasMdat = hasMdat || type == "mdat";
+        offset += size;
+    }
+    return offset == body.size() && hasMoof && hasMdat;
+}
+
 // Caches the measured length of every segment a session has produced, keyed by
 // its output directory.  Entries outlive the files themselves: retention
 // deletes old segments, but their durations are still needed to place the
@@ -227,7 +268,12 @@ public:
             {
                 continue;
             }
-            const uint64_t ticks = readFragmentDuration(directory / ("video_0_" + std::to_string(number) + ".mp4"));
+            const std::filesystem::path path = directory / ("video_0_" + std::to_string(number) + ".mp4");
+            if (!hasCompleteMediaFragment(path))
+            {
+                continue;
+            }
+            const uint64_t ticks = readFragmentDuration(path);
             if (ticks > 0)
             {
                 known[number] = ticks;
@@ -491,6 +537,9 @@ void replaceAttribute(std::string& manifest, size_t begin, size_t end,
 // Publishing availability this much later moves the playhead back by the same
 // amount and gives it a cushion that does not depend on the player honouring a
 // request.
+// Keep an explicit cushion behind the edge.  The initial catalogue is large
+// enough to cover this shift, and without it Chrome can begin only one or two
+// segments behind the live edge and drain at every segment boundary.
 constexpr int kDashLiveAvailabilityShiftSec = 4;
 constexpr int kDashReplayAvailabilityShiftSec = 6;
 
@@ -498,7 +547,7 @@ constexpr int kDashReplayAvailabilityShiftSec = 6;
 // Part of the floor under the live delay: a segment the player has not been
 // told about yet cannot be fetched, so a slower refresh raises the minimum
 // latency the player can hold.
-constexpr int kDashManifestRefreshSec = 1;
+constexpr const char* kDashManifestRefreshPeriod = "PT0.25S";
 
 // A live manifest with no time shift buffer depth describes an availability
 // window that starts when the session did and grows without bound, and a player
@@ -507,9 +556,14 @@ constexpr int kDashManifestRefreshSec = 1;
 // session barely a minute in, climbing - while Edge starts near the edge and
 // plays cleanly from the same manifest.  Publishing a bounded window makes the
 // live edge the only sensible place to start, so every player agrees.
-constexpr int kDashTimeShiftBufferDepthSec = 30;
+// Room for a playhead that has fallen behind to be rescued.  At thirty seconds
+// a player that starts on a fresh session is outside the window almost at once,
+// and media under a playhead outside the window is evicted, which turns a lag
+// into a permanent freeze.  The segments are retained on disk regardless, so a
+// longer window costs only manifest size.
+constexpr int kDashTimeShiftBufferDepthSec = 90;
 
-void setMinimumUpdatePeriod(std::string& manifest, int seconds)
+void setMinimumUpdatePeriod(std::string& manifest, const char* period)
 {
     const std::string key = "minimumUpdatePeriod=\"";
     const size_t begin = manifest.find(key);
@@ -523,7 +577,47 @@ void setMinimumUpdatePeriod(std::string& manifest, int seconds)
     {
         return;
     }
-    manifest.replace(valueBegin, valueEnd - valueBegin, "PT" + std::to_string(seconds) + "S");
+    manifest.replace(valueBegin, valueEnd - valueBegin, period);
+}
+
+// dashsink writes its MPD only while the packager is configured.  Its
+// publishTime consequently stays at session creation even though the HTTP
+// handler builds a new SegmentTimeline as additional fMP4 fragments arrive.
+// A DASH client is entitled to ignore an MPD update whose publishTime has not
+// advanced; Chrome/dash.js then remains on the initial three-to-four segment
+// view and freezes as soon as that buffer is consumed.  This response is the
+// publication point for the generated timeline, so stamp it at send time.
+void updatePublishTime(std::string& manifest)
+{
+    const std::string key = "publishTime=\"";
+    const size_t begin = manifest.find(key);
+    if (begin == std::string::npos)
+    {
+        return;
+    }
+    const size_t valueBegin = begin + key.size();
+    const size_t valueEnd = manifest.find('"', valueBegin);
+    if (valueEnd == std::string::npos)
+    {
+        return;
+    }
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+    const auto milliseconds =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+    std::tm utc{};
+    if (gmtime_r(&seconds, &utc) == nullptr)
+    {
+        return;
+    }
+    char stamp[32] = {0};
+    if (std::strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%S", &utc) == 0)
+    {
+        return;
+    }
+    std::ostringstream preciseStamp;
+    preciseStamp << stamp << '.' << std::setfill('0') << std::setw(3) << milliseconds << 'Z';
+    manifest.replace(valueBegin, valueEnd - valueBegin, preciseStamp.str());
 }
 
 bool shiftAvailabilityStart(std::string& manifest, int seconds)
@@ -825,13 +919,15 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
         position = close + 2;
     }
 
-    // Live publishes only its advertised window; replay publishes the whole
-    // recording the viewer asked for.
+    // A decode/draw/encode overlay path does not produce exactly one second
+    // per fragment: it emits shortened and lengthened fragments at keyframe
+    // boundaries.  A nominal fixed duration makes Chrome consume the fMP4
+    // timestamps against the wrong availability schedule and eventually drain
+    // its buffer.  Keep this a dynamic MPD, but publish its measured sliding
+    // timeline so every completed live fragment has its real duration.
     const uint32_t timescale = mediaTimescale(directory / "video_0_1.mp4");
-    const uint64_t windowTicks = replay
-        ? 0
-        : static_cast<uint64_t>(kDashTimeShiftBufferDepthSec) * timescale;
-    applyMeasuredSegmentTimeline(manifest, directory, timescale, windowTicks);
+    applyMeasuredSegmentTimeline(manifest, directory, timescale,
+                                 replay ? 0 : static_cast<uint64_t>(kDashTimeShiftBufferDepthSec) * timescale);
 
     // dashsink emits a valid dynamic MPD for live sessions.  Do not add a
     // finite/static duration to it: that makes dash.js prefetch the entire
@@ -843,10 +939,13 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
         shiftAvailabilityStart(manifest, replay ? kDashReplayAvailabilityShiftSec
                                                 : kDashLiveAvailabilityShiftSec);
         // dashsink advertises a one second refresh.  The SegmentTemplate carries a
-        // fixed duration, so the player can derive segment numbers arithmetically
-        // and only needs the manifest again to notice structural changes.  Halving
-        // the request rate costs nothing.
-        setMinimumUpdatePeriod(manifest, kDashManifestRefreshSec);
+        // fixed duration, but Chrome needs an updated availability window before
+        // it will request the next fMP4 fragment.  A one-second refresh races a
+        // one-second segment boundary and produces periodic BUFFER_EMPTY events
+        // with an overlay.  Poll at a quarter second so the next segment is
+        // requested before the current one is exhausted.
+        setMinimumUpdatePeriod(manifest, kDashManifestRefreshPeriod);
+        updatePublishTime(manifest);
         // Live only.  A replay session publishes its whole recording window on
         // purpose, so bounding it would cut the viewer off from the start of
         // what they asked to watch.
@@ -901,6 +1000,20 @@ bool sendManifest(struct mg_connection* connection, const DashAssetResult& asset
         return false;
     }
     normalizeLiveManifest(manifest, asset.path.parent_path(), asset.replay);
+    // Temporary DASH_DIAG instrumentation.  An MPD is normally fetched every
+    // second, so remove this once the live-buffer investigation is complete.
+    const size_t mpdBegin = manifest.find("<MPD");
+    const size_t mpdEnd = mpdBegin == std::string::npos ? std::string::npos : manifest.find('>', mpdBegin);
+    const std::string mpdTag = mpdEnd == std::string::npos
+        ? std::string{}
+        : manifest.substr(mpdBegin, mpdEnd - mpdBegin + 1);
+    LOG(info) << "DASH_DIAG MPD path=" << asset.path.filename().string()
+               << " replay=" << asset.replay
+               << " availabilityStartTime=" << attributeValue(mpdTag, "availabilityStartTime")
+               << " publishTime=" << attributeValue(mpdTag, "publishTime")
+               << " suggestedPresentationDelay=" << attributeValue(mpdTag, "suggestedPresentationDelay")
+               << " timeShiftBufferDepth=" << attributeValue(mpdTag, "timeShiftBufferDepth")
+               << " bytes=" << manifest.size();
     mg_printf(connection,
               "HTTP/1.1 200 OK\r\n"
               "Content-Type: application/dash+xml\r\n"
@@ -916,59 +1029,22 @@ bool sendManifest(struct mg_connection* connection, const DashAssetResult& asset
     return true;
 }
 
-// A freshly started session has no back catalogue: segments only appear at
-// real time, so a player that starts immediately sits on the live edge and
-// waits once per segment (a visible freeze every segment duration).  Hold the
-// manifest back until enough segments exist for the player to start behind
-// live and build a buffer straight away.  The client already retries 202.
-// A segment file appears as soon as dashsink writes its ftyp/moov header,
-// which happens up to a full segment duration before any media lands in it.
-// Size alone therefore cannot tell a finished segment from an empty shell: the
-// shell sits at a constant few hundred bytes and looks perfectly stable.  Only
-// the presence of a movie fragment says the file carries media.
-bool hasMediaFragment(const std::filesystem::path& path)
-{
-    std::ifstream input(path, std::ios::binary);
-    if (!input)
-    {
-        return false;
-    }
-    // moof follows ftyp/moov, well inside the first few kilobytes for a single
-    // track, so the whole file never has to be read to answer this.
-    std::array<char, 8192> head{};
-    input.read(head.data(), static_cast<std::streamsize>(head.size()));
-    const std::string_view window(head.data(), static_cast<size_t>(input.gcount()));
-    return window.find("moof") != std::string_view::npos;
-}
-
 bool waitForMediaSegment(const std::filesystem::path& path)
 {
-    // dash.js requests the next live fragment at the live edge.  dashsink may
-    // still be closing that file, so an immediate 404 is interpreted as a
-    // fatal media error instead of a short encoder race.
-    // Long enough to cover the encoder still closing the file it is writing,
-    // short enough that a segment which is never coming does not hold a browser
-    // connection open.  A client only has a handful of connections per host, so
-    // several of these waiting at once starve the manifest requests behind them.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
-    std::error_code ec;
+    // A segment advertised while dashsink is closing must not be returned as a
+    // partial fMP4: Chrome discards that append, and the next fragment becomes
+    // a permanent SourceBuffer gap.  Wait for structurally complete media
+    // instead of guessing from a 50 ms file-size pause.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline)
     {
-        const bool exists = std::filesystem::exists(path, ec);
-        const uintmax_t firstSize = exists && !ec ? std::filesystem::file_size(path, ec) : 0;
-        if (!ec && firstSize > 0 && hasMediaFragment(path))
+        if (hasCompleteMediaFragment(path))
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            const uintmax_t secondSize = std::filesystem::file_size(path, ec);
-            if (!ec && secondSize == firstSize)
-            {
-                return true;
-            }
+            return true;
         }
-        ec.clear();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    return std::filesystem::exists(path, ec) && !ec && hasMediaFragment(path);
+    return hasCompleteMediaFragment(path);
 }
 
 } // namespace
@@ -1037,6 +1113,18 @@ bool DashHttpHandler::handleGet(CivetServer* /*server*/, struct mg_connection* c
     if (!served)
     {
         sendText(connection, 404, "Not Found", "DASH asset not found");
+    }
+    else if (!isManifest)
+    {
+        // Temporary DASH_DIAG instrumentation.  A fragment is logged only
+        // after it has been completely written to the HTTP response.
+        std::error_code ec;
+        const uintmax_t size = std::filesystem::file_size(asset.path, ec);
+        LOG(info) << "DASH_DIAG segment token=" << token
+                   << " file=" << asset.path.filename().string()
+                   << " initOnly=" << initOnly
+                   << " durationTicks=" << (initOnly ? 0 : readFragmentDuration(asset.path))
+                   << " bytes=" << (ec ? 0 : size);
     }
     return true;
 }

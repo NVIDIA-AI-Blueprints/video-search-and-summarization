@@ -403,6 +403,15 @@ void DashPackagerConsumer::cleanupOutput()
         LOG(error) << "Refusing unsafe DASH output cleanup: " << normalizedOutput << endl;
         return;
     }
+    // Diagnostic: the same switch that stops the rolling prune also keeps the
+    // directory after the session ends, because a session that misbehaves is
+    // usually torn down before anyone can look at what it produced.
+    const char* keep = std::getenv("VST_DASH_KEEP_SEGMENTS");
+    if (keep != nullptr && keep[0] == '1')
+    {
+        LOG(warning) << "Keeping DASH output for diagnosis: " << normalizedOutput << endl;
+        return;
+    }
     std::error_code ec;
     std::filesystem::remove_all(normalizedOutput, ec);
     if (ec)
@@ -472,6 +481,80 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
             timeline.baselineValid = true;
         }
         pts = rawPts - timeline.baseline;
+
+        // A live source can skip forward: the overlay path decodes, draws and
+        // re-encodes, and a stall anywhere in that chain means the next frame
+        // arrives stamped seconds later.  Publishing that gap verbatim leaves a
+        // hole in the media timeline, and a player whose playhead sits before it
+        // never becomes contiguous again - it keeps downloading segments and
+        // never resumes, which is a freeze that outlasts the stall that caused
+        // it.  Close the hole instead and carry the offset forward, so the
+        // published timeline is continuous and the viewer loses only the frames
+        // that were genuinely missing.
+        const double rate = m_config.sourceFrameRate > 0.0 ? m_config.sourceFrameRate : 30.0;
+        const auto frameDuration = static_cast<GstClockTime>(GST_SECOND / rate);
+        if (timeline.lastOutValid && frameDuration > 0)
+        {
+            const GstClockTime expected = timeline.lastOut + frameDuration;
+            // One frame of slack absorbs ordinary jitter; beyond that it is a
+            // gap the player cannot cross.
+            if (pts > expected + frameDuration)
+            {
+                const GstClockTime skipped = pts - expected;
+                timeline.baseline += skipped;
+                timeline.carried += skipped;
+                ++timeline.jumps;
+                pts = expected;
+                LOG(warning) << "DASH timeline gap closed for " << m_config.streamToken
+                             << ": source skipped " << (skipped / GST_MSECOND)
+                             << " ms, total carried " << (timeline.carried / GST_MSECOND)
+                             << " ms across " << timeline.jumps << " gaps" << endl;
+            }
+        }
+        timeline.lastOut = pts;
+        timeline.lastOutValid = true;
+    }
+
+    // How late the frames themselves arrive.  A viewer near the live edge starves
+    // when a segment is written late, and the media timeline gives no sign of
+    // that: it stays perfectly continuous while the pipeline behind it stutters.
+    // The overlay path decodes, draws and re-encodes, so this is where a hiccup
+    // in any of those stages becomes visible.
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (timeline.lastArrivalValid)
+        {
+            const auto gapMs = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - timeline.lastArrival).count());
+            if (gapMs > timeline.worstGapMs)
+            {
+                timeline.worstGapMs = gapMs;
+            }
+            // A 30 fps source should deliver every 33 ms.  Anything past a
+            // quarter second means a segment is going to be late.
+            if (gapMs >= 250)
+            {
+                ++timeline.lateArrivals;
+                LOG(warning) << "DASH frame arrived late for " << m_config.streamToken
+                             << ": " << gapMs << " ms since the previous frame ("
+                             << timeline.lateArrivals << " late so far)" << endl;
+            }
+        }
+        timeline.lastArrival = now;
+        timeline.lastArrivalValid = true;
+    }
+
+    if (++timeline.framesSinceReport >= 300)
+    {
+        timeline.framesSinceReport = 0;
+        LOG(info) << "DASH timeline for " << m_config.streamToken << ": pts="
+                  << (pts / GST_MSECOND) << " ms, gaps closed=" << timeline.jumps
+                  << ", carried=" << (timeline.carried / GST_MSECOND) << " ms"
+                  << ", worst frame arrival gap=" << timeline.worstGapMs << " ms"
+                  << ", late arrivals=" << timeline.lateArrivals
+                  << (timeline.synthesize ? " (synthesised)" : "") << endl;
+        timeline.worstGapMs = 0;
     }
 
     GstBuffer* buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
