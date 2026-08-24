@@ -143,8 +143,14 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
             return VmsErrorCode::MethodNotAllowedError;
         }
         const std::string streamId = in.get("streamId", EMPTY_STRING).asString();
+        // A video wall is described the same way it is for WebRTC, so the
+        // composite object is read from the same place in the request.
         const DashStartResult result =
-            DashSessionManager::instance().start(streamId, in.get("overlay", Json::Value()));
+            DashSessionManager::instance().start(streamId, in.get("overlay", Json::Value()),
+                                                 in.get("composite", Json::Value()),
+                                                 in.isMember("framerate")
+                                                     ? in.get("framerate", EMPTY_STRING).asString()
+                                                     : std::string());
         if (!result.success)
         {
             const VmsErrorCode code = dashStartErrorCode(result.error);

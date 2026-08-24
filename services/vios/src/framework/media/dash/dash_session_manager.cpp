@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -176,7 +177,13 @@ bool dashOverlayRequested(const Json::Value& overlay)
            || (bbox != probe.end() && bbox->second == "true");
 }
 
-DashStartResult DashSessionManager::start(const std::string& streamId, const Json::Value& overlay)
+bool dashCompositeRequested(const Json::Value& composite)
+{
+    return composite.isObject() && composite.get("doComposite", false).asBool();
+}
+
+DashStartResult DashSessionManager::start(const std::string& streamId, const Json::Value& overlay,
+                                          const Json::Value& composite, const std::string& frameRate)
 {
     DashStartResult result;
     result.streamId = streamId;
@@ -191,11 +198,15 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
     // it afterwards incorrectly returned an existing no-overlay MPD for an
     // overlay request.
     const bool overlayRequested = dashOverlayRequested(overlay);
+    // A video wall is composed for the viewer that asked for it: its picture
+    // depends on which cameras were named and how they are laid out, so it can
+    // never be answered with the shared single-camera session.
+    const bool compositeRequested = dashCompositeRequested(composite);
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         const auto existing = m_sessionsByStream.find(streamId);
-        if (!overlayRequested && existing != m_sessionsByStream.end())
+        if (!overlayRequested && !compositeRequested && existing != m_sessionsByStream.end())
         {
             const std::shared_ptr<Session>& session = existing->second;
             result.viewerId = generate_uuid();
@@ -239,6 +250,57 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         return result;
     }
 
+    // A video wall needs every camera it names, and the request only carries
+    // one of them as the stream this session is filed under.  Resolve the rest
+    // now so a wall naming a camera that does not exist fails here rather than
+    // producing a picture with a hole in it.
+    std::string compositeUrls;
+    if (compositeRequested)
+    {
+        std::map<std::string, std::string, std::less<>> probe;
+        setCompositeOptsBasedOnJson(probe, composite, std::string());
+        const auto named = probe.find("streamIds");
+        std::vector<std::string> wallStreamIds;
+        if (named != probe.end() && !named->second.empty())
+        {
+            std::stringstream ids(named->second);
+            std::string one;
+            while (std::getline(ids, one, ','))
+            {
+                if (!one.empty())
+                {
+                    wallStreamIds.push_back(one);
+                }
+            }
+        }
+        if (wallStreamIds.empty())
+        {
+            result.error = "A composite request must name the streams to compose";
+            return result;
+        }
+        for (const std::string& wallStreamId : wallStreamIds)
+        {
+            const std::shared_ptr<nv_vms::StreamInfo> member = findStream(wallStreamId);
+            if (!member)
+            {
+                result.error = "Composite stream not found: " + wallStreamId;
+                return result;
+            }
+            const std::string memberUrl = member->live_proxy_url.empty() ? member->live_url
+                                                                        : member->live_proxy_url;
+            if (memberUrl.rfind("rtsp://", 0) != 0 && memberUrl.rfind("rtsps://", 0) != 0)
+            {
+                result.error = "Composite requires an RTSP source: " + wallStreamId;
+                return result;
+            }
+            // The tile label is carried on the URL fragment, which is how the
+            // compositor learns which name belongs to which picture.
+            compositeUrls += memberUrl + "#" + wallStreamId + ",";
+        }
+        LOG(info) << "Composite live DASH session over " << wallStreamIds.size()
+                  << " streams" << endl;
+    }
+
     const std::string audioCodec = compactCodec(stream->settings.audioEncoderValues.encoding);
     const bool enableAac = stream->settings.audioEncoderValues.enable
                            && (audioCodec == "aac" || audioCodec == "mpeg4generic");
@@ -252,6 +314,21 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         packagerConfig.enableAac = enableAac;
         packagerConfig.audioSampleRate = parsePositive(stream->settings.audioEncoderValues.sample_rate, 48000);
         packagerConfig.audioChannels = parsePositive(stream->settings.audioEncoderValues.channels, 2);
+        if (compositeRequested)
+        {
+            // A wall is composed at a rate we choose rather than one a camera
+            // dictates, and the composed frames reach the packager without a
+            // usable source timestamp - the muxer rejects the first buffer it
+            // cannot place and the session dies after its initialisation
+            // segment.  The rate is known, so build the timeline from the frame
+            // index the way a recording does.
+            packagerConfig.synthesizeTimestamps = true;
+            const double requested = frameRate.empty() ? 0.0 : std::atof(frameRate.c_str());
+            if (requested > 0.0)
+            {
+                packagerConfig.sourceFrameRate = requested;
+            }
+        }
     }
 
     auto session = std::make_shared<Session>();
@@ -267,9 +344,11 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         return result;
     }
 
-    if (overlayRequested)
+    if (overlayRequested || compositeRequested)
     {
-        LOG(info) << "Creating private live DASH overlay session streamId=" << streamId << endl;
+        LOG(info) << "Creating private live DASH session streamId=" << streamId
+                  << (overlayRequested ? " with overlay" : "")
+                  << (compositeRequested ? " with composite" : "") << endl;
         // Drawing on a live stream needs its pixels, so this session owns a
         // pipeline of its own rather than tapping the shared bitstream.
         std::map<std::string, std::string, std::less<>> opts;
@@ -288,6 +367,36 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         // one stops receiving frames.  Replay overlay has always worked this way.
         opts["new_dec"] = "true";
         setOverlayOptsBasedOnJson(opts, overlay);
+        // The frame rate travels beside the composite object in the request and
+        // governs the rate the wall is composed and encoded at.
+        // Composing several cameras costs more than passing one through, so a
+        // caller may ask for a lower rate than the cameras run at.  Absent that,
+        // the wall is composed at the rate this stream already reports.
+        setCompositeOptsBasedOnJson(opts, composite, frameRate);
+        if (compositeRequested)
+        {
+            // The request schema and the pipeline speak different names for the
+            // same things.  WebRTC translates between them on its way in; do the
+            // same here so the compositor, the decoders and the sensor-name
+            // overlay all recognise this as a video wall.  Without it the
+            // pipeline is built as a single stream and the composed URL list is
+            // handed to the monitor as if it were one camera.
+            opts["do_composition"] = "true";
+            if (opts.find("showSensorName") != opts.end())
+            {
+                opts["overlayShowSensorName"] = "true";
+                const auto position = opts.find("showSensorNamePosition");
+                if (position != opts.end() && !position->second.empty())
+                {
+                    const std::vector<std::string> xy = splitString(position->second, ",");
+                    if (xy.size() == 2)
+                    {
+                        opts["overlaySensorPosX"] = xy[0];
+                        opts["overlaySensorPosY"] = xy[1];
+                    }
+                }
+            }
+        }
 
         // This is a live MPD, even though drawing the overlay needs a private
         // decode/draw/encode pipeline.  Marking it as replay makes the HTTP
@@ -295,7 +404,8 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         // initial fragments.
         session->ownsSource = true;
         session->overlay = overlay;
-        session->source = std::make_shared<CommonVideoSource>(mediaUrl, opts, session->packager);
+        session->source = std::make_shared<CommonVideoSource>(
+            compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
         session->source->createConsumerPipeline();
         session->source->setConsumerReady();
         session->source->startStream();
@@ -314,7 +424,10 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
                                      + session->streamToken + ".mpd";
         result.state = session->packager->state();
-        LOG(info) << "Live DASH viewer started with overlay streamId=" << streamId
+        LOG(info) << "Live DASH viewer started"
+                  << (overlayRequested ? " with overlay" : "")
+                  << (compositeRequested ? " with composite" : "")
+                  << " streamId=" << streamId
                   << " state=" << stateString(result.state) << endl;
         return result;
     }
