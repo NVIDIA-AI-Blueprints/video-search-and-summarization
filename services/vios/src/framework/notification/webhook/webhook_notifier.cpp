@@ -150,8 +150,7 @@ Json::Value mergeUserMetadata(const Json::Value& taggedEvent, const Json::Value&
     return merged;
 }
 
-// Custom body templates (docs/webhook-custom-body-template-spec.md): the
-// top-level body value is depth level 1; level 32 is valid, level 33 is not.
+// The top-level body value is depth level 1: level 32 is valid, level 33 is not.
 constexpr int MAX_BODY_TEMPLATE_DEPTH = 32;
 
 // A placeholder path is one or more '.'-separated segments of [A-Za-z0-9_-].
@@ -164,7 +163,7 @@ bool isValidPlaceholderPath(const std::string& path)
         {
             if (!segmentHasChars)
             {
-                return false;  // empty segment: leading dot or ".."
+                return false;  // empty segment: leading or doubled dot
             }
             segmentHasChars = false;
         }
@@ -180,8 +179,7 @@ bool isValidPlaceholderPath(const std::string& path)
     return segmentHasChars;  // rejects an empty path and a trailing dot
 }
 
-// If 'text' is exactly a full-wrap placeholder "{{path}}" with a valid dotted
-// path, returns the path; std::nullopt otherwise.
+// Returns the path when 'text' is exactly "{{path}}" with a valid dotted path.
 std::optional<std::string> placeholderPath(const std::string& text)
 {
     const std::string open = "{{";
@@ -205,10 +203,9 @@ bool containsBraces(const std::string& text)
     return text.find("{{") != std::string::npos || text.find("}}") != std::string::npos;
 }
 
-// Load-time template validation. Braces are reserved: a string containing
-// "{{" or "}}" must be exactly a full-wrap placeholder with a valid path, and
-// property names may not contain braces at all. On failure 'error' describes
-// the first offending value.
+// Braces are reserved: a string containing "{{" or "}}" must be exactly a
+// placeholder, and property names may not contain them at all. 'error'
+// describes the first offending value.
 bool validateBodyTemplate(const Json::Value& value, int level, std::string& error)
 {
     if (level > MAX_BODY_TEMPLATE_DEPTH)
@@ -256,9 +253,8 @@ bool validateBodyTemplate(const Json::Value& value, int level, std::string& erro
     return true;  // number, boolean, null
 }
 
-// Walks a validated dotted path from the notification root through nested
-// objects. An absent path — including one crossing a non-object — renders as
-// an empty string, never an error.
+// Walks a validated dotted path from the notification root. An absent path,
+// including one crossing a non-object, renders as "" and is never an error.
 Json::Value lookupNotificationValue(const Json::Value& message, const std::string& path)
 {
     const Json::Value* node = &message;
@@ -281,10 +277,8 @@ Json::Value lookupNotificationValue(const Json::Value& message, const std::strin
     }
 }
 
-// Per-delivery rendering of a validated template against the raw internal
-// notification. Type-preserving: the value found at a placeholder path is
-// copied as-is (an array stays one array element), and literal values pass
-// through unchanged.
+// Renders a validated template against the raw notification. Type-preserving:
+// a looked-up value is copied as-is, so an array stays one array element.
 Json::Value renderBodyTemplate(const Json::Value& bodyTemplate, const Json::Value& message)
 {
     if (bodyTemplate.isString())
@@ -482,9 +476,8 @@ void WebhookNotifier::loadConfig(const Json::Value& config)
             LOG(error) << "Webhook " << webhook.m_id << ": request must be an array, skipping" << endl;
             continue;
         }
-        // 1-based position in the configured request array. Unlike the count of
-        // already-loaded receivers, this still identifies an entry that is
-        // skipped, so several invalid entries cannot all report the same number.
+        // 1-based position in the configured request array: unlike the count of
+        // already-loaded receivers, this still names an entry that is skipped.
         size_t requestPosition = 0;
         for (const Json::Value& requestJson : requests)
         {
@@ -561,8 +554,7 @@ void WebhookNotifier::loadConfig(const Json::Value& config)
                            << (webhook.m_requests.size() + 1)
                            << " user_defined_metadata must be a JSON object, ignored" << endl;
             }
-            // Presence of "body", not emptiness, selects custom rendering:
-            // body {} is a valid template that sends {}.
+            // Presence, not emptiness, selects custom rendering: body {} sends {}.
             if (requestJson.isMember("body"))
             {
                 std::string templateError;
@@ -777,11 +769,8 @@ bool WebhookNotifier::deliverMessage(Json::Value& message)
             LOG(info) << "Webhook " << webhook.m_id << ": delivering " << loggingLabel << " to receiver "
                       << (r + 1) << "/" << webhook.m_requests.size() << " (attempt 1/"
                       << requestConfig.m_maxAttempts << ")" << endl;
-            // A receiver with a custom body template gets the rendered template
-            // as its complete body, built from the raw event (no webhook_id
-            // tag). Otherwise a receiver with user_defined_metadata gets its
-            // own body with the extra keys merged into event.metadata, and the
-            // rest share the plain tagged body.
+            // A custom body renders from the raw event, not taggedEvent: the
+            // template is the complete body, so webhook_id is not added.
             std::string receiverBody;
             if (requestConfig.m_bodyTemplate)
             {
