@@ -23,9 +23,14 @@ on:
 permissions:
   contents: read
 
+# Manual dispatches must not cancel each other — same conditional-group
+# shape as skills-eval.yml.
 concurrency:
-  group: model-routing-notebook-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch'
+      && format('model-routing-notebook-manual-{0}', github.run_id)
+      || format('model-routing-notebook-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 defaults:
   run:
@@ -47,8 +52,18 @@ jobs:
 
       - name: Gate on the cumulative PR diff
         id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          base="$(git merge-base origin/develop HEAD)"
+          # Derive the PR base from the mirror-branch number; fall back to
+          # develop when the lookup fails (or on manual dispatch).
+          base_branch="develop"
+          pr_number="${GITHUB_REF_NAME#pull-request/}"
+          if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
+            base_branch="$(gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" \
+              --json baseRefName --jq .baseRefName 2>/dev/null || echo develop)"
+          fi
+          base="$(git merge-base "origin/$base_branch" HEAD)"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
              || git diff --name-only "$base"...HEAD \
                   | grep -qE '^(deploy/docker/scripts/deploy_model_routing\.ipynb|\.github/skill-eval/model-routing/|\.github/workflows/model-routing-notebook\.yml)'; then
@@ -93,10 +108,19 @@ jobs:
         env:
           NOTEBOOK_VENV: ${{ runner.temp }}/model-routing-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
+          # Publish the per-run names BEFORE any step that can fail, so the
+          # always-cleanup step still knows what to remove. Router port,
+          # container name, and work dir are all run-scoped: concurrent PR
+          # runs share this host and must not stomp each other.
+          {
+            echo "NOTEBOOK_VENV=$NOTEBOOK_VENV"
+            echo "ROUTER_CONTAINER=vss-model-router-ci-${{ github.run_id }}"
+            echo "ROUTER_PORT=$((14000 + ${{ github.run_id }} % 1000))"
+            echo "MODEL_ROUTING_WORK_DIR=/tmp/skill-eval/model-routing-${{ github.run_id }}"
+          } >> "$GITHUB_ENV"
           python3 -m venv "$NOTEBOOK_VENV"
           "$NOTEBOOK_VENV/bin/python" -m pip install --quiet --no-cache-dir \
             nbformat nbclient ipykernel
-          echo "NOTEBOOK_VENV=$NOTEBOOK_VENV" >> "$GITHUB_ENV"
           echo "$NOTEBOOK_VENV/bin" >> "$GITHUB_PATH"
 
       - name: Run the notebook end to end
@@ -118,5 +142,5 @@ jobs:
           # runner.temp is not reliably purged between jobs on self-hosted
           # runners; leaked venvs have filled the coordinator disk before.
           rm -rf "$NOTEBOOK_VENV"
-          docker rm -f vss-model-router-ci 2>/dev/null || true
-          rm -rf /tmp/skill-eval/model-routing
+          [ -n "${ROUTER_CONTAINER:-}" ] && docker rm -f "$ROUTER_CONTAINER" 2>/dev/null || true
+          [ -n "${MODEL_ROUTING_WORK_DIR:-}" ] && rm -rf "$MODEL_ROUTING_WORK_DIR" || true
