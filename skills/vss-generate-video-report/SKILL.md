@@ -302,10 +302,22 @@ Hand off to `/vss-manage-video-io-storage` to:
 3. Request a clip URL:
 
    ```bash
-   curl -s "${VST_API_BASE}/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
+   # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
+   # Omit the window to take the whole recorded segment; the response echoes what it resolved.
+   # CLI bootstrap and exit codes: AGENTS.md at the repo root
+   VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+   VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+   VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"   # once per deployment
+
+   # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
+   # so a failed command with empty stdout reads as an empty answer.
+   CLIP=$("${VSS[@]}" vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
+     echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
+   VIDEO_URL=$(printf '%s' "${CLIP}" | jq -r .media_url)
    ```
 
-Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
+The block sets `VIDEO_URL` (used by the VLM in Step 3). Also set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
 
 Remote VLM reachability guard (required):
 - If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).

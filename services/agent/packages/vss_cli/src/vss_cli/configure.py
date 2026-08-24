@@ -98,6 +98,16 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     if not base_url:
         raise click.UsageError("--base-url is required (or use `vss configure show`)")
 
+    # Without a scheme httpx refuses to build the request, so every route comes
+    # back "absent" with an UnsupportedProtocol detail and the summary blames
+    # the ingress -- pointing at the deployment when the fault is the argument.
+    # Assume http and say so, rather than guessing silently or failing on
+    # something whose intent is unambiguous. Checked on "://" and not urlparse:
+    # urlparse reads "localhost:7777" as scheme "localhost", path "7777".
+    if "://" not in base_url:
+        base_url = f"http://{base_url}"
+        click.echo(f"no scheme given, assuming {base_url}", err=True)
+
     services: dict[str, config_mod.Service] = {}
     click.echo(f"probing {base_url}", err=True)
     for name, route in config_mod.INGRESS_SERVICES.items():
@@ -158,6 +168,39 @@ def show() -> None:
     click.echo(json.dumps(deployment.to_json(), indent=2))
 
 
+def _command_availability(deployment: config_mod.Deployment) -> list[tuple[str, bool, str]]:
+    """Which command groups this deployment can actually serve.
+
+    Requirements are static per action, and what the deployment exposes is
+    already recorded, so this needs no probe. It exists because neither half
+    is useful alone: `configure show` says what you have, `--help` says what a
+    command needs, and nobody wants to do the join by hand.
+    """
+    from . import plugins
+
+    # A group's requirements are unioned across its actions on purpose: a
+    # partially-available group is a trap. `search` reporting "available"
+    # because one retrieval path happens to work invites a caller to use the
+    # group and fail on the path they actually wanted. Available means the
+    # whole surface is.
+    rows: list[tuple[str, bool, str]] = []
+    for ref in plugins.discover():
+        try:
+            spec = plugins.load(ref.name)
+        except Exception:
+            continue
+        requires: set[str] = set()
+        for action in getattr(spec, "actions", ()) or ():
+            requires |= set(getattr(action, "requires", frozenset()))
+        requires |= set(getattr(spec, "requires", frozenset()) or frozenset())
+        # A group declaring nothing -- `configure` itself -- always works.
+        missing = sorted(r for r in requires if not deployment.has(r))
+        rows.append((ref.name, not missing, ", ".join(sorted(requires)) if requires else "-"))
+        if missing:
+            rows[-1] = (ref.name, False, f"needs {', '.join(missing)}")
+    return sorted(rows)
+
+
 @configure.command("check")
 def check() -> None:
     """Re-probe the recorded deployment and report drift (C3).
@@ -180,6 +223,13 @@ def check() -> None:
         ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
         click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
         stale = stale or not ok
+    rows = _command_availability(deployment)
+    if rows:
+        click.echo("", err=True)
+        click.echo("commands:")
+        for name, ok, detail in rows:
+            click.echo(f"  {name:<14} {'available' if ok else 'unavailable':<12} {detail}")
+
     if stale:
         raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
 
