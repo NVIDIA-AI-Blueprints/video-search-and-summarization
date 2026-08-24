@@ -329,6 +329,8 @@ export default class StreamManager {
                 startTime: streamConfig.startTime,
                 endTime: streamConfig.endTime,
                 overlay: streamConfig.options?.overlay as Record<string, unknown> | undefined,
+                composite: streamConfig.options?.composite as Record<string, unknown> | undefined,
+                framerate: streamConfig.options?.framerate as number | undefined,
                 videoElement,
                 onFirstFrame: () => this.appConfig.firstFrameReceivedCallback?.(),
                 onError: (message: string) => {

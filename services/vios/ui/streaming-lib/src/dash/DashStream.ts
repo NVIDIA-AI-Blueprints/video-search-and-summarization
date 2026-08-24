@@ -32,6 +32,11 @@ export interface DashStreamConfig {
     // the same reader, so an enabled overlay decodes and draws while an empty
     // one keeps the cheaper bitstream passthrough.
     overlay?: Record<string, unknown>;
+    // A video wall names the cameras to compose and the rate to compose them
+    // at.  Described exactly as it is for WebRTC so one description serves
+    // both protocols.
+    composite?: Record<string, unknown>;
+    framerate?: number;
     liveDelaySeconds?: number;
     initialBufferSeconds?: number;
     onFirstFrame?: () => void;
@@ -528,6 +533,12 @@ export class DashStream {
         }
         if (config.overlay) {
             requestBody.overlay = config.overlay;
+        }
+        if (config.composite) {
+            requestBody.composite = config.composite;
+            if (config.framerate) {
+                requestBody.framerate = config.framerate;
+            }
         }
         const response = await fetch(startUrl, {
             method: 'POST',

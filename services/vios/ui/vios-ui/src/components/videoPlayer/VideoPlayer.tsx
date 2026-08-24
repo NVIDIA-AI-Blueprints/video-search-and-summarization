@@ -504,8 +504,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             }
         }
 
-        if (deliveryProtocol === 'dash' && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay
+                || streamType === StreamType.VideoWall)) {
             streamConfig.options.streamType = 'dash';
+            // The wall is composed from the cameras it names, but the session is
+            // still filed under one of them, so give the request a stream to be
+            // filed under rather than leaving it empty.
+            if (streamType === StreamType.VideoWall && !streamConfig.streamId) {
+                const wall = streamConfig.options.composite as
+                    { streamIds?: string[] } | undefined;
+                streamConfig.streamId = wall?.streamIds?.[0];
+            }
         }
 
         startStream(streamConfig);
