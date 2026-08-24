@@ -6,15 +6,18 @@ For local MP4s instead, see `videos.md`. For verifying the install with the bund
 
 ## Mode-specific Prerequisites
 
+- **AMC platform preflight passes** — Step 1 runs the deploy reference Step 0 first. The host used for calibration needs `x86_64`, NVIDIA GPU access, and NVENC support. If the preflight fails, stop before VIOS probing/capture and ask the user to provide existing calibration artifacts or run calibration on a supported `x86_64` dGPU host. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
 - **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill, else ask them to deploy VIOS.
 - **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in `deploy/docker/industry-profiles/warehouse-operations/generated.env`). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
 - **RTSP URLs reachable from the VIOS host** — verify with the user before starting capture.
 
 The shared prerequisites (AMC microservice, Python+requests) come from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-calibration-modes) section.
 
-## Step 1 — Verify VIOS Is Reachable
+## Step 1 — Verify Platform And VIOS
 
-Confirm VIOS is up before doing anything else. Probe in this order — stop at the first hit:
+First run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0--platform-preflight). Do this before probing VIOS, capturing RTSP clips, or calling AMC APIs, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; do not continue to VIOS or capture until the user provides calibration artifacts or moves calibration to a supported host.
+
+Then confirm VIOS is up. Probe in this order — stop at the first hit:
 
 ```bash
 export REPO_ROOT=$(git rev-parse --show-toplevel)
