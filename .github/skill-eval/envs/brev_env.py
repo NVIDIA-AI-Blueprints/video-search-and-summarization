@@ -85,6 +85,8 @@ def _eval_env_forward_keys() -> tuple[str, ...]:
         "NVIDIA_API_KEY",
         "HF_TOKEN",
         *_REMOTE_PLACEMENT_KEYS,
+        "WAREHOUSE_APP_DATA_NGC",
+        "WAREHOUSE_APP_DATA_DIR",
         # The Build Vision AI provisioning task owns host-side NemoClaw
         # setup. Forward its provider and lifecycle inputs exactly as
         # supplied by CI; the harness invokes the worker's NemoClaw CLI.
