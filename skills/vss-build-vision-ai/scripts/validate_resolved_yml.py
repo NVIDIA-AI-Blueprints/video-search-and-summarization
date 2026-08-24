@@ -209,11 +209,39 @@ def container_tag_errors(
     return errors
 
 
+def required_local_image_errors(
+    document: dict[str, Any],
+    required_images: set[str],
+) -> list[str]:
+    errors: list[str] = []
+    services = document.get("services") or {}
+    if not isinstance(services, dict):
+        return [
+            "a required local image is absent from services"
+            for _ in required_images
+        ]
+    for required_image in required_images:
+        matching = [
+            service
+            for service in services.values()
+            if (
+                isinstance(service, dict)
+                and service.get("image") == required_image
+            )
+        ]
+        if not matching:
+            errors.append("a required local image is absent from services")
+        elif any("build" in service for service in matching):
+            errors.append("a required local image service is buildable")
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
     extra_required: set[str] | None = None,
     expected_container_tag: str | None = None,
+    required_local_images: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     services = document.get("services")
@@ -253,6 +281,12 @@ def validate_document(
 
     errors.extend(secret_errors(document, extra_required or set()))
     errors.extend(container_tag_errors(document, expected_container_tag))
+    errors.extend(
+        required_local_image_errors(
+            document,
+            required_local_images or set(),
+        )
+    )
 
     return errors
 
@@ -275,6 +309,13 @@ def parse_args() -> argparse.Namespace:
             "common VSS_CONTAINER_TAG the build selected; fail when any managed image "
             f"stayed on the {DEFAULT_CONTAINER_TAG!r} default"
         ),
+    )
+    parser.add_argument(
+        "--required-local-image",
+        action="append",
+        default=[],
+        metavar="IMAGE",
+        help="exact local image tag that must be wired and non-buildable",
     )
     args = parser.parse_args()
     if args.expect_container_tag is not None:
@@ -304,6 +345,7 @@ def main() -> None:
         args.repo_root,
         set(args.required_secret),
         args.expect_container_tag,
+        set(args.required_local_image),
     )
     if errors:
         print(

@@ -387,7 +387,16 @@ def load_required_local_images(spec_path: Path) -> tuple[str, ...]:
 def missing_required_local_images(
     required_images: tuple[str, ...],
 ) -> tuple[str, ...]:
-    missing: list[str] = []
+    image_ids = required_local_image_ids(required_images)
+    return tuple(
+        image for image in required_images if image not in image_ids
+    )
+
+
+def required_local_image_ids(
+    required_images: tuple[str, ...],
+) -> dict[str, str]:
+    image_ids: dict[str, str] = {}
     for image in required_images:
         result = _run_bounded(
             ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
@@ -400,8 +409,9 @@ def missing_required_local_images(
             or result.truncated
             or not _SAFE_HASH_RE.fullmatch(image_id)
         ):
-            missing.append(image)
-    return tuple(missing)
+            continue
+        image_ids[image] = image_id
+    return image_ids
 
 
 def _rebuilds_required_image(
@@ -707,6 +717,7 @@ def _rebuilds_required_image(
 def validate_resolved_compose(
     compose_file: Path,
     repo_root: Path,
+    required_images: tuple[str, ...] = (),
 ) -> None:
     _read_bytes_bounded(compose_file, MAX_COMPOSE_BYTES)
     validator = (
@@ -721,6 +732,11 @@ def validate_resolved_compose(
             str(compose_file),
             "--repo-root",
             str(repo_root),
+            *[
+                argument
+                for image in required_images
+                for argument in ("--required-local-image", image)
+            ],
         ],
         timeout=90,
     )
@@ -861,6 +877,9 @@ class DirectAgentProgress:
         self.repo_root = repo_root
         self.expected_services = load_expected_services(spec_path)
         self.required_local_images = load_required_local_images(spec_path)
+        self.required_local_image_ids = required_local_image_ids(
+            self.required_local_images
+        )
         self.tracker = tracker or ProgressTracker(monotonic=monotonic)
         self.journal = journal or ProgressJournal(results_root / "progress-journal.jsonl", monotonic=monotonic)
         self._monotonic = monotonic
@@ -946,13 +965,20 @@ class DirectAgentProgress:
                 return self._deny("deployment blocked: resolved Compose file was not observed")
             compose_file = candidates[-1]
             try:
-                validate_resolved_compose(compose_file, self.repo_root)
-                missing_images = missing_required_local_images(
+                validate_resolved_compose(
+                    compose_file,
+                    self.repo_root,
+                    self.required_local_images,
+                )
+                current_image_ids = required_local_image_ids(
                     self.required_local_images
                 )
-                if missing_images:
+                if (
+                    len(current_image_ids) != len(self.required_local_images)
+                    or current_image_ids != self.required_local_image_ids
+                ):
                     return self._deny(
-                        "deployment blocked: required local image missing"
+                        "deployment blocked: required local image missing or changed"
                     )
                 missing, digest = validate_compose_services(compose_file, self.expected_services)
             except (
@@ -1413,6 +1439,29 @@ def _inner_required_local_images() -> tuple[str, ...]:
     return images if all(_SAFE_IMAGE_RE.fullmatch(item) for item in images) else ()
 
 
+def _inner_required_local_image_ids() -> dict[str, str]:
+    try:
+        config = _read_json_bounded(_INNER_CONFIG)
+    except (OSError, TypeError, ValueError):
+        return {}
+    raw = (
+        config.get("required_local_image_ids")
+        if isinstance(config, dict)
+        else {}
+    )
+    if not isinstance(raw, dict) or len(raw) > MAX_REQUIRED_LOCAL_IMAGES:
+        return {}
+    image_ids = {
+        str(image): str(image_id)
+        for image, image_id in raw.items()
+        if (
+            _SAFE_IMAGE_RE.fullmatch(str(image))
+            and _SAFE_HASH_RE.fullmatch(str(image_id))
+        )
+    }
+    return image_ids if len(image_ids) == len(raw) else {}
+
+
 def run_inner_hook(event_name: str, payload: dict) -> int:
     """Claude Code hook entry point; never persists raw hook input."""
     tool = str(payload.get("tool_name") or "unknown")
@@ -1481,10 +1530,18 @@ def run_inner_hook(event_name: str, payload: dict) -> int:
         return 2
     try:
         repo_root = Path.home() / "video-search-and-summarization"
-        validate_resolved_compose(candidates[-1], repo_root)
-        if missing_required_local_images(required_images):
+        validate_resolved_compose(
+            candidates[-1],
+            repo_root,
+            required_images,
+        )
+        current_image_ids = required_local_image_ids(required_images)
+        if (
+            len(current_image_ids) != len(required_images)
+            or current_image_ids != _inner_required_local_image_ids()
+        ):
             print(
-                "deployment blocked: required local image missing",
+                "deployment blocked: required local image missing or changed",
                 file=sys.stderr,
             )
             return 2

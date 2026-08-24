@@ -176,7 +176,7 @@ def test_missing_expected_services_fail_before_compose_up(
                 "tool-1",
                 None,
             )
-            validate.assert_called_once_with(compose, tmp_path)
+            validate.assert_called_once_with(compose, tmp_path, ())
             return decision
 
     decision = asyncio.run(invoke())
@@ -226,6 +226,44 @@ def test_resolved_validator_allows_compose_escaped_interpolation(
     assert resolved_validator.validate_document(escaped, tmp_path) == []
 
 
+def test_resolved_validator_requires_exact_nonbuildable_local_image(
+    tmp_path: Path,
+) -> None:
+    required = {"ds-sop:1.0.0"}
+    valid = {
+        "services": {
+            "ds-sop": {"image": "ds-sop:1.0.0"},
+            "optional": {"image": "optional:latest", "build": "."},
+        }
+    }
+    wrong_tag = {
+        "services": {"ds-sop": {"image": "ds-sop:wrong"}}
+    }
+    rebuildable = {
+        "services": {
+            "ds-sop": {
+                "image": "ds-sop:1.0.0",
+                "build": {"context": "."},
+            }
+        }
+    }
+    assert resolved_validator.validate_document(
+        valid,
+        tmp_path,
+        required_local_images=required,
+    ) == []
+    assert resolved_validator.validate_document(
+        wrong_tag,
+        tmp_path,
+        required_local_images=required,
+    ) == ["a required local image is absent from services"]
+    assert resolved_validator.validate_document(
+        rebuildable,
+        tmp_path,
+        required_local_images=required,
+    ) == ["a required local image service is buildable"]
+
+
 def test_required_local_image_presence_and_absence() -> None:
     present = progress.BoundedCommandResult(0, f"sha256:{'a' * 64}\n", False)
     absent = progress.BoundedCommandResult(1, "", False)
@@ -271,11 +309,16 @@ def test_declared_prebuilt_image_rebuild_is_blocked_without_argument_leak(
     spec.write_text(
         json.dumps({"required_local_images": ["ds-sop:1.0.0"]})
     )
-    monitor = progress.DirectAgentProgress(
-        results_root=tmp_path / "results",
-        spec_path=spec,
-        repo_root=tmp_path,
-    )
+    with mock.patch.object(
+        progress,
+        "required_local_image_ids",
+        return_value={"ds-sop:1.0.0": "a" * 64},
+    ):
+        monitor = progress.DirectAgentProgress(
+            results_root=tmp_path / "results",
+            spec_path=spec,
+            repo_root=tmp_path,
+        )
     secret = "never-persist-build-context"
 
     async def invoke():
@@ -313,19 +356,24 @@ def test_missing_prebuilt_image_blocks_compose_up(tmp_path: Path) -> None:
     )
     compose = tmp_path / "resolved.yml"
     compose.write_text("services:\n  ds-sop: {}\n")
-    monitor = progress.DirectAgentProgress(
-        results_root=tmp_path / "results",
-        spec_path=spec,
-        repo_root=tmp_path,
-    )
+    with mock.patch.object(
+        progress,
+        "required_local_image_ids",
+        return_value={"ds-sop:1.0.0": "a" * 64},
+    ):
+        monitor = progress.DirectAgentProgress(
+            results_root=tmp_path / "results",
+            spec_path=spec,
+            repo_root=tmp_path,
+        )
 
     async def invoke():
         with (
             mock.patch.object(progress, "validate_resolved_compose"),
             mock.patch.object(
                 progress,
-                "missing_required_local_images",
-                return_value=("ds-sop:1.0.0",),
+                "required_local_image_ids",
+                return_value={},
             ),
         ):
             return await monitor.pre_tool(
@@ -342,9 +390,56 @@ def test_missing_prebuilt_image_blocks_compose_up(tmp_path: Path) -> None:
     decision = asyncio.run(invoke())
     assert (
         decision["hookSpecificOutput"]["permissionDecisionReason"]
-        == "deployment blocked: required local image missing"
+        == "deployment blocked: required local image missing or changed"
     )
     assert "ds-sop" not in json.dumps(decision)
+
+
+def test_changed_prebuilt_image_id_blocks_compose_up(tmp_path: Path) -> None:
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps({"required_local_images": ["ds-sop:1.0.0"]})
+    )
+    compose = tmp_path / "resolved.yml"
+    compose.write_text(
+        "services:\n  ds-sop:\n    image: ds-sop:1.0.0\n"
+    )
+    with mock.patch.object(
+        progress,
+        "required_local_image_ids",
+        return_value={"ds-sop:1.0.0": "a" * 64},
+    ):
+        monitor = progress.DirectAgentProgress(
+            results_root=tmp_path / "results",
+            spec_path=spec,
+            repo_root=tmp_path,
+        )
+
+    async def invoke():
+        with (
+            mock.patch.object(progress, "validate_resolved_compose"),
+            mock.patch.object(
+                progress,
+                "required_local_image_ids",
+                return_value={"ds-sop:1.0.0": "b" * 64},
+            ),
+        ):
+            return await monitor.pre_tool(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "docker compose -f resolved.yml up -d"
+                    },
+                },
+                "tool-1",
+                None,
+            )
+
+    decision = asyncio.run(invoke())
+    assert (
+        decision["hookSpecificOutput"]["permissionDecisionReason"]
+        == "deployment blocked: required local image missing or changed"
+    )
 
 
 def test_oversize_resolved_compose_is_rejected_before_validator(
@@ -1223,8 +1318,8 @@ def test_sop_local_image_digest_limitation_is_documented() -> None:
         / "skills/vss-build-vision-agent/references/services/sop/"
         "build-ds-sop.md"
     ).read_text()
-    assert "registry digest pinned" in reference
-    assert "source provenance or content identity" in reference
+    assert "no registry or source digest pinned" in reference
+    assert "does **not** prove source provenance" in reference
 
 
 def test_complete_healthy_stack_has_no_nonhealthy_diagnostics(
