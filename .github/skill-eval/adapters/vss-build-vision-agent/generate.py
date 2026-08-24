@@ -62,7 +62,18 @@ from pathlib import Path
 # full IN-1 stack: RT-VLM in-process + SDRC + VIOS).
 # ---------------------------------------------------------------------------
 
+HARNESS_REPO_ROOT = "$HOME/video-search-and-summarization"
+
 PLATFORMS: dict[str, dict] = {
+    # Offline specs (model-routing) need no GPU and no particular box.
+    "ANY": {
+        "short_name":       "any",
+        "gpu_type":         "",
+        "gpu_count":        0,
+        "min_vram_per_gpu": 0,
+        "brev_search":      "",
+        "min_root_disk_gb": 0,
+    },
     # Primary target for vss-build-vision-agent IN-1
     # Key matches the spec's resources.platforms declaration ("RTXPRO6000BW")
     # and the platform naming convention shared by the VSS eval adapters.
@@ -157,6 +168,57 @@ def generate_test_script(step: int, spec_name: str) -> str:
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
     )
+
+
+_SOLVE_MODEL_ROUTING = r"""#!/bin/bash
+# Gold solution: compose a routed build. Configuration only, nothing deployed.
+set -euo pipefail
+
+REPO_ROOT="__REPO_ROOT__"
+export VSS_APPS_DIR="${REPO_ROOT}/deploy/docker"
+export VSS_DATA_DIR="${VSS_DATA_DIR:-${REPO_ROOT}/data}"
+
+FOUNDATION_ENV="${VSS_APPS_DIR}/developer-profiles/dev-profile-lvs/overrides.env"
+BUILD_DIR="${REPO_ROOT}/_builds/routing-check"
+ROUTER="http://10.0.0.5:4000"
+mkdir -p "${BUILD_DIR}"
+
+# Rewrite the four routing values IN PLACE. Compose's dotenv loader resolves
+# each entry against entries parsed so far, so appending would strand the
+# derived paths that reference these keys earlier in the file.
+sed -E \
+    -e "s|^VSS_APPS_DIR=.*|VSS_APPS_DIR=${VSS_APPS_DIR}|" \
+    -e "s|^VSS_DATA_DIR=.*|VSS_DATA_DIR=${VSS_DATA_DIR}|" \
+    -e "s|^LLM_MODE=.*|LLM_MODE=remote|" \
+    -e "s|^LLM_NAME_SLUG=.*|LLM_NAME_SLUG=none|" \
+    -e "s|^LLM_BASE_URL=.*|LLM_BASE_URL=${ROUTER}|" \
+    -e "s|^LLM_NAME=.*|LLM_NAME=switchyard/random|" \
+    "${FOUNDATION_ENV}" > "${BUILD_DIR}/override.env"
+
+# The Foundation's own compose tree, unchanged. Routing adds no service.
+printf 'include:\n  - %s/compose.yml\n' "${VSS_APPS_DIR}" > "${BUILD_DIR}/compose.yml"
+
+docker compose --env-file "${BUILD_DIR}/override.env" \
+    -f "${BUILD_DIR}/compose.yml" config > "${BUILD_DIR}/resolved.yml"
+
+for a in override.env compose.yml resolved.yml; do
+    [ -f "${BUILD_DIR}/${a}" ] || { echo "missing ${a}"; exit 1; }
+done
+
+# No service may be ADDED. Removals are expected: the local LLM NIM drops out.
+ADDED=$(diff \
+    <(docker compose --env-file "${FOUNDATION_ENV}" \
+        -f "${VSS_APPS_DIR}/compose.yml" config --services 2>/dev/null | sort) \
+    <(docker compose --env-file "${BUILD_DIR}/override.env" \
+        -f "${BUILD_DIR}/compose.yml" config --services 2>/dev/null | sort) \
+    | grep -c '^>' || true)
+[ "${ADDED}" -eq 0 ] || { echo "routing added ${ADDED} service(s); it must add none"; exit 1; }
+
+grep -q '^LLM_BASE_URL=http://10\.0\.0\.5:4000$' "${BUILD_DIR}/override.env" \
+    || { echo "LLM_BASE_URL wrong, or carries a path/trailing slash"; exit 1; }
+
+echo "Composed ${BUILD_DIR}: routed, no service added, nothing started."
+"""
 
 
 def generate_solve_script(
@@ -338,9 +400,15 @@ def generate_task(
             raise ValueError(
                 f"expects[{idx}].artifact_expected must be a JSON boolean"
             )
-        (solution_dir / "solve.sh").write_text(
-            generate_solve_script(platform, build_profile, artifact_expected)
-        )
+        # Offline model-routing specs have their own oracle; the build-profile
+        # solve script assumes a deployment and cannot satisfy them.
+        if Path(spec_name).stem.startswith("model_routing"):
+            (solution_dir / "solve.sh").write_text(
+                _SOLVE_MODEL_ROUTING.replace("__REPO_ROOT__", HARNESS_REPO_ROOT))
+        else:
+            (solution_dir / "solve.sh").write_text(
+                generate_solve_script(platform, build_profile, artifact_expected)
+            )
 
         # Bundle the build skill itself plus the service skills the spec may
         # need after generation.
