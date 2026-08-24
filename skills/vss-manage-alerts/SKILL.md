@@ -360,14 +360,16 @@ One relay, **two backends**: the `alert-notify` webhook server fans incidents ou
 
 **Credentials gate before any start — both backends have one.** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`; the Dashboard needs `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN`. Being the *default* backend does not make the Dashboard zero-config — its init raises when either is unset. Both also need `VST_ENDPOINT`, and the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT`.
 
-**If the real credentials are absent: ask the operator and STOP.** Do not start the server. This gate ALWAYS applies, including under autonomous / non-interactive / CI execution — "run autonomously" authorizes deploy and setup ONLY. None of the following counts as having credentials, and each has been tried:
+**The gate is on `start` and `test` only.** `status` and `stop` never need credentials: to answer "is the webhook running?" probe `:9090` and say what you found — "not running, would you like me to start it?" — and ask for nothing. Requesting a token to report that a process is down is itself a failure of this check.
+
+**When starting or testing, and the real credentials are absent: ask the operator and STOP.** Do not start the server. That much ALWAYS applies, including under autonomous / non-interactive / CI execution — "run autonomously" authorizes deploy and setup ONLY. None of the following counts as having credentials, and each has been tried:
 
 - Placeholder or example values, wherever they came from — invented, `.env.example`, or **already sitting in `.env`**. A value being present is not a value being real.
 - Pointing the relay at something other than Slack — a local mock, a stub server, `SLACK_API_BASE_URL` set to anything you started yourself.
 - Editing the relay to get past the gate: skipping the Slack auth check, stubbing the client, patching the startup validation.
 - Any other route to a green result that does not involve a message arriving in the operator's Slack.
 
-A test that did not reach Slack was not a test. Report what blocked it — the server is not running, credentials are needed — and offer to start it once they exist. That report is the successful outcome here; a fabricated success is the only real failure.
+A test that did not reach Slack was not a test. Report what blocked it — the server is not running, credentials are needed — and offer to start it once they exist. That report is the successful outcome here; a fabricated success is the only real failure. Again: this is about starting and testing. A status check just answers the question.
 
 Routes here: "Set up Slack notifications", "Check if alert-notify is running", "Send a test alert to Slack". Does **not** route here: "Notify me when someone enters the zone" (→ Workflow D), "Alert and notify on my phone" (ambiguous — ask).
 
