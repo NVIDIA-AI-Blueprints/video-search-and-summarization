@@ -56,8 +56,7 @@ const std::vector<ApiSpec> REPLAY_API_SPEC = {
 
     {"/api/v1/replay/dash/seek",
      {{"viewerId", JsonType::String, true, Format::NOT_EMPTY},
-      {"action", JsonType::String},
-      {"value", JsonType::String}}},
+      {"startTime", JsonType::String, true, Format::NOT_EMPTY}}},
 
     {"/api/v1/replay/stream/query"},
 
