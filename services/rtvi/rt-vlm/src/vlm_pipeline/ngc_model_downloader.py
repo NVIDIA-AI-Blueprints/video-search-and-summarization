@@ -45,6 +45,7 @@ def _validate_hf_endpoint(endpoint: str | None) -> str | None:
         or not parsed.netloc
         or parsed.username
         or parsed.password
+        or parsed.path not in {"", "/"}
         or parsed.query
         or parsed.fragment
     ):
@@ -106,6 +107,12 @@ def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
         return model_dir
 
     endpoint = _validate_hf_endpoint(os.environ.get("HF_ENDPOINT"))
+    if endpoint:
+        os.environ["HF_ENDPOINT"] = endpoint
+    else:
+        # An empty Compose expansion overrides huggingface_hub's official
+        # default during import even when endpoint=None is passed below.
+        os.environ.pop("HF_ENDPOINT", None)
     _require_supported_hf_client()
     # These must be set before importing huggingface_hub. Xet/CAS would bypass
     # an HF_ENDPOINT resolve cache.
@@ -136,10 +143,23 @@ def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
                 cache_dir=hf_home,
                 local_dir=staging_dir,
             )
+            # local_dir writes client bookkeeping under .cache/huggingface.
+            # It is not model content and the previous Git path did not expose
+            # it in the materialized model directory.
+            hub_metadata = os.path.join(staging_dir, ".cache", "huggingface")
+            if os.path.exists(hub_metadata):
+                shutil.rmtree(hub_metadata)
+            try:
+                os.rmdir(os.path.join(staging_dir, ".cache"))
+            except OSError:
+                pass
             with open(
                 os.path.join(staging_dir, HF_REVISION_MARKER), "w", encoding="utf-8"
             ) as marker:
                 marker.write(f"{revision}\n")
+            # TemporaryDirectory is 0700, while the historical Git clone
+            # materialized a traversable model root under the process umask.
+            os.chmod(staging_dir, 0o755)
             os.rename(staging_dir, model_dir)
         except Exception as ex:
             raise RuntimeError(
