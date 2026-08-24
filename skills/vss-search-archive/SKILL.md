@@ -35,7 +35,7 @@ differs. Source ingestion and deletion remain Agent-backed.
 - A running VSS `search` profile and its host-reachable Compose or Ingress
   origin.
 - A checkout containing `services/agent`, host `uv`, `curl`, and `jq`.
-- `vss-manage-video-io-storage` for source listing and inspection.
+- `vss vios list` for source listing and inspection (same CLI, same recorded origin).
 
 Resolve and validate the checkout once:
 
@@ -90,9 +90,10 @@ index inventory is a snapshot.
    are unavailable, ask whether to reconnect or deploy it with
    `vss-deploy-profile -p search`; do not target another profile.
 
-2. When the user names a file, camera, or sensor, list registered sources
-   through the configured origin before invoking the search CLI. Accept only
-   an exact source, stream ID, or one unambiguous normalized substring match.
+2. When the user names a file, camera, or sensor, list registered sources with
+   `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin
+   `vss configure` recorded, so it takes no endpoint. Accept only an exact
+   source, stream ID, or one unambiguous normalized substring match.
 
    - No match: report the missing source, list available names, and ask the
      user to clarify or explicitly request ingestion. Stop without probing the

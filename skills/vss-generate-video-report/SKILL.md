@@ -307,8 +307,8 @@ Hand off to `/vss-manage-video-io-storage` to:
    # CLI bootstrap and exit codes: AGENTS.md at the repo root
    VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
    VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-   [ -n "${VSS_PUBLIC_URL:-}" ] || : "${HOST_IP:?Set HOST_IP or VSS_PUBLIC_URL}"
-   "${VSS[@]}" configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP}:7777}"   # once per deployment
+   VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"   # once per deployment
 
    # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
    # so a failed command with empty stdout reads as an empty answer.
@@ -317,7 +317,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    VIDEO_URL=$(printf '%s' "${CLIP}" | jq -r .media_url)
    ```
 
-Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
+The block sets `VIDEO_URL` (used by the VLM in Step 3). Also set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
 
 Remote VLM reachability guard (required):
 - If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).

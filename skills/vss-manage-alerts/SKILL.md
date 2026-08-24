@@ -289,7 +289,7 @@ Bootstrap the CLI once (see [AGENTS.md](../../AGENTS.md) for the contract):
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-"${VSS[@]}" configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP}:7777}"   # once per deployment
+"${VSS[@]}" configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"   # once per deployment
 ```
 
 1. Check if the sensor is in VIOS with `"${VSS[@]}" vios list --type stream` (idempotent — don't blindly add).

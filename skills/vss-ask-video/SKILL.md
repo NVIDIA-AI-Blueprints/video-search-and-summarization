@@ -123,7 +123,9 @@ fi
 
 No VIOS URL is built here. `vss configure` records the deployment once and every
 `vss vios` call reads it, so the sensor path never needs a host, a port or
-`/vst/api/v1`. Run it now — a `vss vios` call without it exits 4:
+`/vst/api/v1`. Run it before any `vss vios` call — one without it exits 4.
+**Only if you need VIOS**: a user-supplied file or URL (Path A) never touches
+it, and on a box with no VSS deployed this step has nothing to record.
 
 ```bash
 # The CLI lives in the VSS checkout; --extra cli is what installs it.
@@ -133,9 +135,11 @@ VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 # An array, not a string: an unquoted string does not word-split in every shell.
 VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
 
-# Once per deployment. On Docker the origin is the single ingress on :7777.
-[ -n "${VSS_PUBLIC_URL:-}" ] || : "${HOST_IP:?Set HOST_IP for Docker Compose or VSS_PUBLIC_URL for Kubernetes}"
-"${VSS[@]}" configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP}:7777}"
+# Path B only — skip this entirely when the user supplied the video (Path A),
+# which needs no VIOS. Once per deployment; on Docker the origin is the single
+# ingress on :7777.
+VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+"${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"
 ```
 
 Bootstrap detail, exit codes and the rules that go with them are in
