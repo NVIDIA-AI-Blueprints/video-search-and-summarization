@@ -21,9 +21,7 @@ services:
     container_name: vss-va-mcp
     network_mode: host
     profiles:
-    - bp_wh_2d
-    - bp_developer_alerts_2d_cv
-    - bp_developer_alerts_2d_vlm
+    - bp_developer_base_2d
     volumes:
     - ${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro
     environment:
@@ -65,12 +63,7 @@ services:
     container_name: vss-agent
     network_mode: host
     profiles:
-    - bp_wh_2d
     - bp_developer_base_2d
-    - bp_developer_search_2d
-    - bp_developer_lvs_2d
-    - bp_developer_alerts_2d_cv
-    - bp_developer_alerts_2d_vlm
     environment:
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
@@ -84,9 +77,6 @@ services:
       VSS_AGENT_HOST: ${VSS_AGENT_HOST}
       VSS_AGENT_PORT: ${VSS_AGENT_PORT}
       LVS_BACKEND_URL: ${LVS_BACKEND_URL}
-      RTVI_EMBED_MODEL: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
-      RTVI_EMBED_PORT: ${RTVI_EMBED_PORT}
-      RTVI_CV_PORT: ${RTVI_CV_PORT}
       VSS_ES_PORT: ${VSS_ES_PORT}
 
       # Phoenix Telemetry
@@ -105,7 +95,6 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}
       VLM_NAME: ${VLM_NAME}
       VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
-      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
       ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}}
 
       # Audio Configuration
@@ -118,7 +107,7 @@ services:
       # See services/agent/README.md.
       INSTALL_PROPRIETARY_CODECS: ${INSTALL_PROPRIETARY_CODECS:-true}
 
-      # NVIDIA API Key (for remote NIM)
+      # NVIDIA API Key (for hosted build.nvidia.com endpoints)
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
       # OpenAI API Key (for remote openai LLM/VLM)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -177,66 +166,6 @@ services:
       start_period: 240s
     restart: unless-stopped
     depends_on:
-      nvidia-nemotron-nano-9b-v2:
-        condition: service_healthy
-        required: false
-      nvidia-nemotron-nano-9b-v2-fp8:
-        condition: service_healthy
-        required: false
-      nemotron-3-nano:
-        condition: service_healthy
-        required: false
-      llama-3.3-nemotron-super-49b-v1.5:
-        condition: service_healthy
-        required: false
-      gpt-oss-20b:
-        condition: service_healthy
-        required: false
-      nvidia-nemotron-nano-9b-v2-shared-gpu:
-        condition: service_healthy
-        required: false
-      nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
-        condition: service_healthy
-        required: false
-      nemotron-3-nano-shared-gpu:
-        condition: service_healthy
-        required: false
-      llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
-        condition: service_healthy
-        required: false
-      gpt-oss-20b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos3-reasoner:
-        condition: service_healthy
-        required: false
-      cosmos3-reasoner-shared-gpu:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct-shared-gpu:
-        condition: service_healthy
-        required: false
-      rtvi-vlm:
-        condition: service_healthy
-        required: false
-      rtvi-embed:
-        condition: service_healthy
-        required: false
       vss-va-mcp:
         condition: service_healthy
         required: false

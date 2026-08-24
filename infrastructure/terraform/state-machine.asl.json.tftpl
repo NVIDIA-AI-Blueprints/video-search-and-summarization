@@ -1,0 +1,110 @@
+{
+  "Comment": "Archive video processing: transcribe -> vision -> chunk -> embed -> ready",
+  "StartAt": "MarkTranscribing",
+  "States": {
+    "MarkTranscribing": {
+      "Type": "Task",
+      "Resource": "${status_update_lambda_arn}",
+      "Parameters": {
+        "video_id.$": "$.video_id",
+        "status": "TRANSCRIBING"
+      },
+      "ResultPath": null,
+      "Next": "StartTranscription",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "StartTranscription": {
+      "Type": "Task",
+      "Resource": "${transcribe_start_lambda_arn}",
+      "ResultPath": "$.transcription",
+      "Next": "PollTranscription",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "PollTranscription": {
+      "Type": "Task",
+      "Resource": "${transcribe_poll_lambda_arn}",
+      "Retry": [
+        { "ErrorEquals": ["JobInProgress"], "IntervalSeconds": 30, "MaxAttempts": 120, "BackoffRate": 1.0 }
+      ],
+      "ResultPath": "$.transcription_result",
+      "Next": "MarkVisionProcessing",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "MarkVisionProcessing": {
+      "Type": "Task",
+      "Resource": "${status_update_lambda_arn}",
+      "Parameters": {
+        "video_id.$": "$.video_id",
+        "status": "VISION_PROCESSING"
+      },
+      "ResultPath": null,
+      "Next": "VisionProcessing",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "VisionProcessing": {
+      "Type": "Task",
+      "Resource": "${vision_lambda_arn}",
+      "TimeoutSeconds": 900,
+      "ResultPath": "$.vision_result",
+      "Next": "MarkChunking",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "MarkChunking": {
+      "Type": "Task",
+      "Resource": "${status_update_lambda_arn}",
+      "Parameters": {
+        "video_id.$": "$.video_id",
+        "status": "CHUNKING"
+      },
+      "ResultPath": null,
+      "Next": "Chunking",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "Chunking": {
+      "Type": "Task",
+      "Resource": "${chunking_lambda_arn}",
+      "ResultPath": "$.chunking_result",
+      "Next": "MarkEmbedding",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "MarkEmbedding": {
+      "Type": "Task",
+      "Resource": "${status_update_lambda_arn}",
+      "Parameters": {
+        "video_id.$": "$.video_id",
+        "status": "EMBEDDING"
+      },
+      "ResultPath": null,
+      "Next": "Embeddings",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "Embeddings": {
+      "Type": "Task",
+      "Resource": "${embeddings_lambda_arn}",
+      "ResultPath": "$.embeddings_result",
+      "Next": "MarkReady",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "FailProcessing" }]
+    },
+    "MarkReady": {
+      "Type": "Task",
+      "Resource": "${status_update_lambda_arn}",
+      "Parameters": {
+        "video_id.$": "$.video_id",
+        "status": "READY"
+      },
+      "ResultPath": null,
+      "End": true
+    },
+    "FailProcessing": {
+      "Type": "Task",
+      "Resource": "${status_update_lambda_arn}",
+      "Parameters": {
+        "video_id.$": "$.video_id",
+        "status": "FAILED",
+        "error_message.$": "States.Error"
+      },
+      "ResultPath": null,
+      "End": true
+    }
+  }
+}

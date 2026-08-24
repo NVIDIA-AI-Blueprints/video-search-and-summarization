@@ -18,7 +18,7 @@ services:
     image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1}
     container_name: vss-lvs
 
-    profiles: ["bp_developer_lvs_2d"]
+    profiles: ["bp_developer_base_2d"]
 
     network_mode: host
 
@@ -79,11 +79,6 @@ services:
       # Default Save Events to Elasticsearch
       - LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=${LVS_DISABLE_DB_RESET_ON_REQUEST_DONE:-true}
 
-      # Kafka integration (consume captions / publish structured summaries)
-      - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-      - KAFKA_STRUCTURED_SUMMARY_TOPIC=${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
-
       # LLM-based merging of overlapping/duplicate events in the structured summary
       - LVS_ENABLE_LLM_MERGING=${LVS_ENABLE_LLM_MERGING:-false}
 
@@ -96,10 +91,6 @@ services:
       - LVS_ENABLE_MCP=${LVS_ENABLE_MCP:-false}
       - VSS_LOG_LEVEL=INFO
       - VLM_SYSTEM_PROMPT=""
-
-      # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
-      - RTVI_VLM_URL=${RTVI_VLM_URL:-}
-      - RTVI_VLM_URL_PASSTHROUGH=true
 
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
 
@@ -114,64 +105,6 @@ services:
       retries: 10
       start_period: 120s
     restart: always
-    depends_on:
-      nvidia-nemotron-nano-9b-v2:
-        condition: service_healthy
-        required: false
-      nvidia-nemotron-nano-9b-v2-fp8:
-        condition: service_healthy
-        required: false
-      nemotron-3-nano:
-        condition: service_healthy
-        required: false
-      llama-3.3-nemotron-super-49b-v1.5:
-        condition: service_healthy
-        required: false
-      gpt-oss-20b:
-        condition: service_healthy
-        required: false
-      nvidia-nemotron-nano-9b-v2-shared-gpu:
-        condition: service_healthy
-        required: false
-      nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
-        condition: service_healthy
-        required: false
-      nemotron-3-nano-shared-gpu:
-        condition: service_healthy
-        required: false
-      llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
-        condition: service_healthy
-        required: false
-      gpt-oss-20b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos3-reasoner:
-        condition: service_healthy
-        required: false
-      cosmos3-reasoner-shared-gpu:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct-shared-gpu:
-        condition: service_healthy
-        required: false
-      rtvi-vlm:
-        condition: service_healthy
-        required: false
 
     # Network mode: bridge (default) to enable port mapping
     # To use host network instead (ignores port mapping), uncomment:

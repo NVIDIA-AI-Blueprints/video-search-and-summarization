@@ -16,4 +16,3 @@
 include:
   - path: ./services/compose.yml
   - path: ./developer-profiles/compose.yml
-  - path: ./industry-profiles/compose.yml

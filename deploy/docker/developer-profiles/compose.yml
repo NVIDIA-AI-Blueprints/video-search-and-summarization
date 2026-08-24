@@ -15,6 +15,3 @@
 
 include:
   - path: ./dev-profile-base/compose.yml
-  - path: ./dev-profile-lvs/compose.yml
-  - path: ./dev-profile-alerts/compose.yml
-  - path: ./dev-profile-search/compose.yml

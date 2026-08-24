@@ -16,11 +16,6 @@
 include:
   - path: ./agent/compose.yml
   - path: ./alert/compose.yml
-  - path: ./auto-calibration/compose.yml
   - path: ./infra/compose.yml
-  - path: ./monitoring/compose.yml
-  - path: ./nim/compose.yml
-  - path: ./rtvi/compose.yml
   - path: ./ui/compose.yml
   - path: ./video-summarization/compose.yml
-  - path: ./vios/compose.yml

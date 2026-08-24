@@ -1,6 +1,0 @@
-**/node_modules/
-**/.vscode/
-**/.DS_Store*
-**/.nyc_output/
-test/coverage/*
-src/app/files/

@@ -17,7 +17,7 @@ services:
   alert-bridge:
     image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
     container_name: vss-alert-bridge
-    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_developer_base_2d"]
     network_mode: host
     restart: unless-stopped
     environment:
@@ -28,9 +28,6 @@ services:
       INTERNAL_IP: ${HOST_IP}
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
-      # Realtime REST API (restapi-realtime-alerts feature)
-      RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
-      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://${HOST_IP}:8018}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
     volumes:
@@ -41,44 +38,8 @@ services:
     tmpfs:
       - /app/runtime:mode=1777,size=10M
     depends_on:
-      kafka:
-        condition: service_healthy
-      redis:
-        condition: service_started
       elasticsearch:
         condition: service_healthy
-      kafka-topic-init-container:
-        condition: service_completed_successfully
-      nvstreamer-alerts:
-        condition: service_started
-        required: false
-      cosmos-reason1-7b:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos3-reasoner:
-        condition: service_healthy
-        required: false
-      cosmos3-reasoner-shared-gpu:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct-shared-gpu:
-        condition: service_healthy
-        required: false
-      rtvi-vlm:
-        condition: service_healthy
-        required: false
     entrypoint: 
       - /usr/local/bin/python
       - /app/env-substitute.py

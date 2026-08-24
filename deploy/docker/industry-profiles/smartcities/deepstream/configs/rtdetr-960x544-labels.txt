@@ -1,5 +1,0 @@
-background
-two_wheeler
-Vehicle
-Person
-road_sign
