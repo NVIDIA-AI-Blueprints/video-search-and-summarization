@@ -235,9 +235,11 @@ Then go straight to Step 2 — **skip the Sensor check**.
 > HTTP server does not make it one. Only a file or URL the user gives you **in the request** (Path A)
 > outranks the sensor.
 
-When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage`: confirm the
-named `<sensor-id>` exists (the *Sensor check* above — required on this path), then run the block
-below **verbatim**. `vss vios clip` resolves the sensor by name, reads the recorded range, and
+When the clip lives on a named sensor: confirm the named `<sensor-id>` exists (the *Sensor check*
+above — required on this path), then run the block below **verbatim**. The clip URL comes from
+`vss vios clip`, not from a REST call — `/storage/file/<streamId>/url` takes mandatory
+startTime/endTime whose only source is a separate `/storage/timelines` read, which is exactly the
+step this migration removes. `vss vios clip` resolves the sensor by name, reads the recorded range, and
 mints the clip URL in one call, so the two required parameters cannot be dropped or invented: a
 bare `/url` returns an **empty body**, and a window that is not in the recording returns
 `VMSNoDataError`. It also normalises the URL VIOS returns (a doubled scheme, a bare `/storage`
@@ -685,8 +687,9 @@ Return only the VLM's answer text to the user.
 
 ## Cross-Reference
 
-- **`/vss-manage-video-io-storage`** — *optional* (Step 1, Path B): sensor list, timelines, and
-  the clip URL when sourcing the video from VST/VIOS. Not needed when the user supplies the video.
+- **`/vss-manage-video-io-storage`** — *optional* (Step 1, Path B): REST-level upload semantics
+  (v1 vs v2, conflict handling). Sensor listing and the clip URL come from `vss vios` — see
+  [AGENTS.md](../../AGENTS.md). Not needed when the user supplies the video.
 - **`/vss-deploy-dense-captioning`** — *optional* (Step 2): stand up a standalone **RT-VLM**
   endpoint on a local GPU when no VLM is reachable, then point this skill at it
   (`http://${HOST_IP}:${RTVI_VLM_PORT:-8018}/v1`, model resolved from `/v1/models`).
