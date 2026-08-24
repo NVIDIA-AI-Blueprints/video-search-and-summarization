@@ -482,6 +482,31 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up
   "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN" \
   "VSS_RT_EMBED_TAG" '"develop-latest-sbsa"' \
   "VSS_RT_CV_TAG" '"develop-latest-sbsa"'
+
+# Profile environment device IDs are supported selectors too. Matching IDs
+# must select the GB300 even when neither device-ID CLI option is passed.
+_search_overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/overrides.env"
+_search_overrides_env_backup="$(mktemp)"
+cp "${_search_overrides_env}" "${_search_overrides_env_backup}"
+CLEANUP_RESTORES+=("${_search_overrides_env_backup}|${_search_overrides_env}")
+sed -i 's/^LLM_DEVICE_ID=.*/LLM_DEVICE_ID=1/' "${_search_overrides_env}"
+sed -i 's/^VLM_DEVICE_ID=.*/VLM_DEVICE_ID=1/' "${_search_overrides_env}"
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up_and_check_generated_env \
+  "generated.env search GB300 honors profile environment device IDs" "search" \
+  -i 127.0.0.1 -H GB300 -d -- \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1"
+mv "${_search_overrides_env_backup}" "${_search_overrides_env}"
+
+# The default profile VLM ID is 0. A CLI LLM ID of 1 must be checked against
+# that environment-sourced value instead of silently replacing it.
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_negative_test \
+  "GB300 rejects CLI LLM ID conflicting with profile VLM ID" 1 \
+  up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 -d
 PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= LLM_ENDPOINT_URL=http://127.0.0.1:9999 run_dry_run_up_and_check_generated_env \
   "generated.env search GB300 supports remote LLM with local VLM" "search" \
   -i 127.0.0.1 -H GB300 --use-remote-llm --llm remote-llm --vlm-device-id 1 -d -- \
