@@ -95,8 +95,37 @@ phase_setup() {
     cd "$REPO_ROOT"
 
     # --- Redis ---
-    # Removed: Alert MS no longer depends on Redis. Dedup/filter state is
-    # in-process; durable state (verdict protection, alert configs) is in ES.
+    # Alert MS state does NOT live in Redis: dedup/filter state is in-process
+    # and durable state (verdict protection, alert configs) is in ES. This
+    # container exists solely for the optional Redis Streams source/sink
+    # transports, so its absence must only skip those tests — every other P1
+    # test runs on Kafka exactly as before.
+    print_status "wait" "Checking Redis on :6379 (Redis Streams transport tests)..."
+    if check_port 127.0.0.1 6379; then
+        print_status "ok" "Redis already running on :6379"
+    else
+        # Prefer any redis image already pulled so the suite runs on a host with
+        # no registry access; REDIS_IMAGE overrides the choice.
+        local redis_image="${REDIS_IMAGE:-}"
+        if [ -z "$redis_image" ]; then
+            redis_image=$(docker images --format '{{.Repository}}:{{.Tag}}' \
+                | grep -E '^(redis|valkey/valkey):' | grep -v '<none>' | head -1)
+        fi
+        redis_image="${redis_image:-redis:7-alpine}"
+
+        docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
+        if docker run -d --name "$REDIS_CONTAINER" -p 6379:6379 \
+                "$redis_image" >/dev/null 2>&1; then
+            echo "$REDIS_CONTAINER" > "$PID_DIR/redis_container"
+            if wait_for_service "redis" "check_port 127.0.0.1 6379" 30; then
+                print_status "ok" "Redis ready ($redis_image)"
+            else
+                print_status "info" "Redis failed to become ready — redisStream tests will skip"
+            fi
+        else
+            print_status "info" "Could not start Redis ($redis_image) — redisStream tests will skip"
+        fi
+    fi
 
     # --- Kafka ---
     print_status "wait" "Checking Kafka on :9092..."
@@ -316,6 +345,36 @@ reset_test_state() {
     # Clear persistence layer indices — otherwise alert configs written
     # by previous tests leak across runs (ES is the source of truth).
     curl -sf -X DELETE "$ES_HOST/ab-alert_configs" >/dev/null 2>&1 || true
+    # Drop the Redis Streams transport streams and their consumer groups. Left
+    # behind, a stale group's pending-entries list makes the next redisStream
+    # test read someone else's incident.
+    if docker ps -q -f name="$REDIS_CONTAINER" | grep -q .; then
+        docker exec "$REDIS_CONTAINER" redis-cli FLUSHDB >/dev/null 2>&1 || true
+    fi
+    # Fast-forward every Kafka consumer group to the end of its topics. Alert MS
+    # runs with auto_offset_reset=latest, so a group that has never committed
+    # starts at the end and only ever sees what its own test produced. A group
+    # that committed during an earlier run does not: it resumes from that offset
+    # and replays every incident the tests in between left on mdx-incidents,
+    # which then lands in this test's ES index and output topic and fails
+    # assertions that look for the newest document. This gives a reused broker
+    # the same clean slate as a freshly created one. Alert Bridge is already
+    # stopped here, so no group has active members to block the reset.
+    if docker ps -q -f name="$KAFKA_CONTAINER" | grep -q .; then
+        local group_args=""
+        local group
+        for group in $(docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
+                --bootstrap-server localhost:9092 --list 2>/dev/null); do
+            group_args="$group_args --group $group"
+        done
+        if [ -n "$group_args" ]; then
+            # shellcheck disable=SC2086  # word splitting is how the flags are passed
+            docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
+                --bootstrap-server localhost:9092 $group_args \
+                --reset-offsets --to-latest --all-topics --execute \
+                >/dev/null 2>&1 || true
+        fi
+    fi
 }
 
 # ─── Phase 2: Run Tests ───────────────────────────────────────────────────────
@@ -448,7 +507,14 @@ phase_cleanup() {
         docker rm -f "$KAFKA_CONTAINER" >/dev/null 2>&1 || true
     fi
 
-    # Redis removed — nothing to stop.
+    # Stop Redis (only started for the Redis Streams transport tests)
+    if [ -f "$PID_DIR/redis_container" ]; then
+        local rc
+        rc=$(cat "$PID_DIR/redis_container")
+        docker rm -f "$rc" >/dev/null 2>&1 || true
+        rm -f "$PID_DIR/redis_container"
+        print_status "ok" "Redis container stopped"
+    fi
 
     # Clean up PID dir
     rm -f "$PID_DIR"/*.log "$PID_DIR"/*.json "$PID_DIR"/*.pid 2>/dev/null || true

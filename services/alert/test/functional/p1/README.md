@@ -51,6 +51,9 @@ These run against simulators with known inputs — not a live deployment.
 | `test_direct_media_download` | Send incident with `info.media_urls`; verify AB downloads media and processes via Mode 3 | Direct media URL download bypasses VST |
 | `test_http_ondemand_verification` | POST to `/api/v1/verification/ondemand`: (1) valid request → 202, then result in ES; (2) unknown category → 400; (3) NIM down → 202, then error result | Asynchronous on-demand API contract, background publishing, and VLM fault tolerance |
 | `test_kafka_sink_vlm` | Send incident with `info.video_path`; verify VLM result published to Kafka sink | Base64 encode + VLM + Kafka sink pipeline |
+| `test_redis_stream_source_sink` | Publish an incident into a Redis Stream with the MDX envelope; verify the enhanced result appears on the output stream and input entries are acked | Redis Streams as both source and sink, protobuf wire format, consumer-group acking |
+| `test_redis_sink_kafka_source` | Produce to Kafka but publish VLM results to a Redis Stream | Source and sink transports are selected independently |
+| `test_console_sink` | Select the console sink for both the event bridge and VLM results; verify the verdict is rendered to the log | Console sink emits processed results and needs no broker |
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
 | `test_realtime_alerts` (Test 8c) | Index 3 consecutive positives (same camera + alert type); `GET /api/v1/realtime/incidents?consolidate=true` (with a time window) returns one event and `total=1` (event count), `consolidate=false` returns 3 raw, and `consolidate=true` without a window is rejected `400` | Read-time consolidation groups duplicates into one event over a required window while raw chunk records remain available |
 | `test_realtime_alerts` (Test 8d) | Index sensor A/alert (2 chunks), A/intrusion (1), B/alert (1); per-sensor `consolidate=true` returns A=2 events, B=1 event | Consolidation groups are isolated by `(sensorId, category)` |
@@ -433,6 +436,53 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 ---
 
+### test_redis_stream_source_sink
+
+**Purpose:** Verify Redis Streams works as both the source and the sink. Kafka is left out of `event_bridge` entirely, so nothing in this test can succeed through the default transport.
+
+**Config:** `event_bridge.sourceType: redisStream`, `event_bridge.sinkType: redisStream`, `vlm_enhanced_sink.type: redisStream`, top-level `redis` block pointing at `127.0.0.1:6379`.
+
+**Trigger:** `produce_incident_redis` publishes an Incident protobuf into `mdx-incidents` using the MDX envelope (`key` / `value` / `headers`) that vss-behavior-analytics writes, so the source reads a real upstream payload rather than a test-only shape.
+
+**Check:** Assert the AB log shows `"Creating source of type: redisStream"` (a silent fallback to Kafka would otherwise make the test fail with a confusing timeout). Poll `mdx-vlm-incidents` with `XRANGE`, decode each entry through `extract_envelope`, and assert one carries the test `sensorId`. Decoding it proves the payload is the protobuf-in-MDX-envelope shape the Logstash `redis_stream` input consumes. Finally assert `XPENDING` on the input stream is 0.
+
+**Pass:** Enhanced incident found on the output stream and consumed entries were acked.
+**Fail:** AB selected the wrong source, no matching entry within 60s.
+**Skip:** No Redis listening on `127.0.0.1:6379` — Redis is optional infrastructure, so its absence must not fail the suite.
+
+---
+
+### test_redis_sink_kafka_source
+
+**Purpose:** Verify the source and sink transports are resolved independently. This is the combination most likely to break: a selection that leaks from one role into the other still looks correct in the all-Kafka and all-Redis runs.
+
+**Config:** `event_bridge.sourceType: kafka`, `event_bridge.sinkType: kafka`, `vlm_enhanced_sink.type: redisStream`.
+
+**Trigger:** One incident produced to the `mdx-incidents` Kafka topic with `info.video_path`.
+
+**Check:** Assert the AB log shows `"Creating source of type: kafka"`, then poll the `mdx-vlm-incidents` Redis Stream for the test `sensorId`.
+
+**Pass:** Incident consumed from Kafka and its enhanced result published to Redis.
+**Fail:** AB switched the source to Redis, or nothing appeared on the output stream within 60s.
+**Skip:** No Redis listening on `127.0.0.1:6379`.
+
+---
+
+### test_console_sink
+
+**Purpose:** Verify the console sink — the local-development extension — emits processed results when explicitly selected. Needs no broker or Elasticsearch on the output side, so this run doubles as a second independent-selection case (Kafka source, non-broker sink).
+
+**Config:** `event_bridge.sinkType: console`, `vlm_enhanced_sink.type: console`, source left on Kafka.
+
+**Trigger:** One incident produced to Kafka with `info.video_path`.
+
+**Check:** Assert the startup warnings from both console sinks appear (`"Console sink selected"` and `"Console VLM enhanced sink selected"`) and the source is still Kafka. Then poll the AB log for a line carrying *both* `"[console-sink] vlm-enhanced incident"` and the test `sensorId` — with a log-only sink, the log line *is* the deliverable. The two must match on the same line: the consumer group is static, so a rerun resumes from its committed offset and replays incidents left on `mdx-incidents` by earlier tests, and waiting for the first console-sink line of any kind would latch onto one of those. Matching them separately is also too weak, because the `sensorId` shows up in unrelated DEBUG lines even when the sink never rendered the document. `_SingleLineFormatter` collapses the newlines of the rendered JSON, so the whole document reliably sits on the marker's line.
+
+**Pass:** Both sinks announced themselves and a verdict was rendered for the test sensor.
+**Fail:** Either sink did not start, or no rendered verdict for the test sensor within 90s.
+
+---
+
 ### test_async_smoke
 
 **Purpose:** Verify async external I/O guardrails (`alert_agent.async_io.*`) can be enabled and still process incidents end-to-end.
@@ -549,7 +599,7 @@ print_status "ok" "PASS: ..."
 ### What the framework handles
 
 - **Timestamps** — `produce_incident` patches to today automatically
-- **State isolation** — in-process dedup state resets on each AB restart; the ES sim (and ES verdict index) is flushed between tests
+- **State isolation** — in-process dedup state resets on each AB restart; the ES sim (and ES verdict index) is flushed between tests; Redis is flushed and every Kafka consumer group is fast-forwarded to the end of its topics, so a test never inherits incidents an earlier test left on `mdx-incidents` (this is what makes repeated `--skip-setup` runs behave like a fresh broker)
 - **AB lifecycle** — orchestrator restarts AB with your config before each test
 - **Cleanup** — orchestrator handles teardown after all tests
 
@@ -592,6 +642,7 @@ cat /tmp/alert_agent_p1_functional/alert_bridge.log
 | Service | Port | Health Check |
 |---------|------|--------------|
 | Kafka | 9092 | TCP connect |
+| Redis | 6379 | TCP connect (optional — only the `redisStream` transport tests use it) |
 | Elasticsearch (sim) | 9200 | `GET /health` |
 | NIM (sim) | 18081 | TCP connect |
 | VST (sim) | 30888 | `GET /status` |
@@ -599,7 +650,15 @@ cat /tmp/alert_agent_p1_functional/alert_bridge.log
 | Alert Bridge (HTTP) | 9080 | `GET /health` |
 | Alert Bridge (Prometheus) | 9081 | `GET /metrics` when `PROMETHEUS_METRICS_ENABLED=true` |
 
-Kafka runs as a Docker container. All other services run as Python processes managed by `run_p1.sh`. No Redis is required.
+Kafka runs as a Docker container. All other services run as Python processes managed by `run_p1.sh`.
+
+Redis also runs as a Docker container, but only so the `redisStream` transport tests have a broker to talk to — Alert MS keeps no state in Redis (dedup state is in-process, durable state is in Elasticsearch). If the container cannot start, `run_p1.sh` logs it and continues; the Redis tests skip and every other test runs unaffected.
+
+`run_p1.sh` picks the Redis image already present on the host so the suite also runs without registry access, and falls back to `redis:7-alpine` when none is cached. Set `REDIS_IMAGE` to pin a specific one:
+
+```bash
+REDIS_IMAGE=redis:7-alpine ./run_p1.sh
+```
 
 ---
 

@@ -36,6 +36,10 @@ elasticHosts: ""
 #   eventSinkType:   kafka | redisStream | console
 # The event bridge sink carries validation-error responses; VLM-enhanced results
 # are published by the sink selected with vlmSinkType.
+# Names are matched the way the application matches them: case-insensitively,
+# ignoring "_" and "-", with "redis" accepted as an alias of "redisStream". The
+# startup wait below derives which brokers to wait for from these values, so it
+# stays in step with the transports the pod actually opens.
 eventSourceType: "kafka"
 eventSinkType: "kafka"
 

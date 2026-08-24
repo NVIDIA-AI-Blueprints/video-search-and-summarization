@@ -75,6 +75,102 @@ produce_incident() {
     fi
 }
 
+# ─── Redis Streams transport (optional source/sink) ─────────────────────────
+REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-alert-agent-redis-test}"
+
+redis_available() {
+    nc -z "$REDIS_HOST" "$REDIS_PORT" 2>/dev/null
+}
+
+# Publish an Incident protobuf into a Redis Stream using the MDX envelope,
+# mirroring produce_incident() but for the redisStream source.
+# Usage: produce_incident_redis REPO_ROOT STREAM PAYLOAD ID_SUFFIX [--json]
+produce_incident_redis() {
+    local repo_root="$1" stream="$2" payload="$3" id_suffix="$4"
+    local encoding="${5:-}"
+    local pid_dir="${PID_DIR:-/tmp/alert_agent_p1_functional}"
+    local patched="$pid_dir/.patched_redis_$(basename "$payload")_$$"
+
+    patch_timestamps "$payload" "$patched"
+    python3 "$repo_root/test/protobuf/produce_incident_redis_stream.py" \
+        --host "$REDIS_HOST" --port "$REDIS_PORT" --stream "$stream" \
+        --payload "$patched" --id-suffix "$id_suffix" $encoding
+    local rc=$?
+    rm -f "$patched"
+    return $rc
+}
+
+# Number of entries currently in a Redis Stream (0 when the stream is absent).
+redis_stream_len() {
+    docker exec "$REDIS_CONTAINER" redis-cli XLEN "$1" 2>/dev/null | tr -d '\r' || echo 0
+}
+
+# Poll a Redis Stream for an entry whose payload mentions SENSOR_ID, and echo
+# the decoded document. Handles both payload encodings the sink can emit:
+# protobuf (the default, what Logstash consumes) and JSON.
+# Usage: poll_redis_stream_for_sensor STREAM SENSOR_ID [TIMEOUT] [INTERVAL]
+poll_redis_stream_for_sensor() {
+    local stream="$1" sensor_id="$2" timeout="${3:-60}" interval="${4:-3}"
+    local repo_root="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+    local elapsed=0
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local doc
+        doc=$(AB_SRC="$repo_root/src" REDIS_HOST="$REDIS_HOST" REDIS_PORT="$REDIS_PORT" \
+              STREAM="$stream" SENSOR_ID="$sensor_id" python3 - <<'PYEOF'
+import json
+import os
+import sys
+
+sys.path.insert(0, os.environ["AB_SRC"])
+
+import redis
+
+from mdx.redis_stream_broker import extract_envelope
+
+client = redis.Redis(
+    host=os.environ["REDIS_HOST"],
+    port=int(os.environ["REDIS_PORT"]),
+    decode_responses=False,
+)
+sensor_id = os.environ["SENSOR_ID"]
+
+for _entry_id, fields in client.xrange(os.environ["STREAM"]) or []:
+    payload, _key, _headers = extract_envelope(fields)
+    if payload is None:
+        continue
+    try:
+        document = json.loads(payload)
+    except (ValueError, UnicodeDecodeError):
+        from mdx.protobuf import Incident
+        incident = Incident()
+        try:
+            incident.ParseFromString(payload)
+        except Exception:
+            continue
+        document = {
+            "sensorId": incident.sensorId,
+            "category": incident.category,
+            "info": dict(incident.info),
+        }
+    if sensor_id in str(document.get("sensorId", "")):
+        print(json.dumps(document))
+        break
+PYEOF
+        ) || doc=""
+
+        if [ -n "$doc" ] && [ "$doc" != "{}" ]; then
+            echo "$doc"
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
 # Poll ES sim for documents — from P0 step4 pattern
 # Uses ES simulator's /_all endpoint (NOT standard ES _search)
 poll_es_sim() {

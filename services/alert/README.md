@@ -60,7 +60,7 @@ for a detailed layout + data-flow diagram).
 | `src/vst/` | VST video-clip resolution (sensor ID + timestamps) |
 | `src/clients/` | Elasticsearch client + in-process dedup/verdict-protection state handler |
 | `src/persistence/` | Elasticsearch persistence store |
-| `src/mdx/` | Alert ingestion sources/sinks (Kafka, Elasticsearch) |
+| `src/mdx/` | Alert ingestion sources/sinks (Kafka, Redis Streams, Elasticsearch, console) |
 | `blueprint_config/` | Example configs for the warehouse / public-safety / smart-city blueprints |
 | `test/` | Unit, functional, and end-to-end tests (see `test/TEST_README.md`) |
 
@@ -71,7 +71,9 @@ for a detailed layout + data-flow diagram).
 - A reachable OpenAI-compatible **VLM backend** (configured in `config.yaml`)
 - **Elasticsearch** (durable storage for alert configs + confirmed-verdict protection)
 - Depending on your source/sink choice: **Kafka** and/or **Elasticsearch**
-- No **Redis** instance is required.
+- **Redis** only if you opt into the Redis Streams transports (see
+  [Event bridge transports](#event-bridge-transports)). Alert MS keeps no state
+  in Redis and never deploys it.
 
 ## Installation
 
@@ -460,6 +462,47 @@ Enriched results are persisted to Elasticsearch and published to the Kafka
 sink (`event_bridge.sinkType: kafka`). Consumers receive alerts by subscribing
 to the configured sink topic, and can also query stored alerts/incidents over
 the REST API (e.g. `GET /api/v1/realtime`, `GET /api/v1/realtime/incidents`).
+
+## Event bridge transports
+
+Three transport selections are made independently, so a deployment can move one
+of them off Kafka without touching the others. Kafka is the default source and
+sink, and Elasticsearch the default for VLM-enhanced results, so a config that
+sets none of these behaves exactly as before.
+
+| Setting | Default | Alternatives | Carries |
+|---------|---------|--------------|---------|
+| `event_bridge.sourceType` | `kafka` | `redisStream` | Incoming Alert and Incident payloads |
+| `event_bridge.sinkType` | `kafka` | `redisStream`, `console` | Validation-error responses |
+| `vlm_enhanced_sink.type` | `elastic` | `kafka`, `redisStream`, `console` | VLM-verified Alert and Incident results |
+
+Selecting a `redisStream` transport requires an existing Redis instance —
+Alert MS does not deploy one, and none of the service's own state lives there
+(dedup state is in-process, durable state is in Elasticsearch). The connection
+comes from the top-level `redis` block, the analogue of
+`kafka.bootstrap_servers`; the per-component blocks (`event_bridge.redis_source`,
+`event_bridge.redis_sink`, `vlm_enhanced_sink.redisStream`) hold the stream names
+and may override any connection field. `config.yaml` carries a commented example
+of each.
+
+Payloads use the MDX stream envelope — `XADD <stream> * key <sensorId> value
+<payload> headers <json>` — which is what vss-behavior-analytics publishes and
+what the Logstash `redis_stream` input consumes. The Redis source reads both
+encodings the envelope carries (protobuf and JSON text); the Redis sink writes
+the same protobuf messages the Kafka sink does, so downstream consumers decode
+either transport identically.
+
+The `console` sink renders results to the log instead of a datastore. It needs no
+broker, which makes it the quickest way to inspect verdicts while developing, but
+output is not durable and nothing downstream can consume it.
+
+In Docker Compose the selections are environment variables
+(`ALERT_EVENT_SOURCE_TYPE`, `ALERT_EVENT_SINK_TYPE`, `ALERT_VLM_SINK_TYPE`,
+plus `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` /
+`REDIS_STREAM_MAXLEN`); in Helm they are the `eventSourceType`, `eventSinkType`,
+`vlmSinkType`, and `redis.*` values. Leaving them unset keeps the Kafka defaults,
+so an existing deployment can take the new image without touching its
+environment.
 
 ## Testing
 

@@ -59,10 +59,10 @@ spec:
       {{- $redisP := .Values.waitForDependencies.redisPort | default $redis.port | default 6379 }}
       {{- /* Only wait on the brokers the selected transports actually use, so a
              Redis-only deployment does not block on an absent Kafka. */}}
-      {{- $sourceType := .Values.eventSourceType | default "kafka" }}
-      {{- $sinkType := .Values.eventSinkType | default "kafka" }}
-      {{- $vlmSink := .Values.vlmSinkType | default "elastic" }}
-      {{- $usesRedis := or (eq $sourceType "redisStream") (eq $sinkType "redisStream") (eq $vlmSink "redisStream") }}
+      {{- $sourceType := include "vss-alert-bridge.transport" (.Values.eventSourceType | default "kafka") }}
+      {{- $sinkType := include "vss-alert-bridge.transport" (.Values.eventSinkType | default "kafka") }}
+      {{- $vlmSink := include "vss-alert-bridge.transport" (.Values.vlmSinkType | default "elastic") }}
+      {{- $usesRedis := or (eq $sourceType "redisstream") (eq $sinkType "redisstream") (eq $vlmSink "redisstream") }}
       {{- $usesKafka := or (eq $sourceType "kafka") (eq $sinkType "kafka") (eq $vlmSink "kafka") }}
       {{- $endpoints := list (printf "%s:%v" $esH .Values.waitForDependencies.elasticsearchPort) }}
       {{- if $usesKafka }}

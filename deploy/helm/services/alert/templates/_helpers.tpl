@@ -27,6 +27,25 @@
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /*
+Canonicalize a transport name the same way the application does.
+
+Alert MS resolves transports through _normalize_transport(), which lowercases
+the value and strips "_" and "-" before looking it up, and it treats "redis" as
+an alias of "redisStream". Matching the raw string here instead would let the
+chart's view of the selected transport diverge from the application's: with
+eventSourceType "Kafka" the pod would talk to Kafka while the init container
+skipped waiting for it, which is exactly the crash-loop this wait exists to
+prevent.
+*/}}
+{{- define "vss-alert-bridge.transport" -}}
+{{- $value := . | default "" | lower | replace "_" "" | replace "-" "" -}}
+{{- if eq $value "redis" -}}
+redisstream
+{{- else -}}
+{{- $value -}}
+{{- end -}}
+{{- end -}}
 {{- define "vss-alert-bridge.image" -}}
 {{- $global := .Values.global | default dict -}}
 {{- $prefix := index $global "container_prefix" | default "" -}}
