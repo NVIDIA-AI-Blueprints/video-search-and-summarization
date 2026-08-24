@@ -16,8 +16,12 @@
 services:
   qwen3-vl-8b-instruct:
     image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    entrypoint:
+      - python3
+      - /opt/vss/scripts/exec_with_hf_hub.py
     command: python3 -m vllm.entrypoints.openai.api_server --model
-      Qwen/Qwen3-VL-8B-Instruct --trust-remote-code --tensor-parallel-size
+      Qwen/Qwen3-VL-8B-Instruct --revision
+      0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --trust-remote-code --tensor-parallel-size
       1 --gpu-memory-utilization 0.85 --port 8000
     container_name: qwen3-vl-8b-instruct
     profiles:
@@ -32,11 +36,19 @@ services:
           - vss-vlm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HOME: /tmp/huggingface
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}.env
       - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - qwen3_vl_8b_instruct_cache:/opt/nim/.cache
+      - ${VSS_APPS_DIR}/scripts/exec_with_hf_hub.py:/opt/vss/scripts/exec_with_hf_hub.py:ro
+    tmpfs:
+      - /tmp/huggingface
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:
@@ -56,8 +68,12 @@ services:
 
   qwen3-vl-8b-instruct-shared-gpu:
     image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    entrypoint:
+      - python3
+      - /opt/vss/scripts/exec_with_hf_hub.py
     command: python3 -m vllm.entrypoints.openai.api_server --model
-      Qwen/Qwen3-VL-8B-Instruct --trust-remote-code --tensor-parallel-size
+      Qwen/Qwen3-VL-8B-Instruct --revision
+      0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --trust-remote-code --tensor-parallel-size
       1 --gpu-memory-utilization 0.4 --port 8000 --max-model-len 32768
     container_name: qwen3-vl-8b-instruct
     profiles:
@@ -72,11 +88,19 @@ services:
           - vss-vlm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HOME: /tmp/huggingface
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}-shared.env
       - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - qwen3_vl_8b_instruct_cache:/opt/nim/.cache
+      - ${VSS_APPS_DIR}/scripts/exec_with_hf_hub.py:/opt/vss/scripts/exec_with_hf_hub.py:ro
+    tmpfs:
+      - /tmp/huggingface
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:

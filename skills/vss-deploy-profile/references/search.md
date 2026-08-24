@@ -35,7 +35,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | Role | Model | Slug | Served by |
 |---|---|---|---|
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
-| Embed (RT-Embed) | `nvidia/Cosmos-Embed1-448p-anomaly-detection` | — | RT-Embed (port 8017), `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` |
+| Embed (RT-Embed) | `nvidia/Cosmos-Embed1-448p-anomaly-detection` | — | RT-Embed (port 8017), `MODEL_PATH=hf:nvidia/Cosmos-Embed1-448p-anomaly-detection@3b1455ed97c7b1d5419c0c3129b7199ca4cd9382` |
 | Perception (RT-CV) | siglip2 v1.1 + RTDETR (warehouse) | — | RT-CV (DeepStream pipeline) |
 | VLM (RT-VLM) | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` (default local checkpoint; FP8 so it fits alongside RT-CV on GPU 0) | `VLM_NAME_SLUG=none`; activated via the `rtvi-vlm` compose profile | RT-VLM (port 8018) |
 
@@ -126,7 +126,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 
 | Var | Inside-container | Default | Effect |
 |---|---|---|---|
-| `MODEL_PATH` | `MODEL_PATH` | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` | Embedding checkpoint. Variants: `Cosmos-Embed1-224p`, `-336p`, `-448p` (smaller resolution = smaller VRAM). |
+| `MODEL_PATH` | `MODEL_PATH` | `hf:nvidia/Cosmos-Embed1-448p-anomaly-detection@3b1455ed97c7b1d5419c0c3129b7199ca4cd9382` | Immutable embedding checkpoint. Variants require their own reviewed revision (smaller resolution = smaller VRAM). |
 | `RTVI_EMBED_MODEL` | (label) | `cosmos-embed1-448p-anomaly-detection` | Identifier used by the agent. |
 | `NUM_STREAMS` | (RT-CV only — see below) | `16` | Concurrent stream count target for the whole pipeline. |
 | `RTVI_EMBED_NUM_VLM_PROCS` | `NUM_VLM_PROCS` | `10` | Parallel embedding workers. More procs = more throughput, more VRAM per process. |
@@ -264,7 +264,7 @@ RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; ds-st
 
 ### HuggingFace token for RT-Embed
 
-RT-Embed downloads the model named in `MODEL_PATH` (default `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection`) from Hugging Face on first start. Setting `HF_TOKEN`:
+RT-Embed downloads the immutable snapshot named in `MODEL_PATH` (default `hf:nvidia/Cosmos-Embed1-448p-anomaly-detection@3b1455ed97c7b1d5419c0c3129b7199ca4cd9382`) through the Hugging Face Hub client on first start. Setting `HF_TOKEN`:
 
 - **speeds up the first-run download** of the default public Cosmos-Embed1 checkpoint, and
 - **enables using private or gated HF models** when you repoint `MODEL_PATH` at, e.g., a custom fine-tune hosted in a private org.

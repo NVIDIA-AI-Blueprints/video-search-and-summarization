@@ -232,6 +232,12 @@ spec:
               {{- else }}
               value: {{ .Values.hfToken | default "" | quote }}
               {{- end }}
+            - name: HF_ENDPOINT
+              value: {{ .Values.hfEndpoint | default "" | quote }}
+            - name: HF_HUB_DISABLE_XET
+              value: "1"
+            - name: HF_HUB_ENABLE_HF_TRANSFER
+              value: "0"
             - name: RTVI_RTSP_RECONNECTION_INTERVAL
               value: {{ .Values.rtspReconnectionInterval | quote }}
             - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS

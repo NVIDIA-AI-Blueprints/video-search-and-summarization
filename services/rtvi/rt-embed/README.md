@@ -53,7 +53,7 @@ Create `docker/.env` with the variables you want to override. A starting templat
 BACKEND_PORT=8017
 RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest
 #RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
-MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
+MODEL_PATH=hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3
 #HF_TOKEN=<HF_TOKEN>
 #NGC_API_KEY=nvapi-XXXXXX
 NVIDIA_VISIBLE_DEVICES=0
@@ -451,9 +451,11 @@ If the MinIO is hosted locally or remotely, set the following environment variab
 The microservice can be configured to run with variants of the Cosmos-Embed1 model by
 setting the `MODEL_PATH` to the appropriate value. Three source schemes are supported:
 
-**HuggingFace (`git:` scheme)** — downloads from HuggingFace Hub on first startup:
+**Hugging Face (`hf:` scheme)** — materializes an immutable snapshot through
+`huggingface_hub==0.36.2`. Set `HF_ENDPOINT` to a supported Hub-compatible cache;
+Xet is disabled so model bytes remain on that endpoint:
 ```bash
-MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
+MODEL_PATH=hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3
 ```
 
 **NGC (`ngc:` scheme)** — downloads from the NGC model registry on first startup:
@@ -494,7 +496,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 | `NUM_VLM_PROCS` | Number of inference processes | `10` | No |
 | `NUM_GPUS` | Number of GPUs to use | Auto-detected | No |
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
-| `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
+| `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `hf:<repo>@<immutable-commit>`, non-HF `git:<url>`, or local path | `hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. | - | No |
 | `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | Model deployment name sent to the CE1 NIM backend and used as the RTVI model id. | `nvidia/cosmos-embed1` | No |
