@@ -922,7 +922,9 @@ function process_args() {
         local _gpu_name
         # GB300 resolves one specific deployment GPU, so probe that device to
         # confirm it exists. Other hardware profiles keep the historical
-        # first-GPU probe; the match itself is host-wide either way.
+        # first-GPU probe: their device IDs come from the profile environment,
+        # where search and alerts default to GPU 1, so probing those would
+        # change which GPU is validated on every host.
         local _hardware_check_device_id=""
         if [[ "${hardware_profile}" == "GB300" ]]; then
           _hardware_check_device_id="${hardware_device_id}"
