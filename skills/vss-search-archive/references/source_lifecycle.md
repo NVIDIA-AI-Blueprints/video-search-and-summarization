@@ -31,7 +31,6 @@ the backends' own service, model, and index inventory:
 : "${VSS_REPO_ROOT:?set the validated checkout}"
 VSS_ORIGIN="${VSS_ORIGIN%/}"
 AGENT_URL="${VSS_ORIGIN}"
-VST_URL="${VSS_ORIGIN}"
 
 VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
 "${VSS[@]}" search run --help >/dev/null || exit 1
@@ -182,11 +181,10 @@ from the VST source list, then delete its UUID only through the Agent:
 
 ```bash
 VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-  "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
 mapfile -t SENSORS_TO_DELETE < <(
   printf '%s' "${VST_SENSOR_LIST}" |
-    jq -er '.[] | select(.name == "airport" or
+    jq -er '.sensors[] | select(.name == "airport" or
                         .name == "warehouse_sample" or
                         .name == "warehouse-ladder" or
                         .name == "sample-warehouse-ladder") |
@@ -202,10 +200,9 @@ done
 
 while :; do
   VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-  VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-    "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+  VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
   if ! printf '%s' "${VST_SENSOR_LIST}" | jq -e \
-    'any(.[]; .name == "airport" or
+    'any(.sensors[]; .name == "airport" or
               .name == "warehouse_sample" or
               .name == "warehouse-ladder" or
               .name == "sample-warehouse-ladder")' >/dev/null; then
@@ -301,11 +298,10 @@ printf '%s' "${COMPLETE_RESPONSE}" |
   { echo "Upload completion failed validation" >&2; exit 1; }
 
 VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-  "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
 printf '%s' "${VST_SENSOR_LIST}" | jq -e \
   --arg sensor "${SENSOR}" --arg name "${CANONICAL_SOURCE}" \
-  'any(.[]; .sensorId == $sensor and .name == $name)' >/dev/null || {
+  'any(.sensors[]; .sensor_id == $sensor and .name == $name)' >/dev/null || {
     echo "VST did not register ${CANONICAL_SOURCE} with sensorId ${SENSOR}" >&2
     exit 1
   }
@@ -465,11 +461,10 @@ while :; do
     echo "Timed out waiting for source and index cleanup" >&2
     exit 1
   }
-  VST_SENSORS=$(curl -fsS --max-time "${VST_TIMEOUT}" \
-    "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+  VST_SENSORS=$("${VSS[@]}" vios list) || exit 1
   VST_PRESENT=$(printf '%s' "${VST_SENSORS}" | jq -r \
     --arg id "${SAVED_SENSOR_ID}" --arg name "${SAVED_SOURCE_NAME}" \
-    'any(.[]; .sensorId == $id or .name == $name)') || exit 1
+    'any(.sensors[]; .sensor_id == $id or .name == $name)') || exit 1
   case "${VST_PRESENT}" in true|false) ;; *) exit 1 ;; esac
   EMBED_COUNT=$(delete_index_count "${EMBED_INDEX}" sensor.id.keyword \
     "${SAVED_SENSOR_ID}") || exit 1

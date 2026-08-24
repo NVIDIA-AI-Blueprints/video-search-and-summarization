@@ -102,15 +102,11 @@ downstream can tell it was improvised.
 
 ## Rules
 
-1. **Configure once; never pass or construct an endpoint.**
-2. **Branch on the exit code**, not on parsing stdout for words like "error".
-3. **An empty result is an answer.** Do not retry it as though it were a failure.
-4. **Never fall back to raw REST** when a command fails. Report the failure.
-5. **Read ids from listings**; never assemble one from a name.
-6. **Do not wrap commands in your own retry or timeout loops.** Bounded waits and
-   retries are the CLI's job; a second layer just hides which one gave up.
-7. **Cite the handle you were given** — `media_url`, `job_id` — not one you
-   reconstructed.
+The seven that govern every group — configure once, branch on the exit code, an
+empty result is an answer, never fall back to raw REST, read ids from listings,
+do not wrap commands in your own retries, cite the handle you were given — are
+in [AGENTS.md at the repository root](../../../../AGENTS.md). They are stated
+once there because they are not specific to this package, and two copies drift.
 
 ## When the CLI does not cover it
 

@@ -341,13 +341,21 @@ def test_delete_recipe_is_bounded_and_checks_all_cleanup_tuples() -> None:
 curl() {{
   case "$*" in
     *'-X DELETE'*) printf '%s\n' '{{"status":"success"}}' ;;
-    *'/sensor/list'*) printf '%s\n' '[]' ;;
     *'/_count'*) printf '%s\n' '{{"count":0}}' ;;
     *) return 9 ;;
   esac
 }}
+# Source listing is `vss vios list` now, not a curl. Stub it in the CLI's own
+# shape -- {{count, sensors:[...]}} -- so the recipe's jq is exercised against
+# what the command actually returns.
+vss_stub() {{
+  case "$*" in
+    'vios list') printf '%s\n' '{{"count":0,"type":null,"sensors":[]}}' ;;
+    *) return 9 ;;
+  esac
+}}
+VSS=(vss_stub)
 AGENT_URL=https://public.example
-VST_URL=https://public.example
 ES_URL=http://elasticsearch:9200
 SAVED_SENSOR_ID=sensor-1
 SAVED_SOURCE_NAME=warehouse-ladder

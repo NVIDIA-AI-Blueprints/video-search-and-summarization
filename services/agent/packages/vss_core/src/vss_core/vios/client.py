@@ -981,6 +981,12 @@ def normalise_media_url(media_url: str, origin: str) -> str:
     from inside the VLM's container. Reduce whatever came back to its path and
     re-attach the configured origin, so the handle works for whoever we give it
     to rather than only for VIOS itself.
+
+    Unconditional on purpose. Re-anchoring a host that was already right is a
+    no-op, and the case it would harm -- VIOS answering with a legitimately
+    external host -- does not arise for stored media, which VIOS serves itself.
+    Making it conditional would mean deciding which foreign hosts to trust, to
+    protect a case that does not occur.
     """
     if not media_url:
         raise VSTError("VIOS returned an empty media url")
