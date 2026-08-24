@@ -1137,3 +1137,46 @@ async def test_a_stream_with_no_url_stays_visible_under_a_filter(vios_http) -> N
 
     assert [r["name"] for r in rows] == ["urlless"]
     assert rows[0]["error"] == "VIOS reported a stream with no url"
+
+
+@pytest.mark.asyncio
+async def test_keep_recordings_stops_the_camera_without_reclaiming_its_footage(vios_http, monkeypatch) -> None:
+    """A stopped camera's hits must still resolve to a clip.
+
+    Search documents outlive the sensor, and a hit is only useful while the
+    recording it points at is still there.
+    """
+    configure, calls, _ = vios_http
+    configure(**{"/sensor/list": [], "/sensor/cam_0": (200, {})})
+
+    async def span(*_a: object, **_k: object) -> tuple[str, str]:
+        return ("2025-01-01T00:00:00.000Z", "2025-01-01T00:03:30.000Z")
+
+    async def absent(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(vios, "recorded_span", span)
+    monkeypatch.setattr(vios, "confirm_absent", absent)
+
+    ref = vios.SensorRef(name="cam", sensor_id="cam_0", stream_id="cam-1", url="rtsp://c/1", kind="stream")
+    result = await vios.delete_media(VST, ref, keep_recordings=True)
+
+    assert result["deleted"] == ["sensor"]
+    assert result["recordings"] == "kept"
+    assert result["confirmed"] is True
+    assert not any(c.startswith("DELETE") and "/storage/" in c for c in calls), "footage must survive"
+
+
+@pytest.mark.asyncio
+async def test_keep_recordings_is_refused_for_an_uploaded_file(vios_http, monkeypatch) -> None:
+    """For an upload the storage delete IS the deregistration.
+
+    Keeping the bytes would leave a file with no sensor pointing at it -- the
+    orphaning this command was just fixed to avoid.
+    """
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": []})
+
+    ref = vios.SensorRef(name="w", sensor_id="w_0", stream_id="w-1", url="/videos/w.mp4", kind="video")
+    with pytest.raises(vios.VIOSInvalidInputError, match="would orphan the file"):
+        await vios.delete_media(VST, ref, keep_recordings=True)

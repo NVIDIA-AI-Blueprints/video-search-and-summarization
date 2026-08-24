@@ -263,7 +263,7 @@ def _delete(ctx: Any, values: dict[str, Any]) -> Result:
             },
             exit=Exit.INVALID_INPUT,
         )
-    return Result(body=_run(vios.delete_media(origin, ref)))
+    return Result(body=_run(vios.delete_media(origin, ref, keep_recordings=bool(values.get("keep_recordings")))))
 
 
 def _fallback_name(source: str) -> str:
@@ -406,12 +406,25 @@ def _build() -> click.Group:
             "delete",
             "Remove a sensor and its recordings, by the flow its provenance needs.\n"
             "\n"
+            "`--keep-recordings` stops a camera without reclaiming its footage, so search hits "
+            "recorded before it was stopped still resolve to a clip. Streams only: an uploaded "
+            "file's storage delete is what deregisters it.\n"
+            "\n"
             "--type is required here because a name does not say what it is, and the two "
             "teardowns differ; a mismatch is refused rather than guessed.\n"
             "\n"
             "\b\n"
             "  vss vios delete --type video --sensor warehouse_safety_0001\n",
-            [click.Option(["--type"], type=_TYPES, required=True, help="What the target is."), _sensor_option()],
+            [
+                click.Option(["--type"], type=_TYPES, required=True, help="What the target is."),
+                _sensor_option(),
+                click.Option(
+                    ["--keep-recordings"],
+                    is_flag=True,
+                    default=False,
+                    help="Stop a stream but keep its recordings, so existing search hits still resolve.",
+                ),
+            ],
             _delete,
         )
     )

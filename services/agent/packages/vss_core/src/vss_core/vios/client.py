@@ -1533,6 +1533,7 @@ async def delete_media(
     vst_internal_url: str,
     ref: SensorRef,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+    keep_recordings: bool = False,
 ) -> dict[str, object]:
     """Remove a sensor and its recordings, by the flow its provenance needs.
 
@@ -1540,7 +1541,18 @@ async def delete_media(
     with it). An RTSP sensor needs both: the sensor delete stops the
     recording, the storage delete reclaims what it already wrote. Either way
     absence is then confirmed by name, never inferred from the status code.
+
+    `keep_recordings` stops the camera without reclaiming what it recorded --
+    for a stream whose footage is already indexed, where search hits still need
+    their clips to resolve after the camera is gone. It is refused for an
+    uploaded file, where the storage delete *is* the deregistration: keeping
+    the bytes there would leave a file with no sensor pointing at it.
     """
+    if keep_recordings and ref.kind != "stream":
+        raise VIOSInvalidInputError(
+            f"--keep-recordings applies to a stream; {ref.name!r} is a {ref.kind}, whose stored file "
+            f"is what deregisters it, so keeping it would orphan the file"
+        )
     base = vst_internal_url.rstrip("/")
     steps: list[str] = []
 
@@ -1570,7 +1582,7 @@ async def delete_media(
         await _delete(sensor_url, timeout_seconds, "sensor delete")
         steps.append("sensor")
 
-    if span is not None:
+    if span is not None and not keep_recordings:
         window = urllib.parse.urlencode({"startTime": span[0], "endTime": span[1]})
         await _delete(
             f"{base}/vst/api/v1/storage/file/{quote_path_segment(ref.stream_id)}?{window}",
@@ -1601,6 +1613,8 @@ async def delete_media(
         # uploaded file whose timeline never appeared, neither is true: the
         # sensor is gone but the bytes may not be, so say so rather than let it
         # read as a clean delete. A failure to read the timelines raises.
-        "recordings": "removed" if span else ("none" if ref.kind == "stream" else "unconfirmed"),
-        "confirmed": span is not None or ref.kind == "stream",
+        "recordings": (
+            "kept" if keep_recordings else ("removed" if span else ("none" if ref.kind == "stream" else "unconfirmed"))
+        ),
+        "confirmed": keep_recordings or span is not None or ref.kind == "stream",
     }
