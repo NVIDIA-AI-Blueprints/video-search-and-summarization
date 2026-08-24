@@ -6,13 +6,11 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 import datetime
 import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import re
 import selectors
 import shlex
@@ -20,12 +18,12 @@ import signal
 import subprocess
 import sys
 import time
-from typing import TYPE_CHECKING
-from typing import NamedTuple
+from contextlib import suppress
+from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
 DEFAULT_HARD_CEILING_SEC = 7200
 # A clean direct OpenShell trial deletes model volumes; alerts/LVS cold starts
@@ -43,6 +41,7 @@ MAX_EXPECTED_SERVICES = 64
 MAX_REQUIRED_LOCAL_IMAGES = 32
 MAX_CLEANUP_CONTAINERS = 256
 MAX_PROGRESS_KEYS = 256
+MAX_SEEN_IMAGE_IDS = 4096
 # A fixed five-minute heartbeat is rate-bounded but may cover the entire
 # legitimate pull/build window. The immutable 7200-second hard ceiling still
 # wins before another idle extension could carry an active phase beyond it.
@@ -409,48 +408,299 @@ def _rebuilds_required_image(
     command: str,
     required_images: tuple[str, ...],
 ) -> bool:
-    """Detect explicit Docker rebuilds without retaining or echoing argv."""
+    """Detect mutation of immutable local tags without retaining raw argv."""
     if not required_images:
         return False
     try:
-        tokens = shlex.split(command)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
     except ValueError:
-        return False
+        # A malformed shell command cannot be classified safely.
+        return any(
+            cue in command
+            for cue in ("docker", "compose", "build", "pull", "tag")
+        )
+
     required = set(required_images)
-    for index, token in enumerate(tokens):
-        if token in {"-t", "--tag"} and index + 1 < len(tokens):
-            if tokens[index + 1] in required:
+    required_services = {
+        image.rsplit("/", 1)[-1].split(":", 1)[0]
+        for image in required_images
+    }
+
+    def option_values(
+        values: list[str],
+        names: set[str],
+    ) -> set[str]:
+        found: set[str] = set()
+        for index, value in enumerate(values):
+            if value in names and index + 1 < len(values):
+                found.add(values[index + 1])
+            for name in names:
+                if value.startswith(f"{name}="):
+                    found.add(value.removeprefix(f"{name}="))
+                elif (
+                    len(name) == 2
+                    and value.startswith(name)
+                    and value != name
+                ):
+                    found.add(value.removeprefix(name).removeprefix("="))
+        return found
+
+    def selected_services(values: list[str]) -> set[str]:
+        options_with_values = {
+            "-f", "--file", "-p", "--project-name", "--profile",
+            "--env-file", "--project-directory", "--parallel", "--progress",
+            "--build-arg", "--builder", "-m", "--memory", "--provenance",
+            "--sbom", "--ssh", "--policy", "--scale", "--timeout",
+            "--wait-timeout", "--pull",
+        }
+        selected: set[str] = set()
+        skip_next = False
+        for value in values:
+            if skip_next:
+                skip_next = False
+                continue
+            if value in options_with_values:
+                skip_next = True
+                continue
+            if value.startswith("-"):
+                continue
+            if _SAFE_NAME_RE.fullmatch(value):
+                selected.add(value)
+        return selected
+
+    def inspect_compose(values: list[str]) -> bool:
+        global_options_with_values = {
+            "-f", "--file", "-p", "--project-name", "--profile",
+            "--env-file", "--project-directory", "--parallel", "--progress",
+        }
+        action_index = None
+        skip_next = False
+        for index, value in enumerate(values):
+            if skip_next:
+                skip_next = False
+                continue
+            if value in global_options_with_values:
+                skip_next = True
+                continue
+            if value in {"build", "pull", "up"}:
+                action_index = index
+                break
+        if action_index is None:
+            return False
+        action = values[action_index]
+        tail = values[action_index + 1 :]
+        selected = selected_services(tail)
+        selects_required = bool(selected & required_services)
+        if action == "build":
+            return (
+                not selected
+                or selects_required
+                or "--with-dependencies" in tail
+            )
+        if action == "pull":
+            return not selected or selects_required
+        build_values = option_values(tail, {"--build"})
+        build_requested = "--build" in tail or bool(
+            build_values - {"0", "false", "never"}
+        )
+        pull_values = option_values(tail, {"--pull"})
+        pull_required = bool(pull_values & {"always"})
+        return build_requested or pull_required
+
+    def inspect_docker(values: list[str]) -> bool:
+        global_options_with_values = {
+            "--config", "-c", "--context", "-H", "--host", "-l",
+            "--log-level",
+        }
+        while values:
+            if values[0] in global_options_with_values:
+                values = values[2:]
+            elif values[0].startswith("-"):
+                values = values[1:]
+            else:
+                break
+        if not values:
+            return False
+        if values[0] == "compose":
+            return inspect_compose(values[1:])
+        if values[0] == "buildx" and len(values) > 1:
+            if values[1] == "bake":
                 return True
-        if token.startswith("--tag=") and token.partition("=")[2] in required:
-            return True
-    compose_build = None
-    for index in range(len(tokens) - 2):
-        if tokens[index : index + 2] != ["docker", "compose"]:
+            if values[1] == "build":
+                values = values[1:]
+        elif values[0] == "image" and len(values) > 1:
+            values = values[1:]
+        action = values[0]
+        tail = values[1:]
+        if action == "build":
+            tags = option_values(tail, {"-t", "--tag"})
+            return bool(tags & required) or any(
+                "$" in tag or "`" in tag
+                for tag in tags
+            )
+        if action in {"tag", "commit", "import"}:
+            target = tail[-1] if tail else ""
+            return (
+                target in required
+                or "$" in target
+                or "`" in target
+            )
+        if action in {"pull", "rmi", "rm"}:
+            return bool(set(tail) & required) or any(
+                "$" in value or "`" in value
+                for value in tail
+            )
+        # Archive tags cannot be known before loading. Fail closed only for
+        # this inherently ambiguous mutating operation.
+        return action == "load"
+
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in {";", "&&", "||", "|", "&"}:
+            if current:
+                segments.append(current)
+                current = []
             continue
-        try:
-            compose_build = tokens.index("build", index + 2)
-        except ValueError:
-            continue
-        break
-    if compose_build is not None:
-        selected_services = {
-            token
-            for token in tokens[compose_build + 1 :]
-            if not token.startswith("-") and _SAFE_NAME_RE.fullmatch(token)
-        }
-        required_service_names = {
-            image.rsplit("/", 1)[-1].split(":", 1)[0]
-            for image in required_images
-        }
-        if (
-            not selected_services
-            or selected_services & required_service_names
+        current.append(token)
+    if current:
+        segments.append(current)
+
+    for segment in segments:
+        if segment and segment[0] == "sudo":
+            segment = segment[1:]
+            sudo_options_with_values = {
+                "-u", "--user", "-g", "--group", "-h", "--host",
+                "-p", "--prompt", "-C", "--close-from", "-T",
+                "--command-timeout", "-D", "--chdir", "-R", "--chroot",
+            }
+            while segment and segment[0].startswith("-"):
+                option = segment[0]
+                segment = segment[1:]
+                if (
+                    option in sudo_options_with_values
+                    and segment
+                ):
+                    segment = segment[1:]
+        if segment and segment[0] == "env":
+            segment = segment[1:]
+            env_options_with_values = {
+                "-u", "--unset", "-C", "--chdir", "-S", "--split-string",
+            }
+            while segment:
+                option = segment[0]
+                if option in env_options_with_values:
+                    segment = segment[2:]
+                elif option.startswith("-") or "=" in option:
+                    segment = segment[1:]
+                else:
+                    break
+        while (
+            segment
+            and "=" in segment[0]
+            and not segment[0].startswith("-")
         ):
-            return True
-    # `compose up --build` may rebuild every service, including a declared
-    # prebuilt image. Fail closed for tasks that declare immutable local images.
-    if _is_compose_up(command) and "--build" in tokens:
-        return True
+            segment = segment[1:]
+        while segment:
+            wrapper = Path(segment[0]).name
+            if wrapper in {"command", "exec", "nohup"}:
+                segment = segment[1:]
+                while segment and segment[0].startswith("-"):
+                    segment = segment[1:]
+                continue
+            if wrapper == "time":
+                segment = segment[1:]
+                while segment and segment[0].startswith("-"):
+                    option = segment[0]
+                    segment = segment[1:]
+                    if option in {"-f", "--format", "-o", "--output"}:
+                        segment = segment[1:]
+                continue
+            if wrapper == "nice":
+                segment = segment[1:]
+                if segment and segment[0] in {"-n", "--adjustment"}:
+                    segment = segment[2:]
+                continue
+            if wrapper == "timeout":
+                segment = segment[1:]
+                while segment and segment[0].startswith("-"):
+                    option = segment[0]
+                    segment = segment[1:]
+                    if option in {"-k", "--kill-after", "-s", "--signal"}:
+                        segment = segment[1:]
+                if segment:
+                    segment = segment[1:]
+                continue
+            break
+        if not segment:
+            continue
+        executable = Path(segment[0]).name
+        if executable in {"sh", "bash", "dash", "zsh"}:
+            try:
+                command_index = segment.index("-c")
+                wrapped = segment[command_index + 1]
+            except (ValueError, IndexError):
+                continue
+            if _rebuilds_required_image(wrapped, required_images):
+                return True
+            if any(
+                marker in wrapped
+                for marker in ("$(", "${", "`", "$DOCKER", "$COMPOSE")
+            ) and any(
+                cue in wrapped
+                for cue in ("build", "compose", "docker", "pull", "tag")
+            ):
+                return True
+            continue
+        if executable == "docker":
+            if inspect_docker(segment[1:]):
+                return True
+            continue
+        if executable == "docker-compose":
+            if inspect_compose(segment[1:]):
+                return True
+            continue
+        if executable == "xargs":
+            for index, value in enumerate(segment[1:], start=1):
+                wrapped_executable = Path(value).name
+                if wrapped_executable == "docker":
+                    if inspect_docker(segment[index + 1 :]):
+                        return True
+                    break
+                if wrapped_executable == "docker-compose":
+                    if inspect_compose(segment[index + 1 :]):
+                        return True
+                    break
+            continue
+        normalized_segment = " ".join(segment).lower()
+        mentions_required = (
+            any(
+                image.lower() in normalized_segment
+                for image in required_images
+            )
+            or any(
+                service.lower() in normalized_segment
+                for service in required_services
+            )
+        )
+        wrapper_is_ambiguous = any(
+            cue in normalized_segment
+            for cue in ("build", "compose", "docker", "pull", "tag", "bake")
+        ) and any(
+            marker in normalized_segment
+            for marker in ("$", "`")
+        )
+        if mentions_required or wrapper_is_ambiguous:
+            if any(
+                cue in normalized_segment
+                for cue in (
+                    "build", "compose", "docker", "pull", "tag", "bake",
+                )
+            ):
+                return True
     return False
 
 
@@ -458,6 +708,7 @@ def validate_resolved_compose(
     compose_file: Path,
     repo_root: Path,
 ) -> None:
+    _read_bytes_bounded(compose_file, MAX_COMPOSE_BYTES)
     validator = (
         repo_root
         / "skills/vss-build-vision-agent/scripts/validate_resolved_yml.py"
@@ -532,17 +783,32 @@ def _generated_resolved_compose(command: str, repo_root: Path) -> Path | None:
 
 
 def _is_compose_up(command: str) -> bool:
-    return bool(re.search(r"(?:^|[;&|]\s*)docker\s+compose\b[^;&|]*\bup\b", command))
+    return bool(
+        re.search(
+            r"(?:^|[;&|]\s*)docker(?:\s+compose|-compose)\b"
+            r"[^;&|]*\bup\b",
+            command,
+        )
+    )
 
 
 def _compose_phase(command: str) -> str | None:
-    if re.search(r"\bdocker\s+(?:compose\b[^;&|]*\s+)?pull\b", command):
+    if re.search(
+        r"\bdocker(?:(?:\s+compose|-compose)\b[^;&|]*\s+|\s+)pull\b",
+        command,
+    ):
         return "pull"
-    if re.search(r"\bdocker\s+(?:compose\b[^;&|]*\s+)?build\b", command):
+    if re.search(
+        r"\bdocker(?:(?:\s+compose|-compose)\b[^;&|]*\s+|\s+)build\b",
+        command,
+    ):
         return "build"
     if _is_compose_up(command):
         return "up"
-    if re.search(r"\bdocker\s+compose\b[^;&|]*\bconfig\b", command):
+    if re.search(
+        r"\bdocker(?:\s+compose|-compose)\b[^;&|]*\bconfig\b",
+        command,
+    ):
         return "config"
     return None
 
@@ -608,6 +874,8 @@ class DirectAgentProgress:
         self.compose_sha256: str | None = None
         self._container_snapshot: dict[str, tuple[str, str, int, int]] = {}
         self._image_ids: set[str] | None = None
+        self._seen_image_ids: set[str] | None = None
+        self._image_tracking_saturated = False
         self._pseudonym_salt = os.urandom(32)
         self._inner_journal_offset = 0
         self.inner_journal_path = Path("/logs/agent/direct-progress.jsonl")
@@ -739,13 +1007,31 @@ class DirectAgentProgress:
             for item in proc.stdout.splitlines()
             if _SAFE_HASH_RE.fullmatch(item.strip().removeprefix("sha256:"))
         }
-        if self._image_ids is not None and image_ids != self._image_ids:
+        if self._seen_image_ids is None:
+            baseline = sorted(image_ids)
+            self._seen_image_ids = set(baseline[:MAX_SEEN_IMAGE_IDS])
+            self._image_tracking_saturated = (
+                len(baseline) > MAX_SEEN_IMAGE_IDS
+            )
+        new_image_ids = (
+            image_ids - self._seen_image_ids
+            if not self._image_tracking_saturated
+            else set()
+        )
+        remaining = MAX_SEEN_IMAGE_IDS - len(self._seen_image_ids)
+        if len(new_image_ids) > remaining:
+            new_image_ids = set(sorted(new_image_ids)[:remaining])
+            self._image_tracking_saturated = True
+        if new_image_ids:
             self._record_progress(
                 "image_activity",
-                token=hashlib.sha256("\n".join(sorted(image_ids)).encode()).hexdigest(),
+                token=hashlib.sha256(
+                    "\n".join(sorted(new_image_ids)).encode()
+                ).hexdigest(),
                 image_count=len(image_ids),
-                delta=len(image_ids) - len(self._image_ids),
+                delta=len(new_image_ids),
             )
+            self._seen_image_ids.update(new_image_ids)
         self._image_ids = image_ids
 
     def _compose_ps(self) -> list[dict]:
@@ -832,7 +1118,10 @@ class DirectAgentProgress:
             if previous != value:
                 self._record_progress(
                     "container_transition",
-                    token=(service, value),
+                    # Restart counters can grow forever for a crash loop. Keep
+                    # them as bounded diagnostics, but coalesce progress on the
+                    # finite lifecycle/health state instead.
+                    token=(service, value[:3]),
                     service_index=service_index,
                     previous_state=previous[0] if previous else "unknown",
                     state=value[0],

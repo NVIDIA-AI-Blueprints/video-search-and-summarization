@@ -7,7 +7,9 @@
     "vss-ui",
     "vss-video-analytics-api-fusion",
     "rtvi-vlm",
-    "rtvi-embed"
+    "rtvi-embed",
+    "redis",
+    "phoenix"
   ],
   "resources": {
     "platforms": {

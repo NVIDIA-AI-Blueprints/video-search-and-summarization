@@ -10,10 +10,13 @@
 from __future__ import annotations
 
 import argparse
+import html
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
+from urllib.parse import unquote
 
 import yaml
 
@@ -39,6 +42,15 @@ FILE_TARGET_SUFFIXES = {
 GENERATED_BIND_NAMES = {".wdm-env"}
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
+
+
+def contains_sentinel(value: str, sentinel: str) -> bool:
+    """Recognize common escaped placeholders without returning raw values."""
+    normalized = value
+    for _ in range(2):
+        normalized = html.unescape(unquote(normalized))
+    normalized = re.sub(r"\\(?=[<>])", "", normalized)
+    return sentinel.casefold() in normalized.casefold()
 
 
 def walk_strings(value: Any, location: str = "$") -> Iterator[tuple[str, str]]:
@@ -139,7 +151,7 @@ def validate_document(
 
     for location, value in walk_strings(document):
         for sentinel in SENTINELS:
-            if sentinel in value:
+            if contains_sentinel(value, sentinel):
                 errors.append(f"{location} contains placeholder {sentinel!r}")
         if UNRESOLVED_INTERPOLATION.search(value):
             errors.append(f"{location} contains unresolved Compose interpolation")

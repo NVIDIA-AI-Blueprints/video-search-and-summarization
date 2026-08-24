@@ -197,15 +197,32 @@ def test_compose_validation_accepts_optional_services(tmp_path: Path) -> None:
     assert all(char in "0123456789abcdef" for char in digest)
 
 
-def test_resolved_validator_rejects_host_ip_and_allows_escaped_interpolation(
+@pytest.mark.parametrize(
+    "placeholder",
+    [
+        "<HOST_IP>",
+        "<host_ip>",
+        r"\<HOST_IP\>",
+        "&lt;HOST_IP&gt;",
+        "%3CHOST_IP%3E",
+        "%253CHOST_IP%253E",
+    ],
+)
+def test_resolved_validator_rejects_host_ip_escaped_variants(
     tmp_path: Path,
+    placeholder: str,
 ) -> None:
-    invalid = {"services": {"api": {"environment": {"HOST": "<HOST_IP>"}}}}
-    escaped = {"services": {"api": {"environment": {"HOST": "$${HOST_IP}"}}}}
+    invalid = {"services": {"api": {"environment": {"HOST": placeholder}}}}
     assert any(
         "<HOST_IP>" in error
         for error in resolved_validator.validate_document(invalid, tmp_path)
     )
+
+
+def test_resolved_validator_allows_compose_escaped_interpolation(
+    tmp_path: Path,
+) -> None:
+    escaped = {"services": {"api": {"environment": {"HOST": "$${HOST_IP}"}}}}
     assert resolved_validator.validate_document(escaped, tmp_path) == []
 
 
@@ -229,6 +246,22 @@ def test_required_local_image_presence_and_absence() -> None:
         "--format",
         "{{.Id}}",
     ]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        progress.BoundedCommandResult(1, "", False),
+        progress.BoundedCommandResult(0, "sha256:not-the-right-id\n", False),
+        progress.BoundedCommandResult(0, f"sha256:{'a' * 64}\n", True),
+    ],
+)
+def test_wrong_or_missing_exact_local_tag_is_rejected(result) -> None:
+    with mock.patch.object(progress, "_run_bounded", return_value=result) as run:
+        assert progress.missing_required_local_images(
+            ("ds-sop:1.0.0",)
+        ) == ("ds-sop:1.0.0",)
+    assert "ds-sop:1.0.0" in run.call_args.args[0]
 
 
 def test_declared_prebuilt_image_rebuild_is_blocked_without_argument_leak(
@@ -314,18 +347,72 @@ def test_missing_prebuilt_image_blocks_compose_up(tmp_path: Path) -> None:
     assert "ds-sop" not in json.dumps(decision)
 
 
+def test_oversize_resolved_compose_is_rejected_before_validator(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "resolved.yml"
+    compose.write_bytes(b"x" * (progress.MAX_COMPOSE_BYTES + 1))
+    with (
+        mock.patch.object(progress, "_run_bounded") as run,
+        pytest.raises(ValueError, match="size limit"),
+    ):
+        progress.validate_resolved_compose(compose, tmp_path)
+    run.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "command",
     [
         "docker compose build",
         "docker compose -f resolved.yml build ds-sop",
         "docker compose up -d --build",
+        "docker compose up -d --build=true",
+        "docker-compose -f resolved.yml build ds-sop",
+        "docker --context default compose build ds-sop",
+        "sudo -u root docker compose build ds-sop",
+        "env -u UNUSED docker compose build ds-sop",
+        "time -f '%e' docker compose build ds-sop",
+        "nice -n 5 docker compose build ds-sop",
+        "timeout -k 5 60 docker compose build ds-sop",
+        "docker compose build --with-dependencies unrelated",
+        "docker buildx build -tds-sop:1.0.0 .",
+        "docker image build --tag ds-sop:1.0.0 .",
+        "docker build --tag \"$IMAGE_TAG\" .",
+        "docker tag unrelated:1 ds-sop:1.0.0",
+        "docker image pull ds-sop:1.0.0",
+        "docker load --input unknown-tags.tar",
+        "command docker tag unrelated:1 ds-sop:1.0.0",
+        "printf '%s' unrelated:1 | xargs docker tag ds-sop:1.0.0",
+        "bash -c 'docker build -t ds-sop:1.0.0 .'",
+        "bash -c '$DOCKER build -t ds-sop:1.0.0 .'",
+        "./build-image.sh ds-sop:1.0.0",
+        "make docker-build IMAGE=$IMAGE",
     ],
 )
 def test_compose_rebuild_paths_for_prebuilt_image_are_blocked(
     command: str,
 ) -> None:
     assert progress._rebuilds_required_image(
+        command,
+        ("ds-sop:1.0.0",),
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest -t ds-sop:1.0.0",
+        "docker build --tag unrelated:1 .",
+        "docker compose -p build -f resolved.yml build elasticsearch",
+        "docker compose build --builder ds-sop unrelated",
+        "docker-compose build elasticsearch",
+        "docker compose up -d --build=false",
+        "bash -c 'docker build -t unrelated:1 .'",
+        "./build-image.sh unrelated:1",
+    ],
+)
+def test_unrelated_builds_are_not_false_blocked(command: str) -> None:
+    assert not progress._rebuilds_required_image(
         command,
         ("ds-sop:1.0.0",),
     )
@@ -485,6 +572,100 @@ def test_rt_embed_long_health_transition_is_meaningful_progress(
             monitor.sample()
     clock.advance(1079)
     assert tracker.expiration() is None
+
+
+def test_restart_count_churn_does_not_refresh_stuck_search(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+    )
+
+    def row(restart_count: int) -> list[dict]:
+        return [{
+            "service": "rtvi-embed",
+            "state": "restarting",
+            "health": "unhealthy",
+            "exit_code": 1,
+            "restart_count": restart_count,
+        }]
+
+    with mock.patch.object(monitor, "_sample_images"):
+        for restart_count in range(4):
+            with mock.patch.object(
+                monitor,
+                "_safe_service_rows",
+                return_value=row(restart_count),
+            ):
+                monitor.sample()
+            clock.advance(360)
+    assert tracker.expiration() == (
+        "idle",
+        "container_transition",
+        1440,
+    )
+
+
+def test_image_removal_and_reappearance_do_not_churn_progress(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+    )
+    image = "a" * 64
+    results = [
+        progress.BoundedCommandResult(0, f"sha256:{image}\n", False),
+        progress.BoundedCommandResult(0, "", False),
+        progress.BoundedCommandResult(0, f"sha256:{image}\n", False),
+    ]
+    with mock.patch.object(progress, "_run_bounded", side_effect=results):
+        monitor._sample_images()
+        clock.advance(600)
+        monitor._sample_images()
+        clock.advance(600)
+        monitor._sample_images()
+    assert tracker.expiration() == ("idle", "startup", 1200)
+
+
+def test_image_progress_identity_set_is_bounded(tmp_path: Path) -> None:
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+    )
+    output = "\n".join(
+        f"sha256:{index:064x}"
+        for index in range(progress.MAX_SEEN_IMAGE_IDS + 2)
+    )
+    result = progress.BoundedCommandResult(0, output, False)
+    with mock.patch.object(progress, "_run_bounded", return_value=result):
+        monitor._sample_images()
+    assert len(monitor._seen_image_ids) == progress.MAX_SEEN_IMAGE_IDS
+    assert monitor._image_tracking_saturated
 
 
 def test_active_long_pull_reaches_hard_ceiling_without_early_idle(
@@ -757,6 +938,54 @@ def test_timeout_diagnostics_are_bounded_and_structural(tmp_path: Path) -> None:
     }
 
 
+def test_service_pseudonyms_are_run_scoped_stable_and_non_leaking(
+    tmp_path: Path,
+) -> None:
+    row = {
+        "service": "secret-bearing-service-name",
+        "state": "running",
+        "health": "unhealthy",
+        "exit_code": 0,
+        "restart_count": 0,
+    }
+    with mock.patch.object(
+        progress.os,
+        "urandom",
+        side_effect=[b"a" * 32, b"b" * 32],
+    ):
+        first = progress.DirectAgentProgress(
+            results_root=tmp_path / "first",
+            spec_path=tmp_path / "absent.json",
+            repo_root=tmp_path,
+        )
+        second = progress.DirectAgentProgress(
+            results_root=tmp_path / "second",
+            spec_path=tmp_path / "absent.json",
+            repo_root=tmp_path,
+        )
+    with (
+        mock.patch.object(first, "_safe_service_rows", return_value=[row]),
+        mock.patch.object(second, "_safe_service_rows", return_value=[row]),
+    ):
+        first.archive_timeout(("idle", "container_transition", 1080))
+        first_id = json.loads(
+            (first.results_root / "timeout-diagnostics.json").read_text()
+        )["services"][0]["service_id"]
+        first.archive_timeout(("idle", "container_transition", 1080))
+        repeated_id = json.loads(
+            (first.results_root / "timeout-diagnostics.json").read_text()
+        )["services"][0]["service_id"]
+        second.archive_timeout(("idle", "container_transition", 1080))
+        second_payload = (
+            second.results_root / "timeout-diagnostics.json"
+        ).read_text()
+        second_id = json.loads(second_payload)["services"][0]["service_id"]
+    assert first_id == repeated_id
+    assert first_id != second_id
+    assert len(first_id) == len("svc-") + 12
+    assert row["service"] not in second_payload
+
+
 def test_timeout_cleanup_falls_back_to_bounded_container_removal(
     tmp_path: Path,
 ) -> None:
@@ -922,10 +1151,13 @@ def test_search_expected_services_block_transitive_agent_ui_gap(
         "vss-video-analytics-api-fusion",
         "rtvi-vlm",
         "rtvi-embed",
+        "redis",
+        "phoenix",
     )
     completed = progress.BoundedCommandResult(
         0,
-        "vss-video-analytics-api-fusion\nrtvi-vlm\nrtvi-embed\noptional\n",
+        "vss-video-analytics-api-fusion\nrtvi-vlm\nrtvi-embed\n"
+        "redis\nphoenix\noptional\n",
         False,
     )
     with mock.patch.object(progress, "_run_bounded", return_value=completed):
@@ -948,7 +1180,8 @@ def test_search_adapter_carries_subset_expected_services(
     task = (tmp_path / "search/rtxpro6000bw/task.toml").read_text()
     assert (
         'expected_services = ["vss-agent", "vss-ui", '
-        '"vss-video-analytics-api-fusion", "rtvi-vlm", "rtvi-embed"]'
+        '"vss-video-analytics-api-fusion", "rtvi-vlm", "rtvi-embed", '
+        '"redis", "phoenix"]'
         in task
     )
 
@@ -982,6 +1215,16 @@ def test_sop_adapter_carries_services_and_prebuilt_image_metadata(
     ).read_text()
     assert '"ds-sop"' in task
     assert 'required_local_images = ["ds-sop:1.0.0"]' in task
+
+
+def test_sop_local_image_digest_limitation_is_documented() -> None:
+    reference = (
+        Path(__file__).resolve().parents[3]
+        / "skills/vss-build-vision-agent/references/services/sop/"
+        "build-ds-sop.md"
+    ).read_text()
+    assert "registry digest pinned" in reference
+    assert "source provenance or content identity" in reference
 
 
 def test_complete_healthy_stack_has_no_nonhealthy_diagnostics(
