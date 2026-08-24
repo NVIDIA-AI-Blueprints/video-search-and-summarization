@@ -36,34 +36,29 @@
     {
       "query": "Plan only; do not run commands, start containers, call AMC APIs, download data, or modify files. The user asks to launch AMC if needed and run the bundled sample calibration test. The automated check does not provide the sample zip, so describe the exact end-to-end sample workflow and prerequisites without claiming the zip exists. Include: use the AMC sample-dataset workflow; check whether AMC is already ready; use the deploy workflow only if AMC is not ready, while still running the AMC platform preflight before sample upload/calibration; if preflight fails, stop and request existing/generated calibration artifacts or a supported calibration host; require sample zip at assets/sdg_08_2_sample_data_010926.zip; extract idempotently into assets/.cache/sdg_08_2_sample_data_010926/; confirm GET /v1/ready returns code == 0 before uploads; upload exactly four sorted cam_*.mp4 files, then alignment_data.json, then layout.png, then GT.zip before project verification; verify project_state == READY before calibration; start calibration with detector_type resnet for the sample; poll get_project_info until project_state == COMPLETED; fetch evaluation_statistics; and say the final report after execution will include project_id, UI URL, and sample metrics. Do not write helper scripts into the repo and do not print secrets.",
       "checks": [
-        "The plan uses the AMC sample-dataset workflow, checks whether AMC is already ready, and uses the deploy workflow only when deployment is needed while still including the shared platform preflight.",
-        "The plan runs the AMC platform preflight before deploy or sample upload work, and says that if it fails the flow stops to request existing/generated calibration artifacts or a supported calibration host.",
-        "The plan requires `assets/sdg_08_2_sample_data_010926.zip` or an explicitly obtained sample zip before the sample run, and does not claim it exists when the eval does not provide it.",
-        "The plan confirms `/v1/ready` returns `code == 0` before any sample upload or calibration API calls.",
-        "The plan extracts the sample zip into `assets/.cache/sdg_08_2_sample_data_010926/` idempotently and does not write `run_sample_test.py` or another helper script into the repo.",
-        "The plan uploads exactly the 4 sample `cam_*.mp4` files in sorted order, then uploads `alignment_data.json`, then `layout.png`, then `GT.zip` before project verification.",
-        "The plan includes verifying `project_state == READY` before calibration, starting calibration with sample `detector_type=resnet`, polling `get_project_info` until `project_state == COMPLETED`, and fetching `evaluation_statistics` when the workflow is executed.",
-        "The plan says the final report after execution will include the project ID, UI URL, and sample metrics, and does not print bearer tokens, NGC keys, HuggingFace tokens, or other secret values."
+        "The plan uses the AMC sample-dataset workflow, checks whether AMC is already ready, and uses the deploy workflow only when deployment is needed while still including the shared platform preflight and failure path.",
+        "The plan requires the sample zip or an explicitly obtained sample zip before the sample run and extracts it idempotently before upload.",
+        "The plan confirms /v1/ready returns code == 0 before uploads, then uploads four sorted cam_*.mp4 files plus alignment_data.json, layout.png, and GT.zip before project verification.",
+        "The plan verifies project_state == READY before calibration, starts sample calibration with detector_type=resnet, polls until COMPLETED, and fetches evaluation statistics when the workflow is executed.",
+        "The plan says the final report after execution includes project ID, UI URL, and sample metrics, and does not print bearer tokens, NGC keys, HuggingFace tokens, or other secret values."
       ]
     },
     {
       "query": "Plan only; do not run commands, start containers, call AMC APIs, or modify files. The user wants to calibrate local MP4 cameras under `/data/videos/` with `alignment_data.json`, `layout.png`, optional `GT.zip`, and focal lengths.",
       "checks": [
-        "The plan routes local MP4 calibration through `vss-generate-video-calibration` and loads `references/videos.md`, instead of inventing camera calibration files.",
-        "The plan runs the AMC platform preflight before upload/calibration work and says that if it fails the flow stops to request existing/generated calibration artifacts or a supported calibration host.",
-        "The plan creates the AMC project only after preflight and readiness pass, uploads local `cam_*.mp4` files sorted by name, and captures the returned `project_id`.",
-        "The plan uploads `alignment_data.json` and `layout.png`, and uploads optional `GT.zip` and focal lengths before `POST /v1/verify_project/<project_id>`.",
-        "The plan confirms `project_state == READY` before `POST /v1/calibrate/<project_id>`, polls until `COMPLETED`, and fetches evaluation statistics when ground truth is present."
+        "The plan routes local MP4 calibration through the vss-generate-video-calibration videos workflow instead of inventing camera calibration files.",
+        "The plan includes the AMC platform preflight before upload/calibration work and says preflight failure stops the flow to request existing/generated calibration artifacts or a supported calibration host.",
+        "The plan creates the AMC project only after preflight/readiness pass, uploads local cam_*.mp4 files sorted by name, and captures the returned project_id.",
+        "The plan uploads alignment_data.json and layout.png plus optional GT.zip/focal lengths, verifies project_state == READY, starts calibration, polls until COMPLETED, and fetches evaluation statistics when ground truth is present."
       ]
     },
     {
       "query": "Plan only; do not run commands, start containers, call AMC APIs, capture video, or modify files. The user has three RTSP streams and wants to calibrate them with AMC first. Return a detailed ordered RTSP calibration plan. Include: use the AMC RTSP workflow in `references/rtsp.md` through `vss-generate-video-calibration`; run the AMC platform preflight before VIOS probing, capture, upload, or calibration; if preflight fails, stop and request existing/generated calibration artifacts or a supported calibration host; only after preflight passes, check VIOS availability and `VIOS_BASE_URL`, and route to `vss-manage-video-io-storage` only if VIOS must be brought up or repaired; preserve the ordered RTSP stream list; create the AMC project; call `POST /v1/rtsp/capture/<project_id>` with the requested duration; poll the capture session until `COMPLETED`; ingest captured clips only after capture completion; upload or verify `alignment_data.json` and `layout.png`; verify `project_state == READY`; start calibration; poll until `COMPLETED`; and preserve AMC error output on failure.",
       "checks": [
-        "The plan uses the AMC RTSP calibration workflow (`references/rtsp.md`) through `vss-generate-video-calibration`, not the local-video or sample workflow.",
-        "The plan includes the AMC platform preflight before VIOS probing, capture, upload, or calibration work and says that if it fails the flow stops to request existing/generated calibration artifacts or a supported calibration host.",
-        "The plan checks VIOS availability and `VIOS_BASE_URL` before capture, and routes to `vss-manage-video-io-storage` only if VIOS needs to be brought up or repaired.",
-        "The plan creates an ordered RTSP stream list, calls `POST /v1/rtsp/capture/<project_id>` with the requested duration, polls the capture session until `COMPLETED`, and ingests only after capture completion.",
-        "The plan uploads or verifies alignment/layout assets, verifies `project_state == READY`, starts calibration, polls until `COMPLETED`, and preserves AMC error output on failure."
+        "The plan uses the AMC RTSP calibration workflow through vss-generate-video-calibration, not the local-video or sample workflow.",
+        "The plan includes the AMC platform preflight before VIOS probing, capture, upload, or calibration work and says preflight failure stops the flow to request existing/generated calibration artifacts or a supported calibration host.",
+        "The plan checks VIOS availability and VIOS_BASE_URL before capture and routes to vss-manage-video-io-storage only if VIOS needs to be brought up or repaired.",
+        "The plan preserves the ordered RTSP stream list, captures clips before ingesting them, uploads/verifies alignment and layout assets, verifies project_state == READY, starts calibration, polls until COMPLETED, and preserves AMC error output on failure."
       ]
     }
   ]
