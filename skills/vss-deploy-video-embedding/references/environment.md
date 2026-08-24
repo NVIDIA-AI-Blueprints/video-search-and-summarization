@@ -45,7 +45,7 @@ Several host-side variables map to differently named container variables. The Co
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `MODEL_PATH` | Model source URI for first-boot download. | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` |
+| `MODEL_PATH` | Revision-pinned model source for first-boot download. | `hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3` |
 | `MODEL_IMPLEMENTATION_PATH` | In-container path to the model implementation. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` |
 | `MODEL_REPOSITORY_SCRIPT_PATH` | Script that builds the Triton model repository. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py` |
 | `MESSAGE_BUS` | Generated-message output bus. Use `kafka` to publish embedding events; set empty to disable. | `kafka` in the shipped `.env` |

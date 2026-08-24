@@ -47,6 +47,7 @@ ngcApiSecret:
 # hfTokenSecret:
 #   name: ""
 #   key: HF_TOKEN
+hfEndpoint: ""
 
 # Kafka/Redis: leave "" for defaults — kafka-kafka:9092 and redis:6379; with global.useReleaseNamePrefix, <release>-kafka-kafka:9092 and <release>-redis:6379
 kafkaBootstrapServers: ""

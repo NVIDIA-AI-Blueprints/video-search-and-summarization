@@ -241,7 +241,7 @@ services:
       - rtvi-triton-model-repo:/tmp/triton_model_repo
 
     environment:
-      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
+      MODEL_PATH: "${MODEL_PATH:-hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3}"
       MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
       MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
       NGC_API_KEY: "${NGC_API_KEY:-}"
@@ -418,7 +418,7 @@ The API is available at `http://localhost:8000/docs`.
 | `NUM_VLM_PROCS` | Number of inference processes | `10` | No |
 | `NUM_GPUS` | Number of GPUs to use | Auto-detected | No |
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
-| `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
+| `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `hf:<repo>@<immutable-commit>`, or local path | `hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `NGC_API_KEY` | NGC API key for downloading models via the `ngc:` scheme | - | No |
 | `COSMOS_EMBED1_TRT_PRECISION` | trtexec network precision for Cosmos-Embed1 video/text TRT engines (`fp32`, `fp16`, `bf16`, `int8`, `fp8`, `best`). Engine filename includes the precision so engines are rebuilt on change. | `fp16` | No |
@@ -898,13 +898,13 @@ The microservice can be configured to run with variants of the Cosmos-Embed1 mod
 **HuggingFace (`git:` scheme)** — downloads from HuggingFace Hub on first startup:
 
 ```bash
-MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
+MODEL_PATH=hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3
 ```
 
 Supported Cosmos-Embed1 variants include:
 
-- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` (default)
-- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` (default for [search workflow ](/agent-workflow-search))
+- `hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3` (default)
+- `hf:nvidia/Cosmos-Embed1-448p-anomaly-detection@3b1455ed97c7b1d5419c0c3129b7199ca4cd9382` (default for [search workflow ](/agent-workflow-search))
 - `git:https://huggingface.co/nvidia/Cosmos-Embed1-336p`
 - `git:https://huggingface.co/nvidia/Cosmos-Embed1-224p`
 
