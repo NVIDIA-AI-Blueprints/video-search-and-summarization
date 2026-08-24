@@ -117,7 +117,6 @@ function get_detected_hardware_profile() {
     *l40s*) echo "L40S" ;;
     *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
-    *gb300*) echo "GB300" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
     *) echo "OTHER" ;;
