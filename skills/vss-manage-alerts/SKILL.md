@@ -273,7 +273,10 @@ Resolve `$AB` / `$VST` once in *Deployment prerequisite* (Kubernetes forces
 **Sensor resolution — two different identities, do not mix them:**
 
 - **Rule create/replay (Workflow D)** resolves a sensor **name → `sensorId` (UUID) + RTSP `url`** via `vss vios list --type stream --sensor <name>` — RT-VLM keys its stream registration on the VIOS UUID. See `references/alert-subscriptions.md`.
-- **Incident filtering (Workflow C)** takes the sensor **name** — `GET /api/v1/realtime/incidents?sensor_id=<name>` term-matches the `sensorId` field stored in the incident documents — which RT-VLM fills from `sensor_name` on the Workflow D path. Still use the same `vss vios list` call to turn the user's wording into an exact registered sensor, but carry its **`.name`** forward, not its `.sensor_id`. A UUID matches only the legacy case where the rule was created without a `sensor_name`; normally it silently returns zero.
+- **Incident filtering (Workflow C)** takes the sensor **name**. Three similarly-spelled things meet here, so read carefully:
+  - The **query parameter** is `sensor_id` (snake_case). `sensorId` is *not* recognised — the API ignores it and returns every incident in the store, so a store-wide total reads back as this sensor's.
+  - Its **value** is the sensor *name*: `GET /api/v1/realtime/incidents?sensor_id=warehouse_sample`. It term-matches the `sensorId` field inside the incident documents, which RT-VLM fills from `sensor_name` on the Workflow D path.
+  - Resolve the user's wording with `vss vios list` and carry the row's **`name`** forward, not its `sensor_id` — that field is the VIOS UUID. A UUID matches only the legacy case where the rule was created without a `sensor_name`; normally it silently returns zero.
 
 Never fabricate a `sensor_id` or `live_stream_url`.
 
