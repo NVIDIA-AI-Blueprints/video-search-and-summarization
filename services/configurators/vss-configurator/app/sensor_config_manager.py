@@ -38,6 +38,15 @@ logger = get_logger(__name__)
 app = Flask(__name__)
 sensor_mapping = None
 
+# Delay between reads of the Nvstreamer streams endpoint, used both while it is
+# not answering usefully yet and between the two reads that have to agree before
+# the advertised stream list is treated as complete. Nvstreamer registers streams
+# roughly 100ms apart, so 5s is a wide margin, but it is still a heuristic: a
+# registration stall longer than this would settle early. Reconciling the list
+# after startup is the durable answer to that, and would also pick up cameras
+# added later.
+NVSTREAMER_STREAMS_RETRY_DELAY = 5
+
 # Video upload status tracking (for NVStreamer video upload feature)
 # Status can be: "not_started", "in_progress", "completed", "failed", "disabled"
 _video_upload_status = {
@@ -713,60 +722,63 @@ def nvstreamer_stream_is_valid(stream_name):
     logger.warning(f"Stream '{stream_name}' validation failed after {max_retries} attempts")
     return False
 
+def read_nvstreamer_streams():
+    """
+    Read the Nvstreamer streams endpoint once.
+
+    Returns the advertised stream list, or None while the endpoint is
+    unreachable, answering non-200, or serving something unusable.
+    """
+    try:
+        logger.info("Checking Nvstreamer streams endpoint to see if it's ready")
+        resp = requests.get(CONFIG['NVSTREAMER_STREAMS_ENDPOINT'])
+    except Exception as e:
+        logger.warning(f"Error while checking Nvstreamer streams endpoint, retrying in {NVSTREAMER_STREAMS_RETRY_DELAY}s")
+        logger.debug(f"Exception details: {repr(e)}")
+        return None
+
+    if not resp.status_code == 200:
+        logger.info(f"Getting status code {resp.status_code} from VST endpoint {CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} - retrying in {NVSTREAMER_STREAMS_RETRY_DELAY}s")
+        return None
+
+    try:
+        json_vals = resp.json()
+    except Exception as e:
+        logger.info(f"Failed to parse Nvstreamer response as JSON - retrying in {NVSTREAMER_STREAMS_RETRY_DELAY}s. Exception: {repr(e)}")
+        return None
+
+    if not json_vals:
+        logger.info(f"Nvstreamer streams endpoint returned empty response - retrying in {NVSTREAMER_STREAMS_RETRY_DELAY}s")
+        return None
+
+    logger.info(f"Getting status code {resp.status_code} from Nvstreamer streams endpoint {CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} with valid response")
+    return json_vals
+
 def fetch_all_streams_from_nvstreamer():
-    api_up = False
-    # start_time = time.time()
-    while not api_up:
-        try:
-            logger.info("Checking Nvstreamer streams endpoint to see if it's ready")
-            resp = requests.get(CONFIG['NVSTREAMER_STREAMS_ENDPOINT'])
-            # api_up = True
-        except Exception as e:
-            logger.warning("Error while checking Nvstreamer streams endpoint, retrying in 5 seconds")
-            logger.debug(f"Exception details: {repr(e)}")
-            api_up = False
-            time.sleep(5)
+    # Nvstreamer registers video files serially, each needing a decode pass to
+    # parse its keyframe interval, so the streams endpoint legitimately
+    # advertises a partial list for a few hundred milliseconds after startup.
+    # Accepting the first non-empty reply registers only the cameras that had
+    # made it and never reconciles, so wait for the count to stop growing.
+    previous_count = None
+    while True:
+        streams = read_nvstreamer_streams()
+        if streams is None:
+            previous_count = None
+            time.sleep(NVSTREAMER_STREAMS_RETRY_DELAY)
             continue
-
-        # if int(time.time() - start_time)  > CONFIG['NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT']:
-        #     logger.error("VST endpoint took too long to respond - skipping VST preload")
-        #     return []
-
-        # resp = requests.get(CONFIG['NVSTREAMER_STREAMS_ENDPOINT']) # TODO: Check if commenting this works
-
-        if not resp.status_code == 200:
-            logger.info(f"Getting status code {resp.status_code} from VST endpoint {CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} - retrying in 5 seconds")
-            api_up = False
-            time.sleep(5)
-            continue
-        else:
-            # Check if response is not empty even with 200 status code
-            try:
-                json_vals = resp.json()
-                if not json_vals or len(json_vals) == 0:
-                    logger.info(f"Nvstreamer streams endpoint returned empty response - retrying in 5 seconds")
-                    api_up = False
-                    time.sleep(5)
-                    continue
-            except Exception as e:
-                logger.info(f"Failed to parse Nvstreamer response as JSON - retrying in 5 seconds. Exception: {repr(e)}")
-                api_up = False
-                time.sleep(5)
-                continue
-            
-            logger.info(f"Getting status code {resp.status_code} from Nvstreamer streams endpoint {CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} with valid response")
-            logger.info(f"Successfully parsed Nvstreamer streams endpoint response: {json_vals}")
-            api_up = True
+        if len(streams) == previous_count:
+            json_vals = streams
             break
+        previous_count = len(streams)
+        logger.info(f"Nvstreamer advertised {previous_count} streams - re-checking in "
+                    f"{NVSTREAMER_STREAMS_RETRY_DELAY}s before registering cameras")
+        time.sleep(NVSTREAMER_STREAMS_RETRY_DELAY)
 
-    # try:
-        # json_vals = resp.json()
-    #     logger.info(f"Successfully parsed VST endpoint response: {json_vals}")
-    # except Exception as e:
-    #     logger.info("Couldn't parse VST endpoint response, will retry. Exception was - " + repr(e))
-    #     return None
+    logger.info(f"Successfully parsed Nvstreamer streams endpoint response: {json_vals}")
 
     nvstreamer_streams = []
+    offline_streams = []
     for stream in json_vals:
         for key, value in stream.items():
             if len(value) < 1:
@@ -785,11 +797,17 @@ def fetch_all_streams_from_nvstreamer():
                 
                 if not nvstreamer_stream_is_valid(curr_data["name"]):
                     logger.info(f"Stream {curr_data['name']} is not online - skipping add")
+                    offline_streams.append(curr_data["name"])
                     continue
                 else:
                     logger.info(f"Stream {curr_data['name']} is online - adding")
             
                 nvstreamer_streams.append(curr_dict)
+
+    # These cameras are dropped for the lifetime of the deployment, so name them
+    # instead of leaving the loss to be inferred from a count.
+    if offline_streams:
+        logger.warning(f"Dropping {len(offline_streams)} Nvstreamer stream(s) that never came online: {offline_streams}")
 
     return nvstreamer_streams
 
