@@ -133,7 +133,7 @@ The Sensor Configuration Manager manages sensor/camera configurations for video 
   - Generates mappings between sensor IDs, names, URLs, and metadata
   - Persists mappings to disk for reliability
   - Supports sensor sources: Metropolis Sensor Bridge (`msb`), NVStreamer (`nvstreamer`), or local JSON (`file`)
-  - For the `nvstreamer` source, waits for the advertised stream count to stop changing before registering cameras. NVStreamer registers video files serially, so its streams endpoint serves a partial list for a short window after startup; accepting that would drop the cameras still registering. This costs a couple of seconds of startup and needs no configuration
+  - For the `nvstreamer` source, waits for the advertised stream count to stop changing before registering cameras. NVStreamer registers video files serially, so its streams endpoint serves a partial list for a short window after startup; accepting that would drop the cameras still registering. This costs one poll interval of startup and needs no configuration. Note that it is a heuristic — a registration stall longer than the poll interval would still settle early — so cameras that appear after startup are not picked up until the list is reconciled
   
 - **VMS Integration**
   - Automatically registers sensors with Video Management Systems

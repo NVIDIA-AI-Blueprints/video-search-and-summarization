@@ -38,12 +38,14 @@ logger = get_logger(__name__)
 app = Flask(__name__)
 sensor_mapping = None
 
-# Back-off while the Nvstreamer streams endpoint is not answering usefully yet.
+# Delay between reads of the Nvstreamer streams endpoint, used both while it is
+# not answering usefully yet and between the two reads that have to agree before
+# the advertised stream list is treated as complete. Nvstreamer registers streams
+# roughly 100ms apart, so 5s is a wide margin, but it is still a heuristic: a
+# registration stall longer than this would settle early. Reconciling the list
+# after startup is the durable answer to that, and would also pick up cameras
+# added later.
 NVSTREAMER_STREAMS_RETRY_DELAY = 5
-# Gap between the two reads that have to agree before the advertised stream list
-# is treated as complete. Nvstreamer registers streams a little over 100ms apart,
-# so this is a wide margin, and it is the only startup cost the check adds.
-NVSTREAMER_STREAMS_SETTLE_DELAY = 2
 
 # Video upload status tracking (for NVStreamer video upload feature)
 # Status can be: "not_started", "in_progress", "completed", "failed", "disabled"
@@ -770,8 +772,8 @@ def fetch_all_streams_from_nvstreamer():
             break
         previous_count = len(streams)
         logger.info(f"Nvstreamer advertised {previous_count} streams - re-checking in "
-                    f"{NVSTREAMER_STREAMS_SETTLE_DELAY}s before registering cameras")
-        time.sleep(NVSTREAMER_STREAMS_SETTLE_DELAY)
+                    f"{NVSTREAMER_STREAMS_RETRY_DELAY}s before registering cameras")
+        time.sleep(NVSTREAMER_STREAMS_RETRY_DELAY)
 
     logger.info(f"Successfully parsed Nvstreamer streams endpoint response: {json_vals}")
 
