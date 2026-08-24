@@ -4,7 +4,7 @@ Registering a source brings **no** perception with it: a bare VIOS add stores or
 publishes the media, but nothing detects, embeds, or captions it until the
 source is fanned into the consumers a build deployed. A stock full-stack profile
 does this through the agent in one transaction. When
-**no agent tier is present** — e.g. a `vss-build-vision-agent` headless
+**no agent tier is present** — e.g. a `vss-build-vision-ai` headless
 `_builds/<name>` deployment — the operator or a runtime eval must do it by
 **direct REST**. This file is that recipe: register one source, then fan it out to
 only the resolved consumers.
@@ -15,7 +15,7 @@ This recipe is the **agent-free** path. If an agent tier is present, **STOP** �
 provisioning is agent-owned and a direct-REST fan-out double-provisions. The
 authoritative, ingress-independent signal is caller-supplied: the caller confirms
 **no agent tier is deployed** before invoking this recipe, by the same contract it
-injects the consumer endpoints (a `vss-build-vision-agent` caller derives it from
+injects the consumer endpoints (a `vss-build-vision-ai` caller derives it from
 the build's service set). Absent that signal, fall back to a status-code-aware
 probe — only a `2xx` is a real agent route; a `3xx` is the curated ingress's
 catch-all redirect to `/kibana/` (headless), which `curl -sf` would wrongly count
@@ -78,7 +78,7 @@ recipe.
 
 This recipe takes the consumer endpoints as **inputs** — `VST_API_BASE`,
 `RTVI_CV_URL`, `RTVI_EMBED_URL`, `RTVI_VLM_URL` — resolved and passed in by the
-caller; it reads no build manifest itself. A `vss-build-vision-agent` build reads
+caller; it reads no build manifest itself. A `vss-build-vision-ai` build reads
 them from its resolved service ports and hands them in; a human operator
 supplies them directly. A build can remap ports (RT-CV's is
 `${RTVI_CV_HOST_PORT:-9000}`, not a fixed `9000`), so never hard-code. Address
@@ -235,4 +235,4 @@ VIOS leaves the consumers provisioned.
 - `skills/vss-deploy-detection-tracking-2d/references/api-reference.md`
 - `skills/vss-deploy-video-embedding/references/rest-api.md`
 - `skills/vss-deploy-dense-captioning/references/integrate-rt-vlm.md`
-- Endpoint contract (read-vs-write resolution split): `skills/vss-build-vision-agent/references/deployment_resolution.md`
+- Endpoint contract (read-vs-write resolution split): `skills/vss-build-vision-ai/references/deployment_resolution.md`

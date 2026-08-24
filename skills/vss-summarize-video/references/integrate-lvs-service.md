@@ -7,7 +7,7 @@ the VSS video summarization REST API. Include LVS when a generated profile must
 summarize videos uploaded to VIOS or stored by the VIOS recorder and return the
 summary through `POST /v1/summarize`. This reference covers stored/uploaded
 video summarization only; live streaming video summarization is out of scope for
-the current build-vision-agent add-on.
+the current build-vision-ai add-on.
 
 ## Required Peer Services
 
@@ -23,9 +23,9 @@ the current build-vision-agent add-on.
   merging. This can be a local NIM, a shared-GPU local NIM, or a remote
   OpenAI-compatible endpoint.
 
-The `component_services:` block for build-vision-agent is intentionally not in
+The `component_services:` block for build-vision-ai is intentionally not in
 this neutral contract. It lives in
-`skills/vss-build-vision-agent/references/patch-lvs.md`, where the orchestrator
+`skills/vss-build-vision-ai/references/patch-lvs.md`, where the orchestrator
 declares `lvs` and the optional local LLM placement variants without
 making this service skill depend back on the orchestrator.
 
@@ -165,7 +165,7 @@ jq -e '.choices[0].message.content | length > 0'
 
 ## Known Integration Constraints
 
-- **Stored-video scope for build-vision-agent.** This add-on is for videos
+- **Stored-video scope for build-vision-ai.** This add-on is for videos
   uploaded to VIOS or stored by VIOS recorder. Do not generate live stream
   summarization wiring unless a future prompt explicitly requests it.
 - **Use `/v1/summarize` for output.** `/v1/stream_summarize` and

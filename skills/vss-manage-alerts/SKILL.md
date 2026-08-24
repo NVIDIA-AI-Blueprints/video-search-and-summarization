@@ -17,7 +17,7 @@ Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, veri
 - Active VSS **alerts** profile reachable either on Docker (`$HOST_IP:9080` Alert
   Bridge) or through the public Ingress (`VSS_PUBLIC_URL` with `/alert-bridge`).
 - Follow
-  [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md)
+  [`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md)
   for the shared `VSS_PUBLIC_URL` contract.
 - `curl` and `jq` on the agent host. Docker Compose mode detection may use
   `docker` / `generated.env`; Kubernetes must not.
@@ -61,7 +61,7 @@ The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p a
 
 Requires the VSS **alerts** profile in either `verification` (CV) or `real-time`
 (VLM) mode. Resolve endpoints once before probing. See
-[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+[`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md).
 
 ```bash
 # Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public origin.
