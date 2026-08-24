@@ -241,6 +241,7 @@ export class DashStream {
                     + ` latency=${Number(latency).toFixed(2)}s target=${Number(target).toFixed(2)}s`
                     + ` window=[${winStart.toFixed(1)}..${winEnd.toFixed(1)}]`
                     + ` ahead_of_playhead=${(winEnd - v.currentTime).toFixed(2)}s`
+                    + ` paused=${v.paused} seeking=${v.seeking} rate=${v.playbackRate}`
                     + ` ranges=[${spans.join(',')}]`
                     + ` next_range_start=${nextStart.toFixed(2)}`
                     + ` strand=${(nextStart > 0 ? nextStart - v.currentTime : 0).toFixed(2)}s`;
