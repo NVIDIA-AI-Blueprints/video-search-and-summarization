@@ -164,7 +164,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     const [inboundPeerId, setInboundPeerId] = useState<string>('');
     const [webRTCStats, setWebRTCStats] = useState<WebRTCStats>();
     const [fullWebRTCStats, setFullWebRTCStats] = useState<RTCStatsReport>();
-    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('webrtc');
+    // TEMPORARY: DASH is the default so a stream opens straight into it instead
+    // of starting on WebRTC and needing a manual switch.  Revert this single
+    // value to 'webrtc' to restore the shipping default.
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('dash');
     const bitrate = useBitrate(fullWebRTCStats);
 
     // Video playback controls
@@ -505,7 +508,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             streamConfig.options.streamType = 'dash';
         }
 
-        streamManagerRef.current.startStreaming(streamConfig);
+        startStream(streamConfig);
         setConnectionPhase('connecting');
 
         return () => {
@@ -563,6 +566,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     setTimelines(sensorTimelines);
                     timelinesRef.current = sensorTimelines;
                     setDisabledIntervals(getTimelineGaps(sensorTimelines));
+                    // The player can be mounted before the asynchronous
+                    // timeline request finishes.  VST accepts the legacy epoch
+                    // fallback for that initial replay, but relative DASH seek
+                    // controls need a real recording epoch once it is known.
+                    if (deliveryProtocol === 'dash' && (startTimeMs.current === null
+                        || startTimeMs.current === new Date(FALLBACK_START_TIME).getTime())
+                        && sensorTimelines.length > 0) {
+                        startTimeMs.current = new Date(sensorTimelines[0].startTime).getTime();
+                    }
                     LOG.info(`Fetched ${sensorTimelines.length} timeline segments for sensor ${sensor.sensorId}`, {
                         timeRange: formatTimelineRange(calenderStartTime, calenderEndTime),
                     });
@@ -580,7 +592,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         };
 
         fetchTimelines();
-    }, [sensor?.sensorId, streamType, enqueueSnackbar, sensor?.name, calenderStartTime, calenderEndTime]);
+    }, [sensor?.sensorId, streamType, enqueueSnackbar, sensor?.name, calenderStartTime, calenderEndTime, deliveryProtocol]);
 
     // Effect for updating visible time range when zoom changes
     useEffect(() => {
@@ -659,6 +671,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     }, []);
 
     const handleTimeRangeSelect = async (time: string) => {
+        if (deliveryProtocol === 'dash' && streamType === StreamType.Replay) {
+            try {
+                setIsLoading(true);
+                setConnectionPhase('waiting');
+                await streamManagerRef.current?.seekDashReplay(time);
+                startTimeMs.current = new Date(time).getTime();
+                setPlaybackStatus(StreamState.PLAYING);
+            } catch (error) {
+                LOG.error('Failed to seek DASH replay:', error);
+                setIsLoading(false);
+                enqueueSnackbar('Failed to seek DASH replay', { variant: 'error' });
+            }
+            return;
+        }
         if (streamType === StreamType.Replay && inboundPeerIDRef.current && inboundMediaSessionIDRef.current && sensor?.streamId) {
             const isSuccess = await seekToTime(
                 inboundPeerIDRef.current,
@@ -781,6 +807,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     };
 
     const handleSeekForward = async () => {
+        if (deliveryProtocol === 'dash' && streamType === StreamType.Replay) {
+            if (startTimeMs.current === null || !videoRef.current) {
+                LOG.error('DASH replay is not ready to seek');
+                return;
+            }
+            await handleTimeRangeSelect(new Date(startTimeMs.current
+                + (videoRef.current.currentTime + 10) * 1000).toISOString());
+            return;
+        }
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current || !sensor?.streamId) {
             LOG.error('Stream not ready, cant seek');
             return;
@@ -791,6 +826,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
     };
     const handleSeekBackward = async () => {
+        if (deliveryProtocol === 'dash' && streamType === StreamType.Replay) {
+            if (startTimeMs.current === null || !videoRef.current) {
+                LOG.error('DASH replay is not ready to seek');
+                return;
+            }
+            await handleTimeRangeSelect(new Date(startTimeMs.current
+                + Math.max(0, videoRef.current.currentTime - 10) * 1000).toISOString());
+            return;
+        }
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current || !sensor?.streamId) {
             LOG.error('Stream not ready, cant seek');
             return;
@@ -905,6 +949,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         };
     }, [isActuallyFullScreen, isAnyOverlayDialogOpen]);
 
+    // Every restart rebuilds the config: changing quality, saving overlay
+    // settings, picking a new replay window.  Each one has to carry the chosen
+    // delivery protocol, and only the protocol-toggle effect used to do so, so
+    // saving overlay settings silently dropped the stream back to WebRTC.
+    // Stamping it here means a new caller cannot forget.
+    const startStream = (config: StreamConfig) => {
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
+            config.options.streamType = 'dash';
+            // A DASH replay session is packaged for a window, so it needs an end
+            // as well as a start; the WebRTC path never had to supply one.
+            if (streamType === StreamType.Replay && !config.endTime) {
+                // Timelines arrive asynchronously and the first replay can be
+                // requested before their latest bound is known.  Do not leave
+                // DASH open ended in that case: the recorded source then runs
+                // through its catalogue instead of maintaining a seekable
+                // playback window.  A later seek preserves this bound.
+                config.endTime = getLatestEndTime() ?? new Date().toISOString();
+            }
+            if (streamType === StreamType.Replay && config.startTime) {
+                startTimeMs.current = new Date(config.startTime).getTime();
+            }
+        }
+        streamManagerRef.current?.startStreaming(config);
+    };
+
     const createStreamConfig = (options: {
         streamId?: string;
         mainStreamId?: string;
@@ -955,7 +1025,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             isReplay: streamType === StreamType.Replay,
         });
 
-        streamManagerRef.current?.startStreaming(streamConfig);
+        startStream(streamConfig);
     };
 
     const handleCalenderRangePlayback = async (startTime: string, endTime: string) => {
@@ -979,7 +1049,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             overlaySettings,
         });
 
-        streamManagerRef.current?.startStreaming(streamConfig);
+        startStream(streamConfig);
     };
 
     const handleScreenshot = async () => {
@@ -1150,7 +1220,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             }
 
             // Start new stream with updated settings
-            streamManagerRef.current?.startStreaming(streamConfig);
+            startStream(streamConfig);
 
             enqueueSnackbar('Analytics overlay settings updated successfully', {
                 variant: 'success',
@@ -1203,7 +1273,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             }
         }
 
-        streamManagerRef.current?.startStreaming(streamConfig);
+        startStream(streamConfig);
     };
 
     const handleAnalyticsOverlayToggle = () => {
