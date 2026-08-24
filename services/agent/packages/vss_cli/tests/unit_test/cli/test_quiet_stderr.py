@@ -101,6 +101,11 @@ def test_stderr_stays_quiet_when_an_env_file_is_present(tmp_path, monkeypatch) -
     pointer = tmp_path / ".env_file"
     pointer.write_text(str(env))
     monkeypatch.setattr(sitecustomize, "__file__", str(tmp_path / "pkg" / "sitecustomize.py"))
+    # Stub the loader so this exercises the branch it is named for. The CLI's
+    # own runtime has no python-dotenv -- it arrives with the agent stack -- so
+    # without this the module takes the "not installed" path and warns, and the
+    # test passes or fails on which environment happened to run it.
+    monkeypatch.setattr(sitecustomize, "load_dotenv", lambda *_a, **_k: None)
 
     records: list[logging.LogRecord] = []
     handler = logging.Handler()
