@@ -51,6 +51,10 @@ def _fail(prefix: str, error: BaseException, exit_code: Exit) -> None:
 def _read_failure(error: BaseException) -> None:
     if type(error).__name__ == "MemoryNotFoundError":
         _fail("not found", error, Exit.NOT_FOUND)
+    if type(error).__name__ == "MemoryDecodeError":
+        _fail("unreadable stored record", error, Exit.ERROR)
+    if type(error).__name__ == "NestedCollectionError":
+        _fail("invalid input", error, Exit.INVALID_INPUT)
     if isinstance(error, (config_mod.ConfigError, memory_mod.MemoryUnavailable)) or type(error).__name__ == (
         "ConfigurationError"
     ):

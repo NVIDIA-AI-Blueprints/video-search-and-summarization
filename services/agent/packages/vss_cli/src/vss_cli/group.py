@@ -148,9 +148,14 @@ def _exit_for(exc: Exception) -> Exit | None:
         "VIOSInvalidInputError": Exit.INVALID_INPUT,
         "VIOSNotFoundError": Exit.NOT_FOUND,
         "VIOSTimeoutError": Exit.TIMEOUT,
+        "NestedCollectionError": Exit.INVALID_INPUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
         "MemoryNotFoundError": Exit.NOT_FOUND,
         "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,
+        # A stored document that will not decode is a real failure with nothing
+        # for the caller to correct, so it keeps exit 1 -- but as a sentence
+        # naming the document, not the pydantic traceback it would be unmapped.
+        "MemoryDecodeError": Exit.ERROR,
         "ConfigurationError": Exit.CONFIGURATION,
         "NoFinalResultError": Exit.PARTIAL,
         # The store translates connection and transport trouble, but a status

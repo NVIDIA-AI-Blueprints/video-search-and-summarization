@@ -23,12 +23,14 @@ __all__ = [
     "JobInfo",
     "LifecycleAdapter",
     "MemoryAdapter",
+    "MemoryDecodeError",
     "MemoryInput",
     "MemoryNotFoundError",
     "MemoryOutput",
     "MemoryQuery",
     "MemoryService",
     "MemoryStore",
+    "NestedCollectionError",
     "PersistResult",
     "RecordBundle",
     "UnifiedMemoryRecord",
@@ -46,9 +48,11 @@ _LAZY_EXPORTS = {
     "MemoryStore": ".store",
     "MemoryQuery": ".store",
     "JobFilters": ".store",
+    "MemoryDecodeError": ".store",
     "InMemoryStore": ".backends.in_memory",
     "MemoryService": ".service",
     "MemoryNotFoundError": ".service",
+    "NestedCollectionError": ".service",
     "PersistResult": ".service",
     "build_memory_service": ".service",
     "RecordBundle": ".adapters",
@@ -72,9 +76,11 @@ if TYPE_CHECKING:
     from .models import UnifiedMemoryRecord
     from .service import MemoryNotFoundError
     from .service import MemoryService
+    from .service import NestedCollectionError
     from .service import PersistResult
     from .service import build_memory_service
     from .store import JobFilters
+    from .store import MemoryDecodeError
     from .store import MemoryQuery
     from .store import MemoryStore
 

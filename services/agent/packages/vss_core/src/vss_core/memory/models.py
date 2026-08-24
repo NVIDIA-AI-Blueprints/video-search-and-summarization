@@ -253,19 +253,6 @@ class MemoryOutput(BaseModel):
             return payload
         return value
 
-    @field_validator("ext", mode="after")
-    @classmethod
-    def _reject_nested_collections(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        if value is None:
-            return None
-        forbidden = FORBIDDEN_EXT_COLLECTIONS.intersection(value)
-        if forbidden:
-            raise ValueError(
-                "output.ext must not contain complete nested collections "
-                f"{sorted(forbidden)}; persist those as child records"
-            )
-        return value
-
 
 class MemoryError(BaseModel):
     """Structured error payload for failed/partial/timeout records."""
@@ -301,6 +288,18 @@ class UnifiedMemoryRecord(BaseModel):
         return cleaned
 
 
+def forbidden_ext_collections(record: UnifiedMemoryRecord) -> list[str]:
+    """Child-owned collection keys wrongly nested in ``record.output.ext``.
+
+    Checked when a record is written, never when one is read: documents
+    persisted before children existed nest ``events`` here, and a read that
+    rejected them would make every stored job unreadable after an upgrade.
+    """
+    if record.output is None or not record.output.ext:
+        return []
+    return sorted(FORBIDDEN_EXT_COLLECTIONS.intersection(record.output.ext))
+
+
 __all__ = [
     "FORBIDDEN_EXT_COLLECTIONS",
     "KNOWN_GROUPS",
@@ -323,4 +322,5 @@ __all__ = [
     "TimeWindow",
     "TimestampPoint",
     "UnifiedMemoryRecord",
+    "forbidden_ext_collections",
 ]

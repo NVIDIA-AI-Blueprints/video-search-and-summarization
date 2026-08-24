@@ -24,6 +24,7 @@ from vss_core.memory.models import SensorInfo
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.service import MemoryNotFoundError
 from vss_core.memory.service import MemoryService
+from vss_core.memory.service import NestedCollectionError
 from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
 from vss_core.memory.store import make_storage_id
@@ -263,13 +264,24 @@ def test_unknown_group_rejected() -> None:
         )
 
 
-def test_nested_ext_collections_rejected() -> None:
-    with pytest.raises(ValidationError):
-        MemoryOutput.model_validate({"ext": {"events": [{"id": "e1"}]}})
-    with pytest.raises(ValidationError):
-        MemoryOutput.model_validate({"ext": {"results": [{"id": "r1"}]}})
-    with pytest.raises(ValidationError):
-        MemoryOutput.model_validate({"ext": {"incidents": [{"id": "i1"}]}})
+@pytest.mark.parametrize("collection", ["events", "results", "incidents"])
+def test_nested_ext_collections_rejected_on_write(collection: str) -> None:
+    record = _parent(output={"answer": "a", "ext": {collection: [{"id": "x1"}]}})
+    with pytest.raises(NestedCollectionError):
+        MemoryService(InMemoryStore()).upsert(record)
+
+
+@pytest.mark.parametrize("collection", ["events", "results", "incidents"])
+def test_nested_ext_collections_readable(collection: str) -> None:
+    """Records written before children existed must still load.
+
+    The invariant belongs to the write path. Enforcing it during validation
+    made a document written by an earlier version unreadable, which took out
+    every read verb that happened to page over one.
+    """
+    record = _parent(output={"answer": "a", "ext": {collection: [{"id": "x1"}]}})
+    assert record.output is not None
+    assert record.output.ext == {collection: [{"id": "x1"}]}
 
 
 def test_record_id_rejects_hash_delimiter() -> None:
@@ -591,8 +603,8 @@ def test_parent_lifecycle_preserves_created_at() -> None:
 def test_events_from_child_documents_not_nested_ext() -> None:
     store = InMemoryStore()
     service = MemoryService(store)
-    # Poison parent with nested ext — model forbids it, so inject via store bypass
-    # by using a parent without nested collections and a separate child.
+    # Events come from child documents, so the parent carries none: recall must
+    # not depend on a nested ext copy that the write path refuses to store.
     store.upsert(_parent())
     store.upsert(_child(record_id="evt-001", timestamp="2026-07-22T10:00:00Z", answer="early"))
     store.upsert(_child(record_id="evt-002", timestamp="2026-07-22T11:00:00Z", answer="late"))

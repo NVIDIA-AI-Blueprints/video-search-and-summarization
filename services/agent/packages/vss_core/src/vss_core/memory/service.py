@@ -18,6 +18,7 @@ from .backends.in_memory import InMemoryStore
 from .models import PENDING_STATUSES
 from .models import TERMINAL_STATUSES
 from .models import UnifiedMemoryRecord
+from .models import forbidden_ext_collections
 from .store import JobFilters
 from .store import MemoryQuery
 from .store import MemoryStore
@@ -38,6 +39,24 @@ class BackendReconciler(Protocol):
 
 class MemoryNotFoundError(LookupError):
     """Raised when a requested job/asset/event handle is absent from memory."""
+
+
+class NestedCollectionError(ValueError):
+    """A record being written nests a child-owned collection in ``output.ext``.
+
+    The rule is a write-side invariant, enforced here rather than on the model
+    so it cannot reach the read path: earlier versions nested ``events`` in the
+    parent, and validating that shape on load would make their documents
+    unreadable rather than merely unwritable.
+    """
+
+
+def _reject_nested_collections(record: UnifiedMemoryRecord) -> None:
+    forbidden = forbidden_ext_collections(record)
+    if forbidden:
+        raise NestedCollectionError(
+            f"output.ext must not contain complete nested collections {forbidden}; persist those as child records"
+        )
 
 
 @dataclass(frozen=True)
@@ -157,6 +176,7 @@ class MemoryService:
         return self._store
 
     def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
+        _reject_nested_collections(record)
         return self._store.upsert(record)
 
     def upsert_bundle(self, bundle: RecordBundle) -> PersistResult:
@@ -182,6 +202,11 @@ class MemoryService:
         failed: list[PersistFailure] = []
         written_ids: set[str] = set()
         records = bundle.all_records
+        # A bundle that nests its own children is the adapter's bug, not a
+        # backend failure, so it raises here instead of being reported as a
+        # partial write that a caller would be told to retry.
+        for record in records:
+            _reject_nested_collections(record)
         expected = len({storage_id_for(record) for record in records})
         # Last successful upsert per storage id — collisions overwrite in place.
         written_children_by_id: dict[str, UnifiedMemoryRecord] = {}
