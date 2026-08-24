@@ -165,8 +165,9 @@ OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "openshell-rtxpro6000-active",
 )
 # 10.86.14.74 OpenShell H200 NVL cohort (8 VMs × 1 GPU). Separate active
-# label so RTX jobs cannot land here. 2-GPU specs stay on 223
-# (gpus-2); never advertise gpus-2 on this 1-GPU packing.
+# label (do not put RTX labels on H200 boxes). 1-GPU RTXPRO6000BW specs
+# also emit a sibling H200 / gpus-1 leg so those jobs can land on 74.
+# 2-GPU specs stay on 223 (gpus-2); never advertise gpus-2 on this packing.
 OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     "openshell",
@@ -479,6 +480,8 @@ def build_matrix(changed: list[str]) -> list[dict]:
             platforms = sorted(platform_config) or [""]
             if os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
                 platforms = [p for p in platforms if p in ("RTXPRO6000BW", "H200")]
+            emitted_h200 = False
+            rtx_one_gpu = False
             for platform in platforms:
                 plat_cfg = platform_config.get(platform)
                 if (
@@ -489,6 +492,13 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     # Do not emit a skip-runner ubuntu job for 2-GPU H200
                     # entries. Those specs run on RTX 223 when declared.
                     continue
+                if platform == "H200":
+                    emitted_h200 = True
+                if (
+                    platform == "RTXPRO6000BW"
+                    and _gpu_count(plat_cfg or {}) < 2
+                ):
+                    rtx_one_gpu = True
                 plat_tag = platform or "no-platform"
                 labels = runs_on_labels(platform, plat_cfg)
                 include.append({
@@ -501,6 +511,25 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
                     "runs_on": labels,
+                })
+            if (
+                os.environ.get("OPENSHELL_RTXPRO6000_ONLY")
+                and rtx_one_gpu
+                and not emitted_h200
+            ):
+                # RTX-only 1-GPU (or gpu_count:0 → gpus-1) specs also run
+                # on the 8×1 H200 cohort. Separate slug / runs_on: GitHub
+                # ANDs labels, so one job cannot match both cohorts.
+                include.append({
+                    "skill": skill,
+                    "spec_path": meta["spec_path"],
+                    "spec_stem": meta["spec_stem"],
+                    "eval_dir": meta["eval_dir"],
+                    "platform": "H200",
+                    "kind": "eval",
+                    "slug": f"{skill}__{meta['spec_stem']}__H200",
+                    "name": f"{skill} · {meta['spec_stem']} · H200",
+                    "runs_on": [*OPENSHELL_H200_LABELS, "gpus-1"],
                 })
     if os.environ.get("OPENSHELL_RTXPRO6000_ONLY") and not any(
         leg.get("kind") == "eval" for leg in include

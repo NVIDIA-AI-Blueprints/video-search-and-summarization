@@ -615,6 +615,27 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
             ],
         )
 
+    def test_one_gpu_rtx_only_also_emits_h200_leg(self):
+        """RTX-only gpus-1 specs get a sibling H200 leg; 2-GPU does not."""
+        plan_matrix.spec_platform_config = lambda p: {
+            "RTXPRO6000BW": {"gpu_count": 1},
+        }
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(
+            [leg["platform"] for leg in inc],
+            ["RTXPRO6000BW", "H200"],
+        )
+        h200 = next(leg for leg in inc if leg["platform"] == "H200")
+        rtx = next(leg for leg in inc if leg["platform"] == "RTXPRO6000BW")
+        self.assertEqual(h200["slug"], "vss-search-archive__search__H200")
+        self.assertIn("openshell-h200-active", h200["runs_on"])
+        self.assertIn("gpus-1", h200["runs_on"])
+        self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
+        self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
+        self.assertNotIn("openshell-h200-active", rtx["runs_on"])
+
     def test_h200_kept_alongside_rtxpro(self):
         plan_matrix.spec_platform_config = lambda p: {
             "L40S": {"gpu_count": 1},
