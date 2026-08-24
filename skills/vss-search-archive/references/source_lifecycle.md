@@ -222,9 +222,17 @@ partial state through a backend.
 
 ## File source
 
-List current sources through `vss-manage-video-io-storage`; do not upload an
-exact existing source. Confirm an interactive upload, then use the mandatory
-three-step agent flow. This flow is mandatory for every file ingestion:
+List current sources with `"${VSS[@]}" vios list`; do not upload an exact
+existing source. Confirm an interactive upload, then use the mandatory
+three-step agent flow.
+
+**The block below ingests ONE file. Run it again, in full, for each further
+file** — `POST /api/v1/videos`, the upload, then `/complete`, every time. Set
+`FILE_PATH` (and `UPLOAD_FILENAME` if it differs) and re-run from the top. The
+failure mode is doing the first step once and reusing its upload URL or
+`SENSOR` for the next file: the second file then has no `/api/v1/videos` call
+of its own, is never registered, and its index documents never appear — which
+surfaces much later as an empty search rather than an upload error.
 
 For the release fixtures, download the exact pinned bundle into a fresh
 directory; never use `find` to substitute a pre-existing warehouse-looking
