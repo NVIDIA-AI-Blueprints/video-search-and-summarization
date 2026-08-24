@@ -1,0 +1,113 @@
+---
+title: "Agents"
+description: ""
+---
+## Agents
+
+The Public Safety Blueprint incorporates an agentic AI system that provides natural language interaction capabilities for querying unauthorized entry and tailgating incidents, generating reports, and retrieving visual information from security cameras.
+
+The agent uses NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`) for natural language understanding and query routing, and NVIDIA Cosmos3 Nano Reasoner (`nvidia/cosmos3-nano-reasoner`) for video understanding and analyzing security incidents.
+
+## Sub-Agents
+
+The public safety agent uses specialized sub-agents for different types of reporting tasks:
+
+* **report_agent**: Handles detailed, comprehensive reports for single incidents. Retrieves incident data, performs video analysis using VLMs, and generates structured markdown reports with incident details, location information, security facilities, and people involved. Analyzes whether tailgating occurred and provides professional recommendations.
+
+* **multi_report_agent**: Handles listing and summarizing multiple incidents. Supports filtering by time range, sensor, and incident count. Provides incident summaries with optional chart generation for visualizing incident trends.
+
+## Tools
+
+The agent has access to various tools that enable its capabilities:
+
+**Video Analytics Tools**
+
+* `video_analytics_mcp.get_incidents`: Retrieves multiple incidents from Video Analytics service
+* `video_analytics_mcp.get_incident`: Retrieves a specific incident by ID
+* `video_analytics_mcp.get_fov_histogram`: Gets field-of-view occupancy histogram data
+* `video_analytics_mcp.get_sensor_ids`: Lists all available sensors/cameras
+
+**Video Storage Tools**
+
+* `vst_video_url`: Retrieves video URLs for incident playback
+* `vst_picture_url`: Retrieves picture URLs from sensors
+* `vst_mcp.sensor_list`: Gets list of sensors from Video Storage service
+* `vst_mcp.get_video_storage_url`: Gets video storage URLs
+* `vst_mcp.get_replay_picture_url`: Gets replay picture URLs
+
+**Report Generation Tools**
+
+* `video_understanding`: Uses VLM to analyze video frames and extract incident information
+* `template_report_gen`: Generates structured incident reports using configurable templates and VLM analysis
+* `chart_generator`: Creates visualization charts for reports
+* `multi_incident_formatter`: Formats multiple incidents for summary reports
+* `get_fov_counts_with_chart`: Provides occupancy statistics with histogram visualizations
+
+### Supported queries and examples
+
+The agent supports natural language queries for public safety incident management and sensor operations:
+
+* "What sensors are available?"
+* "Generate a report for the last incident for sensor `<sensor>`"
+* "Generate a report for incident `<id>` from sensor `<sensor>`"
+* "List all incidents from `<start_time>` to `<end_time>`"
+* "List the last 5 incidents for `<sensor>`"
+* "How many people are in the `<sensor>`?"
+* "1. List the last 5 incidents for `<sensor>`; 2. Generate a report for the second one; 3. Generate a report for `<incident_id>`"
+* "1. List all incidents in the past 24h for sensor `<sensor>`; 2. Show the next 20 incidents"
+
+The agent automatically handles temporal expressions (e.g., "last 1 minute", "20 minutes ago", "past 24h") and maintains context for follow-up queries.
+
+### Customizing agents
+
+## Summary
+
+The agent configuration is designed to be flexible and extensible. Key customization areas include prompt customization, VLM prompt engineering for tailgating detection, model selection, tool addition, and report templates.
+
+For comprehensive customization guidance, refer to the VSS Agent Configuration documentation.
+
+## Agent configuration YAML
+
+The agent is configured through a YAML file that defines the general settings, function groups, individual functions, LLMs, and workflow behavior. The Agentic service is implemented as a NeMo Agent Toolkit based agent, and hence, information on several of the config parameters can be also found in the [NeMo Agent Toolkit documentation](https://docs.nvidia.com/nemo/agent-toolkit/latest/tutorials/customize-a-workflow.html).
+
+The configuration file defines key settings such as service endpoints, environment variables, tool options, and task parameters. The configuration file is organized into several key sections:
+
+* **General**: Frontend settings (FastAPI), object stores, telemetry, and health endpoints
+* **Function Groups**: MCP client connections to Video Analytics and Video Storage microservices
+* **Functions**: Individual tool definitions for video understanding, report generation, chart creation, sensor operations, and sub-agents
+* **LLMs**: Configuration for primary reasoning LLM (NVIDIA Nemotron Nano 9B v2) and VLM (NVIDIA Cosmos3 Nano Reasoner)
+* **Workflow**: Top-level agent orchestration with routing logic, retry settings, and iteration limits
+
+The configuration file can be found in the deployment directory. For the complete explanation of the agent configuration YAML file and environment variables, please refer to the VSS Agent Configuration documentation.
+
+**VLM Prompts for Tailgating Detection**
+
+The public safety agent uses specialized VLM prompts to analyze tailgating and unauthorized entry incidents:
+
+* Describes the incident in detail including why it happened, contributing factors, outcomes and responses
+* Describes the location including security facilities such as gates, badge scanners, etc.
+* Describes all people involved including their appearance and whether they presented proof of authorization such as scanning their badge
+
+**Environment Variables**
+
+The configuration relies on several environment variables that must be set during deployment. For the complete list and explanation of environment variables, please refer to the VSS Agent Configuration documentation.
+
+### Agent Skills
+
+In addition to the in-product agent described above, a deployed Public Safety Blueprint can be operated from a coding agent (Claude Code, Codex, NemoClaw) using [Agent Skills](/agent-skills). Skills such as `vss-deploy-profile`, `vss-query-analytics`, and `vss-manage-video-io-storage` cover deployment, analytics queries, and video/stream management for this profile through natural language. For the full Skills catalog and installation instructions, see [Agent Skills](/agent-skills).
+
+### Observability
+
+The agent includes built-in observability features for monitoring and debugging:
+
+* **Distributed Tracing**: Phoenix-based distributed tracing tracks agent execution flow, tool calls, and LLM interactions
+* **Telemetry**: Project-based telemetry configuration for metrics and performance monitoring
+* **Health Endpoints**: FastAPI health check endpoints for service availability monitoring
+* **Logging**: Configurable log levels (INFO, DEBUG, etc.) for troubleshooting
+
+Traces can be viewed in the Phoenix UI at the configured `PHOENIX_ENDPOINT` environment variable.
+
+### Known Limitations
+
+* **Video Analysis Duration**: VLM analysis of very long videos will require a long time to process.
+* **Context Window**: The default LLM is a small model and too much incident data will overload the context window.

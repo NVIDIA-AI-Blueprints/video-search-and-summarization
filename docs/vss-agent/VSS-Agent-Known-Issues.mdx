@@ -1,0 +1,78 @@
+---
+title: "Agent Known Issues"
+description: ""
+position: 9
+---
+Nemotron Omni and `ENABLE_AUDIO`
+
+## Nemotron Omni and `ENABLE_AUDIO`
+
+**Non-Omni VLM with `ENABLE_AUDIO=true`**
+
+If `ENABLE_AUDIO=true` but `VLM_NAME` does not contain `omni`, the agent logs a warning and falls back to **JPEG frame sampling** (audio is dropped). Non-Omni remote VLMs cannot use VST `video_url` the way a co-located NIM can, so enabling audio without an Omni model does not preserve the audio track.
+
+**Omni model id**
+
+Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM_NAME`. A mismatch between `VLM_NAME` and the model `id` from `GET /v1/models` on your vLLM endpoint causes **HTTP 404** on chat completions. See [Using Nemotron Omni (audio-enabled VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm).
+
+**Firewall ports (remote VLM)**
+
+- Remote VLM with model-type `nim` (not Omni audio path): the VLM must reach VST on **port 30888** on the host. See [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos).
+- Remote **Nemotron Omni** with `ENABLE_AUDIO=true` on the base profile: the agent inlines the MP4 in the API request; ensure **port 30082** (OpenAI-compatible VLM API) is reachable from the VSS host. See [Using Nemotron Omni (audio-enabled VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm) and [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos).
+
+## VA-MCP Slow Initialization (Hugging Face Rate Limiting)
+
+If VA-MCP initialization is slow or logs show HTTP 429 errors from Hugging Face, set `HF_TOKEN` before deploy. See [NGC + Hugging Face API Keys](/prerequisites#ngc-hugging-face-api-keys) in [../prerequisites](/prerequisites).
+
+## Cosmos3 Nano Reasoner NIM Restart Failures (Shared GPU Mode)
+
+**Symptom:**
+
+If the `cosmos3-reasoner` NIM container stops, crashes, or is stopped manually
+**in shared GPU mode**, restarting the container alone may not recover the service.
+The agent UI or video-understanding requests may stop responding.
+
+**Cause:**
+
+In shared GPU mode, the `cosmos3-reasoner` NIM cannot be restarted
+independently after it has stopped in the current release.
+
+**Solution:**
+
+- **Shared GPU mode:** Redeploy the entire blueprint instead of restarting only
+  the `cosmos3-reasoner` container.
+- **Dedicated GPU mode:** Restarting the `cosmos3-reasoner` container is
+  sufficient; a full blueprint redeploy is not required.
+
+This limitation applies only to shared GPU deployments. The release plan is to
+move to Cosmos Reason 3, which should address this issue.
+
+## Snapshot Timestamp Accuracy (Video Summarization Profile)
+
+**Symptom:**
+
+When requesting a snapshot at a specific timestamp (e.g., "take a snapshot at 3 seconds from `<sensor_id>`"),
+the actual frame captured may not precisely match the requested timestamp.
+
+**Cause:**
+
+This is a known limitation in the current frame extraction implementation. The snapshot tool may select
+a nearby frame rather than the exact frame at the requested timestamp.
+
+**Solution:**
+
+We expect to fix this in the next release.
+
+## Empty Chart for Metrics Queries When No Results
+
+**Symptom:**
+
+For natural language metrics/occupancy count queries (e.g., How many people are there in camera 1?), when the count is 0 the chart appears empty, which can be confusing.
+
+**Cause:**
+
+This is a known limitation in the current chart rendering for metrics queries.
+
+**Solution:**
+
+This will be resolved in a future release.

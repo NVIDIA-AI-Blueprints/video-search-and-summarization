@@ -1,0 +1,5 @@
+"Key","Description",Typical Value
+
+"""data_path""","Path where VIOS related data files are created","""./vst_data/"""
+"""video_path""","Path to root folder where recorded videos to be stored","""./vst_video/"""
+"""total_video_storage_size_MB""","Total size available to store recorded videos",1000000

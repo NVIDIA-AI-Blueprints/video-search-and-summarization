@@ -1,0 +1,368 @@
+---
+title: "Agent Configuration"
+description: ""
+position: 3
+---
+Configuration files define LLM connections, tools, agents, prompts, and telemetry settings.
+The agent is built on [NVIDIA NeMo Agent Toolkit (NAT)](https://docs.nvidia.com/nemo/agent-toolkit/1.3/),
+which allows you to register custom functions and extend the agent's capabilities.
+
+## File Structure
+
+```yaml
+general:        # Frontend, telemetry
+object_stores:  # Object storage
+function_groups: # MCP clients
+functions:      # Tools
+llms:           # LLM/VLM models
+workflow:       # Top agent
+```
+
+## LLM Configuration
+
+```yaml
+llms:
+  nim_llm:
+    _type: nim
+    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  cosmos3_nano_reasoner:
+    _type: nim
+    model_name: nvidia/cosmos3-nano-reasoner
+    base_url: ${VLM_BASE_URL}/v1
+    max_tokens: 4096
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+## MCP Clients
+
+```yaml
+function_groups:
+  video_analytics_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: ${VIDEO_ANALYSIS_MCP_URL}/mcp
+    include:
+      - video_analytics.get_incidents
+      - video_analytics.get_incident
+      - video_analytics.get_fov_histogram
+      - video_analytics.get_sensor_ids
+
+  vst_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: ${VST_MCP_URL}/mcp
+    include:
+      - sensor_list
+      - get_video_storage_url
+      - get_replay_picture_url
+      - get_live_picture_url
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+## Tools Reference
+
+### video_understanding
+
+Analyzes video content using a Vision Language Model (VLM).
+
+```yaml
+video_understanding:
+  _type: video_understanding
+  vlm_name: cosmos3_nano_reasoner
+  max_frames: 30
+  min_pixels: 3136
+  max_pixels: 8388608
+  reasoning: false
+  video_url_tool: vst_video_url
+  enable_audio: ${ENABLE_AUDIO:-false}   # Omni audio-in-video; see :ref:`vss_omni_audio`
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### vst_video_url
+
+Gets video storage URLs from VST service for a specific stream and time range.
+
+```yaml
+vst_video_url:
+  _type: vst_video_url
+  get_video_storage_url_tool: vst_mcp.get_video_storage_url
+  get_sensor_list_tool: vst_mcp.sensor_list
+  vst_base_url: ${VST_BASE_URL}
+  overlay_config: true
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### vst_picture_url
+
+Gets snapshot picture URLs from VST service (replay or live).
+
+```yaml
+vst_picture_url:
+  _type: vst_picture_url
+  get_sensor_list_tool: vst_mcp.sensor_list
+  get_replay_picture_url_tool: vst_mcp.get_replay_picture_url
+  get_live_picture_url_tool: vst_mcp.get_live_picture_url
+  vst_base_url: ${VST_BASE_URL}
+  max_retries: 5
+  retry_delay_seconds: 2
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### chart_generator
+
+Generates bar and pie charts, stores them in object store.
+
+```yaml
+chart_generator:
+  _type: chart_generator
+  object_store_name: ${VSS_AGENT_OBJECT_STORE_TYPE}
+  object_store_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### multi_incident_formatter
+
+Fetches and formats multiple incidents with video/snapshot URLs and optional charts.
+
+```yaml
+multi_incident_formatter:
+  _type: multi_incident_formatter
+  video_url_tool: vst_video_url
+  picture_url_tool: vst_picture_url
+  incidents_tool: video_analytics_mcp.video_analytics.get_incidents
+  chart_generator_tool: chart_generator
+  generate_chart: true
+  chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+  display_limit: 20
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### template_report_gen
+
+Generates incident reports using VLM analysis and customizable templates.
+
+```yaml
+template_report_gen:
+  _type: template_report_gen
+  object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+  base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+  template_path: ${VSS_AGENT_TEMPLATE_PATH}
+  template_name: ${VSS_AGENT_TEMPLATE_NAME}
+  llm_name: nim_llm
+  video_understanding_tool: video_understanding
+  picture_url_tool: vst_picture_url
+  video_url_tool: vst_video_url
+  vlm_prompts:
+    - "Describe the incident in details..."
+    - "Describe the location of the incident..."
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### get_fov_counts_with_chart
+
+Gets field-of-view object counts and generates visualization charts.
+
+```yaml
+get_fov_counts_with_chart:
+  _type: get_fov_counts_with_chart
+  get_fov_histogram_tool: video_analytics_mcp.video_analytics.get_fov_histogram
+  chart_generator_tool: chart_generator
+  chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### geolocation
+
+Fetches geolocation information from coordinates using OpenStreetMap.
+
+```yaml
+geolocation:
+  _type: geolocation
+  timeout: 10
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+## Agents
+
+### report_agent
+
+Sub-agent for generating detailed single incident reports.
+
+```yaml
+report_agent:
+  _type: report_agent
+  get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
+  get_incident_tool: video_analytics_mcp.video_analytics.get_incident
+  template_report_tool: template_report_gen
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### multi_report_agent
+
+Sub-agent for listing and summarizing multiple incidents.
+
+```yaml
+multi_report_agent:
+  _type: multi_report_agent
+  multi_incident_tool: multi_incident_formatter
+  max_incidents: 9999
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+### Top Agent (Workflow)
+
+The main routing agent that orchestrates tools and sub-agents.
+
+```yaml
+workflow:
+  _type: top_agent
+  llm_name: nim_llm
+  log_level: INFO
+  max_retries: 3
+  max_iterations: 15
+  llm_reasoning: false
+  tool_names:
+    - get_fov_counts_with_chart
+    - video_analytics_mcp.video_analytics.get_sensor_ids
+    - vst_picture_url
+  subagent_names:
+    - report_agent
+    - multi_report_agent
+  prompt: |
+    You are a routing agent...
+```
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+## Telemetry
+
+```yaml
+general:
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: WH-vss-agent-${VSS_AGENT_VERSION}
+```
+
+For details on enabling telemetry and navigating traces in the Phoenix UI, see [vss-agent-Observability](/vss-agent/vss-agent-Observability).
+
+<details>
+<summary>Parameters</summary>
+
+</details>
+
+## Evaluation Configuration
+
+The `eval:` section configures the evaluation framework for assessing agent performance.
+For complete evaluation configuration options and evaluator types, see [VSS-Agent-Evaluation](/vss-agent/VSS-Agent-Evaluation).
+
+## Environment Variables
+
+<details>
+<summary>Environment Variables Reference</summary>
+
+</details>
+
+### Example Environment File
+
+<details>
+<summary>Example .env file</summary>
+
+```bash
+# Host Configuration
+HOST_IP='10.20.30.40'
+
+# VSS Agent Configuration
+VSS_AGENT_VERSION=v1.0.0
+VSS_AGENT_CONFIG_FILE=./deploy/docker/industry-profiles/warehouse-operations/vss-agent/configs/config.yml
+VSS_AGENT_HOST=0.0.0.0
+VSS_AGENT_PORT=8000
+VSS_AGENT_OBJECT_STORE_TYPE=local_object_store
+VSS_AGENT_REPORTS_BASE_URL=http://${HOST_IP}:${VSS_AGENT_PORT}/static/
+VSS_AGENT_TEMPLATE_PATH=./deploy/docker/industry-profiles/warehouse-operations/vss-agent/templates
+VSS_AGENT_TEMPLATE_NAME=incident_report_template.md
+
+# VA-MCP Configuration
+VSS_VA_MCP_CONFIG_FILE=./deploy/docker/industry-profiles/warehouse-operations/vss-agent/configs/va_mcp_server_config.yml
+VSS_VA_MCP_PORT=9901
+VSS_ES_PORT=9200
+
+# VST Configuration
+VST_PORT=30888
+VST_BASE_URL=http://${HOST_IP}:${VST_PORT}
+VST_MCP_PORT=8001
+VST_MCP_URL=http://${HOST_IP}:${VST_MCP_PORT}
+
+# LLM Configuration
+LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
+NEMOTRON_PORT=30081
+LLM_BASE_URL=http://${HOST_IP}:${NEMOTRON_PORT}
+
+# Cosmos VLM Configuration
+COSMOS_PORT=30082
+COSMOS_BASE_URL=http://${HOST_IP}:${COSMOS_PORT}
+
+# Telemetry
+PHOENIX_ENDPOINT=http://${HOST_IP}:7777/phoenix
+```
+
+</details>

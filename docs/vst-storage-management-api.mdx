@@ -1,0 +1,41 @@
+---
+title: "VST Storage Management API"
+description: ""
+position: 6
+---
+This page provides API reference for the VST Storage Management MS.
+
+## Overview
+
+The Storage Management is designed to facilitate the management of media files. For NvStreamer, the media files are static media files that are scanned from the specified directory or uploaded by users. For VST, the media files are the recorded videos of sensors.
+
+## Key Features
+
+The service provides the following capabilities:
+
+- **Media Upload**: Media files can be uploaded to the service. The storage management service also supports upload of a large file in multiple small pieces
+- **Media Deletion**: The uploaded media files can be deleted
+- **Media Metadata**: The media metadata can be queried to get information about the media like codec, framerate, duration
+- **Storage Monitoring**: Information about the storage occupied by media files can be queried
+- **Video Aging Policy**: The aging policy feature makes sure that old media files are deleted to make space for new ones
+- **Media Download Support**: The media files can be downloaded
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `https://localhost/api`
+
+All API endpoints are prefixed with `/v1/storage`.
+
+## Authentication
+
+The VST Storage Management API uses optional bearer token authentication for endpoints that modify storage configuration or perform operations. GET requests typically do not require authentication.
+
+<Note>
+Endpoints that require authentication are marked with a security requirement in the API specification.
+</Note>
+
+## Reference
+
+OpenAPI Specification can be found [here ](/vst-storage-management-api-reference).

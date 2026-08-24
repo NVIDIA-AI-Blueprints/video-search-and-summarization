@@ -1,0 +1,28 @@
+Variable,Description
+HOST_IP,Blueprint endpoint IP address
+VSS_AGENT_HOST,Agent server host (default: 0.0.0.0)
+VSS_AGENT_PORT,Agent server port (default: 8000)
+VSS_AGENT_VERSION,Agent version for telemetry project naming
+VSS_AGENT_CONFIG_FILE,Path to agent config YAML file
+VSS_AGENT_OBJECT_STORE_TYPE,Object store type (local_object_store or remote_object_store)
+VSS_AGENT_REPORTS_BASE_URL,Base URL for serving generated reports
+VSS_AGENT_TEMPLATE_PATH,Path to report template directory
+VSS_AGENT_TEMPLATE_NAME,Report template filename
+VST_BASE_URL,Video Storage Tool base URL
+VST_PORT,VST server port (default: 30888)
+VST_MCP_URL,VST MCP server URL
+VST_MCP_PORT,VST MCP server port (default: 8001)
+VIDEO_ANALYSIS_MCP_URL,VA-MCP server URL
+VSS_VA_MCP_PORT,VA-MCP server port (default: 9901)
+VSS_VA_MCP_CONFIG_FILE,Path to VA-MCP config file
+VSS_ES_PORT,Elasticsearch port (default: 9200)
+MDX_PORT,MDX API port (default: 8081)
+LLM_NAME,LLM model name
+LLM_BASE_URL,LLM NIM endpoint URL
+NEMOTRON_PORT,Nemotron NIM port (default: 30081)
+COSMOS_BASE_URL,Cosmos Reason VLM endpoint URL
+COSMOS_PORT,Cosmos NIM port (default: 30082)
+ENABLE_AUDIO,"When true, keep audio in VST ingest/clips and send full MP4 to Omni VLMs (profile .env; default false)"
+HF_TOKEN,Hugging Face token for gated Omni weights and agent compose (optional)
+PHOENIX_ENDPOINT,Phoenix telemetry endpoint
+

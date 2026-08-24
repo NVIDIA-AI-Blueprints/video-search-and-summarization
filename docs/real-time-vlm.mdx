@@ -1,0 +1,1886 @@
+---
+title: "Real-Time VLM"
+description: ""
+position: 2
+---
+
+## Overview
+
+The Real-Time VLM Server is a FastAPI-based REST API service that provides
+real-time video understanding capabilities using Vision Language Models
+(VLM). It enables users to generate captions, process live video streams,
+and manage live streams through a comprehensive set of REST endpoints.
+
+For the 3.3.0 release, use the multi-architecture RTVI-VLM 26.08.1 image:
+`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1`.
+
+<Note>
+RTVI-VLM does not support cosmos-reason1 in VSS 3.3.
+</Note>
+
+The server translates between HTTP requests/responses and the underlying
+Real-Time VLM Microservice components, providing a clean API
+interface for live stream processing operations.
+
+## Key Features
+
+* **VLM Caption Generation**: Generate captions and alerts using Vision Language
+  Models for live streams
+* **Live Stream Support**: Process RTSP live streams for real-time caption generation and alert detection — see [Supported Inputs](/real-time-vlm#supported-inputs)
+* **Streaming Responses**: Server-Sent Events (SSE) for streaming output or Kafka messages
+* **Asset Management**: Comprehensive stream lifecycle management
+* **Shared RTSP Decode**: Multiple caption requests can subscribe to one RTSP
+  decode pipeline when their decode settings match
+* **Sampling Rate Management**: Manage the image frames sampling for VLM inference of the live stream
+* **Health Monitoring**: Health check endpoints for service monitoring
+* **Metrics**: Prometheus metrics endpoint for observability
+
+## Architecture
+
+The following diagram illustrates the DeepStream Accelerated Pipeline architecture
+for the Real-Time VLM Microservice:
+
+![DeepStream Accelerated Pipeline Architecture](/assets/images/real-time-vlm/real-time-vlm.png)
+
+The pipeline processes camera streams through the following stages:
+
+* **RTSP + Decode**: Receives and decodes camera streams. Matching caption
+  requests for the same RTSP stream share one live decode pipeline.
+* **Video Segment Creation**: Creates video segments for processing
+* **Infer**: Performs inference using VLM models (with vLLM inference engine)
+* **MsgBroker (NvSchema)**: Publishes messages to Kafka
+
+The system can be configured and controlled via:
+
+* **REST API**: HTTP-based API for configuration and control
+
+## Supported Models
+
+The Real-Time VLM Microservice supports local vLLM-compatible checkpoints, NGC
+model artifacts, and remote OpenAI-compatible endpoints. Use
+`MODEL_PATH=git:<Hugging Face URL>` for Hugging Face checkpoints,
+`MODEL_PATH=ngc:<org>/<team>/<model>:<version>` for NGC model artifacts,
+or `VLM_MODEL_TO_USE=openai-compat` with `VIA_VLM_ENDPOINT` for a remote
+endpoint.
+
+The following model families are supported.
+
+| Model Family | Model Name | `VLM_MODEL_TO_USE` | `MODEL_PATH` |
+| --- | --- | --- | --- |
+| Cosmos Reason2 | [Cosmos Reason2 8B (hf-1208)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=hf-1208) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` |
+| Cosmos Reason2 | [Cosmos Reason2 8B (0303-fp8-dynamic-kv8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp8-dynamic-kv8) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
+| Cosmos Reason2 | [Cosmos Reason2 8B (hf-0303)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=hf-0303) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-0303` |
+| Cosmos Reason2 | [Cosmos Reason2 8B (0303-fp4-dynamic-kv8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp4-dynamic-kv8) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp4-dynamic-kv8` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-nvfp4)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-nvfp4-full-quantize-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-fp8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-fp8-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (bf16)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=bf16-final) **(Default)** | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (Diffuser)](https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner) | `cosmos-reason3` | `git:https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner` |
+| Cosmos Reason3 | [Cosmos3 Super Reasoner (modelopt-nvfp4)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-nvfp4-full-quantize-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Super Reasoner (modelopt-fp8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-fp8-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Super Reasoner (bf16)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=bf16-final) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final` |
+| Cosmos Reason3 | [Cosmos3 Super Reasoner (Diffuser)](https://huggingface.co/nvidia/Cosmos3-Super-Reasoner) | `cosmos-reason3` | `git:https://huggingface.co/nvidia/Cosmos3-Super-Reasoner` |
+| Nemotron Omni | [Nemotron-3-Nano-Omni-30B-A3B-Reasoning](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning) | `vllm-compatible` | `git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning` |
+| Nemotron Omni | [Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8) | `vllm-compatible` | `git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8` |
+| Qwen | [Qwen3-VL-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct) | `vllm-compatible` | `git:https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct` |
+| Qwen | [Qwen3-Omni-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct) | `vllm-compatible` | `git:https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct` |
+| Qwen | [Qwen3.5-27B](https://huggingface.co/Qwen/Qwen3.5-27B) | `vllm-compatible` | `git:https://huggingface.co/Qwen/Qwen3.5-27B` |
+| Cosmos Reason1 | [Cosmos Reason1 7B (1.1-fp8-dynamic)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason1-7b?version=1.1-fp8-dynamic) | `cosmos-reason1` | `ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic` |
+
+**Notes:**
+
+* `Cosmos3 Nano Reasoner (bf16)` is the default model.
+* Do not use `Cosmos Reason2 8B (0303-fp4-dynamic-kv8)` on GB200.
+* `Cosmos3 Nano Reasoner (bf16)` is the tested variant; hallucinations may occur with `modelopt-fp8` and `modelopt-nvfp4` variants.
+* On NVIDIA Jetson Orin NX (16 GB), only the `Cosmos3 Nano Reasoner (modelopt-nvfp4)` variant is supported.
+* `Cosmos3 Nano Reasoner (modelopt-fp8)` is not supported on NVIDIA A100 GPUs.
+* GB300 is supported as a deployment platform for the listed local VLM models; select the container image variant that matches the host architecture.
+* Nemotron Omni models require `VLM_TRUST_REMOTE_CODE=true`; set `VLM_MODEL_SUPPORTS_AUDIO=true` for native audio support.
+
+RTVI-VLM supports video and text prompts for caption generation. Remote VLM
+model endpoints are tested with NVIDIA NIM or OpenAI-compatible
+`chat/completions` endpoints.
+
+## Supported Inputs
+
+RTVI-VLM accepts live streams and file-based media through the following input
+types.
+
+**Streaming protocols**
+
+* **RTSP** — live camera streams managed via `POST /v1/streams/add` and
+  processed via `POST /v1/generate_captions` with a `liveStreamUrl`.
+
+**URL schemes for file-based processing**
+
+`POST /v1/generate_captions` and `POST /v1/files` accept a `url` field
+supporting the following schemes:
+
+* `http://` and `https://` — publicly accessible or auth-protected URLs
+* `s3://` — Amazon S3 object paths
+* `file://` — local filesystem paths (requires `FILE_URL_ALLOWED_DIRS`)
+
+See [URL-Based Processing](/real-time-vlm#url-based-processing) for API details and
+security constraints.
+
+**Media types**
+
+* Video — pass `media_type: "video"` (default)
+* Images — pass `media_type: "image"`
+
+**Video Codecs**:
+
+* H.264 (AVC)
+* H.265 (HEVC)
+* AV1 (hardware decode by default; set `FORCE_SW_AV1_DECODER=true` on
+  platforms without hardware AV1 support)
+* VP8
+* VP9
+
+**Image Formats**:
+
+* JPEG
+* PNG
+
+**Audio**
+
+Native audio decoding is available when using Omni models with
+`VLM_MODEL_SUPPORTS_AUDIO=true`. Set `INSTALL_PROPRIETARY_CODECS=true`
+when inputs may contain proprietary audio codecs. See
+[Omni Native Audio Support](/real-time-vlm#omni-native-audio-support) for configuration
+details.
+
+## API Reference
+
+For complete API documentation including all endpoints, request/response
+schemas, and interactive examples, see the [Real-Time VLM API Reference ](/real-time-vlm-api).
+
+The API is organized into the following categories:
+
+* **Captions**: Generate VLM captions and alerts for videos and live streams
+* **Files**: Upload and manage video/image files
+* **Live Stream**: Add, list, and manage RTSP live streams
+* **Stream**: CV-compatible stream add, remove, and list APIs
+* **Config**: Update generated-message and error-message output routing
+* **Models**: List available VLM models
+* **Health Check**: Service health and readiness probes
+* **Metrics**: Prometheus metrics endpoint
+* **Metadata**: Service metadata and version information
+* **NIM Compatible**: OpenAI-compatible endpoints for interoperability
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/v1/metrics` | `GET` | Get Prometheus-format RTVI metrics |
+| `/v1/ready` | `GET` | Get Real-Time VLM Microservice readiness status |
+| `/v1/live` | `GET` | Get Real-Time VLM Microservice liveness status |
+| `/v1/startup` | `GET` | Get Real-Time VLM Microservice startup status |
+| `/v1/assets/stats` | `GET` | Get asset storage statistics |
+| `/v1/metadata` | `GET` | Get Real-Time VLM Microservice metadata |
+| `/v1/files` | `POST` | Upload a media file or register media by URL/path |
+| `/v1/files` | `GET` | List uploaded files |
+| `/v1/files/{file_id}` | `DELETE` | Delete a file |
+| `/v1/files/{file_id}` | `GET` | Get file information |
+| `/v1/files/{file_id}/content` | `GET` | Get file content |
+| `/v1/streams/add` | `POST` | Add one or more live streams |
+| `/v1/streams/get-stream-info` | `GET` | List live streams |
+| `/v1/streams/delete/{stream_id}` | `DELETE` | Remove a live stream |
+| `/v1/streams/delete-batch` | `DELETE` | Remove multiple live streams; per-stream failures are returned in `errors` |
+| `/v1/stream/add` | `POST` | Add a stream using the CV-/VIOS-compatible format |
+| `/v1/stream/remove` | `POST` | Remove a stream using the CV-/VIOS-compatible format; returns HTTP 409 when the matched stream is still in use |
+| `/v1/stream/get-stream-info` | `GET` | List streams using the CV-/VIOS-compatible format |
+| `/v1/config` | `POST` | Update runtime generated-message and error-message routing |
+| `/v1/models` | `GET` | List available models |
+| `/v1/generate_captions` | `POST` | Generate VLM captions and audio transcripts |
+| `/v1/generate_captions/{stream_id}` | `DELETE` | Stop live stream caption generation |
+| `/v1/chat/completions` | `POST` | OpenAI-compatible chat completion endpoint |
+| `/v1/completions` | `POST` | OpenAI-compatible completions endpoint |
+| `/v1/version` | `GET` | Get release and API versions |
+| `/v1/license` | `GET` | Get license information |
+| `/v1/manifest` | `GET` | Get service manifest information |
+| `/v1/health/live` | `GET` | NIM-compatible liveness check |
+| `/v1/health/ready` | `GET` | NIM-compatible readiness check |
+
+All endpoints are prefixed with `/v1`. The API is available at
+`http://<host>:8000`.
+
+<Note>
+For VIOS integrations, RTVI-VLM also exposes hidden compatibility aliases:
+`POST /api/v1/config`, `POST /api/v1/camera/add`,
+`PUT /api/v1/camera/streaming`, and `POST` or `DELETE
+/api/v1/camera/remove`. These aliases are intentionally omitted from the
+OpenAPI schema. The compatibility API is evolving; its request and response
+schema can change between releases.
+</Note>
+
+## Deployment
+
+### Prerequisites
+
+**Validated GPUs:**
+
+The Real-Time VLM Microservice has been validated and tested on the following NVIDIA
+GPUs:
+
+* NVIDIA H100
+* NVIDIA GB300
+* NVIDIA RTX PRO 6000 Blackwell
+* NVIDIA L40S
+* NVIDIA DGX SPARK
+* NVIDIA IGX Thor
+* NVIDIA AGX Thor
+
+**Software:**
+
+* **OS**: Ubuntu 24.04 or compatible Linux distribution (x86); DGX OS 7.5.0 (DGX
+  Spark); IGX-SW 2.0 Production/LTS (IGX Thor); JetPack 7.2 (Jetson Linux/L4T
+  r39.2) for Jetson AGX Thor and AGX Orin
+* **Docker**: Version 28.2+ and earlier than 29.5.0
+* **Docker Compose**: Version 2.36+
+* **NVIDIA Driver**: 580+ (non-Tegra); 580.159.03 (DGX Spark), the IGX-SW 2.0 bundled 580-series driver (IGX Thor),
+  or 595.78 (Jetson AGX Thor and AGX Orin)
+* **NVIDIA Container Toolkit**: Latest version
+* **Git LFS**: For large file handling
+
+### Quick Start
+
+Clone the blueprint repository and check out the release tag:
+
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git checkout tags/v3.3.0
+```
+
+Then follow the Docker Compose or Helm Chart section below. The RTVI-VLM
+container used by this release is tagged `3.3.0-26.08.1`.
+
+### Docker Compose Deployment
+
+1. Change into the service Docker directory:
+
+   ```bash
+   cd services/rtvi/rt-vlm/docker
+   ```
+
+2. Create a `.env` file with your configuration:
+
+   ```bash
+   cat > .env << EOF
+   BACKEND_PORT=8000
+   RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1
+   VLM_MODEL_TO_USE=cosmos-reason3
+   MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+   MESSAGE_BUS=kafka
+   MESSAGE_BUS_TOPIC=mdx-vlm-captions
+   KAFKA_PORT=9092
+   KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+   KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
+   ERROR_BUS=kafka
+   ERROR_MESSAGE_TOPIC=mdx-vlm-errors
+   NGC_API_KEY=nvapi-XXXXXX
+   VLM_BATCH_SIZE=128
+   NVIDIA_VISIBLE_DEVICES=0
+   EOF
+   ```
+
+3. Start the service:
+
+   ```bash
+   docker compose up
+   ```
+
+<Note>
+The standalone Compose stack starts RTVI-VLM, Kafka, and Redis. To use a
+different Kafka server, set `KAFKA_BOOTSTRAP_SERVERS`. To expose Kafka on
+a custom host port, set `KAFKA_PORT`. To use a different Redis server,
+set `REDIS_HOST` and `REDIS_PORT`. To expose Redis on a custom host
+port, set `REDIS_HOST_PORT`.
+
+If the launch fails due to Out of Memory error, see [Troubleshooting](/real-time-vlm#troubleshooting) (adjust `VLLM_GPU_MEMORY_UTILIZATION`,
+reduce `VLM_MAX_MODEL_LEN`, or set `NVIDIA_VISIBLE_DEVICES=<gpuid>`).
+</Note>
+
+The APIs are available at `http://<HOST_IP>:<BACKEND_PORT>/docs`.
+
+### Helm Chart
+
+Use the standalone Helm chart when running only RTVI-VLM on Kubernetes. The chart
+is in `deploy/helm/services/rtvi/charts/rtvi-vlm` in the
+`video-search-and-summarization` repository.
+
+1. Change into the chart directory:
+
+   ```bash
+   cd deploy/helm/services/rtvi/charts/rtvi-vlm
+   ```
+
+2. Create the namespace and secrets:
+
+   ```bash
+   kubectl create namespace vss-rtvi
+   kubectl create secret docker-registry ngc-image-pull-secret \
+     --docker-server=nvcr.io \
+     --docker-username='$oauthtoken' \
+     --docker-password="$NGC_API_KEY" \
+     -n vss-rtvi
+   kubectl create secret generic ngc-api \
+     --from-literal=NGC_API_KEY="$NGC_API_KEY" \
+     -n vss-rtvi
+   # Required when MODEL_PATH points to a gated Hugging Face checkpoint.
+   kubectl create secret generic hf-token-secret \
+     --from-literal=HF_TOKEN="$HF_TOKEN" \
+     -n vss-rtvi
+   ```
+
+3. Install the chart with the standalone override:
+
+   ```bash
+   helm upgrade --install vss-rtvi-vlm . \
+     -n vss-rtvi \
+     -f overrides_rtvi_vlm.yaml
+   ```
+
+   When using the `hf-token-secret` secret, set
+   `hfTokenSecret.name=hf-token-secret` and `hfTokenSecret.key=HF_TOKEN` in
+   your values file or with `--set`.
+
+4. Expose the API for local testing:
+
+   ```bash
+   kubectl port-forward -n vss-rtvi svc/vss-rtvi-vlm 8000:8000
+   ```
+
+The API is available at `http://localhost:8000/docs`.
+
+### Source Code Updates and Custom Container Build
+
+Use this workflow only when you have changed RTVI-VLM source files under
+`services/rtvi/rt-vlm/src` and need those changes inside the runtime
+container. Custom container testing is supported with the standalone Docker
+Compose deployment.
+
+1. Build the custom image from the RTVI-VLM service directory:
+
+   ```bash
+   cd video-search-and-summarization/services/rtvi/rt-vlm
+   docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom .
+   ```
+
+2. Test the image with Docker Compose by setting `RTVI_IMAGE` in
+   `docker/.env`:
+
+   ```bash
+   RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom
+   ```
+
+   Then restart the service:
+
+   ```bash
+   cd docker
+   docker compose down
+   docker compose up
+   ```
+
+For DGX Spark/SBSA Docker Compose testing, build an ARM64/SBSA image from the
+`rt-vlm/` directory and load it into the local Docker image store. Export
+`IS_SBSA=true` on the host shell before the build command so the Dockerfile
+resolves the `-sbsa` base image automatically:
+
+```bash
+export IS_SBSA=true
+docker buildx build --platform linux/arm64 \
+  --build-arg IS_SBSA \
+  -f docker/Dockerfile \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom-sbsa \
+  --load .
+```
+
+For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set
+`IS_SBSA`. The default base image
+(`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1`) is multi-arch, so a
+`linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
+
+```bash
+docker buildx build --platform linux/arm64 \
+  -f docker/Dockerfile \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom-thor \
+  --load .
+```
+
+## Usage Examples
+
+### Required Packages
+
+The Python examples require the following packages. Install with:
+
+```bash
+pip install requests sseclient-py
+```
+
+* **requests** – HTTP client for all examples
+* **sseclient-py** – Server-Sent Events client (required only for streaming examples)
+
+The RTVI CLI client uses additional packages (`tabulate`, `tqdm`, `pyyaml`) for
+enhanced output formatting; the examples below are self-contained and need only
+`requests` and `sseclient-py`.
+
+<Note>
+**Discovering the loaded model ID:** The examples below use `nim_nvidia_cosmos3-nano-reasoner_bf16-final` as the
+`model` field. When running a locally deployed model, the service loads it under its
+full NGC artifact ID (e.g., `nim_nvidia_cosmos3-nano-reasoner_bf16-final`).
+Use `GET /v1/models` to retrieve the exact ID before making inference requests:
+
+```python
+import requests
+response = requests.get("http://localhost:8000/v1/models")
+model_id = response.json()["data"][0]["id"]
+print(f"Loaded model: {model_id}")  # use this as the "model" field
+```
+
+Replace `nim_nvidia_cosmos3-nano-reasoner_bf16-final` in the examples below with the returned `id`.
+</Note>
+
+### Dense Captioning Example
+
+The following example demonstrates dense captioning for a stored video file.
+A video is uploaded, split into temporal chunks based on `chunk_duration`
+and `chunk_overlap_duration`, and each chunk is processed by the VLM.
+
+**Workflow:** For a video of duration *D* seconds with `chunk_duration=60`
+and `chunk_overlap_duration=10`, the video is chunked into overlapping
+segments (e.g., a 120-second video yields approximately 2 chunks). Each chunk
+is decoded, frames are sampled, and the VLM generates a caption. With
+`stream=False` (default), all chunks are processed and returned together
+in a single JSON response.
+
+```python
+import requests
+import json
+
+BASE_URL = "http://localhost:8000/v1"
+
+# Step 1: Upload a video file
+with open("video.mp4", "rb") as f:
+    response = requests.post(
+        f"{BASE_URL}/files",
+        files={"file": f},
+        data={
+            "purpose": "vision",
+            "media_type": "video",
+            "creation_time": "2024-06-09T18:32:11.123Z"
+        }
+    )
+response.raise_for_status()
+file_info = response.json()
+file_id = file_info["id"]
+print(f"Uploaded file: {file_id}")
+
+# Step 2: Generate captions (chunks returned in full response)
+caption_request = {
+    "id": file_id,
+    "prompt": "Describe what is happening in this video",
+    "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+    "chunk_duration": 60,
+    "chunk_overlap_duration": 10,
+    "enable_audio": False
+}
+response = requests.post(
+    f"{BASE_URL}/generate_captions",
+    json=caption_request
+)
+response.raise_for_status()
+captions = response.json()
+print(f"Generated {len(captions['chunk_responses'])} caption chunks")
+
+# Step 3: Process results
+for chunk in captions["chunk_responses"]:
+    print(f"[{chunk['start_time']} - {chunk['end_time']}]: {chunk['content']}")
+
+# Step 4: Clean up
+requests.delete(f"{BASE_URL}/files/{file_id}")
+print("File deleted")
+```
+
+### Dense Captioning (Streaming) Example
+
+The following example demonstrates dense captioning for a live RTSP stream
+with streaming output. As the stream is decoded in real time, it is split
+into chunks (e.g., 60-second segments with 10-second overlap). Each chunk
+is processed by the VLM as it becomes available.
+
+**Workflow:** With `stream=True`, chunks are returned incrementally via
+Server-Sent Events (SSE). Each SSE event contains `chunk_responses` for
+chunks that have completed VLM inference. The client receives captions
+as they are generated instead of waiting for the entire stream to finish.
+The stream terminates with a `[DONE]` message.
+
+**Concurrent RTSP caption requests:** each `/v1/generate_captions` request
+for an RTSP stream ID gets its own request ID, prompt, SSE response stream,
+and VLM generation path. Requests for the same RTSP stream share one live
+decode pipeline when these decode settings match: `chunk_duration`, frame
+sampling mode/value, `vlm_input_width`, `vlm_input_height`, and
+`enable_audio`. A request with different decode settings for an already
+active stream is rejected with HTTP 400; stop the active request or stream
+before changing those settings. To stop one caption subscriber while keeping
+others active, call `DELETE /v1/generate_captions/{stream_id}?request_id=<request_id>`.
+Calling `DELETE /v1/generate_captions/{stream_id}` without `request_id`
+stops the single active caption request for that stream, and returns HTTP 409
+when multiple caption requests are active.
+
+```python
+import requests
+import json
+import sseclient
+
+BASE_URL = "http://localhost:8000/v1"
+
+# Step 1: Add live stream
+stream_request = {
+    "streams": [{
+        "liveStreamUrl": "rtsp://example.com/stream",
+        "description": "Main warehouse camera"
+    }]
+}
+response = requests.post(
+    f"{BASE_URL}/streams/add",
+    json=stream_request
+)
+response.raise_for_status()
+stream_info = response.json()
+if stream_info.get("errors"):
+    raise RuntimeError(f"Failed to add stream: {stream_info['errors']}")
+stream_id = stream_info["results"][0]["id"]
+print(f"Added stream: {stream_id}")
+
+# Step 2: Start caption generation with streaming
+caption_request = {
+    "id": stream_id,
+    "prompt": "Describe what is happening in this live stream",
+    "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+    "stream": True,
+    "chunk_duration": 60,
+    "chunk_overlap_duration": 10
+}
+response = requests.post(
+    f"{BASE_URL}/generate_captions",
+    json=caption_request,
+    stream=True
+)
+response.raise_for_status()
+
+# Step 3: Process streaming responses (chunks as they complete)
+client = sseclient.SSEClient(response)
+for event in client.events():
+    data = event.data.strip() if event.data else ""
+    if data == "[DONE]":
+        break
+    if not data:
+        continue
+    result = json.loads(data)
+    if "chunk_responses" in result:
+        for chunk in result["chunk_responses"]:
+            print(f"[{chunk['start_time']}]: {chunk['content']}")
+
+# Step 4: Stop processing and remove stream
+requests.delete(f"{BASE_URL}/generate_captions/{stream_id}")
+requests.delete(f"{BASE_URL}/streams/delete/{stream_id}")
+print("Stream removed")
+```
+
+### Deleting Streams and Resource-In-Use Responses
+
+Stop active caption generation before deleting a live stream. If a stream or
+file asset is still being used by an active request or in-flight cleanup, delete
+APIs can report `ResourceInUse` with status code `409`.
+
+`DELETE /v1/streams/delete/{stream_id}` and `POST /v1/stream/remove` return
+a top-level HTTP 409 when the matched stream asset is still in use.
+`POST /v1/stream/remove` uses `camera_id` to find the stream; VIOS-style
+remove requests for an unknown camera are idempotent and return `asset_id=""`
+instead of 404.
+
+`DELETE /v1/streams/delete-batch` returns HTTP 200 with a mixed
+`deleted`/`errors` response. If one stream cannot be removed because it is
+in use, that stream appears in `errors` with `status_code` set to `409`
+and `error_code` set to `ResourceInUse`; other streams in the batch can
+still be deleted.
+
+```json
+{
+  "deleted": ["11111111-1111-1111-1111-111111111111"],
+  "errors": [
+    {
+      "stream_id": "22222222-2222-2222-2222-222222222222",
+      "error": "Resource 22222222-2222-2222-2222-222222222222 is currently being used",
+      "error_code": "ResourceInUse",
+      "status_code": 409
+    }
+  ]
+}
+```
+
+For teardown workflows, first stop the caption request with
+`DELETE /v1/generate_captions/{stream_id}` and then delete the stream. For
+batch cleanup, use `blocking=true` to wait for live-stream pipeline drain up
+to `drain_timeout_seconds` or `RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC`. If
+a `ResourceInUse` error remains, retry after the active request or cleanup
+drain completes.
+
+```json
+{
+  "stream_ids": [
+    "11111111-1111-1111-1111-111111111111",
+    "22222222-2222-2222-2222-222222222222"
+  ],
+  "blocking": true,
+  "drain_timeout_seconds": 300
+}
+```
+
+### Listing Live Streams
+
+Use `GET /v1/streams/get-stream-info` to list all currently registered live streams.
+This is useful for verifying that a stream was added successfully or for retrieving
+the stream ID of an existing stream.
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/v1"
+
+response = requests.get(f"{BASE_URL}/streams/get-stream-info")
+response.raise_for_status()
+streams = response.json()  # list of LiveStreamInfo objects
+for stream in streams:
+    print(f"ID: {stream['id']}, URL: {stream['liveStreamUrl']}")
+```
+
+### CV- and VIOS-Compatible Stream API
+
+In addition to the `/v1/streams/*` endpoints, RTVI-VLM exposes a
+CV-/VIOS-compatible stream API for cross-service interoperability with other
+VSS services: `POST /v1/stream/add`, `POST /v1/stream/remove`, and
+`GET /v1/stream/get-stream-info`.
+
+These endpoints accept two payload shapes:
+
+* **Direct CV-compatible payload**: `{key, value, headers}`, where
+  `value` contains `camera_id`, `camera_url`, `change`, and optional
+  metadata. Use this when an application calls RTVI-VLM directly.
+* **VIOS event payload**: `{alert_type, created_at, source, event}`, where
+  `event` carries the camera fields. Use this when forwarding VIOS
+  camera-status events.
+
+For existing VIOS camera flows, the hidden aliases ``POST
+/api/v1/camera/add` and `PUT /api/v1/camera/streaming`` use the same add
+handler. `POST` and `DELETE /api/v1/camera/remove` use the same remove
+handler. Prefer the documented `/v1/stream/*` endpoints for new
+integrations; the compatibility API is evolving and its request and response
+schema can change between releases.
+
+For both payload shapes, `metadata.prompt` starts VLM inference automatically
+after the stream is added. Omit `metadata` or omit `metadata.prompt` to add
+the stream without starting inference. `camera_url` accepts RTSP URLs,
+`file://` URLs, HTTP(S) URLs, and, for VIOS file sensors, absolute file
+paths. File URLs and paths must be allowed by `FILE_URL_ALLOWED_DIRS`.
+
+Direct CV-compatible add/remove example:
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/v1"
+
+payload = {
+    "key": "sensor",
+    "value": {
+        "camera_id": "camera-entrance-east-01",
+        "camera_url": "rtsp://example.com/stream",
+        "change": "camera_add",
+        "camera_name": "Entrance Camera",
+        "metadata": {
+            "prompt": "Describe what is happening in this live stream",
+            "chunk_duration": 10
+        }
+    },
+    "headers": {
+        "source": "vios"
+    }
+}
+response = requests.post(f"{BASE_URL}/stream/add", json=payload)
+response.raise_for_status()
+result = response.json()
+# result: {"camera_id": "...", "asset_id": "...", "status": "processing", "inference": true}
+
+requests.post(
+    f"{BASE_URL}/stream/remove",
+    json={
+        "key": "sensor",
+        "value": {
+            "camera_id": "camera-entrance-east-01",
+            "change": "camera_remove"
+        }
+    }
+)
+```
+
+VIOS event add/remove example:
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/v1"
+
+vios_add_payload = {
+    "alert_type": "camera_status_change",
+    "created_at": "2026-07-29T00:00:00Z",
+    "source": "vios",
+    "event": {
+        "camera_id": "camera-entrance-east-01",
+        "camera_name": "Entrance Camera",
+        "camera_type": "rtsp",
+        "camera_url": "rtsp://example.com/stream",
+        "change": "camera_streaming",
+        "metadata": {
+            "prompt": "Describe what is happening in this live stream",
+            "chunk_duration": 10
+        }
+    }
+}
+response = requests.post(f"{BASE_URL}/stream/add", json=vios_add_payload)
+response.raise_for_status()
+result = response.json()
+# result: {"camera_id": "...", "asset_id": "...", "status": "processing", "inference": true}
+
+vios_remove_payload = {
+    "alert_type": "camera_status_change",
+    "created_at": "2026-07-29T00:00:00Z",
+    "source": "vios",
+    "event": {
+        "camera_id": "camera-entrance-east-01",
+        "change": "camera_remove"
+    }
+}
+response = requests.post(f"{BASE_URL}/stream/remove", json=vios_remove_payload)
+response.raise_for_status()
+result = response.json()
+# result: {"camera_id": "...", "asset_id": "...", "status": "removed"}
+```
+
+For VIOS `POST /v1/stream/add` requests, `change` can be
+`camera_streaming` or `camera_add`. A VIOS `camera_add` event with
+`camera_url` set to an empty string is accepted as registration-only and
+returns `status="added"` with `inference=false`. For
+`POST /v1/stream/remove`, `change` can be `camera_remove` or `remove`;
+VIOS remove requests for an unknown camera return `asset_id=""` instead of
+a 404 response.
+
+| Feature | `POST /v1/streams/add` | `POST /v1/stream/add` |
+| --- | --- | --- |
+| Schema style | VLM-native | CV-/VIOS-compatible |
+| When to use | RTVI-VLM standalone integrations | Multi-service deployments and VIOS camera-status events |
+| Auto-starts VLM inference | No - call `/v1/generate_captions` separately | Yes, when `metadata.prompt` is set |
+| Response schema | `{results: [{id}], errors: []}` | `{camera_id, asset_id, status, inference}` |
+| Stream removal endpoint | `DELETE /v1/streams/delete/{stream_id}` | `POST /v1/stream/remove` |
+
+### VLM Alert Example
+
+The following example demonstrates alert/anomaly detection using the VLM.
+Use a prompt that expects a structured Yes/No response for anomaly detection.
+When anomalies are detected, incidents can be published to the Kafka incident
+topic (see [Kafka Integration](/real-time-vlm#kafka-integration)). The Incident
+message payload is defined in [Incident Messages](/real-time-vlm#incident-messages).
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/v1"
+
+# Upload video or use existing stream ID
+file_id = "your-file-id"  # or stream_id for live streams
+
+caption_request = {
+    "id": file_id,
+    "prompt": (
+        "You are a warehouse monitoring system focused on safety and "
+        "efficiency. Analyze the situation to detect any anomalies such as "
+        "workers not wearing safety gear, leaving items unattended, or "
+        "wasting time. Respond in the following structured format:\n"
+        "Anomaly Detected: Yes/No\n"
+        "Reason: [Brief explanation]"
+    ),
+    "system_prompt": "Answer the user's question correctly in yes or no",
+    "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+    "chunk_duration": 60,
+    "chunk_overlap_duration": 10
+}
+response = requests.post(
+    f"{BASE_URL}/generate_captions",
+    json=caption_request
+)
+captions = response.json()
+
+for chunk in captions["chunk_responses"]:
+    content = chunk.get("content", "")
+    if "Anomaly Detected: Yes" in content:
+        print(f"ALERT [{chunk['start_time']} - {chunk['end_time']}]: {content}")
+```
+
+### Alert Categorization
+
+For direct API calls, set `alert_category` on `POST /v1/generate_captions`
+to control the `incident.category` field in Kafka incident messages. If the
+field is omitted, the service uses `vlm-alert`.
+
+```json
+{
+  "id": "<stream-or-file-id>",
+  "model": "<model-id>",
+  "prompt": "Detect whether workers are wearing proper safety equipment.",
+  "system_prompt": "Answer with Yes/No format",
+  "alert_category": "Worker PPE Violation",
+  "stream": true,
+  "chunk_duration": 60
+}
+```
+
+### Chat Completions API Example
+
+The OpenAI-compatible `/v1/chat/completions` endpoint supports text-only
+chat plus three input modes for video/image: pre-uploaded file ID, HTTP/HTTPS
+URL, and base64 data URL.
+
+**Text-only chat**
+
+Omit the `id` field and do not include `video_url` or `image_url` in the
+messages. Multi-turn conversations using `system`, `user`, and
+`assistant` roles are supported, including token-level SSE streaming.
+
+```bash
+MODEL=$(curl -s http://localhost:8000/v1/models | jq -r '.data[0].id')
+
+curl -X POST "http://localhost:8000/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "'"$MODEL"'",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is CUDA?"}
+    ],
+    "stream": true
+  }'
+```
+
+**1. Using pre-uploaded file ID** (`id` field):
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/v1"
+file_id = "your-uploaded-file-uuid"  # From POST /v1/files
+
+response = requests.post(
+    f"{BASE_URL}/chat/completions",
+    json={
+        "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+        "id": file_id,
+        "messages": [{"role": "user", "content": "Describe what is happening in this video."}],
+    },
+)
+result = response.json()
+print(result["choices"][0]["message"]["content"])
+```
+
+**2. Using HTTP URL** (`image_url` or `video_url` in message content):
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/v1"
+
+response = requests.post(
+    f"{BASE_URL}/chat/completions",
+    json={
+        "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What is in this image?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.com/image.png"},
+                    },
+                ],
+            }
+        ],
+    },
+)
+result = response.json()
+print(result["choices"][0]["message"]["content"])
+
+# For video, use "video_url" instead:
+# {"type": "video_url", "video_url": {"url": "https://example.com/video.mp4"}}
+```
+
+**3. Using base64 data URL** (inline media in message content):
+
+```python
+import requests
+import base64
+
+BASE_URL = "http://localhost:8000/v1"
+
+# Read and encode image as base64
+with open("image.png", "rb") as f:
+    b64_data = base64.b64encode(f.read()).decode("utf-8")
+
+data_url = f"data:image/png;base64,{b64_data}"
+
+response = requests.post(
+    f"{BASE_URL}/chat/completions",
+    json={
+        "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image."},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        ],
+    },
+)
+result = response.json()
+print(result["choices"][0]["message"]["content"])
+
+# For video: data:video/mp4;base64,<base64_string>
+```
+
+### URL-Based Processing
+
+`POST /v1/generate_captions` and `POST /v1/files` accept a `url`
+field for direct server-side ingestion without a prior upload step.
+Supported schemes: `http://`, `https://`, `s3://`, and `file://`.
+
+**New request fields on /v1/generate_captions:**
+
+* `url` — media URL (any supported scheme).
+* `media_type` — `"video"` (default) or `"image"`.
+* `creation_time` — ISO 8601 timestamp used as the frame-time offset
+  baseline (useful for live-correlated archive playback).
+* `url_headers` — per-request authorization headers (dict). HTTPS only;
+  cross-domain redirects strip these headers.
+
+**New response field:** each chunk in `chunk_responses` includes a
+zero-based `chunk_id` for ordering.
+
+**Security:**
+
+* `file://` URLs are rejected unless `FILE_URL_ALLOWED_DIRS` is set
+  (comma-separated absolute directories). Paths are resolved via
+  `realpath` to prevent traversal escapes.
+* HTTP/HTTPS URLs are validated against SSRF rules. Per-domain SSL skip
+  is opt-in via `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS`. Redirect hops
+  are disabled by default; raise the cap via `ASSET_DOWNLOAD_MAX_REDIRECTS`
+  (max 10). Server-level auth tokens can be set per domain via
+  `ASSET_DOWNLOAD_AUTH_TOKENS` (format:
+  `domain1=Bearer token1;domain2=Basic xyz`).
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/v1"
+
+caption_request = {
+    "url": "https://example.com/video.mp4",
+    "media_type": "video",
+    "creation_time": "2024-06-09T18:32:11.123Z",
+    "prompt": "Describe what is happening in this video",
+    "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+    "chunk_duration": 60,
+    "chunk_overlap_duration": 10
+}
+response = requests.post(
+    f"{BASE_URL}/generate_captions",
+    json=caption_request
+)
+response.raise_for_status()
+for chunk in response.json()["chunk_responses"]:
+    print(f"[chunk {chunk['chunk_id']}] {chunk['content']}")
+```
+
+### Remote Asset Download Metrics
+
+When OpenTelemetry metrics are enabled, RTVI-VLM records remote HTTP, HTTPS,
+and S3 asset downloads with the following instruments:
+
+* `asset_download_duration_seconds`: download latency histogram.
+* `asset_download_bytes_total`: total downloaded bytes.
+* `asset_download_requests_total`: number of download attempts.
+
+Each metric is labeled with the download `source` and final `status`. These
+metrics are emitted through the configured OpenTelemetry exporter; configure
+`ENABLE_OTEL_MONITORING` and the `OTEL_*` variables in the configuration
+table.
+
+## Implementation Details
+
+### Server Class
+
+The RTVI-VLM Server implements the FastAPI application and manages
+all API endpoints.
+
+### Timestamp Handling
+
+The server handles timestamps differently based on media type, for live stream uses NTP timestamps (ISO 8601 format).
+
+### Streaming Implementation
+
+For streaming responses, the server uses Server-Sent Events (SSE):
+
+* Events are sent as JSON objects
+* Each event contains chunk responses as they become available
+* Final event contains usage statistics (if requested)
+* Stream terminates with `[DONE]` message
+* Multiple clients can caption the same RTSP stream concurrently. Each
+  `/v1/generate_captions` call gets its own request ID, prompt, SSE response
+  stream, and VLM generation path. Matching requests share one live RTSP
+  decoder; mismatched decode settings are rejected until the active request or
+  stream is stopped.
+
+## Kafka Integration
+
+The Real-Time VLM Microservice can publish messages to Kafka topics for downstream
+processing. This enables integration with other microservices, analytics
+pipelines, and real-time alerting systems.
+
+### Kafka Topics
+
+The server publishes to the following Kafka topics:
+
+* **VisionLLM Messages** (default: `mdx-vlm-captions`): Contains
+  VisionLLM protobuf messages with VLM caption results.
+* **Incidents** (default: `mdx-vlm-incidents`): Contains Incident
+  protobuf messages when anomalies or incidents are detected.
+* **Errors** (default: `mdx-vlm-errors`): Contains error event messages
+  when stream processing failures occur.
+
+**Configuration:**
+
+Generated-message output is controlled by the following environment variables:
+
+* **MESSAGE_BUS**: Generated-message output bus. Set to `kafka`,
+  `redis`, or empty to disable generated-message output in the service
+  runtime. The standard Docker Compose deployment defaults this value to
+  `kafka`.
+* **MESSAGE_BUS_TOPIC**: Topic or Redis stream for VisionLLM messages. Default:
+  `mdx-vlm-captions`. This is the primary per-chunk output stream and
+  replaces the legacy `KAFKA_TOPIC` setting.
+* **KAFKA_BOOTSTRAP_SERVERS**: Comma-separated list of Kafka broker
+  addresses (e.g., `localhost:9092` or `kafka:9092` for Docker). Required
+  when `MESSAGE_BUS=kafka` or `ERROR_BUS=kafka`.
+* **KAFKA_INCIDENT_TOPIC**: Kafka-only topic for Incident messages. Default:
+  `mdx-vlm-incidents`. Incident messages are published only when an anomaly
+  is detected. This topic is independent of `MESSAGE_BUS_TOPIC`.
+* **ERROR_BUS**: Error-message output bus. Set to `kafka` (default),
+  `redis`, or empty to disable error-message output.
+* **ERROR_MESSAGE_TOPIC**: Topic/channel for error messages. Default:
+  `mdx-vlm-errors`.
+
+### Generated-Message Bus Startup Selection
+
+In 26.08.1, `MESSAGE_BUS` is the startup source of truth for generated-message
+output. `KAFKA_ENABLED` is removed from the active RTVI-VLM startup path, and
+`KAFKA_TOPIC` is replaced by `MESSAGE_BUS_TOPIC`.
+
+To enable Kafka generated-message output:
+
+```bash
+MESSAGE_BUS=kafka
+MESSAGE_BUS_TOPIC=mdx-vlm-captions
+KAFKA_BOOTSTRAP_SERVERS=<host>:<port>
+```
+
+To enable Redis generated-message output:
+
+```bash
+MESSAGE_BUS=redis
+MESSAGE_BUS_TOPIC=<redis-stream-name>
+REDIS_HOST=<host>
+REDIS_PORT=6379
+```
+
+To disable generated-message bus output in the service runtime, leave
+`MESSAGE_BUS` unset or set it to empty. In the packaged Docker Compose
+deployment, `MESSAGE_BUS` defaults to `kafka`; leaving it unset or empty in
+`.env` still expands to `kafka`. Use a Compose override or update the
+service environment to set `MESSAGE_BUS: ""` when generated-message output
+must be disabled. The performance Compose deployment sets `MESSAGE_BUS` empty
+by default.
+
+### Runtime Config API
+
+Use `POST /v1/config` to update generated-message routing at runtime from a
+VSS-style config event. Kafka and Redis connection details are still configured
+at startup; the runtime API switches the active generated-message bus/topic and,
+optionally, the active error-message bus/topic.
+
+```json
+{
+  "alert_type": "config",
+  "created_at": "2026-07-29T00:00:00Z",
+  "txn_id": "txn-001",
+  "source": "vios",
+  "event": {
+    "change": "config",
+    "metadata": {
+      "messagingbus": "kafka",
+      "topic-prefix": "mdx-vlm-captions",
+      "errorbus": "kafka",
+      "error-topic-prefix": "mdx-vlm-errors",
+      "create-topic": false
+    }
+  }
+}
+```
+
+The config payload fields map to runtime routing as follows:
+
+* `alert_type` must be `config` and `event.change` must be `config`.
+* `event.metadata.messagingbus` is required and must be `kafka` or
+  `redis`. It selects the active generated-message output bus.
+* `event.metadata.topic-prefix` is required. RTVI-VLM uses it as the actual
+  Kafka topic or Redis Stream name for VisionLLM messages.
+* `event.metadata.errorbus` is optional. When present, it selects the active
+  error-message output bus.
+* `event.metadata.error-topic-prefix` is optional. When present with
+  `errorbus`, it sets the Kafka topic or Redis channel for error messages.
+* `event.metadata.create-topic` and `event.metadata.topic-partition` are
+  best-effort Kafka topic creation controls. They are ignored for Redis.
+
+The endpoint changes only message routing. Kafka bootstrap servers, Redis
+host/port/database, credentials, the active model, prompts, and
+`KAFKA_INCIDENT_TOPIC` remain startup configuration. The runtime Config API is
+not the startup disable path; use `MESSAGE_BUS` at startup to enable or
+disable generated-message bus output. If routing is changed while caption
+requests are active, messages already queued can still publish to the previous
+route, while subsequent chunk messages use the updated route.
+
+### How Alerts and Incidents Are Sent to Kafka
+
+When `generate_captions` processes video chunks, the server publishes
+messages to Kafka as each chunk completes VLM inference:
+
+1. **VisionLLM messages** are sent to `MESSAGE_BUS_TOPIC` when
+   `MESSAGE_BUS=kafka`. Each message
+   contains the VLM caption, frame metadata, sensor info, and an
+   `incidentDetected` flag in the `info` map (`"true"` or `"false"`).
+   When reasoning is enabled and parsed from the VLM output, the reasoning is
+   also added to the `info` map as both `reasoning` and
+   `reasoningDescription`.
+
+2. **Incident messages** are sent to `KAFKA_INCIDENT_TOPIC` only when an
+   anomaly is detected. The server detects incidents by checking the VLM
+   response for trigger phrases such as `"yes"` or `"true"`
+   (case-insensitive). Use prompts that expect structured Yes/No answers (see
+   [Enabling Incidents](/real-time-vlm#enabling-incidents)). For the full
+   Incident message payload (protobuf schema and example), see
+   [Incident Messages](/real-time-vlm#incident-messages).
+   When reasoning is available, it is also added to `Incident.info` as both
+   `reasoning` and `reasoningDescription`.
+
+3. **Publishing flow** (per chunk):
+
+   * After VLM inference completes, the server builds a VisionLLM protobuf and
+     optionally an Incident protobuf if the response triggers an alert.
+   * Each message is sent asynchronously with a key
+     `{request_id}:{chunk_idx}` for partitioning and ordering.
+   * A `message_type` header (`"vision_llm"` or `"incident"`) identifies
+     the payload type for consumers.
+   * VisionLLM and Incident messages are published independently; an incident
+     is sent only when the VLM output indicates an anomaly.
+
+4. **Requirement**: Set `MESSAGE_BUS=kafka` and configure
+   `KAFKA_BOOTSTRAP_SERVERS` for Kafka publishing to occur.
+
+### Message Formats
+
+#### Incident Messages
+
+Incident messages are serialized as Protocol Buffer (protobuf) messages
+using the `Incident` message type from the protobuf schema.
+
+**Message Header:**
+
+* **message_type**: `"incident"`
+
+**Message Structure:**
+
+```protobuf
+message Incident {
+  string sensorId = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  google.protobuf.Timestamp end = 3;
+  repeated string objectIds = 4;
+  repeated string frameIds = 5;
+  Place place = 6;
+  AnalyticsModule analyticsModule = 7;
+  string category = 8;
+  repeated Embedding embeddings = 9;
+  bool isAnomaly = 10;
+  LLM llm = 12;
+  map<string, string> info = 11;
+}
+```
+
+**Key Fields:**
+
+* **sensorId**: Identifier of the sensor/stream
+* **timestamp**: Start timestamp of the incident
+* **end**: End timestamp of the incident
+* **objectIds**: Array of object IDs involved in the incident
+* **category**: Category of the incident (e.g., `"safety_non_compliance"`)
+* **isAnomaly**: Boolean indicating if the incident is an anomaly
+* **llm**: LLM query and response information
+* **info**: Additional metadata map containing fields like:
+  * `request_id`: Request ID associated with the incident
+  * `chunk_idx`: Chunk index where the incident was detected
+  * `incident_detected`: Alert flag
+  * `reasoning`: Parsed VLM reasoning, when available
+  * `reasoningDescription`: Parsed VLM reasoning, when available
+  * `priority`: Priority level (e.g., `"high"`)
+
+**Example Incident JSON (for reference):**
+
+```json
+{
+  "sensorId": "camera-entrance-east-01",
+  "timestamp": "2025-11-19T06:22:20Z",
+  "end": "2025-11-19T06:22:32Z",
+  "objectIds": [],
+  "frameIds": ["frame-10512", "frame-10518"],
+  "place": {
+    "id": "dock-entrance-east",
+    "name": "Dock Entrance - East",
+    "type": "warehouse-bay"
+  },
+  "analyticsModule": {
+    "id": "inc-activity-detector",
+    "description": "Forklift safety compliance detector",
+    "source": "VLM",
+    "version": "2.0.0"
+  },
+  "category": "safety_non_compliance",
+  "isAnomaly": true,
+  "info": {
+    "priority": "high",
+    "request_id": "req_1234567890",
+    "chunk_idx": "5"
+  },
+  "llm": {
+    "queries": [{
+      "response": "Operator entered the high-risk loading area without a high-visibility vest while a forklift was active."
+    }]
+  }
+}
+```
+
+#### VisionLLM Messages
+
+VisionLLM messages contain VLM caption results and are serialized as
+Protocol Buffer messages using the `VisionLLM` message type.
+
+**Message Header:**
+
+* **message_type**: `"vision_llm"` (default, if not specified)
+
+**Message Structure:**
+
+See the protobuf schema documentation for complete `VisionLLM` message
+structure. Key fields include:
+
+* **version**: Message version
+* **timestamp**: Start timestamp
+* **end**: End timestamp
+* **startFrameId**: Start frame identifier
+* **endFrameId**: End frame identifier
+* **sensor**: Sensor information
+* **llm**: LLM queries, responses, and embeddings
+* **info**: Additional metadata map. When reasoning is enabled and parsed from
+  the VLM output, this map includes both `reasoning` and
+  `reasoningDescription`.
+
+### Redis Error Messages
+
+By default, error messages are sent to Kafka through `ERROR_BUS=kafka`.
+To use Redis for error messages, set the following environment variables in
+your `.env` file:
+
+```bash
+ERROR_BUS=redis
+REDIS_HOST=redis.example.com
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=your_password  # Optional, only if Redis requires authentication
+ERROR_MESSAGE_TOPIC=mdx-vlm-errors  # Redis channel name for error messages
+```
+
+Error messages will be published to the Redis channel specified in
+`ERROR_MESSAGE_TOPIC`. The message format remains JSON with the following
+fields: `streamId`, `timestamp`, `type`, `source`, `event`.
+`ENABLE_REDIS_ERROR_MESSAGES=true` is still accepted as a legacy alias for
+`ERROR_BUS=redis` when `ERROR_BUS` is unset.
+
+## Configuration
+
+The shared list below covers variables common to the standalone Docker Compose
+stack and standalone Helm override.
+
+### Docker Compose and Helm Variables
+
+The table lists variables in standalone Docker Compose stack and the
+standalone Helm override.
+
+| Variable | Description | Standalone default |
+| --- | --- | --- |
+| `RTVI_IMAGE` | Docker Compose image to run | `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1` |
+| `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| `MODEL_IMPLEMENTATION_PATH` | Custom model implementation path | Empty |
+| `NGC_API_KEY` | NGC API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
+| `HF_TOKEN` | Hugging Face token | Compose: Empty; Helm: `hf-token-secret/HF_TOKEN` secret |
+| `ASSET_STORAGE_DIR` | Host path for persistent uploaded media storage. When unset, uploads use the container tmpfs at `/tmp/assets`. | Empty |
+| `ASSET_TMPFS_SIZE` | Docker tmpfs size for `/tmp/assets` when `ASSET_STORAGE_DIR` is unset | `8g` |
+| `MAX_ASSET_STORAGE_SIZE_GB` | Maximum asset storage size in GB; set this for eviction before tmpfs or bind-mounted storage fills | Empty |
+| `ASSET_MAX_AGE_HOURS` | TTL-based asset eviction in hours; `0` disables age-based eviction | `0` |
+| `FILE_URL_ALLOWED_DIRS` | Comma-separated allowlist of absolute directories for `file://` URLs | Empty |
+| `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` | Maximum server-side URL ingestion file size in GB | `8` |
+| `ASSET_DOWNLOAD_MAX_REDIRECTS` | Maximum HTTP redirect hops for URL ingestion; `0` disables redirects | `0` |
+| `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Total server-side URL download timeout in seconds | `300` |
+| `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Server-side URL download connection timeout in seconds | `10` |
+| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains where URL ingestion skips SSL verification | Empty |
+| `ASSET_DOWNLOAD_AUTH_TOKENS` | Server-level URL ingestion auth tokens, formatted as `domain1=Bearer token1;domain2=Basic xyz` | Empty |
+| `NVIDIA_API_KEY` | NVIDIA API key for hosted endpoints | `NOAPIKEYSET` |
+| `NVIDIA_VISIBLE_DEVICES` | GPU device IDs exposed to the container | `all` |
+| `OPENAI_API_KEY` | OpenAI-compatible API key | `NOAPIKEYSET` |
+| `OPENAI_API_VERSION` | Azure OpenAI API version | Empty |
+| `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
+| `VLM_MODEL_TO_USE` | Backend selector | `cosmos-reason3` |
+| `VLM_BATCH_SIZE` | VLM inference batch size | Empty |
+| `NUM_VLM_PROCS` | Number of VLM inference processes | Empty |
+| `NUM_GPUS` | Number of GPUs to use | Compose: Empty; Helm: `1` |
+| `VSS_NUM_GPUS_PER_VLM_PROC` | Number of GPUs per VLM process | Empty |
+| `VLM_INPUT_WIDTH` | Input frame width | Empty |
+| `VLM_INPUT_HEIGHT` | Input frame height | Empty |
+| `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | Frame sampling rate or fixed frames per chunk | `30` |
+| `VLM_USE_FPS_FOR_CHUNKING` | Interpret the frame selection value as FPS instead of fixed frames per chunk | Empty |
+| `VLM_SYSTEM_PROMPT` | Default system prompt | Empty |
+| `VLM_PROMPT_MAX_LENGTH` | Maximum user-prompt length in characters | `10240` |
+| `VLM_SYSTEM_PROMPT_MAX_LENGTH` | Maximum system-prompt length in characters | `10240` |
+| `VLM_MAX_GENERATION_TOKENS` (alias: `RTVI_VLM_MAX_GENERATION_TOKENS`) | Maximum generated tokens | `16384` |
+| `VLM_MODEL_SUPPORTS_AUDIO` | Enable native audio support for Omni models | `false` |
+| `VLM_TRUST_REMOTE_CODE` | Enable trust of model-supplied remote code | `false` |
+| `INSTALL_PROPRIETARY_CODECS` | Install proprietary codecs at container startup | `false` |
+| `FORCE_SW_AV1_DECODER` | Force software AV1 decode | Empty |
+| `LOG_LEVEL` | Service logging verbosity | Compose: Empty; Helm: `INFO` |
+| `RTVI_EXTRA_ARGS` | Additional RTVI-VLM runtime arguments | Empty |
+| `RTVI_RTSP_LATENCY` | RTSP latency override | Empty |
+| `RTVI_RTSP_TIMEOUT` | RTSP timeout override | Empty |
+| `RTVI_RTSP_RECONNECTION_INTERVAL` | Time to wait between RTSP reconnection attempts | `5` |
+| `RTVI_RTSP_RECONNECTION_WINDOW` | RTSP reconnection window in seconds | `60` |
+| `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Maximum RTSP reconnection attempts | `10` |
+| `RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY` | GStreamer jitterbuffer drop-on-latency setting | `false` |
+| `RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS` | GStreamer jitterbuffer fast-start packet threshold | `2` |
+| `RTVI_ENABLE_LIVE_TIMESTAMP_FILTER` | Enable timestamp filtering for live streams | `false` |
+| `RTVI_ENABLE_FILE_TIMESTAMP_FILTER` | Enable timestamp filtering for file streams | `true` |
+| `RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT` | Add timestamp metadata to VLM prompts | `true` |
+| `RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE` | Custom prefix injected before the user query for file inputs. Supports `{timestamps}`, `{query}`, `{first_ts}`, and `{last_ts}`. When unset, uses the legacy prefix. VLM only. | `(unset)` |
+| `RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE` | Custom suffix appended after the user query for file inputs. Supports `{timestamps}`, `{query}`, `{first_ts}`, and `{last_ts}`. VLM only. | `(unset)` |
+| `RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE` | Custom prefix injected before the user query for RTSP inputs. Supports `{timestamps}`, `{query}`, `{first_ts}`, and `{last_ts}`. VLM only. | `(unset)` |
+| `RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE` | Custom suffix appended after the user query for RTSP inputs. Supports `{timestamps}`, `{query}`, `{first_ts}`, and `{last_ts}`. VLM only. | `(unset)` |
+| `RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS` | When `true`, encodes absolute video timestamps into `frames_indices` for models using mRoPE temporal encoding, such as Qwen3-VL. VLM only. | `false` |
+| `RTVI_EMPTY_CUDA_CACHE_ON_RESULT` | Empty CUDA cache after result handling | `false` |
+| `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete drain timeout for non-blocking live-stream and file cleanup | `30` |
+| `RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC` | Blocking timeout for stream deletion cleanup | `300` |
+| `RTVI_ENABLE_GOP_DECODE_OPT` | Enable GOP-aligned decode optimization for file-based H.264/H.265/MPEG4 decoding. No effect on live RTSP or when all frames are selected. | `true` |
+| `RTVI_ENABLE_CUDA_OOM_RECOVERY` | Convert CUDA OOM during frame copy/preprocess into recoverable chunk errors and clear cached CUDA tensors | `true` |
+| `RTVI_DISABLE_LIVESTREAM_PREVIEW` | Disable live stream preview frames | `true` |
+| `VSS_SKIP_INPUT_MEDIA_VERIFICATION` | Skip input media validation | Empty |
+| `SKIP_PIPELINE_WARMUP` | Skip pipeline warmup on startup | `0` |
+| `VLLM_GPU_MEMORY_UTILIZATION` | vLLM GPU memory utilization fraction | Empty |
+| `VLLM_MAX_NUM_SEQS` | Maximum number of sequences in the vLLM batch | `1024` |
+| `VLLM_MAX_NUM_BATCHED_TOKENS` | Maximum number of batched tokens in vLLM | `16384` |
+| `VLLM_IGNORE_EOS` | Ignore end-of-sequence tokens | `false` |
+| `VLLM_HAS_FLASHINFER_CUBIN` | Enable FlashInfer CUBIN optimizations | `1` |
+| `VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES` | Maximum video frames passed to the vLLM multimodal processor | `256` |
+| `VLLM_NUM_PREPROCESS_WORKERS` | vLLM multimodal preprocessing worker count | `16` |
+| `VLLM_NUM_SCHEDULER_STEPS` | Number of scheduler steps for vLLM | `8` |
+| `VLLM_WORKER_MULTIPROC_METHOD` | Multiprocessing method for vLLM workers | `spawn` |
+| `VLLM_ENABLE_PREFIX_CACHING` | Enable vLLM prefix caching | `true` |
+| `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `false` |
+| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Compose: Empty; Helm: `0.0` |
+| `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
+| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.2` when EVS++ session mode is enabled |
+| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced | `20000` |
+| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `100` |
+| `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
+| `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `1` |
+| `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
+| `VLLM_MULTIMODAL_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
+| `VLLM_MM_ENCODER_ATTN_BACKEND` | vLLM multimodal encoder attention backend | Empty |
+| `VLLM_ROOT` | vLLM package root used by runtime patches | `/usr/local/lib/python3.12/dist-packages/vllm` |
+| `VLLM_LOGGING_LEVEL` | vLLM log level | `INFO` |
+| `VLLM_USE_NVFP4_CT_EMULATIONS` | Enable NVFP4 CT emulation | `0` |
+| `VLLM_USE_STANDALONE_COMPILE` | vLLM standalone compile toggle | `0` |
+| `VLLM_USE_AOT_COMPILE` | Reuse vLLM ahead-of-time compile artifacts; disabled by default | `0` |
+| `VLLM_DISABLE_COMPILE_CACHE` | Disable persisted vLLM/Torch Inductor compile cache | `1` |
+| `VLLM_ENFORCE_EAGER` | Force eager vLLM execution | `false` |
+| `VLLM_DISABLED_KERNELS` | Comma-separated vLLM kernels to disable | `MacheteLinearKernel` |
+| `GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS` | Enable custom GStreamer parser modifications | `1` |
+| `REMOTE_VIDEO_INPUT` | For `openai-compat` remote endpoints, send multi-frame chunks as MP4 video payloads instead of per-frame JPEG payloads | `true` |
+| `MESSAGE_BUS` | Generated-message output bus (`kafka`, `redis`, or empty to disable in the service runtime) | Service runtime: Empty; Docker Compose: `kafka`; performance Compose: Empty |
+| `MESSAGE_BUS_TOPIC` | VisionLLM output topic or Redis stream; replaces legacy `KAFKA_TOPIC` | `mdx-vlm-captions` |
+| `KAFKA_PORT` | Docker Compose host port for Kafka | `9092` |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | Compose: `kafka:9092`; Helm: `127.0.0.1:9092` |
+| `KAFKA_INCIDENT_TOPIC` | Kafka-only topic for incident messages; independent of `MESSAGE_BUS_TOPIC` | `mdx-vlm-incidents` |
+| `RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` (Helm env: `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE`) | Bounded queue size for async Kafka sends | `1024` |
+| `ERROR_BUS` | Error-message output bus (`kafka`, `redis`, or empty to disable) | Docker Compose: `kafka` |
+| `ERROR_MESSAGE_TOPIC` | Kafka topic or Redis channel for error messages | `mdx-vlm-errors` |
+| `ENABLE_REDIS_ERROR_MESSAGES` | Legacy alias for `ERROR_BUS=redis` when `ERROR_BUS` is unset | `false` |
+| `REDIS_HOST` | Redis host | Compose: `redis`; Helm: `127.0.0.1` |
+| `REDIS_PORT` | Redis application port | `6379` |
+| `REDIS_HOST_PORT` | Docker Compose host port for Redis | `6379` |
+| `REDIS_DB` | Redis database number | `0` |
+| `ENABLE_OTEL_MONITORING` | Enable OpenTelemetry | `false` |
+| `OTEL_RESOURCE_ATTRIBUTES` | OpenTelemetry resource attributes | Empty |
+| `OTEL_TRACES_EXPORTER` | OpenTelemetry traces exporter | `otlp` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP endpoint | `http://otel-collector:4318` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | OpenTelemetry metric export interval in milliseconds | `60000` |
+
+### Additional Helm Chart Values
+
+The chart injects `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`,
+`REDIS_PORT`, `REDIS_DB`, `MODEL_PATH`, `NGC_API_KEY`, and
+`VIA_VLM_API_KEY` from chart values or Kubernetes secrets. When
+`useSharedNim=true`, it also injects `VIA_VLM_ENDPOINT` and
+`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`.
+
+**Top-level Helm values**
+
+* `enabled`: Enable the chart. Default: `false`; standalone override:
+  `true`.
+* `image.repository`, `image.tag`, and `image.pullPolicy`: Image
+  settings. For 3.3.0 RTVI-VLM, use
+  `nvcr.io/nvstaging/vss-core/vss-rt-vlm`, `3.3.0-26.08.1`, and
+  `IfNotPresent`. The image tag supports the supported x86 and ARM64
+  platforms.
+* `replicas`: Number of replicas. Default: `1`.
+* `useSharedNim`: Use a shared OpenAI-compatible NIM instead of loading a
+  model in this pod. Default: `false`.
+* `modelPath`: Model path when `useSharedNim=false`. The 26.08.1
+  standalone default is
+  `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`.
+* `sharedNimService`, `sharedNimPort`, `vlmBaseUrl`, `vlmName`,
+  `viaVlmOpenAiModelDeploymentName`, and `nims.enabled`: Shared or remote
+  NIM routing values.
+* `ngcApiSecret.name`, `ngcApiSecret.key`, `hfTokenSecret.name`, and
+  `hfTokenSecret.key`: Secret references for NGC and Hugging Face tokens.
+  The standalone override uses `hfTokenSecret.name=hf-token-secret`.
+* `global.imagePullSecrets`, `global.ngcApiSecret.name`,
+  `global.ngcApiSecret.key`, and `global.useReleaseNamePrefix`: Umbrella
+  chart global values.
+* `kafkaBootstrapServers`, `waitForKafka.enabled`,
+  `waitForKafka.image.repository`, `waitForKafka.image.tag`,
+  `waitForKafka.imagePullPolicy`, `waitForKafka.timeoutSeconds`, and
+  `waitForKafka.topics`: Kafka connection and startup ordering values.
+* `redisHost`, `redisPort`, `redisDb`, and `redisPassword`: Redis
+  connection values.
+* `service.port` and `service.type`: Kubernetes service settings. Defaults:
+  `8000` and `ClusterIP`.
+* `securityContext.runAsUser`, `securityContext.runAsGroup`, `shmSize`,
+  `resources.requests.nvidia.com/gpu`, and
+  `resources.limits.nvidia.com/gpu`: Pod security, shared memory, and GPU
+  settings.
+* `env`: List of RTVI-VLM environment variables.
+* `nodeSelector` and `tolerations`: Scheduling controls.
+
+### Using Remote Endpoints
+
+The Real-Time VLM Microservice supports using remote endpoints with NVIDIA NIM
+or OpenAI-compatible models:
+
+**NVIDIA NIM:**
+
+```bash
+VLM_MODEL_TO_USE=openai-compat
+OPENAI_API_KEY=nvapi-XXXXXXX
+VIA_VLM_ENDPOINT="https://integrate.api.nvidia.com/v1"
+VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME="nvidia/nemotron-nano-12b-v2-vl"
+```
+
+For local deployments, update `VIA_VLM_ENDPOINT` to point to your local
+deployment.
+
+When using `openai-compat` with a remote NIM endpoint,
+`REMOTE_VIDEO_INPUT` defaults to `true` and sends multi-frame chunks as a
+single MP4 video payload instead of individual JPEG images. This avoids remote
+NIM image-count limits. Set `REMOTE_VIDEO_INPUT=false` to restore
+image-per-frame payloads. If MP4 encoding fails, the service falls back to up
+to 10 uniformly sampled base64 JPEG images and logs a warning.
+
+**GPT-4o:**
+
+```bash
+OPENAI_API_KEY=<openai key>
+VLM_MODEL_TO_USE=openai-compat
+VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME="gpt-4o"
+```
+
+### Hugging Face Models Locally
+
+For models downloaded from Hugging Face and served locally via vLLM:
+
+**Qwen3-VL:**
+
+If `HF_TOKEN` is already set:
+
+```bash
+VLM_MODEL_TO_USE=vllm-compatible
+MODEL_PATH=git:https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct
+```
+
+If `HF_TOKEN` is not set, embed the token directly in the URL:
+
+```bash
+VLM_MODEL_TO_USE=vllm-compatible
+MODEL_PATH=git:https://user:<huggingface_token>@huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct
+```
+
+**Qwen3.5 / Qwen 3.5 MoE:**
+
+The service detects the Qwen3.5 architecture from the model config and
+selects the bundled vLLM runtime automatically. No extra configuration is
+required beyond `MODEL_PATH`.
+
+```bash
+VLM_MODEL_TO_USE=vllm-compatible
+MODEL_PATH=git:https://huggingface.co/Qwen/Qwen3.5-27B
+```
+
+**Cosmos Reason 3 Reasoner:**
+
+Cosmos Reason 3 Reasoner is served by setting
+`VLM_MODEL_TO_USE=cosmos-reason3` and pointing `MODEL_PATH` at the
+NGC model artifact with the `ngc:` prefix or the Hugging Face Diffuser
+checkpoint with the `git:` prefix. Nano and Super checkpoint repositories are
+supported:
+
+```bash
+# Nano Reasoner
+VLM_MODEL_TO_USE=cosmos-reason3
+MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+
+# Nano Reasoner Diffuser
+VLM_MODEL_TO_USE=cosmos-reason3
+MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner
+```
+
+```bash
+# Super Reasoner
+VLM_MODEL_TO_USE=cosmos-reason3
+MODEL_PATH=ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final
+
+# Super Reasoner Diffuser
+VLM_MODEL_TO_USE=cosmos-reason3
+MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos3-Super-Reasoner
+```
+
+<Note>
+Super models will not work on low-memory devices such as NVIDIA L40S and
+RTX 4500 GPUs.
+</Note>
+
+<Note>
+The Cosmos Reason 3 BF16 Super and Nano models show lower binary and BERT scores
+compared to quantized variants. Consider this trade-off when selecting a model for
+quality-sensitive deployments.
+</Note>
+
+### Omni Native Audio Support
+
+Omni models, including Nemotron Nano Omni, provide native single-model video +
+audio understanding. When `VLM_MODEL_SUPPORTS_AUDIO=true` is set, audio is
+decoded and consumed natively by the model alongside video frames.
+
+**Required environment:**
+
+```bash
+VLM_MODEL_TO_USE=vllm-compatible
+MODEL_PATH=<HF or NGC path to Nemotron Nano Omni>
+VLM_TRUST_REMOTE_CODE=true
+VLM_MODEL_SUPPORTS_AUDIO=true   # omit for video-only
+INSTALL_PROPRIETARY_CODECS=true # required for proprietary audio codecs
+```
+
+<Note>
+Set `INSTALL_PROPRIETARY_CODECS=true` when audio inputs may contain
+proprietary audio codecs. Without it, the service falls back to the
+default codec set and may fail to decode the audio track of such
+inputs. The flag has no effect when audio is disabled.
+</Note>
+
+**Request side:** pass `enable_audio: true` on `POST /v1/generate_captions`
+to use native audio. For reasoning checkpoints, set
+`enable_reasoning: true`; the response includes a `reasoning_description`
+field in each chunk.
+
+**Response side:** each chunk in `chunk_responses` includes an
+`audio_transcript` field (when `enable_audio` is set). Native audio
+understanding is available only on Omni models; other VLM models support
+video and text input only.
+
+For LVS integration, see [Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)](/agent-workflow-lvs#optional-use-nemotron-3-nano-omni-audio-aware-vlm).
+
+### Efficient Video Sampling (EVS and EVS++)
+
+EVS is a vLLM-engine feature that prunes redundant video tokens before
+inference to reduce per-chunk compute. RTVI-VLM supports two startup modes:
+
+* **Fixed-rate EVS**: Set `VLM_VIDEO_PRUNING_RATE` to a value greater than
+  `0` and less than `1`. For example, `0.5` prunes about half of the
+  redundant video tokens. Leave it unset or set it to `0` to disable this
+  mode.
+* **EVS++ session mode**: Set both `VIA_EVS_SESSION=true` and
+  `VLM_VIDEO_PRUNING_RATE=0.5`. `VIA_EVS_SESSION` routes requests through
+  the vLLM video-session path, while `VLM_VIDEO_PRUNING_RATE` activates
+  pruning in the engine at startup. The RTVI-VLM build applies the EVS++ vLLM
+  overlay for this session mode. It adds content-dependent similarity pruning,
+  per-stream video sessions, event-gated generation, token-budgeted clip
+  packing, absolute timestamp metadata, and optional Prefill-Decode (PD)
+  server routing.
+
+EVS settings are read at service startup, so restart the RTVI-VLM service after
+changing them. They are not changed by the runtime Config API.
+
+```bash
+# Fixed-rate EVS
+VLM_VIDEO_PRUNING_RATE=0.5
+
+# EVS++ session mode
+VIA_EVS_SESSION=true
+VLM_VIDEO_PRUNING_RATE=0.5
+VLLM_EVS_SIMILARITY_THRESHOLD=0.2
+```
+
+Fixed-rate EVS is available on vLLM-compatible local models that use the
+patched video-pruning paths, including Nemotron Nano VL, Qwen 2.5-VL, and
+Qwen3-VL/Cosmos3-style models. EVS++ is supported only for local,
+vLLM-compatible models based on the Qwen3-VL architecture. It is not
+applicable to `openai-compat` remote endpoints and is not supported for
+Omni models, including `NemotronH_Nano_Omni_Reasoning_V3`.
+
+### Frame Selection Modes
+
+RTVI-VLM supports two frame selection modes for sampling frames from video
+chunks:
+
+**FPS-based Selection:**
+
+* Enable `--use-fps-for-chunking` flag
+* Set `--num-frames-per-second-or-fixed-frames-chunk` to the desired frames
+  per second (e.g., `0.05` for 0.05 FPS)
+* The system will sample frames at the specified rate based on chunk duration
+
+**Fixed Frame Selection (default):**
+
+* Do not set `--use-fps-for-chunking` flag (disabled by default)
+* Set `--num-frames-per-second-or-fixed-frames-chunk` to the desired number
+  of frames per chunk (e.g., `8` for 8 frames)
+* The system will sample a fixed number of equally-spaced frames from each chunk
+
+`media_io_kwargs` can also control frame sampling on
+`/v1/generate_captions` and `/v1/chat/completions`. Positive
+`media_io_kwargs.video.fps` or `media_io_kwargs.video.num_frames` values
+override `num_frames_per_second_or_fixed_frames_chunk` and
+`use_fps_for_chunking`. Use `num_frames=-1` to select all decoded frames
+in a chunk. `fps` and `num_frames` are mutually exclusive.
+
+```json
+{"media_io_kwargs": {"video": {"fps": 3.0}}}
+{"media_io_kwargs": {"video": {"num_frames": 16}}}
+{"media_io_kwargs": {"video": {"num_frames": -1}}}
+```
+
+### Enabling Incidents
+
+To enable incident detection, set appropriate `--prompt` or `--system-prompt`
+with clear Yes or No expectation. Incidents will be pushed to the incident Kafka
+topic.
+
+Example prompt:
+
+```text
+--prompt "You are a warehouse monitoring system focused on safety and
+efficiency. Analyze the situation to detect any anomalies such as workers
+not wearing safety gear, leaving items unattended, or wasting time.
+Respond in the following structured format:
+Anomaly Detected: Yes/No
+Reason: [Brief explanation]"
+--system-prompt "Answer the user's question correctly in yes or no"
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Container fails to start**
+
+* Check `docker logs <container_name>` for error messages
+* Verify GPU access: Ensure NVIDIA Container Toolkit is installed and
+  `nvidia-smi` works
+
+**Out of Memory error**
+
+For example, larger models such as
+`Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16` may need these
+settings on NVIDIA RTX 4500, L40S, or Thor systems.
+
+* Set `NVIDIA_VISIBLE_DEVICES=<gpuid>` to a free GPU
+* **Reduce batch size**: Try `VLM_BATCH_SIZE=32` Default is auto-calculated
+* **Tune GPU memory utilization**: Lower `VLLM_GPU_MEMORY_UTILIZATION` when
+  model startup OOMs. Increase it only when KV-cache capacity is too low and
+  free GPU memory remains.
+* **Reduce max sequences**: Lower `VLLM_MAX_NUM_SEQS`
+* **Reduce concurrent processes**: Lower `NUM_VLM_PROCS`
+* **Reduce max model length on lower-memory GPUs**: Reduce `VLM_MAX_MODEL_LEN`
+* **Cap generation length**: Lower `VLM_MAX_GENERATION_TOKENS` (default
+  `16384`) to bound peak per-request memory.
+* On Jetson Thor or DGX systems, ensure that the [cache cleaner](/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is running.
+
+If the issue persists, reduce the image preprocessor `max_pixels` value for
+the affected model. Replace `<model-cache-directory>` with the directory
+name for the model in the RTVI NGC model cache:
+
+```bash
+docker compose run --rm --no-deps --entrypoint sh rtvi-server
+
+MODEL=/opt/nvidia/rtvi/.rtvi/ngc_model_cache/<model-cache-directory>
+
+cp "$MODEL/preprocessor_config.json" "$MODEL/preprocessor_config.json.bak"
+
+python3 -c 'import json; p="'"$MODEL"'/preprocessor_config.json"; d=json.load(open(p)); d["max_pixels"]=802816; open(p,"w").write(json.dumps(d,indent=2)+"\n")'
+
+grep -n '"max_pixels"' "$MODEL/preprocessor_config.json"
+exit
+```
+
+**Thor workaround for huge-model OOM**
+
+When running huge models such as
+`Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16` on AGX Thor or
+IGX Thor, allocate host swap before starting the RTVI-VLM service:
+
+```bash
+sudo fallocate -l 96G /swapfile-nemotron
+sudo chmod 600 /swapfile-nemotron
+sudo mkswap /swapfile-nemotron
+sudo swapon --priority 10 /swapfile-nemotron
+```
+
+Use conservative vLLM memory settings in Docker Compose `.env` or Helm
+`env` values:
+
+```bash
+VLM_MAX_MODEL_LEN=2560
+VLLM_GPU_MEMORY_UTILIZATION=0.55
+```
+
+Also ensure that the [cache cleaner](/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is
+running on Thor.
+
+**System memory grows over time**
+
+For long-running workloads with many distinct videos or streams, keep the
+multimodal preprocessor cache disabled.
+
+Docker Compose `.env`:
+
+```bash
+VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true
+```
+
+Helm chart `env` values:
+
+```yaml
+env:
+  - name: VLLM_DISABLE_MM_PREPROCESSOR_CACHE
+    value: "true"
+```
+
+Restart the service after changing these values. Re-enable the multimodal
+preprocessor cache only after validating memory behavior for your workload.
+
+**Port conflicts**
+
+* Change `BACKEND_PORT` if port 8000 is already in use
+
+**Kafka Connection Issues**
+
+* Use `kafka:9092` as bootstrap server when connecting from within
+  Docker network
+* Verify Kafka is running: `docker ps | grep kafka`
+
+**Health Check Failures**
+
+* Check logs with `docker compose logs rtvi-vlm`
+
+### Known Issues
+
+**High concurrency with 8K vision tokens on Jetson Thor / DGX Spark**
+
+When running more than 2 concurrent live streams with a high vision-token
+budget (~8K vision tokens, i.e., 448×448 at 80 frames with Cosmos Reason3),
+the device may reboot or the microservice may crash due to memory pressure on
+resource-constrained edge platforms.
+
+* **Recommendation:** Limit concurrent live streams to 2 or fewer when using
+  8K vision tokens on Jetson Thor or DGX Spark.
+* Alternatively, reduce the vision-token budget by lowering the input
+  resolution from 448×448 to 372×372 at 30 frames (~2K vision tokens) using
+  `VLM_INPUT_WIDTH=372`, `VLM_INPUT_HEIGHT=372`,
+  `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=30` to support
+  higher concurrency.
+
+**Stream deletion latency and ResourceInUse responses under high concurrent load**
+
+When multiple live streams are being processed concurrently and the VLM
+inference latency exceeds the chunk duration (e.g., processing takes longer
+than the configured `chunk_duration`), deleting a stream via
+`DELETE /v1/streams/delete/{stream_id}`,
+`DELETE /v1/streams/delete-batch`, or `POST /v1/stream/remove` may take
+longer than expected or report `ResourceInUse` with status code `409`.
+
+* This is expected behavior: the server avoids tearing down resources that are
+  still held by active caption generation or cleanup.
+* For single-stream delete and CV-/VIOS-compatible remove, `ResourceInUse` is
+  returned as a top-level HTTP 409. For batch delete, it is returned per stream
+  in the response `errors` list.
+* Stop active caption requests first, then retry after the drain completes. For
+  batch cleanup, set `blocking=true` when the caller should wait for pipeline
+  drain before the response is returned.
+* The delay is proportional to the VLM inference time at the current load.
+  Reducing concurrency or increasing `chunk_duration` will reduce delete
+  latency.
+
+**Duplicate live-stream / camera IDs rejected with HTTP 409**
+
+In 3.2.0, adding a stream with a `camera_id` (CV API) or `streamId`
+that is already registered returns HTTP 409 (`DuplicateCameraId` /
+`DuplicateStreamId`). In 3.1.0 the existing registration was silently
+overwritten. Update client code to either remove the prior stream first
+or surface the 409 to the caller.
+
+## Version Information
+
+The API version is `v1`. Check the service version using the health
+check endpoints or by examining the OpenAPI schema at `/docs`.

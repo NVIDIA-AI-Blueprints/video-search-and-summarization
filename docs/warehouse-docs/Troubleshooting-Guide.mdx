@@ -1,0 +1,193 @@
+---
+title: "Troubleshooting Guide"
+description: ""
+position: 4
+---
+This section uses a Problem/Symptom -> Cause -> Solution format to address common issues.
+
+**Checking FPS on 2D Perception**
+
+
+```bash
+# For 2d blueprint the PERF should be around 30 FPS
+docker logs -f perception-2d
+
+Active sources : 4
+Fri Feb  6 10:48:29 2026
+**PERF:
+30.00000 (30.04256)     source_id : 3 stream_name Camera
+30.00000 (30.04256)     source_id : 2 stream_name Camera_03
+30.00000 (30.04213)     source_id : 1 stream_name Camera_02
+30.00000 (30.04256)     source_id : 0 stream_name Camera_01
+```
+
+**Check running containers 2d Vision AI Profile with Minimal deployment**
+
+```bash
+$ docker ps -a
+# If you see no output, then the container is not running.
+# If you see output, then the container is running.
+#example
+CONTAINER ID   IMAGE                                                                  COMMAND                   CREATED         STATUS                     PORTS     NAMES
+b0b5eeeadfa1   nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1                             "/opt/nvidia/deepstr…"    9 minutes ago   Up 8 minutes                         vss-rtvi-cv
+22490686ec08   nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.1                      "nginx -c /etc/nginx…"    9 minutes ago   Up 8 minutes (healthy)               vss-vios-ingress
+f15e986384ce   nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.1                       "/bin/bash -c 'exec …"    9 minutes ago   Up 8 minutes (healthy)               vss-vios-sensor
+2b281bc65d6a   nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.1                   "bin/bash -c 'if [ …"     9 minutes ago   Up 8 minutes                         vss-vios-nvstreamer
+dd3d2cfb48ca   redis:8.6.2-alpine                                                  "/bin/sh /wait-for-r…"    9 minutes ago   Exited (0) 9 minutes ago             sdrc-wait-for-redis
+baea7c55cfd0   nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0                              "/usr/local/bin/wdm-…"    9 minutes ago   Up 8 minutes                         sdr-controller
+778835ae911d   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    9 minutes ago   Exited (0) 8 minutes ago             sdrc-wait-for-workloads
+0e5f86aa4baf   nvcr.io/nvidia/vss-core/vss-configurator:3.2.1                      "/usr/bin/shelless_u…"    9 minutes ago   Up 8 minutes (healthy)               vss-configurator
+6642595504cf   confluentinc/cp-kafka:8.2.0                                         "bash /usr/bin/creat…"    9 minutes ago   Exited (0) 8 minutes ago             vss-kafka-topics
+a2baabda10af   nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1                "/usr/bin/shelless_u…"    9 minutes ago   Up 8 minutes                         vss-behavior-analytics
+1796c865f925   nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.1             "/bin/bash -c 'if [ …"    9 minutes ago   Up 9 minutes (healthy)               vss-vios-streamprocessing
+58b5465e82a5   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    9 minutes ago   Exited (0) 9 minutes ago             sdrc-wdm-env-from-config
+cfbb5e6d1384   mdx-broker-health-check                                             "/scripts/check-kafk…"    9 minutes ago   Exited (0) 8 minutes ago             vss-broker-health-check
+4c784d46ef06   confluentinc/cp-kafka:8.2.0                                         "/bin/sh /usr/local/…"    9 minutes ago   Up 9 minutes (healthy)               kafka
+242a5608bb15   mdx-bp-configurator-2d-init                                         "/bin/bash -c 'if [ …"    9 minutes ago   Exited (0) 8 minutes ago             vss-configurator-2d-init
+5f3af3e1907d   alpine:3.23.4                                                       "/bin/sh -c 'set -e\n…"   9 minutes ago   Exited (0) 9 minutes ago             sdrc-init-dirs
+13a9181cf77c   postgres:17.9-alpine                                                "docker-entrypoint.s…"    9 minutes ago   Up 9 minutes (healthy)               vss-vios-postgres
+774ee2da9a44   redis:8.6.2-alpine                                                  "docker-entrypoint.s…"    9 minutes ago   Up 9 minutes                         redis
+9bfc7fe0ec45   alpine:3.23.4                                                       "/bin/sh -c 'echo \"r…"   9 minutes ago   Exited (0) 9 minutes ago             sdrc-render-config
+8e7991fba612   busybox:1.37.0                                                      "/bin/sh /scripts/se…"    9 minutes ago   Exited (0) 8 minutes ago             sensor-bp-wait-bp-configurator
+```
+
+**Check running containers 2d Vision AI Profile with Agents**
+
+```bash
+$ docker ps -a
+# If you see no output, then the container is not running.
+# If you see output, then the container is running.
+#example
+CONTAINER ID   IMAGE                                                                  COMMAND                   CREATED      STATUS                  PORTS                                        NAMES
+c6d7610f73c9   nvcr.io/nvidia/vss-core/vss-agent-ui:3.2.0                          "/usr/bin/shelless_u…"    2 days ago   Up 2 days               0.0.0.0:3000->3000/tcp                       vss-agent-ui
+b3614d9d3932   nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1                             "/opt/nvidia/deepstr…"    2 days ago   Up 2 days                                                            vss-rtvi-cv
+aa2d01d1d6e6   nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.1                      "nginx -c /etc/nginx…"    2 days ago   Up 2 days (healthy)                                                  vss-vios-ingress
+16e66ca18882   nvcr.io/nvidia/vss-core/vss-agent:3.2.1                             "/vss-agent/.venv/bi…"    2 days ago   Up 2 days (healthy)                                                  vss-agent
+996b43a81a74   nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0                "/usr/local/bin/pyth…"    2 days ago   Up 2 days                                                            vss-alert-bridge
+8abafd2e1254   nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.1                   "/bin/bash -c 'if [ …"    2 days ago   Up 2 days                                                            vss-vios-nvstreamer
+a35c8a1c95a2   mdx-import-calibration-output-container-2d                          "bash /opt/vss/init-…"    2 days ago   Exited (0) 2 days ago                                                vss-import-calibration-output
+ad05103ca73a   nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.1                       "/bin/bash -c 'exec …"    2 days ago   Up 2 days (healthy)                                                  vss-vios-sensor
+40603fc45fb3   mdx-kibana-init-container-2d                                        "bash /opt/vss/init-…"    2 days ago   Exited (0) 2 days ago                                                vss-kibana-init
+95b92f11f20b   docker.elastic.co/logstash/logstash:9.3.3                           "/usr/local/bin/dock…"    2 days ago   Up 2 days                                                            logstash
+e446fb477b1d   nvcr.io/nvidia/vss-core/vss-video-analytics-api:3.2.0               "/usr/bin/shelless_u…"    2 days ago   Up 2 days                                                            vss-video-analytics-api
+cfdd4b9ba30f   nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0                              "/usr/local/bin/wdm-…"    2 days ago   Up 2 days                                                            sdr-controller
+bc4ab83f7cea   redis:8.6.2-alpine                                                  "/bin/sh /wait-for-r…"    2 days ago   Exited (0) 2 days ago                                                sdrc-wait-for-redis
+873ac34b7846   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    2 days ago   Exited (0) 2 days ago                                                sdrc-wait-for-workloads
+b0e63ac4c269   nvcr.io/nvidia/vss-core/vss-configurator:3.2.1                      "/usr/bin/shelless_u…"    2 days ago   Up 2 days (healthy)                                                  vss-configurator
+d1d94a0655d9   nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1                            "/opt/nvidia/rtvi/st…"    2 days ago   Up 2 days (healthy)     0.0.0.0:8018->8000/tcp                       vss-rtvi-vlm
+a4879ff5a80a   confluentinc/cp-kafka:8.2.0                                         "bash /usr/bin/creat…"    2 days ago   Exited (0) 2 days ago                                                vss-kafka-topics
+76558196ffd9   nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1                "/usr/bin/shelless_u…"    2 days ago   Up 2 days                                                            vss-behavior-analytics
+fcdbc01b99ee   nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.1             "/bin/bash -c 'if [ …"    2 days ago   Up 2 days (healthy)                                                  vss-vios-streamprocessing
+f656d6a94dd0   docker.elastic.co/kibana/kibana:9.3.3                               "/bin/tini -- /usr/l…"    2 days ago   Up 2 days (healthy)                                                  kibana
+4504d14836f1   mdx-elasticsearch-init-container                                    "bash -c ' /opt/mdx/…"    2 days ago   Exited (0) 2 days ago                                                vss-elasticsearch-init
+ba933c9f035e   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    2 days ago   Exited (0) 2 days ago                                                sdrc-wdm-env-from-config
+8ac40145a98b   nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1                     "/opt/nvidia/nvidia_…"    2 days ago   Up 2 days (healthy)     0.0.0.0:30081->8000/tcp                      nvidia-nemotron-nano-9b-v2
+cdd60a3e6d56   postgres:17.9-alpine                                                "docker-entrypoint.s…"    2 days ago   Up 2 days (healthy)                                                  vss-vios-postgres
+3d5c25a4637b   confluentinc/cp-kafka:8.2.0                                         "/bin/sh /usr/local/…"    2 days ago   Up 2 days (healthy)                                                  kafka
+a3f44e5fe8ad   quay.io/prometheus/prometheus:v3.11.3                               "/bin/prometheus --c…"    2 days ago   Up 2 days               0.0.0.0:9090->9090/tcp                       prometheus
+8dd11a93709c   nvcr.io/nvidia/vss-core/vss-agent:3.2.1                             "/vss-agent/.venv/bi…"    2 days ago   Up 2 days (healthy)                                                  vss-va-mcp
+554a8122e2d2   grafana/grafana:13.0.1-ubuntu                                       "/run.sh"                 2 days ago   Up 2 days               0.0.0.0:35000->3000/tcp                      grafana
+082df3315ab8   alpine:3.23.4                                                       "/bin/sh -c 'set -e\n…"   2 days ago   Exited (0) 2 days ago                                                sdrc-init-dirs
+24b4ad28faea   ghcr.io/google/cadvisor:0.56.2                                      "/usr/bin/entrypoint…"    2 days ago   Up 2 days (healthy)     0.0.0.0:18080->8080/tcp                      mdx-cadvisor-1
+14666f1adf79   mdx-bp-configurator-2d-init                                         "/bin/bash -c 'if [ …"    2 days ago   Exited (0) 2 days ago                                                vss-configurator-2d-init
+0ad7a9cd12ad   elasticsearch                                                       "/usr/share/elastics…"    2 days ago   Up 2 days (healthy)                                                  elasticsearch
+935b5e89d69c   busybox:1.37.0                                                      "/bin/sh /scripts/se…"    2 days ago   Exited (0) 2 days ago                                                sensor-bp-wait-bp-configurator
+200ba5c499b9   alpine:3.23.4                                                       "/bin/sh -c 'echo \"r…"   2 days ago   Exited (0) 2 days ago                                                sdrc-render-config
+bf5270e333de   mdx-broker-health-check                                             "/scripts/check-kafk…"    2 days ago   Exited (0) 2 days ago                                                vss-broker-health-check
+b5aebf0b207b   arizephoenix/phoenix:14.15.0                                        "/usr/bin/python3.13…"    2 days ago   Up 2 days               4317/tcp, 9090/tcp, 0.0.0.0:6006->6006/tcp   phoenix
+708b7567ef99   nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04                        "/usr/local/dcgm/dcg…"    2 days ago   Up 2 days               0.0.0.0:9400->9400/tcp                       dcgm-exporter
+c6e9f2f0bd8e   redis:8.6.2-alpine                                                  "docker-entrypoint.s…"    2 days ago   Up 2 days                                                            redis
+af04ab9a5da6   haproxy:3.0-alpine                                                  "docker-entrypoint.s…"    2 days ago   Up 2 days                                                            vss-haproxy-ingress
+9dcd07cc66e8   quay.io/prometheus/node-exporter:v1.11.1                            "/bin/node_exporter …"    2 days ago   Up 2 days               0.0.0.0:19100->9100/tcp                      mdx-node-exporter-1
+```
+
+**Check running containers - 3d Vision AI Profile with Minimal deployment**
+
+```bash
+$ docker ps -a
+# If you see no output, then the container is not running.
+# If you see output, then the container is running.
+#example
+CONTAINER ID   IMAGE                                                                  COMMAND                   CREATED         STATUS                          PORTS     NAMES
+ab2b65e89180   nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1                             "/opt/nvidia/deepstr…"    2 minutes ago   Up About a minute                         vss-rtvi-cv
+a4b82681902d   nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.1                   "bin/bash -c 'if [ …"     2 minutes ago   Up About a minute                         vss-vios-nvstreamer
+bafea355b2d2   nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.1                      "nginx -c /etc/nginx…"    2 minutes ago   Up About a minute (healthy)               vss-vios-ingress
+5f29019b5c78   nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0                              "/usr/local/bin/wdm-…"    2 minutes ago   Up About a minute                         sdr-controller
+907e49898c62   redis:8.6.2-alpine                                                  "/bin/sh /wait-for-r…"    2 minutes ago   Exited (0) 2 minutes ago                  sdrc-wait-for-redis
+896b1de6187f   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    2 minutes ago   Exited (0) About a minute ago             sdrc-wait-for-workloads
+e4e93da39910   nvcr.io/nvidia/vss-core/vss-configurator:3.2.1                      "/usr/bin/shelless_u…"    2 minutes ago   Up About a minute (healthy)               vss-configurator
+28d4d9e68d67   confluentinc/cp-kafka:8.2.0                                         "bash /usr/bin/creat…"    2 minutes ago   Exited (0) 2 minutes ago                  vss-kafka-topics
+41489fadbf8c   nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.1             "/bin/bash -c 'if [ …"    2 minutes ago   Up 2 minutes (healthy)                    vss-vios-streamprocessing
+3092b44e81cd   nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.1                       "/bin/bash -c 'exec …"    2 minutes ago   Up About a minute (healthy)               vss-vios-sensor
+a8b79b121d40   nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1                "/usr/bin/shelless_u…"    2 minutes ago   Up About a minute                         vss-behavior-analytics
+3f36acbf9fe8   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    2 minutes ago   Exited (0) 2 minutes ago                  sdrc-wdm-env-from-config
+f9c0da138528   confluentinc/cp-kafka:8.2.0                                         "/bin/sh /usr/local/…"    2 minutes ago   Up 2 minutes (healthy)                    kafka
+c3696b04aefb   mdx-bp-configurator-3d-init                                         "/bin/bash -c 'if [ …"    2 minutes ago   Exited (0) About a minute ago             vss-configurator-3d-init
+33d30afd54c6   mdx-broker-health-check                                             "/scripts/check-kafk…"    2 minutes ago   Exited (0) About a minute ago             vss-broker-health-check
+d94975f0fb56   postgres:17.9-alpine                                                "docker-entrypoint.s…"    2 minutes ago   Up 2 minutes (healthy)                    vss-vios-postgres
+fc86f7ba00af   redis:8.6.2-alpine                                                  "docker-entrypoint.s…"    2 minutes ago   Up 2 minutes                              redis
+09d6936425f2   alpine:3.23.4                                                       "/bin/sh -c 'echo \"r…"   2 minutes ago   Exited (0) 2 minutes ago                  sdrc-render-config
+039c49507518   nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0                 "/usr/bin/shelless_u…"    2 minutes ago   Exited (0) About a minute ago             vss-rtvi-cv-config-adaptor
+7daebf75ecb4   busybox:1.37.0                                                      "/bin/sh /scripts/se…"    2 minutes ago   Exited (0) About a minute ago             sensor-bp-wait-bp-configurator
+fcccd61fec90   alpine:3.23.4                                                       "/bin/sh -c 'set -e\n…"   2 minutes ago   Exited (0) 2 minutes ago                  sdrc-init-dirs
+```
+
+**Check running containers - MV3DT Vision AI Profile with Minimal deployment**
+
+```bash
+$ docker ps -a
+# If you see no output, then the container is not running.
+# If you see output, then the container is running.
+#example
+CONTAINER ID   IMAGE                                                                  COMMAND                   CREATED          STATUS                      PORTS     NAMES
+b465521d44a8   nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1                             "/opt/nvidia/deepstr…"    10 minutes ago   Up 9 minutes                          vss-rtvi-cv-mv3dt
+0dba1c395455   nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.1                       "/bin/bash -c 'exec …"    10 minutes ago   Up 9 minutes (healthy)                vss-vios-sensor
+2653093ae92b   nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.1                   "bin/bash -c 'if [ …"     10 minutes ago   Up 9 minutes                          vss-vios-nvstreamer-mv3dt
+22b5f0b04093   nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0                              "/usr/local/bin/wdm-…"    10 minutes ago   Up 9 minutes                          sdr-controller
+4859d107dc50   redis:8.6.2-alpine                                                  "/bin/sh /wait-for-r…"    10 minutes ago   Exited (0) 10 minutes ago             sdrc-wait-for-redis
+f790f6e19c8d   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    10 minutes ago   Exited (0) 9 minutes ago              sdrc-wait-for-workloads
+e040a652bdac   confluentinc/cp-kafka:8.2.0                                         "bash /usr/bin/creat…"    10 minutes ago   Exited (0) 9 minutes ago              vss-kafka-topics
+58e4c7ab39b6   nvcr.io/nvidia/vss-core/vss-configurator:3.2.1                      "/usr/bin/shelless_u…"    10 minutes ago   Up 9 minutes (healthy)                vss-configurator-mv3dt
+2a8da608e73d   nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:3.2.0            "python3 -u /app/mea…"    10 minutes ago   Up 9 minutes (healthy)                vss-rtvi-cv-bev-fusion
+73e3fc06a7b7   nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1                "/usr/bin/shelless_u…"    10 minutes ago   Up 9 minutes                          vss-behavior-analytics-mv3dt
+e9dcab30442d   nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.1             "/bin/bash -c 'if [ …"    10 minutes ago   Up 10 minutes (healthy)               vss-vios-streamprocessing
+c66eb2981fdf   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    10 minutes ago   Exited (0) 10 minutes ago             sdrc-wdm-env-from-config
+08529c3672db   mdx-broker-health-check                                             "/scripts/check-kafk…"    10 minutes ago   Exited (0) 9 minutes ago              vss-broker-health-check
+24eed87f3825   mdx-bp-configurator-mv3dt-init                                      "/bin/bash -c 'if [ …"    10 minutes ago   Exited (0) 9 minutes ago              vss-configurator-mv3dt-init
+f5a3da28c505   postgres:17.9-alpine                                                "docker-entrypoint.s…"    10 minutes ago   Up 10 minutes (healthy)               vss-vios-postgres
+03894851f3e5   nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.1                      "nginx -c /etc/nginx…"    10 minutes ago   Up 10 minutes (healthy)               vss-vios-ingress
+1dc604742065   eclipse-mosquitto:2                                                 "/docker-entrypoint.…"    10 minutes ago   Up 10 minutes (healthy)               mosquitto
+e3dae1bf588a   alpine:3.23.4                                                       "/bin/sh -c 'echo \"r…"   10 minutes ago   Exited (0) 10 minutes ago             sdrc-render-config
+662fb931435f   redis:8.6.2-alpine                                                  "docker-entrypoint.s…"    10 minutes ago   Up 10 minutes                         redis
+c2975ee819ad   confluentinc/cp-kafka:8.2.0                                         "/bin/sh /usr/local/…"    10 minutes ago   Up 10 minutes (healthy)               kafka
+e708ed9a66f9   busybox:1.37.0                                                      "/bin/sh /scripts/se…"    10 minutes ago   Exited (0) 9 minutes ago              sensor-bp-wait-bp-configurator
+e13b543c824e   alpine:3.23.4                                                       "/bin/sh -c 'set -e\n…"   10 minutes ago   Exited (0) 10 minutes ago             sdrc-init-dirs
+```
+
+**Check running containers - 2d Vision AI Auto Calibration Profile**
+
+```bash
+$ docker ps -a
+# If you see no output, then the container is not running.
+# If you see output, then the container is running.
+#example
+CONTAINER ID   IMAGE                                                                  COMMAND                   CREATED         STATUS                     PORTS                                                 NAMES
+2436139a5ee2   nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.1                      "nginx -c /etc/nginx…"    4 minutes ago   Up 4 minutes (healthy)                                                           vss-vios-ingress
+17eba1c7a693   nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.1                       "/bin/bash -c 'exec …"    4 minutes ago   Up 4 minutes (healthy)                                                           vss-vios-sensor
+b90d2ed80c70   nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.1                   "bin/bash -c 'if [ …"     4 minutes ago   Up 4 minutes                                                                     vss-vios-nvstreamer
+8484fcbd9113   nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0                              "/usr/local/bin/wdm-…"    4 minutes ago   Up 4 minutes                                                                     sdr-controller
+dd690d0cab5e   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    4 minutes ago   Up 4 minutes                                                                     sdrc-wait-for-workloads
+09c6461a0e9d   redis:8.6.2-alpine                                                  "/bin/sh /wait-for-r…"    4 minutes ago   Exited (0) 4 minutes ago                                                         sdrc-wait-for-redis
+a80aab563d52   nvcr.io/nvidia/vss-core/vss-configurator:3.2.1                      "/usr/bin/shelless_u…"    4 minutes ago   Up 4 minutes (healthy)                                                           vss-configurator
+7650cb874b3c   nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.1             "/bin/bash -c 'if [ …"    4 minutes ago   Up 4 minutes (healthy)                                                           vss-vios-streamprocessing
+e96cdc938fa0   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    4 minutes ago   Exited (0) 4 minutes ago                                                         sdrc-wdm-env-from-config
+3ee3b0caa4c1   nvcr.io/nvidia/vss-core/vss-auto-calibration:3.2.1                  "bash /home/auto-cal…"    4 minutes ago   Up 4 minutes (healthy)                                                           vss-auto-calibration
+8163e8d97452   mdx-bp-configurator-2d-init                                         "/bin/bash -c 'if [ …"    4 minutes ago   Exited (0) 4 minutes ago                                                         vss-configurator-2d-init
+10a38983c499   redis:8.6.2-alpine                                                  "docker-entrypoint.s…"    4 minutes ago   Up 4 minutes                                                                     redis
+805536396eb4   nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:3.2.1               "/docker-entrypoint.…"    4 minutes ago   Up 4 minutes               80/tcp, 0.0.0.0:5000->5000/tcp, [::]:5000->5000/tcp   vss-auto-calibration-ui
+b3cbb2d9cf5b   postgres:17.9-alpine                                                "docker-entrypoint.s…"    4 minutes ago   Up 4 minutes (healthy)                                                           vss-vios-postgres
+0319aed3a35e   haproxy:3.0-alpine                                                  "docker-entrypoint.s…"    4 minutes ago   Up 4 minutes                                                                     vss-haproxy-ingress
+7a89661f1fe1   alpine:3.23.4                                                       "/bin/sh -c 'set -e\n…"   4 minutes ago   Exited (0) 4 minutes ago                                                         sdrc-init-dirs
+2287583efa6c   alpine:3.23.4                                                       "/bin/sh -c 'echo \"r…"   4 minutes ago   Exited (0) 4 minutes ago                                                         sdrc-render-config
+5c886f3f94e3   busybox:1.37.0                                                      "/bin/sh /scripts/se…"    4 minutes ago   Exited (0) 4 minutes ago                                                         sensor-bp-wait-bp-configurator
+```

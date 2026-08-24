@@ -1,0 +1,382 @@
+---
+title: "VSS Orchestrator MCP"
+description: ""
+position: 2
+---
+The **VSS Orchestrator MCP server** is the host-side process that NemoClaw's agent calls to deploy and operate VSS. It exposes a Model Context Protocol function group named `vss_orchestrator` that generates Docker Compose artifacts, runs `docker compose` operations in the background, lists containers, and fetches logs.
+
+The server is packaged with the VSS agent and started via `uv run nat mcp serve`. In the [notebook flow ](/nemoclaw-deploy-vss-and-skills), Section 6.1 starts it on port `9988` and polls the `profiles` tool until healthy.
+
+## Configuration
+
+The notebook starts the MCP server with this config file:
+
+* `deploy/docker/scripts/vss_orchestrator_mcp_config.yml`
+
+The registered function group implementation lives in:
+
+* `services/agent/src/vss_agents/orchestrator/tools.py`
+
+Before starting the server outside the notebook, verify the absolute paths in the YAML match your checkout and writable data locations:
+
+* `deployments_dir` - absolute path to `deploy/docker`.
+* `source_compose_yaml` - absolute path to `deploy/docker/compose.yml`.
+* `source_env` - absolute path template for VSS profiles `.env` files, with `{profile}` placeholder.
+* `mdx_data_dir` - base writable VSS data directory used for generated deployments. This overrides any `VSS_DATA_DIR` value in the selected profile `.env` file.
+* `output_dir` - writable directory where `docker_generate` stores generated env and compose artifacts.
+
+If any path is invalid or non-writable, startup or artifact generation fails early.
+
+### Environment variables
+
+This section documents the environment variables read by the MCP server process. In the notebook flow, users set the `VSS_*` notebook variables in Section 1.3; Section 6.1 maps them to these unprefixed MCP process environment variables before launch.
+
+`docker_generate` resolves profile values from lowest to highest precedence:
+
+1. Selected profile `.env` defaults.
+2. `HARDWARE_PROFILE` and hardware/model rules from `vss_orchestrator_mcp_config.yml`.
+3. MCP server startup environment, such as credentials, remote LLM/VLM endpoints, and GPU device IDs.
+4. Per-call `env_overrides` from `docker_generate`.
+
+| Variable | Purpose |
+| --- | --- |
+| `NGC_CLI_API_KEY` | Used by pre-compose NGC artifact downloads for profiles such as `search` and `alerts`. |
+| `NVIDIA_API_KEY` | Propagated into generated VSS env for NVIDIA-hosted endpoints. |
+| `HARDWARE_PROFILE` | Hardware profile applied by the orchestrator. Supported values are `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
+| `EXTERNAL_IP` | Externally reachable host IP used when generating URLs. If blank, the notebook resolves it from `hostname -I`. |
+| `OPENAI_API_KEY` | Key used by generated VSS services when remote OpenAI-compatible LLM/VLM endpoints are configured. |
+| `LLM_ENDPOINT_URL`, `LLM_NAME`, `LLM_MODEL_TYPE` | Force the deployed VSS LLM path to remote mode and set its endpoint/model metadata. |
+| `VLM_ENDPOINT_URL`, `VLM_NAME`, `VLM_MODEL_TYPE` | Force the deployed VSS VLM path to remote mode and set its endpoint/model metadata. |
+| `LLM_ENABLE_THINKING` | Optional deployed-VSS LLM behavior override. |
+| `VLM_NIM_KVCACHE_PERCENT` | Profile-level knob bridged into VLM NIM cache sizing. |
+| `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | Optional GPU memory utilization override for RTVI VLM workloads. |
+| `LLM_DEVICE_ID`, `VLM_DEVICE_ID` | GPU IDs for local LLM and VLM NIMs on non-edge hardware profiles. |
+| `VSS_ORCHESTRATOR_MCP_HOST` | Notebook launch override for bind host (default `0.0.0.0`). |
+| `VSS_ORCHESTRATOR_MCP_PORT` | Notebook launch override for bind port (default `9988`). |
+
+## Starting the server standalone
+
+From `services/agent/`:
+
+```bash
+export HARDWARE_PROFILE="RTXPRO6000BW"
+export NGC_CLI_API_KEY="<your-ngc-key>"
+export NVIDIA_API_KEY="<your-nvidia-key>"  # required only for NVIDIA-hosted VSS endpoints
+
+uv run nat mcp serve \
+  --config_file ../../deploy/docker/scripts/vss_orchestrator_mcp_config.yml \
+  --host 0.0.0.0 \
+  --port 9988
+```
+
+Call a tool directly with the NAT MCP client:
+
+```bash
+uv run nat mcp client tool call vss_orchestrator__profiles \
+  --url http://127.0.0.1:9988/mcp \
+  --transport streamable-http
+```
+
+The notebook automates startup and writes logs to `<VSS_REPO_DIR>/.orchestrator-artifacts/vss_orchestrator_mcp.log`.
+
+## Key IDs returned by tools
+
+Tools coordinate through two opaque IDs:
+
+* `docker_compose_id` - returned by `docker_generate`; used by `docker_read`, `docker_up`, and `docker_down`.
+* `docker_compose_ops_id` - returned by `docker_up` / `docker_down`; used by `docker_status` to poll a background operation.
+
+## Tool reference
+
+The MCP server exposes nine tools, all prefixed `vss_orchestrator__`.
+
+| Tool | Purpose |
+| --- | --- |
+| `vss_orchestrator__profiles` | List supported deployment profiles. |
+| `vss_orchestrator__prereqs` | Run Docker, GPU, NVIDIA container toolkit, and disk prerequisite checks. |
+| `vss_orchestrator__docker_generate` | Resolve `.env` and compose YAML for a chosen profile. |
+| `vss_orchestrator__docker_read` | Fetch generated artifacts by `docker_compose_id`. |
+| `vss_orchestrator__docker_up` | Start a generated VSS stack in the background. |
+| `vss_orchestrator__docker_status` | Poll status and recent logs for a background up/down operation. |
+| `vss_orchestrator__docker_list` | List Docker container names. |
+| `vss_orchestrator__docker_logs` | Fetch logs for one container. |
+| `vss_orchestrator__docker_down` | Tear down a generated VSS stack in the background. |
+
+<Note>
+`docker_up` runs pre-compose checks before starting Docker. It ensures data directories exist, downloads configured NGC model artifacts for profiles that need them, and creates alerts engine directories for the `alerts` profile.
+</Note>
+
+## Tool payloads and responses
+
+`profiles`
+
+### `profiles`
+
+List supported deployment profiles. Payload: none (use `{}`).
+
+```json
+{
+  "status": "success",
+  "profiles": ["alerts", "base", "lvs", "search"]
+}
+```
+
+`prereqs`
+
+### `prereqs`
+
+Run prerequisite checks. Payload: none (use `{}`).
+
+```json
+{
+  "status": "success",
+  "message": "Prerequisite checks passed.",
+  "details": {
+    "gpu_count": 2,
+    "docker_version": "Docker version 29.4.3, build ...",
+    "compose_version": "Docker Compose version v5.1.3",
+    "container_toolkit_ok": true,
+    "disk_free_gib": 295.3
+  }
+}
+```
+
+`docker_generate`
+
+### `docker_generate`
+
+Validate the profile/env and generate resolved env + compose artifacts.
+
+Payload:
+
+```json
+{
+  "profile": "alerts",
+  "profile_mode": "verification",
+  "env_overrides": []
+}
+```
+
+Options:
+
+* `profile` is required and supports `base`, `search`, `lvs`, and `alerts`.
+* `profile_mode` is required for `alerts` and currently supports `verification` and `real-time`. Other profiles do not accept `profile_mode`.
+* `env_overrides` defaults to `[]` and accepts `KEY=VALUE` strings. For values that can be set, see the `Environment variables`_ table and the selected profile `.env` defaults. Per-call `env_overrides` values have the highest precedence.
+
+Response:
+
+```json
+{
+  "status": "success",
+  "docker_compose_id": "alerts-abc12345",
+  "hardware_profile": "RTXPRO6000BW",
+  "host_ip": "10.0.0.10",
+  "external_ip": "10.0.0.10",
+  "mode": "2d_cv",
+  "llm_mode": "local",
+  "llm_name": "nvidia/nvidia-nemotron-nano-9b-v2",
+  "vlm_mode": "local",
+  "vlm_name": "nvidia/cosmos3-nano-reasoner",
+  "compose_profiles": "alerts_2d_cv,...",
+  "message": "Artifacts generated. Use docker_compose_id with docker_up/docker_down."
+}
+```
+
+`docker_read`
+
+### `docker_read`
+
+Fetch generated env/compose artifact contents by `docker_compose_id`.
+
+Payload:
+
+```json
+{ "docker_compose_id": "alerts-abc12345" }
+```
+
+Options:
+
+* `docker_compose_id` is required and must be a compose ID returned by `docker_generate`.
+
+Response:
+
+```json
+{
+  "status": "success",
+  "docker_compose_id": "alerts-abc12345",
+  "profile": "alerts",
+  "env_content": "...",
+  "compose_yaml_content": "..."
+}
+```
+
+`docker_list`
+
+### `docker_list`
+
+List Docker container names. Payload: none (use `{}`).
+
+<Note>
+`all_containers` defaults to `true`. Use `{ "all_containers": false }` only if you want to list running containers instead of all containers, including stopped ones.
+</Note>
+
+Response:
+
+```json
+{
+  "status": "success",
+  "container_names": ["vss-agent", "vst", "redis"]
+}
+```
+
+`docker_logs`
+
+### `docker_logs`
+
+Fetch logs for one container. Be mindful when requesting a large number of log lines because it can consume many chat tokens.
+
+Payload:
+
+```json
+{
+  "container_name": "vss-agent",
+  "tail": 20
+}
+```
+
+Options:
+
+* `container_name` is required and must be the Docker container name.
+* `tail` defaults to `20` and accepts values from `1` to `200`.
+
+Response:
+
+```json
+{
+  "status": "success",
+  "container_name": "vss-agent",
+  "tail": 20,
+  "logs": "...",
+  "logs_truncated": false,
+  "log_bytes": 12345
+}
+```
+
+`docker_up`
+
+### `docker_up`
+
+Start deployment for a generated compose id. Returns immediately, and status can be polled via `docker_status`.
+
+Payload:
+
+```json
+{
+  "docker_compose_id": "alerts-abc12345",
+  "build": true,
+  "force_recreate": false,
+  "pull_always": false
+}
+```
+
+Options appended to the `docker compose up` command:
+
+* `docker_compose_id` is required and must be a compose ID returned by `docker_generate`.
+* `build` defaults to `true` and appends `--build`.
+* `force_recreate` appends `--force-recreate`.
+* `pull_always` appends `--pull always`.
+
+Response:
+
+```json
+{
+  "status": "started",
+  "docker_compose_ops_id": "up-alerts-abc12345-def67890",
+  "docker_compose_id": "alerts-abc12345",
+  "action": "up",
+  "command": "docker compose up -d --quiet-pull --build",
+  "poll_tool": "docker_status",
+  "status_hint": "Poll docker_status with docker_compose_ops_id for progress/completion.",
+  "recommended_poll_interval_s": 60,
+  "pid": -1
+}
+```
+
+`docker_status`
+
+### `docker_status`
+
+Poll a running `docker_up` / `docker_down` operation.
+
+Payload:
+
+```json
+{
+  "docker_compose_ops_id": "up-alerts-abc12345-def67890",
+  "tail_lines": 20
+}
+```
+
+Options:
+
+* `docker_compose_ops_id` is required and must be an operation ID returned by `docker_up` or `docker_down`.
+* `tail_lines` defaults to `5` and accepts values from `1` to `20`.
+
+Response:
+
+```json
+{
+  "status": "running",
+  "docker_compose_ops_id": "up-alerts-abc12345-def67890",
+  "docker_compose_id": "alerts-abc12345",
+  "action": "up",
+  "pid": 12345,
+  "running": true,
+  "exit_code": null,
+  "command": "docker compose up -d --quiet-pull --build",
+  "tail_lines": 20,
+  "log_excerpt": "...",
+  "log_excerpt_truncated": false,
+  "log_excerpt_bytes": 23456
+}
+```
+
+`docker_down`
+
+### `docker_down`
+
+Stop and remove a deployment for a generated compose id. Returns immediately, and status can be polled via `docker_status`.
+
+Payload:
+
+```json
+{
+  "docker_compose_id": "alerts-abc12345",
+  "remove_volumes": true,
+  "remove_orphans": true,
+  "deep_clean": false
+}
+```
+
+Options appended to the `docker compose down` command:
+
+* `docker_compose_id` is required and must be a compose ID returned by `docker_generate`.
+* `remove_volumes` defaults to `true` and appends `-v`.
+* `remove_orphans` defaults to `true` and appends `--remove-orphans`.
+* `deep_clean` defaults to `false`. When set to `true`, a successful down operation also deletes the configured `mdx_data_dir`.
+
+Response:
+
+```json
+{
+  "status": "started",
+  "docker_compose_ops_id": "down-alerts-abc12345-def67890",
+  "docker_compose_id": "alerts-abc12345",
+  "action": "down",
+  "command": "docker compose down -v --remove-orphans",
+  "poll_tool": "docker_status",
+  "status_hint": "Poll docker_status with docker_compose_ops_id for progress/completion.",
+  "recommended_poll_interval_s": 10,
+  "pid": -1
+}
+```

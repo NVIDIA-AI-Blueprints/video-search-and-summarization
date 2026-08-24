@@ -1,0 +1,700 @@
+---
+title: "Troubleshooting"
+description: ""
+position: 4
+---
+This section provides solutions to common issues and error messages.
+
+## Common Issues
+
+### Cannot Access the UI
+
+**Symptom**: Browser shows "Unable to connect" or "Connection refused"
+
+**Possible Causes**:
+
+* Backend server is not running
+* Incorrect URL or port
+* Network connectivity issues
+* Firewall blocking access
+
+**Solutions**:
+
+1. **Verify Server is Running**
+
+   ```bash
+   # Check Docker container status
+   docker ps | grep auto-calib
+   
+   # Or check docker compose services
+   docker compose ps
+   ```
+
+2. **Verify URL and Port**
+
+   * Check the URL in your browser address bar
+   * Verify the port number matches server configuration
+   * Try accessing from the server machine: `http://localhost:<port>`
+
+3. **Check Network Connectivity**
+
+   ```bash
+   # Ping the server
+   ping <server-ip>
+   
+   # Check if port is accessible (use nc if telnet is not installed, e.g. Ubuntu 24.04)
+   nc -vz <server-ip> <port>
+   
+   # Alternative (if telnet is installed)
+   telnet <server-ip> <port>
+   ```
+
+4. **Check Firewall Settings**
+
+   * Ensure firewall allows traffic on the UI port
+   * Check both server and client firewalls
+   * Temporarily disable firewall to test (not recommended for production)
+
+### Port Already in Use
+
+**Symptom**: Docker container fails to start with "port is already allocated" error
+
+**Cause**: Another application or container is already using the configured port.
+
+**Default ports in this guide**: UI **5000** and backend **8000** (set via `VSS_AUTO_CALIBRATION_UI_PORT` and `VSS_AUTO_CALIBRATION_PORT` in `.env`). The service `compose.yml` in the repository may default the backend to **8010** when those variables are unset—always check the values in your `.env` file.
+
+**Solution**:
+
+1. **Check what's using the port** (replace with your configured ports):
+
+   ```bash
+   # Check which process is using a specific port
+   sudo lsof -i :5000
+   sudo lsof -i :8000
+   
+   # Or using netstat
+   sudo netstat -tulpn | grep :5000
+   ```
+
+2. **Use a different port**: Update your `.env` file with different ports:
+
+   ```bash
+   # Edit .env file
+   VSS_AUTO_CALIBRATION_PORT=8001
+   VSS_AUTO_CALIBRATION_UI_PORT=5001
+   ```
+
+   Then restart the services:
+
+   ```bash
+   docker compose --profile "auto_calib" down
+   docker compose --profile "auto_calib" up -d
+   ```
+
+3. **Stop the conflicting service** (if safe to do so):
+
+   ```bash
+   # Kill the process using the port (replace PID with actual process ID)
+   sudo kill <PID>
+   
+   # Or stop conflicting Docker containers
+   docker compose down
+   ```
+
+### API_URL_NOT_PROVIDED Error
+
+**Symptom**: UI loads but shows "API_URL_NOT_PROVIDED" error
+
+**Cause**: Docker Compose started without proper HOST_IP environment variable
+
+**Solution**:
+
+1. Stop the services:
+
+   ```bash
+   docker compose --profile "auto_calib" down
+   ```
+
+2. Verify your `.env` file has the correct HOST_IP:
+
+   ```bash
+   # Check .env file
+   cat .env
+   
+   # Ensure HOST_IP is set correctly
+   HOST_IP=<YOUR_SERVER_IP_ADDRESS>
+   ```
+
+3. Restart the services:
+
+   ```bash
+   docker compose --profile "auto_calib" up -d
+   ```
+
+4. Verify API_URL in browser console:
+
+   ```javascript
+   // Open browser console (F12) and check
+   console.log(window.ENV?.API_URL)
+   ```
+
+## Calibration Issues
+
+### Verification Fails
+
+**Symptom**: "Verify Project" button shows error
+
+**Possible Causes**:
+
+* Missing required files
+* Invalid alignment data
+* Corrupted video files
+* Server validation error
+
+**Solutions**:
+
+1. **Check Requirements Checklist**
+
+   * ✓ At least **1** video or RTSP clip uploaded for **single-camera**; **2 or more** for **multi-camera**
+   * ✓ Layout image uploaded
+   * ✓ Alignment data uploaded or created
+
+2. **Verify Alignment Data**
+
+   * Must have at least 4 complete point sets
+   * **Multi-camera**: each set must include points for every camera view plus the layout (BEV) point
+   * **Single-camera**: each set must include **camera + layout** point pairs (two `[x, y]` pairs per set—not cam0/cam1/BEV)
+   * Check JSON format if uploaded manually
+
+3. **Check Video Files**
+
+   * Ensure videos are not corrupted
+   * Try playing videos locally
+   * Re-upload if necessary
+
+4. **Check Server Logs**
+
+   ```bash
+   # View detailed error messages
+   docker compose logs | grep -i error
+   ```
+
+5. **Reset and Retry**
+
+   * Go back to previous steps
+   * Re-upload files if needed
+   * Try verification again
+
+### Calibration Fails Immediately
+
+**Symptom**: Calibration starts but fails within seconds
+
+**Possible Causes**:
+
+* Invalid input files
+* Alignment data errors
+* Server configuration issue
+* Insufficient resources
+
+**Solutions**:
+
+1. **Check Input Files**
+
+   * Verify video files are readable
+   * Check layout image is valid
+   * Validate alignment data format
+
+2. **Review Alignment Points**
+
+   * Ensure points are on ground plane
+   * Verify points are visible in all views
+   * Check for reasonable spatial distribution
+
+3. **Check Server Resources**
+
+   ```bash
+   # Check CPU and memory usage
+   top
+   
+   # Check GPU availability
+   nvidia-smi
+   ```
+
+4. **Check Server Logs**
+
+   ```bash
+   # View calibration logs
+   docker compose logs --tail 100
+   ```
+
+5. **Reset Project**
+
+   * Click "Reset Project" button
+   * Re-verify and restart calibration
+
+### Calibration Takes Too Long
+
+**Symptom**: Calibration running for more than 30 minutes
+
+**Expected Duration**: 5-15 minutes for typical setups
+
+**Possible Causes**:
+
+* Large video files
+* Many cameras
+* Server resource constraints
+* Network issues
+
+**Solutions**:
+
+1. **Check Server Resources**
+
+   ```bash
+   # Monitor resource usage
+   htop
+   
+   # Check GPU utilization
+   watch -n 1 nvidia-smi
+   ```
+
+2. **Verify Network Connection**
+
+   * Ensure stable connection
+   * Check for network interruptions
+   * Monitor network traffic
+
+3. **Wait for Completion**
+
+   * Calibration may take longer for:
+
+     * High-resolution videos
+     * Many cameras (5+)
+     * Complex scenes
+     * Limited GPU resources
+
+4. **Contact Administrator**
+
+   * If exceeds 30 minutes
+   * Provide project details
+   * Check server configuration
+
+### Calibration Completes but Results Look Wrong
+
+**Symptom**: Calibration finishes but overlay or projections are incorrect
+
+**Possible Causes**:
+
+* Poor alignment point selection
+* Incorrect layout image (scale, orientation, or crop)
+* Camera synchronization issues (videos or RTSP not from the same time window)
+* **Calibration parameters** mismatch—especially **Layout Pixels Per Meter** (`layout_px_per_m`)
+* Tracklet-matching or multi-view thresholds too strict/loose (see Settings)
+
+**Solutions**:
+
+1. **Review Alignment Points**
+
+   * Verify points are on ground plane
+   * Check spatial distribution
+   * Ensure points are visible in all views (or camera + layout for single-camera)
+   * Add more points (6-8 sets recommended)
+
+2. **Verify Layout Image**
+
+   * Check scale and orientation
+   * Ensure it matches physical space
+   * Verify no distortion or warping
+
+3. **Check Video Synchronization**
+
+   * Ensure videos or RTSP captures are from the same time
+   * For RTSP: one combined capture for all streams—no staggered captures
+   * Verify frame alignment; check for camera movement
+
+4. **Check Calibration Parameters (Settings)**
+
+   On the **Parameters** step, open the **settings** icon (top-right) and review values **before** the next **Execute** run. Upload a settings file or edit fields, then **Save Settings**.
+
+   Pay special attention to:
+
+   * **Layout Pixels Per Meter** (`layout_px_per_m`) under **Evaluation Configuration**: Meters represented per pixel on `layout.png`. If this is wrong, world-map projection, overlays, and ROI/tripwire BEV verification will look scaled or “out of context” even when alignment looks acceptable. Measure or estimate the true scale on your floor plan (for example, known distance in meters ÷ distance in layout pixels) and set a matching value. Default is often `24.22`—change it only when your layout scale differs.
+   * **Multi-View AMC** thresholds (tracklet length, matching scores, inlier counts) if calibration fails or tracklets match poorly
+   * **Rectification** options if lens distortion is significant
+
+5. **Re-run Calibration**
+
+   * Delete results
+   * Fix alignment, layout scale, and parameters
+   * Run calibration again
+
+6. **Try VGGT**
+
+   * If available, run VGGT calibration
+   * Compare results with AMC
+   * Use the better result
+
+### RTSP Capture Issues
+
+**Symptom**: RTSP capture card missing, capture fails, or ingested clips are out of sync
+
+**Possible Causes**:
+
+* `VIOS_BASE_URL` not set or incorrect in `.env`
+* Wrong RTSP URL (VIOS-proxied URL instead of source URL)
+* Separate captures or late ingest instead of one combined session
+
+**Solutions**:
+
+1. **Verify VIOS configuration**
+
+   * Confirm VIOS is running and reachable
+   * Set `VIOS_BASE_URL=http://<VIOS_HOST_IP>:30888` (or your deployment URL) in `.env` and restart: `docker compose --profile "auto_calib" up -d`
+
+2. **Use source RTSP URLs**
+
+   * For VIOS pre-registered streams, enter the **source URL** (for example, the **NVStreamer** URL), not the VIOS-proxied URL
+
+3. **Capture and ingest timing**
+
+   * Configure **all** streams, then run **one** **Start capture** for the full set
+   * Wait until status is **COMPLETED** or **CANCELLED** (minimum **60** seconds of recording) before **Ingest to project**
+   * Do not add streams in separate sessions or ingest additional clips later
+
+4. **Check server logs**
+
+   ```bash
+   docker compose logs | grep -i -E 'rtsp|vios|capture|ingest'
+   ```
+
+### VGGT Calibration Issues
+
+**Symptom**: VGGT section unavailable, fails immediately, or does not appear on Results
+
+**Possible Causes**:
+
+* VGGT model not downloaded or wrong path
+* Backend built without VGGT support
+* Single-camera project (VGGT is multi-camera only)
+* AMC has not produced required on-disk outputs (e.g., rectification)
+* `VGGT_MODEL_PATH` or model file missing inside the container mount
+
+**Solutions**:
+
+1. **Confirm project type**
+
+   * VGGT is **multi-camera only** (two or more videos or RTSP clips)—not supported for single-camera
+
+2. **Verify model installation**
+
+   * Download `vggt_1B_commercial.pt` and place it under `${VSS_DATA_DIR}/auto-calib/vggt/` as described in [Getting Started](/autocalib-getting-started)
+   * Ensure the path is mounted into the backend container and matches `VGGT_MODEL_PATH` if your deployment sets it explicitly
+
+3. **Check backend capability**
+
+   * If the UI shows **VGGT Calibration Not Available**, the backend image or configuration does not expose VGGT—use AMC-only results or redeploy with VGGT enabled
+
+4. **Run VGGT at the right time**
+
+   * Run **Start Calibration** (AMC) first so rectification outputs exist
+   * On Execute, confirm **VGGT** state is **READY**, then click **Run VGGT Calibration**
+   * If AMC failed after rectification, VGGT may still be runnable
+
+5. **View VGGT results**
+
+   * When VGGT completes, project state becomes **COMPLETED** even if AMC failed—open **Results** and select the **VGGT** tab
+
+6. **Check server logs**
+
+   ```bash
+   docker compose logs | grep -i vggt
+   ```
+
+## Results and Export Issues
+
+### No Results Available
+
+**Symptom**: Results step shows "Calibration not complete"
+
+**Possible Causes**:
+
+* Calibration not run yet
+* Both AMC and VGGT failed or were never run
+* Calibration still running
+
+**Solutions**:
+
+1. **Check Calibration Status**
+
+   * Go to Execute step
+   * Check AMC and VGGT states
+   * **Results** is available when AMC **or** VGGT completes successfully—if AMC failed but VGGT finished, open **Results** and use the **VGGT** tab
+
+2. **Run Calibration**
+
+   * If not run, start AMC calibration (and optional VGGT for multi-camera)
+   * Wait for completion
+   * Return to Results step
+
+3. **Check for Errors**
+
+   * If both paths failed, check logs
+   * For multi-camera, try **Run VGGT Calibration** if VGGT is **READY** after AMC produced rectification outputs
+   * Reset and retry if needed
+
+### Export Fails
+
+**Symptom**: Export button doesn't download file
+
+**Possible Causes**:
+
+* Browser download settings
+* Popup blocker
+* Server error
+* Insufficient disk space
+
+**Solutions**:
+
+1. **Check Browser Downloads**
+
+   * Verify downloads are allowed
+   * Check download folder
+   * Look for blocked downloads
+
+2. **Disable Popup Blocker**
+
+   * Allow popups for this site
+   * Try export again
+
+3. **Check Disk Space**
+
+   * Ensure sufficient space on local machine
+   * Free up space if needed
+
+4. **Try Different Browser**
+
+   * Test in Chrome or Firefox
+   * Check if export works
+
+5. **Check Server Logs**
+
+   ```bash
+   # Check for export errors
+   docker compose logs | grep -i export
+   ```
+
+### ROI Verification Not Working
+
+**Symptom**: "Show ROI & Tripwire Verification" button disabled or fails
+
+**Possible Causes**:
+
+* Calibration not completed (AMC or VGGT, depending on tab)
+* Missing calibration results
+* Server error
+
+**Solutions**:
+
+1. **Verify Calibration Completed**
+
+   * Check project state is **COMPLETED** (AMC and/or VGGT)
+   * Click **Show ROI & Tripwire Verification** to generate the BEV snapshot (a prior **Full Export** download is not required)
+
+2. **Refresh Page**
+
+   * Refresh browser
+   * Try verification again
+
+3. **Check Server Logs**
+
+   ```bash
+   # Check for verification errors
+   docker compose logs | grep -i "roi_bev"
+   ```
+
+### ROI & Tripwire BEV Looks Wrong
+
+**Symptom**: Verification opens, but ROIs/tripwires on the **world map** or camera view are misaligned, scaled incorrectly, or clearly “out of context” compared to the layout or video
+
+**Possible Causes**:
+
+* Incorrect **Layout Pixels Per Meter** (`layout_px_per_m`)
+* Wrong layout image (scale, rotation, or wrong map)
+* Poor alignment points or insufficient point sets
+* Per-camera vs global annotations drawn on the wrong target
+* AMC vs VGGT tab showing a result type that did not calibrate well
+
+**Solutions**:
+
+1. **Check Layout Pixels Per Meter** (most common scale issue)
+
+   * Open **Settings** on the **Parameters** step → **Evaluation Configuration** → **Layout Pixels Per Meter**
+   * Confirm the value matches how many **pixels on `layout.png` equal one meter** in the real scene
+   * Re-save settings, delete results, re-run calibration, then open verification again
+
+2. **Compare Layout vs World Map**
+
+   * Use **Global ROIs / tripwires** on the left (layout pixels) and the **world map** on the right; purple global features should line up with the layout drawing after a correct scale
+   * On **Camera** target, check purple global projections only where that camera should see them
+
+3. **Revisit Alignment and Inputs**
+
+   * Re-check manual alignment points (ground plane, spread across the scene)
+   * Confirm videos/RTSP are time-synchronized
+   * Re-upload a corrected layout image if the floor plan changed
+
+4. **Try VGGT or Re-export**
+
+   * If AMC projection looks wrong but VGGT completed, switch the world-map tab to **VGGT**
+   * After fixing parameters, run **Full Export** and use downstream systems with the updated JSON
+
+## Performance Issues
+
+### UI is Slow or Unresponsive
+
+**Symptom**: UI takes long time to respond to clicks
+
+**Possible Causes**:
+
+* Browser performance issues
+* Large files being processed
+* Network latency
+* Server overload
+
+**Solutions**:
+
+1. **Refresh Browser**
+
+   * Close and reopen browser
+   * Clear cache and cookies
+   * Try again
+
+2. **Close Other Tabs**
+
+   * Close unnecessary browser tabs
+   * Close other applications
+   * Free up system resources
+
+3. **Check Network Latency**
+
+   ```bash
+   # Ping server to check latency
+   ping <server-ip>
+   ```
+
+4. **Check Server Load**
+
+   ```bash
+   # Monitor server resources
+   top
+   htop
+   ```
+
+5. **Try Different Browser**
+
+   * Test in Chrome (recommended)
+   * Compare performance
+
+### Canvas Rendering is Slow
+
+**Symptom**: Drawing or zooming on canvas is laggy
+
+**Possible Causes**:
+
+* Large images
+* Browser rendering limitations
+* Hardware acceleration disabled
+
+**Solutions**:
+
+1. **Enable Hardware Acceleration**
+
+   * Chrome: Settings → Advanced → System → Use hardware acceleration
+   * Firefox: Preferences → General → Performance → Use hardware acceleration
+
+2. **Reduce Zoom Level**
+
+   * Reset to 100% zoom
+   * Avoid extreme zoom levels
+
+3. **Use Smaller Images**
+
+   * Resize layout image if very large
+   * Use appropriate resolution
+
+4. **Upgrade Browser**
+
+   * Use latest browser version
+   * Consider switching to Chrome
+
+## Error Messages
+
+### "Storage limit exceeded"
+
+**Symptom**: Error message in browser console
+
+**Cause**: Browser local storage full
+
+**Solution**:
+
+1. Clear browser data:
+
+   * Open browser settings
+   * Clear browsing data
+   * Select "Cookies and other site data"
+   * Clear data
+
+2. Delete conversation history if using chat features
+
+3. Refresh page
+
+### "Network error"
+
+**Symptom**: Error message when performing actions
+
+**Cause**: Network connectivity issues
+
+**Solution**:
+
+1. Check network connection
+2. Verify server is accessible
+3. Check firewall settings
+4. Retry action
+
+### "Server error"
+
+**Symptom**: Error message with 500 status code
+
+**Cause**: Backend server error
+
+**Solution**:
+
+1. Check server logs for details
+2. Verify server is running properly
+3. Check server resources
+4. Contact administrator if persistent
+
+### "Unauthorized"
+
+**Symptom**: Error message with 401 status code
+
+**Cause**: Authentication issue
+
+**Solution**:
+
+1. Refresh page
+2. Clear browser cache
+3. Check authentication settings
+4. Contact administrator
+
+### "Not found"
+
+**Symptom**: Error message with 404 status code
+
+**Cause**: Resource not found
+
+**Solution**:
+
+1. Verify project exists
+2. Check file was uploaded successfully
+3. Refresh project list
+4. Contact administrator if persistent

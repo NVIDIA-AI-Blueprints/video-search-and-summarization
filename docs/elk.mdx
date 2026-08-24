@@ -1,0 +1,429 @@
+---
+title: "ELK"
+description: ""
+position: 1
+---
+The ELK stack (Elasticsearch, Logstash, Kibana) provides the data pipeline and analytics infrastructure for all the blueprints. Video analytics data flows from microservices through Kafka or Redis Streams, gets processed by Logstash, indexed into Elasticsearch, and visualized in Kibana.
+
+The Docker deployment uses Elasticsearch `9.3.3`, Logstash `9.3.3`, and Kibana `9.3.3`.
+
+## Elasticsearch
+
+Elasticsearch is a versatile datastore that provides real-time search and analytics capabilities for large volumes of textual, numerical, geospatial, structured, and unstructured data.
+
+Elasticsearch provides a RESTful API and client libraries for on-demand querying and data manipulation.
+
+Elasticsearch Quick Start Guide can be found [here](https://www.elastic.co/guide/en/elasticsearch/reference/9.0/getting-started.html).
+
+### Elasticsearch Configuration
+
+The default Elasticsearch configuration is located at:
+
+```
+deploy/docker/services/infra/elk/elasticsearch/configs/elasticsearch.yml
+```
+
+| Setting | Default Value | Description |
+| --- | --- | --- |
+| `network.host` | `0.0.0.0` | Network interface to bind to for incoming connections. |
+| `http.port` | `9200` | HTTP port for REST API access. |
+| `xpack.security.enabled` | `false` | Security features are disabled by default for development. |
+| `path.data` | `/tmp/elastic/data` | Directory for storing index data. |
+| `path.logs` | `/tmp/elastic/logs` | Directory for Elasticsearch log files. |
+
+### Elasticsearch with GPU
+
+Elasticsearch 9.3.3 also supports [GPU-based dense vector embedding](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/gpu-vector-indexing). To enable it, do the following.
+
+**Prerequisites**
+
+- Valid Elasticsearch license (required for GPU-based dense vector indexing). Purchase from [Elastic subscriptions](https://www.elastic.co/subscriptions).
+- NVIDIA GPU with supported driver and Docker NVIDIA Container Toolkit (`nvidia-container-toolkit`) installed.
+
+**Elasticsearch license and GPU verification**
+
+After Elasticsearch is running, you can use the following. Replace `<ip>` with your Elasticsearch host (e.g. `localhost` or the node IP). Port is `9200` if unchanged.
+
+- **Check current license:**
+
+```bash
+curl --location 'http://<ip>:9200/_license'
+```
+
+- **Apply or update the Elasticsearch license** (supply your license JSON as the request body; use `--data @path/to/license.json` to send a file):
+
+```bash
+curl --location --request PUT 'http://<ip>:9200/_license?acknowledge=true' \
+--header 'Content-Type: application/json' \
+--data '@path/to/license.json'
+```
+
+- **Check whether GPU is in use** (inspect node settings):
+
+```bash
+curl --location 'http://<ip>:9200/_nodes/settings?pretty=null'
+```
+
+**1. Elasticsearch Dockerfiles**
+
+The infra service provides the default Elasticsearch Dockerfile and a sample GPU Dockerfile under `deploy/docker/services/infra/Dockerfiles/`:
+
+- `elasticsearch.Dockerfile`: Default CPU Elasticsearch image.
+- `elasticsearch-gpu.Dockerfile`: Sample GPU-enabled Elasticsearch Dockerfile for dense vector indexing.
+
+The sample GPU Dockerfile uses a multi-stage build with Elasticsearch and CUDA base images, adds [cuvs](https://docs.rapids.ai/api/cuvs/legacy/) (GPU-accelerated vector search), and lets Docker Compose build the Elasticsearch container with GPU indexing support.
+
+**2. Infra compose (deploy/docker/services/infra/compose.yml)**
+
+In `deploy/docker/services/infra/compose.yml`, find `services.elasticsearch.build.dockerfile` in the main `elasticsearch` service and update only that field. Use `Dockerfiles/elasticsearch${ELASTICSEARCH_MODE:+-${ELASTICSEARCH_MODE}}.Dockerfile` so the value resolves to `Dockerfiles/elasticsearch.Dockerfile` by default and `Dockerfiles/elasticsearch-gpu.Dockerfile` when `ELASTICSEARCH_MODE=gpu`.
+
+```yaml
+elasticsearch-init-container:
+  build:
+    context: $VSS_APPS_DIR/services/infra
+    dockerfile: Dockerfiles/elastic-init.Dockerfile
+    network: "host"
+  profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+  network_mode: "host"
+  container_name: vss-elasticsearch-init
+  environment:
+    - BP_PROFILE=${BP_PROFILE}
+    - ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS=${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}
+    - ELASTICSEARCH_ILM_MIN_AGE=${ELASTICSEARCH_ILM_MIN_AGE:-4h}
+    - ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM:-1536}
+    - ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM=${ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM:-768}
+  command: bash -c "
+    /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh &&
+    /opt/mdx/init-scripts/elasticsearch-template-creation.sh &&
+    /opt/mdx/init-scripts/elasticsearch-ingest-pipeline-creation.sh
+    "
+  depends_on:
+    - elasticsearch
+```
+
+**3. Environment**
+
+In your deployment environment (e.g., `.env` or export before running compose):
+
+- Set `ELASTICSEARCH_MODE=gpu` to build and run the GPU image.
+- Optionally set `ELASTICSEARCH_GPU_DEVICE_ID` when Elasticsearch should use a GPU other than `0`. For example, set `ELASTICSEARCH_GPU_DEVICE_ID=1` to reserve GPU `1`.
+
+Add the following GPU reservation block under the main `elasticsearch` service in `deploy/docker/services/infra/compose.yml`:
+
+```yaml
+deploy:
+  resources:
+    reservations:
+      devices:
+        - capabilities:
+            - gpu
+          device_ids:
+            - "${ELASTICSEARCH_GPU_DEVICE_ID:-0}"
+```
+
+After updating the Dockerfile and compose, rebuild and start the stack so the Elasticsearch container uses the GPU image and has access to the specified GPU. To verify GPU usage,
+when dense vectors are being indexed, use `nvtop` or `nvidia-smi`.
+
+### Elasticsearch Indices
+
+**Elasticsearch indices** created for the Blueprint applications include:
+
+| Index Pattern | Description |
+| --- | --- |
+| `mdx-raw-*` | Index pattern for `mdx-raw` data, with daily data in separate indices named as `mdx-raw-YYYY-MM-dd`. |
+| `mdx-bev-*` | Daily index pattern for `mdx-bev` data, `mdx-bev-YYYY-MM-dd`. |
+| `mdx-behavior-*` | Similar daily index pattern for `mdx-behavior` data, `mdx-behavior-YYYY-MM-dd`. |
+| `mdx-cluster-labels` | Stores cluster IDs, model versions, and cluster names. |
+| `mdx-alerts-*` | Daily indexing pattern for `mdx-alerts` data. |
+| `mdx-vlm-alerts-*` | Daily indexing pattern for VLM-generated alert data. |
+| `mdx-events-*` | Daily indices for various event data including IN/OUT tripwire events, ENTRY/EXIT ROI events, etc. |
+| `mdx-occupancy-reset` | Stores occupancy reset data for various locations. |
+| `mdx-frames-*` | Daily indexing pattern for `mdx-frames` data. |
+| `mdx-mtmc-*` | Daily indices for `mdx-mtmc` data. |
+| `mdx-rtls-*` | Daily indexing pattern for `mdx-rtls` data. |
+| `mdx-space-utilization-*` | Daily indices for space utilization analytics data. |
+| `mdx-amr-locations-*` | Daily indices for `mdx-amr-locations` data. |
+| `mdx-amr-events-*` | Daily indices for AMR events data. |
+| `mdx-incidents-*` | Daily indices for detected incident data. |
+| `mdx-vlm-incidents-*` | Daily indices for VLM-detected incidents. |
+| `mdx-embed-filtered-*` | Daily indices for filtered vision embeddings data with dense vector support. |
+| `mdx-calibration` | Stores current calibration states. |
+| `mdx-calibration-audit` | Logs each calibration update. |
+| `mdx-calibration-images` | Stores metadata of calibration images. |
+| `mdx-configs` | Holds current configurations of various microservices. |
+| `mdx-configs-audit` | Logs each update made to the microservices' configurations. |
+| `mdx-usd-assets` | Stores USD (Universal Scene Description) assets configuration. |
+| `mdx-road-network` | Stores road network configuration data. |
+| `mdx-sensor-lookup` | Stores sensor lookup information for coordinate mapping. |
+
+<Note>
+You can use the Elasticsearch Python library to query the indices. You can find more details regarding the library and sample code [here](https://elasticsearch-py.readthedocs.io/en/v9.2.0/).
+</Note>
+
+### Index Templates
+
+Index templates automatically apply settings and mappings when new indices are created, ensuring consistency across all video analytics data. Templates are applied based on index name patterns with priority ordering — higher priority templates override lower ones for the same index.
+
+When to review templates:
+
+- **Base template** (`metropolis_template`): Adjust `number_of_shards`, `refresh_interval`, or `translog.durability` for scaling and performance tuning
+- **Index-specific templates**: Enable or disable field indexing based on your query patterns and storage requirements
+
+For the complete list of templates and their exact mappings, refer to the initialization script:
+
+```
+deploy/docker/services/infra/elk/elasticsearch/init-scripts/elasticsearch-template-creation.sh
+```
+
+### Ingest Pipelines
+
+Ingest pipelines preprocess documents before indexing. The following pipeline is created during initialization:
+
+**insertion-timestamp-pipeline**
+
+A pipeline that automatically adds insertion timestamps to documents. Microservices can specify a target field name, and the pipeline populates it with the current UTC timestamp.
+
+The pipeline configuration is located in:
+
+```
+deploy/docker/services/infra/elk/elasticsearch/init-scripts/elasticsearch-ingest-pipeline-creation.sh
+```
+
+### Index Lifecycle Management (ILM)
+
+Index Lifecycle Management (ILM) is the recommended way to manage Elasticsearch indices in ELK 9.x. ILM allows you to automate index rollover, retention, and deletion based on policies.
+
+Additional information regarding ILM can be found [here](https://www.elastic.co/guide/en/elasticsearch/reference/9.0/index-lifecycle-management.html).
+
+**ILM Configuration**
+
+The ILM poll interval is configured to 30 seconds (default is 10 minutes) for faster policy execution:
+
+```json
+{
+  "persistent": {
+    "indices.lifecycle.poll_interval": "30s"
+  }
+}
+```
+
+**ILM Policies**
+
+The following ILM policies are created during initialization:
+
+| Policy Name | Current Retention Period | Index Pattern |
+| --- | --- | --- |
+| `mdx-raw-ilm-policy` | 4 hours | `mdx-raw-*` indices |
+| `mdx-bev-ilm-policy` | 4 hours | `mdx-bev-*` indices |
+| `mdx-behavior-ilm-policy` | 4 hours | `mdx-behavior-*` indices |
+| `mdx-alerts-ilm-policy` | 4 hours | `mdx-alerts-*` indices |
+| `mdx-vlm-alerts-ilm-policy` | 4 hours | `mdx-vlm-alerts-*` indices |
+| `mdx-events-ilm-policy` | 4 hours | `mdx-events-*` indices |
+| `mdx-frames-ilm-policy` | 4 hours | `mdx-frames-*` indices |
+| `mdx-mtmc-ilm-policy` | 4 hours | `mdx-mtmc-*` indices |
+| `mdx-rtls-ilm-policy` | 4 hours | `mdx-rtls-*` indices |
+| `mdx-space-utilization-ilm-policy` | 4 hours | `mdx-space-utilization-*` indices |
+| `mdx-amr-locations-ilm-policy` | 4 hours | `mdx-amr-locations-*` indices |
+| `mdx-amr-events-ilm-policy` | 4 hours | `mdx-amr-events-*` indices |
+| `mdx-incidents-ilm-policy` | 4 hours | `mdx-incidents-*` indices |
+| `mdx-vlm-incidents-ilm-policy` | 4 hours | `mdx-vlm-incidents-*` indices |
+| `mdx-embed-filtered-ilm-policy` | 4 hours | `mdx-embed-filtered-*` indices |
+
+<Note>
+* ILM is used to manage index retention and delete old indices.
+* By default, `ELASTICSEARCH_ILM_MIN_AGE` is set to `4h`, so ILM deletes indices after that duration to manage disk space on development systems.
+* If the system has sufficient storage capacity, then the data retention period can be increased.
+* To modify the retention duration, edit the ILM policy configuration in:
+
+```
+deploy/docker/services/infra/elk/elasticsearch/init-scripts/elasticsearch-ilm-policy-creation.sh
+```
+
+</Note>
+
+**Modifying Retention Periods**
+
+To change the retention period for an index, update the ILM policy in the initialization script:
+
+```bash
+# Example: Change mdx-behavior retention to 24 hours
+create_ilm_policy 'mdx-behavior-ilm-policy' \
+  '{"policy":{"phases":{"delete":{"min_age":"24h","actions":{"delete":{}}}}}}'
+```
+
+## Logstash
+
+Logstash is a powerful data processing pipeline that helps collect data from source, transform, and ship data to sink. It provides a flexible configuration system for handling various input sources, data transformations, and output destinations.
+
+Logstash reads data from Kafka or Redis Streams and indexes it into Elasticsearch.
+
+The Docker deployment uses Logstash `9.3.3`.
+
+Additional information regarding Logstash can be found [here](https://www.elastic.co/guide/en/logstash/9.0/introduction.html).
+
+### Logstash Configuration
+
+The default Logstash configuration is located at:
+
+```
+deploy/docker/services/infra/elk/logstash/configs/logstash.yml
+```
+
+| Setting | Default Value | Description |
+| --- | --- | --- |
+| `pipeline.workers` | `1` | Number of workers for pipeline processing. |
+| `pipeline.ordered` | `true` | Ensures events are processed in order. |
+| `pipeline.ecs_compatibility` | `disabled` | Disables Elastic Common Schema compatibility for legacy format. |
+| `xpack.monitoring.elasticsearch.hosts` | `["http://localhost:9200"]` | Elasticsearch hosts for monitoring data. |
+| `api.http.host` | `0.0.0.0` | HTTP API binding address. |
+
+### Kafka vs Redis Streams
+
+Logstash can consume data from either Kafka or Redis Streams. Two configurations are provided to support different deployment scenarios:
+
+- **Kafka**: Datacenter deployments with higher throughput requirements and sufficient infrastructure
+- **Redis Streams**: Edge deployments with minimal memory footprint and simpler operational overhead
+
+| Feature | Kafka | Redis Streams |
+| --- | --- | --- |
+| **Throughput** | Optimized for high throughput with batching | Optimized for low latency with smaller batches |
+| **Memory Footprint** | Higher memory requirements for broker and consumers | Lightweight, suitable for resource-constrained environments |
+| **Message Retention** | Configurable retention with replay support | Memory-based with optional persistence (AOF/RDB) |
+| **Consumer Groups** | Native support with offset tracking | Native support via XREADGROUP |
+| **Setup Complexity** | Single node or cluster (KRaft mode) | Single instance or Redis Cluster |
+| **Recommended For** | Datacenter and cloud deployments | Edge deployments with limited resources |
+
+### Kafka Input Plugin
+
+For Kafka-based deployments, Logstash uses the built-in Kafka input plugin with Protocol Buffer decoding.
+
+For a complete list of Kafka topics, their data formats, and class names, see [Kafka topics](/kafka).
+
+**Configuration Options:**
+
+| Option | Type | Value in Config | Description |
+| --- | --- | --- | --- |
+| `bootstrap_servers` | string | `"localhost:9092"` | Kafka broker connection string |
+| `topics` / `topics_pattern` | array / string | Pipeline-specific | Kafka topics or topic regex consumed by each input block |
+| `type` | string | Pipeline-specific | Logstash event type used by downstream filters and index routing |
+| `group_id` | string | `"logstash"` | Kafka consumer group used by Logstash |
+| `consumer_threads` | number | `4` | Number of consumer threads per input block |
+| `decorate_events` | boolean / string | `true` or `"extended"` | Adds Kafka metadata to events for downstream processing |
+| `auto_offset_reset` | string | `"latest"` | Offset behavior when no committed offset exists |
+| `key_deserializer_class` | string | `StringDeserializer` | Deserializer for Kafka message keys |
+| `value_deserializer_class` | string | `ByteArrayDeserializer` | Deserializer for binary protobuf payloads |
+| `codec` | string / hash | `protobuf` or `plain` | Decodes protobuf payloads or plain JSON/string messages depending on the topic |
+
+For complete configuration, refer to:
+
+```
+deploy/docker/services/infra/elk/logstash/pipelines/kafka/mdx-logstash.conf
+```
+
+### Redis Stream Input Plugin
+
+For Redis Streams support, a custom Logstash input plugin (`logstash-input-redis_stream`) is provided that offers:
+
+* **Consumer Group Support** - Uses `XREADGROUP` for reliable message delivery with acknowledgments
+* **Binary Data Support** - Reads raw binary data from Redis Streams
+* **Protobuf Decoding** - Native support for decoding Protocol Buffer messages
+* **Automatic Reconnection** - Handles connection failures with automatic retry
+
+For a complete list of Redis streams, their data formats, and class names, see [Redis streams](/redis).
+
+For complete configuration, refer to:
+
+```
+deploy/docker/services/infra/elk/logstash/pipelines/redis/mdx-logstash.conf
+```
+
+**Configuration Options:**
+
+| Option | Type | Value in Config | Description |
+| --- | --- | --- | --- |
+| `host` | string | `"localhost"` | Redis server hostname |
+| `port` | number | `6379` | Redis server port |
+| `stream_key` | string | Pipeline-specific | Redis stream key to read from |
+| `group` | string | `"logstash"` | Redis consumer group used by Logstash |
+| `type` | string | Pipeline-specific | Logstash event type used by downstream filters and index routing |
+| `decorate_events` | boolean | `true` | Adds stream metadata to events |
+| `data_field` | string | `"value"` | Field name containing the message data |
+| `data_codec` | hash | `protobuf` or `plain` | Decodes protobuf payloads or plain JSON/string messages depending on the stream |
+
+## Kibana
+
+Kibana is a powerful visualization and analytics platform that works seamlessly with Elasticsearch. It provides an intuitive interface for exploring the data, visualizing the data using dashboards, and managing your Elasticsearch data.
+
+The Docker deployment uses Kibana `9.3.3`.
+
+Additional information regarding Kibana can be found [here](https://www.elastic.co/docs/reference/kibana).
+
+### Kibana Configuration
+
+The default Kibana configuration for the deployment is located at:
+
+```
+deploy/docker/services/infra/elk/kibana/configs/kibana.yml
+```
+
+| Setting | Default Value | Description |
+| --- | --- | --- |
+| `server.host` | `0.0.0.0` | Network interface for Kibana server. |
+| `server.shutdownTimeout` | `5s` | Graceful shutdown timeout period. |
+| `elasticsearch.hosts` | `["http://localhost:9200"]` | Elasticsearch cluster endpoints. |
+| `monitoring.ui.container.elasticsearch.enabled` | `true` | Enables container-aware monitoring UI. |
+
+### Kibana Dashboards
+
+Kibana dashboards combine multiple visualizations (tables, histograms, charts) into a single view for exploring and analyzing Elasticsearch data. Some deployments (for example, the 2D and 3D Warehouse Vision AI Profiles) include visualizations, and dashboards.
+
+For more on creating and using dashboards, see the Kibana documentation on [dashboards](https://www.elastic.co/docs/explore-analyze/dashboards). For building individual visualizations, see [Create visualizations](https://www.elastic.co/docs/explore-analyze/visualize).
+
+## FAQ
+
+### ELK Services Timeouts or Startup Health Check Failures
+
+The Docker health checks for ELK services are defined in the deployment compose file:
+
+```
+video-search-and-summarization/deploy/docker/services/infra/compose.yml
+```
+
+From the deployment repository root, this is `deploy/docker/services/infra/compose.yml`. If Kibana shows `Request timeout: "Request timed out"`, inspect the relevant service logs before changing Kibana settings.
+
+A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can appear as `Unable to retrieve search results` with `Request timeout: "Request timed out"`. Check Elasticsearch allocation and disk watermarks before tuning Kibana timeouts. See the Elasticsearch disk watermark FAQ below.
+
+If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, check the container logs to confirm the service is starting slowly rather than failing because of a configuration issue. On slower hosts, increase the affected service's `healthcheck.retries` value in this compose file, for example from `60` to `90` or `120`, and redeploy. This only gives the ELK service more time to pass its startup health check; it does not fix ingestion or indexing issues.
+
+### Elasticsearch Disk Watermarks and Read-Only Indices
+
+Elasticsearch uses disk-based shard allocation to keep data nodes from filling their disks. One common symptom is Kibana Discover failing with `Unable to retrieve search results` and `Request timeout: "Request timed out"`. The default watermarks are:
+
+| Watermark | Default | Behavior |
+| --- | --- | --- |
+| Low | `85%` disk used | Stops allocating additional shards to the node, except primary shards for newly created indices. |
+| High | `90%` disk used | Starts relocating shards away from the node when other nodes can accept them. |
+| Flood stage | `95%` disk used | Sets affected indices to `index.blocks.read_only_allow_delete` to stop writes before the disk fills completely. |
+
+Use these commands to inspect disk allocation and the active watermark settings. Replace `<ip>` with your Elasticsearch host, such as `localhost` or the node IP.
+
+```bash
+curl --location "http://<ip>:9200/_cat/allocation?v"
+curl --location "http://<ip>:9200/_cluster/settings?include_defaults=true&filter_path=**.disk.watermark*"
+```
+
+If flood stage is reached, fix the disk pressure first. Common options are:
+
+- Remove unnecessary local data or logs from the Elasticsearch host.
+- Remove unnecessary containers which are not being used.
+- Add disk capacity or add Elasticsearch capacity so shards have somewhere safe to move.
+
+After disk usage drops below the high watermark, Elasticsearch normally removes the read-only block automatically. If the block remains after disk pressure is fixed, clear it manually:
+
+```bash
+curl --location --request PUT "http://<ip>:9200/*/_settings?expand_wildcards=all" \
+  --header "Content-Type: application/json" \
+  --data "{\"index.blocks.read_only_allow_delete\": null}"
+```
+
+Avoid increasing or disabling disk watermarks as a long-term fix. Doing so can allow Elasticsearch to fill the disk completely, which may cause indexing failures, service instability, or data loss.
