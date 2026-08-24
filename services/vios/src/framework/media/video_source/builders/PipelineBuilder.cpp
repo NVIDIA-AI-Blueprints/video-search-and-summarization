@@ -236,8 +236,12 @@ std::shared_ptr<IMediaDataConsumer> PipelineBuilder::getSinkConsumer(const Pipel
 {
     if (config.isDashPlayback() && m_dashConsumer != nullptr)
     {
+        LOG(info) << "Terminal consumer for " << config.getPeerId() << " is the DASH packager" << endl;
         return m_dashConsumer;
     }
+    LOG(info) << "Terminal consumer for " << config.getPeerId() << " is the WebRTC sink"
+              << " (dashPlayback=" << (config.isDashPlayback() ? "yes" : "no")
+              << " packager=" << (m_dashConsumer != nullptr ? "present" : "absent") << ")" << endl;
     // Falling back to the WebRTC sink keeps every existing pipeline unchanged:
     // a DASH consumer is only ever reached when the caller asked for DASH and
     // supplied a packager.

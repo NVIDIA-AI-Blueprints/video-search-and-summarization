@@ -236,6 +236,9 @@ string getIngressBaseUrl();
 template<typename Compare>
 void setOverlayOptsBasedOnJson(std::map<std::string, std::string, Compare>& opts, const Json::Value& overlayJson);
 template<typename Compare>
+void setCompositeOptsBasedOnJson(std::map<std::string, std::string, Compare>& opts,
+                                 const Json::Value& compositeJson, const std::string& frameRate);
+template<typename Compare>
 void parseOldSchema(std::map<std::string, std::string, Compare>& opts, const Json::Value& overlayJson);
 template<typename Compare>
 void parseNewSchema(std::map<std::string, std::string, Compare>& opts, const Json::Value& overlayJson);
