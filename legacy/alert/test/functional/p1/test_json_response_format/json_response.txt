@@ -1,1 +1,0 @@
-{"prediction_answer": "YES", "reasoning": "Worker detected near forklift zone without proper safety equipment."}

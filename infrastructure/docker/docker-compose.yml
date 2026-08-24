@@ -5,9 +5,12 @@ services:
     build:
       context: ../../services/ui
     ports:
-      - "3000:3000"
+      - "${AVA_UI_PORT:-3000}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://localhost:${AVA_API_PORT:-8000}
+      # Next standalone binds to HOSTNAME; 0.0.0.0 makes it reachable via
+      # the published port from outside the container.
+      HOSTNAME: 0.0.0.0
     depends_on:
       api:
         condition: service_healthy
@@ -22,7 +25,7 @@ services:
     build:
       context: ../../services/api
     ports:
-      - "8000:8000"
+      - "${AVA_API_PORT:-8000}:8000"
     environment:
       ENVIRONMENT: local
       AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -41,7 +44,7 @@ services:
       dynamodb-local:
         condition: service_started
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -59,7 +62,7 @@ services:
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-anthropic.claude-3-5-haiku-20241022-v1:0}
       ARTIFACTS_BUCKET: ${ARTIFACTS_BUCKET:-ava-artifacts-dev}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8100/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8100/health')"]
       interval: 15s
       timeout: 5s
       retries: 5

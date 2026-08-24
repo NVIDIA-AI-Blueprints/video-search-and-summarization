@@ -1,5 +1,0 @@
-ca-certificates
-curl
-wget
-openssh-client
-git-lfs
