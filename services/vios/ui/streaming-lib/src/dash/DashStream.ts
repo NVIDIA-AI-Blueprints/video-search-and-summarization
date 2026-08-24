@@ -51,8 +51,14 @@ export class DashStream {
     private firstFrameReported = false;
     private videoElement: HTMLVideoElement | null = null;
     private firstFrameListener: (() => void) | null = null;
+    private autoplayListener: (() => void) | null = null;
+    private autoplayBufferLevelEvent: string | null = null;
+    private autoplayAttempted = false;
+    private pageHideListener: (() => void) | null = null;
+    private strandTimer: ReturnType<typeof setInterval> | null = null;
     // Remembered so the session is released through the same API that created it.
     private replay = false;
+    private config: DashStreamConfig | null = null;
 
     private async waitForManifest(manifestUrl: string): Promise<void> {
         const deadline = Date.now() + MANIFEST_READY_TIMEOUT_MS;
@@ -76,37 +82,7 @@ export class DashStream {
         throw new Error(`DASH manifest did not become ready within ${MANIFEST_READY_TIMEOUT_MS / 1000}s (last status: ${lastStatus})`);
     }
 
-    public async start(config: DashStreamConfig): Promise<DashStartResponse> {
-        await this.stop(config.endpoint, config.streamId);
-        this.replay = Boolean(config.startTime);
-        const startPath = this.replay ? '/vst/api/v1/replay/dash/start' : '/vst/api/v1/live/dash/start';
-        const startUrl = new URL(startPath, config.endpoint).toString();
-        const requestBody: Record<string, unknown> = { streamId: config.streamId };
-        if (this.replay) {
-            requestBody.startTime = config.startTime as string;
-            if (config.endTime) {
-                requestBody.endTime = config.endTime;
-            }
-        }
-        if (config.overlay) {
-            requestBody.overlay = config.overlay;
-        }
-        const response = await fetch(startUrl, {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-                'Content-Type': 'application/json',
-                streamid: config.streamId,
-            },
-            body: JSON.stringify(requestBody),
-        });
-        if (!response.ok) {
-            throw new Error(`DASH start failed (${response.status}): ${await response.text()}`);
-        }
-        const body = (await response.json()) as DashStartResponse | { data: DashStartResponse };
-        const result = 'data' in body ? body.data : body;
-        this.viewerId = result.viewerId;
-
+    private async attachPlayer(config: DashStreamConfig, result: DashStartResponse): Promise<void> {
         const manifestUrl = new URL(result.manifestUrl, config.endpoint).toString();
         await this.waitForManifest(manifestUrl);
         const player = dashjs.MediaPlayer().create();
@@ -165,8 +141,42 @@ export class DashStream {
                 // before that starts.  Without it the player holds the delay it
                 // started with and plays at source rate, which is what a live
                 // stream with a shallow buffer needs.
+                // Catch-up has to be on, but barely.  Off entirely, a player that
+                // starts behind - which it does on a fresh session, because it
+                // begins at the start of a two second window and the live edge
+                // runs away while it buffers - can never converge, and once its
+                // playhead falls out of the back of the DVR window the media
+                // under it is evicted and playback freezes with a minute of
+                // unusable data buffered ahead.  On aggressively, it plays above
+                // real time against a real time source and drains the buffer to
+                // nothing, stalling once per segment.  A large drift threshold
+                // keeps it idle through ordinary jitter, and a small rate cap
+                // means the correction it does apply is imperceptible; beyond
+                // the threshold dash.js seeks to the edge rather than crawling
+                // back, which is what rescues a stranded playhead.
                 liveCatchup: {
-                    enabled: false,
+                    enabled: true,
+                    maxDrift: 10,
+                    playbackRate: { min: -0.02, max: 0.02 },
+                },
+                // A starved live player abandons the position it was playing
+                // and resumes fetching at the live edge, which leaves a hole
+                // between the two.  dash.js will only step over such a hole if
+                // gap jumping is enabled explicitly, and the holes this
+                // produces are far wider than the small-gap default allows.
+                gaps: {
+                    jumpGaps: true,
+                    jumpLargeGaps: true,
+                    smallGapLimit: 1.5,
+                    threshold: 0.3,
+                    enableSeekFix: true,
+                },
+                // Which clock decides whether a segment has been published.
+                // Left alone dash.js reaches for a public time service, and
+                // where that is unreachable it silently uses the device clock.
+                utcSynchronization: {
+                    enabled: true,
+                    useManifestDateHeaderTimeSource: true,
                 },
                 // The manifest is served 202/Accepted until the packager has
                 // prerolled, so the first fetches have to be retried patiently.
@@ -184,11 +194,88 @@ export class DashStream {
         // stamped so it lines up with the access log.
         const trace = (what: string, detail: unknown) => {
             // eslint-disable-next-line no-console
-            console.warn(`[dash] ${new Date().toISOString()} ${what}`, detail ?? '');
+            // console.warn makes the browser capture an async stack for every
+            // call, which with devtools open costs enough main thread time to
+            // cause the stalls this is here to record.  Records also go to an
+            // array the page can dump with copy(window.__dashTrace.join('\n')).
+            const v = config.videoElement;
+            let health = '';
+            try {
+                const q = v.getVideoPlaybackQuality
+                    ? v.getVideoPlaybackQuality()
+                    : { droppedVideoFrames: 0, totalVideoFrames: 0 };
+                let ahead = 0;
+                // Where the playhead sits relative to every buffered range, not
+                // just the one it is in.  A stranded playhead reads as
+                // buffered_ahead=0 whether the media it needs was never
+                // appended or was appended somewhere it cannot reach, and those
+                // are different faults with different fixes.  Record the ranges
+                // themselves so the two can be told apart after the event.
+                const spans: string[] = [];
+                let nextStart = -1;
+                for (let i = 0; i < v.buffered.length; i += 1) {
+                    const from = v.buffered.start(i);
+                    const to = v.buffered.end(i);
+                    spans.push(`${from.toFixed(1)}-${to.toFixed(1)}`);
+                    if (v.currentTime >= from - 0.1 && v.currentTime <= to + 0.1) {
+                        ahead = to - v.currentTime;
+                    }
+                    if (from > v.currentTime && (nextStart < 0 || from < nextStart)) {
+                        nextStart = from;
+                    }
+                }
+                const asked = player as unknown as {
+                    getCurrentLiveLatency?: () => number;
+                    getTargetLiveDelay?: () => number;
+                    getDashMetrics?: () => { getCurrentDVRInfo?: (t: string) => {
+                        range?: { start?: number; end?: number } } | null };
+                };
+                const latency = asked.getCurrentLiveLatency ? asked.getCurrentLiveLatency() : -1;
+                const target = asked.getTargetLiveDelay ? asked.getTargetLiveDelay() : -1;
+                const info = asked.getDashMetrics?.()?.getCurrentDVRInfo?.('video');
+                const winEnd = Number(info?.range?.end ?? 0);
+                const winStart = Number(info?.range?.start ?? 0);
+                health = ` dropped=${q.droppedVideoFrames}/${q.totalVideoFrames}`
+                    + ` buffered_ahead=${ahead.toFixed(2)}s readyState=${v.readyState}`
+                    + ` ct=${v.currentTime.toFixed(2)}`
+                    + ` latency=${Number(latency).toFixed(2)}s target=${Number(target).toFixed(2)}s`
+                    + ` window=[${winStart.toFixed(1)}..${winEnd.toFixed(1)}]`
+                    + ` ahead_of_playhead=${(winEnd - v.currentTime).toFixed(2)}s`
+                    + ` ranges=[${spans.join(',')}]`
+                    + ` next_range_start=${nextStart.toFixed(2)}`
+                    + ` strand=${(nextStart > 0 ? nextStart - v.currentTime : 0).toFixed(2)}s`;
+            } catch {
+                health = ' health=unavailable';
+            }
+            const line = `[dash] ${new Date().toISOString()} ${what}${health} ${
+                detail && typeof detail === 'object' ? JSON.stringify(detail) : ''}`;
+            const w = window as unknown as { __dashTrace?: string[] };
+            if (!w.__dashTrace) {
+                w.__dashTrace = [];
+            }
+            w.__dashTrace.push(line);
+            if (w.__dashTrace.length > 3000) {
+                w.__dashTrace.shift();
+            }
+            // eslint-disable-next-line no-console
+            console.log(line);
         };
-        const ev = dashjs.MediaPlayer.events as Record<string, string>;
+        // Segments arriving while nothing plays is a question about the bytes,
+        // not the timing, and a rejected append is invisible in the events above.
+        // The element's own error and the player's error channel are where a
+        // decode or append failure surfaces.
+        config.videoElement.addEventListener('error', () => {
+            const err = config.videoElement.error;
+            trace('ELEMENT_ERROR', err
+                ? { code: err.code, message: err.message }
+                : { code: 'unknown' });
+        });
+
+        const ev = dashjs.MediaPlayer.events as unknown as Record<string, string>;
         (['PLAYBACK_STALLED', 'PLAYBACK_WAITING', 'BUFFER_EMPTY', 'BUFFER_LOADED',
-          'PLAYBACK_SEEKING', 'FRAGMENT_LOADING_ABANDONED', 'PLAYBACK_RATE_CHANGED'] as const)
+          'PLAYBACK_SEEKING', 'FRAGMENT_LOADING_ABANDONED', 'PLAYBACK_RATE_CHANGED',
+          'PLAYBACK_ERROR', 'ERROR', 'BUFFER_LEVEL_STATE_CHANGED',
+          'FRAGMENT_LOADING_COMPLETED', 'QUALITY_CHANGE_RENDERED'] as const)
             .forEach(name => {
                 const id = ev[name];
                 if (id) {
@@ -200,28 +287,285 @@ export class DashStream {
             config.onError?.(message);
         });
         this.videoElement = config.videoElement;
+        this.startStrandWatchdog(config.videoElement, trace);
+        // The current DASH pipeline does not package audio.  Chrome blocks an
+        // asynchronous unmuted autoplay after the MPD preroll (and again after
+        // a replay seek), leaving a decoded first frame visible with the media
+        // element paused forever.  Mark audio-less sessions muted before
+        // dash.js attaches its MediaSource so autoplay is permitted.  Keep
+        // future audio-bearing sessions unmodified.
+        if (!result.audioAvailable) {
+            config.videoElement.muted = true;
+            config.videoElement.defaultMuted = true;
+            // dash.js can append the first MediaSource buffer after the
+            // initiating user gesture has expired. Chrome may then leave this
+            // muted, fully buffered video paused despite autoplay=true.
+            //
+            // Do not resume on the very first appended second, though.  That
+            // bypasses dash.js' initial-buffer policy and makes a live overlay
+            // run at the segment boundary with no jitter cushion.  Wait until
+            // the requested initial buffer exists, then use muted play() to
+            // retain reliable Chrome autoplay.
+            const autoplayBufferSeconds = config.initialBufferSeconds ?? (isReplay ? 1 : 4);
+            this.autoplayListener = () => {
+                // `progress` and BUFFER_LEVEL_UPDATED fire for every append.
+                // Calling play() on each one creates an unbounded retry loop if
+                // Chrome rejects a video-only background playback request. The
+                // repeated requests then interrupt the decoder and turn a
+                // transient autoplay rejection into a permanent frozen frame.
+                // A stream attachment gets exactly one automatic attempt; the
+                // regular player controls remain available for a user retry.
+                if (this.autoplayAttempted) {
+                    return;
+                }
+                const buffered = config.videoElement.buffered;
+                const bufferedAhead = buffered.length > 0
+                    ? buffered.end(buffered.length - 1) - config.videoElement.currentTime
+                    : 0;
+                if (bufferedAhead < autoplayBufferSeconds) {
+                    return;
+                }
+                this.autoplayAttempted = true;
+                this.removeAutoplayListener();
+                void config.videoElement.play().catch(error => {
+                    // eslint-disable-next-line no-console
+                    console.warn('[dash] muted autoplay was rejected; use the player controls to resume', error);
+                });
+            };
+            config.videoElement.addEventListener('loadeddata', this.autoplayListener);
+            config.videoElement.addEventListener('canplay', this.autoplayListener);
+            config.videoElement.addEventListener('progress', this.autoplayListener);
+            const bufferLevelUpdated = ev.BUFFER_LEVEL_UPDATED;
+            if (bufferLevelUpdated) {
+                this.autoplayBufferLevelEvent = bufferLevelUpdated;
+                player.on(bufferLevelUpdated, this.autoplayListener);
+            }
+        }
+        config.videoElement.playsInline = true;
         this.firstFrameListener = () => {
             if (!this.firstFrameReported) {
                 this.firstFrameReported = true;
                 config.onFirstFrame?.();
             }
         };
-        config.videoElement.addEventListener('loadeddata', this.firstFrameListener, { once: true });
-        player.initialize(config.videoElement, manifestUrl, true);
-        return result;
+        // `loadeddata` only means that a single frame was decoded.  Reporting
+        // it as the first frame hides the UI loader while the image is still
+        // frozen waiting for the rest of the live cushion.  `playing` is the
+        // moment the user can actually see continuous playback.
+        config.videoElement.addEventListener('playing', this.firstFrameListener, { once: true });
+        // Manual muted autoplay above deliberately waits for the initial
+        // buffer; passing true would make dash.js play after its first append.
+        player.initialize(config.videoElement, manifestUrl, false);
     }
 
-    public async stop(endpoint?: string, streamId?: string): Promise<void> {
+    // Gap jumping is dash.js' own recovery and it handles the ordinary case.
+    // It does not always fire here: a stranded playhead sits at readyState 1
+    // with playback never advancing, so the timeupdate-driven checks that
+    // would notice the hole never run, and the player waits on data that has
+    // already been appended somewhere it will not look.  Observed holding a
+    // playhead still for fourteen minutes with seventy eight seconds of
+    // contiguous media buffered beyond the hole.  Watch for exactly that
+    // shape - not playing, nothing under the playhead, a range waiting ahead -
+    // and move the playhead onto the media that is already there.
+    private startStrandWatchdog(video: HTMLVideoElement,
+                                trace: (what: string, detail: unknown) => void): void {
+        this.stopStrandWatchdog();
+        const STALL_TICKS = 4;      // ~2s at the 500ms period below
+        let lastTime = -1;
+        let stalledTicks = 0;
+        this.strandTimer = setInterval(() => {
+            // Deliberately not skipping while the element reports seeking.
+            // The failure being recovered here IS a seek that never completes:
+            // the player seeks to the end of the range it has, which is inside
+            // the hole, and the element waits there for data that will never
+            // come while reporting seeking for as long as it waits - measured
+            // still true after two minutes.  Skipping on seeking means never
+            // recovering from precisely the case this exists for.  During a
+            // pending seek currentTime already reads the target, so the
+            // not-advancing test below still behaves, and an ordinary seek
+            // resolves long before the stall threshold.
+            if (video.paused || video.ended) {
+                stalledTicks = 0;
+                lastTime = video.currentTime;
+                return;
+            }
+            if (Math.abs(video.currentTime - lastTime) > 0.01) {
+                stalledTicks = 0;
+                lastTime = video.currentTime;
+                return;
+            }
+            // Playing, yet the playhead has not moved since the last check.
+            stalledTicks += 1;
+            if (stalledTicks < STALL_TICKS) {
+                return;
+            }
+            // How far the media under the playhead actually runs, and where the
+            // next island of media begins.  A stranded playhead usually has
+            // nothing beneath it, but it can also come to rest a fraction of a
+            // second short of the end of its range - measured at seventy
+            // milliseconds - and that fraction is not playable either.  Judging
+            // "covered" by mere containment therefore reads a permanent strand
+            // as a throughput problem and declines to act.  Use the distance to
+            // the end of the run instead: the playhead has already failed to
+            // advance for the stall threshold, so whatever remains beneath it
+            // is not going to move playback.
+            let runEnd = -1;
+            let nextStart = -1;
+            for (let i = 0; i < video.buffered.length; i += 1) {
+                const from = video.buffered.start(i);
+                const to = video.buffered.end(i);
+                if (video.currentTime >= from && video.currentTime <= to) {
+                    runEnd = to;
+                }
+            }
+            const boundary = runEnd >= 0 ? runEnd : video.currentTime;
+            for (let i = 0; i < video.buffered.length; i += 1) {
+                const from = video.buffered.start(i);
+                if (from > boundary && (nextStart < 0 || from < nextStart)) {
+                    nextStart = from;
+                }
+            }
+            // Still a comfortable amount of media under the playhead means the
+            // stall is not a stranding; moving would discard buffer the player
+            // is entitled to use.
+            if (nextStart < 0 || (runEnd >= 0 && runEnd - video.currentTime > 0.5)) {
+                return;
+            }
+            const target = nextStart + 0.05;
+            trace('STRAND_RECOVERED', {
+                from: Number(video.currentTime.toFixed(3)),
+                to: Number(target.toFixed(3)),
+                holeSeconds: Number((nextStart - video.currentTime).toFixed(3)),
+            });
+            stalledTicks = 0;
+            lastTime = target;
+            video.currentTime = target;
+        }, 500);
+    }
+
+    private stopStrandWatchdog(): void {
+        if (this.strandTimer !== null) {
+            clearInterval(this.strandTimer);
+            this.strandTimer = null;
+        }
+    }
+
+    private releasePlayer(): void {
+        this.stopStrandWatchdog();
+        // Unsubscribe before resetting the dash.js instance so the listener is
+        // not retained by a replacement replay player.
+        this.removeAutoplayListener();
         if (this.player) {
             this.player.reset();
             this.player = null;
         }
         if (this.videoElement && this.firstFrameListener) {
-            this.videoElement.removeEventListener('loadeddata', this.firstFrameListener);
+            this.videoElement.removeEventListener('playing', this.firstFrameListener);
         }
         this.videoElement = null;
         this.firstFrameListener = null;
         this.firstFrameReported = false;
+        this.autoplayAttempted = false;
+    }
+
+    private removeAutoplayListener(): void {
+        if (this.videoElement && this.autoplayListener) {
+            this.videoElement.removeEventListener('loadeddata', this.autoplayListener);
+            this.videoElement.removeEventListener('canplay', this.autoplayListener);
+            this.videoElement.removeEventListener('progress', this.autoplayListener);
+        }
+        if (this.player && this.autoplayListener && this.autoplayBufferLevelEvent) {
+            this.player.off(this.autoplayBufferLevelEvent, this.autoplayListener);
+        }
+        this.autoplayListener = null;
+        this.autoplayBufferLevelEvent = null;
+    }
+
+    private removePageHideListener(): void {
+        if (this.pageHideListener) {
+            window.removeEventListener('pagehide', this.pageHideListener);
+            this.pageHideListener = null;
+        }
+    }
+
+    public async start(config: DashStreamConfig): Promise<DashStartResponse> {
+        await this.stop(config.endpoint, config.streamId);
+        this.replay = Boolean(config.startTime);
+        const startPath = this.replay ? '/vst/api/v1/replay/dash/start' : '/vst/api/v1/live/dash/start';
+        const startUrl = new URL(startPath, config.endpoint).toString();
+        const requestBody: Record<string, unknown> = { streamId: config.streamId };
+        if (this.replay) {
+            requestBody.startTime = config.startTime as string;
+            if (config.endTime) {
+                requestBody.endTime = config.endTime;
+            }
+        }
+        if (config.overlay) {
+            requestBody.overlay = config.overlay;
+        }
+        const response = await fetch(startUrl, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                streamid: config.streamId,
+            },
+            body: JSON.stringify(requestBody),
+        });
+        if (!response.ok) {
+            throw new Error(`DASH start failed (${response.status}): ${await response.text()}`);
+        }
+        const body = (await response.json()) as DashStartResponse | { data: DashStartResponse };
+        const result = 'data' in body ? body.data : body;
+        this.viewerId = result.viewerId;
+        this.config = { ...config };
+        // React cleanup covers deliberate UI restarts, but it is not a reliable
+        // lifecycle hook for a browser/tab close.  Release the DASH viewer
+        // lease during pagehide as well; DashStream.stop uses a keepalive
+        // request, so this remains deliverable while the page is being torn
+        // down.  Without this, a future start can legitimately reuse the
+        // abandoned shared pass-through session until its idle timeout.
+        this.removePageHideListener();
+        this.pageHideListener = () => {
+            void this.stop(config.endpoint, config.streamId);
+        };
+        window.addEventListener('pagehide', this.pageHideListener, { once: true });
+        await this.attachPlayer(this.config, result);
+        return result;
+    }
+
+    public async seekReplay(startTime: string): Promise<DashStartResponse> {
+        if (!this.replay || !this.viewerId || !this.config) {
+            throw new Error('DASH replay is not ready to seek');
+        }
+        const response = await fetch(new URL('/vst/api/v1/replay/dash/seek', this.config.endpoint).toString(), {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                streamid: this.config.streamId,
+            },
+            body: JSON.stringify({ viewerId: this.viewerId, startTime }),
+        });
+        if (!response.ok) {
+            throw new Error(`DASH seek failed (${response.status}): ${await response.text()}`);
+        }
+        const body = (await response.json()) as DashStartResponse | { data: DashStartResponse };
+        const result = 'data' in body ? body.data : body;
+
+        // The server has destroyed the old packager before publishing this new
+        // token.  Reset dash.js before it can request stale fragments, then
+        // attach it only to the replacement manifest.
+        this.releasePlayer();
+        this.viewerId = result.viewerId;
+        this.config = { ...this.config, startTime };
+        await this.attachPlayer(this.config, result);
+        return result;
+    }
+
+    public async stop(endpoint?: string, streamId?: string): Promise<void> {
+        this.removePageHideListener();
+        this.releasePlayer();
         if (!endpoint || !this.viewerId) {
             return;
         }
