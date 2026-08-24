@@ -51,6 +51,7 @@ Exit codes:
     5 - agent completed but one or more reported specs failed
     6 - the agent's reserved work window expired before a verdict
     7 - agent reported BLOCKED: (infra/capacity/adapter); the GHA job must fail
+    8 - direct OpenShell agent made no allowlisted progress before its watchdog
 """
 from __future__ import annotations
 
@@ -64,6 +65,23 @@ import subprocess
 import sys
 import time
 import traceback
+
+# importlib-based contract tests load this file without adding its directory to
+# sys.path; production script execution does. Keep the local harness module
+# import identical in both paths.
+_SKILL_EVAL_DIR = Path(__file__).resolve().parent
+if str(_SKILL_EVAL_DIR) not in sys.path:
+    sys.path.insert(0, str(_SKILL_EVAL_DIR))
+
+from direct_agent_progress import (  # noqa: E402
+    DEFAULT_COLD_START_GRACE_SEC,
+    DEFAULT_HARD_CEILING_SEC,
+    DEFAULT_IDLE_TIMEOUT_SEC,
+    DirectAgentProgress,
+    DirectAgentWatchdogExpired,
+    ProgressTracker,
+    run_with_progress_watchdog,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -111,6 +129,7 @@ _PROTOCOL_FAILURE_EXIT_CODE = 4
 _EVAL_FAILURE_EXIT_CODE = 5
 _WORK_DEADLINE_EXIT_CODE = 6
 _BLOCKED_EXIT_CODE = 7
+_DIRECT_WATCHDOG_EXIT_CODE = 8
 _DONE_RESULT_RE = re.compile(
     r"^DONE:\s*(?P<passed>\d+)\s*/\s*(?P<total>\d+)\s+"
     r"spec(?:s)?\s+passed\b"
@@ -210,7 +229,45 @@ class WorkDeadlineExceeded(RuntimeError):
     pass
 
 
-async def _run_agent_with_work_deadline() -> int:
+def _direct_progress_monitor() -> DirectAgentProgress | None:
+    """Build the direct-OpenShell-only monitor; preserve the Brev path."""
+    if not os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip():
+        return None
+    try:
+        cold_grace = float(os.environ.get(
+            "DIRECT_AGENT_COLD_START_GRACE_SEC",
+            str(DEFAULT_COLD_START_GRACE_SEC),
+        ))
+        idle_timeout = float(os.environ.get(
+            "DIRECT_AGENT_IDLE_TIMEOUT_SEC",
+            str(DEFAULT_IDLE_TIMEOUT_SEC),
+        ))
+    except ValueError as exc:
+        raise RuntimeError(
+            "direct agent watchdog durations must be numeric"
+        ) from exc
+    eval_slug = os.environ.get("EVAL_SLUG", "")
+    eval_spec_stem = os.environ.get("EVAL_SPEC_STEM", "") or "spec"
+    results_root, _, _ = leg_paths(eval_slug, eval_spec_stem)
+    spec_path = Path(os.environ.get("EVAL_SPEC_PATH", ""))
+    if not spec_path.is_absolute():
+        spec_path = REPO_ROOT / spec_path
+    tracker = ProgressTracker(
+        hard_ceiling_sec=DEFAULT_HARD_CEILING_SEC,
+        cold_start_grace_sec=cold_grace,
+        idle_timeout_sec=idle_timeout,
+    )
+    return DirectAgentProgress(
+        results_root=results_root,
+        spec_path=spec_path,
+        repo_root=REPO_ROOT,
+        tracker=tracker,
+    )
+
+
+async def _run_agent_with_work_deadline(
+    progress: DirectAgentProgress | None = None,
+) -> int:
     """Cancel the SDK session before it can consume reporting headroom."""
     deadline = float(os.environ[SKILL_EVAL_WORK_DEADLINE_ENV])
     remaining = deadline - time.monotonic()
@@ -218,6 +275,12 @@ async def _run_agent_with_work_deadline() -> int:
         raise WorkDeadlineExceeded("skill-eval work window already expired")
     try:
         async with asyncio.timeout(remaining):
+            if progress is not None:
+                return await run_with_progress_watchdog(
+                    run_agent(progress), progress
+                )
+            # Preserve the old coordinator/Brev call shape for tests and
+            # embedders that replace run_agent with a zero-argument coroutine.
             return await run_agent()
     except TimeoutError as exc:
         if time.monotonic() >= deadline:
@@ -666,7 +729,7 @@ def _result_message_state(message: object) -> tuple[bool, bool]:
     return hit_max_turns, bool(getattr(message, "is_error", False))
 
 
-async def run_agent() -> int:
+async def run_agent(progress: DirectAgentProgress | None = None) -> int:
     from claude_agent_sdk import AssistantMessage  # type: ignore
     from claude_agent_sdk import ClaudeAgentOptions  # type: ignore
     from claude_agent_sdk import ClaudeSDKClient  # type: ignore
@@ -720,6 +783,20 @@ async def run_agent() -> int:
     print(f"[agent] starting · pr={pr_number} base={pr_base} head={pr_head[:8]} "
           f"model={model} max_turns={MAX_TURNS}", flush=True)
 
+    hooks = {
+        "PreToolUse": [
+            HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
+        ],
+    }
+    if progress is not None:
+        hooks["PreToolUse"] = [
+            HookMatcher(matcher=None, hooks=[progress.pre_tool]),
+            HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
+        ]
+        hooks["PostToolUse"] = [
+            HookMatcher(matcher=None, hooks=[progress.post_tool]),
+        ]
+
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         allowed_tools=["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
@@ -736,11 +813,7 @@ async def run_agent() -> int:
         ],
         # Closes the `Bash(run_in_background=True)` / shell-`&` loophole that
         # `disallowed_tools` alone can't catch — see _block_bash_background.
-        hooks={
-            "PreToolUse": [
-                HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
-            ],
-        },
+        hooks=hooks,
         model=model,
         max_turns=MAX_TURNS,
         permission_mode="bypassPermissions",
@@ -763,18 +836,11 @@ async def run_agent() -> int:
                         print(block.text, flush=True)
                         final_text.append(block.text)
                     elif isinstance(block, ToolUseBlock):
-                        # Single-line tool-call breadcrumb in the log.
+                        # Category-only breadcrumb. Raw command arguments,
+                        # paths, patterns, and file contents are deliberately
+                        # excluded from logs and the progress artifact.
                         name = getattr(block, "name", "?")
-                        inp = getattr(block, "input", {}) or {}
-                        hint = ""
-                        if name == "Bash":
-                            cmd = str(inp.get("command", ""))[:140]
-                            hint = cmd.replace("\n", " ")
-                        elif name in ("Read", "Edit", "Write"):
-                            hint = str(inp.get("file_path", ""))[-140:]
-                        elif name in ("Glob", "Grep"):
-                            hint = str(inp.get("pattern", ""))[:140]
-                        print(f"  [tool] {name} :: {hint}", flush=True)
+                        print(f"  [tool] {name}", flush=True)
             elif isinstance(msg, ResultMessage):
                 saw_result_message = True
                 total_cost = getattr(msg, "total_cost_usd", 0.0) or 0.0
@@ -855,9 +921,17 @@ def main() -> int:
     _disable_server_thinking()
     _set_bash_timeouts()
     _set_work_deadline()
+    try:
+        progress = _direct_progress_monitor()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"FATAL: direct progress monitor setup failed: {exc}", file=sys.stderr)
+        return 1
     _ensure_sdk()
     try:
-        rc = asyncio.run(_run_agent_with_work_deadline())
+        rc = asyncio.run(_run_agent_with_work_deadline(progress))
+    except DirectAgentWatchdogExpired as exc:
+        print(f"[agent] direct progress watchdog expired: {exc}", file=sys.stderr)
+        rc = _DIRECT_WATCHDOG_EXIT_CODE
     except WorkDeadlineExceeded as exc:
         print(f"[agent] {exc}", file=sys.stderr)
         rc = _WORK_DEADLINE_EXIT_CODE
