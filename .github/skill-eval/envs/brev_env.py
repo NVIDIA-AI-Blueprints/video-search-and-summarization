@@ -85,6 +85,8 @@ def _eval_env_forward_keys() -> tuple[str, ...]:
         "NVIDIA_API_KEY",
         "HF_TOKEN",
         *_REMOTE_PLACEMENT_KEYS,
+        "WAREHOUSE_APP_DATA_NGC",
+        "WAREHOUSE_APP_DATA_DIR",
         "PR_HEAD_SHA",
         "PR_REPO",
         "GITHUB_RUN_ID",

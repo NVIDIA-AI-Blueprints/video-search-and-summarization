@@ -603,6 +603,17 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertNotIn("openshell-rtxpro6000-active", labels)
         self.assertNotIn("gpus-2", labels)
         self.assertNotIn("ubuntu-24.04", labels)
+        self.assertEqual(
+            plan_matrix.runs_on_labels("H200", {"gpu_count": 0}),
+            [
+                "vss-skill-eval-gpu",
+                "openshell",
+                "h200",
+                "gpu-h200",
+                "openshell-h200-active",
+                "gpus-1",
+            ],
+        )
 
     def test_h200_kept_alongside_rtxpro(self):
         plan_matrix.spec_platform_config = lambda p: {
@@ -623,6 +634,23 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertIn("openshell-rtxpro6000-active", rtx["runs_on"])
         self.assertNotIn("openshell-rtxpro6000-active", h200["runs_on"])
         self.assertNotIn("openshell-h200-active", rtx["runs_on"])
+
+    def test_h200_two_gpu_is_skip_runner_and_omitted(self):
+        """74 is 8×1; gpus-2 must not land on H200 VMs."""
+        self.assertEqual(
+            plan_matrix.runs_on_labels("H200", {"gpu_count": 2}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+        plan_matrix.spec_platform_config = lambda p: {
+            "RTXPRO6000BW": {"gpu_count": 2},
+            "H200": {"gpu_count": 2},
+        }
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual([leg["platform"] for leg in inc], ["RTXPRO6000BW"])
+        self.assertIn("gpus-2", inc[0]["runs_on"])
+        self.assertNotIn("openshell-h200-active", inc[0]["runs_on"])
 
     def test_openshell_main_enumerates_all_skills(self):
         src = inspect.getsource(plan_matrix.main)

@@ -165,7 +165,8 @@ OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "openshell-rtxpro6000-active",
 )
 # 10.86.14.74 OpenShell H200 NVL cohort (8 VMs × 1 GPU). Separate active
-# label so RTX jobs cannot land here.
+# label so RTX jobs cannot land here. 2-GPU specs stay on 223
+# (gpus-2); never advertise gpus-2 on this 1-GPU packing.
 OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     "openshell",
@@ -251,8 +252,12 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
             labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
             return labels
         if platform == "H200":
+            # 74 is packed 8×1. A gpus-2 demand would queue forever on
+            # runners that only carry gpus-1. 2-GPU work stays on 223.
+            if count >= 2:
+                return list(SKIP_RUNNER)
             labels = list(OPENSHELL_H200_LABELS)
-            labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
+            labels.append("gpus-1")
             return labels
         return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
@@ -475,10 +480,17 @@ def build_matrix(changed: list[str]) -> list[dict]:
             if os.environ.get("OPENSHELL_RTXPRO6000_ONLY"):
                 platforms = [p for p in platforms if p in ("RTXPRO6000BW", "H200")]
             for platform in platforms:
+                plat_cfg = platform_config.get(platform)
+                if (
+                    os.environ.get("OPENSHELL_RTXPRO6000_ONLY")
+                    and platform == "H200"
+                    and _gpu_count(plat_cfg or {}) >= 2
+                ):
+                    # Do not emit a skip-runner ubuntu job for 2-GPU H200
+                    # entries. Those specs run on RTX 223 when declared.
+                    continue
                 plat_tag = platform or "no-platform"
-                labels = runs_on_labels(
-                    platform, platform_config.get(platform)
-                )
+                labels = runs_on_labels(platform, plat_cfg)
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],

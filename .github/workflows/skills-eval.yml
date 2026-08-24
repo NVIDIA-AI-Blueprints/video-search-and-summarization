@@ -283,6 +283,12 @@ jobs:
             printf "LLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
             printf "VLM_REMOTE_URL=\n" >> "$GITHUB_ENV"
             printf "VLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
+            # sample-deployment judge requires a harness-provided NGC
+            # resource (WAREHOUSE_APP_DATA_DIR or WAREHOUSE_APP_DATA_NGC).
+            # Pin matches deploy/docker and helm 3.2.0 defaults.
+            if [ -z "${WAREHOUSE_APP_DATA_NGC:-}" ]; then
+              printf "WAREHOUSE_APP_DATA_NGC=nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0\n" >> "$GITHUB_ENV"
+            fi
           fi
 
       - name: Run skills eval agent (single spec)
