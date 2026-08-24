@@ -115,15 +115,15 @@ fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   # Step 2 probes the public /v1 route before adopting it as VLM_ENDPOINT.
 else
   DEPLOYMENT_KIND="docker"
-  VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 fi
 ```
+
+No VIOS URL is built here. `vss configure --base-url` records the deployment once
+and every `vss vios` call reads it, so the sensor path never needs a host, a port
+or `/vst/api/v1`. See [AGENTS.md](../../AGENTS.md).
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
 `docker inspect` / `docker ps` to find the VLM. When `VSS_PUBLIC_URL` is set,
@@ -136,8 +136,10 @@ Probe what's actually available — only the VLM endpoint is mandatory:
 # REQUIRED: VLM endpoint reachable? (caller-provided, public /v1, or auto-discovered — see Step 2)
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
 
-# OPTIONAL: VST/VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
-curl -sf --max-time 5 "${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}/sensor/version" >/dev/null && echo "VST OK"
+# OPTIONAL: VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
+# `vss configure check` re-probes what was recorded and reports which command
+# groups the deployment can serve; `vios available` is the line that matters here.
+vss configure check
 ```
 
 **If no VLM endpoint is reachable**, ask the user to provide one (host:port + model id), or — only
@@ -454,8 +456,9 @@ base64 **string** to 10M characters, which — since base64 adds ~33% — means 
 **~7.5 MB** (a 10 MB MP4 base64-encodes to ~13.3M chars and is rejected). Set
 `UPLOAD_FORMAT` to force either one.
 
-> **VST-sourced (Path B) ⇒ `video_url`.** Use the VST `videoUrl` (in `VIDEO_URL`) as a `video_url`
-> block — an in-cluster VLM (incl. base NIM Cosmos) can fetch the `localhost:30888` URL. Never
+> **Sensor-sourced (Path B) ⇒ `video_url`.** Use the `media_url` from `vss vios clip` (in
+> `VIDEO_URL`) as a `video_url` block — the CLI has already normalised it onto the configured
+> origin, so an in-cluster VLM (incl. base NIM Cosmos) can fetch it as given. Never
 > inline a stray local copy as `file_base64`; do that only for a genuinely remote VLM, and only by
 > downloading *that* `videoUrl`. Applies to temporal questions too. (Enforced by the guard below.)
 
