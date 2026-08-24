@@ -371,7 +371,7 @@ One relay, **two backends**, and one way in: Alert Bridge POSTs each incident to
 
 **When starting or testing, and the real credentials are absent: ask the operator and STOP.** Do not start the server. That much ALWAYS applies, including under autonomous / non-interactive / CI execution — "run autonomously" authorizes deploy and setup ONLY. None of the following counts as having credentials, and each has been tried:
 
-- Placeholder or example values, wherever they came from — invented, `.env.example`, or **already sitting in `.env`**. A value being present is not a value being real.
+- Placeholder or example values, wherever they came from — invented, `.env.example`, or **already sitting in `.env`**. A value being present is not a value being real. If the token contains `test`, `example`, `dummy`, `xxx`, or reads like a fixture (`xoxb-test-...`), it is a placeholder: the server will fail Slack auth at startup and exit. Ask the operator for the real one.
 - Pointing the relay at something other than Slack — a local mock, a stub server, `SLACK_API_BASE_URL` set to anything you started yourself.
 - Editing the relay to get past the gate: skipping the Slack auth check, stubbing the client, patching the startup validation.
 - Any other route to a green result that does not involve a message arriving in the operator's Slack.

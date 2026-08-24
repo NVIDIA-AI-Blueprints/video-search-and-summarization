@@ -97,7 +97,10 @@ index inventory is a snapshot.
 
    - No match: report the missing source, list available names, and ask the
      user to clarify or explicitly request ingestion. Stop without probing the
-     search CLI, deploying, or ingesting.
+     search CLI, deploying, or ingesting. **Never continue with a different
+     source.** Answering about `warehouse_sample` when the request named
+     `warehouse-ladder` returns a confident answer about the wrong video, and
+     nothing downstream can tell it was substituted.
    - Several matches: ask the user to choose and stop.
    - Never substitute another video or run an unrestricted search as a probe.
 
