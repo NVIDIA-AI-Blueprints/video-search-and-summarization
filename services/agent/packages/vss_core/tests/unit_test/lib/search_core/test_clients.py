@@ -12,9 +12,9 @@ import pytest
 from vss_core._foundation.retry import create_retry_strategy
 from vss_core.search_core.clients.cosmos_embed import CosmosEmbedClient
 from vss_core.search_core.errors import BackendUnreachableError
-from vss_core.vst import VSTClient
-from vss_core.vst import VSTError
-import vss_core.vst.client as vst_module
+from vss_core.vios import VSTClient
+from vss_core.vios import VSTError
+import vss_core.vios.client as vst_module
 
 
 class _MalformedResponse:
