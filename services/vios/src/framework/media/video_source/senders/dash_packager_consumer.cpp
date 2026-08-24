@@ -340,15 +340,55 @@ bool DashPackagerConsumer::start()
 
 void DashPackagerConsumer::stop()
 {
+    // End of stream has to travel the length of the pipeline before the sink
+    // finishes the fragment it is writing.  Tearing down the moment it is sent
+    // gives it no chance to arrive, and the fragment is left open for the life
+    // of the process - one descriptor a session, invisible in one session and
+    // plain after a few hundred.  Wait for it to come back, outside the lock:
+    // the bus handler reports failures through this object, so holding the lock
+    // while waiting would deadlock against the very error that makes the wait
+    // time out.
+    GstElement* pipeline = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_videoAppsrc != nullptr)
+        {
+            gst_app_src_end_of_stream(GST_APP_SRC(m_videoAppsrc));
+        }
+        if (m_audioAppsrc != nullptr)
+        {
+            gst_app_src_end_of_stream(GST_APP_SRC(m_audioAppsrc));
+        }
+        if (m_pipeline != nullptr)
+        {
+            pipeline = GST_ELEMENT(gst_object_ref(m_pipeline));
+        }
+    }
+    if (pipeline != nullptr)
+    {
+        GstBus* bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
+        if (bus != nullptr)
+        {
+            // A pipeline that has already errored will never say end of stream,
+            // so accept either answer and give up rather than hang teardown.
+            GstMessage* message = gst_bus_timed_pop_filtered(
+                bus, 3 * GST_SECOND,
+                static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
+            if (message != nullptr)
+            {
+                gst_message_unref(message);
+            }
+            else
+            {
+                LOG(warning) << "DASH pipeline for " << m_config.streamToken
+                             << " did not finish before teardown" << endl;
+            }
+            gst_object_unref(bus);
+        }
+        gst_object_unref(pipeline);
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (m_videoAppsrc != nullptr)
-    {
-        gst_app_src_end_of_stream(GST_APP_SRC(m_videoAppsrc));
-    }
-    if (m_audioAppsrc != nullptr)
-    {
-        gst_app_src_end_of_stream(GST_APP_SRC(m_audioAppsrc));
-    }
     destroyPipeline();
     cleanupOutput();
     if (!m_hasError.load())
@@ -383,6 +423,21 @@ void DashPackagerConsumer::destroyPipeline()
             gst_object_unref(bus);
         }
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        // Going to NULL can complete asynchronously, and the sink only closes
+        // the fragment it is writing as part of that transition.  Dropping the
+        // last reference before the transition finishes leaves that file open
+        // for the life of the process - one descriptor per session, which is
+        // invisible in a single session and obvious after a few hundred.  Wait
+        // for the state change, but not indefinitely: teardown must not hang on
+        // a pipeline that has already failed.
+        GstState reached = GST_STATE_VOID_PENDING;
+        const GstStateChangeReturn settled =
+            gst_element_get_state(m_pipeline, &reached, nullptr, 2 * GST_SECOND);
+        if (settled != GST_STATE_CHANGE_SUCCESS || reached != GST_STATE_NULL)
+        {
+            LOG(warning) << "DASH pipeline for " << m_config.streamToken
+                         << " did not reach NULL before teardown" << endl;
+        }
         gst_object_unref(m_pipeline);
     }
     m_pipeline = nullptr;
