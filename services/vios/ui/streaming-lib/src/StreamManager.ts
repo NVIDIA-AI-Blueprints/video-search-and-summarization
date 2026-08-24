@@ -344,6 +344,18 @@ export default class StreamManager {
         }
     }
 
+    /** Replace this viewer's private replay DASH session at an absolute timestamp. */
+    public async seekDashReplay(startTime: string): Promise<void> {
+        if (!this.dashStream) {
+            throw new Error('DASH replay is not active');
+        }
+        await this.dashStream.seekReplay(startTime);
+        if (this.streamConfig) {
+            this.streamConfig = { ...this.streamConfig, startTime };
+        }
+        this.appConfig.onStreamStatusUpdate?.({ error: false, state: StreamState.PLAYING });
+    }
+
     public getConfig(): AppConfig {
         return { ...this.appConfig };
     }
