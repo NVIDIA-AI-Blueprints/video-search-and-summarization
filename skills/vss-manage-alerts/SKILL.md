@@ -247,12 +247,12 @@ No auto-redeploy here either.
 
 Both modes require the camera registered in VIOS first:
 
-- RTSP URL / IP camera → `${VSS} vios add rtsp://<url> --name <name>`, and record the `sensor_id` it
+- RTSP URL / IP camera → `"${VSS[@]}" vios add rtsp://<url> --name <name>`, and record the `sensor_id` it
   reports. Passing `--name` is what avoids the classic mistake of VIOS silently naming the sensor
   `SENSOR`; the command reports the name it stored, so read that rather than assuming.
-- Named existing sensor → `${VSS} vios list --type stream --sensor <name>` before proceeding. An
+- Named existing sensor → `"${VSS[@]}" vios list --type stream --sensor <name>` before proceeding. An
   exit of 5 means it is not registered.
-- **Never hand-construct the RTSP URL.** For an NVStreamer-served stream, query NVStreamer for the served URL (`GET :31000/vst/api/v1/sensor/<name>/streams` → `url`) and register it **verbatim** — including its container-internal host/port (VST shares that docker network; a guessed `<host-ip>:<port>` or `localhost` URL is typically unreachable from the VST container and the stream never activates). After registering, confirm the sensor's row carries a non-empty `source` (`${VSS} vios list --type stream`) before proceeding — an absent one means the source is unreachable and the registration must be redone.
+- **Never hand-construct the RTSP URL.** For an NVStreamer-served stream, query NVStreamer for the served URL (`GET :31000/vst/api/v1/sensor/<name>/streams` → `url`) and register it **verbatim** — including its container-internal host/port (VST shares that docker network; a guessed `<host-ip>:<port>` or `localhost` URL is typically unreachable from the VST container and the stream never activates). After registering, confirm the sensor's row carries a non-empty `source` (`"${VSS[@]}" vios list --type stream`) before proceeding — an absent one means the source is unreachable and the registration must be redone.
 
 On **CV**, adding the RTSP is the *entire* onboarding step (pipeline auto-picks it up). On **VLM**, it is the prerequisite for creating a realtime alert rule (Workflow D).
 
@@ -287,16 +287,16 @@ Bootstrap the CLI once (see [AGENTS.md](../../AGENTS.md) for the contract):
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-VSS="uv run --project ${VSS_REPO_ROOT}/services/agent --no-dev --extra cli vss"
-${VSS} configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP}:7777}"   # once per deployment
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+"${VSS[@]}" configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP}:7777}"   # once per deployment
 ```
 
-1. Check if the sensor is in VIOS with `${VSS} vios list --type stream` (idempotent — don't blindly add).
-2. If missing, onboard with `${VSS} vios add rtsp://<url> --name <name>`. The CV pipeline auto-picks up the stream once registered and online.
+1. Check if the sensor is in VIOS with `"${VSS[@]}" vios list --type stream` (idempotent — don't blindly add).
+2. If missing, onboard with `"${VSS[@]}" vios add rtsp://<url> --name <name>`. The CV pipeline auto-picks up the stream once registered and online.
 3. Confirm online — assert it, do not just print it:
    ```bash
    set -o pipefail   # else a failed `vss` hides behind jq and reads as "absent"
-   ROWS=$(${VSS} vios list --type stream --sensor <name>) || {
+   ROWS=$("${VSS[@]}" vios list --type stream --sensor <name>) || {
      echo "vss vios list failed for <name>" >&2; exit 1; }
    # The main stream's state is the sensor's state; a multi-stream camera has
    # several rows and picking .sensors[0] would be an arbitrary one.
@@ -442,8 +442,8 @@ does not exist — which returns `count: 0`, not an error.
 #    different camera or errors out and reads back as "no such sensor".
 # Keep the two failures apart: a dead VIOS and an unknown sensor both leave you with no
 # name, but one means "use the fallback below" and the other means "tell the user".
-VSS="uv run --project ${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent --no-dev --extra cli vss"
-LIST=$(${VSS} vios list --type stream) || { echo "VIOS unreachable — exit 2 means: continue with the unfiltered /incidents fallback below (do NOT report an error)"; exit 2; }
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+LIST=$("${VSS[@]}" vios list --type stream) || { echo "VIOS unreachable — exit 2 means: continue with the unfiltered /incidents fallback below (do NOT report an error)"; exit 2; }
 # sort -u: one sensor registered twice is one name, not an ambiguous choice between two.
 # No separate parse guard: the CLI exits non-zero on a backend failure rather than
 # handing back a 200 with a malformed body, so there is no "unparseable data" case
@@ -508,7 +508,7 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
 #    stream id instead, so the rows exist under the UUID. There are only these two identities
 #    to try — ask about the second one directly. `total` is the full match count, so this is
 #    exact at any `limit`, and needs no paging through the store.
-UUID=$(${VSS} vios list --type stream --sensor "$NAME" | jq -r 'first(.sensors[] | select(.is_main) | .sensor_id) // empty' | sort -u)
+UUID=$("${VSS[@]}" vios list --type stream --sensor "$NAME" | jq -r 'first(.sensors[] | select(.is_main) | .sensor_id) // empty' | sort -u)
 # same trap as $NAME, and it springs while you are being careful: if VIOS died or dropped the
 # sensor since step 1, an empty $UUID is dropped from the query and the store-wide total comes
 # back as this sensor's — turning "none" into someone else's incidents.
