@@ -569,11 +569,12 @@ def test_an_empty_media_url_is_an_error_not_a_handle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_deleting_an_uploaded_file_with_no_recordings_still_deregisters(vios_http, monkeypatch) -> None:
-    """Timelines populate asynchronously, so a fresh upload has no span yet.
+async def test_deleting_an_uploaded_file_whose_timeline_never_appears_is_not_confirmed(vios_http, monkeypatch) -> None:
+    """The bytes outlive the registration, so this must not read as a clean delete.
 
-    Without the deregister fallback this raised "VIOS still lists ..." for a
-    sensor nothing had ever been issued against.
+    The storage delete is keyed on the timeline, and an uploaded file exists on
+    disk whether or not one has been indexed. Deregistering the sensor and
+    reporting success would leave the file with nothing pointing at it.
     """
     configure, calls, _ = vios_http
     configure(**{"/sensor/list": [{"name": "w", "sensorId": "w_0"}], "/sensor/w_0": (200, {})})
@@ -582,6 +583,10 @@ async def test_deleting_an_uploaded_file_with_no_recordings_still_deregisters(vi
         return None
 
     monkeypatch.setattr(vios, "recorded_span", no_span)
+    # Expire the wait immediately: stubbing sleep alone leaves the loop spinning
+    # against a real 15s deadline.
+    monkeypatch.setattr(vios, "_DELETE_TIMELINE_WAIT_SECONDS", 0.0)
+    monkeypatch.setattr(vios.asyncio, "sleep", _no_sleep)
 
     async def absent_after_delete(*_a: object, **_k: object) -> None:
         return None
@@ -591,9 +596,35 @@ async def test_deleting_an_uploaded_file_with_no_recordings_still_deregisters(vi
     ref = vios.SensorRef(name="w", sensor_id="w_0", stream_id="w-stream", url="/videos/w.mp4", kind="video")
     result = await vios.delete_media(VST, ref)
 
+    # Still deregistered: leaving it listed would be worse.
     assert result["deleted"] == ["sensor"]
-    assert result["recordings"] == "none"
     assert any(c.startswith("DELETE") and "/sensor/w_0" in c for c in calls)
+    # But not claimed as clean, and no storage delete was possible.
+    assert result["recordings"] == "unconfirmed"
+    assert result["confirmed"] is False
+    assert not any(c.startswith("DELETE") and "/storage/" in c for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_stream_with_no_recordings_is_still_clean(vios_http, monkeypatch) -> None:
+    """A stream that recorded nothing has no stored bytes -- "none" is the truth."""
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "cam", "sensorId": "cam_0"}], "/sensor/cam_0": (200, {})})
+
+    async def no_span(*_a: object, **_k: object) -> None:
+        return None
+
+    async def absent(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(vios, "recorded_span", no_span)
+    monkeypatch.setattr(vios, "confirm_absent", absent)
+
+    ref = vios.SensorRef(name="cam", sensor_id="cam_0", stream_id="cam-1", url="rtsp://c/1", kind="stream")
+    result = await vios.delete_media(VST, ref)
+
+    assert result["recordings"] == "none"
+    assert result["confirmed"] is True
 
 
 @pytest.mark.asyncio

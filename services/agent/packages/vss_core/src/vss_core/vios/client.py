@@ -29,6 +29,7 @@ OO wrapper.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import datetime
 import json
@@ -1490,6 +1491,10 @@ class VIOSTimeoutError(LibraryError):
 _TIMELINE_WAIT_SECONDS = 60.0
 _TIMELINE_POLL_SECONDS = 2.0
 
+#: Shorter than the upload wait: a delete should not hang for a minute, but a
+#: few polls cover the gap between an upload landing and its timeline.
+_DELETE_TIMELINE_WAIT_SECONDS = 15.0
+
 #: Enough to make VIOS start rendering; the bytes are discarded.
 _WARM_CHUNK_BYTES = 64 * 1024
 
@@ -1548,6 +1553,17 @@ async def delete_media(
     # function reported a confirmed cleanup.
     span = await recorded_span(vst_internal_url, ref.stream_id, timeout_seconds)
 
+    # An uploaded file is on disk whether or not its timeline has been indexed,
+    # and the storage delete below -- the thing that reclaims the bytes -- is
+    # keyed on that timeline. Indexing is asynchronous, so a delete issued soon
+    # after an upload sees no timeline, skips storage, deregisters the sensor,
+    # and confirms clean while the file remains. Wait briefly rather than
+    # orphaning it. A stream with nothing recorded is a different case and is
+    # left alone: there is no stored file to reclaim.
+    if span is None and ref.kind == "video":
+        with contextlib.suppress(VIOSTimeoutError):
+            span = await await_timeline(vst_internal_url, ref.stream_id, timeout_seconds=_DELETE_TIMELINE_WAIT_SECONDS)
+
     sensor_url = f"{base}/vst/api/v1/sensor/{quote_path_segment(ref.sensor_id)}"
 
     if ref.kind == "stream":
@@ -1580,9 +1596,11 @@ async def delete_media(
         "sensor_id": ref.sensor_id,
         "type": ref.kind,
         "deleted": steps,
-        # No span means VIOS listed no recordings for this stream -- said
-        # plainly, because "nothing to reclaim" and "we could not tell" must
-        # not look the same. A failure to read the timelines raises instead.
-        "recordings": "removed" if span else "none",
-        "confirmed": True,
+        # Three states, kept apart. "removed": storage was reclaimed. "none": a
+        # stream VIOS listed no recordings for -- nothing to reclaim. For an
+        # uploaded file whose timeline never appeared, neither is true: the
+        # sensor is gone but the bytes may not be, so say so rather than let it
+        # read as a clean delete. A failure to read the timelines raises.
+        "recordings": "removed" if span else ("none" if ref.kind == "stream" else "unconfirmed"),
+        "confirmed": span is not None or ref.kind == "stream",
     }

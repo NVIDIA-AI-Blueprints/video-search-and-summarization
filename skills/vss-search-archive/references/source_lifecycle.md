@@ -456,10 +456,19 @@ DELETE_RESPONSE=$(curl -sfS --max-time "${DELETE_TIMEOUT}" -X DELETE \
   "${AGENT_URL%/}/api/v1/videos/${SAVED_SENSOR_ID}") || exit 1
 printf '%s' "${DELETE_RESPONSE}" | jq -e '.status == "success"' >/dev/null || exit 1
 
+# Last-known state, so an expiry can say what is still present rather than
+# only that it gave up.
+VST_PRESENT=unknown EMBED_COUNT=unknown BEHAVIOR_COUNT=unknown RAW_COUNT=unknown
 while :; do
   VST_TIMEOUT=$(delete_timeout 15) || {
-    echo "Timed out waiting for source and index cleanup" >&2
-    exit 1
+    # The delete was accepted; cleanup did not finish inside the deadline.
+    # Report what is still there and exit 6 (partial) -- exiting 1 with a bare
+    # message loses the half that did succeed, and reads as "delete failed"
+    # when the source may already be gone and only an index still draining.
+    printf 'delete_status=partial vst_present=%s counts=%s,%s,%s\n' \
+      "${VST_PRESENT}" "${EMBED_COUNT}" "${BEHAVIOR_COUNT}" "${RAW_COUNT}" >&2
+    echo "cleanup did not finish within the deadline; the values above are what is still present" >&2
+    exit 6
   }
   VST_SENSORS=$("${VSS[@]}" vios list) || exit 1
   VST_PRESENT=$(printf '%s' "${VST_SENSORS}" | jq -r \
