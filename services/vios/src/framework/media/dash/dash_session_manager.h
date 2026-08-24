@@ -73,7 +73,12 @@ public:
     // touches no codec.  An overlay has to be burned into pixels, so such a
     // session decodes, draws and re-encodes, and is not shared with viewers who
     // asked for something different.
-    DashStartResult start(const std::string& streamId, const Json::Value& overlay = Json::Value());
+    // A video wall composes several cameras into one picture, so it always owns
+    // a private decode/composite/encode pipeline and is never shared with the
+    // pass-through session for any single camera in it.
+    DashStartResult start(const std::string& streamId, const Json::Value& overlay = Json::Value(),
+                          const Json::Value& composite = Json::Value(),
+                          const std::string& frameRate = std::string());
 
     // Replay sessions are never shared.  Two viewers of the same recording can
     // sit at different points in it, so each one gets its own packager, its own

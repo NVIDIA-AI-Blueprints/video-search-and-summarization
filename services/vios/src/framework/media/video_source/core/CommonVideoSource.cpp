@@ -462,7 +462,13 @@ void CommonVideoSource::createConsumerPipeline()
     // and hands it to the packager.  Rebuilding the standard chain here would
     // put the transform back in front of the packager and feed it compressed
     // frames it cannot use.
-    if (m_config.isDashPlayback() && !m_config.getOverlay().enabled && m_gstdecoder != nullptr
+    // A video wall is never a passthrough, whether or not it draws an overlay:
+    // its picture does not exist in any single camera's bitstream and has to be
+    // decoded, composed and re-encoded.  Without this the wall silently
+    // degrades to one camera wired straight to the packager, and the compositor
+    // runs at full rate into nothing.
+    if (m_config.isDashPlayback() && !m_config.getOverlay().enabled && !m_compositePlayback
+        && m_gstdecoder != nullptr
         && m_pipelineManager != nullptr && m_pipelineManager->getDashConsumer() != nullptr)
     {
         m_gstdecoder->setConsumer(m_peerid, m_pipelineManager->getDashConsumer());
