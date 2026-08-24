@@ -356,7 +356,16 @@ Use when the user **explicitly mentions Slack or the webhook relay** (start/stop
 
 One relay, **two backends**: the `alert-notify` webhook server fans incidents out to **Slack** and/or the **OpenClaw Dashboard**, selected by `NOTIFY_BACKENDS` (default **`dashboard`** — a Slack setup MUST set `NOTIFY_BACKENDS=slack`, or `slack,dashboard` for both). The four skill-level ops all hit `:9090`: **status** (`GET /webhook/alert-notify/status`), **start** (creds gate below), **test** (POST a sample incident to `/webhook/alert-notify`), **stop**.
 
-**Credentials gate before any start — both backends have one.** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`; the Dashboard needs `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN`. Being the *default* backend does not make the Dashboard zero-config — its init raises when either is unset. Both also need `VST_ENDPOINT`, and the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT` — never start it with placeholder values. Ask for the real values and stop until provided. **This gate ALWAYS applies — including under autonomous / non-interactive / CI execution:** the "run autonomously" instruction authorizes deploy and setup ONLY; it does **NOT** authorize inventing a placeholder token, copying `.env.example`, faking the Slack endpoint, editing the relay code, or starting the server without operator-supplied credentials. If the real credentials are absent, ask the operator and STOP — do not start the server.
+**Credentials gate before any start — both backends have one.** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`; the Dashboard needs `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN`. Being the *default* backend does not make the Dashboard zero-config — its init raises when either is unset. Both also need `VST_ENDPOINT`, and the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT`.
+
+**If the real credentials are absent: ask the operator and STOP.** Do not start the server. This gate ALWAYS applies, including under autonomous / non-interactive / CI execution — "run autonomously" authorizes deploy and setup ONLY. None of the following counts as having credentials, and each has been tried:
+
+- Placeholder or example values, wherever they came from — invented, `.env.example`, or **already sitting in `.env`**. A value being present is not a value being real.
+- Pointing the relay at something other than Slack — a local mock, a stub server, `SLACK_API_BASE_URL` set to anything you started yourself.
+- Editing the relay to get past the gate: skipping the Slack auth check, stubbing the client, patching the startup validation.
+- Any other route to a green result that does not involve a message arriving in the operator's Slack.
+
+A test that did not reach Slack was not a test. Report what blocked it — the server is not running, credentials are needed — and offer to start it once they exist. That report is the successful outcome here; a fabricated success is the only real failure.
 
 Routes here: "Set up Slack notifications", "Check if alert-notify is running", "Send a test alert to Slack". Does **not** route here: "Notify me when someone enters the zone" (→ Workflow D), "Alert and notify on my phone" (ambiguous — ask).
 

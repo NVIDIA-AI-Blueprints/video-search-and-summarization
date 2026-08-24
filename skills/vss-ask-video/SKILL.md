@@ -289,6 +289,12 @@ base64). A user-supplied `VIDEO_FILE` (Path A) is always inlined — there is no
 
 ## Step 2 — Resolve the VLM endpoint and model
 
+**One endpoint, one attempt.** Resolve the VLM endpoint once and send the request once. A `401`
+or `403` is an answer — the endpoint needs credentials you were not given — not a reason to try
+another host, port or auth header. Retry only to repair malformed structured output, and only
+once. Hunting for a combination that returns 200 turns one failed call into several and buries
+the actual problem, which is that the endpoint is gated.
+
 If the caller already provides a VLM endpoint, use it directly — this skill only requires a
 reachable OpenAI-compatible `chat/completions` endpoint:
 
