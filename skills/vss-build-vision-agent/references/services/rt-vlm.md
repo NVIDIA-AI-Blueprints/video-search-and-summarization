@@ -94,6 +94,38 @@ the `http://rtvi-vlm:8000` endpoint (a consumer's `VLM_BASE_URL`) are invariant
 across BF16 and FP8; a consumer owns that URL but never inherits it from the
 variant profile.
 
+## Headless captioning and Q&A
+
+For a request that needs RT-VLM captioning and VLM Q&A but not agent
+orchestration, RT-VLM owns both paths. Serve Q&A directly from
+`/v1/chat/completions` on the published RT-VLM port (the shipped default is
+`8018`) and prune `vss-agent`, `vss-ui`, `phoenix`, and the LLM NIM. Retaining
+those services does not improve RT-VLM Q&A.
+
+Apply the ingress rule independently. Retain `vss-haproxy-ingress` only when the
+request keeps the Agent/UI tier or explicitly asks for one browse/operate origin.
+Otherwise prune it and call RT-VLM and VIOS on their published ports. HAProxy
+does not route RT-VLM, so it must never be retained or patched merely to front
+direct RT-VLM Q&A.
+
+When the request also publishes generated captions to Kafka and indexes them in
+Elasticsearch:
+
+- enable publication with `RTVI_VLM_KAFKA_ENABLED=true`;
+- keep the inherited `STREAM_TYPE=kafka` when the selected Foundation already
+  supplies it;
+- keep the Compose default `RTVI_VLM_MESSAGE_BUS_TOPIC=mdx-vlm-captions` unless
+  the user asks for a different generated-caption topic;
+- do not set the legacy, unused `RTVI_VLM_KAFKA_TOPIC`;
+- do not override `KAFKA_TOPICS`: `mdx-vlm-captions` is already provisioned by
+  `kafka-topic-init-container`, and the checked-in Logstash `mdx-lvs` pipeline
+  already consumes it.
+
+These are environment/profile selections, not service-definition changes. If
+all selected services and requested values already exist in the source Compose
+graph, write only the normal three build artifacts; create no `patches/`
+directory.
+
 ## Configuration knobs
 
 | Environment variable | Use |
@@ -103,7 +135,7 @@ variant profile.
 | `RTVI_VLM_ENDPOINT`, `RTVI_VLM_API_KEY`, `VLM_BASE_URL` | Configure an OpenAI-compatible backend. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, `RTVI_VLM_MAX_MODEL_LEN`, `RTVI_VLLM_MAX_NUM_SEQS`, `RTVI_VLLM_MAX_NUM_BATCHED_TOKENS` | Bound vLLM memory and concurrency. |
 | `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK`, `RTVI_VLM_BATCH_SIZE` | Tune frame sampling and batching. |
-| `RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_KAFKA_TOPIC`, `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | Configure event publication. |
+| `RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_MESSAGE_BUS_TOPIC`, `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | Configure event publication. The generated-caption topic defaults to `mdx-vlm-captions`; override it only when requested. |
 | `VLM_MODEL_SUPPORTS_AUDIO`, `VLM_TRUST_REMOTE_CODE`, `HF_TOKEN` | Enable supported audio or gated/custom HF models. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
 
