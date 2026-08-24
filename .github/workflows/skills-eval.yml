@@ -169,9 +169,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow up to eight matrix legs. Unavailable runner slots queue in
-      # Actions; run_leg.py still caps execution at one leg per GPU box.
-      max-parallel: 8
+      # Allow 12 matrix legs so 4 RTX + 8 H200 OpenShell runners are one
+      # pool. Unavailable runner slots queue in Actions; run_leg.py still
+      # caps execution at one leg per GPU box.
+      max-parallel: 12
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
