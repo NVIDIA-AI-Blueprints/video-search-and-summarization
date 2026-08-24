@@ -233,7 +233,8 @@ get_commented_sbsa_keys() {
 }
 
 # Run one DGX-SPARK dry-run test for a profile: discover sbsa keys from profile overrides.env, run up -H DGX-SPARK, assert.
-# Skips if profile overrides.env is missing. Alerts gets -m real-time.
+# Skips if profile overrides.env is missing. Alerts gets -m real-time. Search must
+# name remote LLM/VLM endpoints, which the single-GPU edge policy requires.
 run_spark_test_for_profile() {
   local profile="${1}"
   local env_file="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${profile}/overrides.env"
@@ -247,6 +248,13 @@ run_spark_test_for_profile() {
   done < <(get_commented_sbsa_keys "${env_file}")
   local run_args=(-i 127.0.0.1 -H DGX-SPARK -d)
   [[ "${profile}" == "alerts" ]] && run_args+=(-m real-time)
+  if [[ "${profile}" == "search" ]]; then
+    run_args+=(--use-remote-llm --llm x --use-remote-vlm --vlm y)
+    LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+      run_dry_run_up_and_check_generated_env "generated.env DGX-SPARK swaps to sbsa tags (${profile})" "${profile}" \
+      "${run_args[@]}" -- "${check_args[@]}"
+    return 0
+  fi
   run_dry_run_up_and_check_generated_env "generated.env DGX-SPARK swaps to sbsa tags (${profile})" "${profile}" \
     "${run_args[@]}" -- "${check_args[@]}"
 }
@@ -445,13 +453,48 @@ echo "NVIDIA RTX PRO 4500 Blackwell"
 EOF
 chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
-run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
-run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
+run_negative_test "DGX-SPARK only valid for base, alerts or search (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
-run_negative_test "IGX-THOR only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H IGX-THOR
-run_negative_test "IGX-THOR only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H IGX-THOR
-run_negative_test "AGX-THOR only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H AGX-THOR
-run_negative_test "AGX-THOR only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H AGX-THOR
+run_negative_test "IGX-THOR only valid for base, alerts or search (not lvs)" 1 up -p lvs -i 127.0.0.1 -H IGX-THOR
+run_negative_test "AGX-THOR only valid for base, alerts or search (not lvs)" 1 up -p lvs -i 127.0.0.1 -H AGX-THOR
+
+# --- Search on single-GPU edge hardware ---
+# The VLM is always remote; the LLM defaults to remote but may be kept on the board.
+for _edge_hw in DGX-SPARK IGX-THOR AGX-THOR; do
+  LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+    run_dry_run_test "${_edge_hw} allows search with remote LLM and remote VLM" \
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --use-remote-vlm --vlm y -d
+  run_negative_test "${_edge_hw} search requires LLM_ENDPOINT_URL and VLM_ENDPOINT_URL" 1 \
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" -d
+  VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+    run_negative_test "${_edge_hw} search rejects a local LLM with no tuning for the board" 1 \
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/nvidia-nemotron-nano-9b-v2 --use-remote-vlm --vlm y -d
+  LLM_ENDPOINT_URL=http://127.0.0.1:8000 \
+    run_negative_test "${_edge_hw} search rejects a local VLM" 1 \
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --vlm nvidia/cosmos3-reasoner-fp8 -d
+done
+# The FP8 Nemotron is the one LLM shipping hw-<board>-shared.env for all three boards.
+for _edge_hw in DGX-SPARK IGX-THOR AGX-THOR; do
+  VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+    run_dry_run_test "${_edge_hw} allows search with a local FP8 LLM and a remote VLM" \
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 --use-remote-vlm --vlm y -d
+done
+# These boards drop the RT-VLM proxy and point the agent straight at the endpoint,
+# collapsing every GPU placement onto the board's single device.
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+  run_dry_run_up_and_check_generated_env "generated.env search on AGX-THOR routes the VLM directly on GPU 0" "search" \
+  -i 127.0.0.1 -H AGX-THOR --use-remote-llm --llm x --use-remote-vlm --vlm y -d -- \
+  "LLM_MODE" "remote" \
+  "VLM_MODE" "remote" \
+  "VLM_MODEL_TYPE" "nim" \
+  "VLM_AGENT_MEDIA_MODE" "remote" \
+  "LLM_DEVICE_ID" "0" \
+  "VLM_DEVICE_ID" "0" \
+  "RT_CV_DEVICE_ID" "0" \
+  "RT_EMBED_DEVICE_ID" "0" \
+  "FIXED_SHARED_DEVICE_IDS" "0"
+# The DGX-SPARK -sbsa tag swap for search is asserted by run_spark_test_for_profile,
+# which discovers the commented alternates from overrides.env.
 run_negative_test "invalid mode for alerts" 1 up -p alerts -m invalid
 run_negative_test "mode only accepted for alerts profile" 1 up -p base -m verification
 run_negative_test "down with extra option not allowed" 1 down --profile base
@@ -1230,7 +1273,10 @@ for _profile in base lvs search alerts; do
     search)
       _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH NVSTREAMER_CONFIG_DIR RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
-      _expected_stable_keys=(MODE VSS_RT_CV_TAG)
+      # VSS_RT_CV_TAG and VSS_RT_EMBED_TAG are not pinned for search: the managed
+      # images inherit their tag from containers.env, and the only entries are the
+      # commented -sbsa alternates in overrides.env that DGX-SPARK activates.
+      _expected_stable_keys=(MODE)
       ;;
     alerts)
       _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE VSS_RT_CV_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
@@ -1519,8 +1565,8 @@ run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "b
   "HARDWARE_PROFILE" "OTHER"
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
-# DGX-SPARK (and IGX-THOR) are only valid for base and alerts
-for _profile in base alerts; do
+# DGX-SPARK (and IGX-THOR) are only valid for base, alerts and search
+for _profile in base alerts search; do
   run_spark_test_for_profile "${_profile}"
 done
 

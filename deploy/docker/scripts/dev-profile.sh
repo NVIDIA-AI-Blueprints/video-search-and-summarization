@@ -54,6 +54,10 @@ vlm_env_file=""
 # Remote LLM/VLM model type (nim, openai)
 llm_model_type=""
 vlm_model_type=""
+# Set when the single-GPU edge policy forces a model remote without the caller
+# passing --use-remote-llm/--use-remote-vlm (see the edge search block below).
+edge_force_remote_llm=0
+edge_force_remote_vlm=0
 
 
 # Flags to track explicitly provided options
@@ -61,7 +65,6 @@ options_provided=()
 
 # Edge hardware profiles (e.g. DGX-SPARK, IGX-THOR, AGX-THOR): device ID options not accepted
 edge_hardware_profiles=('DGX-SPARK' 'IGX-THOR' 'AGX-THOR')
-
 # Returns the first GPU's product name from nvidia-smi (display name), or empty string if nvidia-smi fails or no GPU.
 function get_nvidia_smi_gpu_name() {
   local _name
@@ -125,7 +128,6 @@ function get_llm_slug() {
     *) echo "" ;;
   esac
 }
-
 function get_vlm_slug() {
   local _name="${1}"
   case "${_name}" in
@@ -820,10 +822,10 @@ function process_args() {
         fi
       fi
 
-      # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base and alerts; device ID options not accepted
+      # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base, alerts and search; device ID options not accepted
       if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
-        if [[ "${profile}" != "base" ]] && [[ "${profile}" != "alerts" ]]; then
-          echo "[ERROR] Hardware profile '${hardware_profile}' is only valid for profile base or alerts, not '${profile}'"
+        if [[ "${profile}" != "base" ]] && [[ "${profile}" != "alerts" ]] && [[ "${profile}" != "search" ]]; then
+          echo "[ERROR] Hardware profile '${hardware_profile}' is only valid for profile base, alerts or search, not '${profile}'"
           ((_all_good++))
         fi
         if contains_element "llm-device-id" "${options_provided[@]}"; then
@@ -836,6 +838,51 @@ function process_args() {
         fi
         llm_device_id="0"
         vlm_device_id="0"
+      fi
+
+      # Search on edge hardware has one GPU to work with, and streamprocessing,
+      # RT-CV and RT-Embed all need it, so the VLM always runs on a remote
+      # endpoint. The LLM defaults to remote as well, but passing --llm without
+      # --use-remote-llm keeps it on the board's GPU instead.
+      if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}" && [[ "${profile}" == "search" ]]; then
+        local _edge_llm_local=0
+        if contains_element "llm" "${options_provided[@]}" && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
+          _edge_llm_local=1
+        fi
+        if contains_element "vlm" "${options_provided[@]}" && ! contains_element "use-remote-vlm" "${options_provided[@]}"; then
+          echo "[ERROR] Search on ${hardware_profile} cannot host a local VLM: the board's only GPU already carries the perception pipeline. Use --use-remote-vlm with VLM_ENDPOINT_URL."
+          ((_all_good++))
+        fi
+        # The endpoints are read here because llm_base_url/vlm_base_url are only
+        # populated by the --use-remote-* option handlers.
+        if [[ "${_edge_llm_local}" -eq 0 ]]; then
+          edge_force_remote_llm=1
+          llm_base_url="${llm_base_url:-${LLM_ENDPOINT_URL:-}}"
+          if [[ -z "${llm_base_url}" ]]; then
+            echo "[ERROR] Search on ${hardware_profile} uses a remote LLM: set LLM_ENDPOINT_URL, or pass --llm <model> to host it on the board's GPU."
+            ((_all_good++))
+          fi
+        fi
+        edge_force_remote_vlm=1
+        vlm_base_url="${vlm_base_url:-${VLM_ENDPOINT_URL:-}}"
+        if [[ -z "${vlm_base_url}" ]]; then
+          echo "[ERROR] Search on ${hardware_profile} uses a remote VLM: set VLM_ENDPOINT_URL."
+          ((_all_good++))
+        fi
+        # A local LLM shares GPU 0 with perception, so it needs the -shared hw file
+        # for this board. Check it here: compose would otherwise fail on a missing
+        # hw-<HARDWARE_PROFILE>-shared.env with no indication of what went wrong.
+        if [[ "${_edge_llm_local}" -eq 1 ]] && [[ -n "${llm}" ]]; then
+          local _edge_llm_slug _edge_llm_hw
+          _edge_llm_slug="$(get_llm_slug "${llm}")"
+          if [[ -n "${_edge_llm_slug}" ]]; then
+            _edge_llm_hw="${deployment_directory}/services/nim/${_edge_llm_slug}/hw-${hardware_profile}-shared.env"
+            if [[ ! -f "${_edge_llm_hw}" ]]; then
+              echo "[ERROR] LLM '${llm}' has no ${hardware_profile} tuning for a shared GPU (${_edge_llm_hw#"${deployment_directory}/"} not found). Keep the LLM remote with --use-remote-llm, or pick a model that ships that file."
+              ((_all_good++))
+            fi
+          fi
+        fi
       fi
 
       # Alerts or base profile on IGX-THOR or AGX-THOR: VLM options are not accepted (VLM is fixed for this configuration).
@@ -863,14 +910,14 @@ function process_args() {
       local _llm_is_remote _vlm_is_remote
       _llm_is_remote=0
       _vlm_is_remote=0
-      if contains_element "use-remote-llm" "${options_provided[@]}" && [[ -n "${llm_base_url}" ]]; then
+      if { contains_element "use-remote-llm" "${options_provided[@]}" || [[ "${edge_force_remote_llm}" -eq 1 ]]; } && [[ -n "${llm_base_url}" ]]; then
         _llm_is_remote=1
       fi
-      if contains_element "use-remote-vlm" "${options_provided[@]}" && [[ -n "${vlm_base_url}" ]]; then
+      if { contains_element "use-remote-vlm" "${options_provided[@]}" || [[ "${edge_force_remote_vlm}" -eq 1 ]]; } && [[ -n "${vlm_base_url}" ]]; then
         _vlm_is_remote=1
       fi
 
-      # Derive LLM mode: remote only when --use-remote-llm is passed and LLM_ENDPOINT_URL is set (non-empty llm_base_url); else local_shared if device ID is in RESERVED_DEVICE_IDS, FIXED_SHARED_DEVICE_IDS, or (VLM not remote and equals VLM_DEVICE_ID), else local. Do not use vlm_device_id when VLM is remote.
+      # Derive LLM mode: remote only when --use-remote-llm is passed (or the edge search policy forced it) and LLM_ENDPOINT_URL is set (non-empty llm_base_url); else local_shared if device ID is in RESERVED_DEVICE_IDS, FIXED_SHARED_DEVICE_IDS, or (VLM not remote and equals VLM_DEVICE_ID), else local. Do not use vlm_device_id when VLM is remote.
       if [[ "${_llm_is_remote}" -eq 1 ]]; then
         llm_mode="remote"
       else
@@ -886,7 +933,7 @@ function process_args() {
           llm_mode="local"
         fi
       fi
-      # Derive VLM mode: remote only when --use-remote-vlm is passed and VLM_ENDPOINT_URL is set (non-empty vlm_base_url); else local_shared if device ID is in RESERVED_DEVICE_IDS, FIXED_SHARED_DEVICE_IDS, or (LLM not remote and equals LLM_DEVICE_ID), else local. Do not use llm_device_id when LLM is remote.
+      # Derive VLM mode: remote only when --use-remote-vlm is passed (or the edge search policy forced it) and VLM_ENDPOINT_URL is set (non-empty vlm_base_url); else local_shared if device ID is in RESERVED_DEVICE_IDS, FIXED_SHARED_DEVICE_IDS, or (LLM not remote and equals LLM_DEVICE_ID), else local. Do not use llm_device_id when LLM is remote.
       if [[ "${_vlm_is_remote}" -eq 1 ]]; then
         vlm_mode="remote"
       else
@@ -1364,6 +1411,14 @@ function state_up() {
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
+    # Search's profile .env pins a 2-GPU layout (RT-CV on 0, RT-Embed on 1).
+    # These boards have one GPU, and a device_ids entry of "1" is a hard startup
+    # failure, so collapse every placement onto device 0.
+    if [[ "${profile}" == "search" ]]; then
+      set_env_var "RT_CV_DEVICE_ID" "0"
+      set_env_var "RT_EMBED_DEVICE_ID" "0"
+      set_env_var "FIXED_SHARED_DEVICE_IDS" "0"
+    fi
   else
     if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
       set_env_var "LLM_DEVICE_ID" "${llm_device_id}"
@@ -1537,6 +1592,35 @@ function state_up() {
       fi
     fi
   fi
+  # Search on edge hardware: the VLM is always a remote endpoint, and the agent
+  # calls it directly instead of proxying through RT-VLM, which frees the GPU that
+  # the container would otherwise hold for media preprocessing. That means routing
+  # the agent at a direct profile (nim/openai rather than rtvi), switching its
+  # media framing to inline base64, and dropping rtvi-vlm from the deployment.
+  if [[ "${profile}" == "search" ]] && contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
+    # Only an explicit --vlm-model-type counts here: vlm_model_type is otherwise
+    # pre-filled from the profile env files, where search sets it to rtvi.
+    if contains_element "vlm-model-type" "${options_provided[@]}" && [[ -n "${vlm_model_type}" ]]; then
+      set_env_var "VLM_MODEL_TYPE" "${vlm_model_type}"
+    else
+      set_env_var "VLM_MODEL_TYPE" "nim"
+    fi
+    set_env_var "VLM_AGENT_MEDIA_MODE" "remote"
+    local _search_edge_profiles _search_edge_kept _search_edge_entry
+    local -a _search_edge_split
+    _search_edge_profiles="$(get_env_value "${_generated_env}" "COMPOSE_PROFILES")"
+    _search_edge_kept=""
+    IFS=',' read -ra _search_edge_split <<< "${_search_edge_profiles}"
+    for _search_edge_entry in "${_search_edge_split[@]}"; do
+      [[ "${_search_edge_entry}" == "rtvi-vlm" ]] && continue
+      _search_edge_kept="${_search_edge_kept:+${_search_edge_kept},}${_search_edge_entry}"
+    done
+    if [[ "${_search_edge_kept}" != "${_search_edge_profiles}" ]]; then
+      set_env_var "COMPOSE_PROFILES" "${_search_edge_kept}"
+      echo "[INFO] Removed rtvi-vlm from COMPOSE_PROFILES (search on ${hardware_profile} calls the remote VLM directly)"
+    fi
+  fi
+
   # Base local VLM always uses the rtvi_vlm agent profile (overrides default to rtvi; keep explicit for Thor/history).
   # Remote VLM may still set VLM_MODEL_TYPE via --vlm-model-type / profile remote defaults above.
   if [[ "${profile}" == "base" ]] && [[ "${vlm_mode}" != "remote" ]]; then

@@ -69,6 +69,11 @@ services:
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       LLM_MODEL_TYPE: ${LLM_MODEL_TYPE} # nim / openai
       VLM_MODEL_TYPE: ${VLM_MODEL_TYPE} # nim / openai
+      # How the agent frames media for the VLM, independent of VLM_MODE: 'remote'
+      # inlines base64 for a direct endpoint call, 'local_shared' sends a VST URL
+      # for RT-VLM to fetch. Deployments that proxy through RT-VLM keep the
+      # default even when VLM_MODE=remote.
+      VLM_AGENT_MEDIA_MODE: ${VLM_AGENT_MEDIA_MODE:-local_shared}
 
       # NAT Configuration
       HOST_IP: ${HOST_IP}
