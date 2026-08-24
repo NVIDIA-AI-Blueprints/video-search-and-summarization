@@ -4,7 +4,7 @@ description: Use this skill to deploy the vss-behavior-analytics service standal
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.2.0"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment behavior-analytics"
 ---
@@ -112,7 +112,7 @@ If any required prerequisite fails, surface the gap before going further.
 
 Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its steps in order:
 
-1. Pick an entrypoint (analytics 2D / 3D / mv3dt, search_and_alerts).
+1. Pick an entrypoint (analytics 2D / 3D, search_and_alerts, public_safety, smart_city, composite).
 2. Choose a config — profile-shipped or custom.
 3. Choose a calibration — optional; profile-shipped or custom; otherwise the app waits for a dynamic-calibration notification.
 4. Decide whether a broker is reachable; if yes, point them at the dynamic-update flows.
