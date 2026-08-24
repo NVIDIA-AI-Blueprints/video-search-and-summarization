@@ -58,6 +58,22 @@ jobs:
             echo "No model-routing changes in the PR diff; skipping."
           fi
 
+      - name: Reclaim stale leaked runtimes (shared coordinator disk)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # Every runner slot on the coordinator host shares one disk, and
+          # per-job venvs leak: skills-eval jobs create theirs in runner.temp
+          # with no always-cleanup, and the host has already hit ENOSPC hard
+          # enough that the runner could not write its own diag log. Remove
+          # leaked venvs older than 15h — past the longest job timeout on
+          # this host (skills-eval legs: 840 minutes), so provably dead.
+          df -h "$HOME" | tail -1
+          find "$HOME"/actions-runner-*/_work/_temp -maxdepth 1 -mmin +900 \
+            \( -name 'skill-eval-*' -o -name 'model-routing-*' \) \
+            -exec rm -rf {} + 2>/dev/null || true
+          python3 -m pip cache purge 2>/dev/null || true
+          df -h "$HOME" | tail -1
+
       - name: Set up notebook Python
         if: steps.gate.outputs.run == 'true'
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
