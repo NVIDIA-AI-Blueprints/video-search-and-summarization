@@ -20,8 +20,11 @@ Two constraints that affect what you can promise:
 - **The router is told nothing about the call.** It sees the prompt, tool
   schemas and history, and infers the kind of call from shape. VSS cannot steer
   a specific call toward the frontier tier.
-- **Classification costs a model call.** On measured runs it was a large share
-  of the routing bill.
+- **Classifier and judge routes cost extra model calls**, adding latency and
+  tokens. Measure that overhead for the algorithm and workload you pick.
 
-The case for routing is **cost**, not quality: on workloads measured so far,
-routing showed no accuracy gain over choosing a model well up front.
+Routing trades cost, quality and latency differently by workload. Switchyard's
+own published profiles span both ends: one retains solve rate within noise while
+moving 45% of turns off the strong tier, and an advisor gate improved a weak
+executor by 11 points. **Promise neither savings nor a quality gain without a
+VSS-specific benchmark.**

@@ -5,34 +5,49 @@ SPDX-License-Identifier: Apache-2.0
 
 # Verifying that traffic is routed
 
-## ⚠ VSS cannot tell you which model answered
+## Use Switchyard's routing log
 
-Switchyard reports its choice on the response:
-
-```
-x-model-router-selected-model: openai/openai/gpt-5.6-luna
-```
-
-**VSS's LangChain client discards it.** Nothing downstream of VSS records which
-model served which call, so an unaudited production rollout is inadvisable. Say
-so to a user who asks whether they can just turn it on.
-
-*(Measured on Switchyard v0.2.0: `-selected-model` is the only router header
-returned. Earlier notes describing `-selected-tier` and `-rationale` predate it.)*
-
-## What you can check
-
-**The router itself.** Confirm it is up and that a call is routed:
+Switchyard records every routed request itself. Start it with
+`--routing-log-file` and read the JSONL:
 
 ```bash
-curl -sf http://<router-host>:4000/health
-curl -s -D - -o /dev/null http://<router-host>:4000/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"<route-id>","messages":[{"role":"user","content":"OK"}]}' \
-  | grep -i x-model-router-selected-model
+docker run -d --name switchyard -p 4000:4000 \
+  -e NVIDIA_API_KEY \
+  -v "$PWD/config.toml:/etc/switchyard/config.toml:ro" \
+  -v "$PWD/routing-logs:/var/log/switchyard" \
+  switchyard:local \
+    --config /etc/switchyard/config.toml --port 4000 \
+    --routing-log-file /var/log/switchyard/routing.jsonl
 ```
 
-Repeat it a few times on a split route: the model should vary.
+One record per request, with the model that answered and token usage:
+
+```json
+{"ts":"2026-08-24T19:39:47.330Z","model":"openai/openai/gpt-5.6-sol",
+ "prompt_tokens":7,"completion_tokens":9,"total_tokens":16}
+```
+
+Aggregate view, including per-model call share:
+
+```bash
+curl -s http://<router-host>:4000/v1/stats
+```
+
+A recording proxy is only a fallback for when you cannot restart or reconfigure
+the router.
+
+## What VSS shows, and does not
+
+Switchyard reports the served model **twice**: in the
+`x-model-router-selected-model` response header, and in the response body's
+`model` field.
+
+VSS surfaces neither. The agent builds its final message from content and tool
+calls only, so response metadata does not reach the user or the scratchpad. That
+is a property of the VSS agent, not a limitation of the router — and it is why
+the routing log above is the place to look.
+
+## Checks on the VSS side
 
 **The endpoint VSS resolved.**
 
@@ -40,7 +55,7 @@ Repeat it a few times on a split route: the model should vary.
 docker compose -f "_builds/<name>/resolved.yml" config | grep -E 'LLM_BASE_URL|LLM_MODE'
 ```
 
-**That no service was added.** A routed build adds nothing to its Foundation:
+**That no service was added.**
 
 ```bash
 diff <(docker compose --env-file "<foundation>/overrides.env" \
@@ -53,15 +68,10 @@ Expect **no `>` line**. `<` lines are expected: `COMPOSE_PROFILES` carries
 `llm_${LLM_MODE}_${LLM_NAME_SLUG}`, so remote mode resolves the local LLM NIM
 away and frees its GPU.
 
-## Capturing per-call decisions
+## Reading a split honestly
 
-The only way to record them today is a proxy between VSS and the router that
-logs the header VSS drops:
-
-```
-vss-agent ──► :4001 recording proxy ──► :4000 router ──► model
-```
-
-Point `LLM_BASE_URL` at the proxy. It must forward the request unmodified; if it
-rewrites anything the log describes the proxy, not the router. This is a
-measurement tool, not a deployment component.
+Each response names one configured target. **Do not expect variation after a
+handful of calls** — independent random selection can pick the same target
+repeatedly, and a short run need not reflect the configured split. Judge the
+split from `/v1/stats` or the routing log over a sufficient sample, not from
+watching a few requests.

@@ -27,7 +27,7 @@ host-mode VSS container; use the host's real address.
 Source: [`NVIDIA-NeMo/Switchyard`](https://github.com/NVIDIA-NeMo/Switchyard),
 Apache-2.0, public.
 
-**No container image is published.** Build it from the repository's own
+**This integration pins and deploys no image.** Build from the repository's own
 `Dockerfile`, which produces a `debian:bookworm-slim` runtime containing only
 the `switchyard-server` binary and `ca-certificates`, running as a non-root
 user and exposing `4000`:
@@ -56,13 +56,19 @@ Start from [`config.example.toml`](config.example.toml).
 
 ## Credentials
 
-The router holds the upstream credentials, not VSS. Whatever API keys the
-weak and frontier targets require live in the router's config or environment.
-VSS sends no key to the router unless the router itself demands one.
+Two separate boundaries, and it is worth keeping them apart.
 
-Keep that boundary: moving upstream keys into the VSS build's `override.env`
-would put them in a build artifact for no benefit. In CI, use the key the
-deployment already has rather than introducing one for routing.
+**Router to upstream.** The router's own credential belongs in its process or
+container, referenced by `api_key_env`. It does not need to be copied into the
+VSS build.
+
+**Caller to router.** VSS clients may still send their configured credential to
+whatever `LLM_BASE_URL` points at: `lvs-server` is wired with
+`api_key: ${NVIDIA_API_KEY}` against `LVS_LLM_BASE_URL`. Do not assume the
+incoming Authorization header is absent — the router will receive one.
+
+In CI, use the key the deployment already has rather than introducing one for
+routing.
 
 ## Confirming it is up
 

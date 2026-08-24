@@ -71,15 +71,16 @@ the eval spec checks.
 
 ## Status and limits
 
-**Routing is not observable from VSS.** The router reports its choice in the
-`x-model-router-selected-model` response header, and VSS's LangChain client
-discards it. Nothing downstream of VSS can currently tell which model answered
-a given call, which makes an
+**Routing is not observable from VSS.** The router reports the served model in
+both the `x-model-router-selected-model` header and the response body's `model`
+field, but the VSS agent builds its final message from content and tool calls
+only, so neither reaches the user. Observe routing at the router instead, via
+`--routing-log-file` or `/v1/stats`. Rolling out unaudited is still
 unaudited production rollout inadvisable. See
 [`model-routing/verify.md`](model-routing/verify.md) for the recording-proxy
 workaround and what it costs.
 
-**No router image is published.** Build from source; see
+**This integration pins and deploys no image.** Build from source; see
 [`model-routing/run.md`](model-routing/run.md).
 
 ## Detailed contracts of record
