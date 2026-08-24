@@ -871,10 +871,12 @@ function process_args() {
           ((_all_good++))
         fi
 
-        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm-device-id" "${options_provided[@]}"; then
+        # Device IDs may come from the profile environment or CLI. CLI values
+        # already take precedence when the profile environment is loaded.
+        if [[ "${_llm_is_remote}" -eq 0 ]] && [[ -n "${llm_device_id}" ]]; then
           hardware_device_id="${llm_device_id}"
         fi
-        if [[ "${_vlm_is_remote}" -eq 0 ]] && contains_element "vlm-device-id" "${options_provided[@]}"; then
+        if [[ "${_vlm_is_remote}" -eq 0 ]] && [[ -n "${vlm_device_id}" ]]; then
           if [[ -n "${hardware_device_id}" ]] && [[ "${hardware_device_id}" != "${vlm_device_id}" ]]; then
             echo "[ERROR] GB300 search requires local LLM and VLM device IDs to select the same GPU"
             ((_all_good++))
