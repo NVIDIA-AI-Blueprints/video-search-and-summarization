@@ -4,7 +4,7 @@
 		"http_port":"30000",
 		"server_domain_name":"vss-vios-streamprocessing",
 		"stunurl_list": ["stun.l.google.com:19302","stun1.l.google.com:19302"],
-		"static_turnurl_list": ["vss:d61e9a1c226a2e472c5e4a30020622f1ef367a1b4cc22273e99a85505773c5e5@10.63.144.174:3478"],
+		"static_turnurl_list": [],
 		"use_coturn_auth_secret": false,
 		"coturn_turnurl_list_with_secret": [],
 		"use_twilio_stun_turn": false,
