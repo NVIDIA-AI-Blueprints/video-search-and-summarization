@@ -57,10 +57,10 @@
       ]
     },
     {
-      "query": "Plan only; do not run commands, start containers, call AMC APIs, capture video, or modify files. The user has three RTSP streams and wants to calibrate them with AMC first.",
+      "query": "Plan only; do not run commands, start containers, call AMC APIs, capture video, or modify files. The user has three RTSP streams and wants to calibrate them with AMC first. Return a detailed ordered RTSP calibration plan. Include: use the AMC RTSP workflow in `references/rtsp.md` through `vss-generate-video-calibration`; run the AMC platform preflight before VIOS probing, capture, upload, or calibration; if preflight fails, stop and request existing/generated calibration artifacts or a supported calibration host; only after preflight passes, check VIOS availability and `VIOS_BASE_URL`, and route to `vss-manage-video-io-storage` only if VIOS must be brought up or repaired; preserve the ordered RTSP stream list; create the AMC project; call `POST /v1/rtsp/capture/<project_id>` with the requested duration; poll the capture session until `COMPLETED`; ingest captured clips only after capture completion; upload or verify `alignment_data.json` and `layout.png`; verify `project_state == READY`; start calibration; poll until `COMPLETED`; and preserve AMC error output on failure.",
       "checks": [
-        "The plan routes RTSP calibration through `vss-generate-video-calibration` and loads `references/rtsp.md`, not the local-video or sample references.",
-        "The plan runs the AMC platform preflight before VIOS probing, capture, upload, or calibration work and says that if it fails the flow stops to request existing/generated calibration artifacts or a supported calibration host.",
+        "The plan uses the AMC RTSP calibration workflow (`references/rtsp.md`) through `vss-generate-video-calibration`, not the local-video or sample workflow.",
+        "The plan includes the AMC platform preflight before VIOS probing, capture, upload, or calibration work and says that if it fails the flow stops to request existing/generated calibration artifacts or a supported calibration host.",
         "The plan checks VIOS availability and `VIOS_BASE_URL` before capture, and routes to `vss-manage-video-io-storage` only if VIOS needs to be brought up or repaired.",
         "The plan creates an ordered RTSP stream list, calls `POST /v1/rtsp/capture/<project_id>` with the requested duration, polls the capture session until `COMPLETED`, and ingests only after capture completion.",
         "The plan uploads or verifies alignment/layout assets, verifies `project_state == READY`, starts calibration, polls until `COMPLETED`, and preserves AMC error output on failure."
