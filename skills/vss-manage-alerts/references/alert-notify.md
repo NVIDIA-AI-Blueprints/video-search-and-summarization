@@ -274,6 +274,11 @@ If the request fails (connection refused), the server is not running. Report:
 
 > "The alert Slack webhook is not running. Would you like me to start it?"
 
+That is the whole answer. **Do not ask for `SLACK_BOT_TOKEN` or
+`SLACK_CHANNEL_ID` here** — checking status needs no credentials, and
+requesting them to report that a process is down answers a different question
+than the one asked. They are asked for only if the user then says yes.
+
 ---
 
 ## Send Test Notification
