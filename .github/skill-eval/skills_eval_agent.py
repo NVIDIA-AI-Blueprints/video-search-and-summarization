@@ -61,6 +61,7 @@ import glob
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -908,7 +909,17 @@ async def run_agent(progress: DirectAgentProgress | None = None) -> int:
 # touched-boxes ledger to chase the cases where end-of-run cleanup
 # might be skipped.
 
+def _interrupt_for_shutdown(signum, frame):  # noqa: ARG001
+    raise KeyboardInterrupt(f"received signal {signum}")
+
+
+def _install_shutdown_handlers() -> None:
+    for shutdown_signal in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(shutdown_signal, _interrupt_for_shutdown)
+
+
 def main() -> int:
+    _install_shutdown_handlers()
     try:
         _require_supported_python()
     except RuntimeError as exc:
