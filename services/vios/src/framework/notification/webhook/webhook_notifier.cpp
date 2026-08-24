@@ -344,7 +344,15 @@ WebhookNotifier* WebhookNotifier::getInstance()
     std::lock_guard<std::mutex> lock(_instanceMutex);
     if (_instance == nullptr)
     {
-        const Json::Value config = loadNotificationConfig(NOTIFICATION_CONFIG_FILE);
+        std::string parseError;
+        const Json::Value config = loadNotificationConfig(NOTIFICATION_CONFIG_FILE, &parseError);
+        if (!parseError.empty())
+        {
+            // Safe to log here: config init has long since finished.
+            LOG(error) << "Failed to parse " << NOTIFICATION_CONFIG_FILE << ": " << parseError
+                       << "This file is not valid JSON; every webhook after the error is ignored"
+                       << endl;
+        }
         if (anyEnabledWebhook(config))
         {
             _instance = std::unique_ptr<WebhookNotifier>(new WebhookNotifier(config));
