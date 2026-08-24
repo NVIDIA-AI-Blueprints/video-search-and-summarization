@@ -250,8 +250,9 @@ Both modes require the camera registered in VIOS first:
 - RTSP URL / IP camera → `"${VSS[@]}" vios add rtsp://<url> --name <name>`, and record the `sensor_id` it
   reports. Passing `--name` is what avoids the classic mistake of VIOS silently naming the sensor
   `SENSOR`; the command reports the name it stored, so read that rather than assuming.
-- Named existing sensor → `"${VSS[@]}" vios list --type stream --sensor <name>` before proceeding. An
-  exit of 5 means it is not registered.
+- Named existing sensor → `"${VSS[@]}" vios list --type stream --sensor <name>` before proceeding.
+  `list` filters rather than resolves, so an unregistered name is `{"count": 0}` at exit 0, not an
+  error. Branch on `count`, and treat a non-zero exit as a VIOS problem rather than a missing sensor.
 - **Never hand-construct the RTSP URL.** For an NVStreamer-served stream, query NVStreamer for the served URL (`GET :31000/vst/api/v1/sensor/<name>/streams` → `url`) and register it **verbatim** — including its container-internal host/port (VST shares that docker network; a guessed `<host-ip>:<port>` or `localhost` URL is typically unreachable from the VST container and the stream never activates). After registering, confirm the sensor's row carries a non-empty `source` (`"${VSS[@]}" vios list --type stream`) before proceeding — an absent one means the source is unreachable and the registration must be redone.
 
 On **CV**, adding the RTSP is the *entire* onboarding step (pipeline auto-picks it up). On **VLM**, it is the prerequisite for creating a realtime alert rule (Workflow D).

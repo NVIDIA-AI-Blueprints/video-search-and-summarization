@@ -191,7 +191,7 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
    # Each block is its own shell; define what it uses.
    VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
    set -o pipefail
-   SENSORS=$("${VSS[@]}" vios list --type video) || { echo ""${VSS[@]}" vios list failed" >&2; exit 1; }
+   SENSORS=$("${VSS[@]}" vios list --type video) || { echo "vss vios list failed" >&2; exit 1; }
    printf '%s' "${SENSORS}" | jq -r '.sensors[].name'
    ```
 
