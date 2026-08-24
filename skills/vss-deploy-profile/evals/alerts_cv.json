@@ -2,6 +2,14 @@
   "skills": [
     "vss-deploy-profile"
   ],
+  "expected_services": [
+    "vss-agent",
+    "redis",
+    "perception-alerts",
+    "vss-behavior-analytics-alerts",
+    "alert-bridge",
+    "nvstreamer-alerts"
+  ],
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {

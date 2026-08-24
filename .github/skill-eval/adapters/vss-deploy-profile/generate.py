@@ -461,6 +461,7 @@ def generate_task(
     # download, remote-model env vars) reach the agent verbatim, rather than
     # being collapsed into the generic "Deploy the <profile> profile" fallback.
     spec_query: str | None = None
+    expected_services: list[str] = []
     if skill_dir is not None:
         spec_path = skill_dir / "evals" / f"{profile}.json"
         if not spec_path.exists():
@@ -470,6 +471,12 @@ def generate_task(
         if spec_path.exists():
             try:
                 raw = json.loads(spec_path.read_text())
+                declared_services = raw.get("expected_services") or []
+                if not isinstance(declared_services, list) or any(
+                    not isinstance(name, str) for name in declared_services
+                ):
+                    raise ValueError("expected_services must be a string list")
+                expected_services = declared_services
                 expects = raw.get("expects") or []
                 if expects and isinstance(expects[0].get("query"), str):
                     import re as _re
@@ -506,6 +513,7 @@ def generate_task(
         # _ensure_prerequisite_deployed pre-deploy hook is gone. The
         # `platform` key below is purely informational.
         f'platform = "{platform}"',
+        f"expected_services = {json.dumps(expected_services)}",
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:

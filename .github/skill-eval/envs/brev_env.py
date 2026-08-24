@@ -17,6 +17,7 @@ Task.toml [metadata] fields consumed:
     min_root_disk_gb      — root-disk floor enforced post-resolve
     min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
+    expected_services     — optional Compose service-name preflight allowlist
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -77,6 +79,40 @@ _REMOTE_PLACEMENT_KEYS = (
     "VLM_REMOTE_URL",
     "VLM_REMOTE_MODEL",
 )
+
+
+def _direct_agent_hook_documents(expected_services: object) -> tuple[str, str]:
+    """Return Claude settings + safe config for the direct-run progress hook."""
+    if not isinstance(expected_services, list):
+        expected_services = []
+    safe_services = [
+        name for name in expected_services
+        if isinstance(name, str)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", name)
+    ]
+    if len(safe_services) != len(expected_services):
+        raise ValueError("expected_services contains an unsafe service name")
+    hook = (
+        "python3 $HOME/video-search-and-summarization/"
+        ".github/skill-eval/direct_agent_progress.py hook"
+    )
+    settings = {
+        "hooks": {
+            "PreToolUse": [{
+                "matcher": "Bash|Read|Edit|Write|Glob|Grep",
+                "hooks": [{"type": "command", "command": f"{hook} pre"}],
+            }],
+            "PostToolUse": [{
+                "matcher": "Bash|Read|Edit|Write|Glob|Grep",
+                "hooks": [{"type": "command", "command": f"{hook} post"}],
+            }],
+        },
+    }
+    config = {"schema": 1, "expected_services": safe_services}
+    return (
+        json.dumps(settings, sort_keys=True, separators=(",", ":")),
+        json.dumps(config, sort_keys=True, separators=(",", ":")),
+    )
 
 
 def _eval_env_forward_keys() -> tuple[str, ...]:
@@ -563,6 +599,9 @@ class BrevEnvironment(BaseEnvironment):
             await self._sync_repo_to_pr_head()
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
+        if local_instance:
+            await self._install_direct_agent_progress_hooks(meta)
+
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible
         # for invoking `/vss-deploy-profile` (or the appropriate
@@ -573,6 +612,29 @@ class BrevEnvironment(BaseEnvironment):
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _install_direct_agent_progress_hooks(self, metadata: dict) -> None:
+        """Install closed-schema Claude hooks on direct OpenShell runners."""
+        assert self._instance_name
+        settings, config = _direct_agent_hook_documents(
+            metadata.get("expected_services", [])
+        )
+        command = (
+            "mkdir -p /logs/agent/sessions && "
+            "rm -f /logs/agent/direct-progress.jsonl "
+            "/logs/agent/direct-progress-state.json && "
+            f"printf %s {shlex.quote(settings)} > "
+            "/logs/agent/sessions/settings.json && "
+            f"printf %s {shlex.quote(config)} > "
+            "/logs/agent/direct-progress-config.json"
+        )
+        result = await _run_brev_exec(
+            self._instance_name, command, timeout=30
+        )
+        if result.return_code != 0:
+            raise RuntimeError(
+                "direct agent progress hook installation failed"
+            )
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.

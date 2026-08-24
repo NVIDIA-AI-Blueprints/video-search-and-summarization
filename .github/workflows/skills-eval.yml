@@ -443,6 +443,18 @@ jobs:
             tar czf "$LEG_TARBALL" \
               -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
             echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
+          elif [ -f "$LEG_RESULTS/progress-journal.jsonl" ] || \
+               [ -f "$LEG_RESULTS/timeout-diagnostics.json" ]; then
+            # A direct-agent timeout may precede Harbor result.json. Archive
+            # only the two closed-schema, bounded diagnostics; never partial
+            # trial logs, trajectories, command output, or environment data.
+            SAFE_FILES=()
+            [ -f "$LEG_RESULTS/progress-journal.jsonl" ] && \
+              SAFE_FILES+=("progress-journal.jsonl")
+            [ -f "$LEG_RESULTS/timeout-diagnostics.json" ] && \
+              SAFE_FILES+=("timeout-diagnostics.json")
+            tar czf "$LEG_TARBALL" -C "$LEG_RESULTS" "${SAFE_FILES[@]}"
+            echo "archived sanitized direct-agent timeout diagnostics"
           else
             echo "results dir exists but empty — nothing to archive"
           fi
