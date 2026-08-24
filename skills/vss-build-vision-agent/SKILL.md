@@ -39,6 +39,7 @@ metadata:
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
+| Route LLM traffic through a model router, or ask about Switchyard / cost-based model selection | [`references/services/model-routing.md`](references/services/model-routing.md) — configuration only. It adds **no service** and changes no Compose file; the router is operator-run infrastructure. |
 | Warehouse or another industry profile | Stop: this skill currently covers developer examples only. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
