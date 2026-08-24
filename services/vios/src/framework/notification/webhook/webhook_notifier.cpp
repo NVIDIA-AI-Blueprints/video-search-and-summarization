@@ -150,6 +150,169 @@ Json::Value mergeUserMetadata(const Json::Value& taggedEvent, const Json::Value&
     return merged;
 }
 
+// Custom body templates (docs/webhook-custom-body-template-spec.md): the
+// top-level body value is depth level 1; level 32 is valid, level 33 is not.
+constexpr int MAX_BODY_TEMPLATE_DEPTH = 32;
+
+// A placeholder path is one or more '.'-separated segments of [A-Za-z0-9_-].
+bool isValidPlaceholderPath(const std::string& path)
+{
+    bool segmentHasChars = false;
+    for (const char c : path)
+    {
+        if (c == '.')
+        {
+            if (!segmentHasChars)
+            {
+                return false;  // empty segment: leading dot or ".."
+            }
+            segmentHasChars = false;
+        }
+        else if (std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_' || c == '-')
+        {
+            segmentHasChars = true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    return segmentHasChars;  // rejects an empty path and a trailing dot
+}
+
+// If 'text' is exactly a full-wrap placeholder "{{path}}" with a valid dotted
+// path, returns the path; std::nullopt otherwise.
+std::optional<std::string> placeholderPath(const std::string& text)
+{
+    const std::string open = "{{";
+    const std::string close = "}}";
+    if (text.size() < open.size() + close.size() + 1 ||
+        text.compare(0, open.size(), open) != 0 ||
+        text.compare(text.size() - close.size(), close.size(), close) != 0)
+    {
+        return std::nullopt;
+    }
+    std::string path = text.substr(open.size(), text.size() - open.size() - close.size());
+    if (!isValidPlaceholderPath(path))
+    {
+        return std::nullopt;  // also rejects "{{a}}x{{b}}": braces are not path characters
+    }
+    return path;
+}
+
+bool containsBraces(const std::string& text)
+{
+    return text.find("{{") != std::string::npos || text.find("}}") != std::string::npos;
+}
+
+// Load-time template validation. Braces are reserved: a string containing
+// "{{" or "}}" must be exactly a full-wrap placeholder with a valid path, and
+// property names may not contain braces at all. On failure 'error' describes
+// the first offending value.
+bool validateBodyTemplate(const Json::Value& value, int level, std::string& error)
+{
+    if (level > MAX_BODY_TEMPLATE_DEPTH)
+    {
+        error = "value deeper than " + std::to_string(MAX_BODY_TEMPLATE_DEPTH) + " levels";
+        return false;
+    }
+    if (value.isString())
+    {
+        const std::string text = value.asString();
+        if (containsBraces(text) && !placeholderPath(text))
+        {
+            error = "malformed placeholder '" + text + "'";
+            return false;
+        }
+        return true;
+    }
+    if (value.isObject())
+    {
+        for (const std::string& name : value.getMemberNames())
+        {
+            if (containsBraces(name))
+            {
+                error = "braces in property name '" + name + "'";
+                return false;
+            }
+            if (!validateBodyTemplate(value[name], level + 1, error))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (value.isArray())
+    {
+        for (const Json::Value& element : value)
+        {
+            if (!validateBodyTemplate(element, level + 1, error))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    return true;  // number, boolean, null
+}
+
+// Walks a validated dotted path from the notification root through nested
+// objects. An absent path — including one crossing a non-object — renders as
+// an empty string, never an error.
+Json::Value lookupNotificationValue(const Json::Value& message, const std::string& path)
+{
+    const Json::Value* node = &message;
+    size_t start = 0;
+    while (true)
+    {
+        const size_t dot = path.find('.', start);
+        const std::string segment =
+            path.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
+        if (!node->isObject() || !node->isMember(segment))
+        {
+            return Json::Value("");
+        }
+        node = &(*node)[segment];
+        if (dot == std::string::npos)
+        {
+            return *node;
+        }
+        start = dot + 1;
+    }
+}
+
+// Per-delivery rendering of a validated template against the raw internal
+// notification. Type-preserving: the value found at a placeholder path is
+// copied as-is (an array stays one array element), and literal values pass
+// through unchanged.
+Json::Value renderBodyTemplate(const Json::Value& bodyTemplate, const Json::Value& message)
+{
+    if (bodyTemplate.isString())
+    {
+        const std::optional<std::string> path = placeholderPath(bodyTemplate.asString());
+        return path ? lookupNotificationValue(message, *path) : bodyTemplate;
+    }
+    if (bodyTemplate.isObject())
+    {
+        Json::Value rendered(Json::objectValue);
+        for (const std::string& name : bodyTemplate.getMemberNames())
+        {
+            rendered[name] = renderBodyTemplate(bodyTemplate[name], message);
+        }
+        return rendered;
+    }
+    if (bodyTemplate.isArray())
+    {
+        Json::Value rendered(Json::arrayValue);
+        for (const Json::Value& element : bodyTemplate)
+        {
+            rendered.append(renderBodyTemplate(element, message));
+        }
+        return rendered;
+    }
+    return bodyTemplate;
+}
+
 bool anyEnabledWebhook(const Json::Value& config)
 {
     const Json::Value webhooks = config.get("webhooks", Json::nullValue);
@@ -311,11 +474,17 @@ void WebhookNotifier::loadConfig(const Json::Value& config)
             LOG(error) << "Webhook " << webhook.m_id << ": request must be an array, skipping" << endl;
             continue;
         }
+        // 1-based position in the configured request array. Unlike the count of
+        // already-loaded receivers, this still identifies an entry that is
+        // skipped, so several invalid entries cannot all report the same number.
+        size_t requestPosition = 0;
         for (const Json::Value& requestJson : requests)
         {
+            requestPosition++;
             if (!requestJson.isObject())
             {
-                LOG(error) << "Webhook " << webhook.m_id << ": skipping malformed receiver entry" << endl;
+                LOG(error) << "Webhook " << webhook.m_id << ": skipping malformed receiver entry request["
+                           << requestPosition << "]" << endl;
                 continue;
             }
             RequestConfig requestConfig;
@@ -383,6 +552,30 @@ void WebhookNotifier::loadConfig(const Json::Value& config)
                 LOG(error) << "Webhook " << webhook.m_id << ": receiver "
                            << (webhook.m_requests.size() + 1)
                            << " user_defined_metadata must be a JSON object, ignored" << endl;
+            }
+            // Presence of "body", not emptiness, selects custom rendering:
+            // body {} is a valid template that sends {}.
+            if (requestJson.isMember("body"))
+            {
+                std::string templateError;
+                if (!validateBodyTemplate(requestJson["body"], 1, templateError))
+                {
+                    LOG(error) << "Webhook " << webhook.m_id << ": receiver request["
+                               << requestPosition << "] (" << requestConfig.m_url
+                               << ") has an invalid body template (" << templateError
+                               << "), skipped" << endl;
+                    continue;
+                }
+                if (!requestConfig.m_userDefinedMetadata.isNull())
+                {
+                    LOG(warning) << "Webhook " << webhook.m_id << ": receiver request["
+                                 << requestPosition << "] (" << requestConfig.m_url
+                                 << ") configures both body and user_defined_metadata; the custom"
+                                 << " body is the complete request body and user_defined_metadata"
+                                 << " is ignored" << endl;
+                    requestConfig.m_userDefinedMetadata = Json::nullValue;
+                }
+                requestConfig.m_bodyTemplate = requestJson["body"];
             }
             const Json::Value timeoutMs = requestJson.get("timeout_ms", Json::nullValue);
             if (timeoutMs.isNumeric())
@@ -576,12 +769,25 @@ bool WebhookNotifier::deliverMessage(Json::Value& message)
             LOG(info) << "Webhook " << webhook.m_id << ": delivering " << loggingLabel << " to receiver "
                       << (r + 1) << "/" << webhook.m_requests.size() << " (attempt 1/"
                       << requestConfig.m_maxAttempts << ")" << endl;
-            // A receiver with user_defined_metadata gets its own body with the
-            // extra keys merged into event.metadata; others share the plain body.
-            const std::string receiverBody =
-                requestConfig.m_userDefinedMetadata.isNull()
-                    ? body
-                    : jsonToString(mergeUserMetadata(taggedEvent, requestConfig.m_userDefinedMetadata));
+            // A receiver with a custom body template gets the rendered template
+            // as its complete body, built from the raw event (no webhook_id
+            // tag). Otherwise a receiver with user_defined_metadata gets its
+            // own body with the extra keys merged into event.metadata, and the
+            // rest share the plain tagged body.
+            std::string receiverBody;
+            if (requestConfig.m_bodyTemplate)
+            {
+                receiverBody = jsonToString(renderBodyTemplate(*requestConfig.m_bodyTemplate, event));
+            }
+            else if (requestConfig.m_userDefinedMetadata.isNull())
+            {
+                receiverBody = body;
+            }
+            else
+            {
+                receiverBody =
+                    jsonToString(mergeUserMetadata(taggedEvent, requestConfig.m_userDefinedMetadata));
+            }
             DeliveryState state;
             state.m_webhookIndex = i;
             state.m_requestIndex = r;
