@@ -94,6 +94,20 @@ private:
         bool lastRawValid = false;
         bool synthesize = false;
         uint64_t frameIndex = 0;
+        // The timeline actually published, which is not always the one the
+        // source offers: a hole in it cannot be handed to a player.
+        GstClockTime lastOut = 0;
+        bool lastOutValid = false;
+        GstClockTime carried = 0;
+        uint64_t jumps = 0;
+        uint64_t framesSinceReport = 0;
+        // Wall-clock arrival, which is what decides whether a segment is written
+        // in time for a viewer sitting near the live edge.  The media timeline
+        // can be perfectly continuous while the frames producing it arrive late.
+        std::chrono::steady_clock::time_point lastArrival{};
+        bool lastArrivalValid = false;
+        uint64_t worstGapMs = 0;
+        uint64_t lateArrivals = 0;
     };
 
     [[nodiscard]] bool pushFrame(GstElement* appsrc, const uint8_t* data, size_t size,
