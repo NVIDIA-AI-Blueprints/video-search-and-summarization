@@ -478,6 +478,7 @@ jobs:
             .github/skill-eval/tests/test_leg_report.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
+            .github/skill-eval/tests/test_vss_build_vision_agent_guidance.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
