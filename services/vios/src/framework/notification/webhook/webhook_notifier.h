@@ -45,16 +45,14 @@
  * delivered body's event.metadata (created when absent), overwriting
  * same-named event-generated keys.
  *
- * A receiver may instead configure a custom "body" JSON template
- * (docs/webhook-custom-body-template-spec.md). When present, the template is
- * rendered per delivery against the raw internal notification and becomes the
- * complete request body: no webhook_id tagging and no user_defined_metadata
- * merge. A placeholder is a string whose whole value is
- * "{{path.to.notification.value}}"; it is replaced type-preservingly by the
- * value at that dotted path, or by "" when the path is absent. Braces are
- * reserved: any other use of "{{" or "}}" in a template string or property
- * name is a load-time error that skips only that receiver. Templates are
- * validated at load, including a maximum value depth of 32.
+ * A receiver may instead configure a custom "body" JSON template, rendered per
+ * delivery against the raw notification and sent as the complete request body:
+ * no webhook_id tagging and no user_defined_metadata merge. A placeholder is a
+ * string whose whole value is "{{path.to.value}}", replaced type-preservingly
+ * by the value at that dotted path, or by "" when the path is absent. Braces
+ * are reserved: any other use of "{{" or "}}" in a template string or property
+ * name fails validation at load and skips that receiver alone, as does nesting
+ * deeper than 32 levels.
  *
  * deliverMessage() only enqueues HTTP work and returns true immediately: the
  * event-level 5 s retry loop in INotificationInterface is deliberately opted
@@ -108,9 +106,8 @@ private:
         // delivered body; null when the receiver defines none. Ignored when a
         // custom body template is configured.
         Json::Value m_userDefinedMetadata;
-        // Custom JSON body template, validated at load and rendered per
-        // delivery as the complete request body; nullopt sends the default
-        // tagged (and possibly metadata-merged) notification body.
+        // Validated at load, rendered per delivery as the complete request
+        // body; nullopt sends the default tagged notification body.
         std::optional<Json::Value> m_bodyTemplate;
     };
 
