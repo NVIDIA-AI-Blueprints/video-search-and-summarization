@@ -346,6 +346,23 @@ void PipelineBuilder::clearDecoderProducer(std::shared_ptr<GstNvVideoDecoder> de
         {
             producer->stop();
         }
+        // Detach only after the decoder has taken itself off the producer's
+        // consumer list.  A decoder deregisters itself when it is destroyed,
+        // but it can only do that while it still holds the producer - clearing
+        // the pointer first leaves the registration behind for good, and with
+        // it whatever the producer holds open on the decoder's behalf.  For a
+        // live RTSP source that is a connection per camera, so every composite
+        // session was leaving its cameras' connections and their descriptors
+        // behind on teardown.
+        if (producer)
+        {
+            // The registration is keyed by the decoder's own URL, so the same
+            // URL has to come back to find it.  Deregistering without one
+            // silently matches nothing and leaves the registration in place.
+            const std::string producerUrl = decoder->getUri();
+            producer->unregisterConsumer(decoder, producerUrl);
+            LOG(info) << "Deregistered decoder from producer for " << producerUrl << endl;
+        }
         decoder->setProducer(nullptr);
         LOG(info) << "Cleared producer from decoder" << endl;
     }
