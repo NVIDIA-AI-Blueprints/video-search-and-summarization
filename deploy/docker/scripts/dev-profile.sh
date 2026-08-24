@@ -861,15 +861,12 @@ function process_args() {
         _vlm_is_remote=1
       fi
 
-      # GB300 is currently validated for the search profile only. Resolve the
-      # deployment GPU from an explicitly selected local model, or auto-detect
-      # it when exactly one GB300 is present (including remote+remote).
-      if [[ "${hardware_profile}" == "GB300" ]]; then
-        if [[ "${profile}" != "search" ]]; then
-          echo "[ERROR] Hardware profile 'GB300' is only valid for profile search, not '${profile}'"
-          ((_all_good++))
-        fi
-
+      # Search places every local model on one shared GB300, so it resolves a
+      # single deployment GPU from an explicitly selected local model, or
+      # auto-detects it when exactly one GB300 is present (including
+      # remote+remote). Other profiles carry their own GB300 handling and must
+      # not be routed through this resolution.
+      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
         # Device IDs may come from the profile environment or CLI. CLI values
         # already take precedence when the profile environment is loaded.
         if [[ "${_llm_is_remote}" -eq 0 ]] && [[ -n "${llm_device_id}" ]]; then
@@ -1012,7 +1009,7 @@ function process_args() {
 
       # Every local model on the single selected GB300 shares that GPU with the
       # search runtime services, even when the other model uses a remote endpoint.
-      if [[ "${hardware_profile}" == "GB300" ]]; then
+      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
         [[ "${llm_mode}" != "remote" ]] && llm_mode="local_shared"
         [[ "${vlm_mode}" != "remote" ]] && vlm_mode="local_shared"
       fi
@@ -1635,8 +1632,9 @@ function state_up() {
       else
         set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
       fi
-      # RT-VLM remains a local proxy for remote VLM endpoints on GB300.
-      if [[ "${hardware_profile}" == "GB300" ]]; then
+      # RT-VLM remains a local proxy for remote VLM endpoints on GB300 search,
+      # which is the only profile that resolves a single deployment GPU.
+      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
         set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
       fi
     fi
