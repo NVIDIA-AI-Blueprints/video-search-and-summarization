@@ -55,7 +55,7 @@
     {
       "query": "I have RTSP URLs and no calibration. How would you run RTVI-CV-3D after calibration? Do not run anything. Include that supplied RTSP URLs should be registered automatically after stream-mode readiness.",
       "checks": [
-        "The agent routes missing RTSP calibration through vss-generate-video-calibration and uses vss-manage-video-io-storage only when VIOS is needed and not already reachable.",
+        "The agent routes missing RTSP calibration through vss-generate-video-calibration before standalone RTVI-CV-3D deployment.",
         "The post-calibration RTSP plan uses standalone config generation/staging with INPUT_MODE=stream, selected broker compose launch, then direct REST stream registration after readiness.",
         "When RTSP URLs are supplied, the plan includes automatic direct REST stream registration instead of asking the user to register streams manually.",
         "The plan verifies exact registered stream set, non-zero FPS, BEV Fusion health, and mdx-raw/mdx-bev offset growth before reporting success."

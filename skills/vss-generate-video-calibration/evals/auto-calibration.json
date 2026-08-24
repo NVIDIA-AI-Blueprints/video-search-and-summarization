@@ -44,7 +44,7 @@
       ]
     },
     {
-      "query": "Plan only; do not run commands, start containers, call AMC APIs, or modify files. The user wants to calibrate local MP4 cameras under `/data/videos/` with `alignment_data.json`, `layout.png`, optional `GT.zip`, and focal lengths.",
+      "query": "Plan only; do not run commands, start containers, call AMC APIs, or modify files. The user wants to calibrate local MP4 cameras under `/data/videos/` with `alignment_data.json`, `layout.png`, optional `GT.zip`, and focal lengths. Include the AMC platform preflight before upload/calibration work, and state that if the preflight fails the flow stops to request existing/generated calibration artifacts or a supported calibration host.",
       "checks": [
         "The plan routes local MP4 calibration through the vss-generate-video-calibration videos workflow instead of inventing camera calibration files.",
         "The plan includes the AMC platform preflight before upload/calibration work and says preflight failure stops the flow to request existing/generated calibration artifacts or a supported calibration host.",
