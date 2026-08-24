@@ -99,8 +99,7 @@ Or build/run with Docker (see Quick Start).
    ```
 
 3. **Verify** — the service is available at:
-   - Health (liveness, this process): `http://localhost:9080/health`
-   - Ready (the pipeline fleet is consuming): `http://localhost:9080/ready`
+   - Health: `http://localhost:9080/health` (also served as `/ready`)
    - API docs (Swagger): `http://localhost:9080/docs`
    - OpenAPI spec: `http://localhost:9080/openapi.json`
 
@@ -272,13 +271,12 @@ alert_agent:
   told it owns nothing has been told, and reporting otherwise would leave a
   correctly-running rollout permanently unhealthy. `alert_bridge_assigned_partitions`
   is where that shows up. Scale partitions before scaling either dimension.
-- **Probe the two endpoints differently.** `/ready` is 503 until every
-  pipeline process holds a decided assignment, and again for the length of
-  each rebalance; point a readiness probe there. `/health` answers only for
-  the API process and does not move with the consumer group -- a startup or
-  liveness probe belongs there, because a multi-process instance reports no
-  ready pipelines for the whole of its startup and a probe that treated that
-  as unhealthy would restart the container before the fleet could come up.
+- **`/health` carries the fleet.** It is 503 until every pipeline process
+  holds a decided assignment, and again for the length of each rebalance.
+  `/ready` answers the same, for deployments that prefer the conventional
+  name. A multi-process instance reports no ready pipelines for the whole of
+  its startup, so give a startup probe a failure threshold that covers
+  `alert_agent.startup_timeout_seconds` rather than the default.
 - **No shared state is needed.** `mdx-incidents` is partitioned by `sensorId`
   and every dedup cohort key is prefixed with it, so Kafka routes a whole
   cohort to one partition and therefore to exactly one child; confirmed-verdict

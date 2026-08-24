@@ -280,52 +280,84 @@ class TestTheBudgetIsReopenedInEveryDeployment:
         assert registered == ["self._publish_assignment_state"]
 
 
-class TestRecordsAreOwedFromTheRead:
-    """A rebalance arrives on the poll that fills a batch.
+class TestAdmissionIsTakenAtScheduleTime:
+    """Not at read time, and the reason is a deadlock rather than a preference.
 
-    Accounting started when a message was scheduled, but a poll batch is read
-    -- and committed -- before any of it is scheduled, and the revoke callback
-    fires from inside that same read loop. Records already read for the revoked
-    partition were invisible: the drain saw nothing owed, let the partition
-    move, and this member then processed them alongside the new owner. They
-    cannot be dropped instead; the offset is already committed.
+    Taking the admission inside the poll loop looks better -- it would cover
+    records a mid-batch revoke stranded. But the rebalance callback is
+    delivered by that same poll, and every release path runs only after the
+    poll returns; in event_loop mode the batch is even processed inline on the
+    consume thread. So the drain would block waiting on work that only the
+    thread it blocks could release, spend its whole budget, and let the
+    partition move anyway -- strictly worse than not counting those records.
     """
 
-    def test_a_record_is_owed_before_it_is_scheduled(self):
+    def test_a_drain_cannot_be_satisfied_from_the_thread_it_blocks(self):
+        # The shape the read-time design produced, written out: one admission
+        # taken, and the only release reachable after the drain returns.
         tracker = PartitionInFlight()
-        admission = tracker.accept(P0)          # what the read hook takes
-        assert tracker.in_flight(P0) == 1
-        assert tracker.drain([P0], timeout=0.05) is False
-        admission.release()
-        assert tracker.drain([P0], timeout=0.05) is True
+        admission = tracker.accept(P0)
 
-    def test_the_batch_carries_what_was_taken(self):
-        # The batch hands its admissions on in order; scheduling must consume
-        # them rather than take new ones, or every record is counted twice.
+        started = time.monotonic()
+        drained = tracker.drain([P0], timeout=0.2)
+        elapsed = time.monotonic() - started
+
+        assert drained is False
+        assert elapsed >= 0.2, "the drain would have spent its whole budget"
+        admission.release()
+
+    def test_scheduling_is_what_takes_the_admission(self):
         import enhance_alert_with_vlm as entry
         from unittest.mock import MagicMock
 
         tracker = PartitionInFlight()
-        batch = {
-            "topic": P0[0], "partition": P0[1],
-            "messages": [{"id": "a"}, {"id": "b"}],
-            "admissions": [tracker.accept(P0), tracker.accept(P0)],
-        }
-        assert tracker.in_flight(P0) == 2
-
         stub = MagicMock()
         stub._partition_in_flight = tracker
         stub.config = {"alert_agent": {}}
-        taken = []
-        stub.process_batch_vlm.side_effect = (
-            lambda *a, **k: taken.append(k.get("admission"))
-        )
-        for message in batch["messages"]:
-            entry.AnomalyEnhancer._schedule_message(stub, None, message, "Incident", batch)
+        batch = {"topic": P0[0], "partition": P0[1]}
 
-        assert tracker.in_flight(P0) == 2, "scheduling took a second admission"
-        assert batch["admissions"] == [], "the batch still owns admissions"
-        assert all(t is not None for t in taken)
+        entry.AnomalyEnhancer._schedule_message(stub, None, {"id": "a"}, "Incident", batch)
+
+        assert tracker.in_flight(P0) == 1
+        assert stub.process_batch_vlm.call_args.kwargs["admission"] is not None
+
+
+class TestAStrandedReadIsReportedWithTheDrain:
+    """The drain outcome alone reads as a clean rebalance.
+
+    Records read for a revoked partition arrive too late for the drain to know
+    about, so it reports nothing_owed or drained while the other counter is
+    recording a stranding for the same moment. The two are correlated in the
+    log, where an operator meets them together.
+    """
+
+    @staticmethod
+    def _warnings(stranded, in_flight=0):
+        # Patched on the logger rather than read through caplog: propagation
+        # here depends on whatever configured logging first, so a caplog
+        # version passed with the file and failed on its own.
+        from unittest.mock import MagicMock, patch
+        import enhance_alert_with_vlm as entry
+
+        tracker = PartitionInFlight()
+        for _ in range(in_flight):
+            tracker.accept(P0)
+        stub = MagicMock()
+        stub._partition_in_flight = tracker
+        stub._rebalance_drain_deadline = time.monotonic() + 0.05
+        stub.source.buffered_for.return_value = stranded
+
+        with patch.object(entry.logger, "warning") as warn:
+            entry.AnomalyEnhancer._drain_revoked_partitions(stub, [P0])
+        return [call.args for call in warn.call_args_list]
+
+    def test_a_stranding_is_named_even_when_nothing_was_owed(self):
+        calls = self._warnings(stranded=3)
+        assert any("already read" in args[0] for args in calls)
+        assert any(3 in args[1:] for args in calls), "the count is not reported"
+
+    def test_a_clean_rebalance_says_nothing(self):
+        assert self._warnings(stranded=0) == []
 
 
 class TestSplit:

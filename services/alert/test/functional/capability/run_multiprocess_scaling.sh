@@ -921,9 +921,8 @@ ts_036() {
     fi
     prepare_run "$PROCESSES" false 1 || { record_result TS-036 FAIL "AB startup"; return; }
 
-    # /ready, not /health: fleet readiness moved off the liveness endpoint so a
-    # rebalance stops reading as an unhealthy container. /health is asserted
-    # separately below -- it must NOT move with the consumer group.
+    # Both endpoints must report the fleet: /health is what the deployment
+    # contract probes, /ready is the same answer under the conventional name.
     local ready_url="http://127.0.0.1:${ALERT_BRIDGE_PORT:-9080}/ready"
     local health_url="http://127.0.0.1:${ALERT_BRIDGE_PORT:-9080}/health"
     local before_assigned before_ready
@@ -1003,11 +1002,11 @@ assigned_low = min(r[0] for r in rows)
 ready_low = min(r[1] for r in rows)
 saw_503 = any(r[2] == "503" for r in rows)
 recovered_ready = rows[-1][2] == "200"
-# The point of splitting the endpoints: losing every partition is a fleet
-# event, not a sick container. A single 503 here means /health still moves
-# with the consumer group and a liveness probe would restart a healthy pod.
+# /health has to move with the fleet: an aggregate worker assignment state
+# that never reaches it is the defect this asserts against.
 health_codes = sorted({r[3] for r in rows})
-health_held = all(r[3] == "200" for r in rows)
+health_dropped = any(r[3] == "503" for r in rows)
+health_recovered = rows[-1][3] == "200"
 
 drained = float(drains_after) - float(drains_before)
 recovered_assigned = float(after_assigned) >= before_assigned
@@ -1030,7 +1029,8 @@ ok = (assigned_low < before_assigned     # the gauge tracks the live assignment
       and ready_low < before_ready       # readiness follows the revoke
       and saw_503                        # /ready reports the degraded fleet
       and recovered_ready                # and recovers with it
-      and health_held                    # while /health stays up throughout
+      and health_dropped                 # and /health reports it too
+      and health_recovered               # and comes back with it
       and drained > 0)                   # a drain completed, not merely ran
 print(("PASS " if ok else "FAIL ") + detail)
 PY

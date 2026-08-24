@@ -15,6 +15,8 @@
 
 """Resolution and validation of alert_agent.processes."""
 
+from unittest.mock import patch
+
 import pytest
 
 from utils import process_scaling
@@ -42,17 +44,16 @@ class TestResolveProcessCount:
         # templated count arrives as a string. Only the spelling is relaxed.
         assert resolve_process_count({"alert_agent": {"processes": " 6 "}}) == 6
 
-    @pytest.mark.parametrize("value", [0, -1, True, 2.5, "many", "", 65, 1000, "65"])
+    @pytest.mark.parametrize("value", [0, -1, True, 2.5, "many", ""])
     def test_invalid_values_fail_startup(self, value):
         with pytest.raises(ValueError):
             resolve_process_count({"alert_agent": {"processes": value}})
 
-    def test_the_upper_bound_itself_is_allowed(self):
-        # The bound catches a typo, so it must not reject the largest count an
-        # operator could legitimately have asked for.
-        assert resolve_process_count(
-            {"alert_agent": {"processes": process_scaling.MAX_PROCESS_COUNT}}
-        ) == process_scaling.MAX_PROCESS_COUNT
+    def test_there_is_no_upper_bound(self):
+        # A ceiling was added from the spec's "1-64" wording and then removed:
+        # the partition count is what bounds an instance, and a limit with no
+        # product or resource basis only refuses what partitions already would.
+        assert resolve_process_count({"alert_agent": {"processes": 128}}) == 128
 
 
 class TestAutoIsGone:
@@ -65,7 +66,7 @@ class TestAutoIsGone:
 
     @pytest.mark.parametrize("value", ["auto", "AUTO", " auto "])
     def test_auto_is_rejected(self, value):
-        with pytest.raises(ValueError, match="between 1 and 64"):
+        with pytest.raises(ValueError, match="positive integer"):
             resolve_process_count({"alert_agent": {"processes": value}})
 
     def test_the_error_says_what_bounds_the_count(self):
@@ -273,3 +274,60 @@ class TestPerTopicIsWhatDecides:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestOneStartupBudget:
+    """Metadata, seeding, warmup and the group join share one bound.
+
+    Two independent timeouts could not be reasoned about together: an instance
+    could spend the metadata budget and then the readiness budget on top.
+    """
+
+    @staticmethod
+    def _timeout(value=None):
+        from utils.process_scaling import startup_timeout
+        config = {"alert_agent": {}} if value is None else {
+            "alert_agent": {"startup_timeout_seconds": value}
+        }
+        return startup_timeout(config)
+
+    def test_the_default_matches_the_specified_deadline(self):
+        assert self._timeout() == process_scaling.DEFAULT_STARTUP_TIMEOUT_SECONDS == 60.0
+
+    def test_a_deployment_can_raise_it(self):
+        # A topic-creation Job racing this Deployment, or several children
+        # contending on Elasticsearch, legitimately need longer.
+        assert self._timeout(300) == 300.0
+
+    def test_a_numeric_string_is_accepted(self):
+        assert self._timeout("120") == 120.0
+
+    def test_a_budget_below_the_reserved_fleet_share_is_refused(self):
+        # Every step before the join is given what is left after that share.
+        # At or below it they get zero, so the metadata read fails instantly
+        # and blames the broker for a timeout it never had.
+        floor = process_scaling.MINIMUM_STARTUP_TIMEOUT_SECONDS
+        # 15.1 used to pass and still gave the metadata read zero seconds.
+        for value in (0, 10, floor, floor + 0.1, floor * 2 - 0.1):
+            with pytest.raises(ValueError, match="must be at least"):
+                self._timeout(value)
+
+    def test_the_smallest_workable_budget_is_accepted(self):
+        floor = process_scaling.MINIMUM_STARTUP_TIMEOUT_SECONDS
+        assert self._timeout(floor * 2) == floor * 2
+
+    def test_an_unsubstituted_template_is_named(self):
+        with pytest.raises(ValueError, match="must be a number"):
+            self._timeout("${AB_STARTUP_TIMEOUT}")
+
+    def test_one_process_survives_unreadable_metadata(self):
+        # A broker with auto-create, or one briefly unreachable, used to
+        # recover on its own at N=1. The wait buys early notice there, not a
+        # partition check -- one partition already satisfies one process.
+        with patch.object(process_scaling, "source_partitions_by_topic", return_value=None):
+            assert await_source_partitions({}, required=1, timeout=0.05, interval=0.01) == {}
+
+    def test_more_than_one_process_still_fails_on_unreadable_metadata(self):
+        with patch.object(process_scaling, "source_partitions_by_topic", return_value=None):
+            with pytest.raises(RuntimeError, match="Could not read the partition count"):
+                await_source_partitions({}, required=2, timeout=0.05, interval=0.01)

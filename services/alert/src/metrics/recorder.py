@@ -662,6 +662,21 @@ def inc_pipeline_process_exit(reason: str) -> None:
     PIPELINE_PROCESS_EXITS.labels(reason=reason).inc()
 
 
+def inc_records_read_after_revoke(count: int = 1) -> None:
+    """Records that arrived for a partition this member had already lost.
+
+    The rebalance drain runs inside the revoke callback, which the same poll
+    delivers, so records read into that batch cannot have been counted by it.
+    They are processed here while the incoming owner starts on the same
+    sensors. Bounded by max_poll_records per partition per rebalance; this
+    makes the size of that residual observable instead of assumed.
+    """
+    if not PROMETHEUS_ENABLED or count <= 0:
+        return
+    from metrics.prometheus_metrics import RECORDS_READ_AFTER_REVOKE
+    RECORDS_READ_AFTER_REVOKE.inc(count)
+
+
 def set_assigned_partitions(count: int) -> None:
     """Set the partitions this process holds; summed across the instance."""
     if not PROMETHEUS_ENABLED:

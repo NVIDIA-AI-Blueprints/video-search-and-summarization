@@ -18,6 +18,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 
+from unittest.mock import patch
+
 import pytest
 
 from enhance_alert_with_vlm import AnomalyEnhancer
@@ -317,7 +319,10 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
             config["event_bridge"] = {"sourceType": source_type}
         if max_poll_interval_ms is not None:
             config["kafka"] = {"max_poll_interval_ms": max_poll_interval_ms}
-        validate_multi_process_config(config, processes)
+        # Multi-process requires the fleet gauges, which are the only channel
+        # carrying worker assignment state to /health.
+        with patch("enhance_alert_with_vlm.PROMETHEUS_ENABLED", True):
+            validate_multi_process_config(config, processes)
 
     def test_a_shared_store_is_accepted(self):
         self._validate(shared=True)
@@ -329,6 +334,23 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
     def test_the_refusal_names_the_way_out(self):
         with pytest.raises(ValueError, match="Enable persistence, or run a single process"):
             self._validate(shared=False)
+
+    def test_a_cooperative_assignor_is_refused_in_the_parent(self):
+        # Judged before any resource starts. Reached only where the consumer
+        # is built, it fired inside a child -- after the API, the metrics
+        # port, the metadata wait, seeding, warmup and the fork.
+        from mdx.kafka_message_broker import _require_eager_assignor
+        with pytest.raises(ValueError, match="cooperative-sticky"):
+            _require_eager_assignor("cooperative-sticky")
+
+    def test_metrics_are_required_because_health_reads_them(self):
+        from enhance_alert_with_vlm import validate_multi_process_config
+        with patch("enhance_alert_with_vlm.PROMETHEUS_ENABLED", False):
+            with pytest.raises(ValueError, match="PROMETHEUS_METRICS_ENABLED"):
+                validate_multi_process_config(
+                    {"persistence": {"enabled": True},
+                     "alert_agent": {"pipeline_mode": "event_loop"}}, 4,
+                )
 
     def test_the_mode_is_checked_too(self):
         with pytest.raises(ValueError, match="requires pipeline_mode"):

@@ -25,6 +25,31 @@ setup_logging()
 logger = get_logger(__name__)
 
 
+EAGER_ASSIGNORS = ("range", "roundrobin")
+
+
+def _require_eager_assignor(configured: Optional[str]) -> str:
+    """Return the eager strategy string, refusing any cooperative request."""
+    pinned = ",".join(EAGER_ASSIGNORS)
+    if configured is None:
+        return pinned
+    requested = [name.strip() for name in str(configured).split(",") if name.strip()]
+    if not requested:
+        # A templated value that never got substituted. Passing "" through
+        # would leave the choice to the client's default, which is the thing
+        # this function exists to stop being implicit.
+        return pinned
+    unsupported = [name for name in requested if name not in EAGER_ASSIGNORS]
+    if unsupported:
+        raise ValueError(
+            f"kafka.partition_assignment_strategy={configured!r} is not supported: "
+            f"{', '.join(unsupported)} rebalance incrementally, while partition "
+            f"ownership and readiness here are tracked from whole-assignment "
+            f"callbacks. Use {pinned}."
+        )
+    return ",".join(requested)
+
+
 class KafkaMessageBroker:
     """
     Module for Kafka message broker abstraction using Confluent Kafka
@@ -43,6 +68,15 @@ class KafkaMessageBroker:
         self._assignment_lock = threading.Lock()
         self._assignment_decided: Set[int] = set()
         self._owned: Dict[int, Set[Tuple[str, int]]] = {}
+        # What the most recent revoke took, kept until those
+        # partitions are handed back, so a stranded record can be
+        # told from one this member still owns.
+        self._revoked: Dict[int, Set[Tuple[str, int]]] = {}
+        # Records read into the batch currently being assembled, per
+        # partition. A revoke delivered by the poll that fills that batch
+        # cannot see them any other way: they are in a local of
+        # ``get_consumed_messages`` until it returns.
+        self._in_batch: Dict[int, Dict[Tuple[str, int], int]] = {}
 
     def get_consumer(
         self,
@@ -66,7 +100,18 @@ class KafkaMessageBroker:
             'enable.auto.commit': self.config['kafka']['enable_auto_commit'],
             'max.poll.interval.ms': self.config['kafka']['max_poll_interval_ms'],
             'session.timeout.ms': self.config['kafka'].get('session_timeout_ms', 300000), 
-            'heartbeat.interval.ms': self.config['kafka'].get('heartbeat_interval_ms', 300000)
+            'heartbeat.interval.ms': self.config['kafka'].get('heartbeat_interval_ms', 300000),
+            # Pinned, not defaulted. The rebalance callbacks below are
+            # written for the eager protocol: ``revoked`` clears the whole
+            # owned set and ``assigned`` calls ``assign`` with the complete
+            # one. Under a cooperative assignor both are incremental, so the
+            # owned set would collapse to the increment and readiness would
+            # drop on a partial revoke. Leaving it overridable would let a
+            # deployment select that quietly, so a request for anything else
+            # is refused at startup instead.
+            'partition.assignment.strategy': _require_eager_assignor(
+                self.config['kafka'].get('partition_assignment_strategy')
+            ),
         }
         consumer = Consumer(consumer_config)
         self._subscribe_with_rebalance_hooks(consumer, topic, on_revoke, on_assignment_change)
@@ -91,6 +136,8 @@ class KafkaMessageBroker:
             with self._assignment_lock:
                 self._assignment_decided.add(id(consumer))
                 self._owned[id(consumer)] = owned
+                # Anything handed back was never stranded.
+                self._revoked[id(consumer)] = self._revoked.get(id(consumer), set()) - owned
             logger.info(
                 "Assignment for %s: %d partition(s) %s",
                 topic, len(owned), sorted(p for _, p in owned),
@@ -109,6 +156,14 @@ class KafkaMessageBroker:
                 # holds nothing and does not yet know what it will hold.
                 self._assignment_decided.discard(id(consumer))
                 self._owned[id(consumer)] = set()
+                # Unioned, not replaced: a second revoke before the
+                # coordinator answers arrives with an empty current
+                # assignment, and overwriting there erased the record of what
+                # the first one took -- exactly the cascading case where the
+                # stranded residual is largest.
+                self._revoked[id(consumer)] = (
+                    self._revoked.get(id(consumer), set()) | losing
+                )
                 # Anything buffered while waiting for the assignment goes with
                 # them. It was never committed, so the incoming owner reads it
                 # again from the unchanged offset; keeping it would hand this
@@ -127,6 +182,38 @@ class KafkaMessageBroker:
                 on_revoke(losing)
 
         consumer.subscribe([topic], on_assign=assigned, on_revoke=revoked, on_lost=revoked)
+
+    def buffered_for(self, partitions) -> int:
+        """Records already read for ``partitions`` and not yet handed on.
+
+        Summed across consumers, because a revoke callback is told which
+        partitions moved and not which consumer read them. Used to report a
+        drain honestly: it cannot wait for these -- the thread it would block
+        is the one that has to return them -- but it must not claim there was
+        nothing outstanding either.
+        """
+        wanted = set(partitions)
+        with self._assignment_lock:
+            return sum(
+                count
+                for counts in self._in_batch.values()
+                for key, count in counts.items()
+                if key in wanted
+            )
+
+    def was_revoked(self, consumer: Consumer, topic: str, partition: int) -> bool:
+        """Whether this partition was taken since the batch began.
+
+        Compared against what the last revoke actually took, not against what
+        is owned now. Under the eager protocol a member surrenders everything
+        and is usually handed most of it straight back, so "not currently
+        owned" counted every rebalance as a stranding whether or not another
+        member ever touched the records.
+        """
+        with self._assignment_lock:
+            if (topic, partition) in self._owned.get(id(consumer), ()):
+                return False
+            return (topic, partition) in self._revoked.get(id(consumer), ())
 
     def assignment_decided(self, consumer: Consumer) -> bool:
         """Whether the coordinator has told ``consumer`` what it owns.
@@ -195,8 +282,7 @@ class KafkaMessageBroker:
             except KafkaException as ke:
                 logger.error(f"Failed to commit batched offset: {ke}")
 
-    def get_consumed_messages(self, consumer: Consumer, batch_size: Optional[int] = None,
-                              on_read=None) -> Dict[str, List[Tuple[str, str]]]:
+    def get_consumed_messages(self, consumer: Consumer, batch_size: Optional[int] = None) -> Dict[str, List[Tuple[str, str]]]:
         """
         Consumes a batch of messages from a Kafka topic and manually commits the offsets.
 
@@ -222,6 +308,8 @@ class KafkaMessageBroker:
         # Anything the group-join wait pulled off the wire is delivered here
         # first, ahead of a fresh poll, so waiting never drops a message.
         prefetched = self._prefetched.pop(id(consumer), [])
+        with self._assignment_lock:
+            self._in_batch[id(consumer)] = {}
         try:
             # Resolve effective batch size from argument or configuration
             effective_batch_size = batch_size if batch_size is not None else self.config['kafka'].get('max_poll_records', 10)
@@ -254,17 +342,10 @@ class KafkaMessageBroker:
                         logger.debug("Kafka message has no timestamp available")
                         kafka_timestamp_ms = None
                     messages[partition_key].append((msg.key(), msg.value(), kafka_timestamp_ms))
-                    if on_read is not None:
-                        # Counted here, not where the message is later
-                        # scheduled. A rebalance is delivered by the poll above,
-                        # so a revoke can arrive with records for the revoked
-                        # partition already read into this batch. Those were
-                        # invisible to the drain, which reported nothing owed
-                        # and let the partition move while this member went on
-                        # to process them. They cannot simply be dropped -- the
-                        # offset is already committed, so dropping them loses
-                        # them -- so the drain has to know they exist.
-                        on_read(msg.topic(), msg.partition())
+                    with self._assignment_lock:
+                        counts = self._in_batch.setdefault(id(consumer), {})
+                        key = (msg.topic(), msg.partition())
+                        counts[key] = counts.get(key, 0) + 1
                     if self.batch_commit:
                         pending_commits[(msg.topic(), msg.partition())] = msg
                     else:
@@ -282,5 +363,11 @@ class KafkaMessageBroker:
                 self._prefetched[id(consumer)] = prefetched
             if pending_commits:
                 self._commit_pending(consumer, pending_commits)
+            # In the finally, not after it: anything other than a
+            # KafkaException -- from the poll, the timestamp handling, the
+            # commit -- would otherwise leave the batch counts behind for a
+            # later drain to read as a stranding that had already been handled.
+            with self._assignment_lock:
+                self._in_batch.pop(id(consumer), None)
 
         return messages

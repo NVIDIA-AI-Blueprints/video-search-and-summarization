@@ -247,11 +247,19 @@ class VLMClient(_VLMClientBase):
         config: dict,
     ) -> None:
         super().__init__(config)
-        self.client = OpenAI(
-            base_url=self.base_url,
-            api_key=self.api_key,
-            timeout=self.request_timeout
-        )
+        # max_retries is left to the SDK unless a caller sets it. Warmup sets
+        # it to zero: the default of two makes one call three HTTP attempts,
+        # each up to request_timeout, and honours Retry-After for up to two
+        # minutes outside that timeout -- so a bound written per call was in
+        # fact a bound per attempt.
+        client_options = {
+            "base_url": self.base_url,
+            "api_key": self.api_key,
+            "timeout": self.request_timeout,
+        }
+        if config.get('max_retries') is not None:
+            client_options["max_retries"] = config['max_retries']
+        self.client = OpenAI(**client_options)
 
     def _create_chat(
         self,

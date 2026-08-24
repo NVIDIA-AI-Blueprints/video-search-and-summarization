@@ -193,10 +193,18 @@ alert_agent:
   # process.
   #
   # Above 1 the value is validated at startup rather than adjusted: it
-  # requires pipeline_mode: event_loop, and it must not exceed the total
-  # partitions across the source topics, or startup fails. With N replicas the
-  # constraint is replicas x processes <= partitions.
+  # requires pipeline_mode: event_loop, and it must not exceed the partitions
+  # on ANY ONE source topic, or startup fails. Per topic, not summed: each
+  # process runs one consumer per topic in the same group, so Kafka assigns
+  # each topic independently and a topic with fewer partitions than there are
+  # processes leaves the difference holding none of it. With N replicas the
+  # constraint is replicas x processes <= partitions, per topic.
   processes: 1
+  # The whole of startup -- topic metadata, prompt seeding, VLM warmup and
+  # every pipeline joining its group -- shares this one budget. Raise it where
+  # the default cannot be met: topics created by a Job that races this
+  # deployment, or several processes building their stores at once.
+  startup_timeout_seconds: 60
   num_workers: 10                                # Number of worker threads
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes

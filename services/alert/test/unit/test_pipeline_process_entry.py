@@ -18,6 +18,8 @@
 import os
 from unittest.mock import MagicMock, call, patch
 
+import time
+
 import pytest
 
 import enhance_alert_with_vlm as entry
@@ -89,14 +91,20 @@ class TestChildReadiness:
         order = MagicMock()
         order.await_ready.return_value = True
         enhancer.source.await_ready = order.await_ready
+        # The child raises when the loop reports failure, so the stub has to
+        # report success or this test fails for the wrong reason.
+        order.process_anomalies.return_value = True
         enhancer.process_anomalies = order.process_anomalies
         ready = MagicMock()
         ready.set = order.set
 
-        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, ready)
+        # An explicit non-default: asserting the default would pass even if
+        # the entry point stopped forwarding the budget at all.
+        entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, ready,
+                                    join_deadline=time.time() + 42.0)
 
-        assert order.mock_calls == [call.await_ready(), call.set(),
-                                    call.process_anomalies()]
+        assert order.mock_calls == [call.await_ready(timeout=pytest.approx(42.0, abs=1.0)), call.set(),
+                                    call.process_anomalies()], order.mock_calls
 
     def test_never_signals_when_the_join_failed(self, enhancer):
         # Reporting ready here is the exact failure this path exists to stop:
@@ -121,6 +129,113 @@ class TestChildReadiness:
         enhancer.source.await_ready.return_value = True
         entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1, None)
         enhancer.process_anomalies.assert_called_once()
+
+
+class TestAFailedConsumeLoopFailsTheChild:
+    """A child whose loop stopped on an error must not exit 0.
+
+    The supervisor fails the instance on any child exit, so the outcome was
+    already right -- but it logged exitcode=0 for a crash, and the
+    single-process path raises. Both report the same way now.
+    """
+
+    @staticmethod
+    def _run(loop_result):
+        from unittest.mock import MagicMock, patch
+
+        enhancer = MagicMock()
+        enhancer.process_anomalies.return_value = loop_result
+        enhancer.source.await_ready.return_value = True
+        with patch.object(entry, "AnomalyEnhancer", return_value=enhancer), \
+             patch.object(entry, "_exit_when_parent_dies"), \
+             patch.object(entry, "signal"), \
+             patch.object(entry, "_publish_readiness"):
+            return entry._run_pipeline_process("config.yaml", 0, os.getpid(), 1)
+
+    def test_a_failed_loop_raises(self):
+        with pytest.raises(RuntimeError, match="stopped on an error"):
+            self._run(loop_result=False)
+
+    def test_a_clean_loop_returns(self):
+        self._run(loop_result=True)
+
+
+class TestOrphanProtection:
+    """An orphan keeps its consumer-group slot, which stalls its partitions.
+
+    The parent-PID recheck is the half that works everywhere: PR_SET_PDEATHSIG
+    is Linux-only and can be refused by seccomp, and behind those two failure
+    paths the recheck used to be skipped exactly when it was all that was left.
+    """
+
+    @staticmethod
+    def _run(prctl_result, ppid):
+        from unittest.mock import MagicMock, patch
+
+        libc = MagicMock()
+        libc.prctl.return_value = prctl_result
+        with patch("ctypes.CDLL", return_value=libc), \
+             patch.object(entry.os, "getppid", return_value=ppid), \
+             patch.object(entry.os, "_exit", side_effect=SystemExit) as exit_now:
+            try:
+                entry._exit_when_parent_dies(4321)
+            except SystemExit:
+                pass
+        return exit_now.called
+
+    def test_an_already_dead_parent_exits_the_child(self):
+        assert self._run(prctl_result=0, ppid=1) is True
+
+    def test_the_recheck_happens_even_when_prctl_is_refused(self):
+        # seccomp refuses it; the recheck is then the only protection there is.
+        assert self._run(prctl_result=-1, ppid=1) is True
+
+    def test_a_live_parent_leaves_the_child_running(self):
+        assert self._run(prctl_result=0, ppid=4321) is False
+
+
+class TestTheStartupBudgetReachesTheChildren:
+    """The budget threading has been rewritten twice and pinned by nothing.
+
+    Reviewers had to re-derive from source each round that the group join
+    actually draws from the same budget the parent's watchdog counts down.
+    """
+
+    def test_the_spawn_helper_passes_the_deadline_to_the_child(self):
+        from unittest.mock import MagicMock, patch
+
+        when = time.time() + 42.0
+        with patch.object(entry, "_pipeline_mp_context") as ctx:
+            ctx.return_value.Process = MagicMock()
+            entry._start_pipeline_process("config.yaml", 2, 4, None, join_deadline=when)
+            args = ctx.return_value.Process.call_args.kwargs["args"]
+
+        assert args[-1] == when, "the child was not given the deadline"
+
+    def test_the_child_shares_the_parents_deadline_not_its_duration(self):
+        # Handed the same duration, the child began counting after its spawn
+        # and its constructor, so its window always ended after the parent's
+        # and the parent killed children a second from joining.
+        from unittest.mock import MagicMock, patch
+
+        seen = {}
+        with patch.object(entry, "ProcessSupervisor") as supervisor, \
+             patch.object(entry, "_start_pipeline_process",
+                          side_effect=lambda *a: seen.setdefault("args", a)), \
+             patch.object(entry, "_announce_when_all_ready"):
+            supervisor.return_value.run = MagicMock()
+            before = time.time()
+            entry.run_multi_process_pipeline("config.yaml", 2, readiness_timeout=42.0)
+            supervisor.call_args.kwargs["spawn"](0)
+
+        # One instant for parent, watchdog and child, and it is the budget's
+        # own remainder -- padding it past the budget was what pushed the
+        # whole of startup beyond the deadline it is measured against.
+        deadline = seen["args"][-1]
+        expected = 42.0
+        assert before + expected - 1 <= deadline <= before + expected + 1, (
+            f"not the instance's final readiness instant: {deadline - before}"
+        )
 
 
 class TestInstanceReadiness:
@@ -167,6 +282,41 @@ class TestInstanceReadiness:
         entry._announce_when_all_ready([threading.Event()], lambda: None,
                                        on_timeout=expired.set, timeout=0.1)
         assert expired.wait(2), "the readiness timeout did not end the run"
+
+
+class TestReadinessNeedsEveryWorkerAtOnce:
+    """Each worker ready at some point is not the fleet being ready.
+
+    The wait ran through the events in order. An early worker could be
+    revoked while the wait was still blocked on a later one, and the
+    announcement -- which the harness and producers gate on -- went out with
+    part of the fleet holding nothing.
+    """
+
+    def test_a_worker_that_drops_out_delays_the_announcement(self):
+        import threading
+        first, second = threading.Event(), threading.Event()
+        announced = threading.Event()
+
+        entry._announce_when_all_ready([first, second], announced.set, timeout=5)
+
+        first.set()
+        # It is now blocked on the second; the first goes away meanwhile.
+        second.set()
+        first.clear()
+        assert not announced.wait(0.3), "announced with a worker no longer ready"
+
+        first.set()
+        assert announced.wait(2), "never announced once the fleet was whole"
+
+    def test_the_whole_fleet_ready_announces(self):
+        import threading
+        events = [threading.Event() for _ in range(3)]
+        announced = threading.Event()
+        entry._announce_when_all_ready(events, announced.set, timeout=5)
+        for event in events:
+            event.set()
+        assert announced.wait(2)
 
 
 class TestSeedingHappensBeforeAnyChild:
@@ -363,7 +513,7 @@ class TestReadinessWaitsForStartupToFinish:
         event = entry._pipeline_mp_context().Event()
 
         # Fire the hook the way the join does, from inside await_ready.
-        def fire_hook_during_join():
+        def fire_hook_during_join(timeout=None):
             hook = enhancer.source.set_assignment_change_hook.call_args.args[0]
             hook()
             assert not event.is_set(), "readiness raised before startup finished"

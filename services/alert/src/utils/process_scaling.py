@@ -25,22 +25,56 @@ logger = get_logger(__name__)
 
 DEFAULT_PROCESS_COUNT = 1
 
-# Long enough to cover topic creation racing container startup: on Kubernetes
-# the topics are made by a Job with no ordering against this Deployment, so a
-# first install legitimately reaches here before the topics exist. Compose
-# gates on the topic-init container instead and never spends this.
-PARTITION_WAIT_SECONDS = 300.0
+# The whole of startup -- reading topic metadata, seeding prompts, warming the
+# VLM and waiting for every pipeline to join its group -- is bounded by one
+# budget. Two independent timeouts were tried first and could not be reasoned
+# about together: an instance could spend 300s on metadata and then 600s more
+# waiting for children.
+#
+# Raise it where the default cannot be met: on Kubernetes the topics come from
+# a Job with no ordering against this Deployment, and several children building
+# Elasticsearch-backed stores at once take longer than one does. Compose gates
+# on the topic-init container and never spends any of this.
+DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
+# Mirrors MIN_FLEET_WAIT_SECONDS in the entry point: the share held back for
+# the group join, and therefore the floor a whole budget has to clear.
+MINIMUM_STARTUP_TIMEOUT_SECONDS = 15.0
 PARTITION_POLL_SECONDS = 5.0
 
-# An instance is bounded by its source partitions long before it reaches this,
-# so a larger value is a typo rather than an intent. Catching it here costs one
-# comparison; letting it through forks that many pipelines, each with its own
-# consumers and event loop, before anything notices.
-MAX_PROCESS_COUNT = 64
 
+def startup_timeout(config: Optional[Dict[str, Any]]) -> float:
+    """Seconds the whole of startup may take, from ``alert_agent``."""
+    raw = (config or {}).get("alert_agent", {}).get("startup_timeout_seconds")
+    if raw is None:
+        return DEFAULT_STARTUP_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"alert_agent.startup_timeout_seconds must be a number, got {raw!r}"
+        )
+    if value < MINIMUM_STARTUP_TIMEOUT_SECONDS * 2:
+        # Steps before the group join are each given what is left after the
+        # fleet's reserved share. At or below that share they are given zero,
+        # so the metadata read fails instantly and blames the broker for a
+        # timeout it was never allowed to spend.
+        raise ValueError(
+            f"alert_agent.startup_timeout_seconds must be at least "
+            f"{MINIMUM_STARTUP_TIMEOUT_SECONDS * 2:.0f}, got {raw!r}. The last "
+            f"{MINIMUM_STARTUP_TIMEOUT_SECONDS:.0f}s are reserved for the "
+            f"pipeline processes to join their consumer groups, and the steps "
+            f"before them share what is left -- so anything under twice the "
+            f"reservation gives the topic-metadata read close to nothing and "
+            f"fails blaming the broker."
+        )
+    return value
+
+# No upper bound. One was added from the spec's "1-64" wording and then
+# removed: the partition count is what actually bounds an instance, and a
+# ceiling with no product or resource basis behind it only refuses
+# configurations the partitions would already have refused.
 _ERROR = (
-    "alert_agent.processes must be an integer between 1 and "
-    f"{MAX_PROCESS_COUNT}, got {{value!r}}. "
+    "alert_agent.processes must be a positive integer, got {value!r}. "
     "Pick a count deliberately: it must not exceed the source partition "
     "count, and every process beyond it would idle."
 )
@@ -152,7 +186,7 @@ def topics_short_of_processes(sizes: Dict[str, int], process_count: int) -> Dict
 
 
 def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
-    """Return the number of pipeline processes to run (1..``MAX_PROCESS_COUNT``).
+    """Return the number of pipeline processes to run (>= 1).
 
     A positive integer only. Deriving it from the CPU count read well but hid
     the constraint that actually binds: parallelism is capped by the source
@@ -174,7 +208,7 @@ def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
         except ValueError:
             raise ValueError(_ERROR.format(value=raw))
 
-    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_PROCESS_COUNT:
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
         raise ValueError(_ERROR.format(value=raw))
 
     return raw
@@ -183,7 +217,7 @@ def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
 def await_source_partitions(
     config: Optional[Dict[str, Any]],
     required: int,
-    timeout: float = PARTITION_WAIT_SECONDS,
+    timeout: float = DEFAULT_STARTUP_TIMEOUT_SECONDS,
     interval: float = PARTITION_POLL_SECONDS,
 ) -> Dict[str, int]:
     """Block until the source topics exist, then return their partitions per topic.
@@ -202,7 +236,10 @@ def await_source_partitions(
     deadline = time.monotonic() + timeout
     warned = False
     while True:
-        sizes = source_partitions_by_topic(config)
+        # Each metadata read is capped by what is left, or a single call could
+        # overshoot the budget the whole of startup shares.
+        remaining = max(0.0, deadline - time.monotonic())
+        sizes = source_partitions_by_topic(config, timeout=min(10.0, remaining))
         total = sum(sizes.values()) if sizes else None
         if total:
             short = topics_short_of_processes(sizes, required)
@@ -221,6 +258,21 @@ def await_source_partitions(
             return sizes
 
         if time.monotonic() >= deadline:
+            if required <= 1:
+                # One process needs no partition-count check -- a topic with
+                # one partition already satisfies it. All this wait buys at
+                # N=1 is failing fast when the topics are missing, and a
+                # broker with auto-create, or one that is briefly unreachable,
+                # used to recover on its own. Refusing there would break
+                # installs that work today, so report and let it proceed.
+                logger.warning(
+                    "Could not read the partition count for %s within %.0fs; "
+                    "continuing, since one pipeline process needs no "
+                    "partition-count check",
+                    ", ".join(source_topics(config)) or "the source topics",
+                    timeout,
+                )
+                return {}
             raise RuntimeError(
                 f"Could not read the partition count for "
                 f"{', '.join(source_topics(config)) or 'the source topics'} within "

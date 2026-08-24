@@ -424,3 +424,89 @@ class TestClose:
 
     def test_closing_before_any_poll_is_a_noop(self, source):
         source.close()
+
+
+class TestRecordsStrandedByARevokeAreCounted:
+    """A revoke delivered by the poll that filled the batch strands records.
+
+    They are already committed, so they are processed here while the incoming
+    owner starts on the same sensors. The drain cannot have counted them, so
+    the size of that residual is counted instead of assumed.
+    """
+
+    @staticmethod
+    def _source(revoked, owned=()):
+        from unittest.mock import MagicMock
+        from mdx.source.source_kafka import SourceKafka
+
+        source = SourceKafka.__new__(SourceKafka)
+        source.source_topics = ["t"]
+        source.topic_to_kind = {"t": "incident"}
+        source.topic_consumer_map = {"t": MagicMock()}
+        source._ensure_consumer = lambda topic: None
+        broker = MagicMock()
+        broker.get_consumed_messages.return_value = {
+            "t-3": [(b"k", b'{"id": "a"}', None), (b"k", b'{"id": "b"}', None)]
+        }
+        broker.was_revoked.side_effect = (
+            lambda consumer, topic, partition: (topic, partition) in revoked
+        )
+        source.kafka_message_broker = broker
+        return source
+
+    def _counted(self, revoked):
+        from unittest.mock import patch
+        source = self._source(revoked)
+        with patch("metrics.recorder.inc_records_read_after_revoke") as counter:
+            source.read_data()
+        return sum(call.args[0] for call in counter.call_args_list)
+
+    def test_stranded_records_are_counted_once_each(self):
+        assert self._counted({("t", 3)}) == 2
+
+    def test_a_missing_metrics_package_does_not_end_the_consume_loop(self):
+        # This module guards its metrics import on purpose. An unguarded one
+        # here raised ImportError out of read_data, which is caught only by
+        # the broad handler that exits the consume loop for good -- turning a
+        # packaging problem into a total outage.
+        from unittest.mock import patch
+        source = self._source({("t", 3)})
+        with patch("mdx.source.source_kafka._metrics", None):
+            batches = source.read_data()
+        assert len(batches) == 1
+
+    def test_records_on_a_partition_still_held_are_not_counted(self):
+        # The eager protocol revokes everything and hands most of it straight
+        # back; counting that as a stranding pages an operator on every deploy.
+        assert self._counted(set()) == 0
+
+
+class TestTheEagerAssignorIsPinned:
+    """revoked() clears the whole owned set; assigned() assigns the whole one.
+
+    Both are written for the eager protocol. Under a cooperative assignor the
+    callbacks are incremental, so the owned set would collapse to the
+    increment and readiness would drop on a partial revoke. Left overridable,
+    a deployment could select that quietly.
+    """
+
+    @staticmethod
+    def _resolve(value):
+        from mdx.kafka_message_broker import _require_eager_assignor
+        return _require_eager_assignor(value)
+
+    def test_the_default_is_eager(self):
+        assert self._resolve(None) == "range,roundrobin"
+
+    def test_an_explicit_eager_choice_is_honoured(self):
+        assert self._resolve("roundrobin") == "roundrobin"
+
+    def test_a_cooperative_assignor_is_refused(self):
+        import pytest
+        with pytest.raises(ValueError, match="cooperative-sticky"):
+            self._resolve("cooperative-sticky")
+
+    def test_a_mixed_request_is_refused_by_its_unsupported_half(self):
+        import pytest
+        with pytest.raises(ValueError, match="cooperative-sticky"):
+            self._resolve("range,cooperative-sticky")

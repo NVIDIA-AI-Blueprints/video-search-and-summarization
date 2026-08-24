@@ -328,6 +328,24 @@ class TestHealthReflectsLiveWorkers:
         })
         assert message and "3 of 4" in message
 
+    def test_an_unreadable_shard_reads_as_degraded_not_healthy(self):
+        # The shards are the only channel carrying assignment state to this
+        # process. One that cannot be read leaves a dead fleet
+        # indistinguishable from a whole one, and answering ok is the single
+        # thing this endpoint must never do on a guess.
+        import sys
+        from unittest.mock import patch
+        sys.modules.pop("web.main", None)
+        from web import main
+
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
+        with patch.dict("os.environ", {"PROMETHEUS_MULTIPROC_DIR": "/tmp/x"}), \
+             patch("prometheus_client.CollectorRegistry",
+                   side_effect=RuntimeError("corrupt shard")):
+            message = main._degraded_workers()
+
+        assert message and "could not be read" in message
+
     def test_metrics_switched_off_is_not_an_error(self):
         # Nothing to read is not the same as something wrong.
         assert self._degraded({}, multiproc=False) is None
@@ -352,15 +370,14 @@ class TestHealthReflectsLiveWorkers:
         assert reg.return_value.collect.call_count == 1
 
 
-class TestHealthAndReadinessAreSeparate:
-    """Fleet state belongs on /ready, never on /health.
+class TestHealthCarriesFleetState:
+    """Aggregate worker assignment state must reach /health.
 
-    They were one endpoint. A multi-process instance reports no ready
-    pipelines for the whole of its startup -- through the wait for topic
-    metadata and every child's constructor -- so a startup probe on the
-    combined endpoint killed the container before the fleet could come up.
-    And in steady state every rebalance turned the endpoint fronting the
-    alert-config API into a 503 while that API was serving perfectly well.
+    Fleet state was moved onto a new /ready in response to an internal
+    review, which read a rebalance as a sick container. That reversed an
+    explicit lead decision: /health is what the deployment contract probes,
+    so that is where the fleet has to be reported. /ready answers the same,
+    for deployments that prefer the conventional name.
     """
 
     @staticmethod
@@ -400,10 +417,12 @@ class TestHealthAndReadinessAreSeparate:
     def test_a_healthy_fleet_answers_both(self):
         assert self._codes(degraded=None) == (200, 200)
 
-    def test_a_degraded_fleet_only_moves_ready(self):
-        # The whole point: a rebalance is a fleet event, not a sick container.
+    def test_a_degraded_fleet_moves_both(self):
+        # Aggregate worker assignment state has to reach /health -- that is the
+        # endpoint the deployment contract probes. /ready is the same answer
+        # under the conventional name, not a different one.
         assert self._codes(degraded="0 of 4 pipeline processes hold a "
-                                    "partition assignment") == (200, 503)
+                                    "partition assignment") == (503, 503)
 
     def test_a_failed_startup_fails_both(self):
         # This process cannot serve its own API either, so it is not liveness.

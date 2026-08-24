@@ -407,6 +407,13 @@ REBALANCE_DRAINS = Counter(
     ['outcome'],
 )
 
+RECORDS_READ_AFTER_REVOKE = Counter(
+    'alert_bridge_records_read_after_revoke_total',
+    'Records read for a partition this member had already lost. Read with '
+    'alert_bridge_rebalance_drains_total: a drain reports only what it could '
+    'wait for, and these arrived too late for it to know about',
+)
+
 DISPATCH_IN_FLIGHT = Gauge(
     'alert_bridge_dispatch_in_flight',
     'Current number of in-flight dispatched messages',

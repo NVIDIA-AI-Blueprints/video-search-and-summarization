@@ -21,6 +21,7 @@ import sys as _sys
 _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "src"))
 
 import argparse
+import contextlib
 import asyncio
 from functools import partial
 import json
@@ -91,7 +92,8 @@ _PLUGGABLE_PARSER_ERROR_STATUS = PLUGGABLE_PARSER_ERROR_STATUS
 # Covers one pipeline construction plus a group join, per child, while several
 # of them contend on Elasticsearch. Only bounds how long readiness is awaited;
 # a child that arrives later still runs and still serves its partitions.
-READINESS_TIMEOUT_SECONDS = 600.0
+# Readiness has no budget of its own: it draws from the one startup budget,
+# minus whatever the steps before it already spent.
 from handlers.enrichment import EnrichmentProcessor
 from handlers.direct_media import DirectMediaHandler
 from handlers.async_dispatch_mixin import (
@@ -106,8 +108,24 @@ from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
 from utils.partition_in_flight import DEFAULT_DRAIN_TIMEOUT, PartitionInFlight
-from utils.process_scaling import await_source_partitions, resolve_process_count
-from utils.process_supervisor import ProcessSupervisor
+from utils import startup_deadline
+from utils.startup_deadline import StartupDeadline
+from utils.process_scaling import (
+    MINIMUM_STARTUP_TIMEOUT_SECONDS, await_source_partitions,
+    resolve_process_count, startup_timeout,
+)
+
+# Reserved for the fleet to join its groups. Imported rather than repeated:
+# process_scaling validates the whole budget against this same number, and two
+# copies would let a change to one silently defeat the check in the other.
+MIN_FLEET_WAIT_SECONDS = MINIMUM_STARTUP_TIMEOUT_SECONDS
+
+# The watchdog is the floor under the readiness wait, so it has to end after
+# it. Extended by exactly the same amount the announce window was widened by,
+# the two ended in a dead heat decided by microseconds of thread start-up --
+# which is not a relationship worth resting on.
+WATCHDOG_MARGIN_SECONDS = 5.0
+from utils.process_supervisor import DRAIN_SECONDS, ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
 from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
 from utils.logging_config import setup_logging, get_logger, enforce_log_level
@@ -244,6 +262,19 @@ def validate_multi_process_config(config: dict, process_count: int) -> None:
             f"single process."
         )
 
+    if not PROMETHEUS_ENABLED:
+        # The fleet gauges are the only channel carrying worker assignment
+        # state from the children to the endpoint. Without them /health cannot
+        # tell "no pipeline holds a partition" from "nothing to report" and
+        # answers ok either way, which is the one thing it must never do.
+        raise ValueError(
+            f"alert_agent.processes={process_count} requires "
+            f"PROMETHEUS_METRICS_ENABLED=true. Aggregate worker assignment "
+            f"state reaches /health through the multiprocess metric shards, "
+            f"so with metrics off a degraded fleet is indistinguishable from a "
+            f"healthy one."
+        )
+
     mode = pipeline_mode_from_config(config)
     if mode != PIPELINE_MODE_EVENT_LOOP:
         raise ValueError(
@@ -376,12 +407,6 @@ class AnomalyEnhancer(
         # multi-process path replaces this with a hook that also signals the
         # supervisor.
         self.source.set_assignment_change_hook(self._publish_assignment_state)
-        # Accounted from the read, not from the schedule: a rebalance arrives
-        # on the poll that fills a batch, so records already read for a revoked
-        # partition have to be owed before the drain looks at it.
-        self.source.set_admit_hook(
-            lambda topic, partition: self._partition_in_flight.accept((topic, partition))
-        )
         self.sink = EventBridgeFactory.create_sink(self.config)
 
         # Get source type for logging
@@ -956,14 +981,16 @@ class AnomalyEnhancer(
         accepted for processing, so ``WORKER_QUEUE_WAIT_DURATION`` keeps one
         meaning in every mode: "kafka_consumed -> accepted for processing".
         """
-        # Already taken when the record was read, and handed over here in the
-        # order the batch carries. A source that does not account per partition
-        # supplies none, so one is taken now instead.
-        pending = batch.get("admissions")
-        if pending:
-            admission = pending.pop(0)
-        else:
-            admission = self._partition_in_flight.accept(_batch_partition(batch))
+        # Taken before the pool, not inside it: a message queued for a worker
+        # is already this instance's responsibility, and counting it only once
+        # it starts let a drain finish while queued records still waited.
+        #
+        # Not at read time either, though that would also cover records a
+        # mid-batch revoke stranded. The rebalance callback is delivered by the
+        # poll that fills the batch, and every release path runs only after that
+        # poll returns -- so the drain would wait on work that the very thread
+        # it blocks is the only one able to release, and spend its whole budget.
+        admission = self._partition_in_flight.accept(_batch_partition(batch))
 
         if worker_pool is None:
             # Async modes dispatch each message onward and return, so there is
@@ -1059,6 +1086,23 @@ class AnomalyEnhancer(
         if not partitions:
             return
         outstanding = sum(self._partition_in_flight.in_flight(p) for p in partitions)
+        # Records already read for these partitions but not yet handed to a
+        # stage. The drain cannot wait for them -- the thread it would block
+        # is the one that has to return them -- but reporting nothing_owed
+        # over them told an operator the rebalance was clean while the other
+        # counter was recording a stranding for the same moment.
+        stranded = self.source.buffered_for(partitions)
+        if stranded:
+            # Correlated here, at the moment it happens. The two counters tell
+            # one story between them and an operator reading only the drain
+            # outcome would see a clean rebalance: the drain did finish what it
+            # could, and these were read too late for it to know about.
+            logger.warning(
+                "%d record(s) were already read for %d revoked partition(s) and "
+                "cannot be drained; this member finishes them while the incoming "
+                "owner starts. See alert_bridge_records_read_after_revoke_total.",
+                stranded, len(partitions),
+            )
         if not outstanding:
             inc_rebalance_drain("nothing_owed")
             return
@@ -1091,38 +1135,34 @@ class AnomalyEnhancer(
         while True:
             raw_messages = self.source.read_data()
 
-            try:
-                if self._webhook_forwarder is not None:
-                    self._webhook_forwarder.poll_and_forward()
+            if self._webhook_forwarder is not None:
+                self._webhook_forwarder.poll_and_forward()
 
-                if not raw_messages:
+            if not raw_messages:
+                continue
+
+            # Batches already normalized by source: [{'kind','messages'}, ...]
+            for batch in raw_messages:
+                batch_messages = batch.get("messages")
+                if not batch_messages:
                     continue
 
-                # Batches already normalized by source: [{'kind','messages'}, ...]
-                for batch in raw_messages:
-                    batch_messages = batch.get("messages")
-                    if not batch_messages:
-                        continue
+                batch_kind = (batch.get("kind") or "").lower()
+                message_type = "Incident" if batch_kind == "incident" else "Behavior"
 
-                    batch_kind = (batch.get("kind") or "").lower()
-                    message_type = "Incident" if batch_kind == "incident" else "Behavior"
+                for message in batch_messages:
+                    self._schedule_message(worker_pool, message, message_type, batch)
 
-                    for message in batch_messages:
-                        self._schedule_message(worker_pool, message, message_type, batch)
-            finally:
-                # Admissions are taken when a record is read, so any this pass
-                # did not hand to a stage that releases them are owed by
-                # nobody. A leaked count makes every later drain on that
-                # partition wait out its whole timeout.
-                for batch in raw_messages or ():
-                    for leftover in batch.get("admissions") or ():
-                        if leftover is not None:
-                            leftover.release()
-                    batch["admissions"] = []
+    def process_anomalies(self) -> bool:
+        """Run the consume loop until it stops. False if it stopped on an error.
 
-    def process_anomalies(self):
+        The caller decides what that means: a supervised child already fails
+        its instance by exiting, but a single-process run has to turn it into
+        a non-zero exit itself or an orchestrator sees a clean stop.
+        """
         dispatch_executor: Optional[ThreadPoolExecutor] = None
         worker_pool: Optional[ThreadPoolExecutor] = None
+        failed = False
         try:
             if self.pipeline_mode == PIPELINE_MODE_THREAD_BRIDGE:
                 dispatch_executor = ThreadPoolExecutor(
@@ -1156,6 +1196,11 @@ class AnomalyEnhancer(
         except KeyboardInterrupt:
             logger.info("Process interrupted by user, shutting down gracefully")
         except Exception as e:
+            # Recorded, not swallowed. The loop is over either way, but under a
+            # supervisor the child's exit already fails the instance while a
+            # lone pipeline returned here and let the process exit 0 -- so the
+            # default deployment could stop consuming and report success.
+            failed = True
             logger.error("Error during anomaly processing", extra={
                 "error": str(e),
                 "error_type": type(e).__name__
@@ -1175,9 +1220,17 @@ class AnomalyEnhancer(
                     "Waiting for in-flight dispatch tasks before shutdown",
                     extra={"in_flight": len(in_flight_futures)},
                 )
+            # One deadline for the whole drain, not thirty seconds per task.
+            # The supervisor terminates survivors a few seconds after the
+            # drain window closes, so a per-task wait meant long work was
+            # killed rather than finished or cancelled -- the timeline says
+            # cancel and close, and this could not reach either.
+            drain_until = time.monotonic() + DRAIN_SECONDS
             for in_flight_future in in_flight_futures:
                 try:
-                    in_flight_future.result(timeout=30)
+                    in_flight_future.result(
+                        timeout=max(0.0, drain_until - time.monotonic())
+                    )
                 except FutureTimeoutError:
                     logger.warning("Timed out waiting for in-flight dispatch task during shutdown")
                 except Exception:
@@ -1193,7 +1246,12 @@ class AnomalyEnhancer(
                 )
             for sink_future in sink_futures:
                 try:
-                    sink_future.result(timeout=self.async_external_timeout_seconds)
+                    # Shares the same window as the dispatch drain above:
+                    # both run inside the one the supervisor allows.
+                    sink_future.result(
+                        timeout=max(0.0, min(self.async_external_timeout_seconds,
+                                             drain_until - time.monotonic()))
+                    )
                 except FutureTimeoutError:
                     logger.warning("Timed out waiting for async sink operation during shutdown")
                 except Exception:
@@ -1221,6 +1279,8 @@ class AnomalyEnhancer(
             self.sink.close()
             self.source.close()
             logger.info("Resources closed successfully")
+
+        return not failed
 
     def set_max_frames(self, start_time: str, end_time: str) -> int:
         """
@@ -2779,17 +2839,16 @@ def _exit_when_parent_dies(parent_pid: int, sig: int = signal.SIGKILL) -> None:
         import ctypes
 
         PR_SET_PDEATHSIG = 1
-        result = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, sig)
+        if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, sig) != 0:
+            # Blocked by seccomp rather than absent. Worth a line: without it
+            # an orphaned child keeps its consumer-group slot until killed.
+            logger.debug("PR_SET_PDEATHSIG rejected (errno=%s)", ctypes.get_errno())
     except Exception:
         logger.debug("PR_SET_PDEATHSIG unavailable on this platform", exc_info=True)
-        return
-    if result != 0:
-        # Blocked by seccomp rather than absent. Worth a line: without it an
-        # orphaned child keeps its consumer-group slot until it is killed.
-        logger.debug("PR_SET_PDEATHSIG rejected (errno=%s)", ctypes.get_errno())
-        return
 
-    # The parent may already have exited between fork and prctl.
+    # Unconditional, and last: the parent may already have exited, in which
+    # case there is no signal left to arrange for. Behind the two failure
+    # returns this used to be skipped exactly when it was the only check left.
     if os.getppid() != parent_pid:
         os._exit(0)
 
@@ -2850,7 +2909,8 @@ def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
 
 
 def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process_count: int = 1,
-                          ready_event: Optional[Any] = None) -> None:
+                          ready_event: Optional[Any] = None,
+                          join_deadline: Optional[float] = None) -> None:
     """Child entry point: one independent consume + dispatch stack."""
     _exit_when_parent_dies(parent_pid)
 
@@ -2883,7 +2943,28 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
             lambda: _publish_readiness(enhancer, index, ready_event,
                                        started=startup["complete"])
         )
-        if not enhancer.source.await_ready():
+        # A shared wall-clock deadline, not a shared duration. Given the same
+        # number, the child started counting after its spawn and its
+        # constructor, so its window always ended after the parent's and the
+        # parent killed children a second from joining. time.time() rather
+        # than monotonic: the clocks are in different processes.
+        if join_deadline is None:
+            join_budget = MIN_FLEET_WAIT_SECONDS
+        else:
+            # The instance's final readiness instant, not a duration and not
+            # a floor. A floor let a child that constructed slowly wait past
+            # the moment the parent and the watchdog had already given up,
+            # so the grant was one nobody honoured. Sharing the instant means
+            # a child that starts late simply gets less of it -- and if that
+            # is not enough, the budget is what has to be raised.
+            join_budget = join_deadline - time.time()
+            if join_budget <= 0:
+                raise RuntimeError(
+                    f"pipeline process {index} reached its consumer-group join "
+                    f"after the instance's startup deadline; raise "
+                    f"alert_agent.startup_timeout_seconds"
+                )
+        if not enhancer.source.await_ready(timeout=join_budget):
             # Restartable rather than fatal: a broker blip should recover on
             # the next attempt. What must not happen is reporting ready, which
             # would let a producer publish past an offset nobody is reading.
@@ -2900,7 +2981,13 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         _publish_readiness(enhancer, index, ready_event)
         if index == 0:
             _log_instance_concurrency(enhancer, process_count)
-        enhancer.process_anomalies()
+        if not enhancer.process_anomalies():
+            # The same rule the single-process path follows. Exiting 0 here
+            # still failed the instance, because the supervisor treats any
+            # child exit as unexpected -- but it logged exitcode=0 for a crash.
+            raise RuntimeError(
+                f"pipeline process {index}: the consume loop stopped on an error"
+            )
     except SystemExit:
         pass
     except Exception:
@@ -2910,19 +2997,48 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
 
 
 def _start_pipeline_process(config_path: str, index: int, process_count: int,
-                            ready_event: Optional[Any] = None) -> Any:
+                            ready_event: Optional[Any] = None,
+                            join_deadline: Optional[float] = None) -> Any:
     process = _pipeline_mp_context().Process(
         target=_run_pipeline_process,
-        args=(config_path, index, os.getpid(), process_count, ready_event),
+        args=(config_path, index, os.getpid(), process_count, ready_event,
+              join_deadline),
         name=f"ab-pipeline-{index}",
     )
     process.start()
     return process
 
 
+def readiness_windows(fleet_wait: float):
+    """The announce window, and the watchdog extension that must cover it.
+
+    Returned together, and from one place, because they are a relationship
+    rather than two numbers: the watchdog is the floor under the readiness
+    wait, so it has to end after it. Widening one and not the other made the
+    widening inert once, and matching them exactly made the two end in a dead
+    heat decided by microseconds of thread start-up.
+
+    The announce window is what the budget has left, not more. Earlier rounds
+    added a reserved share on top so a slow constructor could not leave the
+    join nothing -- but that pushed the whole of startup past
+    ``startup_timeout_seconds``, and the deadline is the contract. A budget
+    too small for the work is refused up front; one spent by earlier steps
+    leaves the join less, and that is the budget doing its job.
+    """
+    return fleet_wait, WATCHDOG_MARGIN_SECONDS
+
+
+def _first_unset(ready_events: List[Any]):
+    """The first worker not currently ready, or ``(None, None)`` if all are."""
+    for index, event in enumerate(ready_events):
+        if not event.is_set():
+            return index, event
+    return None, None
+
+
 def _announce_when_all_ready(ready_events: List[Any], on_ready: Callable[[], None],
                              on_timeout: Optional[Callable[[], None]] = None,
-                             timeout: float = READINESS_TIMEOUT_SECONDS) -> None:
+                             timeout: float = MIN_FLEET_WAIT_SECONDS) -> None:
     """Call ``on_ready`` once every child has joined the consumer group.
 
     Bounded so the wait cannot outlive the run silently, and never announced
@@ -2934,7 +3050,14 @@ def _announce_when_all_ready(ready_events: List[Any], on_ready: Callable[[], Non
     """
     def wait() -> None:
         deadline = time.monotonic() + timeout
-        for index, event in enumerate(ready_events):
+        while True:
+            index, event = _first_unset(ready_events)
+            if event is None:
+                # Every worker ready at the same moment, not merely each one at
+                # some point. Waited in sequence, an early worker could be
+                # revoked while the wait was still blocked on a later one, and
+                # the announcement went out with part of the fleet unassigned.
+                break
             granted = max(0.0, deadline - time.monotonic())
             if not event.wait(granted):
                 # The budget covers the fleet, so a child reached late gets
@@ -2956,7 +3079,9 @@ def _announce_when_all_ready(ready_events: List[Any], on_ready: Callable[[], Non
 
 def run_multi_process_pipeline(config_path: str, process_count: int,
                                on_ready: Optional[Callable[[], None]] = None,
-                               watch: Optional[List[Any]] = None) -> None:
+                               watch: Optional[List[Any]] = None,
+                               readiness_timeout: float = MIN_FLEET_WAIT_SECONDS,
+                               disarm_watchdog: Optional[Callable[[], None]] = None) -> None:
     """Fork ``process_count`` pipeline children and supervise them until shutdown."""
     global _pipeline_supervisor
 
@@ -2972,9 +3097,26 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
         )
 
     ready_events = [_pipeline_mp_context().Event() for _ in range(process_count)]
+    # The one moment both sides count to. The parent's watchdog starts now,
+    # before any child exists, so a child handed the same duration would
+    # outlive it by its own spawn and construction time.
+    # One instant for all three: the parent's announce thread, the watchdog
+    # (extended to match by the caller) and every child. Three clocks that
+    # merely started from the same number drifted apart by whatever spawn and
+    # construction cost, and each fix that widened one of them left the others
+    # behind.
+    announce_timeout, _ = readiness_windows(readiness_timeout)
+    join_deadline = time.time() + announce_timeout
     readiness_failed = threading.Event()
 
-    def on_readiness_timeout() -> None:
+    def on_readiness_timeout(disarm=None) -> None:
+        # Disarmed first: the teardown this starts runs the shutdown timeline,
+        # and a watchdog firing partway through it exits the process from the
+        # signal handler, abandoning terminate/kill/reap. The children would
+        # then die only by PR_SET_PDEATHSIG, with no exit accounting and no
+        # metric shards retired.
+        if disarm is not None:
+            disarm()
         readiness_failed.set()
         supervisor = _pipeline_supervisor
         if supervisor is not None:
@@ -2991,12 +3133,14 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
             on_ready()
 
         _announce_when_all_ready(ready_events, announce_with_fleet_state,
-                                 on_timeout=on_readiness_timeout)
+                                 on_timeout=lambda: on_readiness_timeout(disarm_watchdog),
+                                 timeout=announce_timeout)
 
     _pipeline_supervisor = ProcessSupervisor(
         count=process_count,
         spawn=lambda index: _start_pipeline_process(
-            config_path, index, process_count, ready_events[index]
+            config_path, index, process_count, ready_events[index],
+            join_deadline,
         ),
         on_exit=_on_pipeline_process_exit,
         on_poll=publish_fleet_state,
@@ -3014,15 +3158,46 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
     if readiness_failed.is_set():
         raise RuntimeError(
             f"pipeline processes were not all ready within "
-            f"{READINESS_TIMEOUT_SECONDS:.0f}s"
+            f"{announce_timeout:.0f}s of the startup budget"
         )
 
 
-def setup_signal_handlers(fastapi_process):
-    """Setup signal handlers for graceful shutdown in Docker containers."""
+def shutdown_exit_code() -> int:
+    """0 for a shutdown somebody asked for, 1 for one the watchdog forced.
+
+    The handler cannot tell them apart on its own -- both arrive as SIGTERM --
+    so a startup that ran out of budget was reported as an operator stopping
+    the container, which is a failure reported as a success.
+    """
+    failed_step = startup_deadline.expired_step()
+    if failed_step is None:
+        return 0
+    logger.error("Exiting non-zero: startup timed out at %s", failed_step)
+    return 1
+
+
+def setup_signal_handlers(fastapi_process, on_shutdown=None):
+    """Setup signal handlers for graceful shutdown in Docker containers.
+
+    ``on_shutdown`` is run before anything is torn down. The startup watchdog
+    is disarmed through it: a teardown can outlast the startup budget, and a
+    watchdog firing inside this handler re-enters it, double-counting every
+    child exit and abandoning the escalation half-done. Passed in rather than
+    closed over, because this function is importable and the entry point's
+    ExitStack is not.
+    """
 
     def signal_handler(signum, frame):
         """Handle shutdown signals gracefully."""
+        if on_shutdown is not None:
+            try:
+                on_shutdown()
+            except Exception:
+                # Never at the cost of the teardown it precedes: raising here
+                # would strand the children and lose the exit code chosen
+                # below, for the sake of a callback whose only job is to stop
+                # a timer.
+                logger.warning("Shutdown callback failed", exc_info=True)
         signal_name = signal.Signals(signum).name
         logger.info(f"Received {signal_name} signal, initiating graceful shutdown...")
 
@@ -3062,7 +3237,10 @@ def setup_signal_handlers(fastapi_process):
             logger.error(f"Error during signal handler execution: {e}")
         finally:
             logger.info("Alert Bridge shutdown complete")
-            sys.exit(0)
+            # Non-zero when the startup watchdog raised this signal: a budget
+            # that ran out is a failed start, and reporting it as a clean stop
+            # hides it from the orchestrator and from the exit metrics.
+            sys.exit(shutdown_exit_code())
 
     # Register signal handlers for Docker container management
     signal.signal(signal.SIGTERM, signal_handler)  # Docker stop
@@ -3091,6 +3269,7 @@ if __name__ == "__main__":
     fastapi_process = None
     enhancer = None
     exit_code = 0
+    exit_stack = contextlib.ExitStack()
 
     def start_api_child():
         """Bring the API child up, and take ownership of shutdown signals.
@@ -3107,7 +3286,7 @@ if __name__ == "__main__":
         logger.info("FastAPI server started in separate process")
 
         # Setup signal handlers for graceful shutdown
-        setup_signal_handlers(fastapi_process)
+        setup_signal_handlers(fastapi_process, on_shutdown=exit_stack.close)
 
     def require_api_child_alive():
         """Fail before committing to work that a dead endpoint would waste.
@@ -3153,10 +3332,60 @@ if __name__ == "__main__":
         source_partitions = None
         source_partition_sizes = None
         multi_process = process_count > 1
+        # One budget for the whole of startup; each step below takes what the
+        # steps before it left. Raise alert_agent.startup_timeout_seconds where
+        # the default cannot be met -- a topic-creation Job racing this
+        # Deployment, or several children contending on Elasticsearch.
+        startup_budget = startup_timeout(pipeline_config)
+        startup_began = time.monotonic()
+        # The floor under every step, including the two that take no timeout:
+        # the prompt store and the single-process pipeline are both built by
+        # constructors that reach Elasticsearch with no way to bound them.
+        # Steps that can take a deadline still do, so they fail naming
+        # themselves; this catches whatever they miss.
+        deadline = exit_stack.enter_context(StartupDeadline(startup_budget))
+
+        def startup_remaining() -> float:
+            return max(0.0, startup_budget - (time.monotonic() - startup_began))
+
+        def fleet_join_budget() -> float:
+            """What the budget has left for the group join.
+
+            Reported, not padded. Refusing here used to turn a slow dependency
+            into a crash loop, and padding to a floor pushed the whole of
+            startup past the deadline it is measured against. The overrun is
+            logged instead, which is the thing an operator can act on: the
+            lever is alert_agent.startup_timeout_seconds.
+            """
+            remaining = startup_remaining()
+            if remaining < MIN_FLEET_WAIT_SECONDS:
+                logger.warning(
+                    "Startup used %.0fs of its %.0fs budget before the "
+                    "consumer-group join, leaving it %.0fs of the %.0fs a "
+                    "join normally needs. Raise "
+                    "alert_agent.startup_timeout_seconds.",
+                    startup_budget - remaining, startup_budget, remaining,
+                    MIN_FLEET_WAIT_SECONDS,
+                )
+            return remaining
+
+        def require_startup_budget(step: str) -> None:
+            """Fail rather than carry on past the budget with none left.
+
+            Every wait draws from one budget, so a step that overran leaves
+            the next with nothing. Saying so here names the step that spent it
+            instead of surfacing later as a readiness timeout of zero seconds.
+            """
+            if startup_remaining() <= 0:
+                raise RuntimeError(
+                    f"startup exceeded alert_agent.startup_timeout_seconds="
+                    f"{startup_budget:.0f}s at {step}"
+                )
+
         enforce_log_level(args.config)
         validate_drain_fits_poll_interval(pipeline_config)
 
-        if multi_process and PROMETHEUS_ENABLED:
+        if PROMETHEUS_ENABLED:
             # Published before anything else so the endpoint can tell "no
             # pipeline yet" from "no pipeline needed". An absent gauge reads as
             # nothing wrong, which is how health answered ok for the whole
@@ -3164,32 +3393,70 @@ if __name__ == "__main__":
             from metrics.recorder import set_pipeline_process_counts
             set_pipeline_process_counts(process_count, 0, 0)
 
-        # Before anything that blocks: the wait for topic metadata below, and
-        # the enhancer constructor, which contends on Elasticsearch for tens of
-        # seconds. Starting the endpoint after either left port 9080 answering
-        # nothing for exactly that window, so a startup probe killed the
-        # container before the work it was waiting on could finish.
+        if not PROMETHEUS_ENABLED:
+            # Not fatal at one process -- that is how this deployment ran
+            # before any of this -- but the endpoint then reports startup
+            # only. Said once here, because a /health that answers ok while
+            # the pipeline owns nothing is worth knowing about deliberately
+            # rather than discovering during an incident.
+            logger.warning(
+                "PROMETHEUS_METRICS_ENABLED is off, so /health and /ready "
+                "report this process starting up and cannot report whether "
+                "the pipeline holds an assignment."
+            )
+
+        # Local configuration is judged before anything is started. These are
+        # pure predicates over the config with no I/O, so a wrong value fails
+        # the container without ever binding a port or forking a child.
+        if not EventBridgeFactory.validate_configuration(pipeline_config):
+            raise ValueError("Invalid event bridge configuration")
+        # Judged here, not where the consumer is built: that is inside a child,
+        # after the API, the metrics port, the metadata wait, seeding, warmup
+        # and the fork -- so a one-line config mistake crash-looped children
+        # instead of failing before anything started.
+        # Imported here rather than at module level: the wiring tests stub
+        # sys.modules, so a new top-level import of an mdx module breaks them.
+        from mdx.kafka_message_broker import _require_eager_assignor
+        _require_eager_assignor(
+            (pipeline_config.get("kafka", {}) or {}).get("partition_assignment_strategy")
+        )
+        if multi_process:
+            validate_multi_process_config(pipeline_config, process_count)
+
+        # Only then the endpoints, and before anything that blocks: the wait
+        # for topic metadata below, and the enhancer constructor, which
+        # contends on Elasticsearch for tens of seconds. Starting the endpoint
+        # after either left port 9080 answering nothing for exactly that
+        # window, so a startup probe killed the container first.
+        deadline.step("starting the API child")
         start_api_child()
 
         if multi_process:
             bind_metrics_port()
 
-            # Everything a wrong multi-process configuration would only reveal
-            # later is checked here, in the parent, before a single child is
-            # forked: a bad value must fail the container rather than
-            # crash-loop every child or leave some of them silently idle.
-            if not EventBridgeFactory.validate_configuration(pipeline_config):
-                raise ValueError("Invalid event bridge configuration")
+        # Blocks until the topics exist, then raises if they carry fewer
+        # partitions than there are processes. Waiting is what lets the same
+        # check hold on both deployment paths: Compose starts this only after
+        # the topic-init container completes, while on Kubernetes the topics
+        # come from a Job that races this Deployment.
+        #
+        # Run at one process too, but not for the same reason: at N=1 the
+        # partition-count check is trivially satisfied, so what this buys is
+        # noticing missing topics early. It reports and proceeds there rather
+        # than refusing, because a broker with auto-create recovers on its own
+        # and refusing would break installs that work today.
+        deadline.step("reading source topic metadata")
+        # Bounded by what the fleet still needs. Given the whole budget, the
+        # one-process path reached its "report and continue" branch exactly as
+        # the watchdog expired, so the tolerance it exists for was unreachable
+        # and a briefly unreadable broker crash-looped the default install.
+        source_partition_sizes = await_source_partitions(
+            pipeline_config, process_count,
+            timeout=max(0.0, startup_remaining() - MIN_FLEET_WAIT_SECONDS),
+        )
+        source_partitions = sum(source_partition_sizes.values())
 
-            validate_multi_process_config(pipeline_config, process_count)
-
-            # Blocks until the topics exist, then raises if they carry fewer
-            # partitions than there are processes. Waiting is what lets the
-            # same check hold on both deployment paths: Compose starts this
-            # only after the topic-init container completes, while on
-            # Kubernetes the topics come from a Job that races this Deployment.
-            source_partition_sizes = await_source_partitions(pipeline_config, process_count)
-            source_partitions = sum(source_partition_sizes.values())
+        if multi_process:
 
             # Checked before the seeding and the fork, so a dead endpoint costs
             # the wait above and nothing more -- rather than being noticed on
@@ -3204,7 +3471,9 @@ if __name__ == "__main__":
             # reading a store nobody had filled. Fatal on failure: an event
             # with no prompt is dropped, so serving traffic without a
             # confirmed store is worse than not starting.
+            deadline.step("seeding the prompt store")
             seed_prompt_store(args.config)
+            require_startup_budget("prompt seeding")
 
         if not multi_process:
             # Constructed before the metrics port binds (C15): the constructor
@@ -3212,6 +3481,7 @@ if __name__ == "__main__":
             # response, and a boot that fails here must never expose a
             # "healthy" metrics endpoint. The API child is already up; it keeps
             # its own registry, so it is not bound by this.
+            deadline.step("building the pipeline")
             enhancer = AnomalyEnhancer(args.config)
             # Published before the port opens, so the first probe already sees
             # one pipeline configured and none ready. Left unpublished, /ready
@@ -3230,10 +3500,34 @@ if __name__ == "__main__":
                 warmup_config = (
                     enhancer.vlm_client.config if enhancer else pipeline_config.get('vlm', {})
                 )
-                try:
-                    warmup_vlm(warmup_config, video_path=video_path)
-                except Exception:
-                    logger.warning("VLM warmup failed -- continuing without warmup", exc_info=True)
+                # Capped by what the budget has left, less the fleet's share.
+                # Warmup polls a backend that may still be loading weights and
+                # has its own five-minute patience; left outside the budget it
+                # could spend the whole of startup and leave the check after it
+                # to fail a container that was only waiting for a dependency.
+                # A skipped warmup is already tolerated below; a refused
+                # container is not.
+                # One deadline for the whole of warmup, passed straight in.
+                # Carving the reservation up per knob instead made
+                # inference_timeout about two seconds against a documented
+                # hundred and twenty, so warmup could never succeed and
+                # quietly warmed nothing -- and a cold start that did not grow
+                # read as proof it cost nothing. The configured knobs are left
+                # alone; warmup_vlm bounds itself against the deadline.
+                warmup_budget = max(0.0, startup_remaining() - MIN_FLEET_WAIT_SECONDS)
+                if warmup_budget <= 0:
+                    logger.warning(
+                        "Skipping VLM warmup: the startup budget is spent. A "
+                        "cold backend costs a slower first inference, not a "
+                        "refused container."
+                    )
+                else:
+                    deadline.step("warming up the VLM")
+                    try:
+                        warmup_vlm(warmup_config, video_path=video_path,
+                                   deadline=time.monotonic() + warmup_budget)
+                    except Exception:
+                        logger.warning("VLM warmup failed -- continuing without warmup", exc_info=True)
         else:
             logger.info("VLM warmup disabled via VLM_WARMUP_ENABLED=false")
 
@@ -3244,6 +3538,11 @@ if __name__ == "__main__":
             # Kafka consumers are built on first read and join their group
             # asynchronously, so announcing any earlier invites a producer to
             # write past a `latest` offset no member has reached.
+            deadline.step("running")
+            # The deadline directly, not the shared ExitStack: this runs on
+            # the readiness thread while the main thread may be closing the
+            # same stack, and ExitStack pops its callbacks without a lock.
+            deadline.__exit__(None, None, None)
             logger.info("Starting anomaly processing loop...")
 
         if multi_process:
@@ -3256,20 +3555,39 @@ if __name__ == "__main__":
                     (source_partition_sizes or {}).items())) or
                 f"{source_partitions} partitions",
             )
+            deadline.step("waiting for the pipeline processes to join")
+            fleet_wait = fleet_join_budget()
+            # The parent's announce window and the child's floored join both
+            # run past the plain remainder, so the watchdog has to cover the
+            # same ground. Extended unconditionally, not only when the budget
+            # ran short: otherwise it fires exactly MIN_FLEET_WAIT_SECONDS
+            # before the window it was widened for, which made the widening
+            # inert and left the per-child readiness diagnostic unreachable.
+            _, watchdog_extension = readiness_windows(fleet_wait)
+            deadline.extend(watchdog_extension)
             run_multi_process_pipeline(os.path.abspath(args.config), process_count,
                                        on_ready=announce_ready,
-                                       watch=[fastapi_process])
+                                       watch=[fastapi_process],
+                                       readiness_timeout=fleet_wait,
+                                       disarm_watchdog=exit_stack.close)
         else:
             # Note: at one process there is no supervisor, so the API child is
             # not watched. A dead endpoint there leaves the pipeline running
             # without one -- the same state the watch exists to prevent above.
             # Closing that means giving the single-process path a supervisor,
             # which is a larger change than this review round.
-            if not enhancer.source.await_ready():
+            # Labelled, or a timeout here is reported against whatever step
+            # ran before it -- warmup, or building the pipeline.
+            deadline.step("waiting for the pipeline to join its consumer group")
+            if not enhancer.source.await_ready(timeout=fleet_join_budget()):
                 raise RuntimeError("source could not join the consumer group")
             require_api_child_alive()
             announce_ready()
-            enhancer.process_anomalies()
+            if not enhancer.process_anomalies():
+                # A supervised child fails its instance by exiting; a lone
+                # pipeline has to say so itself, or the loop stops and the
+                # orchestrator is told the container finished successfully.
+                raise RuntimeError("the consume loop stopped on an error")
 
     except KeyboardInterrupt:
         # This handles Ctrl+C when not in Docker (development)
@@ -3290,6 +3608,10 @@ if __name__ == "__main__":
 
     finally:
         # Cleanup code that always runs
+        # Stops the startup watchdog on every exit, including the failure
+        # paths: a live timer would otherwise signal a process already on its
+        # way down.
+        exit_stack.close()
         logger.info("Performing final cleanup...")
 
         try:

@@ -33,7 +33,20 @@ from utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_POLL_INTERVAL = 1.0
-DEFAULT_STOP_TIMEOUT = 15.0
+
+# The shutdown timeline, as offsets from the moment a stop begins. Children get
+# the drain window to finish in flight work, then a terminate, then a kill; the
+# whole sequence is over by DEADLINE. A single join budget was tried first and
+# was shorter than the drain a child is allowed to take, which made SIGKILL the
+# normal path rather than the exception.
+DRAIN_SECONDS = 15.0
+TERMINATE_AT = 18.0
+KILL_AT = 19.0
+DEADLINE = 20.0
+DEFAULT_STOP_TIMEOUT = DEADLINE
+
+# A killed process still has to be collected, whatever the budget.
+REAP_FLOOR_SECONDS = 1.0
 
 
 class SupervisedProcessError(RuntimeError):
@@ -154,7 +167,12 @@ class ProcessSupervisor:
                 for p in self._watch]
 
     def stop(self) -> None:
-        """Terminate every child, escalating to kill after ``stop_timeout``."""
+        """Walk the shutdown timeline, then reap everything.
+
+        T0 stop admission, drain to T+15, terminate survivors at T+18, kill at
+        T+19, reap by T+20. Children are asked to stop first and only forced
+        later, so work already accepted has a defined window to finish in.
+        """
         # Read before the flag is set, or every exit reported from here looks
         # like one that was asked for -- including the crash that got us here.
         expected = self._shutdown.is_set()
@@ -165,35 +183,71 @@ class ProcessSupervisor:
         # one that was already gone exited on its own; applying the single
         # flag to all of them reported one crash as ``count`` unexpected exits.
         exited_alone = {id(p): not p.is_alive() for p in processes}
-        # Watched processes are torn down with the rest, but reported through
-        # their own owner rather than the pipeline exit hook.
-        for extra in self._watch:
-            if extra.is_alive():
-                extra.terminate()
-        for process in processes:
+        started = time.monotonic()
+        everything = processes + list(self._watch)
+        # Offsets scale with the configured budget so the phases keep their
+        # proportions when a caller shortens it; at the default they are
+        # exactly the 15/18/19/20 of the timeline.
+        scale = self._stop_timeout / DEADLINE if DEADLINE else 0.0
+        drain_until = started + DRAIN_SECONDS * scale
+        terminate_at = started + TERMINATE_AT * scale
+        kill_at = started + KILL_AT * scale
+        reap_by = started + DEADLINE * scale
+
+        # T0 -- ask every child to stop admitting and start draining.
+        for process in everything:
             if process.is_alive():
                 process.terminate()
 
-        deadline = time.monotonic() + self._stop_timeout
-        for process in processes:
-            process.join(timeout=max(0.0, deadline - time.monotonic()))
-            if process.is_alive():
-                logger.warning("Pipeline process %s did not stop gracefully, killing", process.pid)
-                process.kill()
-                process.join()
-            self._notify_exit(process, expected or not exited_alone[id(process)])
+        # Drain, then terminate again and kill. The second terminate is not
+        # redundant: a child that installed its own handler may still be inside
+        # a drain it began at T0.
+        if any(process.is_alive() for process in everything):
+            self._await_all(everything, drain_until)
+        self._escalate(everything, terminate_at, "terminate")
+        self._escalate(everything, kill_at, "kill")
 
-        # Watched processes get the same escalation. A terminate they ignore
-        # would otherwise leave the endpoint holding its port after the
-        # instance it belongs to is gone, which is what watching them is for.
-        for extra in self._watch:
-            extra.join(timeout=max(0.0, deadline - time.monotonic()))
-            if extra.is_alive():
-                logger.warning("Supervised process %s did not stop gracefully, killing",
-                               getattr(extra, "name", None) or extra.pid)
-                extra.kill()
-                extra.join()
+        # Reap whatever is left, then report.
+        # One floor for the phase, not one per process: applied per iteration
+        # it multiplied by the number of children, so a fleet with a few stuck
+        # in uninterruptible sleep ran past the deadline it exists to hold.
+        # join(0) does not collect a process that was just killed, which is
+        # what the floor is for.
+        reap_deadline = max(reap_by, time.monotonic() + REAP_FLOOR_SECONDS)
+        for process in everything:
+            if process.is_alive():
+                process.kill()
+            process.join(timeout=max(0.0, reap_deadline - time.monotonic()))
+
+        for process in processes:
+            self._notify_exit(process, expected or not exited_alone[id(process)])
         self._watch = []
+
+    @staticmethod
+    def _await_all(processes: List[Any], until: float) -> None:
+        for process in processes:
+            process.join(timeout=max(0.0, until - time.monotonic()))
+
+    @staticmethod
+    def _escalate(processes: List[Any], at: float, how: str) -> None:
+        """Wait until ``at``, then force whatever is still running.
+
+        Liveness is checked before the wait as well as after it: a fleet that
+        has already stopped has nothing to escalate, and sleeping through the
+        remaining phases anyway delayed every clean shutdown -- and every
+        non-zero exit after a crash -- by most of the timeline.
+        """
+        if not any(process.is_alive() for process in processes):
+            return
+        remaining = at - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
+        for process in processes:
+            if not process.is_alive():
+                continue
+            logger.warning("Supervised process %s did not stop in time; %s",
+                           getattr(process, "name", None) or process.pid, how)
+            getattr(process, how)()
 
     def _notify_exit(self, process: Any, expected: bool) -> None:
         if self._on_exit is None:

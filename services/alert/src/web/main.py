@@ -182,43 +182,39 @@ def _startup_failure() -> Optional[JSONResponse]:
     )
 
 
-# ``/health`` answers for this process; ``/ready`` answers for the pipeline
-# fleet. They were one endpoint, which made a Kafka rebalance look like an
-# unhealthy container: every 503 the fleet produced was also a 503 on the
-# endpoint fronting the alert-config API, which was serving perfectly well.
-# Worse, a multi-process instance reports no ready pipelines for the whole of
-# its startup -- through the wait for topic metadata and every child's
-# constructor -- so a startup probe on the combined endpoint killed the
-# container long before the fleet could come up.
-@app.get("/health")
-async def health_check():
-    """Liveness for the API process: is this container worth keeping?"""
-    failure = _startup_failure()
-    if failure is not None:
-        return failure
-    return {"status": "ok", "message": "Alert Bridge is running"}
-
-
-@app.get("/ready")
-async def readiness_check():
-    """Readiness for the pipeline fleet: is the instance consuming?
-
-    503 until every pipeline process holds a decided assignment, and again
-    whenever a rebalance takes them away. Point a readiness probe here when
-    the deployment should stop being counted as serving while that is true;
-    a startup or liveness probe belongs on ``/health``, which does not move
-    with the consumer group.
-    """
+# Both endpoints report startup and the pipeline fleet. ``/ready`` exists only
+# as the conventional name; the aggregate worker assignment state must reach
+# ``/health``, which is what the deployment contract probes.
+async def _health_payload(ready_message: str):
     failure = _startup_failure()
     if failure is not None:
         return failure
     degraded = _degraded_workers()
     if degraded:
+        # A rebalance can take every partition from a worker that is still
+        # running. Reporting ok while part of the instance serves nothing
+        # hides exactly the degradation this is for.
         return JSONResponse(
             status_code=503,
             content={"status": _NOT_READY, "message": degraded},
         )
-    return {"status": "ok", "message": "Alert Bridge is ready"}
+    return {"status": "ok", "message": ready_message}
+
+
+@app.get("/health")
+async def health_check():
+    """Health + readiness for Alert Bridge, including the pipeline fleet."""
+    return await _health_payload("Alert Bridge is running")
+
+
+@app.get("/ready")
+async def readiness_check():
+    """The same answer as ``/health``, under the conventional probe name.
+
+    Additive only. Fleet state stays on ``/health`` because that is the
+    endpoint operators and the deployment contract already point at.
+    """
+    return await _health_payload("Alert Bridge is ready")
 
 
 _DEGRADED_CACHE: dict = {"at": 0.0, "value": None}
@@ -257,11 +253,19 @@ def _degraded_workers() -> Optional[str]:
         }
         configured = values.get("alert_bridge_pipeline_processes_configured")
         ready = values.get("alert_bridge_pipeline_processes_ready")
+        alive = values.get("alert_bridge_pipeline_processes_alive")
         if configured is None or ready is None or configured <= 0:
             _DEGRADED_CACHE.update(at=now, value=None)
             return None
         degraded = None
-        if ready < configured:
+        if alive is not None and alive < configured:
+            # A dead worker keeps its ready event set until the supervisor
+            # tears the instance down, so readiness alone can still look whole
+            # for a poll interval after one has gone.
+            degraded = (
+                f"{int(alive)} of {int(configured)} pipeline processes are alive"
+            )
+        elif ready < configured:
             degraded = (
                 f"{int(ready)} of {int(configured)} pipeline processes hold a "
                 f"partition assignment"
@@ -269,12 +273,18 @@ def _degraded_workers() -> Optional[str]:
         _DEGRADED_CACHE.update(at=now, value=degraded)
         return degraded
     except Exception:
+        # Degraded, not silent. The shards are the only channel carrying
+        # assignment state to this process, so one that cannot be read leaves
+        # a dead fleet indistinguishable from a whole one -- and answering ok
+        # is the single thing this endpoint must never do on a guess.
+        #
         # Cached like any other answer: a shard that keeps failing to parse
         # would otherwise remove the gate entirely, and every request would
         # re-read every shard on the most frequently polled endpoint there is.
-        _DEGRADED_CACHE.update(at=now, value=None)
+        unreadable = "pipeline readiness could not be read from the metric shards"
+        _DEGRADED_CACHE.update(at=now, value=unreadable)
         logger.debug("Could not read pipeline readiness from metrics", exc_info=True)
-    return None
+        return unreadable
 
 
 # Prometheus metrics endpoint info

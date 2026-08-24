@@ -23,6 +23,7 @@ import time
 
 import pytest
 
+from utils import process_supervisor
 from utils.process_supervisor import ProcessSupervisor, SupervisedProcessError
 
 
@@ -37,6 +38,10 @@ class FakeProcess:
         self.terminated = False
         self.killed = False
         self.joined = False
+        # A child that installed its own handler and is still draining does
+        # not die on terminate; the timeline has to escalate past it.
+        self.ignore_terminate = False
+        self.join_timeouts = []
 
     def is_alive(self):
         return self._alive
@@ -47,10 +52,12 @@ class FakeProcess:
 
     def join(self, timeout=None):
         self.joined = True
+        self.join_timeouts.append(timeout)
 
     def terminate(self):
         self.terminated = True
-        self._alive = False
+        if not self.ignore_terminate:
+            self._alive = False
 
     def kill(self):
         self.killed = True
@@ -433,3 +440,79 @@ class TestWatchedProcessesShareTheLifecycle:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestShutdownFollowsTheTimeline:
+    """T0 terminate, drain, terminate again, kill, reap.
+
+    A single join budget was tried first and was shorter than the drain a
+    child is allowed to take, which made SIGKILL the normal path rather than
+    the exception. The phases scale with the configured budget so a caller can
+    shorten them without changing their proportions.
+    """
+
+    def test_a_child_that_stops_in_time_is_never_killed(self):
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=2, stop_timeout=0.2)
+        supervisor.start()
+        for process in supervisor.processes:
+            process.die(exitcode=0)
+        supervisor.stop()
+        assert not any(p.killed for p in spawn.spawned), "killed a child that had stopped"
+
+    def test_a_child_that_ignores_terminate_is_killed(self):
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=1, stop_timeout=0.2)
+        supervisor.start()
+        supervisor.processes[0].ignore_terminate = True
+        supervisor.stop()
+        assert spawn.spawned[0].killed, "a child that ignored terminate survived"
+
+    def test_a_clean_stop_does_not_wait_out_the_timeline(self):
+        # The phases are deadlines, not delays. Sleeping to each one before
+        # checking liveness made every clean shutdown -- and every non-zero
+        # exit after a crash -- take most of the budget.
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=3, stop_timeout=20.0)
+        supervisor.start()
+        started = time.monotonic()
+        supervisor.stop()
+        assert time.monotonic() - started < 1.0
+
+    def test_a_clean_stop_at_the_default_budget_is_immediate(self):
+        # At the default budget, not a scaled-down one. Every existing test
+        # here passes stop_timeout=0.2, which is exactly why a 19s
+        # unconditional sleep survived the suite.
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=3, stop_timeout=None)
+        supervisor._stop_timeout = process_supervisor.DEFAULT_STOP_TIMEOUT
+        supervisor.start()
+        for process in supervisor.processes:
+            process.die(exitcode=0)
+        started = time.monotonic()
+        supervisor.stop()
+        assert time.monotonic() - started < 2.0, "burned the timeline with nothing alive"
+
+    def test_an_empty_stop_at_the_default_budget_is_immediate(self):
+        supervisor = _supervisor(Spawner(), count=1, stop_timeout=None)
+        supervisor._stop_timeout = process_supervisor.DEFAULT_STOP_TIMEOUT
+        started = time.monotonic()
+        supervisor.stop()
+        assert time.monotonic() - started < 2.0
+
+    def test_a_killed_child_still_gets_time_to_be_collected(self):
+        # join(0) does not collect a process that was just killed; it would be
+        # left with exitcode None for the exit hook to read.
+        spawn = Spawner()
+        supervisor = _supervisor(spawn, count=1, stop_timeout=0.0)
+        supervisor.start()
+        supervisor.processes[0].ignore_terminate = True
+        supervisor.stop()
+        assert max(t for t in spawn.spawned[0].join_timeouts if t is not None) > 0
+
+    def test_the_phases_are_ordered_at_the_default_budget(self):
+        from utils import process_supervisor as ps
+        assert ps.DRAIN_SECONDS < ps.TERMINATE_AT < ps.KILL_AT < ps.DEADLINE
+        assert (ps.DRAIN_SECONDS, ps.TERMINATE_AT, ps.KILL_AT, ps.DEADLINE) == (
+            15.0, 18.0, 19.0, 20.0
+        )
