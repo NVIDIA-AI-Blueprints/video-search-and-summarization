@@ -247,8 +247,33 @@ export class DashStream {
             } catch {
                 health = ' health=unavailable';
             }
-            const line = `[dash] ${new Date().toISOString()} ${what}${health} ${
-                detail && typeof detail === 'object' ? JSON.stringify(detail) : ''}`;
+            // A fragment event carries the whole parsed manifest hanging off its
+            // representation, so serialising it wholesale writes the entire MPD
+            // to the console once per segment.  That is a couple of kilobytes a
+            // second: it bloats the log the viewer has to send on, and enough of
+            // it will wedge the page itself.  Keep the fields that say where the
+            // segment belongs and how long it took to arrive, and drop the rest.
+            const summarise = (value: unknown): string => {
+                if (!value || typeof value !== 'object') {
+                    return '';
+                }
+                const request = (value as { request?: Record<string, unknown> }).request;
+                if (!request) {
+                    return JSON.stringify(value);
+                }
+                const url = String(request.url ?? '');
+                return JSON.stringify({
+                    file: url.slice(url.lastIndexOf('/') + 1),
+                    index: request.index,
+                    presentationStartTime: request.presentationStartTime,
+                    mediaStartTime: request.mediaStartTime,
+                    duration: request.duration,
+                    bytesLoaded: request.bytesLoaded,
+                    firstByteDate: request.firstByteDate,
+                    endDate: request.endDate,
+                });
+            };
+            const line = `[dash] ${new Date().toISOString()} ${what}${health} ${summarise(detail)}`;
             const w = window as unknown as { __dashTrace?: string[] };
             if (!w.__dashTrace) {
                 w.__dashTrace = [];
