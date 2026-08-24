@@ -102,7 +102,7 @@
       "dockerfile": "services/video-summarization/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-video-summarization"],
-      "tag_variables": ["CONTAINER_IMAGE"]
+      "tag_variables": ["VSS_VIDEO_SUMMARIZATION_TAG"]
     },
     {
       "name": "vss-video-summarization-sbsa",
