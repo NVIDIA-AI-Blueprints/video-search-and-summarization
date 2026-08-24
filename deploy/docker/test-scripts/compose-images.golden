@@ -5,7 +5,7 @@ deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvstaging/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-config-adaptor:develop-latest
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion:develop-latest
-deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
+deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/alert/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
@@ -50,6 +50,9 @@ deploy/docker/services/nim/llama-3.3-nemotron-super-49b-v1.5/compose.yml nvcr.io
 deploy/docker/services/nim/nemotron-3-nano/compose.yml alpine:3.24.1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml alpine:3.24.1
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml docker.io/alpine/curl:8.21.0
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
@@ -58,12 +61,12 @@ deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nv
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
 deploy/docker/services/nvstreamer/base.yml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-nvstreamer:develop-latest
-deploy/docker/services/rtvi/rtvi-cv/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
+deploy/docker/services/rtvi/rtvi-cv/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init:develop-latest
-deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
-deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1
-deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
+deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
+deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest
+deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 deploy/docker/services/ui/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
 deploy/docker/services/video-summarization/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest
 deploy/docker/services/vios/foundational/docker-compose.yaml ${POSTGRES_IMAGE}

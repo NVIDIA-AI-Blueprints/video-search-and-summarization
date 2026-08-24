@@ -83,8 +83,8 @@ The important RT-CV API categories are:
 
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
-| `PERCEPTION_IMAGE` | RT-CV image repository | `nvcr.io/nvstaging/vss-core/vss-rt-cv` | Optional |
-| `PERCEPTION_TAG` | RT-CV image tag used by the base `perception` service | `3.3.0-26.07.2` | Optional |
+| `VSS_RT_CV_IMAGE` | RT-CV image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv` | Optional |
+| `VSS_RT_CV_TAG` | RT-CV image tag used by the base `perception` service | `develop-latest` | Optional |
 | `RT_CV_DEVICE_ID` | GPU device id reserved for RT-CV | `0` | Optional |
 | `VSS_APPS_DIR` | Root used to resolve the RT-CV compose and config mounts | — | **Yes** |
 | `VSS_DATA_DIR` | Root used for model, cache, and sample-video mounts | — | **Yes** |

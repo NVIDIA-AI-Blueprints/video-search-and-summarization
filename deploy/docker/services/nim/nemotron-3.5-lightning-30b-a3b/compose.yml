@@ -1,0 +1,118 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  nemotron-3.5-lightning-30b-a3b-init:
+    image: alpine:3.24.1
+    container_name: llm-nim-init
+    profiles:
+    - llm_local_nemotron-3.5-lightning-30b-a3b
+    - llm_local_shared_nemotron-3.5-lightning-30b-a3b
+    user: root
+    volumes:
+      - nemotron_3_5_lightning_cache:/opt/nim/.cache
+    command: sh -c "chmod -R 777 /opt/nim/.cache"
+    restart: "no"
+
+  nemotron-3.5-lightning-30b-a3b:
+    image: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+    container_name: nemotron-3.5-lightning-30b-a3b
+    profiles:
+    - llm_local_nemotron-3.5-lightning-30b-a3b
+    runtime: nvidia
+    shm_size: 16GB
+    ports:
+     - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
+    environment:
+      NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      NIM_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
+      NIM_SERVED_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
+    volumes:
+      - nemotron_3_5_lightning_cache:/opt/nim/.cache
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${LLM_DEVICE_ID:-0}"
+    restart: always
+    healthcheck: &healthcheck
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
+      interval: 60s
+      timeout: 650s
+      retries: 2
+    depends_on:
+      nemotron-3.5-lightning-30b-a3b-init:
+        condition: service_completed_successfully
+        required: true
+
+  nemotron-3.5-lightning-30b-a3b-shared-gpu:
+    image: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+    container_name: nemotron-3.5-lightning-30b-a3b
+    profiles:
+    - llm_local_shared_nemotron-3.5-lightning-30b-a3b
+    runtime: nvidia
+    shm_size: 16GB
+    ports:
+     - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
+    environment:
+      NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      NIM_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
+      NIM_SERVED_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}-shared.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
+    volumes:
+      - nemotron_3_5_lightning_cache:/opt/nim/.cache
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"
+    depends_on:
+      nemotron-3.5-lightning-30b-a3b-init:
+        condition: service_completed_successfully
+        required: true
+      cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b-shared-gpu:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct-shared-gpu:
+        condition: service_healthy
+        required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
+      rtvi-embed:
+        condition: service_healthy
+        required: false
+    restart: always
+    healthcheck: *healthcheck
+
+volumes:
+  nemotron_3_5_lightning_cache:

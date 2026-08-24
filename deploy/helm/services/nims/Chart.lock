@@ -5,11 +5,14 @@ dependencies:
 - name: nemotron-3-nano
   repository: file://./charts/nemotron-3-nano
   version: 3.3.0
+- name: nemotron-3.5-lightning-30b-a3b
+  repository: file://./charts/nemotron-3.5-lightning-30b-a3b
+  version: 3.3.0
 - name: cosmos-reason2-8b
   repository: file://./charts/cosmos-reason2-8b
   version: 3.3.0
 - name: cosmos3-reasoner
   repository: file://./charts/cosmos3-reasoner
   version: 3.3.0
-digest: sha256:3249389cc4951ff87377321ac76d09da813dc3f651a8b97d43fbe4039db7693c
-generated: "2026-08-19T11:18:54.993388+05:30"
+digest: sha256:95852a1b72c60e0f65f90d12d029946ffab2847cc9398c285b64c02491444766
+generated: "2026-08-19T20:11:04.64319632Z"

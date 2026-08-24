@@ -16,7 +16,7 @@ Load this reference when a user wants MV3DT / RT-CV-3D deployment but does not a
 
 Do not duplicate the AutoMagicCalib workflow here. Hand off to `vss-generate-video-calibration`, then return to this standalone deployment skill with a validated `calibration.json`.
 
-- Use `vss-generate-video-calibration` for local MP4 calibration and RTSP calibration.
+- Use `vss-generate-video-calibration` for local MP4 calibration and RTSP calibration. Its platform preflight must pass before deploying AMC, probing VIOS, uploading videos, capturing RTSP clips, or starting calibration. The calibration host needs `x86_64` and NVENC. If the preflight fails, stop the calibration handoff and ask the user to provide an existing `calibration.json`, run calibration on a supported `x86_64` dGPU host, or transfer generated AMC/MV3DT artifacts. Do not continue to deployment with fabricated or stale calibration. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
 - Do not load `vss-manage-video-io-storage` for normal AMC calibration execution. Use it only when the user is calibrating RTSP streams and the AMC RTSP prerequisite check shows VIOS is not already deployed/reachable. In that case, use the VIOS skill to bring up or verify VIOS, then return to the AMC RTSP flow.
 
 ## Inputs To Preserve
@@ -35,20 +35,22 @@ Before handing off, capture these values so the standalone RT-CV-3D workflow can
 For local MP4s without calibration:
 
 1. Route to the `vss-generate-video-calibration` skill by name; do not hardcode a filesystem path.
-2. Use its local-video mode and references.
-3. Let the AMC skill create the project, upload videos, verify alignment/layout, run calibration, optionally run VGGT when requested or already staged, and report the result files.
-4. Return here after `project_state == COMPLETED`; then run `Fetch AMC Outputs For Standalone RT-CV-3D`.
+2. Run the AMC platform preflight before upload or calibration work. If it fails, report the unmet requirement and stop until the user provides calibration artifacts or chooses a supported calibration host.
+3. Use its local-video mode and references.
+4. Let the AMC skill create the project, upload videos, verify alignment/layout, run calibration, optionally run VGGT when requested or already staged, and report the result files.
+5. Return here after `project_state == COMPLETED`; then run `Fetch AMC Outputs For Standalone RT-CV-3D`.
 
 ## RTSP Calibration
 
 For RTSP cameras without calibration:
 
 1. Route to the `vss-generate-video-calibration` skill by name and use its RTSP mode; do not hardcode a filesystem path.
-2. Let the AMC RTSP flow perform its VIOS prerequisite check and confirm that the AMC microservice has a correct `VIOS_BASE_URL`.
-3. If VIOS is reachable but the AMC microservice env is missing or has the wrong `VIOS_BASE_URL`, follow the AMC deploy reference to set `VIOS_BASE_URL` in the AMC generated env and recreate/restart AMC before capture. Do not add VIOS settings to standalone RT-CV-3D `docker/.env`; RT-CV-3D does not consume them.
-4. If VIOS is missing, route to `vss-manage-video-io-storage` by name only to bring up or verify VIOS, then return to the AMC RTSP flow and repeat the `VIOS_BASE_URL` env confirmation. Do not treat VIOS as a standalone RT-CV-3D deployment prerequisite.
-5. Preserve the final ordered RTSP URL list. The final standalone deployment will register streams with `scripts/add-streams.sh` after `ds-ready: YES`.
-6. Return here after `project_state == COMPLETED`; then run `Fetch AMC Outputs For Standalone RT-CV-3D`.
+2. Run the AMC platform preflight before VIOS checks, capture, or calibration work. If it fails, report the unmet requirement and stop until the user provides calibration artifacts or chooses a supported calibration host.
+3. Let the AMC RTSP flow perform its VIOS prerequisite check and confirm that the AMC microservice has a correct `VIOS_BASE_URL`.
+4. If VIOS is reachable but the AMC microservice env is missing or has the wrong `VIOS_BASE_URL`, follow the AMC deploy reference to set `VIOS_BASE_URL` in the AMC generated env and recreate/restart AMC before capture. Do not add VIOS settings to standalone RT-CV-3D `docker/.env`; RT-CV-3D does not consume them.
+5. If VIOS is missing, route to `vss-manage-video-io-storage` by name only to bring up or verify VIOS, then return to the AMC RTSP flow and repeat the `VIOS_BASE_URL` env confirmation. Do not treat VIOS as a standalone RT-CV-3D deployment prerequisite.
+6. Preserve the final ordered RTSP URL list. The final standalone deployment will register streams with the direct REST registration block in `references/configure-cameras.md`, which waits on REST `/api/v1/ready` before registration.
+7. Return here after `project_state == COMPLETED`; then run `Fetch AMC Outputs For Standalone RT-CV-3D`.
 
 ## Fetch AMC Outputs For Standalone RT-CV-3D
 

@@ -10,6 +10,37 @@ resolution or deployment. For DGX Spark / IGX Thor / AGX Thor, also run the
 cache-cleaner install and verification block in
 [`edge.md`](edge.md#cache-cleaner-every-edge-deploy).
 
+Also verify the runner for the build helper scripts. `uv` is preferred, but a
+host with `python3` and `PyYAML` is supported. Do this before generating
+`resolved.yml`; otherwise a host can pass every system prerequisite and still
+fail during normalization.
+
+```bash
+if command -v uv >/dev/null 2>&1; then
+  VSS_SKILL_PY=(uv run)
+elif python3 - <<'PY' >/dev/null 2>&1
+import yaml
+PY
+then
+  VSS_SKILL_PY=(python3)
+else
+  cat >&2 <<'EOF'
+Missing Python runner for vss-build-vision-agent helper scripts.
+
+Install uv:
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Or install PyYAML for the active Python 3 environment and use the direct
+Python fallback:
+  python3 -m pip install PyYAML
+EOF
+  exit 1
+fi
+
+printf 'VSS_SKILL_PY=%q' "${VSS_SKILL_PY[@]}"
+printf '\n'
+```
+
 ## Repo detection
 <a id="repo-detect"></a>
 

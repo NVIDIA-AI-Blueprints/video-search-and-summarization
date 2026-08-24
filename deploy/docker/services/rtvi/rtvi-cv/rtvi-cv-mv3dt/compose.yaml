@@ -51,7 +51,7 @@ services:
       - mv3dt-generated:/tmp/generated
 
   perception:
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.2}
+    image: ${VSS_RT_CV_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv}:${VSS_RT_CV_TAG:-develop-latest}
     runtime: nvidia
     container_name: vss-rtvi-cv-mv3dt
     ports:

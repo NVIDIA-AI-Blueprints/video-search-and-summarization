@@ -88,8 +88,8 @@ jobs:
           )
 
           # Folders that warrant a downstream acceptance run on their own.
-          # Image sources are absent by design: a container source change
-          # surfaces as trigger-from-new-image once the image is built, and
+          # Image sources are absent by design: a container source change is
+          # already picked up by the per-image source_path check, and
           # containers this repo does not build cannot invalidate a deployed
           # artifact from a source edit alone.
           DOWNSTREAM_TRIGGER_PATHS = ["deploy"]
@@ -1468,7 +1468,7 @@ jobs:
 
       - name: Unit-test the downstream GHCR candidate reporter
         run: |
-          python3 .github/scripts/test_update_pr_ghcr_candidates.py
+          python3 .github/scripts/test_github_build_run.py
           python3 .github/scripts/test_prepare_downstream_release_set.py
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
@@ -1496,8 +1496,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 140
     outputs:
-      trigger-from-new-image: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
-      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
       run-downstream: ${{ steps.release-set.outputs.run_downstream }}
     permissions:
       actions: read
@@ -1521,16 +1519,8 @@ jobs:
             --attempts 520 \
             --interval-seconds 15 \
             --repo-root . \
-            --before "${{ github.event.before }}" \
-            --release-set-output downstream-release-set.json
+            --before "${{ github.event.before }}"
 
-      - name: Upload downstream release-set handoff
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: downstream-release-set
-          path: downstream-release-set.json
-          if-no-files-found: error
-          retention-days: 1
 
   # ---------------------------------------------------------------------------
   # Job 12: OSRB dispatch wiring
@@ -1617,18 +1607,11 @@ jobs:
           mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
           rm -rf .source-artifact
 
-      - name: Download completed GHCR release set
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: downstream-release-set
-          path: .downstream-release-set
-
       - name: Prepare GHCR release-set handoff
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 .github/scripts/prepare_downstream_release_set.py \
-            --release-set .downstream-release-set/downstream-release-set.json
+          python3 .github/scripts/prepare_downstream_release_set.py
 
       - name: Trigger pipeline
         id: trigger
@@ -1643,9 +1626,3 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400"  # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
-
-      - name: Update PR with downstream-validated GHCR candidates
-        if: startsWith(github.ref_name, 'pull-request/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/update_pr_ghcr_candidates.py

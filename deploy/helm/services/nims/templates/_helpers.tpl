@@ -74,6 +74,21 @@ ConfigMaps rendered here match the names the NIMService envFrom references.
 {{- end }}
 {{- end }}
 
+{{- define "nims.nemotron35.fullname" -}}
+{{- if .Values.nemotron35.fullnameOverride }}
+{{- .Values.nemotron35.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $short := "nemotron-3.5-lightning-30b-a3b" }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- if $pfx }}
+{{- printf "%s-%s" .Release.Name $short | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $short }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "nims.cosmos.fullname" -}}
 {{- if .Values.cosmos.fullnameOverride }}
 {{- .Values.cosmos.fullnameOverride | trunc 63 | trimSuffix "-" }}
