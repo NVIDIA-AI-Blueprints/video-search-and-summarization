@@ -150,8 +150,8 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # RTXPRO6000BW labels, and skip every other GPU SKU. Do not put RTX labels
 # on H200 boxes.
 #
-# Post-job destroy/recreate is host-side (gha_idle_recreate.sh watches
-# Runner.Worker go idle, then recreate_fleet_vm.sh --apply --start-listener).
+# Post-job destroy/recreate is host-side: the OpenShell VM orchestrator
+# reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
 OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",

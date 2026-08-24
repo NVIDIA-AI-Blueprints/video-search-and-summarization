@@ -84,9 +84,9 @@ env:
   # profile there. Skip other GPU SKUs for this PR path. Unset on develop
   # to restore coordinator labels. These VMs are registered from
   # the GitLab fleet repo (brev-openshell-gpu-runners); they are GitHub
-  # Actions runners, not GitLab CI runners. After each job the *host*
-  # recreates that one VM (gha_idle_recreate.sh → recreate_fleet_vm.sh
-  # --apply --start-listener). This workflow does not implement KVM/VFIO.
+  # Actions runners, not GitLab CI runners. After each job the host-side
+  # OpenShell VM orchestrator recreates that one VM and restores its listener.
+  # This workflow does not implement KVM/VFIO.
   # PR planning retains changed-file scope; a harness-only change gets one
   # smoke leg, while a changed skill cannot be masked by unrelated passing
   # fleet legs. Those guests need NOPASSWD sudo for gha-runner (Harbor
@@ -228,7 +228,13 @@ jobs:
             # Same wrapper as scripts/lib/openshell_uvx.sh. Do not use a
             # YAML heredoc: an unindented `#!/bin/sh` ends the `run: |` block
             # and GitHub never starts Skills Eval.
-            printf '%s\n' IyEvYmluL3NoCiMgUmVhbCBgdXZ4YCBpcyBgdXYgdG9vbCBydW5gLiBBIHN5bWxpbmsgdG8gYHV2YCBtYWtlcyBgdXZ4IC0tcHl0aG9uYCBmYWlsLgojIEhhcmJvci9HSEEgYWxzbyBjYWxsIGB1dnggLS12ZXJzaW9uYC4KY2FzZSAiJHsxLX0iIGluCiAgLS12ZXJzaW9ufC1WKQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diAtLXZlcnNpb24KICAgIDs7CiAgLS1oZWxwfC1ofCIiKQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diB0b29sIHJ1biAtLWhlbHAKICAgIDs7CmVzYWMKZXhlYyAvdXNyL2xvY2FsL2Jpbi91diB0b29sIHJ1biAiJEAiCg== | base64 -d > "$HOME/.local/bin/uvx"
+            printf '%s' \
+              'IyEvYmluL3NoCiMgUmVhbCBgdXZ4YCBpcyBgdXYgdG9vbCBydW5gLiBBIHN5bWxpbmsgdG8gYHV2YCBtYWtlcyBgdXZ4IC0t' \
+              'cHl0aG9uYCBmYWlsLgojIEhhcmJvci9HSEEgYWxzbyBjYWxsIGB1dnggLS12ZXJzaW9uYC4KY2FzZSAiJHsxLX0iIGluCiAg' \
+              'LS12ZXJzaW9ufC1WKQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diAtLXZlcnNpb24KICAgIDs7CiAgLS1oZWxwfC1ofCIi' \
+              'KQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diB0b29sIHJ1biAtLWhlbHAKICAgIDs7CmVzYWMKZXhlYyAvdXNyL2xvY2Fs' \
+              'L2Jpbi91diB0b29sIHJ1biAiJEAiCg==' \
+              | base64 -d > "$HOME/.local/bin/uvx"
             chmod 0755 "$HOME/.local/bin/uvx"
           }
           need_wrapper=0
