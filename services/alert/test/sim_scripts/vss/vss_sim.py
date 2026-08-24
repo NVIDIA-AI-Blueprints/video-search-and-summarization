@@ -405,4 +405,4 @@ if __name__ == '__main__':
     print(f"\nRunning on http://0.0.0.0:{port}")
     
     # Run the Flask app (debug=False to prevent fork/reloader issues)
-    app.run(host='0.0.0.0', port=port, debug=False) 
+    app.run(host='0.0.0.0', port=port, debug=False)

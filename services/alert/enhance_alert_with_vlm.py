@@ -3010,20 +3010,18 @@ def _start_pipeline_process(config_path: str, index: int, process_count: int,
 
 
 def readiness_windows(fleet_wait: float):
-    """The announce window, and the watchdog extension that must cover it.
+    """The announce window, and the margin the watchdog needs beyond it.
 
-    Returned together, and from one place, because they are a relationship
-    rather than two numbers: the watchdog is the floor under the readiness
-    wait, so it has to end after it. Widening one and not the other made the
-    widening inert once, and matching them exactly made the two end in a dead
-    heat decided by microseconds of thread start-up.
+    The window is what the budget has left, not more: padding it with a
+    reserved share pushed the whole of startup past
+    ``startup_timeout_seconds``, and that deadline is the contract. A budget
+    too small for the work is refused up front instead.
 
-    The announce window is what the budget has left, not more. Earlier rounds
-    added a reserved share on top so a slow constructor could not leave the
-    join nothing -- but that pushed the whole of startup past
-    ``startup_timeout_seconds``, and the deadline is the contract. A budget
-    too small for the work is refused up front; one spent by earlier steps
-    leaves the join less, and that is the budget doing its job.
+    The margin exists only so the watchdog outlasts the window rather than
+    tying with it -- matched exactly, which of the two fired first came down
+    to microseconds of thread start-up, and the readiness diagnostic is the
+    more useful one. Returned together so the two cannot drift apart, which
+    they have twice.
     """
     return fleet_wait, WATCHDOG_MARGIN_SECONDS
 
@@ -3569,7 +3567,8 @@ if __name__ == "__main__":
                                        on_ready=announce_ready,
                                        watch=[fastapi_process],
                                        readiness_timeout=fleet_wait,
-                                       disarm_watchdog=exit_stack.close)
+                                       disarm_watchdog=lambda: deadline.__exit__(
+                                           None, None, None))
         else:
             # Note: at one process there is no supervisor, so the API child is
             # not watched. A dead endpoint there leaves the pipeline running
