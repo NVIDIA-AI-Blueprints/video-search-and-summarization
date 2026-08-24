@@ -128,9 +128,27 @@
       "context": "services/rtvi/rt-vlm",
       "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
       "lfs_include": "services/rtvi/rt-vlm/docker/base/binaries/**,services/rtvi/rt-vlm/artifacts/vss-rt-vlm-3.3.0-26.07.4-*-evs-cython/**",
+      "build_args": {"ARM_PLATFORM": "igpu"},
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-vlm"],
       "tag_variables": ["VSS_RT_VLM_TAG"]
+    },
+    {
+      "name": "vss-rt-vlm-sbsa",
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "repository": "vss-rt-vlm",
+      "tag_suffix": "-sbsa",
+      "source_path": "services/rtvi/rt-vlm",
+      "context": "services/rtvi/rt-vlm",
+      "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+      "lfs_include": "services/rtvi/rt-vlm/docker/base/binaries/**,services/rtvi/rt-vlm/artifacts/vss-rt-vlm-3.3.0-26.07.4-*-evs-cython/**",
+      "build_args": {"ARM_PLATFORM": "sbsa"},
+      "platforms": ["linux/arm64"],
+      "compose_image_names": [],
+      "tag_variables": [],
+      "notes": "SBSA (Grace/DGX-Spark) build of vss-rt-vlm. Shares the vss-rt-vlm GHCR repository and uses the -sbsa tag suffix; Compose and Helm select it by overriding only the tag."
     },
     {
       "name": "vss-rt-embed",
