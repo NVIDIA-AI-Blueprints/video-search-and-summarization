@@ -234,6 +234,11 @@ failure mode is doing the first step once and reusing its upload URL or
 of its own, is never registered, and its index documents never appear — which
 surfaces much later as an empty search rather than an upload error.
 
+**There is no one-step shortcut.** `PUT /api/v1/videos-for-search/{filename}`
+is deprecated; calling it fails the ingestion contract even when it appears to
+work. Repeating the three steps per file is the supported path — the repetition
+is the cost of the contract, not a sign you have taken a wrong turn.
+
 For the release fixtures, download the exact pinned bundle into a fresh
 directory; never use `find` to substitute a pre-existing warehouse-looking
 file. Ingest only the files the request names:

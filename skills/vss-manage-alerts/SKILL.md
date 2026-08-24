@@ -253,6 +253,9 @@ Both modes require the camera registered in VIOS first:
 - Named existing sensor → `"${VSS[@]}" vios list --type stream --sensor <name>` before proceeding.
   `list` filters rather than resolves, so an unregistered name is `{"count": 0}` at exit 0, not an
   error. Branch on `count`, and treat a non-zero exit as a VIOS problem rather than a missing sensor.
+  **`count: 0` ends the request.** Tell the user the sensor is not registered and stop — do not POST
+  a rule to Alert Bridge with an invented `sensor_id` or `live_stream_url`. A rule created against a
+  sensor that does not exist never fires, and it reads afterwards as monitoring that is in place.
 - **Never hand-construct the RTSP URL.** For an NVStreamer-served stream, query NVStreamer for the served URL (`GET :31000/vst/api/v1/sensor/<name>/streams` → `url`) and register it **verbatim** — including its container-internal host/port (VST shares that docker network; a guessed `<host-ip>:<port>` or `localhost` URL is typically unreachable from the VST container and the stream never activates). After registering, confirm the sensor's row carries a non-empty `source` (`"${VSS[@]}" vios list --type stream`) before proceeding — an absent one means the source is unreachable and the registration must be redone.
 
 On **CV**, adding the RTSP is the *entire* onboarding step (pipeline auto-picks it up). On **VLM**, it is the prerequisite for creating a realtime alert rule (Workflow D).
