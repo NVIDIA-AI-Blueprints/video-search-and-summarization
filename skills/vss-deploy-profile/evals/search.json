@@ -2,6 +2,13 @@
   "skills": [
     "vss-deploy-profile"
   ],
+  "expected_services": [
+    "vss-agent",
+    "vss-ui",
+    "vss-video-analytics-api-fusion",
+    "rtvi-vlm",
+    "rtvi-embed"
+  ],
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {

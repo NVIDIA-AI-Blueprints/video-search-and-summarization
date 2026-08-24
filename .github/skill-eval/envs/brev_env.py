@@ -18,6 +18,7 @@ Task.toml [metadata] fields consumed:
     min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
     expected_services     — optional Compose service-name preflight allowlist
+    required_local_images — optional immutable images required before the agent
 """
 
 from __future__ import annotations
@@ -80,9 +81,14 @@ _REMOTE_PLACEMENT_KEYS = (
     "VLM_REMOTE_MODEL",
 )
 _MAX_DIRECT_EXPECTED_SERVICES = 64
+_MAX_DIRECT_REQUIRED_IMAGES = 32
+_SAFE_DIRECT_IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$")
 
 
-def _direct_agent_hook_documents(expected_services: object) -> tuple[str, str]:
+def _direct_agent_hook_documents(
+    expected_services: object,
+    required_local_images: object,
+) -> tuple[str, str]:
     """Return Claude settings + safe config for the direct-run progress hook."""
     if not isinstance(expected_services, list):
         expected_services = []
@@ -95,6 +101,18 @@ def _direct_agent_hook_documents(expected_services: object) -> tuple[str, str]:
         raise ValueError("expected_services contains an unsafe service name")
     if len(safe_services) > _MAX_DIRECT_EXPECTED_SERVICES:
         raise ValueError("expected_services exceeds direct watchdog service limit")
+    if not isinstance(required_local_images, list):
+        required_local_images = []
+    safe_images = [
+        name for name in required_local_images
+        if isinstance(name, str) and _SAFE_DIRECT_IMAGE_RE.fullmatch(name)
+    ]
+    if len(safe_images) != len(required_local_images):
+        raise ValueError("required_local_images contains an unsafe image name")
+    if len(safe_images) > _MAX_DIRECT_REQUIRED_IMAGES:
+        raise ValueError(
+            "required_local_images exceeds direct watchdog image limit"
+        )
     hook = (
         "python3 $HOME/video-search-and-summarization/"
         ".github/skill-eval/direct_agent_progress.py hook"
@@ -111,7 +129,11 @@ def _direct_agent_hook_documents(expected_services: object) -> tuple[str, str]:
             }],
         },
     }
-    config = {"schema": 1, "expected_services": safe_services}
+    config = {
+        "schema": 1,
+        "expected_services": safe_services,
+        "required_local_images": safe_images,
+    }
     return (
         json.dumps(settings, sort_keys=True, separators=(",", ":")),
         json.dumps(config, sort_keys=True, separators=(",", ":")),
@@ -620,8 +642,36 @@ class BrevEnvironment(BaseEnvironment):
         """Install closed-schema Claude hooks on direct OpenShell runners."""
         assert self._instance_name
         settings, config = _direct_agent_hook_documents(
-            metadata.get("expected_services", [])
+            metadata.get("expected_services", []),
+            metadata.get("required_local_images", []),
         )
+        required_images = metadata.get("required_local_images", [])
+        missing_images = []
+        for image in required_images:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    image,
+                    "--format",
+                    "{{.Id}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            image_id = result.stdout.strip().removeprefix("sha256:")
+            if result.returncode != 0 or not re.fullmatch(
+                r"[a-f0-9]{64}", image_id
+            ):
+                missing_images.append(image)
+        if missing_images:
+            raise RuntimeError(
+                f"{len(missing_images)} required local image(s) missing"
+            )
         agent_logs = Path("/logs/agent")
         sessions = agent_logs / "sessions"
         sessions.mkdir(parents=True, exist_ok=True)

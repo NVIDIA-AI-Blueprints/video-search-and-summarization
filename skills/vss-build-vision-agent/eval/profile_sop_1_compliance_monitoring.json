@@ -5,6 +5,22 @@
   ],
   "profile": "sop-1",
   "runtime_deploy": true,
+  "expected_services": [
+    "ds-sop",
+    "sop-kibana-init",
+    "vss-va-mcp",
+    "nvstreamer-alerts",
+    "elasticsearch",
+    "elasticsearch-init-container",
+    "kafka",
+    "kafka-topic-init-container",
+    "redis",
+    "kibana",
+    "logstash"
+  ],
+  "required_local_images": [
+    "ds-sop:1.0.0"
+  ],
   "judge_max_turns": 90,
   "resources": {
     "platforms": {

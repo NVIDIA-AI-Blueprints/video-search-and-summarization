@@ -33,6 +33,23 @@ deploy_profile_adapter = importlib.util.module_from_spec(_ADAPTER_SPEC)
 assert _ADAPTER_SPEC.loader is not None
 _ADAPTER_SPEC.loader.exec_module(deploy_profile_adapter)
 
+_BUILD_ADAPTER_SPEC = importlib.util.spec_from_file_location(
+    "build_vision_adapter_progress_tests",
+    _ROOT / "adapters/vss-build-vision-agent/generate.py",
+)
+build_vision_adapter = importlib.util.module_from_spec(_BUILD_ADAPTER_SPEC)
+assert _BUILD_ADAPTER_SPEC.loader is not None
+_BUILD_ADAPTER_SPEC.loader.exec_module(build_vision_adapter)
+
+_RESOLVED_VALIDATOR_SPEC = importlib.util.spec_from_file_location(
+    "resolved_validator_progress_tests",
+    Path(__file__).resolve().parents[3]
+    / "skills/vss-build-vision-agent/scripts/validate_resolved_yml.py",
+)
+resolved_validator = importlib.util.module_from_spec(_RESOLVED_VALIDATOR_SPEC)
+assert _RESOLVED_VALIDATOR_SPEC.loader is not None
+_RESOLVED_VALIDATOR_SPEC.loader.exec_module(resolved_validator)
+
 
 class FakeClock:
     def __init__(self) -> None:
@@ -140,12 +157,18 @@ def test_missing_expected_services_fail_before_compose_up(
     )
 
     async def invoke():
-        with mock.patch.object(
-            progress,
-            "validate_compose_services",
-            return_value=(("worker",), "a" * 64),
+        validator = mock.patch.object(
+            progress, "validate_resolved_compose"
+        )
+        with (
+            validator as validate,
+            mock.patch.object(
+                progress,
+                "validate_compose_services",
+                return_value=(("worker",), "a" * 64),
+            ),
         ):
-            return await monitor.pre_tool(
+            decision = await monitor.pre_tool(
                 {
                     "tool_name": "Bash",
                     "tool_input": {"command": "docker compose -f resolved.yml up -d"},
@@ -153,6 +176,8 @@ def test_missing_expected_services_fail_before_compose_up(
                 "tool-1",
                 None,
             )
+            validate.assert_called_once_with(compose, tmp_path)
+            return decision
 
     decision = asyncio.run(invoke())
     reason = decision["hookSpecificOutput"]["permissionDecisionReason"]
@@ -170,6 +195,140 @@ def test_compose_validation_accepts_optional_services(tmp_path: Path) -> None:
     assert missing == ()
     assert len(digest) == 64
     assert all(char in "0123456789abcdef" for char in digest)
+
+
+def test_resolved_validator_rejects_host_ip_and_allows_escaped_interpolation(
+    tmp_path: Path,
+) -> None:
+    invalid = {"services": {"api": {"environment": {"HOST": "<HOST_IP>"}}}}
+    escaped = {"services": {"api": {"environment": {"HOST": "$${HOST_IP}"}}}}
+    assert any(
+        "<HOST_IP>" in error
+        for error in resolved_validator.validate_document(invalid, tmp_path)
+    )
+    assert resolved_validator.validate_document(escaped, tmp_path) == []
+
+
+def test_required_local_image_presence_and_absence() -> None:
+    present = progress.BoundedCommandResult(0, f"sha256:{'a' * 64}\n", False)
+    absent = progress.BoundedCommandResult(1, "", False)
+    with mock.patch.object(
+        progress,
+        "_run_bounded",
+        side_effect=[present, absent],
+    ) as run:
+        missing = progress.missing_required_local_images(
+            ("ds-sop:1.0.0", "missing:1")
+        )
+    assert missing == ("missing:1",)
+    assert run.call_args_list[0].args[0] == [
+        "docker",
+        "image",
+        "inspect",
+        "ds-sop:1.0.0",
+        "--format",
+        "{{.Id}}",
+    ]
+
+
+def test_declared_prebuilt_image_rebuild_is_blocked_without_argument_leak(
+    tmp_path: Path,
+) -> None:
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps({"required_local_images": ["ds-sop:1.0.0"]})
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=spec,
+        repo_root=tmp_path,
+    )
+    secret = "never-persist-build-context"
+
+    async def invoke():
+        return await monitor.pre_tool(
+            {
+                "tool_name": "Bash",
+                "tool_input": {
+                    "command": (
+                        "docker build --tag=ds-sop:1.0.0 "
+                        f"https://example.invalid/{secret}"
+                    )
+                },
+            },
+            "tool-secret",
+            None,
+        )
+
+    decision = asyncio.run(invoke())
+    assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "prebuilt image rebuild" in decision[
+        "hookSpecificOutput"
+    ]["permissionDecisionReason"]
+    assert secret not in monitor.journal.path.read_text()
+
+
+def test_missing_prebuilt_image_blocks_compose_up(tmp_path: Path) -> None:
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps(
+            {
+                "expected_services": ["ds-sop"],
+                "required_local_images": ["ds-sop:1.0.0"],
+            }
+        )
+    )
+    compose = tmp_path / "resolved.yml"
+    compose.write_text("services:\n  ds-sop: {}\n")
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=spec,
+        repo_root=tmp_path,
+    )
+
+    async def invoke():
+        with (
+            mock.patch.object(progress, "validate_resolved_compose"),
+            mock.patch.object(
+                progress,
+                "missing_required_local_images",
+                return_value=("ds-sop:1.0.0",),
+            ),
+        ):
+            return await monitor.pre_tool(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "docker compose -f resolved.yml up -d"
+                    },
+                },
+                "tool-1",
+                None,
+            )
+
+    decision = asyncio.run(invoke())
+    assert (
+        decision["hookSpecificOutput"]["permissionDecisionReason"]
+        == "deployment blocked: required local image missing"
+    )
+    assert "ds-sop" not in json.dumps(decision)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "docker compose build",
+        "docker compose -f resolved.yml build ds-sop",
+        "docker compose up -d --build",
+    ],
+)
+def test_compose_rebuild_paths_for_prebuilt_image_are_blocked(
+    command: str,
+) -> None:
+    assert progress._rebuilds_required_image(
+        command,
+        ("ds-sop:1.0.0",),
+    )
 
 
 def test_repeated_non_progress_events_do_not_extend_idle(tmp_path: Path) -> None:
@@ -232,6 +391,100 @@ def test_phase_heartbeats_are_rate_bounded(tmp_path: Path) -> None:
     assert monitor._phase_heartbeat_count == progress.MAX_PHASE_HEARTBEATS
     clock.advance(1080)
     assert tracker.expiration() == ("idle", "image_activity_heartbeat", 2280)
+
+
+def test_repeated_compose_up_and_identical_snapshots_do_not_refresh_idle(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+        activity_heartbeat_sec=300,
+    )
+    rows = [{
+        "service": "rtvi-embed",
+        "state": "running",
+        "health": "starting",
+        "exit_code": 0,
+        "restart_count": 0,
+    }]
+
+    async def invoke_up(tool_id: str) -> None:
+        await monitor.pre_tool(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "docker compose up -d"},
+            },
+            tool_id,
+            None,
+        )
+
+    with (
+        mock.patch.object(monitor, "_sample_images"),
+        mock.patch.object(monitor, "_safe_service_rows", return_value=rows),
+    ):
+        asyncio.run(invoke_up("one"))
+        monitor.sample()
+        clock.advance(1200)
+        asyncio.run(invoke_up("two"))
+        monitor.sample()
+        clock.advance(300)
+    assert tracker.expiration() == (
+        "idle",
+        "container_transition",
+        1500,
+    )
+
+
+def test_rt_embed_long_health_transition_is_meaningful_progress(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+    )
+    starting = [{
+        "service": "rtvi-embed",
+        "state": "running",
+        "health": "starting",
+        "exit_code": 0,
+        "restart_count": 0,
+    }]
+    healthy = [{**starting[0], "health": "healthy"}]
+    with mock.patch.object(monitor, "_sample_images"):
+        with mock.patch.object(
+            monitor, "_safe_service_rows", return_value=starting
+        ):
+            monitor.sample()
+        clock.advance(1079)
+        with mock.patch.object(
+            monitor, "_safe_service_rows", return_value=healthy
+        ):
+            monitor.sample()
+    clock.advance(1079)
+    assert tracker.expiration() is None
 
 
 def test_active_long_pull_reaches_hard_ceiling_without_early_idle(
@@ -382,6 +635,7 @@ def test_inner_hook_blocks_missing_service_without_persisting_arguments(
         mock.patch.object(progress, "_INNER_JOURNAL", inner_journal),
         mock.patch.object(progress, "_INNER_STATE", inner_state),
         mock.patch.object(progress, "_INNER_CONFIG", inner_config),
+        mock.patch.object(progress, "validate_resolved_compose"),
         mock.patch.object(
             progress,
             "validate_compose_services",
@@ -476,7 +730,7 @@ def test_timeout_diagnostics_are_bounded_and_structural(tmp_path: Path) -> None:
         {
             "service": f"svc-{index}",
             "state": "running",
-            "health": "healthy",
+            "health": "unhealthy",
             "exit_code": 0,
             "restart_count": 0,
         }
@@ -487,8 +741,11 @@ def test_timeout_diagnostics_are_bounded_and_structural(tmp_path: Path) -> None:
     artifact = json.loads((monitor.results_root / "timeout-diagnostics.json").read_text())
     assert len(artifact["services"]) == progress.MAX_DIAGNOSTIC_SERVICES
     assert all("service" not in row for row in artifact["services"])
-    assert all("service_index" in row for row in artifact["services"])
-    assert "svc-" not in json.dumps(artifact)
+    assert all(
+        row["service_id"].startswith("svc-")
+        for row in artifact["services"]
+    )
+    assert '"svc-0"' not in json.dumps(artifact)
     assert set(artifact) == {
         "schema",
         "reason",
@@ -652,3 +909,108 @@ def test_adapter_carries_spec_expected_services_into_task_metadata(
         'expected_services = ["vss-agent", "redis", "perception-alerts", '
         '"vss-behavior-analytics-alerts", "alert-bridge", "nvstreamer-alerts"]' in task
     )
+
+
+def test_search_expected_services_block_transitive_agent_ui_gap(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "resolved.yml"
+    compose.write_text("services: {}\n")
+    expected = (
+        "vss-agent",
+        "vss-ui",
+        "vss-video-analytics-api-fusion",
+        "rtvi-vlm",
+        "rtvi-embed",
+    )
+    completed = progress.BoundedCommandResult(
+        0,
+        "vss-video-analytics-api-fusion\nrtvi-vlm\nrtvi-embed\noptional\n",
+        False,
+    )
+    with mock.patch.object(progress, "_run_bounded", return_value=completed):
+        missing, _ = progress.validate_compose_services(compose, expected)
+    assert missing == ("vss-agent", "vss-ui")
+
+
+def test_search_adapter_carries_subset_expected_services(
+    tmp_path: Path,
+) -> None:
+    skill_dir = Path(__file__).resolve().parents[3] / "skills/vss-deploy-profile"
+    deploy_profile_adapter.generate_task(
+        "search",
+        "RTXPRO6000BW",
+        deploy_profile_adapter.PROFILES["search"],
+        tmp_path,
+        skill_dir,
+        2,
+    )
+    task = (tmp_path / "search/rtxpro6000bw/task.toml").read_text()
+    assert (
+        'expected_services = ["vss-agent", "vss-ui", '
+        '"vss-video-analytics-api-fusion", "rtvi-vlm", "rtvi-embed"]'
+        in task
+    )
+
+
+def test_sop_adapter_carries_services_and_prebuilt_image_metadata(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    spec_path = (
+        repo_root
+        / "skills/vss-build-vision-agent/eval/"
+        "profile_sop_1_compliance_monitoring.json"
+    )
+    spec = json.loads(spec_path.read_text())
+    spec["_source_path"] = str(spec_path)
+    build_vision_adapter.generate_task(
+        "RTXPRO6000BW",
+        spec,
+        tmp_path,
+        repo_root / "skills/vss-build-vision-agent",
+        None,
+        None,
+        None,
+        None,
+        None,
+        repo_root / "skills/vss-generate-video-report",
+    )
+    task = (
+        tmp_path
+        / "profile_sop_1_compliance_monitoring/rtxpro6000bw/task.toml"
+    ).read_text()
+    assert '"ds-sop"' in task
+    assert 'required_local_images = ["ds-sop:1.0.0"]' in task
+
+
+def test_complete_healthy_stack_has_no_nonhealthy_diagnostics(
+    tmp_path: Path,
+) -> None:
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+    )
+    rows = [
+        {
+            "service": service,
+            "state": "running",
+            "health": "healthy",
+            "exit_code": 0,
+            "restart_count": 0,
+        }
+        for service in (
+            "vss-agent",
+            "vss-ui",
+            "vss-video-analytics-api-fusion",
+            "rtvi-vlm",
+            "rtvi-embed",
+        )
+    ]
+    with mock.patch.object(monitor, "_safe_service_rows", return_value=rows):
+        monitor.archive_timeout(("idle", "container_transition", 1080))
+    artifact = json.loads(
+        (monitor.results_root / "timeout-diagnostics.json").read_text()
+    )
+    assert artifact["services"] == []

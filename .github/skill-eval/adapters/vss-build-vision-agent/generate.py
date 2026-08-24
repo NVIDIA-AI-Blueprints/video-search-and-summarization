@@ -242,6 +242,16 @@ def generate_task(
     rendered_spec = _substitute_spec(spec, platform)
     runtime_deploy = bool(spec.get("runtime_deploy", True))
     judge_max_turns = int(spec.get("judge_max_turns", 60))
+    expected_services = rendered_spec.get("expected_services") or []
+    required_local_images = rendered_spec.get("required_local_images") or []
+    for field_name, values in (
+        ("expected_services", expected_services),
+        ("required_local_images", required_local_images),
+    ):
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) for value in values
+        ):
+            raise ValueError(f"{field_name} must be a string list")
 
     # dataset group = spec stem (e.g. "profile_in_1_streaming_dense_captions")
     dataset_group = Path(spec_name).stem
@@ -312,6 +322,8 @@ def generate_task(
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f'min_root_disk_gb = {pspec["min_root_disk_gb"]}',
+            f"expected_services = {json.dumps(expected_services)}",
+            f"required_local_images = {json.dumps(required_local_images)}",
             # No requires_deployed_vss — the skill builds itself and deploys only
             # when the spec's runtime checks require it.
             "requires_deployed_vss = false",
