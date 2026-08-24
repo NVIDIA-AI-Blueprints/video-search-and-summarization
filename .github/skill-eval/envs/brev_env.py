@@ -88,6 +88,7 @@ _SAFE_DIRECT_IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$")
 def _direct_agent_hook_documents(
     expected_services: object,
     required_local_images: object,
+    required_local_image_ids: object | None = None,
 ) -> tuple[str, str]:
     """Return Claude settings + safe config for the direct-run progress hook."""
     if not isinstance(expected_services, list):
@@ -113,6 +114,21 @@ def _direct_agent_hook_documents(
         raise ValueError(
             "required_local_images exceeds direct watchdog image limit"
         )
+    if required_local_image_ids is None:
+        required_local_image_ids = {}
+    if not isinstance(required_local_image_ids, dict):
+        raise ValueError("required_local_image_ids must be a mapping")
+    safe_image_ids = {
+        image: image_id
+        for image, image_id in required_local_image_ids.items()
+        if (
+            image in safe_images
+            and isinstance(image_id, str)
+            and re.fullmatch(r"[a-f0-9]{64}", image_id)
+        )
+    }
+    if len(safe_image_ids) != len(required_local_image_ids):
+        raise ValueError("required_local_image_ids contains an unsafe entry")
     hook = (
         "python3 $HOME/video-search-and-summarization/"
         ".github/skill-eval/direct_agent_progress.py hook"
@@ -133,6 +149,7 @@ def _direct_agent_hook_documents(
         "schema": 1,
         "expected_services": safe_services,
         "required_local_images": safe_images,
+        "required_local_image_ids": safe_image_ids,
     }
     return (
         json.dumps(settings, sort_keys=True, separators=(",", ":")),
@@ -641,12 +658,14 @@ class BrevEnvironment(BaseEnvironment):
     async def _install_direct_agent_progress_hooks(self, metadata: dict) -> None:
         """Install closed-schema Claude hooks on direct OpenShell runners."""
         assert self._instance_name
-        settings, config = _direct_agent_hook_documents(
-            metadata.get("expected_services", []),
-            metadata.get("required_local_images", []),
-        )
         required_images = metadata.get("required_local_images", [])
+        # Validate metadata before using any value in a subprocess argument.
+        _direct_agent_hook_documents(
+            metadata.get("expected_services", []),
+            required_images,
+        )
         missing_images = []
+        required_image_ids = {}
         for image in required_images:
             result = await asyncio.to_thread(
                 subprocess.run,
@@ -668,10 +687,17 @@ class BrevEnvironment(BaseEnvironment):
                 r"[a-f0-9]{64}", image_id
             ):
                 missing_images.append(image)
+            else:
+                required_image_ids[image] = image_id
         if missing_images:
             raise RuntimeError(
                 f"{len(missing_images)} required local image(s) missing"
             )
+        settings, config = _direct_agent_hook_documents(
+            metadata.get("expected_services", []),
+            required_images,
+            required_image_ids,
+        )
         agent_logs = Path("/logs/agent")
         sessions = agent_logs / "sessions"
         sessions.mkdir(parents=True, exist_ok=True)

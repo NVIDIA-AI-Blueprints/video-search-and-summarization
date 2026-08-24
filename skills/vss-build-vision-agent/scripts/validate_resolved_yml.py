@@ -138,10 +138,38 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
     return errors
 
 
+def required_local_image_errors(
+    document: dict[str, Any],
+    required_images: set[str],
+) -> list[str]:
+    errors: list[str] = []
+    services = document.get("services") or {}
+    if not isinstance(services, dict):
+        return [
+            "a required local image is absent from services"
+            for _ in required_images
+        ]
+    for required_image in required_images:
+        matching = [
+            service
+            for service in services.values()
+            if (
+                isinstance(service, dict)
+                and service.get("image") == required_image
+            )
+        ]
+        if not matching:
+            errors.append("a required local image is absent from services")
+        elif any("build" in service for service in matching):
+            errors.append("a required local image service is buildable")
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
     extra_required: set[str] | None = None,
+    required_local_images: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     services = document.get("services")
@@ -178,6 +206,12 @@ def validate_document(
             )
 
     errors.extend(secret_errors(document, extra_required or set()))
+    errors.extend(
+        required_local_image_errors(
+            document,
+            required_local_images or set(),
+        )
+    )
 
     return errors
 
@@ -192,6 +226,13 @@ def parse_args() -> argparse.Namespace:
         default=[],
         metavar="KEY",
         help="env key that must resolve to a non-empty literal (repeatable)",
+    )
+    parser.add_argument(
+        "--required-local-image",
+        action="append",
+        default=[],
+        metavar="IMAGE",
+        help="exact local image tag that must be wired and non-buildable",
     )
     return parser.parse_args()
 
@@ -212,7 +253,10 @@ def main() -> None:
         raise SystemExit(1)
 
     errors = validate_document(
-        document, args.repo_root, set(args.required_secret)
+        document,
+        args.repo_root,
+        set(args.required_secret),
+        set(args.required_local_image),
     )
     if errors:
         print(
