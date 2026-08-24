@@ -323,9 +323,14 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-x86-evs-cython/ /tmp/evs-libs/x86/
-COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-arm-evs-cython/ /tmp/evs-libs/arm/
+COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/igpu/
+COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-sbsa-evs-cython/ /tmp/evs-libs/sbsa/
 RUN set -eu; \
-    case "$TARGETARCH" in amd64) evs_arch=x86 ;; arm64) evs_arch=arm ;; *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; esac; \
+    case "$TARGETARCH" in \
+        amd64) evs_arch=x86 ;; \
+        arm64) case "$ARM_PLATFORM" in igpu|sbsa) evs_arch="$ARM_PLATFORM" ;; *) echo "Unsupported ARM platform: $ARM_PLATFORM" >&2; exit 1 ;; esac ;; \
+        *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
     source_root="/tmp/evs-libs/$evs_arch/vllm"; \
     vllm_root=/usr/local/lib/python3.12/dist-packages/vllm; \
     test "$(find "$source_root" -type f -name "*.so" | wc -l)" -eq 11; \
