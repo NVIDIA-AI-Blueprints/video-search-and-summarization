@@ -100,8 +100,18 @@ OptionalCaptionMetricInt32 = (
 class ResponseType(str, Enum):
     """Query Response Type."""
 
+    JSON_SCHEMA = "json_schema"
     JSON_OBJECT = "json_object"
     TEXT = "text"
+
+
+class JsonSchemaDefinition(CommonBaseModel):
+    """Named JSON schema used to constrain model output."""
+
+    name: str = Field(max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    description: Optional[str] = Field(default=None, max_length=1024)
+    schema_: dict = Field(alias="schema")
+    strict: bool = True
 
 
 class ResponseFormat(CommonBaseModel):
@@ -110,6 +120,15 @@ class ResponseFormat(CommonBaseModel):
     type: ResponseType = Field(
         description="Response format type", examples=[ResponseType.JSON_OBJECT, ResponseType.TEXT]
     )
+    json_schema: Optional[JsonSchemaDefinition] = None
+
+    @model_validator(mode="after")
+    def validate_json_schema(self):
+        if self.type == ResponseType.JSON_SCHEMA and self.json_schema is None:
+            raise ValueError("json_schema is required when response format type is json_schema")
+        if self.type != ResponseType.JSON_SCHEMA and self.json_schema is not None:
+            raise ValueError("json_schema is only valid when response format type is json_schema")
+        return self
 
 
 class VlmCaptionResponse(CommonBaseModel):
@@ -637,6 +656,11 @@ class VlmQuery(CommonBaseModel):
                 "num_frames_per_second_or_fixed_frames_chunk=-1 is only valid "
                 "when use_fps_for_chunking is false"
             )
+        if self.response_format.type != ResponseType.TEXT:
+            if self.ignore_eos:
+                raise ValueError("ignore_eos=true is incompatible with structured output")
+            if self.min_tokens is not None:
+                raise ValueError("min_tokens is incompatible with structured output")
         return self
 
     alert_category: Optional[str] = Field(
