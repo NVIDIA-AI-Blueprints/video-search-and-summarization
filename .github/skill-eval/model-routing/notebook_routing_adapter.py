@@ -3,20 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Execute the checked-in model-routing notebook from beginning to end.
 
-Same contract as the NemoClaw notebook adapter: CI inputs are mapped to the
-notebook's native variables and injected in memory just before the notebook's
-own "Derived" settings; the checked-in notebook source is never modified and
-the executed copy is never persisted. The run is end to end and real — the
-router is built from the pinned Switchyard ref, serves live requests to the
-upstream, and the VSS repoint is composed and validated offline. Routing
-stays disabled by default: the notebook deploys nothing.
+CI inputs are injected in memory just before the notebook's "Derived"
+settings; the checked-in source is never modified and the executed copy is
+never persisted. The run is real: the router is built from the pinned
+Switchyard ref, serves live requests to the upstream, and the VSS repoint
+is composed and validated offline. Routing stays disabled by default.
 
-Unlike the NemoClaw adapter this one is standard-library only. The
-model-routing notebook is deliberately plain Python — no cell magics, no
-shell cells, no notebook-display calls — so its code cells execute directly
-in one shared namespace. That keeps the CI path free of third-party
-packages (no jupyter stack, no pip install, no venv) while an interactive
-user still runs the very same notebook under Jupyter.
+The notebook's code cells are plain Python, so they execute directly in one
+shared namespace using only the standard library.
 """
 
 from __future__ import annotations
@@ -37,8 +31,7 @@ _DERIVED_SETTINGS_MARKER = (
 )
 
 # Notebook variables CI may override through the environment. Everything is a
-# string at injection time; the notebook's derived section parses booleans and
-# integers itself.
+# string at injection time; the notebook parses booleans and integers itself.
 _NOTEBOOK_PARAMETERS = (
     "NVIDIA_API_KEY",
     "UPSTREAM_BASE_URL",
@@ -63,10 +56,9 @@ def _repo_root() -> Path:
 
 
 def prepare_environment(env=None) -> None:
-    """Map the CI provider contract to the notebook's native variables."""
+    """Map the CI environment to the notebook's native variables."""
     e = env if env is not None else os.environ
-    # The coordinator's inference credential is the same NVIDIA hub key under
-    # its Anthropic-compatible name; use the existing key, never a new one.
+    # CI uses the deployment's existing inference key, never a new one.
     key = (
         e.get("NVIDIA_API_KEY")
         or e.get("ANTHROPIC_API_KEY")
@@ -79,8 +71,8 @@ def prepare_environment(env=None) -> None:
             "inference hub during the end-to-end verification"
         )
     e["NVIDIA_API_KEY"] = key
-    # Off the default 4000 so a leftover local router can't shadow the run,
-    # and always torn down so the runner is left clean.
+    # Off the default port so a leftover local router cannot shadow the run;
+    # always torn down so the runner is left clean.
     e.setdefault("ROUTER_PORT", "14000")
     e.setdefault("ROUTER_CONTAINER", "vss-model-router-ci")
     e["ROUTER_TEARDOWN"] = "true"
@@ -101,8 +93,7 @@ def _code_cells(notebook: dict) -> list[str]:
 
 
 def _reject_non_plain_python(cells: list[str], name: str) -> None:
-    """This runner only supports plain-Python cells; refuse anything else
-    loudly instead of mis-executing it."""
+    """Refuse notebook-only syntax loudly instead of mis-executing it."""
     for index, source in enumerate(cells):
         for line in source.splitlines():
             stripped = line.lstrip()
@@ -148,7 +139,7 @@ def execute_notebook(path: Path, *, cwd: Path) -> str:
     captured = io.StringIO()
 
     class _Tee(io.TextIOBase):
-        def write(self, text: str) -> int:  # stream to CI log AND capture
+        def write(self, text: str) -> int:  # stream to the CI log AND capture
             sys.__stdout__.write(text)
             captured.write(text)
             return len(text)

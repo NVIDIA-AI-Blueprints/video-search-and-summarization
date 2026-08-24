@@ -1,16 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Model-routing notebook — end-to-end execution of
-# deploy/docker/scripts/deploy_model_routing.ipynb via the notebook adapter:
+# Executes deploy/docker/scripts/deploy_model_routing.ipynb end to end:
 # builds Switchyard from its pinned source ref, routes live requests across
-# both targets, and validates the (undeployed) VSS repoint build. CPU-only —
-# no GPU, no brev, no compose deploy.
+# both targets, and validates the undeployed VSS repoint build. CPU-only.
 #
-# Same dispatch model as skills-eval.yml: mirror-branch push, with the diff
-# gate done in-job against the cumulative head...base range (a top-level
-# `paths:` filter only sees the pushed commits and silently skips on mirror
-# merge commits).
+# The diff gate runs in-job against the cumulative head...base range: a
+# top-level `paths:` filter only sees the pushed commits and silently skips
+# on mirror merge commits.
 
 name: Model Routing Notebook
 
@@ -23,8 +20,7 @@ name: Model Routing Notebook
 permissions:
   contents: read
 
-# Manual dispatches must not cancel each other — same conditional-group
-# shape as skills-eval.yml.
+# Manual dispatches must not cancel each other.
 concurrency:
   group: >-
     ${{ github.event_name == 'workflow_dispatch'
@@ -73,35 +69,25 @@ jobs:
       - name: Reclaim stale leaked runtimes (shared coordinator disk)
         if: steps.gate.outputs.run == 'true'
         run: |
-          # Every runner slot on the coordinator host shares one disk, and
-          # per-job venvs leak: skills-eval jobs create theirs in runner.temp
-          # with no always-cleanup, and the host has already hit ENOSPC hard
-          # enough that the runner could not write its own diag log. Remove
-          # leaked venvs older than 15h — past the longest job timeout on
-          # this host (skills-eval legs: 840 minutes), so provably dead.
+          # All runner slots on this host share one disk. Remove leaked
+          # per-job venvs older than 15h (past the longest job timeout on
+          # the host, so provably dead) and docker state that is safe to
+          # lose. Tagged images other jobs pinned are not touched.
           df -h "$HOME" | tail -1
           find "$HOME"/actions-runner-*/_work/_temp -maxdepth 1 -mmin +900 \
             \( -name 'skill-eval-*' -o -name 'model-routing-*' \) \
             -exec rm -rf {} + 2>/dev/null || true
           python3 -m pip cache purge 2>/dev/null || true
-          # The venv sweep alone recovered ~0.1G on a 125G disk at 100%; the
-          # bulk is docker state (buildkit snapshots from interrupted builds
-          # included). Prune only what is safe to lose: build cache older
-          # than a day, dangling images, and containers that exited over a
-          # day ago. Tagged images other jobs pinned are not touched.
           docker builder prune -af --filter until=24h 2>/dev/null || true
           docker image prune -f 2>/dev/null || true
           docker container prune -f --filter until=24h 2>/dev/null || true
           df -h "$HOME" | tail -1
 
-      # The adapter is standard-library only: no jupyter stack, no pip
-      # install, no venv. The host python3 is sufficient.
       - name: Set per-run isolation names
         if: steps.gate.outputs.run == 'true'
         run: |
-          # Router port, container name, and work dir are all run-scoped:
-          # concurrent PR runs share this host and must not stomp each other.
-          # Published BEFORE any step that can fail, so the always-cleanup
+          # Run-scoped so concurrent PR runs on this host cannot collide.
+          # Published before any step that can fail, so the always-cleanup
           # step knows what to remove.
           {
             echo "ROUTER_CONTAINER=vss-model-router-ci-${{ github.run_id }}"
@@ -112,13 +98,15 @@ jobs:
       - name: Run the notebook end to end
         if: steps.gate.outputs.run == 'true'
         run: |
-          # The coordinator .env holds the existing NVIDIA inference key
-          # (Anthropic-compatible name). Don't echo contents; the adapter
-          # maps it and never writes it anywhere.
-          set -a
-          source /home/ubuntu/eval-coordinator/.env
-          set +a
-          python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
+          # This step runs code from the maintainer-approved mirror head
+          # (the /ok to test gate). Even so, expose only the one credential
+          # the run needs: the inference key is extracted from the
+          # coordinator .env in a subshell, and nothing else from that file
+          # reaches the notebook's environment.
+          key="$( (set -a; source /home/ubuntu/eval-coordinator/.env >/dev/null 2>&1; \
+                   printf '%s' "${NVIDIA_API_KEY:-${ANTHROPIC_API_KEY:-}}") )"
+          NVIDIA_API_KEY="$key" \
+            python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
 
       - name: Remove per-run state
         if: always() && steps.gate.outputs.run == 'true'
