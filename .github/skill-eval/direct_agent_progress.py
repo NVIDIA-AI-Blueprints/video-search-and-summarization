@@ -9,6 +9,7 @@ import asyncio
 from contextlib import suppress
 import datetime
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -39,6 +40,7 @@ DEFAULT_ACTIVITY_HEARTBEAT_SEC = 5 * 60
 MAX_JOURNAL_EVENTS = 512
 MAX_DIAGNOSTIC_SERVICES = 64
 MAX_EXPECTED_SERVICES = 64
+MAX_REQUIRED_LOCAL_IMAGES = 32
 MAX_CLEANUP_CONTAINERS = 256
 MAX_PROGRESS_KEYS = 256
 # A fixed five-minute heartbeat is rate-bounded but may cover the entire
@@ -51,6 +53,9 @@ MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024
 MAX_INNER_READ_BYTES = 1024 * 1024
 
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_SAFE_IMAGE_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$"
+)
 _SAFE_HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 _STATES = frozenset(
     {
@@ -362,6 +367,116 @@ def load_expected_services(spec_path: Path) -> tuple[str, ...]:
     return services
 
 
+def load_required_local_images(spec_path: Path) -> tuple[str, ...]:
+    try:
+        data = _read_json_bounded(spec_path)
+    except (OSError, TypeError, ValueError):
+        return ()
+    if not isinstance(data, dict):
+        return ()
+    raw = data.get("required_local_images") or []
+    if not isinstance(raw, list):
+        raise ValueError("required_local_images must be a JSON list")
+    if len(raw) > MAX_REQUIRED_LOCAL_IMAGES:
+        raise ValueError("required_local_images exceeds watchdog image limit")
+    images = tuple(dict.fromkeys(str(item).strip() for item in raw))
+    if any(not _SAFE_IMAGE_RE.fullmatch(item) for item in images):
+        raise ValueError("required_local_images contains an unsafe image name")
+    return images
+
+
+def missing_required_local_images(
+    required_images: tuple[str, ...],
+) -> tuple[str, ...]:
+    missing: list[str] = []
+    for image in required_images:
+        result = _run_bounded(
+            ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
+            timeout=20,
+            output_limit=256,
+        )
+        image_id = result.stdout.strip().removeprefix("sha256:")
+        if (
+            result.returncode != 0
+            or result.truncated
+            or not _SAFE_HASH_RE.fullmatch(image_id)
+        ):
+            missing.append(image)
+    return tuple(missing)
+
+
+def _rebuilds_required_image(
+    command: str,
+    required_images: tuple[str, ...],
+) -> bool:
+    """Detect explicit Docker rebuilds without retaining or echoing argv."""
+    if not required_images:
+        return False
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    required = set(required_images)
+    for index, token in enumerate(tokens):
+        if token in {"-t", "--tag"} and index + 1 < len(tokens):
+            if tokens[index + 1] in required:
+                return True
+        if token.startswith("--tag=") and token.partition("=")[2] in required:
+            return True
+    compose_build = None
+    for index in range(len(tokens) - 2):
+        if tokens[index : index + 2] != ["docker", "compose"]:
+            continue
+        try:
+            compose_build = tokens.index("build", index + 2)
+        except ValueError:
+            continue
+        break
+    if compose_build is not None:
+        selected_services = {
+            token
+            for token in tokens[compose_build + 1 :]
+            if not token.startswith("-") and _SAFE_NAME_RE.fullmatch(token)
+        }
+        required_service_names = {
+            image.rsplit("/", 1)[-1].split(":", 1)[0]
+            for image in required_images
+        }
+        if (
+            not selected_services
+            or selected_services & required_service_names
+        ):
+            return True
+    # `compose up --build` may rebuild every service, including a declared
+    # prebuilt image. Fail closed for tasks that declare immutable local images.
+    if _is_compose_up(command) and "--build" in tokens:
+        return True
+    return False
+
+
+def validate_resolved_compose(
+    compose_file: Path,
+    repo_root: Path,
+) -> None:
+    validator = (
+        repo_root
+        / "skills/vss-build-vision-agent/scripts/validate_resolved_yml.py"
+    )
+    if not validator.is_file():
+        raise RuntimeError("resolved Compose validator is unavailable")
+    result = _run_bounded(
+        [
+            str(validator),
+            str(compose_file),
+            "--repo-root",
+            str(repo_root),
+        ],
+        timeout=90,
+    )
+    if result.returncode != 0 or result.truncated:
+        raise RuntimeError("resolved Compose safety validation failed")
+
+
 def _resolved_compose_candidates(command: str, repo_root: Path) -> list[Path]:
     """Extract only local compose file paths; never execute shell fragments."""
     try:
@@ -479,6 +594,7 @@ class DirectAgentProgress:
         self.results_root = results_root
         self.repo_root = repo_root
         self.expected_services = load_expected_services(spec_path)
+        self.required_local_images = load_required_local_images(spec_path)
         self.tracker = tracker or ProgressTracker(monotonic=monotonic)
         self.journal = journal or ProgressJournal(results_root / "progress-journal.jsonl", monotonic=monotonic)
         self._monotonic = monotonic
@@ -492,6 +608,7 @@ class DirectAgentProgress:
         self.compose_sha256: str | None = None
         self._container_snapshot: dict[str, tuple[str, str, int, int]] = {}
         self._image_ids: set[str] | None = None
+        self._pseudonym_salt = os.urandom(32)
         self._inner_journal_offset = 0
         self.inner_journal_path = Path("/logs/agent/direct-progress.jsonl")
         self.journal.record(
@@ -535,6 +652,10 @@ class DirectAgentProgress:
             return {}
 
         command = str(tool_input.get("command") or "")
+        if _rebuilds_required_image(command, self.required_local_images):
+            return self._deny(
+                "deployment blocked: declared prebuilt image rebuild attempted"
+            )
         phase = _compose_phase(command)
         if phase:
             if phase != self.active_phase:
@@ -547,7 +668,9 @@ class DirectAgentProgress:
             # Internal pointer only. The path is never journaled or printed.
             self.compose_file = generated
 
-        if self.expected_services and _is_compose_up(command):
+        if (
+            self.expected_services or self.required_local_images
+        ) and _is_compose_up(command):
             candidates = _resolved_compose_candidates(command, self.repo_root)
             if not candidates and self.compose_file is not None:
                 candidates = [self.compose_file]
@@ -555,8 +678,21 @@ class DirectAgentProgress:
                 return self._deny("deployment blocked: resolved Compose file was not observed")
             compose_file = candidates[-1]
             try:
+                validate_resolved_compose(compose_file, self.repo_root)
+                missing_images = missing_required_local_images(
+                    self.required_local_images
+                )
+                if missing_images:
+                    return self._deny(
+                        "deployment blocked: required local image missing"
+                    )
                 missing, digest = validate_compose_services(compose_file, self.expected_services)
-            except (OSError, RuntimeError, subprocess.SubprocessError):
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                subprocess.SubprocessError,
+            ):
                 return self._deny("deployment blocked: resolved Compose validation failed")
             self.compose_file = compose_file
             self.compose_sha256 = digest
@@ -708,7 +844,7 @@ class DirectAgentProgress:
 
         now = self._monotonic()
         if (
-            self.active_phase in {"pull", "build", "up"}
+            self.active_phase in {"pull", "build"}
             and self._phase_heartbeat_count < MAX_PHASE_HEARTBEATS
             and now - self.last_activity_heartbeat >= self.activity_heartbeat_sec
         ):
@@ -789,15 +925,34 @@ class DirectAgentProgress:
             rows = self._safe_service_rows()
         except (OSError, subprocess.SubprocessError):
             rows = []
+        nonhealthy_rows = [
+            row
+            for row in rows
+            if not (
+                (
+                    row["state"] == "running"
+                    and row["health"] in {"healthy", "none"}
+                )
+                or (
+                    row["state"] == "exited"
+                    and row["exit_code"] == 0
+                )
+            )
+        ]
         safe_rows = [
             {
-                "service_index": index,
+                "service_id": "svc-"
+                + hmac.new(
+                    self._pseudonym_salt,
+                    row["service"].encode(),
+                    hashlib.sha256,
+                ).hexdigest()[:12],
                 "state": row["state"],
                 "health": row["health"],
                 "exit_code": row["exit_code"],
                 "restart_count": row["restart_count"],
             }
-            for index, row in enumerate(rows[:MAX_DIAGNOSTIC_SERVICES])
+            for row in nonhealthy_rows[:MAX_DIAGNOSTIC_SERVICES]
         ]
         summaries = {
             "schema": 1,
@@ -957,6 +1112,18 @@ def _inner_expected_services() -> tuple[str, ...]:
     return safe if all(safe) else ()
 
 
+def _inner_required_local_images() -> tuple[str, ...]:
+    try:
+        config = _read_json_bounded(_INNER_CONFIG)
+    except (OSError, TypeError, ValueError):
+        return ()
+    raw = config.get("required_local_images") if isinstance(config, dict) else []
+    if not isinstance(raw, list) or len(raw) > MAX_REQUIRED_LOCAL_IMAGES:
+        return ()
+    images = tuple(str(item).strip() for item in raw)
+    return images if all(_SAFE_IMAGE_RE.fullmatch(item) for item in images) else ()
+
+
 def run_inner_hook(event_name: str, payload: dict) -> int:
     """Claude Code hook entry point; never persists raw hook input."""
     tool = str(payload.get("tool_name") or "unknown")
@@ -992,6 +1159,13 @@ def run_inner_hook(event_name: str, payload: dict) -> int:
         return 0
 
     command = str(tool_input.get("command") or "")
+    required_images = _inner_required_local_images()
+    if _rebuilds_required_image(command, required_images):
+        print(
+            "deployment blocked: declared prebuilt image rebuild attempted",
+            file=sys.stderr,
+        )
+        return 2
     phase = _compose_phase(command)
     if phase:
         state["active_phase"] = phase
@@ -1003,7 +1177,9 @@ def run_inner_hook(event_name: str, payload: dict) -> int:
     _write_inner_state(state)
 
     expected = _inner_expected_services()
-    if not expected or not _is_compose_up(command):
+    if (
+        not expected and not required_images
+    ) or not _is_compose_up(command):
         return 0
     candidates = _resolved_compose_candidates(command, Path.home() / "video-search-and-summarization")
     if not candidates and state.get("compose_file"):
@@ -1015,8 +1191,21 @@ def run_inner_hook(event_name: str, payload: dict) -> int:
         )
         return 2
     try:
+        repo_root = Path.home() / "video-search-and-summarization"
+        validate_resolved_compose(candidates[-1], repo_root)
+        if missing_required_local_images(required_images):
+            print(
+                "deployment blocked: required local image missing",
+                file=sys.stderr,
+            )
+            return 2
         missing, digest = validate_compose_services(candidates[-1], expected)
-    except (OSError, RuntimeError, subprocess.SubprocessError):
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        subprocess.SubprocessError,
+    ):
         print(
             "deployment blocked: resolved Compose validation failed",
             file=sys.stderr,
