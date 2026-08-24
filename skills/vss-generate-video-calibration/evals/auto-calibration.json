@@ -36,14 +36,14 @@
     {
       "query": "Plan only; do not run commands, start containers, call AMC APIs, download data, or modify files. The user asks to launch AMC if needed and run the bundled sample calibration test. The automated check does not provide the sample zip, so describe the exact end-to-end sample workflow and prerequisites without claiming the zip exists: AMC platform preflight with the existing/generated calibration artifacts or supported calibration host fallback on failure; sample zip at assets/sdg_08_2_sample_data_010926.zip; idempotent extraction into assets/.cache/sdg_08_2_sample_data_010926/; upload exactly four sorted cam_*.mp4 files, then alignment_data.json, then layout.png, then GT.zip before project verification; no helper script written into the repo.",
       "checks": [
-        "The plan routes the request to `references/sample-dataset.md`, and says to load `references/deploy-auto-calibration-service.md` first only if AMC is not already ready.",
+        "The plan routes the request to `references/sample-dataset.md`, checks whether AMC is already ready, and uses `references/deploy-auto-calibration-service.md` only when deployment is needed or for the shared platform preflight.",
         "The plan runs the AMC platform preflight before deploy or sample upload work, and says that if it fails the flow stops to request existing/generated calibration artifacts or a supported calibration host.",
         "The plan requires `assets/sdg_08_2_sample_data_010926.zip` or an explicitly obtained sample zip before the sample run, and does not claim it exists when the eval does not provide it.",
         "The plan confirms `/v1/ready` returns `code == 0` before any sample upload or calibration API calls.",
         "The plan extracts the sample zip into `assets/.cache/sdg_08_2_sample_data_010926/` idempotently and does not write `run_sample_test.py` or another helper script into the repo.",
         "The plan uploads exactly the 4 sample `cam_*.mp4` files in sorted order, then uploads `alignment_data.json`, then `layout.png`, then `GT.zip` before project verification.",
-        "The plan verifies `project_state == READY` before calibration, starts calibration with the sample `resnet` detector path, polls until `project_state == COMPLETED`, and fetches non-empty evaluation statistics.",
-        "The plan reports the exact project ID, UI URL, and sample metrics, and does not print bearer tokens, NGC keys, HuggingFace tokens, or other secret values."
+        "The plan includes verifying `project_state == READY` before calibration, starting calibration with the sample `resnet` detector path, polling until `project_state == COMPLETED`, and fetching evaluation statistics when the workflow is executed.",
+        "The plan reports the project ID, UI URL, and sample metrics after execution, and does not print bearer tokens, NGC keys, HuggingFace tokens, or other secret values."
       ]
     },
     {
