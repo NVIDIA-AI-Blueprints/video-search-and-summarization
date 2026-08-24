@@ -15,7 +15,6 @@ Or directly:
 from __future__ import annotations
 
 import importlib.util
-import inspect
 import os
 import tempfile
 import unittest
@@ -194,6 +193,35 @@ class RealSpecCorpus(unittest.TestCase):
                     self.assertTrue(
                         any(x.startswith("gpus-") for x in labels), f"{rel} {platform}"
                     )
+
+    def test_openshell_matrix_routes_each_demand_once(self):
+        os.environ["OPENSHELL_GPU_FLEET"] = "1"
+        try:
+            include = plan_matrix.build_matrix(plan_matrix.list_skill_file_paths())
+        finally:
+            os.environ.pop("OPENSHELL_GPU_FLEET", None)
+
+        eval_legs = [leg for leg in include if leg["kind"] == "eval"]
+        self.assertTrue(eval_legs)
+        seen: set[tuple[str, str]] = set()
+        for leg in eval_legs:
+            demand = next(
+                label for label in leg["runs_on"] if label.startswith("gpus-")
+            )
+            key = (leg["spec_path"], demand)
+            self.assertNotIn(key, seen, f"duplicate fleet demand: {key}")
+            seen.add(key)
+            if demand == "gpus-1":
+                self.assertEqual(leg["platform"], "H200")
+                self.assertEqual(leg["hardware_profile"], "H100")
+                self.assertIn("openshell-h200-active", leg["runs_on"])
+                self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
+            elif demand == "gpus-2":
+                self.assertEqual(leg["platform"], "RTXPRO6000BW")
+                self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
+                self.assertNotIn("openshell-h200-active", leg["runs_on"])
+            else:
+                self.fail(f"unexpected OpenShell GPU demand: {demand}")
 
 
 class BuildMatrix(unittest.TestCase):
@@ -489,8 +517,8 @@ class EmitSlugSafety(unittest.TestCase):
                 os.environ["GITHUB_OUTPUT"] = orig
 
 
-class OpenshellRtxpro6000Only(unittest.TestCase):
-    """OPENSHELL_RTXPRO6000_ONLY routes RTXPRO6000BW to the OpenShell cohort."""
+class OpenshellGpuFleet(unittest.TestCase):
+    """OPENSHELL_GPU_FLEET routes work by GPU demand."""
 
     def setUp(self):
         self._orig_specs = plan_matrix.specs_for_skill
@@ -501,14 +529,14 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         plan_matrix.adapter_exists = lambda s: s in SKILLS_WITH_ADAPTERS
         plan_matrix.spec_platform_config = lambda p: {"L40S": {"gpu_count": 1}}
         plan_matrix.Path.is_file = lambda self: True  # type: ignore
-        os.environ["OPENSHELL_RTXPRO6000_ONLY"] = "1"
+        os.environ["OPENSHELL_GPU_FLEET"] = "1"
 
     def tearDown(self):
         plan_matrix.specs_for_skill = self._orig_specs
         plan_matrix.adapter_exists = self._orig_adapter
         plan_matrix.spec_platform_config = self._orig_platforms
         plan_matrix.Path.is_file = self._orig_isfile
-        os.environ.pop("OPENSHELL_RTXPRO6000_ONLY", None)
+        os.environ.pop("OPENSHELL_GPU_FLEET", None)
 
     def test_zero_gpu_count_stays_on_openshell(self):
         self.assertEqual(
@@ -561,9 +589,8 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         )
 
     def test_harness_only_diff_emits_smoke_leg(self):
-        # build_matrix() itself still has a smoke fallback when given a
-        # harness-only file list. `/ok to test` goes through main(), which
-        # enumerates every skill file when OPENSHELL_RTXPRO6000_ONLY is set.
+        # A harness-only file list gets one smoke leg without turning the PR
+        # run into a repository-wide sweep.
         inc = plan_matrix.build_matrix(
             [".github/workflows/skills-eval.yml"]
         )
@@ -686,10 +713,30 @@ class OpenshellRtxpro6000Only(unittest.TestCase):
         self.assertIn("gpus-2", inc[0]["runs_on"])
         self.assertNotIn("openshell-h200-active", inc[0]["runs_on"])
 
-    def test_openshell_main_enumerates_all_skills(self):
-        src = inspect.getsource(plan_matrix.main)
-        self.assertIn("OPENSHELL_RTXPRO6000_ONLY", src)
-        self.assertIn("list_skill_file_paths", src)
+    def test_openshell_pr_keeps_changed_file_scope(self):
+        changed = ["skills/vss-search-archive/SKILL.md"]
+        seen: list[list[str]] = []
+        orig_changed = plan_matrix.list_changed_files
+        orig_all = plan_matrix.list_skill_file_paths
+        orig_build = plan_matrix.build_matrix
+        orig_emit = plan_matrix.emit
+        orig_daily = os.environ.pop("DAILY_RUN", None)
+        plan_matrix.list_changed_files = lambda: changed
+        plan_matrix.list_skill_file_paths = lambda: self.fail(
+            "PR route must not enumerate unrelated skills"
+        )
+        plan_matrix.build_matrix = lambda files: seen.append(files) or []
+        plan_matrix.emit = lambda include: None
+        try:
+            self.assertEqual(plan_matrix.main(), 0)
+        finally:
+            plan_matrix.list_changed_files = orig_changed
+            plan_matrix.list_skill_file_paths = orig_all
+            plan_matrix.build_matrix = orig_build
+            plan_matrix.emit = orig_emit
+            if orig_daily is not None:
+                os.environ["DAILY_RUN"] = orig_daily
+        self.assertEqual(seen, [changed])
 
 
 if __name__ == "__main__":
