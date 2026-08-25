@@ -21,7 +21,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 |---|---|---|---|
 | RT-CV (DeepStream perception) | `vss-rtvi-cv` | 9000 | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
 | RT-Embed (Cosmos Embed1) | `vss-rtvi-embed` | 8017 | Video + text embedding generation |
-| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
+| LLM NIM (default) | `nemotron-3.5-lightning-30b-a3b` | 30081 | Same options as `base` (Nemotron 3.5 Lightning default). Container name = `${LLM_NAME_SLUG}`. |
 | RT-VLM | `vss-rtvi-vlm` | 8018 | Local Cosmos3 inference or an OpenAI-compatible proxy to a remote VLM; serves Critique and `video_understanding` |
 | VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls, embed search, critique |
 | VSS Agent UI | `vss-agent-ui` | 3000 | Search tab |
@@ -34,7 +34,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 
 | Role | Model | Slug | Served by |
 |---|---|---|---|
-| LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
+| LLM | `nvidia/nemotron-3.5-lightning-30b-a3b` | `nemotron-3.5-lightning-30b-a3b` | NIM (port 30081) |
 | Embed (RT-Embed) | `nvidia/Cosmos-Embed1-448p-anomaly-detection` | — | RT-Embed (port 8017), `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` |
 | Perception (RT-CV) | siglip2 v1.1 + RTDETR (warehouse) | — | RT-CV (DeepStream pipeline) |
 | VLM (RT-VLM) | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` (default local checkpoint; FP8 so it fits alongside RT-CV on GPU 0) | `VLM_NAME_SLUG=none`; activated via the `rtvi-vlm` compose profile | RT-VLM (port 8018) |
@@ -184,7 +184,7 @@ Formula: `NIM_KVCACHE_PERCENT = (GPU_VRAM - 10) / GPU_VRAM - 0.15`, rounded to 2
 Two writes:
 
 ```bash
-# 1. In deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/hw-H100-shared.env
+# 1. In deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env
 NIM_KVCACHE_PERCENT=0.72             # LLM gets ~58 GB; leaves 10 GB for RT-Embed + 12 GB framework
 
 # 2. In deploy/docker/developer-profiles/dev-profile-search/generated.env

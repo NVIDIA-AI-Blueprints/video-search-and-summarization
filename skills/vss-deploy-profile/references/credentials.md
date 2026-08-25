@@ -10,7 +10,9 @@ Run this before mutating `generated.env` or starting any image pull. Validate cr
   the NGC CLI and VSS generated env use `NGC_CLI_API_KEY`; NIM / RT-VLM
   containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
-- `HF_TOKEN`: required on edge targets that use the gated Edge 4B model.
+- `HF_TOKEN`: required only on edge targets that use the standalone
+  small-model vLLM alternative (see [`edge.md`](edge.md)); the in-tree edge
+  LLM does not need it.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
   remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
   endpoints because their `/v1/models` response can list many models.
@@ -102,7 +104,7 @@ REMOTE_API_KEY="$NVIDIA_API_KEY" \
   skills/vss-deploy-profile/scripts/probe_remote_models.sh "$LLM_BASE_URL" "$LLM_NAME"
 
 skills/vss-deploy-profile/scripts/probe_remote_models.sh \
-  "http://localhost:30081" "nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark"
+  "http://localhost:30081" "nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8"
 ```
 
 If `/v1/models` fails or does not advertise the selected model, stop and ask

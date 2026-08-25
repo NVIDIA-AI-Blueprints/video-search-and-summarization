@@ -130,12 +130,21 @@ function get_canonical_display_name() {
 function get_llm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
-    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
-    nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
     nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
-    nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
-    openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
+    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Models that used to ship with the blueprint. Returns a migration message for a
+# removed model name, or an empty string for a name that was never bundled. Kept
+# so a stale --llm fails loudly instead of resolving to an empty slug, which
+# Compose renders as zero LLM services with exit 0 (a silent no-LLM deploy).
+function get_removed_llm_message() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
+      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, or nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 on edge hardware (DGX-SPARK / AGX-THOR / IGX-THOR)." ;;
     *) echo "" ;;
   esac
 }
@@ -528,12 +537,8 @@ function usage() {
   echo ""
   echo "  --llm                            LLM model name."
   echo "                                   • One of (local):"
-  echo "                                     - nvidia/nvidia-nemotron-nano-9b-v2"
-  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
-  echo "                                     - nvidia/nemotron-3-nano"
-  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b"
-  echo "                                     - nvidia/llama-3.3-nemotron-super-49b-v1.5"
-  echo "                                     - openai/gpt-oss-20b"
+  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b (default)"
+  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 (edge: DGX-SPARK / AGX-THOR / IGX-THOR)"
   echo "                                   • When --use-remote-llm is passed, any model name can be passed"
   echo "  --llm-device-id                  LLM device ID."
   echo "                                   • Not allowed when --use-remote-llm is passed"
@@ -1051,7 +1056,12 @@ function process_args() {
         # Validate LLM model name if provided (only for non-remote modes; known names map to a slug)
         if contains_element "llm" "${options_provided[@]}"; then
           if [[ -z "$(get_llm_slug "${llm}")" ]]; then
-            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nvidia-nemotron-nano-9b-v2, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8, nvidia/nemotron-3-nano, nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/llama-3.3-nemotron-super-49b-v1.5, openai/gpt-oss-20b"
+            _removed_llm="$(get_removed_llm_message "${llm}")"
+            if [[ -n "${_removed_llm}" ]]; then
+              echo "[ERROR] ${_removed_llm}"
+            else
+              echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+            fi
             ((_all_good++))
           fi
         fi
@@ -1380,6 +1390,12 @@ function state_up() {
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
+    # The default LLM ships no hw-<edge>.env, so a local edge deploy must use the
+    # FP8 build. Only applied when the user did not pick an LLM and is not remote.
+    if [[ "${llm_mode}" != "remote" ]] && [[ -z "${llm}" ]]; then
+      set_env_var "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+      set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8"
+    fi
   else
     if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
       set_env_var "LLM_DEVICE_ID" "${llm_device_id}"

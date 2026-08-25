@@ -30,11 +30,11 @@ global:
 
 # ── Agent config: search profile wired to in-cluster services ───────────────
 vss-agent:
-  llmBaseUrl: "http://nvidia-nemotron-nano-9b-v2:8000"
+  llmBaseUrl: "http://nemotron-35-lightning-30b-a3b:8000"
   # VLM is local (rtvi.vss-rtvi-vlm); leave empty so VLM_MODE stays `local` and the agent
   # uses RTVI_VLM_BASE_URL. Set only for a remote VLM (also flip VLM_MODEL_TYPE to `nim`).
   vlmBaseUrl: ""
-  evalLlmJudgeBaseUrl: "http://nvidia-nemotron-nano-9b-v2:8000"
+  evalLlmJudgeBaseUrl: "http://nemotron-35-lightning-30b-a3b:8000"
   rtviEmbedBaseUrl: "http://vss-search-vss-rtvi-embed:8000"
   cosmosEmbedEndpoint: "http://vss-search-vss-rtvi-embed:8000"
   elasticsearchUrl: "http://vss-search-elasticsearch:9200"

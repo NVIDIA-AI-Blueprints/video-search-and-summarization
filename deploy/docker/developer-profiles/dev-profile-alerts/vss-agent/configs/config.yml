@@ -258,6 +258,7 @@ workflow:
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   log_level: INFO
   max_iterations: 15
+  llm_reasoning: false
   planning_enabled: true
   tool_names:
   - video_understanding

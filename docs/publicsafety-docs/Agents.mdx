@@ -6,7 +6,7 @@ description: ""
 
 The Public Safety Blueprint incorporates an agentic AI system that provides natural language interaction capabilities for querying unauthorized entry and tailgating incidents, generating reports, and retrieving visual information from security cameras.
 
-The agent uses NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`) for natural language understanding and query routing, and NVIDIA Cosmos3 Nano Reasoner (`nvidia/cosmos3-nano-reasoner`) for video understanding and analyzing security incidents.
+The agent uses NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`) for natural language understanding and query routing, and NVIDIA Cosmos3 Nano Reasoner (`nvidia/cosmos3-nano-reasoner`) for video understanding and analyzing security incidents.
 
 ## Sub-Agents
 
@@ -75,7 +75,7 @@ The configuration file defines key settings such as service endpoints, environme
 * **General**: Frontend settings (FastAPI), object stores, telemetry, and health endpoints
 * **Function Groups**: MCP client connections to Video Analytics and Video Storage microservices
 * **Functions**: Individual tool definitions for video understanding, report generation, chart creation, sensor operations, and sub-agents
-* **LLMs**: Configuration for primary reasoning LLM (NVIDIA Nemotron Nano 9B v2) and VLM (NVIDIA Cosmos3 Nano Reasoner)
+* **LLMs**: Configuration for primary reasoning LLM (NVIDIA Nemotron 3.5 Lightning 30B A3B) and VLM (NVIDIA Cosmos3 Nano Reasoner)
 * **Workflow**: Top-level agent orchestration with routing logic, retry settings, and iteration limits
 
 The configuration file can be found in the deployment directory. For the complete explanation of the agent configuration YAML file and environment variables, please refer to the VSS Agent Configuration documentation.

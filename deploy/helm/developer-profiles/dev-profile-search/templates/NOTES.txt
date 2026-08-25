@@ -28,7 +28,7 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   When nims is enabled, the NIM Operator exposes ClusterIP services matching the
   NIMService metadata.name (same slugs as dev-profile-base nims charts):
 
-  1. Nemotron Nano 9B v2 (LLM):  nvidia-nemotron-nano-9b-v2:8000
+  1. Nemotron 3.5 Lightning 30B-A3B (LLM):  nemotron-35-lightning-30b-a3b:8000
   2. VLM (critic + video_understanding): vss-rtvi-vlm:8000  (rtvi.vss-rtvi-vlm, in-pod
                                   Cosmos3 checkpoint; set nims.cosmos3.enabled=true to use
                                   the standalone NIM instead)

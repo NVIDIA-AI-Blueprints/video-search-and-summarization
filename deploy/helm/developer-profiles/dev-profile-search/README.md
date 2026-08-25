@@ -47,7 +47,7 @@ The critic agent is available by default and controlled per request with `use_cr
 | `vss-rtvi-cv` | 1 | |
 | `vss-rtvi-embed` (Cosmos Embed) | 1 | |
 | `vss-vios-streamprocessing` | 1 | |
-| `nvidia-nemotron-nano-9b-v2` (NIM) | 1 | |
+| `nemotron-35-lightning-30b-a3b` (NIM) | 1 | |
 | `vss-rtvi-vlm` (Cosmos3 checkpoint) | 1 | VLM used by the critic and `video_understanding` — enabled by default |
 | **Total** | **5** | **4** if the VLM is disabled (`rtvi.vss-rtvi-vlm.enabled=false`) |
 
@@ -77,8 +77,8 @@ When time-slicing is enabled, each time-sliced partition appears as a separate `
 
 ```bash
 # Example: Nemotron NIM needs 1 full GPU but with 2x time-slicing per GPU
---set nims.nemotron.resources.limits."nvidia.com/gpu"="2" \
---set nims.nemotron.resources.requests."nvidia.com/gpu"="2"
+--set nims.nemotron35.resources.limits."nvidia.com/gpu"="2" \
+--set nims.nemotron35.resources.requests."nvidia.com/gpu"="2"
 ```
 
 ## Prerequisites
@@ -257,9 +257,9 @@ Serves the LLM and the VLM from outside the cluster, so neither needs a local GP
 mode it is an OpenAI-compatible proxy that forwards VLM calls to the remote endpoint rather than
 loading a local checkpoint. See [GPU Requirements](#with-remote-llm-and-vlm-endpoints-option-b).
 
-The LLM and the evaluation judge can use the hosted `nvidia/nvidia-nemotron-nano-9b-v2` on
-`https://integrate.api.nvidia.com`, whose free endpoint NVIDIA has scheduled for deprecation on
-**2026-08-25** — after that date, pick a current model from the
+The LLM and the evaluation judge can use the hosted `nvidia/nemotron-3.5-lightning-30b-a3b` on
+`https://integrate.api.nvidia.com`, whose hosted model catalogue changes over time — if the endpoint stops serving this
+model, pick a current model from the
 [API catalog](https://build.nvidia.com) or point `llmBaseUrl` at your own LLM as well.
 **The VLM must be an endpoint you provide**: the Cosmos3 VLM
 (`nvidia/cosmos3-nano-reasoner`) has no working hosted endpoint on `https://integrate.api.nvidia.com`,
@@ -309,7 +309,7 @@ helm upgrade --install vss-search ./dev-profile-search \
 ```
 
 > **Option B note:** `values-build-endpoint.yaml` disables local Nemotron and Cosmos3 NIM
-> deployments (`nims.nemotron.enabled=false`, `nims.cosmos3.enabled=false`). Its `global.vlmBaseUrl`
+> deployments (`nims.nemotron35.enabled=false`, `nims.cosmos3.enabled=false`). Its `global.vlmBaseUrl`
 > and `global.vlmName` defaults still point at Cosmos3 on NVIDIA Build, which does not serve that
 > model — override them as shown above.
 

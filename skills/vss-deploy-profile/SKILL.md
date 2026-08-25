@@ -37,7 +37,7 @@ Match the user's request to a profile, then load that profile's reference for si
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
 
-**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
+**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). All three edge platforms run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service (raw vLLM) on port `30081`; `dev-profile.sh` selects it automatically.
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
 
@@ -116,9 +116,10 @@ for the remediation tree.
 leftovers). Use remote LLM/VLM only when (1) the user asked for / supplied a
 remote endpoint, (2) local sizing can't fit the selected models and the user
 agrees, or (3) an edge recipe needs a standalone local service VSS treats as
-`remote` (e.g. DGX Spark Nano 9B on `localhost:30081`). If an endpoint var is
-set but the user didn't ask for remote, surface it in Step 1 and ask — never
-silently deploy remote because a var happened to exist.
+`remote` (e.g. the standalone small-model vLLM alternative in `edge.md`
+on `localhost:30081`). If an endpoint var is set but the user didn't ask
+for remote, surface it in Step 1 and ask — never silently deploy remote
+because a var happened to exist.
 
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
 

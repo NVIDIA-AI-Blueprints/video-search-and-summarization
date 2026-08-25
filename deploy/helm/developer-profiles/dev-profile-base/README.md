@@ -26,7 +26,7 @@ With default **`values.yaml`** and typical overrides (LLM NIM + RT-VLM + **`vss-
 | Workload | GPU |
 |----------|-----|
 | `vss-rtvi-vlm` (RT-VLM) | 1 |
-| `nvidia-nemotron-nano-9b-v2` (NIM) | 1 |
+| `nemotron-35-lightning-30b-a3b` (NIM) | 1 |
 | `vss-vios-streamprocessing` | 1 |
 | **Total** | **3** |
 
@@ -81,9 +81,9 @@ Create `values-base.yaml` and set the following (all are required for a typical 
 | **`global.externalScheme`** | `http` or `https` (defaults to `http` in templates if unset). |
 | **`global.externalHost`** | Hostname or IP the browser uses (e.g. `vss.YOUR_IP.nip.io`). Required for a typical external install when subchart URL fields are omitted. |
 | **`global.externalPort`** | Port segment in generated URLs; use **`""`** so URLs omit **`:port`** when using default 80/443. Set only for non-default ports (e.g. **`8080`**). |
-| **`llmNameSlug`** | Slug for the in-cluster **LLM** service (default **`nvidia-nemotron-nano-9b-v2`**, from shared **`helm/services/nims`**). Keep **`agent.vss-agent.llmName`** aligned with the same NGC model id. |
+| **`llmNameSlug`** | Slug for the in-cluster **LLM** service (default **`nemotron-35-lightning-30b-a3b`**, from shared **`helm/services/nims`**). Keep **`agent.vss-agent.llmName`** aligned with the same NGC model id. |
 | **`vlmNameSlug`** | Use **`none`** for the default base flow; RT-VLM loads the integrated checkpoint instead of deploying a VLM NIM subchart. Keep **`global.vlmName`** aligned with the RT-VLM `/v1/models` basename. |
-| **`nims`** | Shared umbrella **`helm/services/nims`**: **`nims.enabled`**, **`nims.gpuType`**, **`nims.nemotron`**, **`nims.cosmos3`** (**`nims.cosmos3.enabled`** is **`false`** by default because base uses RT-VLM), **`nims.global`**. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
+| **`nims`** | Shared umbrella **`helm/services/nims`**: **`nims.enabled`**, **`nims.gpuType`**, **`nims.nemotron35`**, **`nims.cosmos3`** (**`nims.cosmos3.enabled`** is **`false`** by default because base uses RT-VLM), **`nims.global`**. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
 | **`rtvi`** | Umbrella for **`vss-rtvi-vlm`**. Default base enables RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint (`modelPath=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`). |
 | **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) base URLs for LLM and VLM when they are **not** deployed by this chart (OpenAI-compatible or NIM endpoints reachable from **vss-agent** pods). Use with **`nims.enabled: false`**. Leave **`""`** when serving models from in-cluster **NIM** / **RT-VLM** subcharts. |
 | **`global.llmName`** / **`global.vlmName`** (remote) | Model identifiers the agent should use; **`global.vlmName`** must match the RT-VLM `/v1/models` basename (default **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**). |
@@ -103,7 +103,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | Key / group | Default | Description |
 |-------------|---------|-------------|
 | **`mode`** | `""` | "" for dev-profile-base chart. |
-| **`llmNameSlug`** | `""` | In-cluster LLM service slug (default **`nvidia-nemotron-nano-9b-v2`**). Set in **`values-base.yaml`** if you change models. |
+| **`llmNameSlug`** | `""` | In-cluster LLM service slug (default **`nemotron-35-lightning-30b-a3b`**). Set in **`values-base.yaml`** if you change models. |
 | **`vlmNameSlug`** | `none` | RT-VLM loads the integrated checkpoint by default instead of deploying a VLM NIM subchart. |
 | **`ngc.createSecrets`** | `true` | When **`true`** and **`ngc.apiKey`** is set, the chart creates two secrets (see **`templates/ngc-secrets.yaml`**): **`ngc-api`** (Opaque: **`NGC_API_KEY`** / **`NGC_CLI_API_KEY`**) for NGC API access, and **`ngc-secret`** (**dockerconfigjson**) for pulling images from nvcr.io. Set **`false`** only if you create both secrets yourself; then set **`global.ngcApiSecret`** and **`global.imagePullSecrets`** to match your names. |
 | **`ngc.apiKey`** | `""` | With **`ngc.createSecrets: true`**, set your NGC API key here; it backs both created secrets. With **`createSecrets: false`**, omit (or leave empty) and install the Opaque + docker secrets out of band; align **`global.*`** below with those objects. Optional: **`ngc.apiKeySecretName`** / **`ngc.dockerSecretName`** rename the generated secrets—update **`global.ngcApiSecret.name`** and **`global.imagePullSecrets`** accordingly. |
@@ -115,7 +115,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`global.storageClass`** | unset in default **`values.yaml`** | Set in **`values-base.yaml`**; used to create PVC. |
 | **`global.llmBaseUrl`** | `""` | Remote LLM API base URL for **vss-agent** when models are not in-cluster (use with **`nims.enabled: false`**). Must be reachable from pods in the release namespace (cluster DNS, **`NodePort`**, LB, or routable IP). |
 | **`global.vlmBaseUrl`** | `""` | Optional external VLM service root, without a trailing `/v1`. When set, keep RT-VLM enabled and set `rtvi.vss-rtvi-vlm.useSharedNim=true` so RT-VLM proxies that endpoint. |
-| **`global.llmName`** | e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`** | Catalog-style model id passed to the agent; must match the model served at **`global.llmBaseUrl`**. |
+| **`global.llmName`** | e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`** | Catalog-style model id passed to the agent; must match the model served at **`global.llmBaseUrl`**. |
 | **`global.vlmName`** | e.g. **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | RT-VLM `/v1/models` basename (or remote model id); must match the model served at **`global.vlmBaseUrl`** / RT-VLM. |
 | **`vios.vstStorage.createSharedPvcs`** | `true` | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **`StorageClass`** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**—pods use emptyDir or per-subchart PVCs depending on **`vios.vss-vios-*`** persistence. **`false`** avoids disk provisioning but **uploaded video and VST cache are lost** when pods are rescheduled if nothing else persists them. |
 | **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). |
@@ -145,7 +145,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`agent.enabled`** | `true` | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
 | **`agent.vss-agent.enabled`** | `true` | Set **`false`** to disable the **vss-agent** deployment only. |
 | **`agent.vss-agent.mountConfigEdge`** / **`mountEvalOutput`** | `true` / `true` | Parent **ConfigMap** includes **`config_edge.yml`** when the file exists; **`/vss-agent/eval-output`** emptyDir when **`mountEvalOutput`** is **`true`**. Agent YAML lives at **`configs/vss-agent/config.yml`** (flat path, no profile subfolders). |
-| **`agent.vss-agent.llmName`** | NGC model id (e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`**) | NGC catalog id for the LLM; must match the model deployed under **`nims`**. |
+| **`agent.vss-agent.llmName`** | NGC model id (e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`**) | NGC catalog id for the LLM; must match the model deployed under **`nims`**. |
 | **`agent.vss-agent.vlmName`** | RT-VLM model id (e.g. **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**) | Must match the model advertised by **`vss-rtvi-vlm`** `/v1/models`. |
 | **`agent.vss-agent.evalLlmJudgeName`** | `""` | Optional eval judge model id. When empty, the **vss-agent** subchart defaults to **`llmName`**. |
 | **`agent.vss-agent.evalLlmJudgeBaseUrl`** | `""` | Optional base URL for the eval judge endpoint. When empty, the subchart defaults alongside **`llmBaseUrl`**. |
@@ -165,8 +165,8 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vss-agent-ui.extraEnv`** | `[]` | List of **`{ name, value }`** appended last in the container **`env`** block (override or add any **`NEXT_PUBLIC_*`** without a ConfigMap). |
 | **`vss-agent-ui.staticEnvConfigMapName`** | `""` | Optional **`envFrom`** **`ConfigMap`** name (you supply the **`ConfigMap`**). **`extraEnvFrom`** is also supported on the subchart. |
 | **`nims.enabled`** | `true` | Master switch for the **`nims`** umbrella (**`helm/services/nims`**). When **`false`**, no **NIM** **`NIMService`** / **`NIMCache`** objects are installed. Use **`false`** with **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`** and **`global.vlmName`** for remote-only LLM/VLM. |
-| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for **`nemotron`** / **`cosmos3`** **`nim-env`** ConfigMaps (**`H100`**, **`L40S`**, **`RTXPRO6000BW`**). |
-| **`nims.nemotron` / `nims.cosmos3`** | see **`values.yaml`** | Per-model **`enabled`**, images, resources, storage, and **`env`**. Default base enables **`nemotron`** only; **`cosmos3`** stays off because RT-VLM serves the VLM. |
+| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for **`nemotron35`** / **`cosmos3`** **`nim-env`** ConfigMaps (**`H100`**, **`L40S`**, **`RTXPRO6000BW`**). |
+| **`nims.nemotron35` / `nims.cosmos3`** | see **`values.yaml`** | Per-model **`enabled`**, images, resources, storage, and **`env`**. Default base enables **`nemotron35`** only; **`cosmos3`** stays off because RT-VLM serves the VLM. |
 
 ### Remote LLM and VLM
 
@@ -174,7 +174,7 @@ When LLM and VLM run **outside** this release, disable bundled NIM workloads and
 
 - **`nims.enabled`**: **`false`** — skips **NIM** workloads and related **NIMOperator** objects.
 - **`global.llmBaseUrl`** / **`global.vlmBaseUrl`**: service-root URLs reachable from pods, without a trailing `/v1`.
-- **`global.llmName`** / **`global.vlmName`**: identifiers for those models (e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`**, **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**), aligned with the remote service.
+- **`global.llmName`** / **`global.vlmName`**: identifiers for those models (e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`**, **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**), aligned with the remote service.
 - **`rtvi.vss-rtvi-vlm.useSharedNim`**: **`true`** — keeps RT-VLM in the request path and makes it proxy the external VLM instead of loading the integrated checkpoint.
 
 Do not disable `rtvi` for the normal migration path. The agent remains configured with `VLM_MODEL_TYPE=rtvi` and calls the in-cluster RT-VLM service.
@@ -207,7 +207,7 @@ export EXTERNAL_HOST='<EXTERNAL_HOST_IP>'
 helm upgrade --install vss-base ./dev-profile-base \
   -f dev-profile-base/values-base.yaml \
   -n vss-base --create-namespace \
-  --set llmNameSlug=nvidia-nemotron-nano-9b-v2 \
+  --set llmNameSlug=nemotron-35-lightning-30b-a3b \
   --set vlmNameSlug=none \
   --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
   --set global.externalHost=vss.$EXTERNAL_HOST.nip.io \
@@ -227,7 +227,7 @@ helm upgrade --install vss-base ./dev-profile-base \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
-  --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
+  --set-string global.llmName="nvidia/nemotron-3.5-lightning-30b-a3b" \
   --set-string global.vlmName="nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
 ```

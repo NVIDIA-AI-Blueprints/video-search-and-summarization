@@ -38,7 +38,7 @@ global:
   # Remote NIM: one place for vss-agent (same pattern as dev-profile-lvs). Override with agent.vss-agent.llmBaseUrl / llmName if needed.
   llmBaseUrl: ""
   vlmBaseUrl: ""
-  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 infra:

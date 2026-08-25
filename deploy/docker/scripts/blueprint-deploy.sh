@@ -111,12 +111,21 @@ function warehouse_num_streams() {
 function get_llm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
-    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
-    nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
     nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
-    nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
-    openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
+    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Models that used to ship with the blueprint. Returns a migration message for a
+# removed model name, or an empty string for a name that was never bundled. Kept
+# so a stale --llm fails loudly instead of resolving to an empty slug, which
+# Compose renders as zero LLM services with exit 0 (a silent no-LLM deploy).
+function get_removed_llm_message() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
+      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, or nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 on edge hardware (DGX-SPARK / AGX-THOR / IGX-THOR)." ;;
     *) echo "" ;;
   esac
 }
@@ -297,7 +306,7 @@ function usage() {
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
-  echo "  --llm                           LLM model (e.g. nvidia/nvidia-nemotron-nano-9b-v2)"
+  echo "  --llm                           LLM model (e.g. nvidia/nemotron-3.5-lightning-30b-a3b)"
   echo "  --vlm                           VLM model (e.g. nvidia/cosmos-reason2-8b)"
   echo "  --llm-device-id                 GPU device ID for LLM"
   echo "  --vlm-device-id                 GPU device ID for VLM"
@@ -851,8 +860,29 @@ function state_up() {
       set_env_var "LLM_NAME" "${_llm_name}"
       set_env_var "LLM_NAME_SLUG" "none"
     elif [[ -n "${llm}" ]]; then
-      set_env_var "LLM_NAME" "${llm}"
-      set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
+      if [[ "${_llm_mode}" == "remote" ]]; then
+        # A remote endpoint serves whatever model id it likes, so the local
+        # allowlist must not apply. LLM_MODE=remote can come from the profile env
+        # files rather than --use-remote-llm, in which case llm_base_url is empty
+        # and this branch, not the one above, is the one taken.
+        set_env_var "LLM_NAME" "${llm}"
+        set_env_var "LLM_NAME_SLUG" "none"
+      else
+        local _llm_slug
+        _llm_slug="$(get_llm_slug "${llm}")"
+        if [[ -z "${_llm_slug}" ]]; then
+          local _removed_llm
+          _removed_llm="$(get_removed_llm_message "${llm}")"
+          if [[ -n "${_removed_llm}" ]]; then
+            echo "[ERROR] ${_removed_llm}"
+          else
+            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+          fi
+          exit 1
+        fi
+        set_env_var "LLM_NAME" "${llm}"
+        set_env_var "LLM_NAME_SLUG" "${_llm_slug}"
+      fi
     fi
     if [[ "${_vlm_mode}" == "remote" ]] && [[ -n "${vlm_base_url}" ]]; then
       local _vlm_name

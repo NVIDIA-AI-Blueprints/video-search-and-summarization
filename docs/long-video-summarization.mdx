@@ -181,7 +181,7 @@ ES_PORT=9200
 # LLM (external NIM)
 LVS_LLM_HOST=<llm-nim-host-ip>
 LVS_LLM_PORT=8002
-LVS_LLM_MODEL_NAME=openai/gpt-oss-20b
+LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
 LVS_DATABASE_BACKEND=elasticsearch_db
 
 # RTVI-VLM Integration
@@ -430,7 +430,7 @@ VSS_LOG_LEVEL=DEBUG
 
 # LLM Configuration
 # Update these to point to your external LLM NIM services
-LVS_LLM_MODEL_NAME=openai/gpt-oss-20b
+LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
 LVS_LLM_BASE_URL=http://<llm-nim-host-ip>:8002/v1
 
 # Database Selection
@@ -1183,7 +1183,7 @@ Complete list of available environment variables:
 **LLM Configuration**
 
 * `LVS_LLM_HOST`, `LVS_LLM_PORT`: LLM NIM host and port
-* `LVS_LLM_MODEL_NAME`: LLM model name (e.g., `openai/gpt-oss-20b`)
+* `LVS_LLM_MODEL_NAME`: LLM model name (e.g., `nvidia/nemotron-3.5-lightning-30b-a3b`)
 * `LVS_LLM_BASE_URL`: LLM API base URL
 * `LVS_ENABLE_LLM_MERGE`: Use the LLM to merge adjacent duplicate events into natural text (default: false). See [Event Merging](/long-video-summarization#event-merging) for details and examples.
 
