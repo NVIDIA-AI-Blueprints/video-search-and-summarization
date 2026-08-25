@@ -37,6 +37,13 @@ struct DashPackagerConfig
     // timestamps and leave this off.
     bool synthesizeTimestamps = false;
     double sourceFrameRate = 30.0;
+    // Live composition.  A wall is composed in real time but its frames reach
+    // the packager without a timestamp, and counting them instead turns any
+    // frame that goes missing on the way into a timeline that runs slow - the
+    // live edge then falls behind real time for as long as the session lasts.
+    // Stamping arrival keeps media time and wall time together whatever is
+    // lost, so a gap costs a dropped frame rather than a growing deficit.
+    bool useArrivalTimestamps = false;
     // Replay only.  Recordings are selected by whole file, so the first file
     // usually starts before the requested window; frames earlier than this are
     // dropped so playback begins where the caller asked.
@@ -90,6 +97,8 @@ private:
     {
         GstClockTime baseline = 0;
         bool baselineValid = false;
+        std::chrono::steady_clock::time_point arrivalOrigin{};
+        bool arrivalOriginValid = false;
         GstClockTime lastRaw = 0;
         bool lastRawValid = false;
         bool synthesize = false;
