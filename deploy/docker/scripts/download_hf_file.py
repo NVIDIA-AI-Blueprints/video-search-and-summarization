@@ -8,23 +8,57 @@ from __future__ import annotations
 import argparse
 import os
 from importlib.metadata import PackageNotFoundError, version
+from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlsplit
 
 SUPPORTED_HF_HUB_VERSION = "0.36.2"
-HF_TOKEN_ENV_VARS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
+HF_AUTH_ENV_VARS = (
+    "HF_TOKEN",
+    "HUGGING_FACE_HUB_TOKEN",
+    "HUGGINGFACE_TOKEN",
+    "HF_TOKEN_PATH",
+)
+HF_HTTP_APPROVAL_ENV = "HF_HUB_APPROVED_HTTP_ORIGINS"
 
 
 def _hf_token_from_environment() -> str | None:
-    """Return the Hub token using huggingface_hub's environment precedence."""
-    return next(
-        (
-            token
-            for variable in HF_TOKEN_ENV_VARS
-            if (token := os.environ.get(variable, "").strip())
-        ),
-        None,
-    )
+    for name in HF_AUTH_ENV_VARS[:3]:
+        if token := os.environ.get(name):
+            return token
+    return None
+
+
+def _has_hf_auth_configuration() -> bool:
+    if any(os.environ.get(name) for name in HF_AUTH_ENV_VARS):
+        return True
+    hf_home = Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface")
+    return any((hf_home / name).is_file() for name in ("token", "stored_tokens"))
+
+
+def _http_endpoint_is_approved(endpoint: str) -> bool:
+    for candidate in os.environ.get(HF_HTTP_APPROVAL_ENV, "").split(","):
+        candidate = candidate.strip().rstrip("/")
+        if not candidate:
+            continue
+        parsed = urlsplit(candidate)
+        try:
+            address = ip_address(parsed.hostname)
+        except ValueError:
+            continue
+        if (
+            parsed.scheme == "http"
+            and parsed.netloc
+            and not parsed.username
+            and not parsed.password
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+            and (address.is_private or address.is_loopback or address.is_link_local)
+            and candidate == endpoint
+        ):
+            return True
+    return False
 
 
 def main() -> int:
@@ -51,7 +85,6 @@ def main() -> int:
             f"expected {SUPPORTED_HF_HUB_VERSION}"
         )
 
-    token = _hf_token_from_environment()
     endpoint = os.environ.get("HF_ENDPOINT") or None
     if endpoint:
         parsed = urlsplit(endpoint)
@@ -67,11 +100,17 @@ def main() -> int:
             parser.error(
                 "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
             )
-        if parsed.scheme == "http" and token:
-            parser.error(
-                "HF_ENDPOINT must use HTTPS when a Hugging Face token is configured"
-            )
         endpoint = endpoint.rstrip("/")
+        if parsed.scheme == "http":
+            if not _http_endpoint_is_approved(endpoint):
+                parser.error(
+                    "HTTP HF_ENDPOINT requires an explicitly approved host-cache origin"
+                )
+            if _has_hf_auth_configuration():
+                parser.error(
+                    "Hugging Face authentication is not permitted with HTTP HF_ENDPOINT"
+                )
+            os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
         os.environ["HF_ENDPOINT"] = endpoint
     else:
         # An empty Compose expansion overrides huggingface_hub's official
@@ -95,8 +134,11 @@ def main() -> int:
         revision=args.revision,
         filename=args.filename,
         endpoint=endpoint,
-        # Never allow cached/implicit credentials on a plaintext public cache.
-        token=token if not endpoint or endpoint.startswith("https://") else False,
+        token=(
+            False
+            if endpoint and endpoint.startswith("http://")
+            else _hf_token_from_environment()
+        ),
         cache_dir=os.environ["HF_HOME"],
         local_dir=local_dir,
     )

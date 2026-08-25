@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 from importlib.metadata import PackageNotFoundError, version
+from ipaddress import ip_address
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
@@ -28,24 +29,60 @@ import requests.exceptions
 from common.logger import logger
 
 SUPPORTED_HF_HUB_VERSION = "0.36.2"
-HF_TOKEN_ENV_VARS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
 HF_MODEL_SPEC = re.compile(
     r"^(?P<repo>[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)"
     r"@(?P<revision>[0-9a-f]{40,64})$"
 )
 HF_REVISION_MARKER = ".hf-revision"
+HF_AUTH_ENV_VARS = (
+    "HF_TOKEN",
+    "HUGGING_FACE_HUB_TOKEN",
+    "HUGGINGFACE_TOKEN",
+    "HF_TOKEN_PATH",
+)
+HF_HTTP_APPROVAL_ENV = "HF_HUB_APPROVED_HTTP_ORIGINS"
 
 
 def _hf_token_from_environment() -> str | None:
-    """Return the Hub token using huggingface_hub's environment precedence."""
-    return next(
-        (
-            token
-            for variable in HF_TOKEN_ENV_VARS
-            if (token := os.environ.get(variable, "").strip())
-        ),
-        None,
+    for name in HF_AUTH_ENV_VARS[:3]:
+        if token := os.environ.get(name):
+            return token
+    return None
+
+
+def _has_hf_auth_configuration() -> bool:
+    if any(os.environ.get(name) for name in HF_AUTH_ENV_VARS):
+        return True
+    hf_home = os.environ.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
+    return any(
+        os.path.isfile(os.path.join(hf_home, name))
+        for name in ("token", "stored_tokens")
     )
+
+
+def _http_endpoint_is_approved(endpoint: str) -> bool:
+    for candidate in os.environ.get(HF_HTTP_APPROVAL_ENV, "").split(","):
+        candidate = candidate.strip().rstrip("/")
+        if not candidate:
+            continue
+        parsed = urlsplit(candidate)
+        try:
+            address = ip_address(parsed.hostname)
+        except ValueError:
+            continue
+        if (
+            parsed.scheme == "http"
+            and parsed.netloc
+            and not parsed.username
+            and not parsed.password
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+            and (address.is_private or address.is_loopback or address.is_link_local)
+            and candidate == endpoint
+        ):
+            return True
+    return False
 
 
 def _validate_hf_endpoint(endpoint: str | None) -> str | None:
@@ -65,11 +102,18 @@ def _validate_hf_endpoint(endpoint: str | None) -> str | None:
         raise ValueError(
             "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
         )
-    if parsed.scheme == "http" and _hf_token_from_environment():
-        raise ValueError(
-            "HF_ENDPOINT must use HTTPS when a Hugging Face token is configured"
-        )
-    return endpoint.rstrip("/")
+    endpoint = endpoint.rstrip("/")
+    if parsed.scheme == "http":
+        if not _http_endpoint_is_approved(endpoint):
+            raise ValueError(
+                "HTTP HF_ENDPOINT requires an explicitly approved host-cache origin"
+            )
+        if _has_hf_auth_configuration():
+            raise ValueError(
+                "Hugging Face authentication is not permitted with HTTP HF_ENDPOINT"
+            )
+        os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+    return endpoint
 
 
 def _require_supported_hf_client() -> None:
@@ -102,6 +146,13 @@ def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
         )
     repo_id = match.group("repo")
     revision = match.group("revision")
+    endpoint = _validate_hf_endpoint(os.environ.get("HF_ENDPOINT"))
+    if endpoint:
+        os.environ["HF_ENDPOINT"] = endpoint
+    else:
+        # An empty Compose expansion overrides huggingface_hub's official
+        # default during import even when endpoint=None is passed below.
+        os.environ.pop("HF_ENDPOINT", None)
     model_name = repo_id.rsplit("/", 1)[-1]
     model_dir = os.path.join(download_path_prefix, model_name)
     revision_marker = os.path.join(model_dir, HF_REVISION_MARKER)
@@ -123,14 +174,6 @@ def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
         logger.info(f"Using model cached at {model_dir}")
         return model_dir
 
-    endpoint = _validate_hf_endpoint(os.environ.get("HF_ENDPOINT"))
-    token = _hf_token_from_environment()
-    if endpoint:
-        os.environ["HF_ENDPOINT"] = endpoint
-    else:
-        # An empty Compose expansion overrides huggingface_hub's official
-        # default during import even when endpoint=None is passed below.
-        os.environ.pop("HF_ENDPOINT", None)
     _require_supported_hf_client()
     # These must be set before importing huggingface_hub. Xet/CAS would bypass
     # an HF_ENDPOINT resolve cache.
@@ -157,11 +200,11 @@ def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
                 repo_id=repo_id,
                 revision=revision,
                 endpoint=endpoint,
-                # Explicitly disable cached/implicit credentials for the
-                # intentionally supported plaintext public-cache mode.
-                token=token
-                if not endpoint or endpoint.startswith("https://")
-                else False,
+                token=(
+                    False
+                    if endpoint and endpoint.startswith("http://")
+                    else _hf_token_from_environment()
+                ),
                 cache_dir=hf_home,
                 local_dir=staging_dir,
             )
