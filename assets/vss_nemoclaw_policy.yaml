@@ -157,6 +157,18 @@ network_policies:
       - { path: /root/.local/bin/uv }
       - { path: /sandbox/.local/bin/uv }
 
+  npm:
+    name: npm
+    endpoints:
+      - host: registry.npmjs.org
+        port: 443
+        access: full
+    # npm is a Node script, so OpenShell sees the Node runtime on the
+    # kernel-trusted /proc/<pid>/exe rather than an npm binary.
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+
   slack:
     name: slack
     endpoints:
