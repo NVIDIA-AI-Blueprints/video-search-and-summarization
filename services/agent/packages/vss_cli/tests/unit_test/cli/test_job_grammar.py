@@ -184,11 +184,51 @@ def test_since_only_advertises_what_it_accepts(tmp_path, monkeypatch: pytest.Mon
     assert "Traceback" not in result.output
 
 
-def test_read_verbs_take_the_index_they_read_from() -> None:
-    """Reads and writes have to be able to name the same index."""
+def test_read_verbs_do_not_expose_static_memory_index() -> None:
+    """The authoritative index is configured once, not selected by a read."""
     for verb in ("status", "get", "list"):
         params = _Group().cli().commands[verb].params
-        assert "--memory-index" in {opt for param in params for opt in param.opts}, verb
+        assert "--memory-index" not in {opt for param in params for opt in param.opts}, verb
+
+
+def test_memory_builder_uses_configured_authoritative_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vss_cli import memory as memory_mod
+    import vss_core.memory as core_memory
+
+    built: list[tuple[str, str]] = []
+
+    def build_memory_service(*, es_endpoint: str, memory_index: str) -> object:
+        built.append((es_endpoint, memory_index))
+        return object()
+
+    monkeypatch.setattr(core_memory, "build_memory_service", build_memory_service)
+    deployment = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
+        memory=config_mod.MemoryConfig(index="tenant-memory"),
+    )
+    facade = memory_mod.build(deployment)
+    assert facade.index == "tenant-memory"
+    assert built == [("http://h:7777/elasticsearch", "tenant-memory")]
+
+
+@pytest.mark.parametrize(
+    "memory_config",
+    [
+        None,
+        config_mod.MemoryConfig(enabled=False, persist_by_default=False),
+    ],
+)
+def test_memory_builder_requires_enabled_static_configuration(memory_config: config_mod.MemoryConfig | None) -> None:
+    from vss_cli import memory as memory_mod
+
+    deployment = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
+        memory=memory_config,
+    )
+    with pytest.raises(memory_mod.MemoryUnavailable):
+        memory_mod.build(deployment)
 
 
 # --------------------------------------------------------------------------

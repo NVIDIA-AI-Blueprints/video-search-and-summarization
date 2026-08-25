@@ -82,6 +82,13 @@ def test_memory_exposes_store_verbs_not_job_grammar() -> None:
     assert all(verb not in result.output for verb in ("run", "status", "list"))
 
 
+def test_memory_verbs_do_not_expose_static_index_selection() -> None:
+    for verb in ("upsert", "get", "query", "events"):
+        result = _invoke(verb, "--help")
+        assert result.exit_code == 0, result.output
+        assert "--memory-index" not in result.output
+
+
 def test_upsert_get_parent_and_child_round_trip() -> None:
     parent = _parent()
     child = _event()

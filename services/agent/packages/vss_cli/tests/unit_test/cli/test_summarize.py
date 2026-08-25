@@ -290,7 +290,7 @@ def test_endpoint_flags_are_gone() -> None:
     per-call deployment discovery the config layer replaced.
     """
     flags = _run_flags()
-    for gone in ("--backend-url", "--es-endpoint", "--embedding-endpoint", "--embedding-model"):
+    for gone in ("--backend-url", "--es-endpoint", "--embedding-endpoint", "--embedding-model", "--memory-index"):
         assert gone not in flags
 
 

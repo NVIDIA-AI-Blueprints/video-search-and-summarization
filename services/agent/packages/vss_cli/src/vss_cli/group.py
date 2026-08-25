@@ -297,7 +297,7 @@ class CommandGroup(ABC):
         the same process.
         """
         if ctx.memory is None:
-            ctx.memory = memory_mod.build(ctx.deployment, index=ctx.extra.get("memory_index"))
+            ctx.memory = memory_mod.build(ctx.deployment)
         return ctx.memory
 
     def status(self, job_id: str, ctx: Context) -> Result:
@@ -385,14 +385,13 @@ class CommandGroup(ABC):
         owner = self
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
+            ctx = context_from(values)
             emit(guarded(lambda: fn(values["job_id"], ctx)), ctx)
 
         return click.Command(
             name=verb,
             params=[
                 click.Option(["--job-id"], required=True),
-                memory_mod.index_option(),
                 *params_mod.shared_options(),
             ],
             callback=callback,
@@ -429,13 +428,13 @@ class CommandGroup(ABC):
         )
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
+            ctx = context_from(values)
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
             emit(guarded(lambda: owner.list(selected, ctx)), ctx)
 
         return click.Command(
             name="list",
-            params=[*filters, memory_mod.index_option(), *params_mod.shared_options()],
+            params=[*filters, *params_mod.shared_options()],
             callback=callback,
             short_help=f"List recent {owner.name} jobs, including in-flight.",
         )
@@ -467,14 +466,6 @@ def context_from(values: dict[str, Any]) -> Context:
         pretty=values.get("pretty"),
         log_level=values.get("log_level") or "WARNING",
     )
-
-
-def _memory_context(values: dict[str, Any]) -> Context:
-    """A Context for the read verbs, carrying the index they read from."""
-    ctx = context_from(values)
-    if values.get("memory_index"):
-        ctx.extra["memory_index"] = values["memory_index"]
-    return ctx
 
 
 def _completion_marker(result: Result, group: str) -> dict[str, Any]:

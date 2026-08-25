@@ -33,10 +33,10 @@ def set_test_memory(memory: Memory | None) -> None:
     _TEST_MEMORY = memory
 
 
-def _memory(memory_index: str | None) -> Memory:
+def _memory() -> Memory:
     if _TEST_MEMORY is not None:
         return _TEST_MEMORY
-    return memory_mod.build(config_mod.load(), index=memory_index)
+    return memory_mod.build(config_mod.load())
 
 
 def _emit(value: Any, *, pretty: bool) -> None:
@@ -64,13 +64,8 @@ def _read_failure(error: BaseException) -> None:
     raise error
 
 
-def _store_options(function: Any) -> Any:
+def _output_options(function: Any) -> Any:
     function = click.option("--pretty", is_flag=True, help="Indent JSON output.")(function)
-    function = click.option(
-        "--memory-index",
-        default=None,
-        help="Elasticsearch index holding unified memory. Defaults to the module's own.",
-    )(function)
     return function
 
 
@@ -81,8 +76,8 @@ def memory() -> None:
 
 @memory.command("upsert")
 @click.option("--json", "json_payload", default=None, help="Inline JSON record. Reads stdin when omitted.")
-@_store_options
-def upsert(json_payload: str | None, memory_index: str | None, pretty: bool) -> None:
+@_output_options
+def upsert(json_payload: str | None, pretty: bool) -> None:
     """Upsert one parent or child unified-memory record."""
     raw = json_payload if json_payload is not None else sys.stdin.read()
     try:
@@ -96,7 +91,7 @@ def upsert(json_payload: str | None, memory_index: str | None, pretty: bool) -> 
         _fail("invalid input", error, Exit.INVALID_INPUT)
 
     try:
-        stored = _memory(memory_index).service.upsert(record)
+        stored = _memory().service.upsert(record)
     except Exception as error:
         _read_failure(error)
         raise AssertionError("unreachable") from error
@@ -107,19 +102,18 @@ def upsert(json_payload: str | None, memory_index: str | None, pretty: bool) -> 
 @click.option("--job-id", required=True)
 @click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
 @click.option("--record-id")
-@_store_options
+@_output_options
 def get_record(
     job_id: str,
     record_type: str | None,
     record_id: str | None,
-    memory_index: str | None,
     pretty: bool,
 ) -> None:
     """Fetch a parent by job id or a child by its public identity."""
     if (record_type is None) != (record_id is None):
         raise click.UsageError("--record-type and --record-id must be supplied together")
     try:
-        service = _memory(memory_index).service
+        service = _memory().service
         record = (
             service.get_record(job_id, record_type, record_id)
             if record_type is not None and record_id is not None
@@ -144,7 +138,7 @@ def get_record(
 @click.option("--until", help="Upper ISO-8601 time bound.")
 @click.option("--time-field", type=click.Choice(("created_at", "window")), default="created_at", show_default=True)
 @click.option("--limit", type=click.IntRange(1), default=20, show_default=True)
-@_store_options
+@_output_options
 def query_records(
     text: str | None,
     job_id: str | None,
@@ -158,7 +152,6 @@ def query_records(
     until: str | None,
     time_field: str,
     limit: int,
-    memory_index: str | None,
     pretty: bool,
 ) -> None:
     """Query parent and child records across command groups."""
@@ -179,7 +172,7 @@ def query_records(
             time_field=time_field,
             limit=limit,
         )
-        records = _memory(memory_index).service.query(query)
+        records = _memory().service.query(query)
     except ValueError as error:
         _fail("invalid input", error, Exit.INVALID_INPUT)
     except Exception as error:
@@ -197,7 +190,7 @@ def query_records(
 @click.option("--window", help="Reserved duration window; currently unsupported.")
 @click.option("--match")
 @click.option("--limit", type=click.IntRange(1), default=50, show_default=True)
-@_store_options
+@_output_options
 def events(
     asset_id: str,
     start_time: str | None,
@@ -207,12 +200,11 @@ def events(
     window: str | None,
     match: str | None,
     limit: int,
-    memory_index: str | None,
     pretty: bool,
 ) -> None:
     """Recall persisted event, incident, and search-hit child records."""
     try:
-        rows = _memory(memory_index).service.events(
+        rows = _memory().service.events(
             asset_id=asset_id,
             start_time=start_time,
             end_time=end_time,

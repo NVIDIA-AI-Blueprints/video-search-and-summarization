@@ -248,10 +248,6 @@ class SummarizeOptions(BaseModel):
         ge=1,
         description="HTTP timeout for the (long-running) summarization request.",
     )
-    memory_index: str | None = Field(
-        None,
-        description="Elasticsearch index for unified memory. Defaults to the memory module's own.",
-    )
 
 
 def _ulid() -> str:

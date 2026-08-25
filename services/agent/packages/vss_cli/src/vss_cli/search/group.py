@@ -232,10 +232,6 @@ class SearchPersistOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     persist: bool = Field(True, description="Persist the search job and hits to unified memory.")
-    memory_index: str | None = Field(
-        None,
-        description="Elasticsearch index for unified memory. Defaults to the memory module's own.",
-    )
 
 
 def _ulid() -> str:
@@ -448,8 +444,6 @@ class SearchGroup(CommandGroup):
         # Distinguish unset (default persist) from explicit ``--persist``.
         explicit_persist = "persist" in ctx.extra and bool(ctx.extra.get("persist"))
         want_persist = persist_options.persist
-        if persist_options.memory_index:
-            ctx.extra["memory_index"] = persist_options.memory_index
 
         memory: memory_mod.Memory | None = None
         if want_persist:

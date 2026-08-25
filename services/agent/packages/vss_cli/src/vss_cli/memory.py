@@ -160,16 +160,26 @@ class Memory:
         return record
 
 
-def build(deployment: config_mod.Deployment | None, *, index: str | None = None) -> Memory:
-    """Open the memory index the deployment records, or raise naming the fix.
-
-    The endpoint is never a flag: it is what Elasticsearch reported to ``vss
-    configure``. Only the index name stays caller-supplied, because no backend
-    advertises which of its indices holds unified memory.
-    """
+def build(deployment: config_mod.Deployment | None) -> Memory:
+    """Open the statically configured authoritative memory store."""
     if deployment is None:
         raise MemoryUnavailable(
             "cannot reach unified memory: no deployment is configured. Run `vss configure --base-url <origin>` first."
+        )
+    memory_config = deployment.memory
+    if memory_config is None:
+        raise MemoryUnavailable(
+            "cannot reach unified memory: memory is not configured. "
+            "Run `vss configure memory --enable --backend elasticsearch --index vss-memory` first."
+        )
+    if not memory_config.enabled:
+        raise MemoryUnavailable(
+            "cannot reach unified memory: memory is disabled. Run `vss configure memory --enable` first."
+        )
+    if memory_config.backend != "elasticsearch":
+        raise MemoryUnavailable(
+            f"cannot reach unified memory: backend {memory_config.backend!r} is unsupported. "
+            "Run `vss configure memory --backend elasticsearch`."
         )
     endpoint = deployment.endpoint_or_none("elasticsearch")
     if not endpoint:
@@ -179,10 +189,11 @@ def build(deployment: config_mod.Deployment | None, *, index: str | None = None)
         )
 
     from vss_core.memory import build_memory_service
-    from vss_core.memory.backends.elasticsearch import DEFAULT_MEMORY_INDEX
 
-    resolved = index or DEFAULT_MEMORY_INDEX
-    return Memory(build_memory_service(es_endpoint=endpoint, memory_index=resolved), index=resolved)
+    return Memory(
+        build_memory_service(es_endpoint=endpoint, memory_index=memory_config.index),
+        index=memory_config.index,
+    )
 
 
 def write_failures() -> tuple[type[BaseException], ...]:
@@ -206,12 +217,4 @@ def write_failures() -> tuple[type[BaseException], ...]:
     return tuple(failures)
 
 
-def index_option() -> click.Option:
-    """``--memory-index``, shared by every verb that reads or writes memory."""
-    return click.Option(
-        ["--memory-index"],
-        help="Elasticsearch index holding unified memory. Defaults to the module's own.",
-    )
-
-
-__all__ = ["Memory", "MemoryUnavailable", "build", "group_token", "index_option", "write_failures"]
+__all__ = ["Memory", "MemoryUnavailable", "build", "group_token", "write_failures"]
