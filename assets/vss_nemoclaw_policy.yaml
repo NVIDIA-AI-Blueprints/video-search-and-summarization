@@ -184,6 +184,16 @@ network_policies:
           - 172.17.0.0/16
           - 172.18.0.0/16
           - 172.20.0.0/16
+      # Model router (Switchyard), when the agent's LLM traffic is routed.
+      # Only reachable when the operator runs the router; see
+      # deploy/docker/scripts/deploy_model_routing.ipynb.
+      - host: host.openshell.internal
+        port: 4000
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
       - host: host.openshell.internal
         port: 5601
         access: full
