@@ -48,6 +48,8 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
 
 - **NGC API key** — required for the image pull secret and the NGC model/app-data download job. See [Required secrets](#required-secrets).
 
+- **TURN server** — required for WebRTC playback in the VST/VIOS web UI whenever the browser isn't on the same network as the cluster. See [TURN server prerequisite](../TURN-SERVER.md) and set **`global.turnServerUrl`** in your values override.
+
 ### GPU requirements
 
 By default the profile requests **2 GPUs** — one for the CV pipeline and one for
