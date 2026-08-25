@@ -30,7 +30,7 @@ data:
 {{- $esH := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
 {{- $redisAddr := .Values.redisServerAddress | default (printf "%s:6379" $redisH) }}
 {{- $kafkaAddr := .Values.kafkaServerAddress | default (printf "%s:9092" $kafkaH) }}
-{{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "http://%s:9200/mdx-raw*" $esH) }}
+{{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "%s:9200/mdx-raw*" $esH) }}
 {{- $cloudStorage := .Values.cloudStorageEndpoint | default "http://127.0.0.1:9000" }}
 {{- $mqttHost := ternary (printf "%s-mosquitto" .Release.Name) "mosquitto" $pfx }}
 {{- $mqttAddr := .Values.mqttBrokerAddress | default (printf "tcp://%s:1883" $mqttHost) }}
@@ -43,7 +43,14 @@ data:
 {{- $ingressEnabled := index $vssIngress "enabled" | default false }}
 {{- $analyticsAddr := .Values.analyticsServerAddress | default (ternary (ternary (printf "%s://%s:%s/video-analytics-api" $extScheme $extHost $extPort) (printf "%s://%s/video-analytics-api" $extScheme $extHost) (ne $extPort "")) "" (and (ne $extHost "") $ingressEnabled)) }}
 {{- $softwarePath := .Values.useSoftwarePath | default false }}
-{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "__USE_SOFTWARE_PATH__" ($softwarePath | toString) | indent 4 }}
+{{- $turnServerUrl := .Values.turnServerUrl | default (index $g "turnServerUrl" | default "") }}
+{{- $turnUrls := list }}
+{{- if $turnServerUrl }}
+{{- range splitList "," $turnServerUrl }}
+{{- $turnUrls = append $turnUrls (trim .) }}
+{{- end }}
+{{- end }}
+{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "__USE_SOFTWARE_PATH__" ($softwarePath | toString) | replace "__STATIC_TURNURL_LIST__" ($turnUrls | toJson) | indent 4 }}
   notification_config.json: |
 {{ .Files.Get "configs/notification_config.json" | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr |  indent 4 }}
   adaptor_config.json: |
