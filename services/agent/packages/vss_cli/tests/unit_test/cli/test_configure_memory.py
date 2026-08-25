@@ -109,6 +109,25 @@ def test_memory_check_accepts_reachable_backend(
     assert checked == [("http://example/elasticsearch", "vss-memory")]
 
 
+def test_memory_backend_check_uses_ingress_safe_read_only_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested: list[str] = []
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+    def get(url: str, **_kwargs: object) -> Response:
+        requested.append(url)
+        return Response()
+
+    monkeypatch.setattr("httpx.get", get)
+    detail = configure_mod._check_memory_backend(_deployment(), config_mod.MemoryConfig())
+    assert requested == ["http://example/elasticsearch/_cat/indices?h=index&format=json"]
+    assert "authoritative index=vss-memory" in detail
+
+
 @pytest.mark.parametrize(
     ("args", "message"),
     [

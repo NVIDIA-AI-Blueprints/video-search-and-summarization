@@ -201,7 +201,7 @@ def _check_memory_backend(
     *,
     timeout: float = _PROBE_TIMEOUT_SECONDS,
 ) -> str:
-    """Read Elasticsearch health without creating or changing an index."""
+    """Read Elasticsearch indices without creating or changing records."""
     import httpx
 
     endpoint = deployment.endpoint_or_none("elasticsearch")
@@ -211,7 +211,10 @@ def _check_memory_backend(
             f"run `vss configure --base-url {deployment.base_url}` after exposing Elasticsearch"
         )
     try:
-        response = httpx.get(f"{endpoint.rstrip('/')}/_cluster/health", timeout=timeout)
+        response = httpx.get(
+            f"{endpoint.rstrip('/')}/_cat/indices?h=index&format=json",
+            timeout=timeout,
+        )
         response.raise_for_status()
     except httpx.HTTPError as error:
         _memory_backend_error(
