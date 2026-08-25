@@ -1,0 +1,173 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * Styles for the VSS chat surface.
+ *
+ * Plain CSS with custom properties rather than a utility framework, so the
+ * package carries no build-time styling dependency and can be themed by the
+ * host app. Light and dark are the same rules with different variables, which
+ * is what lets the sidebar render light against a dark app.
+ */
+
+.vss-chat {
+  --vss-chat-bg: #16181d;
+  --vss-chat-fg: #e8eaed;
+  --vss-chat-muted: #9aa0a6;
+  --vss-chat-border: #2c2f36;
+  --vss-chat-user-bg: #2a3f5f;
+  --vss-chat-accent: #76b900; /* NVIDIA green */
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--vss-chat-bg);
+  color: var(--vss-chat-fg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.vss-chat-light {
+  --vss-chat-bg: #ffffff;
+  --vss-chat-fg: #1f2328;
+  --vss-chat-muted: #6b7280;
+  --vss-chat-border: #e3e6ea;
+  --vss-chat-user-bg: #eef4ff;
+}
+
+.vss-chat-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vss-chat-border);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.vss-chat-log {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vss-chat-empty {
+  color: var(--vss-chat-muted);
+  margin: auto;
+  text-align: center;
+}
+
+.vss-chat-msg {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.vss-chat-msg-user .vss-chat-usertext {
+  background: var(--vss-chat-user-bg);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-left: auto;
+  width: fit-content;
+  max-width: 85%;
+  white-space: pre-wrap;
+}
+
+.vss-chat-markdown > :first-child { margin-top: 0; }
+.vss-chat-markdown > :last-child { margin-bottom: 0; }
+.vss-chat-markdown pre {
+  background: rgba(127, 127, 127, 0.12);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.vss-chat-markdown code { font-size: 0.92em; }
+.vss-chat-markdown table { border-collapse: collapse; }
+.vss-chat-markdown th,
+.vss-chat-markdown td {
+  border: 1px solid var(--vss-chat-border);
+  padding: 4px 8px;
+}
+
+.vss-chat-cursor {
+  animation: vss-chat-blink 1s steps(2, start) infinite;
+  color: var(--vss-chat-muted);
+}
+@keyframes vss-chat-blink { to { visibility: hidden; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .vss-chat-cursor { animation: none; }
+  .vss-chat-log { scroll-behavior: auto; }
+}
+
+.vss-chat-error {
+  color: #d93025;
+  background: rgba(217, 48, 37, 0.1);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+/* Tool/skill progress, collapsed by default so it never buries the answer. */
+.vss-chat-steps { margin-bottom: 6px; }
+.vss-chat-steps-toggle {
+  background: none;
+  border: none;
+  color: var(--vss-chat-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9em;
+  padding: 0;
+}
+.vss-chat-steps-toggle:hover { color: var(--vss-chat-fg); }
+.vss-chat-steps-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--vss-chat-muted);
+  font-size: 0.9em;
+}
+.vss-chat-steps-list li[data-status='error'] { color: #d93025; }
+.vss-chat-steps-list pre {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  opacity: 0.85;
+}
+
+.vss-chat-input {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--vss-chat-border);
+}
+.vss-chat-input textarea {
+  flex: 1 1 auto;
+  resize: none;
+  max-height: 160px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--vss-chat-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.vss-chat-input textarea:focus-visible,
+.vss-chat-input button:focus-visible {
+  outline: 2px solid var(--vss-chat-accent);
+  outline-offset: 1px;
+}
+.vss-chat-input button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--vss-chat-accent);
+  color: #0b0d10;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vss-chat-input button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.vss-chat-stop {
+  background: transparent !important;
+  color: var(--vss-chat-fg) !important;
+  border: 1px solid var(--vss-chat-border) !important;
+}

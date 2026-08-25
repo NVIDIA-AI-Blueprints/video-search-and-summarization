@@ -1,0 +1,31 @@
+{
+  "name": "@nv-metropolis-bp-vss-ui/chat",
+  "version": "3.3-dev",
+  "description": "VSS chat interface. Speaks the BYO agent contract (OpenAI-shaped chat in, SSE out) with no dependency on the NeMo Agent Toolkit UI.",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && swc lib-src -d lib --config-file .swcrc && mv lib/lib-src/* lib/ && rmdir lib/lib-src && tsc --project tsconfig.lib.json",
+    "dev": "swc lib-src -d lib --config-file .swcrc -w",
+    "clean": "rm -rf lib && rm -rf node_modules",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^2.9.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  }
+}
