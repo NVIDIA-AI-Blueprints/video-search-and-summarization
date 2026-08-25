@@ -150,16 +150,10 @@ with open(src) as f:
 aa = cfg.setdefault('alert_agent', {})
 aa['pipeline_mode'] = mode
 aa['num_workers'] = int(nw)
-aa['chunk_size'] = 1
 aa['async_dispatch_workers'] = int(adw)
 aa['async_dispatch_max_in_flight'] = int(mif)
 aa['include_latency_info'] = True
 aio = aa.setdefault('async_io', {})
-if mode == 'thread_bridge':
-    aio['enabled'] = True
-    aio['vst_enabled'] = True
-    aio['elastic_enabled'] = True
-    aio['dedup_enabled'] = True
 aio['max_vlm_concurrent'] = int(vlm_cap)
 aio['max_vst_concurrent'] = int(vst_cap)
 # Sustained-stream ingest must not be poll-starved (empty second topic).
@@ -189,8 +183,8 @@ start_ab() {
     echo $! > "$PID_DIR/alert_bridge.pid"
     local waited=0
     while [ $waited -lt 90 ]; do
+        # Readiness now trails the consumer group join, so no settle needed.
         if grep -q "Starting anomaly processing loop" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
-            sleep 3   # consumer group join settle
             return 0
         fi
         if ! kill -0 "$(cat "$PID_DIR/alert_bridge.pid")" 2>/dev/null; then
@@ -597,12 +591,25 @@ sys.exit(0 if (after_dedup == 1 and dropped == 19 and docs == 1) else 1)"; then
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo "=== Event-loop capability suite (no-GPU sim harness) ==="
-if [ "$SKIP_SETUP" -eq 0 ]; then
-    ensure_stack
+# Must precede ensure_stack: the simulators are launched with whatever python3
+# is on PATH, and the system interpreter typically lacks Flask.
+# A clean clone has no venv. Accept one from any of the usual places, or an
+# explicit AB_VENV, and say so plainly rather than silently running the system
+# interpreter - which lacks Flask and takes the simulators down on import.
+for _venv in "${AB_VENV:-}" "$REPO_ROOT/venv" "$REPO_ROOT/.venv"; do
+    if [ -n "$_venv" ] && [ -x "$_venv/bin/python3" ]; then
+        export PATH="$_venv/bin:$PATH"
+        break
+    fi
+done
+if ! python3 -c "import flask, yaml, confluent_kafka" 2>/dev/null; then
+    echo "python3 on PATH is missing test dependencies (flask, pyyaml, confluent-kafka)."
+    echo "Create a venv from services/alert/requirements.txt and re-run, or point AB_VENV at one."
+    exit 2
 fi
 
-if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
-    export PATH="$REPO_ROOT/venv/bin:$PATH"
+if [ "$SKIP_SETUP" -eq 0 ]; then
+    ensure_stack
 fi
 
 for ts in ts_001 ts_002 ts_003 ts_004 ts_005 ts_006 ts_011 ts_014 ts_020; do

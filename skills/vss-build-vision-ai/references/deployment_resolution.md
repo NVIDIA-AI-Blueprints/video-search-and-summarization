@@ -38,7 +38,7 @@ not additional operate inputs:
 | `VSS_VIOS_URL` | `${VSS_PUBLIC_URL}/vst` |
 | `VST_API_BASE` | `${VSS_VIOS_URL}/api/v1` — all VIOS `curl` targets |
 | `AGENT_URL` | `${VSS_PUBLIC_URL}` for Kubernetes operate skills |
-| `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` when the Ingress exposes RT-VLM (base Prefix `/v1`, or LVS Exact `/v1/models` + `/v1/chat/completions`) — OpenAI-compatible root ending in `/v1` |
+| `VLM_ENDPOINT` | Profile-dependent mount, always an OpenAI-compatible root ending in `/v1`: `${VSS_PUBLIC_URL}/v1` on base (Prefix) and LVS (Exact `/v1/models` + `/v1/chat/completions`); `${VSS_PUBLIC_URL}/rtvi-vlm/v1` on search, which mounts RT-VLM by service name and serves no bare `/v1`. Probe the candidates rather than assuming the root |
 | `LVS_BACKEND_URL` / `VIDEO_SUMMARIZATION_URL` | `${VSS_PUBLIC_URL}` on Kubernetes (origin only — **no** `/v1` suffix); Docker Compose remains `http://${HOST_IP}:38111` |
 | `VSS_STREAMER_URL` | Separate streamer Ingress host (`streamer.<ip>.nip.io`); **not** under `/vst`; search (and other NvStreamer-bearing) profiles only |
 
@@ -60,20 +60,29 @@ VST_API_BASE="${VST_API_BASE:-${VSS_VIOS_URL}/api/v1}"
 ```
 
 A public VSS origin alone does not prove that `/v1` routes to an RT-VLM: the
-search Ingress, for example, sends that path to its UI catch-all. When a skill
-needs direct VLM access, probe before adopting the candidate endpoint:
+search Ingress, for example, sends that path to its UI catch-all and mounts
+RT-VLM at `/rtvi-vlm` instead. So a skill needing direct VLM access probes both
+mounts and adopts the first that answers with a model id — never a single
+candidate, and never an unprobed default:
 
 ```bash
 if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  _candidate="${VSS_PUBLIC_URL%/}/v1"
-  if _models=$(curl -sf --max-time 5 "${_candidate}/models") \
-    && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
-    && [ -n "${_model}" ]; then
-    VLM_ENDPOINT="${_candidate}"
-    VLM_MODEL="${VLM_MODEL:-${_model}}"
-  fi
+  # Most specific first: the search mount, then the base/LVS root.
+  for _candidate in "${VSS_PUBLIC_URL%/}/rtvi-vlm/v1" "${VSS_PUBLIC_URL%/}/v1"; do
+    if _models=$(curl -sf --max-time 5 "${_candidate}/models") \
+      && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
+      && [ -n "${_model}" ]; then
+      VLM_ENDPOINT="${_candidate}"
+      VLM_MODEL="${VLM_MODEL:-${_model}}"
+      break
+    fi
+  done
 fi
 ```
+
+The model-id guard is what makes this safe against a catch-all: a UI page
+answers `curl -sf` but yields no `.data[0].id`, so that candidate is rejected
+rather than adopted.
 
 Shareable media URLs from `/url` endpoints may embed an internal host at mint
 time. On Kubernetes, compare and validate against `VSS_PUBLIC_URL`; do not
@@ -116,7 +125,20 @@ adds archive search and a separate NvStreamer host:
 | Agent ingest/delete | `${AGENT_URL}/api/v1/...` |
 | Agent readiness (K8s) | `GET ${AGENT_URL}/openapi.json` — `/health` is not on search Ingress |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list` |
+| Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` → `GET …/models`, `POST …/chat/completions` — **not** the bare `/v1` base uses |
+| Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — read-only edge guard |
+| RT-Embed / RT-CV (host CLI) | `${VSS_PUBLIC_URL}/rtvi-embed/v1`, `${VSS_PUBLIC_URL}/rtvi-cv/api/v1` |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate host, no `/vst` prefix |
+
+Search mounts every backend by service name rather than at the origin root, so
+these are the same paths `vss configure` records (`vss_cli/config.py:INGRESS_SERVICES`).
+The RT-VLM, Elasticsearch, RT-Embed, and RT-CV mounts are all off by default.
+`ingress.cliRoutes.enabled` publishes RT-VLM and Elasticsearch. RT-Embed and
+RT-CV come from that toggle or from `global.rtviInternalIngress`, whose own
+Ingress claims both paths and makes the main one skip them, so those two can be
+public with CLI routes off. Probe rather than infer: a build exposing none of
+them leaves search, ask, and report Mode A without the backends they call
+directly.
 
 ### LVS profile public routes
 
@@ -306,7 +328,8 @@ Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, LVS `/models` /
 Docker-host dependencies. Do not expose or forward them merely to satisfy
 host-side operate checks. On the base profile, RT-VLM at
 `${VSS_PUBLIC_URL}/v1` (Prefix) is a supported public operate path for
-`vss-ask-video` and `vss-generate-video-report` Mode A. On the LVS profile,
+`vss-ask-video` and `vss-generate-video-report` Mode A; on the search profile
+the equivalent path is `${VSS_PUBLIC_URL}/rtvi-vlm/v1`. On the LVS profile,
 Exact `/v1/ready` and `/v1/summarize` are the supported public operate paths for
 `vss-summarize-video`. On the alerts profile, `${VSS_PUBLIC_URL}/alert-bridge`
 and `${VSS_PUBLIC_URL}/va-mcp` are the supported public operate paths for

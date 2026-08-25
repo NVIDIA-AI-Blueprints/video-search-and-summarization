@@ -39,8 +39,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from vss_core._foundation.sanitize import scrub_log
-from vss_core.vst import VSTError
-from vss_core.vst import map_timestamp_to_timeline
+from vss_core.vios import VSTError
+from vss_core.vios import map_timestamp_to_timeline
 
 from .._internal.time_measure import TimeMeasure
 from ..errors import BackendUnreachableError
@@ -50,7 +50,7 @@ from ..models.embed_search import EmbedSearchResultItem
 from . import _embed_helpers as helpers
 
 if TYPE_CHECKING:
-    from vss_core.vst.protocols import VSTSnapshot
+    from vss_core.vios.protocols import VSTSnapshot
 
     from ..clients.protocols import ElasticIndex
     from ..clients.protocols import TextEmbedder
@@ -252,7 +252,7 @@ class EmbedSearch:
         vst: VSTSnapshot | None = None,
     ) -> EmbedSearch:
         """Construct from a SearchRuntime, optionally with injected dependencies."""
-        from vss_core.vst import VSTClient
+        from vss_core.vios import VSTClient
 
         from ..clients.cosmos_embed import CosmosEmbedClient  # local — avoid cycle
         from ..clients.elastic import ElasticClient

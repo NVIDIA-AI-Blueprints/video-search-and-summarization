@@ -30,7 +30,7 @@ from vss_core.search_core.primitives._search_helpers import execute_core_search_
 from vss_core.search_core.primitives.search import Search
 from vss_core.search_core.primitives.search import _coerce_attribute_payload
 from vss_core.search_core.primitives.search import _coerce_embed_payload
-from vss_core.vst import VSTError
+from vss_core.vios import VSTError
 
 # --------------------------------------------------------------------- fakes
 

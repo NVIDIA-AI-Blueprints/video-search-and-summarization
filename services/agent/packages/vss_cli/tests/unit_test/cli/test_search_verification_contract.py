@@ -66,40 +66,45 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
 
 
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
+    """The recipe maps the synthetic interval and mints the clip through the CLI.
+
+    The mapping is this skill's job; resolving the stream, minting the URL and
+    normalising it are the CLI's. The stub therefore asserts the mapped bounds
+    reach `vios clip` and returns an already-normalised media_url, because that
+    is what the command guarantees its callers.
+    """
     verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
     blocks = [
-        block for block in re.findall(r"```bash\n(.*?)```", verification, flags=re.DOTALL) if "CLIP_RESPONSE=" in block
+        block for block in re.findall(r"```bash\n(.*?)```", verification, flags=re.DOTALL) if "MAPPED_BOUNDS" in block
     ]
     assert len(blocks) == 1
     assert "map_interval_to_timeline" in blocks[0]
-    assert '--data-urlencode "startTime=${CLIP_START}"' in blocks[0]
-    assert '--data-urlencode "endTime=${CLIP_END}"' in blocks[0]
+    assert "vios clip --sensor" in blocks[0]
+    assert "VST_API_BASE" not in blocks[0], "clip resolution is the CLI's job now"
 
     script = (
         """set -euo pipefail
-curl() {
+vss_stub() {
   case "$*" in
-    *'/sensor/sensor-1/streams')
-      printf '%s\n' '[{"isMain":true,"streamId":"stream-1"}]'
+    'vios timeline --sensor sensor-1')
+      printf '%s\n' '{"recorded":true,"segments":[{"start_time":"2026-08-01T12:00:00.000Z","end_time":"2026-08-01T12:01:00.000Z"}]}'
       ;;
-    *'/storage/stream-1/timelines')
-      printf '%s\n' '[{"startTime":"2026-08-01T12:00:00Z","endTime":"2026-08-01T12:01:00Z"}]'
+    'vios clip --sensor sensor-1 --start-time 2026-08-01T12:00:00.000Z --end-time 2026-08-01T12:00:10.000Z')
+      printf '%s\n' '{"media_url":"https://public.example/vst/storage/temp_files/clip.mp4?token=a"}'
       ;;
-    *'/storage/file/stream-1/url'*)
-      [[ "$*" == *'startTime=2026-08-01T12:00:00.000Z'* ]]
-      [[ "$*" == *'endTime=2026-08-01T12:00:10.000Z'* ]]
-      printf '%s\n' '{"videoUrl":"http://http://localhost:30888/storage/temp_files/clip.mp4?token=a"}'
-      ;;
-    *'https://public.example/vst/storage/temp_files/clip.mp4?token=a'*) return 0 ;;
-    *) return 9 ;;
+    *) echo "unexpected: $*" >&2; return 9 ;;
   esac
 }
+VSS_REPO_ROOT_SAVED="${VSS_REPO_ROOT}"
 VST_URL=https://public.example
 HIT_SENSOR_ID=sensor-1
 HIT_START=2025-01-01T00:00:00Z
 HIT_END=2025-01-01T00:00:10Z
 """
-        + blocks[0]
+        + blocks[0].replace(
+            'VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" \\\n  --no-dev --extra cli vss)',
+            "VSS=(vss_stub)",
+        )
         + """
 test "${VIDEO_URL}" = 'https://public.example/vst/storage/temp_files/clip.mp4?token=a'
 test "${VSS_PUBLIC_URL}" = 'https://public.example'
@@ -341,13 +346,21 @@ def test_delete_recipe_is_bounded_and_checks_all_cleanup_tuples() -> None:
 curl() {{
   case "$*" in
     *'-X DELETE'*) printf '%s\n' '{{"status":"success"}}' ;;
-    *'/sensor/list'*) printf '%s\n' '[]' ;;
     *'/_count'*) printf '%s\n' '{{"count":0}}' ;;
     *) return 9 ;;
   esac
 }}
+# Source listing is `vss vios list` now, not a curl. Stub it in the CLI's own
+# shape -- {{count, sensors:[...]}} -- so the recipe's jq is exercised against
+# what the command actually returns.
+vss_stub() {{
+  case "$*" in
+    'vios list') printf '%s\n' '{{"count":0,"type":null,"sensors":[]}}' ;;
+    *) return 9 ;;
+  esac
+}}
+VSS=(vss_stub)
 AGENT_URL=https://public.example
-VST_URL=https://public.example
 ES_URL=http://elasticsearch:9200
 SAVED_SENSOR_ID=sensor-1
 SAVED_SOURCE_NAME=warehouse-ladder
