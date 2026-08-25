@@ -20,6 +20,7 @@ services:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-search
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-search/Dockerfiles/kibana-dashboard.Dockerfile
+      network: host
     profiles: ["kibana-init-container-search"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh

@@ -1231,7 +1231,8 @@ def test_adapter_carries_spec_expected_services_into_task_metadata(
     task = (tmp_path / "alerts_cv/rtxpro6000bw/task.toml").read_text()
     assert (
         'expected_services = ["vss-agent", "redis", "perception-alerts", '
-        '"vss-behavior-analytics-alerts", "alert-bridge", "nvstreamer-alerts"]' in task
+            '"vss-behavior-analytics-alerts", "alert-bridge", "nvstreamer-alerts", '
+            '"rtvi-vlm"]' in task
     )
 
 

@@ -3,12 +3,10 @@
     "vss-summarize-video",
     "vss-build-vision-ai"
   ],
+  "requires_video_codec": true,
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
-        "gpu_count": 1
-      },
-      "H200": {
         "gpu_count": 1
       }
     }
