@@ -55,7 +55,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
     TRITON_NVDISASM_PATH=/usr/local/cuda/bin/nvdisasm \
     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     GST_PLUGIN_PATH=/opt/nvidia/rtvi/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins \
-    LD_LIBRARY_PATH=/opt/nvidia/rtvi/lib:/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+    LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/usr/lib/aarch64-linux-gnu/nvidia:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
 
 # Install only RTVI runtime dependencies directly on vLLM. Native build
 # dependencies are confined to pyds-builder and native-builder below.
@@ -179,6 +179,8 @@ ARG TARGETARCH
 ARG ARM_PLATFORM
 ARG PYDS_SOURCE_COMMIT="6fdeefb7128435873f7794d2242ed48a1471ad7e"
 COPY docker/base/pyds.patch /tmp/pyds.patch
+ARG L4T_RELEASE=r39.2
+ARG L4T_PACKAGE_VERSION=39.2.1-20260806224157
 RUN apt update \
     && apt install -y --no-install-recommends \
         autoconf automake build-essential cmake g++ git libglib2.0-dev \
@@ -186,6 +188,34 @@ RUN apt update \
         python3-gi python3-gst-1.0 python-gi-dev python3-venv python3.12-dev \
         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev pkg-config pybind11-dev \
     && rm -rf /var/lib/apt/lists/*
+# Build iGPU bindings against JetPack 7.2.1 / L4T R39.2.1 NvBuf libraries.
+RUN mkdir -p /tmp/l4t-artifacts \
+    && if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
+        curl -fsSL https://repo.download.nvidia.com/jetson/jetson-ota-public.asc \
+            -o /etc/apt/trusted.gpg.d/jetson-ota-public.asc \
+        && echo "deb https://repo.download.nvidia.com/jetson/som $L4T_RELEASE main" \
+            > /etc/apt/sources.list.d/nvidia-l4t-som.list \
+        && echo "deb https://repo.download.nvidia.com/jetson/common $L4T_RELEASE main" \
+            > /etc/apt/sources.list.d/nvidia-l4t-common.list \
+        && apt-get update \
+        && mkdir -p /tmp/l4t-debs /tmp/l4t-root \
+        && cd /tmp/l4t-debs \
+        && apt-get download \
+            "nvidia-l4t-gstreamer=$L4T_PACKAGE_VERSION" \
+            "nvidia-l4t-multimedia=$L4T_PACKAGE_VERSION" \
+            "nvidia-l4t-multimedia-utils=$L4T_PACKAGE_VERSION" \
+        && for package in ./*.deb; do dpkg-deb -x "$package" /tmp/l4t-root; done \
+        && ds_path=/opt/nvidia/deepstream/deepstream-9.1 \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so.1.0.0 \
+            "$ds_path/libnvbufsurface.so" \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so.1.0.0 \
+            "$ds_path/libnvbufsurftransform.so" \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libgstnvdsseimeta.so.1.0.0 \
+            "$ds_path/libgstnvdsseimeta.so" \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvvideo4linux2.so \
+            /tmp/l4t-artifacts/libgstnvvideo4linux2.so \
+        && rm -rf /tmp/l4t-debs /tmp/l4t-root /var/lib/apt/lists/*; \
+    fi
 RUN git init /tmp/deepstream_python_apps \
     && cd /tmp/deepstream_python_apps \
     && git remote add origin https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git \
@@ -228,7 +258,12 @@ FROM rtvi-media AS runtime
 ARG TARGETARCH
 ARG ARM_PLATFORM
 RUN --mount=from=pyds-builder,source=/tmp/pyds-wheel,target=/tmp/pyds-wheel,readonly \
-    pip install --no-deps /tmp/pyds-wheel/pyds-*.whl
+    --mount=from=pyds-builder,source=/tmp/l4t-artifacts,target=/tmp/l4t-artifacts,readonly \
+    pip install --no-deps /tmp/pyds-wheel/pyds-*.whl \
+    && if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
+        install -Dm755 /tmp/l4t-artifacts/libgstnvvideo4linux2.so \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvvideo4linux2.so; \
+    fi
 
 # Keep the manifest in the image filesystem so its contents are part of the
 # Docker cache key. A BuildKit bind mount is intentionally excluded from that
