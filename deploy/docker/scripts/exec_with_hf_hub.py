@@ -11,6 +11,19 @@ from importlib.metadata import PackageNotFoundError, version
 from urllib.parse import urlsplit
 
 SUPPORTED_HF_HUB_VERSION = "0.36.2"
+HF_TOKEN_ENV_VARS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
+
+
+def _hf_token_from_environment() -> str | None:
+    """Return the Hub token using huggingface_hub's environment precedence."""
+    return next(
+        (
+            token
+            for variable in HF_TOKEN_ENV_VARS
+            if (token := os.environ.get(variable, "").strip())
+        ),
+        None,
+    )
 
 
 def main() -> int:
@@ -42,7 +55,15 @@ def main() -> int:
             raise SystemExit(
                 "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
             )
+        if parsed.scheme == "http" and _hf_token_from_environment():
+            raise SystemExit(
+                "HF_ENDPOINT must use HTTPS when a Hugging Face token is configured"
+            )
         os.environ["HF_ENDPOINT"] = endpoint.rstrip("/")
+        if parsed.scheme == "http":
+            # Downstream clients must not load a cached token for an explicitly
+            # anonymous plaintext cache.
+            os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
     else:
         # Compose expands an unset variable to an empty string. In
         # huggingface_hub==0.36.2 that overrides the official default with an
