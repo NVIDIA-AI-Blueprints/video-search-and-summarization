@@ -177,7 +177,7 @@ RUN set -e; if [ "$TARGETARCH" = "amd64" ]; then \
 FROM rtvi-media AS pyds-builder
 ARG TARGETARCH
 ARG ARM_PLATFORM
-ARG PYDS_SOURCE_COMMIT="6fdeefb7128435873f7794d2242ed48a1471ad7e"
+ARG PYDS_REF=master
 COPY docker/base/pyds.patch /tmp/pyds.patch
 ARG L4T_RELEASE=r39.2
 ARG L4T_PACKAGE_VERSION=39.2.1-20260806224157
@@ -216,12 +216,8 @@ RUN mkdir -p /tmp/l4t-artifacts \
             /tmp/l4t-artifacts/libgstnvvideo4linux2.so \
         && rm -rf /tmp/l4t-debs /tmp/l4t-root /var/lib/apt/lists/*; \
     fi
-RUN git init /tmp/deepstream_python_apps \
+RUN git clone --depth 1 --branch "${PYDS_REF}" https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git /tmp/deepstream_python_apps \
     && cd /tmp/deepstream_python_apps \
-    && git remote add origin https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git \
-    && git fetch --depth 1 origin "${PYDS_SOURCE_COMMIT}" \
-    && git checkout --detach --force FETCH_HEAD \
-    && test "$(git rev-parse HEAD)" = "${PYDS_SOURCE_COMMIT}" \
     && git submodule update --init \
     && python3 bindings/3rdparty/git-partial-submodule/git-partial-submodule.py restore-sparse \
     && git apply /tmp/pyds.patch
