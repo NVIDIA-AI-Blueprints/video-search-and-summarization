@@ -2,15 +2,13 @@
  * Shared chunked-upload helper.
  *
  * Slices a File into chunks and POSTs each one with `nvstreamer-*` headers
- * so the receiver (either VST directly or a proxy like the agent) can
- * reassemble. Each chunk is a self-contained HTTP request that completes
+ * so VST can reassemble the file. Each chunk is a self-contained HTTP request that completes
  * well under the Cloudflare 100-second limit that would otherwise kill a
  * monolithic upload of a large video.
  *
  * Consumers:
  *  - video-management/chunkedUpload.ts: uploads straight to VST (URL hardcoded from `vstApiUrl`)
- *  - videoUpload.ts#uploadFileChunked: uploads to VST using the URL the agent returns
- *    from POST /api/v1/videos
+ *  - videoUpload.ts#uploadFileChunked: uploads to a caller-supplied VST URL
  */
 
 export const CHUNK_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -147,8 +145,7 @@ async function uploadChunk(
  * chunk, which by protocol contains `sensorId` (the upload's stream id).
  *
  * The runtime guard on `sensorId` catches servers that silently return a
- * malformed final-chunk response — without it, `undefined` would propagate
- * into downstream calls like `notifyUploadComplete`.
+ * malformed final-chunk response before `undefined` reaches UI state.
  */
 export async function chunkedUpload(options: ChunkedUploadOptions): Promise<ChunkedUploadResponse> {
   const {
