@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <algorithm>
+#include <cmath>
 #include <ctime>
 #include <iomanip>
 #include <map>
@@ -27,6 +29,7 @@
 
 #include "UserAuthHandler.h"
 #include "config.h"
+#include "dash_fragment_info.h"
 #include "dash_session_manager.h"
 #include "logger.h"
 
@@ -85,14 +88,7 @@ void sendText(struct mg_connection* connection, int status, const char* statusTe
 
 uint32_t readBigEndianUint32(const std::string& data, size_t offset)
 {
-    if (offset + 4 > data.size())
-    {
-        return 0;
-    }
-    return (static_cast<uint32_t>(static_cast<unsigned char>(data[offset])) << 24U)
-           | (static_cast<uint32_t>(static_cast<unsigned char>(data[offset + 1])) << 16U)
-           | (static_cast<uint32_t>(static_cast<unsigned char>(data[offset + 2])) << 8U)
-           | static_cast<uint32_t>(static_cast<unsigned char>(data[offset + 3]));
+    return vst::dash::readBigEndianUint32(data, offset);
 }
 
 
@@ -101,65 +97,6 @@ uint32_t readBigEndianUint32(const std::string& data, size_t offset)
 // re-encoded replay stream roughly every other one holds a single frame.  The
 // only trustworthy length is the one recorded in the fragment itself, so it is
 // read from tfhd/trun rather than assumed.
-uint64_t fragmentDurationTicks(const std::string& body)
-{
-    const size_t trun = body.find("trun");
-    if (trun == std::string::npos || trun + 12 > body.size())
-    {
-        return 0;
-    }
-    const uint32_t trunFlags = readBigEndianUint32(body, trun + 4) & 0x00FFFFFFU;
-    const uint32_t sampleCount = readBigEndianUint32(body, trun + 8);
-    if (sampleCount == 0)
-    {
-        return 0;
-    }
-
-    if ((trunFlags & 0x000100U) != 0U)
-    {
-        // Per-sample durations are present; they are the exact answer.
-        size_t offset = trun + 12;
-        if ((trunFlags & 0x000001U) != 0U)
-        {
-            offset += 4; // data_offset
-        }
-        if ((trunFlags & 0x000004U) != 0U)
-        {
-            offset += 4; // first_sample_flags
-        }
-        size_t stride = 4;
-        if ((trunFlags & 0x000200U) != 0U) { stride += 4; }
-        if ((trunFlags & 0x000400U) != 0U) { stride += 4; }
-        if ((trunFlags & 0x000800U) != 0U) { stride += 4; }
-        uint64_t total = 0;
-        for (uint32_t index = 0; index < sampleCount; ++index)
-        {
-            if (offset + 4 > body.size())
-            {
-                return 0;
-            }
-            total += readBigEndianUint32(body, offset);
-            offset += stride;
-        }
-        return total;
-    }
-
-    // Otherwise every sample lasts tfhd.default_sample_duration.
-    const size_t tfhd = body.find("tfhd");
-    if (tfhd == std::string::npos || tfhd + 12 > body.size())
-    {
-        return 0;
-    }
-    const uint32_t tfhdFlags = readBigEndianUint32(body, tfhd + 4) & 0x00FFFFFFU;
-    if ((tfhdFlags & 0x000008U) == 0U)
-    {
-        return 0;
-    }
-    size_t offset = tfhd + 12; // past version/flags and track_ID
-    if ((tfhdFlags & 0x000001U) != 0U) { offset += 8; }
-    if ((tfhdFlags & 0x000002U) != 0U) { offset += 4; }
-    return static_cast<uint64_t>(readBigEndianUint32(body, offset)) * sampleCount;
-}
 
 /* A player that is handed a 404 for a media segment will stall, so the event
  * matters even in a quiet build.  It also retries the same segment, and every
@@ -190,13 +127,7 @@ void logMissingSegment(const std::string& token, const std::filesystem::path& fi
 
 uint64_t readFragmentDuration(const std::filesystem::path& file)
 {
-    std::ifstream input(file, std::ios::binary);
-    if (!input)
-    {
-        return 0;
-    }
-    const std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    return fragmentDurationTicks(body);
+    return vst::dash::readFragmentDuration(file);
 }
 
 // dashsink creates the next file before it has finished writing the current
@@ -337,24 +268,7 @@ private:
 
 uint32_t mediaTimescale(const std::filesystem::path& mediaPath)
 {
-    // dashsink resets mp4mux per fragment, so each session's first file is a
-    // self-contained initialization MP4.  Read its mdhd timescale instead of
-    // assuming the H264 90kHz clock or a particular mp4mux default.
-    std::ifstream input(mediaPath.parent_path() / "video_0_1.mp4", std::ios::binary);
-    if (!input)
-    {
-        return 1000;
-    }
-    const std::string initialization((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    const size_t mdhd = initialization.find("mdhd");
-    if (mdhd == std::string::npos || mdhd + 8 > initialization.size())
-    {
-        return 1000;
-    }
-    const uint8_t version = static_cast<uint8_t>(initialization[mdhd + 4]);
-    const size_t timescale = mdhd + (version == 1 ? 24 : 16);
-    const uint32_t value = readBigEndianUint32(initialization, timescale);
-    return value == 0 ? 1000 : value;
+    return vst::dash::mediaTimescaleIn(mediaPath.parent_path());
 }
 
 bool sendFile(struct mg_connection* connection, const DashAssetResult& asset, bool initOnly)
@@ -707,6 +621,42 @@ void setTimeShiftBufferDepth(std::string& manifest, int seconds)
     manifest.insert(at + anchor.size(), attribute);
 }
 
+/* What the muxer writes is a constant, and it is only right when a segment is
+ * about a second long.  A player that honours it sits that far behind the live
+ * edge, so on a source whose keyframe interval makes segments eight seconds
+ * long the playhead lands inside the segment still being written and starves at
+ * every boundary.  Describe the real distance instead: far enough back that the
+ * segment under the playhead is always one already on disk. */
+void setSuggestedPresentationDelay(std::string& manifest, double segmentSeconds)
+{
+    if (segmentSeconds <= 0.0)
+    {
+        return;
+    }
+    const int seconds = std::max(3, static_cast<int>(std::ceil(segmentSeconds * 2.5)));
+    const std::string value = "PT" + std::to_string(seconds) + "S";
+    const std::string key = "suggestedPresentationDelay=\"";
+    const size_t at = manifest.find(key);
+    if (at == std::string::npos)
+    {
+        const std::string anchor = "type=\"dynamic\"";
+        const size_t dynamic = manifest.find(anchor);
+        if (dynamic == std::string::npos)
+        {
+            return;
+        }
+        manifest.insert(dynamic + anchor.size(), " suggestedPresentationDelay=\"" + value + "\"");
+        return;
+    }
+    const size_t begin = at + key.size();
+    const size_t end = manifest.find('"', begin);
+    if (end == std::string::npos)
+    {
+        return;
+    }
+    manifest.replace(begin, end - begin, value);
+}
+
 void addUtcTiming(std::string& manifest)
 {
     if (manifest.find("UTCTiming") != std::string::npos)
@@ -980,6 +930,10 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
         {
             setTimeShiftBufferDepth(manifest, kDashTimeShiftBufferDepthSec);
         }
+        // The delay a player should keep is a property of the segment length,
+        // which is a property of the source's keyframe interval, so it can only
+        // be known by measuring what has actually been written.
+        setSuggestedPresentationDelay(manifest, vst::dash::publishedMedia(directory).longestSeconds);
         addUtcTiming(manifest);
         // dashsink leaves the first dynamic Period without @start.  Although
         // optional in the spec, dash.js 5 does not compose such a period into
