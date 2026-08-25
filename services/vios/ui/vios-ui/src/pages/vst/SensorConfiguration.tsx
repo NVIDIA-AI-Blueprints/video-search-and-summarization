@@ -17,15 +17,18 @@
 import useVSTUIStore from '../../services/StateManagement';
 import SingleSensorSelector from '../../components/sensorSelector/SingleSensorSelector';
 import React, { useCallback, useState, useMemo } from 'react';
-import { Grid2 as Grid } from '@mui/material';
-import { Sensor } from '../../interfaces/interfaces';
+import { Grid2 as Grid, Box } from '@mui/material';
+import { Sensor, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 import CameraSettingsForm from '../../components/sensorSettingsForm/SensorSettingsForm';
 import VSTStreamManager from '../../features/streamManager/StreamManager';
+import DeliveryProtocolSelector from '../../components/deliveryProtocol/DeliveryProtocolSelector';
 import { StreamType } from 'vst-streaming-lib';
 
 const SensorConfiguration = () => {
     const sensors = useVSTUIStore(state => state.sensorServiceSensors);
     const isSensormanagementServiceAvailable = useVSTUIStore(state => state.isSensormanagementServiceAvailable);
+    // Picked before anything plays: switching restarts the stream.
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('webrtc');
     const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
 
     // Filter authorized sensors
@@ -38,7 +41,14 @@ const SensorConfiguration = () => {
     return (
         <Grid container spacing={2}>
             <Grid size={{ xs: 12 }}>
-                <h1>Sensor Configuration</h1>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <h1>Sensor Configuration</h1>
+                    <DeliveryProtocolSelector
+                        value={deliveryProtocol}
+                        onChange={setDeliveryProtocol}
+                        disabled={Boolean(selectedSensor)}
+                    />
+                </Box>
             </Grid>
             <Grid size={{ xs: 12 }}>
                 <div
@@ -68,7 +78,12 @@ const SensorConfiguration = () => {
                         opacity: !isSensormanagementServiceAvailable ? 0.5 : 1,
                     }}
                 >
-                    <VSTStreamManager key={selectedSensor.sensorId} sensor={selectedSensor} streamType={StreamType.Live} />
+                    <VSTStreamManager
+                        key={selectedSensor.sensorId}
+                        sensor={selectedSensor}
+                        streamType={StreamType.Live}
+                        protocol={deliveryProtocol}
+                    />
                 </Grid>
             )}
             {selectedSensor && (

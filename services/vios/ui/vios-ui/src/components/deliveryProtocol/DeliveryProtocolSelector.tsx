@@ -29,7 +29,7 @@ const DeliveryProtocolSelector: React.FC<{
     // times in one document.
     const id = useId();
     return (
-        <FormControl size='small' sx={{ minWidth: 160 }} disabled={disabled}>
+        <FormControl size='small' sx={{ width: 170, flexShrink: 0 }} disabled={disabled}>
             <InputLabel id={`${id}-label`}>Streaming Protocol</InputLabel>
             <Select
                 labelId={`${id}-label`}
