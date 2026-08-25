@@ -50,6 +50,7 @@ _NOTEBOOK_PARAMETERS = (
     "NVIDIA_API_KEY",
     "UPSTREAM_BASE_URL",
     "UPSTREAM_API_KEY",
+    "UPSTREAM_FORMAT",
     "ROUTER_TARGET_CAPABLE",
     "ROUTER_TARGET_EFFICIENT",
     "ROUTER_PORT",
@@ -74,16 +75,24 @@ def _normalized_v1(url: str) -> str:
     return base if base.endswith("/v1") else f"{base}/v1"
 
 
-def _model_authorizes(base: str, key: str, model: str) -> bool:
+def _model_authorizes(base: str, key: str, model: str, wire: str) -> bool:
+    if wire == "anthropic_messages":
+        url = f"{base}/messages"
+        headers = {"Content-Type": "application/json",
+                   "Authorization": f"Bearer {key}",
+                   "x-api-key": key,
+                   "anthropic-version": "2023-06-01"}
+    else:
+        url = f"{base}/chat/completions"
+        headers = {"Content-Type": "application/json",
+                   "Authorization": f"Bearer {key}"}
     body = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": "ok"}],
         "max_tokens": 1,
     }).encode()
-    request = urllib.request.Request(
-        f"{base}/chat/completions", data=body, method="POST",
-        headers={"Content-Type": "application/json",
-                 "Authorization": f"Bearer {key}"})
+    request = urllib.request.Request(url, data=body, method="POST",
+                                     headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=60):
             return True
@@ -92,7 +101,12 @@ def _model_authorizes(base: str, key: str, model: str) -> bool:
 
 
 def select_targets(base: str, key: str, env) -> None:
-    """Pick two upstream model ids the credential can actually call."""
+    """Pick a wire format and two upstream model ids the credential can call.
+
+    Keys differ in scope: some authorize chat completions, some only the
+    Anthropic messages endpoint. The router translates between its client
+    API and the upstream wire, so either works once configured.
+    """
     preferred = [
         value.strip()
         for value in (env.get("ROUTER_TARGET_CAPABLE", ""),
@@ -100,23 +114,22 @@ def select_targets(base: str, key: str, env) -> None:
                       *env.get("UPSTREAM_CANDIDATE_MODELS", "").split(","))
         if value.strip()
     ]
-    tried: list[str] = []
-    selected: list[str] = []
-    for model in (*preferred, *_CANDIDATE_TARGETS):
-        if model in tried:
-            continue
-        tried.append(model)
-        if _model_authorizes(base, key, model):
-            selected.append(model)
-            if len(selected) == 2:
-                break
-    if len(selected) < 2:
-        raise RuntimeError(
-            "fewer than two upstream models authorize with this credential; "
-            "tried: " + ", ".join(tried)
-        )
-    env["ROUTER_TARGET_CAPABLE"], env["ROUTER_TARGET_EFFICIENT"] = selected
-    print(f"Selected router targets: {selected[0]}, {selected[1]}")
+    candidates = list(dict.fromkeys((*preferred, *_CANDIDATE_TARGETS)))
+    forced = env.get("UPSTREAM_FORMAT", "").strip()
+    wires = [forced] if forced else ["openai_chat", "anthropic_messages"]
+    for wire in wires:
+        selected = [m for m in candidates
+                    if _model_authorizes(base, key, m, wire)][:2]
+        if len(selected) == 2:
+            env["UPSTREAM_FORMAT"] = wire
+            env["ROUTER_TARGET_CAPABLE"], env["ROUTER_TARGET_EFFICIENT"] = selected
+            print(f"Selected upstream wire {wire}; "
+                  f"targets: {selected[0]}, {selected[1]}")
+            return
+    raise RuntimeError(
+        "fewer than two upstream models authorize with this credential on "
+        f"{' or '.join(wires)}; tried: " + ", ".join(candidates)
+    )
 
 
 def prepare_environment(env=None) -> None:
