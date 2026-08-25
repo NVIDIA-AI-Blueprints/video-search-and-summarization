@@ -29,6 +29,7 @@ from dataclasses import field
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 #: Where the resolved deployment lives. Override for tests or for a second
@@ -57,6 +58,25 @@ INGRESS_SERVICES: dict[str, ServiceRoute] = {}  # populated below the dataclasse
 
 class ConfigError(Exception):
     """Configuration is missing, unreadable, or from an incompatible version."""
+
+
+_ELASTICSEARCH_INDEX_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+
+
+def validate_memory_index(value: str) -> str:
+    """Validate one Elasticsearch index name without contacting the backend."""
+    index = value.strip()
+    if (
+        not index
+        or len(index.encode("utf-8")) > 255
+        or index in {".", ".."}
+        or not _ELASTICSEARCH_INDEX_PATTERN.fullmatch(index)
+    ):
+        raise ConfigError(
+            f"invalid memory index {value!r}; use 1-255 lowercase letters, digits, '.', '_' or '-', "
+            "starting with a letter or digit"
+        )
+    return index
 
 
 def config_home() -> Path:
@@ -102,6 +122,63 @@ class Service:
 
 
 @dataclass(frozen=True)
+class MemoryConfig:
+    """Static policy and infrastructure for authoritative VSS memory."""
+
+    enabled: bool = True
+    backend: str = "elasticsearch"
+    index: str = "vss-memory"
+    persist_by_default: bool = True
+
+    def validate(self) -> MemoryConfig:
+        if self.backend != "elasticsearch":
+            raise ConfigError(f"unsupported memory backend {self.backend!r}; configure `--backend elasticsearch`")
+        validate_memory_index(self.index)
+        if self.persist_by_default and not self.enabled:
+            raise ConfigError(
+                "memory persistence cannot be enabled by default while memory is disabled; "
+                "use `vss configure memory --disable --no-persist-by-default`"
+            )
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        self.validate()
+        return {
+            "enabled": self.enabled,
+            "backend": self.backend,
+            "index": self.index,
+            "persist_by_default": self.persist_by_default,
+        }
+
+    @classmethod
+    def from_json(cls, raw: object) -> MemoryConfig:
+        if not isinstance(raw, dict):
+            raise ConfigError("config 'memory' must be a JSON object")
+        expected = {"enabled", "backend", "index", "persist_by_default"}
+        unknown = sorted(set(raw) - expected)
+        if unknown:
+            raise ConfigError(f"config 'memory' contains unknown fields: {', '.join(unknown)}")
+        enabled = raw.get("enabled")
+        backend = raw.get("backend")
+        index = raw.get("index")
+        persist_by_default = raw.get("persist_by_default")
+        if not isinstance(enabled, bool):
+            raise ConfigError("config 'memory.enabled' must be true or false")
+        if not isinstance(backend, str):
+            raise ConfigError("config 'memory.backend' must be a string")
+        if not isinstance(index, str):
+            raise ConfigError("config 'memory.index' must be a string")
+        if not isinstance(persist_by_default, bool):
+            raise ConfigError("config 'memory.persist_by_default' must be true or false")
+        return cls(
+            enabled=enabled,
+            backend=backend,
+            index=index,
+            persist_by_default=persist_by_default,
+        ).validate()
+
+
+@dataclass(frozen=True)
 class Deployment:
     """A resolved deployment: the answer ``vss configure`` recorded.
 
@@ -115,6 +192,7 @@ class Deployment:
 
     base_url: str
     services: dict[str, Service] = field(default_factory=dict)
+    memory: MemoryConfig | None = None
     #: ISO-8601. Purely informational, but the thing to quote when a stale
     #: config sends someone chasing a connection error.
     written_at: str = ""
@@ -147,12 +225,15 @@ class Deployment:
         return url
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "version": CONFIG_VERSION,
             "base_url": self.base_url,
             "written_at": self.written_at,
             "services": {name: svc.to_json() for name, svc in sorted(self.services.items())},
         }
+        if self.memory is not None:
+            payload["memory"] = self.memory.to_json()
+        return payload
 
     @classmethod
     def from_json(cls, raw: dict[str, Any]) -> Deployment:
@@ -188,9 +269,11 @@ class Deployment:
             )
             for name, body in raw_services.items()
         }
+        raw_memory = raw.get("memory")
         return cls(
             base_url=base_url,
             services=services,
+            memory=MemoryConfig.from_json(raw_memory) if raw_memory is not None else None,
             written_at=raw.get("written_at", ""),
         )
 
