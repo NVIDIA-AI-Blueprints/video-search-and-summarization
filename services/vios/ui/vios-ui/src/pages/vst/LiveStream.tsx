@@ -17,10 +17,11 @@
 import LOG from '../../utils/misc/Logger';
 import useVSTUIStore from '../../services/StateManagement';
 import SensorSelector from '../../components/sensorSelector/MultipleSensorSelector';
+import DeliveryProtocolSelector from '../../components/deliveryProtocol/DeliveryProtocolSelector';
 import React, { useCallback, useState, useMemo } from 'react';
 import { Box, Grid2 as Grid, Stack, Alert } from '@mui/material';
 import VSTStreamManager from '../../features/streamManager/StreamManager';
-import { Sensor } from '../../interfaces/interfaces';
+import { Sensor, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 import { StreamType } from 'vst-streaming-lib';
 import { getAuthorizedLiveSensors } from '../../utils/misc/sensorUtils';
 
@@ -30,6 +31,12 @@ const LiveStream = () => {
     const isLiveStreamServiceAvailable = useVSTUIStore(state => state.isLiveStreamServiceAvailable);
 
     const availableSensors = useMemo(() => getAuthorizedLiveSensors(sensors, liveSensors), [sensors, liveSensors]);
+
+    // Picked before anything plays, because switching afterwards tears the
+
+    // stream down and builds a new one.
+
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('webrtc');
 
     const [selectedSensors, setSelectedSensors] = useState<Sensor[] | undefined>();
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -104,6 +111,7 @@ const LiveStream = () => {
                         selectedSensors={selectedSensors}
                         label='Select Sensors'
                     />
+                    <DeliveryProtocolSelector value={deliveryProtocol} onChange={setDeliveryProtocol} />
                 </Stack>
             </Grid>
             <Grid
@@ -122,6 +130,7 @@ const LiveStream = () => {
                                     <VSTStreamManager
                                         sensor={sensor}
                                         streamType={StreamType.Live}
+                                        protocol={deliveryProtocol}
                                         onClose={() => handleCloseVideo(sensor.streamId!)}
                                     />
                                 </Grid>
