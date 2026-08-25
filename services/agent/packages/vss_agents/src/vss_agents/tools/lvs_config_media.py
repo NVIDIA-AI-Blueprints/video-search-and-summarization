@@ -58,21 +58,27 @@ LVS_CONFIG_MEDIA_BLOCKED_MESSAGE = (
 _CAPTION_GENERATION_REQUEST_RE = re.compile(
     r"(?i)\b(?P<trigger>start\s+captioning|set\s+up\s+stream|configure\s+stream)\b",
 )
-# Any of these in the same sentence as the trigger counts as a refusal, including
-# punctuated / long forms ("Do not, under any circumstances, start captioning").
+# Any of these in the same sentence as the trigger counts as a refusal,
+# including prefix forms and post-trigger retractions
+# ("start captioning CAM_1, but actually don't").
 _CAPTION_GENERATION_NEGATION_RE = re.compile(
     r"(?i)\b(?:do\s+not|don't|dont|does\s+not|doesn't|doesnt|"
     r"never|cannot|can't|cant|won't|wont|not)\b",
 )
 
 
-def _sentence_prefix_before(user_text: str, trigger_start: int) -> str:
-    """Return the current-sentence text immediately before a trigger match."""
+def _sentence_containing(user_text: str, trigger_start: int, trigger_end: int) -> str:
+    """Return the sentence that contains the trigger match."""
     last_break = -1
     for index, char in enumerate(user_text[:trigger_start]):
         if char in ".!?":
             last_break = index
-    return user_text[last_break + 1 : trigger_start]
+    next_break = len(user_text)
+    for index, char in enumerate(user_text[trigger_end:], start=trigger_end):
+        if char in ".!?":
+            next_break = index
+            break
+    return user_text[last_break + 1 : next_break]
 
 
 def user_requested_caption_generation(user_text: str | None) -> bool:
@@ -80,8 +86,8 @@ def user_requested_caption_generation(user_text: str | None) -> bool:
     if not user_text or not user_text.strip():
         return False
     for match in _CAPTION_GENERATION_REQUEST_RE.finditer(user_text):
-        sentence_prefix = _sentence_prefix_before(user_text, match.start())
-        if _CAPTION_GENERATION_NEGATION_RE.search(sentence_prefix):
+        sentence = _sentence_containing(user_text, match.start(), match.end())
+        if _CAPTION_GENERATION_NEGATION_RE.search(sentence):
             continue
         return True
     return False

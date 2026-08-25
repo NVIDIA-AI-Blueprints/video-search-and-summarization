@@ -111,6 +111,10 @@ class TestUserRequestedCaptionGeneration:
             "Please don't, under any circumstances, configure stream warehouse_cam",
             "I never want you to set up stream CAM_1",
             "I do not, at this time, start captioning sample_warehouse",
+            "start captioning CAM_1, but actually don't",
+            "start captioning sample_warehouse, never mind",
+            "configure stream warehouse_cam but do not",
+            "set up stream CAM_1 — don't",
         ],
     )
     def test_summarize_and_empty_turns_are_not_caption_requests(self, text):

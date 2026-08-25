@@ -823,7 +823,7 @@ class TestLvsConfigMediaCaptionGate:
         agent, config_tool = self._agent_with_config_tool(monkeypatch)
         state = TopAgentState(
             current_message=HumanMessage(
-                content="Do not, under any circumstances, start captioning CAM_1",
+                content="start captioning CAM_1, but actually don't",
             ),
             agent_scratchpad=[
                 AIMessage(
