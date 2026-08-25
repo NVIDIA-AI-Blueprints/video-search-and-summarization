@@ -73,25 +73,59 @@ Set `VSS_APPS_DIR` (repo's `deploy/docker` path) and `VSS_DATA_DIR` (data direct
 
 Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-tracking`, or run directly:
 
-```bash
-cd deploy/docker
+1. **Sample video data**
 
-cp developer-profiles/dev-profile-mc-tracking/overrides.env \
-   developer-profiles/dev-profile-mc-tracking/generated.env
-# edit generated.env: VSS_APPS_DIR, VSS_DATA_DIR, HOST_IP, NGC_CLI_API_KEY, ...
+   Sample videos come from the `vss-warehouse-app-data` NGC resource:
 
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file developer-profiles/dev-profile-mc-tracking/.env \
-  --env-file developer-profiles/dev-profile-mc-tracking/generated.env \
-  up -d
-```
+   ```bash
+   ngc \
+      registry \
+      resource \
+      download-version \
+      nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
 
-This uses the same three-file `--env-file` chain (`containers.env`, profile `.env`, profile `generated.env`) and `dev-profile-<profile>/{.env,overrides.env,generated.env}` layout as the rest of the profiles — `mc-tracking` is deployed with direct `docker compose` commands rather than through `dev-profile.sh`.
+   # OR manually download the tar file from NGC:
+   # https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
 
-## Perception model download (automatic)
+   cd vss-warehouse-app-data_v3.2.0
+   tar -xvf vss-warehouse-app-data.tar.gz
+   ```
 
-Same manifest-driven pattern as other profiles: `ds-start-mc-tracking.sh` downloads models automatically via `models-download.json` when `DS_MODEL_DOWNLOAD=auto` (the default). Ensure `NGC_CLI_API_KEY` is set and `$VSS_DATA_DIR/models` exists and is writable before first deploy. RT-CV builds a TensorRT engine from the downloaded models on first start (a few minutes) — the engine cache persists under `$VSS_DATA_DIR/models/` across ordinary restarts.
+   Point `VSS_DATA_DIR` at the extracted directory (containing `videos/warehouse-4cams-20mx20m-synthetic/`). Calibration/camInfo/imagery for the default dataset are self-contained in-repo under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/` — no separate calibration download needed.
+
+   Models download automatically (see below); this download is for sample videos only.
+
+   Model acquisition is automatic and manifest-driven: `ds-start-mc-tracking.sh` downloads RT-DETR + BodyPose3DNet via `models-download.json` when `DS_MODEL_DOWNLOAD=auto` (the default) on first perception start. Ensure `NGC_CLI_API_KEY` is set and `$VSS_DATA_DIR/models` exists and is writable before first deploy. RT-CV builds a TensorRT engine from the downloaded models on first start (a few minutes) — the engine cache persists under `$VSS_DATA_DIR/models/` across ordinary restarts.
+
+2. **Edit deployment overrides**
+
+   Keep stable profile defaults in **`developer-profiles/dev-profile-mc-tracking/.env`**. Copy **`overrides.env`** to **`generated.env`** and edit `generated.env` for the target machine:
+
+   ```bash
+   cd deploy/docker
+
+   cp developer-profiles/dev-profile-mc-tracking/overrides.env \
+      developer-profiles/dev-profile-mc-tracking/generated.env
+   ```
+
+   - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
+   - **`VSS_DATA_DIR`**: extracted `vss-warehouse-app-data` directory (step 1)
+   - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
+   - **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse and BodyPose3DNet model packages
+   - **`HARDWARE_PROFILE`**: see [Hardware profiles](#hardware-profiles)
+   - **`STREAM_TYPE`**: `kafka` or `redis` — keep aligned with `COMPOSE_PROFILES` (next bullet)
+   - **`COMPOSE_PROFILES`**: one of the `COMPOSE_PROFILES_MC_TRACKING_*` variants defined in `overrides.env` — must match `STREAM_TYPE`
+   - **`BP_CONFIGURATOR_ENV_FILE`**: set to the absolute path of `generated.env` itself — `bp-configurator`'s own `env_file:` defaults to `overrides.env`, not `generated.env` (see [Debugging](#debugging))
+
+3. **Start the stack**
+
+   ```bash
+   docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/generated.env \
+     up --detach --pull always --force-recreate --build
+   ```
 
 ## Endpoints (after deploy)
 
@@ -107,17 +141,50 @@ Same manifest-driven pattern as other profiles: `ds-start-mc-tracking.sh` downlo
 
 ## Teardown
 
-Manual teardown commands (ordinary stop, full reset with `-v --rmi all`, dangling-volume cleanup, and `cleanup_all_datalog.sh` usage) are documented in [`deploy/docker/README.md` § MC-Tracking developer profile](../../../deploy/docker/README.md#mc-tracking-developer-profile) — follow that section rather than `references/teardown.md` (which assumes the `dev-profile.sh`-managed profiles).
+4. **Stop the stack**
+
+   ```bash
+   docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/generated.env \
+     down -v --remove-orphans
+   ```
+
+   `-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, not a Docker volume, so it survives `down -v` intact (including `sdr-controller`'s stale provisioning state, see [Debugging](#debugging)). Clear it with step 5's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
+
+   For a full reset that also drops locally-built images (Elasticsearch, init containers), use `down -v --rmi all` instead; expect the next `up` to take several minutes longer while those images rebuild.
+
+   **Dangling-volume cleanup** (scoped to `COMPOSE_PROJECT_NAME` — `vss` by default — so dangling volumes from unrelated stopped containers/apps on the host are not touched):
+
+   ```bash
+   docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss}" | xargs -r docker volume rm
+   ```
+
+5. **Data / backup cleanup**
+
+   To reset `data_log` volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed:
+
+   ```bash
+   bash scripts/cleanup_all_datalog.sh -e developer-profiles/dev-profile-mc-tracking/generated.env
+   ```
+
+   This deletes calibration output and VST/nvstreamer runtime data by default — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` / `$VSS_DATA_DIR/playback/` (sample media).
+
+   Use `generated.env` here, not `overrides.env` — `overrides.env`'s `VSS_DATA_DIR` is still the checked-in `/path/to/...` placeholder, so pointing `-e` at it fails with `Error: VSS data dir '/path/to/vss-mc-tracking-data' not found` and silently skips the actual `data_log` cleanup (verified).
 
 ## Debugging
 
-Perception/provisioning failures in this profile are almost always one of the five issues below, roughly in the order you'll hit them on a fresh deploy:
+Perception/provisioning failures in this profile are almost always one of the six issues below, roughly in the order you'll hit them on a fresh deploy:
 
 - **`bp-configurator` exits with `HOST_IP must be set ... placeholder '<HOST_IP>'`** — its `env_file` defaults to `overrides.env`, which still has the placeholder, not `generated.env`. Set `BP_CONFIGURATOR_ENV_FILE=<absolute path to generated.env>` in `generated.env` before deploying.
+- **Switching to Redis mode (`STREAM_TYPE=redis` in `generated.env`), `broker-health-check` still waits for Kafka** — its image is selected by `STREAM_TYPE` at build time (`Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile`), so a stale cached image from a prior Kafka deploy keeps checking for Kafka even after `STREAM_TYPE` is fixed. Always redeploy with `--build` (see the `up` command above) when switching `STREAM_TYPE`. Also set `COMPOSE_PROFILES=${COMPOSE_PROFILES_MC_TRACKING_REDIS}` (or the `_MINIMAL`/`_PLAYBACK` variant) to match.
 - **`bp-configurator`'s `file_management` step fails with "Directory not found"** for the sample video dataset — symlinks into `$VSS_DATA_DIR/videos/...` don't resolve correctly inside the container's mount namespace. Copy the sample video/playback files into the data dir directly (`cp -a`, not `ln -s`).
 - **`kibana` unhealthy, logs show an Elasticsearch version mismatch** (e.g. Kibana `9.4.4` vs a stale locally-cached `elasticsearch:9.3.3`) — rebuild the Elasticsearch image: `docker compose build elasticsearch` (it's pinned to the matching version in `services/infra/Dockerfiles/elasticsearch.Dockerfile`), then recreate the container.
 - **`vss-behavior-analytics-mc-tracking` / `vss-video-analytics-api-mc-tracking` restart-looping with `EACCES`** — `bp-configurator` rewrites config files but preserves their original restrictive permissions, and `data_log/vss_video_analytics_api/` gets auto-created `root:root`. Fix with `chmod -R o+rX` on the rewritten config dirs and `chmod -R 777` on `data_log/vss_video_analytics_api`.
-- **`vss-rtvi-cv-mc-tracking` stuck at 0 FPS, logs flooded with `uri:/api/v1/stream/remove` and no `stream/add`** — this is stale provisioning state, not a code bug. Root cause: `sdr-controller` (WDM) caches "what's currently provisioned on this pod" in a Redis hash (`vss-rtvi-cv-mc-tracking`) and sensor identity in Postgres (`vss_vios_pg_data`), neither of which is cleared by a plain `docker compose down` (no `-v`). After a non-destructive teardown + redeploy, those caches can point at camera UUIDs that no longer exist, so `sdr-controller` retries `stream/remove` (`500 STREAM_REMOVE_FAIL, No record found`) forever and never reaches `stream/add`. Fix: `docker exec redis redis-cli DEL vss-rtvi-cv-mc-tracking rtvi-cv-mc-tracking-data vss-rtvi-cv-mc-tracking-pod && docker restart sdr-controller` — or, more reliably, tear down with `-v` (wipes Postgres + Redis) before redeploying. Confirm the fix with `docker logs vss-rtvi-cv-mc-tracking | grep 'Active sources'` (should read 4, not 0) and `docker logs sdr-controller | grep -o '\(add\|delete\) operation Response Code: [0-9]*' | sort | uniq -c` (should show `200`s, not a `remove`-only loop).
+- **`vss-rtvi-cv-mc-tracking` stuck at 0 FPS** even though `bp-configurator` logs "Successfully added sensor" for all 4 cameras and `sdr-controller` shows `200`s — this is stale provisioning state, not a code bug. Root cause: `sdr-controller` (WDM) caches "what's currently provisioned on this pod" in a Redis hash (`vss-rtvi-cv-mc-tracking`) and sensor identity in Postgres (`vss_vios_pg_data`), neither of which is cleared by a plain `docker compose down` (no `-v`) or even `down -v` (Redis is a bind mount, not a Docker volume — see step 4). After a non-destructive teardown + redeploy, those caches can point at camera UUIDs that no longer exist, so provisioning silently never converges (symptoms vary — can show as a `stream/remove`-only loop with no `stream/add`, or as the sensors appearing "added" successfully while the perception pod never actually receives them).
+
+  **Fix: tear down cleanly, don't patch a running system.** `docker exec redis redis-cli DEL vss-rtvi-cv-mc-tracking rtvi-cv-mc-tracking-data vss-rtvi-cv-mc-tracking-pod && docker restart sdr-controller` looks like the targeted fix but is **unreliable in practice** (verified) — restarting only `sdr-controller` leaves it waiting fresh on the `vst.event` Redis stream, but `bp-configurator` already sent its one-shot sensor config *before* the restart and won't resend it just because `sdr-controller` came back, so the new `sdr-controller` process never receives it and the stack stays stuck. Instead, tear down fully (`down -v --remove-orphans`) and clear `$VSS_DATA_DIR/data_log/redis/data/*` (via `cleanup_all_datalog.sh`, step 5) *before* redeploying — this was verified to reliably fix it, the partial restart was not. Confirm with `docker logs vss-rtvi-cv-mc-tracking | grep 'Active sources'` (should read 4, not 0).
 - **Shell-exported vars silently override `generated.env`** — if `PERCEPTION_TAG`, `VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE/TAG`, or `NGC_CLI_API_KEY` were ever `source`d into the current shell (e.g. from an earlier `source .env`), Compose gives OS env vars precedence over `--env-file`, and a stray literal-quote-baked value (`PERCEPTION_TAG="3.3.0-26.07.2"` with the quotes taken literally) produces `invalid reference format` on `up -d`. `env | grep -E "PERCEPTION_TAG|VSS_RT_CV_MV3DT_BEV_FUSION|NGC_CLI_API_KEY"` and `unset` anything present before redeploying.
 
-For a clean, known-good reset covering the last three issues at once: `docker compose ... down -v --rmi all` (wipes Postgres/Redis/images) + `docker volume ls -q -f dangling=true -f label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss} | xargs -r docker volume rm` (scoped to this project's volumes — an unscoped `dangling=true` filter would also delete dangling volumes from unrelated stopped containers/apps on the host), then redeploy. This forces a rebuild of any locally-built images (Elasticsearch, init containers), so expect the first `up -d` after a `-v --rmi all` teardown to take several minutes longer than an ordinary redeploy.
+For a clean, known-good reset covering the last three issues at once: `docker compose ... down -v --rmi all` (wipes Postgres + images) + `rm -rf $VSS_DATA_DIR/data_log/redis/data/*` (wipes Redis — a bind mount, not touched by `-v`) + `docker volume ls -q -f dangling=true -f label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss} | xargs -r docker volume rm` (scoped to this project's volumes — an unscoped `dangling=true` filter would also delete dangling volumes from unrelated stopped containers/apps on the host), then redeploy. This forces a rebuild of any locally-built images (Elasticsearch, init containers), so expect the first `up` after a `-v --rmi all` teardown to take several minutes longer than an ordinary redeploy.

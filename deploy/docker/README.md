@@ -364,43 +364,81 @@ Compose profiles for warehouse slices are defined in
 
 ## MC-Tracking developer profile
 
-The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under **`developer-profiles/dev-profile-mc-tracking/`**. It is deployed and torn down with direct Compose commands, not `dev-profile.sh`'s `up`/`down` flow.
+The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under **`developer-profiles/dev-profile-mc-tracking/`** and is deployed and torn down with direct Compose commands. Full reference (service table, hardware profiles, debugging) is in [`skills/vss-deploy-profile/references/mc-tracking.md`](../../skills/vss-deploy-profile/references/mc-tracking.md).
 
-**Stop the running deployment:**
+1. **Sample video data**
 
-```bash
-cd /path/to/video-search-and-summarization/deploy/docker
+   Sample videos come from the `vss-warehouse-app-data` NGC resource:
 
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file developer-profiles/dev-profile-mc-tracking/.env \
-  --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
-  down
-```
+   ```bash
+   ngc \
+      registry \
+      resource \
+      download-version \
+      nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
 
-**Alternatively, to remove all the containers, images and volumes:**
+   # OR manually download the tar file from NGC:
+   # https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
 
-```bash
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file developer-profiles/dev-profile-mc-tracking/.env \
-  --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
-  down -v --rmi all
-```
+   cd vss-warehouse-app-data_v3.2.0
+   tar -xvf vss-warehouse-app-data.tar.gz
+   ```
 
-**Tear down this project's dangling volumes** (scoped to `COMPOSE_PROJECT_NAME` — `vss` by default — so dangling volumes from unrelated stopped containers/apps on the host are not touched):
+   Point `VSS_DATA_DIR` at the extracted directory (step 2). Calibration/camInfo/imagery for the default dataset are self-contained in-repo under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/` — no separate calibration download needed.
 
-```bash
-docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss}" | xargs -r docker volume rm
-```
+   Models download automatically on first perception start via `models-download.json` (`DS_MODEL_DOWNLOAD=auto`, the default) — ensure `NGC_CLI_API_KEY` is set and `$VSS_DATA_DIR/models` exists and is writable before first deploy.
 
-**Cleanup all data** (calibration output, VST/nvstreamer runtime data, `data_log` volumes, and blueprint-configurator backups) **from the data directory:**
+2. **Edit deployment overrides**
 
-```bash
-bash scripts/cleanup_all_datalog.sh -e developer-profiles/dev-profile-mc-tracking/overrides.env
-```
+   Keep stable profile defaults in **`developer-profiles/dev-profile-mc-tracking/.env`**. Update **`developer-profiles/dev-profile-mc-tracking/overrides.env`** directly for the target machine:
 
-This deletes calibration output and VST/nvstreamer runtime data by default (matching `cleanup_all_datalog.sh`'s defaults) — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` / `$VSS_DATA_DIR/playback/` (sample media) — those aren't removed by this script for any profile.
+   - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
+   - **`VSS_DATA_DIR`**: extracted `vss-warehouse-app-data` directory (step 1)
+   - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
+   - **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse and BodyPose3DNet model packages
+   - **`HARDWARE_PROFILE`**, **`STREAM_TYPE`** (`kafka` or `redis`), and **`COMPOSE_PROFILES`** — keep `STREAM_TYPE` and `COMPOSE_PROFILES` aligned (`COMPOSE_PROFILES_MC_TRACKING_KAFKA`/`_REDIS` and their `_MINIMAL`/`_PLAYBACK` variants)
+
+3. **Start the stack**
+
+   ```bash
+   cd /path/to/video-search-and-summarization/deploy/docker
+
+   docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+     up --detach --pull always --force-recreate --build
+   ```
+
+4. **Stop the stack**
+
+   ```bash
+   docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+     down -v --remove-orphans
+   ```
+
+   `-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, so it survives `down -v` intact, including `sdr-controller`'s stale provisioning state. Clear it with step 5's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
+
+   For a full reset that also drops locally-built images (Elasticsearch, init containers), use `down -v --rmi all` instead; expect the next `up` to take several minutes longer while those images rebuild.
+
+   **Tear down this project's dangling volumes** (scoped to `COMPOSE_PROJECT_NAME` — `vss` by default — so dangling volumes from unrelated stopped containers/apps on the host are not touched):
+
+   ```bash
+   docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss}" | xargs -r docker volume rm
+   ```
+
+5. **Data / backup cleanup**
+
+   To reset `data_log` volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed:
+
+   ```bash
+   bash scripts/cleanup_all_datalog.sh -e developer-profiles/dev-profile-mc-tracking/overrides.env
+   ```
+
+   This deletes calibration output and VST/nvstreamer runtime data by default (matching `cleanup_all_datalog.sh`'s defaults) — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` / `$VSS_DATA_DIR/playback/` (sample media) — those aren't removed by this script for any profile.
 
 ---
 
