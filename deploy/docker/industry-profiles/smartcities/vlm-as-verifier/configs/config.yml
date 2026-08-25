@@ -195,7 +195,6 @@ alert_agent:
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
-  chunk_size: 1
 
   # Dedup / filter tuning (in-process dedup + ES-backed verdict protection).
   event_filters:
@@ -229,12 +228,26 @@ alert_agent:
   # async path, sync is the reference arm. See services/alert/README.md
   # "Pipeline modes & concurrency sizing".
   pipeline_mode: event_loop
+
+  # Pipeline processes. One instance spreads its consume + dispatch stack
+  # across this many OS processes, which is what lifts it past a single core.
+  # Above 1 it requires pipeline_mode: event_loop and shared alert-config
+  # storage, and it must not exceed the partitions on ANY ONE source topic --
+  # each topic is assigned independently, so a topic with fewer partitions than
+  # processes leaves the difference holding none of it. With N replicas the
+  # constraint is replicas x processes <= partitions, per topic.
+  processes: 1
+  # The whole of startup shares this budget: topic metadata, prompt seeding,
+  # VLM warmup and every pipeline joining its consumer group. Exceeding it
+  # fails the container rather than leaving it half-started. Raise it where
+  # the default cannot be met -- topics created by a Job that races this
+  # deployment, or several processes building their stores at once. Must be at
+  # least twice the 15s reserved for the group join. The hard kill lands a
+  # 5s watchdog margin past the budget -- 65s at this default -- so size a
+  # startup probe against that, not against the budget alone.
+  startup_timeout_seconds: 60
   async_dispatch_max_in_flight: 16              # Global in-flight bound, 2-4x max_vlm_concurrent
   async_io:
-    enabled: true                               # Ignored when pipeline_mode is set; kept for config-only rollback
-    vst_enabled: true                           # Guardrail: async-submit VST lookup path (thread_bridge only)
-    elastic_enabled: true                       # Guardrail: async-submit Elastic sink publishing path (thread_bridge only)
-    dedup_enabled: true                         # Guardrail: async-submit in-process dedup/state operations (thread_bridge only)
     external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
     sink_warn_in_flight: 20                      # Warning threshold for in-flight async sink operations
     # event_loop per-service caps. max_vlm_concurrent MUST be set explicitly
