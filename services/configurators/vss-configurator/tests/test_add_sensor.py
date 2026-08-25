@@ -81,24 +81,44 @@ def test_add_sensor_treats_already_exists_400_as_success(monkeypatch):
     sleep.assert_not_called()
 
 
-def test_add_sensor_treats_name_conflict_400_as_success(monkeypatch):
-    """VST's other "already exists" phrasing (name conflict) short-circuits too."""
+def test_add_sensor_retries_on_name_conflict_400(monkeypatch):
+    """VST's name-only collision ("different URL, same name") is a real
+    conflict, not our own abandoned request -- it must retry, not succeed."""
     import sensor_config_manager as mod
 
-    post = MagicMock(
-        return_value=_response(
-            400,
-            "User given name is invalid or already exists, sensorId: abc, sensorName: Camera_02",
-        )
-    )
+    responses = [
+        _response(400, "User given name is invalid or already exists, sensorId: abc, sensorName: Camera_02"),
+        _response(200),
+    ]
+    post = MagicMock(side_effect=responses)
     sleep = MagicMock()
     monkeypatch.setattr(mod.requests, "post", post)
     monkeypatch.setattr(mod.time, "sleep", sleep)
 
-    mod.add_sensor(_sensor_info())
+    mod.add_sensor(_sensor_info(), delay=30)
 
-    assert post.call_count == 1
-    sleep.assert_not_called()
+    assert post.call_count == 2
+    sleep.assert_called_once_with(30)
+
+
+def test_add_sensor_ignores_already_exists_text_on_non_400(monkeypatch):
+    """Only a 400 counts as the duplicate-add case -- a 5xx whose body happens
+    to mention "already exists" must still retry, not be treated as success."""
+    import sensor_config_manager as mod
+
+    responses = [
+        _response(500, "Sensor exists already, sensorId: abc, sensorName: Camera_02"),
+        _response(200),
+    ]
+    post = MagicMock(side_effect=responses)
+    sleep = MagicMock()
+    monkeypatch.setattr(mod.requests, "post", post)
+    monkeypatch.setattr(mod.time, "sleep", sleep)
+
+    mod.add_sensor(_sensor_info(), delay=30)
+
+    assert post.call_count == 2
+    sleep.assert_called_once_with(30)
 
 
 def test_add_sensor_retries_on_genuine_error(monkeypatch):

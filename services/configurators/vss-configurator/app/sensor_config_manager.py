@@ -299,17 +299,23 @@ def add_sensor(sensor_info: Sensor, delay=30, timeout=15):
                 logger.info(f"Successfully added sensor: {sensor_data['name']}")
                 logger.debug(f"VMS response: {response.text}")
                 return
-            # A duplicate add (e.g. a request VST finished after we timed out on it)
-            # means the sensor is already registered, so treat it as success.
+            # Same RTSP URL already registered (e.g. a request VST finished after we
+            # timed out on it) means the sensor is already in the desired state, so
+            # treat it as success. VST reports this distinctly from a same-name/
+            # different-URL collision ("User given name is invalid or already
+            # exists"), which is a real conflict and must still retry/surface.
             error_message = ""
             if response is not None:
                 try:
                     error_message = response.json().get("error_message", "")
                 except ValueError:
                     error_message = response.text or ""
-            error_message_lower = error_message.lower()
-            already_exists = "already" in error_message_lower and "exist" in error_message_lower
-            if response is not None and already_exists:
+            already_registered = (
+                response is not None
+                and response.status_code == 400
+                and error_message.startswith("Sensor exists already")
+            )
+            if already_registered:
                 logger.info(f"Sensor {sensor_data['name']} already registered with VMS: {error_message}")
                 return
             logger.warning(f"Error adding sensor {sensor_data['name']}. Received status code {response.status_code} from VMS. Retrying in {delay} seconds...")
