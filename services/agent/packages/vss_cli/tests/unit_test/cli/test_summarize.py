@@ -234,6 +234,30 @@ def _run(*argv: str) -> Any:
     return CliRunner().invoke(SUMMARIZE.cli(), ["run", *_steered(argv)])
 
 
+def _configure_markdown(
+    deployment: config_mod.Deployment,
+    workspace: Path,
+    *,
+    default: bool = False,
+    persist: bool = True,
+) -> None:
+    config_mod.save(
+        config_mod.Deployment(
+            base_url=deployment.base_url,
+            services=deployment.services,
+            written_at=deployment.written_at,
+            memory=config_mod.MemoryConfig(
+                persist_by_default=persist,
+                markdown=config_mod.MarkdownMemoryConfig(
+                    enabled=True,
+                    workspace=str(workspace),
+                    write_by_default=default,
+                ),
+            ),
+        )
+    )
+
+
 def _body(result: Any) -> dict[str, Any]:
     """The paid-for result is the first compact JSON line."""
     return cast("dict[str, Any]", json.loads(result.stdout.splitlines()[0]))
@@ -302,8 +326,43 @@ def test_persistence_options_are_not_request_fields() -> None:
     """They configure the job, not the VLM call, so they must not reach the payload."""
     assert {"no_persist", "video_id", "media_source"} <= set(SummarizeOptions.model_fields)
     assert not {"no_persist", "video_id", "media_source"} & set(SummarizeInput.model_fields)
-    assert {"--no-persist", "--video-id"} <= _run_flags()
+    assert {"--no-persist", "--video-id", "--write-memory-note", "--no-write-memory-note"} <= _run_flags()
     assert "--persist" not in _run_flags()
+
+
+def test_write_memory_note_with_no_persist_exits_two_before_summarize(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: pytest.fail("summarization ran"))
+    result = _run("--id", "v1", "--no-persist", "--write-memory-note")
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "--write-memory-note" in result.output
+    assert "--no-persist" in result.output
+
+
+def test_explicit_note_requires_configured_markdown(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: pytest.fail("summarization ran"))
+    assert _run_via_root("--id", "v1", "--write-memory-note") == int(Exit.CONFIGURATION)
+    assert "vss configure memory --markdown" in capsys.readouterr().err
+
+
+def test_explicit_note_cannot_override_static_persistence_off(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, persist=False)
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: pytest.fail("summarization ran"))
+    result = _run("--id", "v1", "--write-memory-note")
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "static persistence" in result.output
 
 
 # --------------------------------------------------------------------------
@@ -565,6 +624,100 @@ def test_persist_writes_one_unified_memory_record(
         "expected": 1,
         "written": 1,
     }
+
+
+def test_explicit_note_opt_in_writes_openclaw_daily_note(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace)
+    _capture_post(monkeypatch)
+
+    result = _run("--id", "v1", "--write-memory-note")
+    assert result.exit_code == 0, result.output
+    body = _body(result)
+    assert body["memory_note"]["written"] is True
+    path = workspace / body["memory_note"]["path"]
+    assert path.name.endswith("-vss.md")
+    text = path.read_text(encoding="utf-8")
+    assert body["job_id"] in text
+    assert "a forklift crosses the aisle" in text
+
+
+def test_default_note_writing_can_be_explicitly_opted_out(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, default=True)
+    _capture_post(monkeypatch)
+    written = _run("--id", "v1")
+    assert written.exit_code == 0
+    note_path = workspace / _body(written)["memory_note"]["path"]
+    original = note_path.read_text(encoding="utf-8")
+
+    skipped = _run("--id", "v2", "--no-write-memory-note")
+    assert skipped.exit_code == 0, skipped.output
+    assert "memory_note" not in _body(skipped)
+    assert note_path.read_text(encoding="utf-8") == original
+
+
+def test_markdown_failure_keeps_summary_and_authoritative_persistence(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+    tmp_path: Path,
+) -> None:
+    from vss_cli import memory_notes
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, default=True)
+    calls = 0
+
+    def post(*_args: Any, **_kwargs: Any) -> _Response:
+        nonlocal calls
+        calls += 1
+        return _Response()
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(memory_notes, "write", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")))
+
+    result = _run("--id", "v1")
+    assert result.exit_code == int(Exit.PARTIAL), result.output
+    assert calls == 1
+    body = _body(result)
+    assert body["summary"]["id"] == "cmpl-1"
+    assert body["persist"]["status"] == "complete"
+    assert body["memory_note"]["written"] is False
+    assert "disk full" in body["memory_note"]["error"]
+    assert _marker(result)["persisted"] is True
+
+
+def test_elasticsearch_failure_prevents_markdown_write(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from vss_cli import memory_notes
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, default=True)
+    _capture_post(monkeypatch)
+    _memory(monkeypatch, _Store(fail_on="completed"))
+    monkeypatch.setattr(memory_notes, "write", lambda *_args, **_kwargs: pytest.fail("note write attempted"))
+
+    result = _run("--id", "v1")
+    assert result.exit_code == int(Exit.PARTIAL), result.output
+    assert _body(result)["persist"]["status"] == "failed"
 
 
 def test_the_record_exists_before_the_summary_does(

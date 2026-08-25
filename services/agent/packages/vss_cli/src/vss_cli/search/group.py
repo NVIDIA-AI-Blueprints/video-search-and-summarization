@@ -47,6 +47,7 @@ from vss_cli.exits import Exit
 from vss_cli.group import Action
 from vss_cli.group import CommandGroup
 from vss_cli.group import Context
+from vss_cli.group import InvalidInput
 from vss_cli.group import Result
 from vss_cli.group import _exit_for
 
@@ -232,6 +233,10 @@ class SearchPersistOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     no_persist: bool = Field(False, description="Skip persistence for this search.")
+    write_memory_note: bool | None = Field(
+        None,
+        description="Override whether this persisted result is written to the configured Markdown cache.",
+    )
 
 
 def _ulid() -> str:
@@ -441,9 +446,18 @@ class SearchGroup(CommandGroup):
         persist_options = SearchPersistOptions(
             **{k: v for k, v in ctx.extra.items() if k in SearchPersistOptions.model_fields}
         )
-        from vss_cli.memory_policy import effective_persist
+        from vss_cli.memory_policy import MemoryPolicyInputError
+        from vss_cli.memory_policy import resolve_memory_policy
 
-        want_persist = effective_persist(deployment, no_persist=persist_options.no_persist)
+        try:
+            policy = resolve_memory_policy(
+                deployment,
+                no_persist=persist_options.no_persist,
+                note_override=persist_options.write_memory_note,
+            )
+        except MemoryPolicyInputError as error:
+            raise InvalidInput(str(error)) from error
+        want_persist = policy.persist
 
         memory: memory_mod.Memory | None = None
         if want_persist:
@@ -458,9 +472,16 @@ class SearchGroup(CommandGroup):
         submitted = False
         asset_id = input_data.sensors[0].id if input_data.sensors else None
 
-        def outcome(response: dict[str, Any], code: Exit, *, status: str, record: str) -> Result:
+        def outcome(
+            response: dict[str, Any],
+            code: Exit,
+            *,
+            status: str,
+            record: str,
+            persisted_override: bool | None = None,
+        ) -> Result:
             response["record"] = record
-            persisted = bool(response.get("persisted", False)) and code != Exit.PARTIAL
+            persisted = bool(response.get("persisted", False)) if persisted_override is None else persisted_override
             return Result(
                 body=response,
                 exit=code,
@@ -603,6 +624,23 @@ class SearchGroup(CommandGroup):
         if persist_error is not None:
             return outcome(response, Exit.PARTIAL, status="partial", record="absent")
         record = "closed" if persist_meta is not None else "absent"
+        if policy.write_note and persist_meta is not None and memory is not None:
+            try:
+                from vss_cli import memory_notes
+
+                parent = memory.service.get(job_id, reconcile=False)
+                note = memory_notes.write(parent, deployment)
+                response["memory_note"] = {"written": note.written, "path": note.path}
+            except Exception as error:
+                click.echo(f"vss: search succeeded but Markdown memory-note write failed ({error})", err=True)
+                response["memory_note"] = {"written": False, "error": str(error)}
+                return outcome(
+                    response,
+                    Exit.PARTIAL,
+                    status="completed",
+                    record=record,
+                    persisted_override=True,
+                )
         return outcome(response, Exit.SUCCESS, status="completed", record=record)
 
 

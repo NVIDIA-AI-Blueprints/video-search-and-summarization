@@ -237,6 +237,10 @@ class SummarizeOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     no_persist: bool = Field(False, description="Skip persistence for this summary.")
+    write_memory_note: bool | None = Field(
+        None,
+        description="Override whether this persisted result is written to the configured Markdown cache.",
+    )
     video_id: str | None = Field(
         None,
         description="video_id recorded for the persisted record. Defaults to --id; required with --url.",
@@ -486,9 +490,18 @@ class SummarizeGroup(CommandGroup):
 
         deployment = ctx.deployment or config_mod.load()
         options = SummarizeOptions(**{k: v for k, v in ctx.extra.items() if k in SummarizeOptions.model_fields})
-        from vss_cli.memory_policy import effective_persist
+        from vss_cli.memory_policy import MemoryPolicyInputError
+        from vss_cli.memory_policy import resolve_memory_policy
 
-        want_persist = effective_persist(deployment, no_persist=options.no_persist)
+        try:
+            policy = resolve_memory_policy(
+                deployment,
+                no_persist=options.no_persist,
+                note_override=options.write_memory_note,
+            )
+        except MemoryPolicyInputError as error:
+            raise InvalidInput(str(error)) from error
+        want_persist = policy.persist
 
         # Fail before the expensive summarization: a persisted record needs a
         # video_id, which for a --url summary can only come from --video-id.
@@ -512,9 +525,15 @@ class SummarizeGroup(CommandGroup):
         input_data = _memory_input(inputs, options, request)
         persist_error: str | None = None
 
-        def outcome(body: dict[str, Any], code: Exit, *, status: JobStatus) -> Result:
+        def outcome(
+            body: dict[str, Any],
+            code: Exit,
+            *,
+            status: JobStatus,
+            persisted_override: bool | None = None,
+        ) -> Result:
             """Attach the compact §7.2 marker facts without changing the result."""
-            persisted = body.get("record") == "closed" and code != Exit.PARTIAL
+            persisted = body.get("record") == "closed" if persisted_override is None else persisted_override
             return Result(
                 body=body,
                 exit=code,
@@ -686,6 +705,22 @@ class SummarizeGroup(CommandGroup):
         # `closed` without asking: the terminal upsert above is what closing
         # means, and it either returned or we are in the except clause.
         body["record"] = "closed"
+        if policy.write_note:
+            try:
+                from vss_cli import memory_notes
+
+                parent = memory.service.get(job_id, reconcile=False)
+                note = memory_notes.write(parent, deployment)
+                body["memory_note"] = {"written": note.written, "path": note.path}
+            except Exception as error:
+                click.echo(f"vss: summary succeeded but Markdown memory-note write failed ({error})", err=True)
+                body["memory_note"] = {"written": False, "error": str(error)}
+                return outcome(
+                    body,
+                    Exit.PARTIAL,
+                    status="completed",
+                    persisted_override=True,
+                )
         return outcome(body, Exit.SUCCESS, status="completed")
 
 

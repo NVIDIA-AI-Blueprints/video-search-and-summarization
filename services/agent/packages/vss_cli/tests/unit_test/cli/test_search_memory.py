@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -22,6 +23,9 @@ from vss_core.memory.store import MemoryQuery
 from vss_core.search_core.models.search import SearchOutput
 from vss_core.search_core.models.search import SearchResult
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 class _EmbedInputs(BaseModel):
     query: str
@@ -33,14 +37,26 @@ def _inputs() -> _EmbedInputs:
     return _EmbedInputs(query="forklift", video_sources=["warehouse-camera"], top_k=10)
 
 
-def _deployment() -> config_mod.Deployment:
+def _deployment(
+    *,
+    persist: bool = True,
+    markdown_workspace: str | None = None,
+    note_default: bool = False,
+) -> config_mod.Deployment:
     return config_mod.Deployment(
         base_url="http://h:7777",
         services={
             "elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch", indices=["mdx-embed-filtered-1"]),
             "rt_embed": config_mod.Service(url="http://h:7777/cosmos-embed", models=["cosmos-embed"]),
         },
-        memory=config_mod.MemoryConfig(),
+        memory=config_mod.MemoryConfig(
+            persist_by_default=persist,
+            markdown=config_mod.MarkdownMemoryConfig(
+                enabled=markdown_workspace is not None,
+                workspace=markdown_workspace,
+                write_by_default=note_default,
+            ),
+        ),
     )
 
 
@@ -64,9 +80,10 @@ def _search_output(n: int = 2) -> SearchOutput:
 
 
 def test_search_exposes_only_the_safe_persistence_opt_out() -> None:
-    options = {option for param in SearchGroup.extra_params for option in param.opts}
+    options = {option for param in SearchGroup.extra_params for option in (*param.opts, *param.secondary_opts)}
     assert "--no-persist" in options
     assert "--persist" not in options
+    assert {"--write-memory-note", "--no-write-memory-note"} <= options
 
 
 @pytest.fixture
@@ -186,6 +203,88 @@ def test_persisted_search_parent_and_children(search_group: SearchGroup) -> None
     assert children[0].output.ext is not None
     assert "rank" in children[0].output.ext
     assert result.body["data"][0]["description"] == "hit 1"
+
+
+def test_search_explicit_note_opt_in_writes_daily_note(
+    search_group: SearchGroup,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    service = MemoryService(InMemoryStore())
+    result = search_group.run(
+        "embed",
+        _inputs(),
+        Context(
+            deployment=_deployment(markdown_workspace=str(workspace)),
+            memory=Memory(service, index="vss-memory"),
+            extra={"write_memory_note": True},
+        ),
+    )
+    assert result.exit == Exit.SUCCESS
+    assert result.body["memory_note"]["written"] is True
+    text = workspace.joinpath(result.body["memory_note"]["path"]).read_text(encoding="utf-8")
+    assert result.job_id in text
+    assert "forklift" in text
+
+
+def test_search_markdown_failure_keeps_results_and_es_persistence(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from vss_cli import memory_notes
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    service = MemoryService(InMemoryStore())
+
+    def fail(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(memory_notes, "write", fail)
+    result = search_group.run(
+        "embed",
+        _inputs(),
+        Context(
+            deployment=_deployment(markdown_workspace=str(workspace), note_default=True),
+            memory=Memory(service, index="vss-memory"),
+        ),
+    )
+    assert result.exit == Exit.PARTIAL
+    assert len(result.body["data"]) == 2
+    assert result.body["persisted"] is True
+    assert result.body["memory_note"]["written"] is False
+    assert result.extra["marker"]["persisted"] is True
+    assert service.get(result.job_id).job.status == "completed"
+
+
+def test_search_es_failure_prevents_markdown_write(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from vss_cli import memory_notes
+
+    class _Flaky(InMemoryStore):
+        def upsert(self, record: Any) -> Any:
+            if getattr(record.job, "record_type", None) == "search_hit":
+                raise RuntimeError("child write failed")
+            return super().upsert(record)
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(memory_notes, "write", lambda *_args, **_kwargs: pytest.fail("note write attempted"))
+    result = search_group.run(
+        "embed",
+        _inputs(),
+        Context(
+            deployment=_deployment(markdown_workspace=str(workspace), note_default=True),
+            memory=Memory(MemoryService(_Flaky()), index="vss-memory"),
+        ),
+    )
+    assert result.exit == Exit.PARTIAL
+    assert result.body["persisted"] is False
 
 
 def test_child_write_failure_preserves_search_result(search_group: SearchGroup) -> None:
