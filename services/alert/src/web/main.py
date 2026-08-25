@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from metrics import PROMETHEUS_ENABLED
+from utils import fleet_state
 import logging
 from datetime import datetime
 from schemas.api_status import ErrorCode, ResponseStatus
@@ -221,14 +222,37 @@ _DEGRADED_CACHE: dict = {"at": 0.0, "value": None}
 _DEGRADED_TTL_SECONDS = 1.0
 
 
-def _degraded_workers() -> Optional[str]:
-    """Describe the fleet when fewer workers hold an assignment than exist.
+def _describe_fleet(configured, alive, ready) -> Optional[str]:
+    """The degradation to report, or None when the fleet is whole."""
+    if configured <= 0:
+        return None
+    if alive < configured:
+        # A dead worker keeps its ready signal until the supervisor tears the
+        # instance down, so readiness alone can still look whole for a poll.
+        return f"{int(alive)} of {int(configured)} pipeline processes are alive"
+    if ready < configured:
+        return (f"{int(ready)} of {int(configured)} pipeline processes hold a "
+                f"partition assignment")
+    return None
 
-    Read from the multiprocess metric shards, which is the channel the
-    pipeline processes already publish through -- no other one crosses from
-    them to this process. Silent when metrics are off, since there is then
-    nothing to read rather than nothing wrong.
+
+def _degraded_workers() -> Optional[str]:
+    """Describe the fleet when fewer workers are alive or assigned than exist.
+
+    Read from the shared array the parent publishes, which crosses to this
+    process whether or not metrics are exported. The metric shards are the
+    fallback, for a process that was started without the array; an
+    observability switch used to decide whether this endpoint could tell a
+    dead fleet from a whole one, and it should not.
     """
+    # The shared array first: it is published whether or not metrics are
+    # exported, so an observability switch cannot decide whether this endpoint
+    # can tell a dead fleet from a whole one.
+    published = fleet_state.read()
+    if published is not None:
+        configured, alive, ready = published
+        return _describe_fleet(configured, alive, ready)
+
     if not os.getenv("PROMETHEUS_MULTIPROC_DIR"):
         return None
 
@@ -257,30 +281,14 @@ def _degraded_workers() -> Optional[str]:
         if configured is None or ready is None or configured <= 0:
             _DEGRADED_CACHE.update(at=now, value=None)
             return None
-        degraded = None
-        if alive is not None and alive < configured:
-            # A dead worker keeps its ready event set until the supervisor
-            # tears the instance down, so readiness alone can still look whole
-            # for a poll interval after one has gone.
-            degraded = (
-                f"{int(alive)} of {int(configured)} pipeline processes are alive"
-            )
-        elif ready < configured:
-            degraded = (
-                f"{int(ready)} of {int(configured)} pipeline processes hold a "
-                f"partition assignment"
-            )
+        degraded = _describe_fleet(configured, configured if alive is None else alive, ready)
         _DEGRADED_CACHE.update(at=now, value=degraded)
         return degraded
     except Exception:
-        # Degraded, not silent. The shards are the only channel carrying
-        # assignment state to this process, so one that cannot be read leaves
-        # a dead fleet indistinguishable from a whole one -- and answering ok
-        # is the single thing this endpoint must never do on a guess.
-        #
-        # Cached like any other answer: a shard that keeps failing to parse
-        # would otherwise remove the gate entirely, and every request would
-        # re-read every shard on the most frequently polled endpoint there is.
+        # Degraded, not silent. The shards are the only channel left once the
+        # array is absent, so one that cannot be read leaves a dead fleet
+        # indistinguishable from a whole one -- and answering ok is the single
+        # thing this endpoint must never do on a guess.
         unreadable = "pipeline readiness could not be read from the metric shards"
         _DEGRADED_CACHE.update(at=now, value=unreadable)
         logger.debug("Could not read pipeline readiness from metrics", exc_info=True)

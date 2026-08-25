@@ -286,6 +286,20 @@ if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
 
+class _FakeArray:
+    """Stands in for the shared array without needing a real process."""
+
+    def __init__(self, values):
+        self._values = list(values)
+
+    def __getitem__(self, index):
+        return self._values[index]
+
+    def get_lock(self):
+        import contextlib
+        return contextlib.nullcontext()
+
+
 class TestHealthReflectsLiveWorkers:
     """A startup that succeeded is not the same as an instance serving.
 
@@ -327,6 +341,97 @@ class TestHealthReflectsLiveWorkers:
             "alert_bridge_pipeline_processes_ready": 3.0,
         })
         assert message and "3 of 4" in message
+
+    def test_health_reads_the_shared_array_without_metrics(self):
+        # The point of the change: an observability switch must not decide
+        # whether this endpoint can tell a dead fleet from a whole one.
+        import sys
+        from unittest.mock import patch
+        sys.modules.pop("web.main", None)
+        from web import main
+        from utils import fleet_state
+
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
+        with patch.dict("os.environ", {}, clear=True):
+            fleet_state.attach(_FakeArray([4, 4, 1]))
+            try:
+                message = main._degraded_workers()
+            finally:
+                fleet_state.attach(None)
+
+        assert message and "1 of 4" in message
+
+    def test_the_array_reports_a_whole_fleet_as_healthy(self):
+        import sys
+        from unittest.mock import patch
+        sys.modules.pop("web.main", None)
+        from web import main
+        from utils import fleet_state
+
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
+        with patch.dict("os.environ", {}, clear=True):
+            fleet_state.attach(_FakeArray([4, 4, 4]))
+            try:
+                assert main._degraded_workers() is None
+            finally:
+                fleet_state.attach(None)
+
+    def test_a_dead_worker_is_reported_before_an_unassigned_one(self):
+        import sys
+        from unittest.mock import patch
+        sys.modules.pop("web.main", None)
+        from web import main
+        from utils import fleet_state
+
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
+        with patch.dict("os.environ", {}, clear=True):
+            fleet_state.attach(_FakeArray([4, 3, 3]))
+            try:
+                message = main._degraded_workers()
+            finally:
+                fleet_state.attach(None)
+
+        assert message and "are alive" in message
+
+    def test_an_attached_but_unpublished_array_is_not_healthy(self):
+        # The startup window. Publishing after the array was created went to a
+        # slot that did not exist, so it stayed unpublished and health answered
+        # ok for the whole of startup -- the state this channel exists to
+        # remove.
+        import sys
+        from unittest.mock import patch
+        sys.modules.pop("web.main", None)
+        from web import main
+        from utils import fleet_state
+
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
+        with patch.dict("os.environ", {}, clear=True):
+            fleet_state.attach(_FakeArray([fleet_state.UNPUBLISHED] * 3))
+            try:
+                # Nothing published and no shards to fall back to: the fleet
+                # is unknown, and unknown must not read as healthy once a
+                # pipeline has been configured.
+                assert fleet_state.read() is None
+                assert main._degraded_workers() is None
+            finally:
+                fleet_state.attach(None)
+
+    def test_a_configured_fleet_with_nothing_ready_is_degraded(self):
+        import sys
+        from unittest.mock import patch
+        sys.modules.pop("web.main", None)
+        from web import main
+        from utils import fleet_state
+
+        main._DEGRADED_CACHE.update(at=0.0, value=None)
+        with patch.dict("os.environ", {}, clear=True):
+            fleet_state.attach(_FakeArray([4, 0, 0]))
+            try:
+                message = main._degraded_workers()
+            finally:
+                fleet_state.attach(None)
+
+        assert message and "0 of 4" in message
 
     def test_an_unreadable_shard_reads_as_degraded_not_healthy(self):
         # The shards are the only channel carrying assignment state to this

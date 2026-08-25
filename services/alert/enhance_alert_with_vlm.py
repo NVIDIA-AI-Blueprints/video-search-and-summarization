@@ -109,6 +109,7 @@ from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
 from utils.partition_in_flight import DEFAULT_DRAIN_TIMEOUT, PartitionInFlight
 from utils import startup_deadline
+from utils import fleet_state
 from utils.startup_deadline import StartupDeadline
 from utils.process_scaling import (
     MINIMUM_STARTUP_TIMEOUT_SECONDS, await_source_partitions,
@@ -260,19 +261,6 @@ def validate_multi_process_config(config: dict, process_count: int) -> None:
             f"initialise one the workers will read: each would build its own "
             f"copy and they would drift apart. Enable persistence, or run a "
             f"single process."
-        )
-
-    if not PROMETHEUS_ENABLED:
-        # The fleet gauges are the only channel carrying worker assignment
-        # state from the children to the endpoint. Without them /health cannot
-        # tell "no pipeline holds a partition" from "nothing to report" and
-        # answers ok either way, which is the one thing it must never do.
-        raise ValueError(
-            f"alert_agent.processes={process_count} requires "
-            f"PROMETHEUS_METRICS_ENABLED=true. Aggregate worker assignment "
-            f"state reaches /health through the multiprocess metric shards, "
-            f"so with metrics off a degraded fleet is indistinguishable from a "
-            f"healthy one."
         )
 
     mode = pipeline_mode_from_config(config)
@@ -1055,6 +1043,7 @@ class AnomalyEnhancer(
         if ready:
             self._rebalance_drain_deadline = None
         if self._publishes_own_fleet_state:
+            fleet_state.publish(1, 1, 1 if ready else 0)
             # A lone pipeline is its own fleet. The counts were published only
             # by the supervisor, so at one process they were never written at
             # all and /ready read "nothing configured" as nothing wrong --
@@ -2775,8 +2764,13 @@ class AnomalyEnhancer(
             })
 
 
-def start_fastapi(parent_pid: Optional[int] = None):
+def start_fastapi(parent_pid: Optional[int] = None, shared_fleet_state=None):
     """Start FastAPI server for Alert Bridge HTTP endpoints."""
+    if shared_fleet_state is not None:
+        # Adopted before uvicorn imports the app, so the first probe already
+        # reads the same state the parent publishes -- and reads it whether or
+        # not metrics are exported.
+        fleet_state.attach(shared_fleet_state)
     if parent_pid is not None:
         # Same contract as the pipeline workers: an orphaned API child would
         # keep answering on the health port for an instance that is gone.
@@ -3090,9 +3084,11 @@ def run_multi_process_pipeline(config_path: str, process_count: int,
         from metrics.recorder import set_pipeline_process_counts
         supervisor = _pipeline_supervisor
         alive = sum(1 for p in (supervisor.processes if supervisor else []) if p.is_alive())
-        set_pipeline_process_counts(
-            process_count, alive, sum(1 for e in ready_events if e.is_set())
-        )
+        ready = sum(1 for e in ready_events if e.is_set())
+        # Both channels: the array is what health reads, the gauges are what
+        # a scrape reads. Neither depends on the other being enabled.
+        fleet_state.publish(process_count, alive, ready)
+        set_pipeline_process_counts(process_count, alive, ready)
 
     ready_events = [_pipeline_mp_context().Event() for _ in range(process_count)]
     # The one moment both sides count to. The parent's watchdog starts now,
@@ -3278,7 +3274,9 @@ if __name__ == "__main__":
         global fastapi_process
 
         fastapi_process = _pipeline_mp_context().Process(
-            target=start_fastapi, args=(os.getpid(),), name="ab-fastapi"
+            target=start_fastapi,
+            args=(os.getpid(), shared_fleet_state),
+            name="ab-fastapi",
         )
         fastapi_process.start()
         logger.info("FastAPI server started in separate process")
@@ -3383,25 +3381,18 @@ if __name__ == "__main__":
         enforce_log_level(args.config)
         validate_drain_fits_poll_interval(pipeline_config)
 
+        # Created where the count is first known and published before the
+        # endpoints open, so the first probe can tell "no pipeline yet" from
+        # "no pipeline needed". Written after start_api_child it went to a slot
+        # that did not exist, so the array stayed unpublished and health
+        # answered ok for the whole startup window -- the false-healthy state
+        # this channel exists to remove. Unconditional: unlike the gauges
+        # below, this one is not optional.
+        shared_fleet_state = fleet_state.create(_pipeline_mp_context())
+        fleet_state.publish(process_count, 0, 0)
         if PROMETHEUS_ENABLED:
-            # Published before anything else so the endpoint can tell "no
-            # pipeline yet" from "no pipeline needed". An absent gauge reads as
-            # nothing wrong, which is how health answered ok for the whole
-            # startup window with no worker owning a single partition.
             from metrics.recorder import set_pipeline_process_counts
             set_pipeline_process_counts(process_count, 0, 0)
-
-        if not PROMETHEUS_ENABLED:
-            # Not fatal at one process -- that is how this deployment ran
-            # before any of this -- but the endpoint then reports startup
-            # only. Said once here, because a /health that answers ok while
-            # the pipeline owns nothing is worth knowing about deliberately
-            # rather than discovering during an incident.
-            logger.warning(
-                "PROMETHEUS_METRICS_ENABLED is off, so /health and /ready "
-                "report this process starting up and cannot report whether "
-                "the pipeline holds an assignment."
-            )
 
         # Local configuration is judged before anything is started. These are
         # pure predicates over the config with no I/O, so a wrong value fails

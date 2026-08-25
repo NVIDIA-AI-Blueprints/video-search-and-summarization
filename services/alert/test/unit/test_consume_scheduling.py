@@ -319,10 +319,7 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
             config["event_bridge"] = {"sourceType": source_type}
         if max_poll_interval_ms is not None:
             config["kafka"] = {"max_poll_interval_ms": max_poll_interval_ms}
-        # Multi-process requires the fleet gauges, which are the only channel
-        # carrying worker assignment state to /health.
-        with patch("enhance_alert_with_vlm.PROMETHEUS_ENABLED", True):
-            validate_multi_process_config(config, processes)
+        validate_multi_process_config(config, processes)
 
     def test_a_shared_store_is_accepted(self):
         self._validate(shared=True)
@@ -343,14 +340,16 @@ class TestProcessLocalStorageRejectsMultipleProcesses:
         with pytest.raises(ValueError, match="cooperative-sticky"):
             _require_eager_assignor("cooperative-sticky")
 
-    def test_metrics_are_required_because_health_reads_them(self):
+    def test_metrics_being_off_does_not_refuse_multiple_processes(self):
+        # An observability switch is not a precondition for serving. The
+        # requirement was invented here to work around health reading fleet
+        # state through the metric shards; that state now travels on its own.
         from enhance_alert_with_vlm import validate_multi_process_config
         with patch("enhance_alert_with_vlm.PROMETHEUS_ENABLED", False):
-            with pytest.raises(ValueError, match="PROMETHEUS_METRICS_ENABLED"):
-                validate_multi_process_config(
-                    {"persistence": {"enabled": True},
-                     "alert_agent": {"pipeline_mode": "event_loop"}}, 4,
-                )
+            validate_multi_process_config(
+                {"persistence": {"enabled": True},
+                 "alert_agent": {"pipeline_mode": "event_loop"}}, 4,
+            )
 
     def test_the_mode_is_checked_too(self):
         with pytest.raises(ValueError, match="requires pipeline_mode"):
