@@ -82,7 +82,7 @@ class TestLVSStreamUnderstandingModels:
                 response_type="invalid",
             )
 
-    def test_not_configured_output_does_not_finalize_agent(self):
+    def test_not_configured_output_finalizes_with_caption_prompt(self):
         output = LVSStreamUnderstandingOutput(
             status=LVSMediaStatus.NOT_CONFIGURED,
             stream_name="CAM_1",
@@ -90,7 +90,7 @@ class TestLVSStreamUnderstandingModels:
             message="Call lvs_config_media before summarizing this stream.",
         )
 
-        assert output.summary is None
+        assert output.summary == output.message
 
     def test_failed_configured_output_finalizes_agent(self):
         output = LVSStreamUnderstandingOutput(

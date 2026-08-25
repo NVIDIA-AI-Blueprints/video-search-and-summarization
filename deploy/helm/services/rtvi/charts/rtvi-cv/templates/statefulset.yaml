@@ -230,7 +230,7 @@ spec:
               echo "Kafka is ready!"
       containers:
         - name: vss-rtvi-cv
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "vss-rtvi-cv.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             runAsUser: 0

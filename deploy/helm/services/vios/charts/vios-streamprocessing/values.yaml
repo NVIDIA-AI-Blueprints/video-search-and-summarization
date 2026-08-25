@@ -58,6 +58,9 @@ kafkaServerAddress: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
+# Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
+# so WebRTC playback fails off-network/behind NAT.
+turnServerUrl: ""
 # Absolute HTTP URLs for overlay assets (video-analytics-api). Empty = skip download.
 # When either is set, configs are seeded into a writable emptyDir so downloads can
 # write calibration.json / Top.png under /home/vst/vst_release/configs/.
