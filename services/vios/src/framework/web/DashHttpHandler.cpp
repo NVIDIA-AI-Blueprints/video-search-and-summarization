@@ -504,6 +504,40 @@ constexpr const char* kDashManifestRefreshPeriod = "PT0.25S";
 // longer window costs only manifest size.
 constexpr int kDashTimeShiftBufferDepthSec = 90;
 
+/* How often a player is told to refetch the manifest.
+ *
+ * A dynamic manifest carrying a SegmentTimeline changes only when a segment is
+ * written, and a segment is written once per keyframe interval, so refetching
+ * faster than that can only return what the player already has.  The muxer
+ * writes a quarter of a second regardless, which on a four second interval is
+ * sixteen fetches per segment; with many streams on one deployment that is the
+ * bulk of the request rate and none of it carries media. */
+void setMinimumUpdatePeriodSeconds(std::string& manifest, double segmentSeconds)
+{
+    if (segmentSeconds <= 0.0)
+    {
+        return;
+    }
+    /* Rounded, not truncated: a segment measured at 1.999 seconds is a two
+     * second segment, and flooring it would poll twice per segment forever.
+     * Being told about a segment slightly late costs nothing, because the
+     * playhead is kept more than a segment behind the edge anyway. */
+    const std::string value = "PT" + std::to_string(std::max(1, static_cast<int>(std::lround(segmentSeconds)))) + "S";
+    const std::string key = "minimumUpdatePeriod=\"";
+    const size_t at = manifest.find(key);
+    if (at == std::string::npos)
+    {
+        return;
+    }
+    const size_t begin = at + key.size();
+    const size_t end = manifest.find('"', begin);
+    if (end == std::string::npos)
+    {
+        return;
+    }
+    manifest.replace(begin, end - begin, value);
+}
+
 void setMinimumUpdatePeriod(std::string& manifest, const char* period)
 {
     const std::string key = "minimumUpdatePeriod=\"";
@@ -933,7 +967,10 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
         // The delay a player should keep is a property of the segment length,
         // which is a property of the source's keyframe interval, so it can only
         // be known by measuring what has actually been written.
-        setSuggestedPresentationDelay(manifest, vst::dash::publishedMedia(directory).longestSeconds);
+        const double segmentSeconds = vst::dash::publishedMedia(directory).longestSeconds;
+        setSuggestedPresentationDelay(manifest, segmentSeconds);
+        // Refetching faster than segments appear returns the same manifest.
+        setMinimumUpdatePeriodSeconds(manifest, segmentSeconds);
         addUtcTiming(manifest);
         // dashsink leaves the first dynamic Period without @start.  Although
         // optional in the spec, dash.js 5 does not compose such a period into
