@@ -5,7 +5,8 @@
 Summarization stays a thin client over the LVS REST API
 (``POST /v1/summarize``); this group does not re-implement it. What the group
 owns is the job shape around that call: mint a ``job_id``, persist the result
-to unified memory, and report both through the framework's ``Result``.
+to unified memory when static memory policy enables it, and report both
+through the framework's ``Result``.
 
 The option surface splits the same three ways ``search`` did:
 
@@ -103,7 +104,7 @@ _EPOCH_FLOOR = 1e8
 
 
 class SummarizeInput(BaseModel):
-    """Summarize a video and persist the result to unified memory.
+    """Summarize a video and apply the configured memory policy.
 
     Exactly one source is required: ``--id`` names media the deployment has
     already ingested, ``--url`` points at a video to fetch directly.

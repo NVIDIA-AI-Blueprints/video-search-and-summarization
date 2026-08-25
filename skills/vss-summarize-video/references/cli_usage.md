@@ -79,19 +79,25 @@ LVS reports event times as numbers — offsets into the clip unless a
 `creation_time` anchors it. Unified memory stores instants, so a run that
 persists without `--creation-time` cannot write its events and degrades to
 exit 6 with the summary still on stdout. Pass the media's absolute start time
-whenever `--persist` is on. `2025-01-01T00:00:00.000Z` is the conventional
-value for uploaded sample media with no real timestamp.
+whenever configured persistence is enabled. `2025-01-01T00:00:00.000Z` is the
+conventional value for uploaded sample media with no real timestamp.
 
 ## Persistence
 
 | flag | meaning |
 |---|---|
-| `--persist/--no-persist` | persist to unified memory; on by default |
+| `--no-persist` | safe per-run opt-out from the configured persistence policy |
+| `--write-memory-note/--no-write-memory-note` | per-run OpenClaw cache override |
 | `--video-id` | `video_id` on the record; defaults to `--id`, required with `--url` |
 | `--media-source` | `media_ref.source`, default `vst` |
 | `--media-name` | `media_ref.name`, e.g. the original filename |
-| `--memory-index` | Elasticsearch index; defaults to the memory module's own |
 | `--request-timeout-seconds` | HTTP timeout, default 3600 |
+
+Configure Elasticsearch, its authoritative index, the default persistence
+policy, and optional OpenClaw Markdown cache once with `vss configure memory`.
+There is no positive per-run `--persist` flag and no per-run
+`--memory-index`. Query, identity, media, and model fields remain request
+flags.
 
 Persisting a `--url` summary without `--video-id` exits 2 before the
 summarization runs, rather than after paying for it. Both edges are configured
