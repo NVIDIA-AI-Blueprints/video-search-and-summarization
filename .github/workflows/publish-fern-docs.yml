@@ -69,11 +69,26 @@ jobs:
       - name: Publish docs
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
-        working-directory: ./fern
         run: |
           set -eo pipefail
-          fern generate --docs 2>&1 | tee /tmp/fern-output.log
-          URL=$(grep -oP 'Published docs to \K.*(?= \()' /tmp/fern-output.log || true)
-          if [ -n "$URL" ]; then
-            echo "### Published: [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
+          ATTEMPTS=3
+          URL=""
+          for i in $(seq 1 "$ATTEMPTS"); do
+            echo "::group::fern generate attempt $i/$ATTEMPTS"
+            if fern generate --docs 2>&1 | tee /tmp/fern-output.log; then
+              URL=$(grep -oP 'Published docs to \K.*(?= \()' /tmp/fern-output.log || true)
+            fi
+            echo "::endgroup::"
+            if [ -n "$URL" ]; then
+              break
+            fi
+            echo "Publish failed on attempt $i/$ATTEMPTS"
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              sleep $((i * 20))
+            fi
+          done
+          if [ -z "$URL" ]; then
+            echo "::error::Failed to publish docs after ${ATTEMPTS} attempts. See fern output above."
+            exit 1
           fi
+          echo "### Published: [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
