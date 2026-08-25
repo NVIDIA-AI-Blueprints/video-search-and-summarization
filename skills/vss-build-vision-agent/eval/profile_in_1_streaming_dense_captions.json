@@ -6,67 +6,64 @@
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
-        "gpu_count": 1
+        "gpu_count": 1,
+        "modes": [
+          "harbor",
+          "runtime",
+          "shared"
+        ]
       }
     }
   },
-  "env": "An RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. Build from one current developer profile as the Foundation. Use `_builds/in-1/` only as a filesystem label. Existing files under `deploy/docker/` remain authoritative and unmodified.",
+  "env": "A Harbor-hosted RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval builds, deploys, and validates a base-derived RT-VLM dense-captioning delta. The build label is `in-1`, never a Compose profile. Evaluator context: the expected smallest delta is from the current `base` developer profile, retaining RT-VLM, redis, and VIOS core services (`centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms`), adding Kafka, broker health, Logstash, and Elasticsearch services, while excluding Agent/UI/ingress, LLM inference, LVS, Search, RT-CV, RT-Embed, SDRC, NvStreamer, and Kibana/dashboard services. Keep the delta env lean: for RT-VLM Kafka output, explicitly set only `RTVI_VLM_KAFKA_ENABLED=true` and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`; do not copy `STREAM_TYPE=kafka` from the base `.env`, do not set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` when the Compose default already reaches `kafka:29092`, and do not add a custom Kafka topic definition because `mdx-vlm-captions` already exists in the default `KAFKA_TOPICS` list. Runtime context: IN-1 itself remains headless and does not include a source simulator, so deploy a separate NvStreamer validation fixture after the IN-1 stack is ready; use it only to serve an available sample video as RTSP. Validate uploaded media through VIOS upload/recording APIs and playback or clip retrieval; validate streamed dense-caption output by registering the NvStreamer RTSP source through VIOS and driving RT-VLM from the runtime-discovered VIOS live-proxy URL, not directly from NvStreamer. Record Kafka offsets before and after live processing for `mdx-vlm-captions`; report Foundation, delta, changed knobs, readiness, playback, Kafka offsets, Elasticsearch evidence, and Q&A evidence in the final response.",
   "expects": [
     {
-      "query": "Use `/vss-build-vision-agent` to propose the architecture for: \"Provide VLM Q&A and dense captioning for streamed and uploaded video. Video must remain retrievable through VIOS. Publish streamed captions to Kafka topic `mdx-vlm-captions` and store them in Elasticsearch.\" Do not write files or deploy yet. Explain the selected current Foundation, the smallest delta, the canonical build location `_builds/in-1/`, and the validation/deployment path.",
-      "artifact_expected": false,
+      "query": "Use `/vss-build-vision-agent` to build under `_builds/in-1/`: \"Provide VLM Q&A and dense captioning for streamed and uploaded video. Keep video retrievable through VIOS. Publish streamed captions to Kafka topic `mdx-vlm-captions` and store them in Elasticsearch.\" Target `{{platform}}`, validate the resolved Compose configuration including RT-VLM Kafka output wiring to `mdx-vlm-captions`, do not deploy, and do not create, modify, or delete anything under `deploy/docker/`.",
       "checks": [
-        "The proposal selects exactly one current developer Foundation and chooses `base` because it already owns RT-VLM and the VIOS service set (`centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms`) with the smallest delta; choosing `lvs` and stripping `lvs-server` and the rest of the LVS summarization machinery is a larger delta.",
-        "The proposal treats `in-1` only as a filesystem label and does not invent a Compose profile name.",
-        "The proposal adds exactly `kafka`, `kafka-topic-init-container`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, and `logstash`.",
-        "`logstash` is present in the added set and is justified as the only path from Kafka to Elasticsearch: RT-VLM has no Elasticsearch configuration and only produces to Kafka, and `pipelines/kafka/mdx-lvs-logstash.conf` is the sole consumer of `mdx-vlm-captions` that writes to the Elasticsearch output. Selecting `elasticsearch` without `logstash` leaves the requested Elasticsearch storage permanently empty.",
-        "The proposal removes the unrequested `vss-agent`, `vss-ui`, `phoenix`, and LLM NIM keys from the `base` Foundation, and correctly states that VLM Q&A is served directly by RT-VLM's `/v1/chat/completions` on port 8018 rather than through the Agent.",
-        "The proposal retains the `base` Foundation's `rtvi-vlm`, `redis`, and the four VIOS keys, and prunes `vss-haproxy-ingress` together with the Agent/UI tier: it is the optional single-origin front door, the request asks for no unified browse origin, and RT-VLM Q&A plus VIOS, Kafka, and Elasticsearch are reached directly on their own published ports.",
-        "The proposal does not add `kibana` or `kibana-init-container-lvs`: Kibana is an unrequested visualization UI that no selected service depends on, and `kibana-init-container-lvs` is defined only in the `lvs` Foundation's Compose project and is therefore not a valid profile key under `base`.",
-        "The proposal sets `RTVI_VLM_KAFKA_ENABLED=true` (the `base` Foundation ships `false`) and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` (RT-VLM otherwise defaults to `vision-llm-messages`).",
-        "The proposal does not re-declare `STREAM_TYPE`, which the `base` Foundation `.env` already sets to `kafka` — the value Logstash's config/pipeline bind mounts and `broker-health-check`'s Dockerfile selection both interpolate.",
-        "The proposal notes that no custom Kafka topic definition is required because `mdx-vlm-captions` is already in the default `KAFKA_TOPICS` list of `kafka-topic-init-container`.",
-        "The proposal says generation always writes `_builds/in-1/override.env`, `compose.yml`, and fully resolved `resolved.yml`; no file under `patches/` is needed because all selected services already exist and no service definition changes are requested.",
-        "No files are written and no deployment is started during this proposal-only turn."
-      ]
-    },
-    {
-      "query": "Build the proposed delta under `_builds/in-1/` and run the Compose validation. Stop after validation; do not deploy.",
-      "checks": [
-        "`{{repo_root}}/_builds/in-1/override.env` exists with `FOUNDATION=base`, a full effective `COMPOSE_PROFILES`, and only customized environment values that differ from the `base` Foundation.",
+        "`{{repo_root}}/_builds/in-1/override.env` exists and declares `FOUNDATION=base` and the full effective `COMPOSE_PROFILES`.",
         "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `redis,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,kafka,kafka-topic-init-container,broker-health-check,elasticsearch,elasticsearch-init-container,logstash`.",
         "Relative to the `base` Foundation the delta adds exactly six keys (`kafka`, `kafka-topic-init-container`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `logstash`) and removes exactly five (`phoenix`, `vss-ui`, `vss-agent`, `vss-haproxy-ingress`, and the `llm_${LLM_MODE}_${LLM_NAME_SLUG}` expansion).",
-        "`logstash` is present. A set that is otherwise correct but omits `logstash` fails this step, because no other selected service moves messages from `mdx-vlm-captions` into Elasticsearch.",
-        "The set excludes `kibana`, `kibana-init-container-lvs`, `lvs-server`, `nvstreamer-lvs`, `sdr-controller`, and the `init-dirs` / `render-config` / `wdm-env-from-config` / `wait-for-redis` / `wait-for-docker-workloads` orchestration keys, none of which the `base` Foundation activates or the requested capabilities require.",
+        "`logstash` is present and justified as the only Kafka-to-Elasticsearch path for this profile: RT-VLM publishes to Kafka but has no Elasticsearch sink, and Logstash consumes `mdx-vlm-captions` and indexes the caption documents.",
+        "The exact set therefore excludes `kibana`, `kibana-init-container-lvs`, `lvs-server`, `nvstreamer-lvs`, SDRC helper keys (`sdr-controller`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`), RT-CV/perception, RT-Embed, Search analytics/API, Agent/UI/ingress, `phoenix`, and LLM NIM keys.",
         "`COMPOSE_PROFILES` contains no `in-1`, aggregate, `bp_developer_*`, or other invented profile key.",
-        "`RTVI_VLM_KAFKA_ENABLED=true` and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` are present; unchanged `base` defaults are not copied into the delta — in particular `STREAM_TYPE` is not re-declared, and `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` is not set because the Compose default `kafka:29092` already resolves on the project's bridge network.",
-        "`_builds/in-1/compose.yml` includes `../../deploy/docker/compose.yml`, and `_builds/in-1/patches/` is absent because service activation and removal are expressed only through `COMPOSE_PROFILES`.",
-        "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and no copied Foundation `.env`, copied root Compose project, patched source tree, manifest, allow-list, or generated skill bundle.",
-        "Resolution uses `containers.env`, the `base` Foundation `.env`, the `base` Foundation `overrides.env`, and the build `override.env`, in that order, with the build `compose.yml`; it writes `_builds/in-1/resolved.yml` through `docker compose config --no-consistency` and the normalizer.",
-        "`docker compose -f _builds/in-1/resolved.yml config --quiet`, `config --services`, and `config --images` succeed directly; every selected profile key exists in the source graph, the resolved service list is non-empty, required peers resolve, excluded services do not resolve, no service retains a `profiles:` gate, no real `${...}` interpolation remains unresolved, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and every checked-in bind source exists with the expected file/directory type.",
-        "Logstash's required predecessors both resolve — `broker-health-check` and `elasticsearch-init-container` are selected, satisfying its two `service_completed_successfully` dependencies — and its `pipelines-kafka.yml` and `pipelines/kafka/` bind sources exist because `STREAM_TYPE` inherits as `kafka`.",
-        "No file under `{{repo_root}}/deploy/docker/` is modified."
+        "`RTVI_VLM_KAFKA_ENABLED=true` and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` are explicitly set; unchanged `base` defaults are not copied into the delta, `STREAM_TYPE` is not re-declared because the base `.env` already sets it to `kafka`, `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` is not set because the Compose default resolves on the project bridge network, and no custom Kafka topic definition is added because `mdx-vlm-captions` is already in the default `KAFKA_TOPICS` list.",
+        "`_builds/in-1/compose.yml` includes `../../deploy/docker/compose.yml`, and `_builds/in-1/patches/` is absent because all selected services already exist and no service definition changes are requested.",
+        "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and no copied Foundation `.env`, copied root Compose project, patched tree, manifest, allow-list, or generated skill bundle.",
+        "Resolution uses `containers.env`, the `base` Foundation `.env`, the `base` Foundation `overrides.env`, and `_builds/in-1/override.env`, in that order, with the build `compose.yml`; normalized `resolved.yml` validates directly, required peers resolve, excluded services do not resolve, no selected profile token is unknown, no service retains a `profiles:` gate, no real unescaped `${...}` Compose interpolation remains unresolved, escaped `$${...}` container-shell variables are not counted as unresolved interpolation, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and `validate_resolved_yml.py` accepts all checked-in bind sources without requiring generated runtime placeholders to be pre-created.",
+        "The effective RT-VLM caption path remains Kafka-backed: `STREAM_TYPE=kafka` is inherited, `rtvi-vlm` resolves with Kafka enabled on `mdx-vlm-captions`, `kafka-topic-init-container` already creates that topic, `broker-health-check` and `elasticsearch-init-container` satisfy Logstash's selected dependencies, and `logstash` remains selected to index captions into Elasticsearch.",
+        "`docker compose -f _builds/in-1/resolved.yml config --quiet`, `config --services`, and `config --images` succeed directly against the normalized resolved file.",
+        "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted."
       ]
     },
     {
-      "query": "Deploy the validated `_builds/in-1/resolved.yml`, wait for readiness, and leave it running for runtime validation.",
+      "query": "Deploy the validated `_builds/in-1/resolved.yml`, wait for selected services to become ready, and leave the deployment running for runtime validation. Treat the generated deployment as immutable during and after deployment: do not edit files under `deploy/docker/`, do not regenerate the build, and do not patch service configs while diagnosing readiness.",
       "checks": [
-        "Deployment uses exactly `docker compose -f _builds/in-1/resolved.yml up -d`; it does not re-read Foundation env files, use an invented Compose profile, or deploy a copied Compose project.",
-        "All selected long-running services are running or healthy and selected one-shot initialization containers (`kafka-topic-init-container`, `elasticsearch-init-container`, `broker-health-check`) exit 0.",
-        "RT-VLM readiness succeeds on port 8018, Elasticsearch cluster health succeeds, Kafka topics initialize, and VIOS APIs become reachable.",
-        "`logstash` is running and its log shows the `mdx-lvs` pipeline started and connected to both Kafka and Elasticsearch.",
-        "No excluded service is running for this delta — specifically no `vss-agent`, `vss-ui`, `phoenix`, LLM NIM, `lvs-server`, `nvstreamer-lvs`, `vss-haproxy-ingress`, or `kibana` container."
+        "Deployment uses the validated `_builds/in-1/resolved.yml` as the only Compose file and starts it with `docker compose ... up -d`; harmless deployment options such as `-p <project>` or `--build` are allowed, but it must not re-read Foundation env files, supply `--profile`, use an invented Compose profile, or deploy a copied Compose project.",
+        "All selected long-running containers are present and not exited, restarting, or dead; all selected one-shot containers (`kafka-topic-init-container`, `elasticsearch-init-container`, `broker-health-check`) exit 0; and excluded services are not running. A Docker `unhealthy` label alone is not a failure when the explicit service readiness probes in this step pass.",
+        "RT-VLM readiness succeeds on port 8018, Elasticsearch cluster health succeeds, Kafka broker/topic readiness succeeds, and VIOS APIs become reachable.",
+        "`logstash` is running and its logs or resolved configuration show the `mdx-lvs` Kafka pipeline consuming `mdx-vlm-captions` and writing to Elasticsearch.",
+        "No excluded service is running for this delta, specifically no `vss-agent`, `vss-ui`, `phoenix`, LLM NIM, `lvs-server`, `nvstreamer-lvs`, `vss-haproxy-ingress`, `kibana`, Search, RT-CV, or RT-Embed container."
       ]
     },
     {
-      "query": "Validate streamed and uploaded dense captioning end to end. Use an available sample video, verify VIOS playback, confirm `mdx-vlm-captions` advances, confirm the captions are indexed in Elasticsearch, and exercise VLM Q&A. Report evidence and leave services running unless cleanup is explicitly requested.",
+      "query": "Start a temporary NvStreamer validation source for the running IN-1 stack. Use an available warehouse sample video, serve it as a live RTSP source, verify the NvStreamer API is reachable, and keep the source running for the runtime smoke test. Do not add NvStreamer to the generated IN-1 profile and do not modify files under `deploy/docker/`.",
       "checks": [
-        "A streamed source and an uploaded video are accepted by VIOS and remain retrievable through playback or clip APIs.",
-        "RT-VLM processes the selected media and returns non-empty caption output from `/v1/generate_captions`.",
-        "Kafka topic `mdx-vlm-captions` exists and its end offset advances after streamed processing.",
-        "Elasticsearch contains a caption document attributable to the processed sensor or video, indexed by Logstash's `mdx-lvs` pipeline.",
+        "A NvStreamer validation fixture is running outside the generated IN-1 profile, its API responds on `http://localhost:${NVSTREAMER_HTTP_HOST_PORT:-31000}/api/v1`, and `GET /sensor/version` returns JSON whose `type` is `streamer`.",
+        "The fixture serves an available sample video as a live RTSP source and exposes or reports the RTSP URL that will be registered with VIOS.",
+        "`_builds/in-1/override.env` and `_builds/in-1/resolved.yml` remain unchanged as IN-1 artifacts: no `nvstreamer-*` key is added to `COMPOSE_PROFILES`, no NvStreamer service is folded into `resolved.yml`, and no generated IN-1 profile or build artifact is regenerated.",
+        "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted."
+      ]
+    },
+    {
+      "query": "Please smoke-test the running IN-1 deployment with the NvStreamer RTSP source from the previous step and an uploaded sample video. Use VIOS playback for uploaded media. For streamed dense captions, register the NvStreamer RTSP source with VIOS, discover the VIOS live-proxy RTSP URL at runtime, then call RT-VLM `POST /v1/streams/add` on port 8018 with that VIOS live-proxy URL before starting caption/Kafka/Elasticsearch validation. Use the RT-VLM stream id returned by `/v1/streams/add`; do not use the VIOS sensor UUID itself as an RT-VLM stream id. Dense-caption proof should come from the Kafka and Elasticsearch path; if a direct `/v1/generate_captions` probe returns Method Not Allowed, report it as an API-surface mismatch and continue with Kafka/ES verification. Leave services running unless cleanup is explicitly requested.",
+      "checks": [
+        "An uploaded video is accepted by VIOS and remains retrievable through playback, clip, or snapshot APIs.",
+        "The NvStreamer RTSP source from the previous step is registered with VIOS; the runtime-discovered VIOS live-proxy RTSP URL is passed to RT-VLM via `POST /v1/streams/add`; and the returned RT-VLM stream id is used for live dense-caption processing. Supplying only the VIOS sensor UUID as `stream_id`, or using a local filesystem path, direct NvStreamer RTSP URL, or other bypass source, fails this check.",
+        "RT-VLM dense-caption proof is evaluated through the Kafka/Elasticsearch checks below, not through a mandatory direct `/v1/generate_captions` response; if that endpoint returns `Method Not Allowed`, the agent reports the API-surface mismatch and does not substitute `/v1/chat/completions` output as dense-caption evidence.",
+        "Kafka topic `mdx-vlm-captions` end offsets are recorded before and after streamed processing and increase.",
+        "Elasticsearch contains a caption document attributable to the processed sensor or video, indexed through Logstash's `mdx-lvs` path from `mdx-vlm-captions`.",
         "A VLM Q&A request issued directly to RT-VLM's `/v1/chat/completions` on port 8018 returns a non-empty, on-topic answer about the processed video, with no VSS Agent in the request path.",
-        "The final response reports `base` as the Foundation, the six added and four removed service keys, the changed environment knobs, readiness evidence, Kafka before/after offsets, and Elasticsearch evidence."
+        "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted, and the final response reports the Foundation, delta, changed knobs, readiness, playback, Kafka offsets, Elasticsearch evidence, and Q&A evidence."
       ]
     }
   ]
