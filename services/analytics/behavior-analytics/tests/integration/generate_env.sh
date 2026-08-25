@@ -89,6 +89,11 @@ PROJ_ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MDX_SAMPLE_APPS_DIR="${SCRIPT_DIR}/docker_compose"
 MDX_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
 
+# Shared infra assets (ELK/Kafka/Redis configs, ES init scripts, protobuf
+# definitions) are single-sourced from the deployment tree rather than
+# duplicated under tests/. See deploy/docker/services/infra/.
+INFRA_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker/services/infra"
+
 # Host configuration
 HOST_IP="$HOST_IP"
 

@@ -22,7 +22,7 @@ services:
       ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
       discovery.type: single-node
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - $INFRA_DIR/elk/elasticsearch/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
       - mdx-elastic-data:/tmp/elastic/data:rw
       - mdx-elastic-logs:/tmp/elastic/logs:rw
     container_name: mdx-elastic
@@ -36,10 +36,12 @@ services:
 
   elasticsearch-init-container:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/infra
+      context: $INFRA_DIR
       dockerfile: Dockerfiles/elastic-init.Dockerfile
     network_mode: "host"
     container_name: mdx-elasticsearch-init
+    environment:
+      ELASTICSEARCH_URL: "http://localhost:9200"
     command: bash -c "bash /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh && bash /opt/mdx/init-scripts/elasticsearch-template-creation.sh"
     depends_on:
       - elasticsearch
@@ -49,7 +51,7 @@ services:
     network_mode: "host"
     volumes:
       - mdx-kafka:/tmp/kafka-data
-      - $MDX_SAMPLE_APPS_DIR/infra/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
+      - $INFRA_DIR/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
@@ -121,7 +123,7 @@ services:
     network_mode: host
     container_name: mdx-redis
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/infra/redis/configs/redis.conf:/config/redis.conf
+      - $INFRA_DIR/redis/configs/redis.conf:/config/redis.conf
       - $MDX_DATA_DIR/data_log/redis/data:/data
       - $MDX_DATA_DIR/data_log/redis/log:/log
 
@@ -191,9 +193,9 @@ services:
     network_mode: "host"
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/pb_definitions/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/pb_definitions/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - $INFRA_DIR/elk/logstash/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
+      - $INFRA_DIR/elk/logstash/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
+      - $INFRA_DIR/elk/logstash/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
       - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/mdx-kafka-logstash.conf:/usr/share/logstash/pipeline/logstash.conf
     environment:
       LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
