@@ -1,0 +1,113 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Executes deploy/docker/scripts/deploy_model_routing.ipynb end to end:
+# builds Switchyard from its pinned source ref, routes live requests across
+# both targets, and validates the undeployed VSS repoint build. CPU-only.
+#
+# The diff gate runs in-job against the cumulative head...base range: a
+# top-level `paths:` filter only sees the pushed commits and silently skips
+# on mirror merge commits.
+
+name: Model Routing Notebook
+
+"on":
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# Manual dispatches must not cancel each other.
+concurrency:
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch'
+      && format('model-routing-notebook-manual-{0}', github.run_id)
+      || format('model-routing-notebook-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  notebook:
+    name: deploy_model_routing.ipynb end to end
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout mirror head
+        # v4, pinned by SHA: mutable tags are substitutable on a shared
+        # self-hosted runner.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Gate on the cumulative PR diff
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Derive the PR base from the mirror-branch number; fall back to
+          # develop when the lookup fails (or on manual dispatch).
+          base_branch="develop"
+          pr_number="${GITHUB_REF_NAME#pull-request/}"
+          if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
+            base_branch="$(gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" \
+              --json baseRefName --jq .baseRefName 2>/dev/null || echo develop)"
+          fi
+          base="$(git merge-base "origin/$base_branch" HEAD)"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             || git diff --name-only "$base"...HEAD \
+                  | grep -qE '^(deploy/docker/scripts/deploy_model_routing\.ipynb|\.github/skill-eval/model-routing/|\.github/workflows/model-routing-notebook\.yml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No model-routing changes in the PR diff; skipping."
+          fi
+
+      - name: Reclaim stale leaked runtimes (shared coordinator disk)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # All runner slots on this host share one disk. Remove leaked
+          # per-job venvs older than 15h (past the longest job timeout on
+          # the host, so provably dead) and docker state that is safe to
+          # lose. Tagged images other jobs pinned are not touched.
+          df -h "$HOME" | tail -1
+          find "$HOME"/actions-runner-*/_work/_temp -maxdepth 1 -mmin +900 \
+            \( -name 'skill-eval-*' -o -name 'model-routing-*' \) \
+            -exec rm -rf {} + 2>/dev/null || true
+          python3 -m pip cache purge 2>/dev/null || true
+          docker builder prune -af --filter until=24h 2>/dev/null || true
+          docker image prune -f 2>/dev/null || true
+          docker container prune -f --filter until=24h 2>/dev/null || true
+          df -h "$HOME" | tail -1
+
+      - name: Set per-run isolation names
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # Run-scoped so concurrent PR runs on this host cannot collide.
+          # Published before any step that can fail, so the always-cleanup
+          # step knows what to remove.
+          {
+            echo "ROUTER_CONTAINER=vss-model-router-ci-${{ github.run_id }}"
+            echo "ROUTER_PORT=$((14000 + ${{ github.run_id }} % 1000))"
+            echo "MODEL_ROUTING_WORK_DIR=/tmp/skill-eval/model-routing-${{ github.run_id }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the notebook end to end
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # CI verifies routing mechanics and the composed VSS build against
+          # a local stub upstream: no credential exists anywhere in this job.
+          # The real endpoint is the interactive notebook's default.
+          MODEL_ROUTING_MOCK_UPSTREAM=true \
+            python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
+
+      - name: Remove per-run state
+        if: always() && steps.gate.outputs.run == 'true'
+        run: |
+          [ -n "${ROUTER_CONTAINER:-}" ] && docker rm -f "$ROUTER_CONTAINER" 2>/dev/null || true
+          [ -n "${MODEL_ROUTING_WORK_DIR:-}" ] && rm -rf "$MODEL_ROUTING_WORK_DIR" || true
