@@ -21,7 +21,7 @@
 
 profile: lvs
 mode: ""
-llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
+llmNameSlug: "" # Reserved compatibility value; model selection uses nims.* and service settings.
 vlmNameSlug: none # LVS uses the integrated RT-VLM checkpoint, not a VLM NIM subchart.
 vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
@@ -39,7 +39,7 @@ global:
   # Remote NIM: one place for vss-agent + vss-summarization. Use the same base URL for both (e.g. http://host:31081); vss-summarization adds /v1 internally when absent.
   llmBaseUrl: ""
   vlmBaseUrl: ""
-  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 
@@ -59,7 +59,6 @@ vios:
 # Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
 # LVS backend routes VLM calls through vss-rtvi-vlm by default (RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
 vss-summarization:
-  llmService: ""
   vlmService: "vss-rtvi-vlm"
 
 # LVS always enables vss-rtvi-vlm (integrated checkpoint, Kafka enabled in values.yaml). Override here only when

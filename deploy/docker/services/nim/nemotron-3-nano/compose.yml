@@ -26,7 +26,7 @@ services:
     command: sh -c "chmod -R 777 /opt/nim/.cache"
     restart: "no"
   nemotron-3-nano:
-    image: nvcr.io/nim/nvidia/nemotron-3-nano:1
+    image: nvcr.io/nim/nvidia/nemotron-3-nano:${NEMOTRON_3_NANO_IMAGE_TAG:-1}
     container_name: nemotron-3-nano
     profiles:
     - llm_local_nemotron-3-nano
@@ -66,7 +66,7 @@ services:
         condition: service_completed_successfully
         required: true
   nemotron-3-nano-shared-gpu:
-    image: nvcr.io/nim/nvidia/nemotron-3-nano:1
+    image: nvcr.io/nim/nvidia/nemotron-3-nano:${NEMOTRON_3_NANO_IMAGE_TAG:-1}
     container_name: nemotron-3-nano
     profiles:
     - llm_local_shared_nemotron-3-nano

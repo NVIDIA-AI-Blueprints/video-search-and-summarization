@@ -1,0 +1,331 @@
+---
+title: "Report Generation"
+description: ""
+position: 6
+---
+This page covers how to customize report generation for each developer profile.
+
+## Base Profile
+
+The base profile (`dev-profile-base`) provides standalone video analysis without Video Analytics MCP tools or an incident database. Upload videos, generate reports with timestamped observations, and ask follow-up questions about video content.
+
+### Customizable Configuration
+
+```yaml
+functions:
+  video_understanding:
+    _type: video_understanding
+    vlm_name: nim_vlm
+    max_frames: 60           # Frames sampled from video (higher = more detail)
+    max_fps: 2               # Maximum frames per second to sample
+    min_pixels: 1568         # Minimum pixels per frame
+    max_pixels: 208544       # Maximum pixels per frame
+    reasoning: false         # Enable VLM reasoning mode
+    video_url_tool: vst_video_clip
+    stream_mode: false
+    system_prompt: |
+      You are a monitoring system analyzing video footage.
+      Your task is to describe the events in the video in detail.
+      IMPORTANT:
+      - You must respond only in English and in plain text.
+      - Timestamp must be in pts format, seconds since the start of the video.
+
+  video_report_gen:
+    _type: video_report_gen
+    object_store: local_object_store
+    base_url: http://localhost:8000/static
+    video_understanding_tool: video_understanding
+    video_url_tool: vst_video_clip
+    picture_url_tool: vst_snapshot
+    enable_audio: ${ENABLE_AUDIO:-false}   # Omni: see :ref:`vss_omni_audio`
+    vlm_prompt: |
+      Describe in detail what is happening in this video,
+      including all visible people, vehicles, equipments, objects,
+      actions, and environmental conditions.
+      OUTPUT REQUIREMENTS:
+      [timestamp-timestamp] Description of what is happening.
+      EXAMPLE:
+      [0.0s-4.0s] <description of the first event>
+      [4.0s-12.0s] <description of the second event>
+
+  report_agent:
+    _type: report_agent
+    video_report_tool: video_report_gen
+```
+
+### Key Customization Options
+
+**Video Understanding:**
+
+- `max_frames`: Maximum frames to sample from video (default: 60)
+- `max_fps`: Maximum frames per second to sample (default: 2)
+- `reasoning`: Set to `true` to enable VLM thinking traces
+
+**Report Generation:**
+
+- `vlm_prompt`: Customize what the VLM analyzes and reports on
+
+### Customizing system_prompt
+
+The `system_prompt` in `video_understanding` sets the base instructions for how the VLM responds. Use this to:
+
+- Set the output language
+- Define the response format (timestamps, structure)
+- Provide examples of expected output
+
+```yaml
+video_understanding:
+  system_prompt: |
+    You are a monitoring system analyzing video footage.
+    Your task is to describe the events in the video in detail.
+    IMPORTANT:
+    - You must respond only in English and in plain text.
+    - Timestamp must be in pts format, seconds since the start of the video.
+    - Always provide a direct answer to the question asked.
+```
+
+**Example: Safety-focused system prompt**
+
+```yaml
+system_prompt: |
+  You are a safety compliance analyst. Focus on:
+  - PPE compliance (hard hats, safety vests, goggles)
+  - Unsafe behaviors or violations
+  - Potential hazards in the environment
+
+  Format: [MM:SS-MM:SS] Description with safety assessment.
+```
+
+### Customizing vlm_prompt
+
+The `vlm_prompts` in `video_report_gen` define specific analysis tasks and other content details for the VLM. Each prompt generates a section in the final report.
+
+```yaml
+video_report_gen:
+  vlm_prompt: |
+    Describe in detail what is happening in this video,
+    including all visible people, vehicles, objects, actions,
+    and environmental conditions.
+    OUTPUT REQUIREMENTS:
+    [timestamp-timestamp] Description of what is happening.
+    EXAMPLE:
+    [0.0s-4.0s] <description of the first event>
+```
+
+**Example: Traffic monitoring**
+
+```yaml
+vlm_prompt: |
+  Analyze traffic flow and identify:
+  - Vehicle types and counts
+  - Pedestrian activity
+  - Traffic violations or near-misses
+  - Congestion patterns
+  OUTPUT REQUIREMENTS:
+  [timestamp-timestamp] Description of what is happening.
+```
+
+<Tip>
+Include `[MM:SS-MM:SS]` timestamp format in prompts to enable automatic snapshot injection into reports.
+</Tip>
+
+## Video Summarization Profile
+
+The Video Summarization profile extends the base profile with video summarization for videos over one minute.
+
+### Customizable Configuration
+
+```yaml
+functions:
+  lvs_video_understanding:
+    _type: lvs_video_understanding
+    lvs_backend_url: ${LVS_BACKEND_URL}
+    model: ${VLM_NAME}
+    video_url_tool: vst_video_clip
+    conn_timeout_ms: 5000
+    read_timeout_ms: 600000    # 10 minutes for long videos
+    chunk_duration: 10         # Seconds per video chunk
+    temperature: 0.4
+    max_tokens: 512
+    # HITL Templates - shown to user before analysis
+    hitl_scenario_template: |
+      Scenario (REQUIRED):
+      Please provide a scenario description for the video analysis.
+      Example: "traffic monitoring", "warehouse monitoring"
+    hitl_events_template: |
+      Events (REQUIRED):
+      Please provide a comma-separated list of events to detect.
+      Examples: accident, pedestrian crossing, vehicle crossing
+    hitl_objects_template: |
+      Objects of Interest (OPTIONAL):
+      Comma-separated list of objects to focus on, or "skip" to skip.
+    default_scenario: "traffic monitoring"
+    default_events:
+      - accident
+      - pedestrian crossing
+      - vehicle crossing
+      - traffic violation
+
+  video_report_gen:
+    _type: video_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    video_understanding_tool: video_understanding
+    lvs_video_understanding_tool: lvs_video_understanding
+    video_url_tool: vst_video_clip
+    picture_url_tool: vst_snapshot
+    vlm_prompt: |
+      Describe in detail what is happening in this video...
+```
+
+### Key Customization Options
+
+**Video Summarization configuration:**
+
+- `chunk_duration`: Seconds per video chunk (default: 10)
+- `conn_timeout_ms`: Connection timeout for long videos (default: 5000ms)
+- `read_timeout_ms`: Read timeout for long videos (default: 600000ms)
+- `temperature`: LLM sampling temperature (default: 0.4)
+- `max_tokens`: Maximum tokens for responses (default: 512)
+
+**HITL Templates:**
+
+- `hitl_scenario_template`: Prompt shown to user for scenario input
+- `hitl_events_template`: Prompt for events to detect
+- `hitl_objects_template`: Prompt for objects of interest
+- `default_scenario`: Default scenario
+- `default_events`: Default events list
+
+## Search Profile
+
+The search profile adds embedding-based video search with higher-detail video analysis.
+
+### Customizable Configuration
+
+```yaml
+functions:
+  video_understanding:
+    _type: video_understanding
+    vlm_name: nim_vlm
+    max_frames: 120          # Higher frame count for more detail
+    max_fps: 2
+    reasoning: true          # Reasoning enabled by default
+    video_url_tool: vst_video_url
+
+  embed_search:
+    _type: embed_search
+    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    es_index: ${ELASTIC_SEARCH_INDEX}
+    vst_base_url: ${VST_BASE_URL}
+
+  search:
+    _type: search
+    embed_search_tool: embed_search
+    agent_mode_llm: nim_llm
+
+  video_report_gen:
+    _type: video_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    video_understanding_tool: video_understanding
+    video_url_tool: vst_video_url
+    picture_url_tool: vst_picture_url
+```
+
+### Key Customization Options
+
+**Video Understanding:**
+
+- `max_frames`: Set to 120 for more detailed analysis
+- `reasoning`: Enabled by default for better accuracy
+
+**Embedding Search:**
+
+- `es_index`: Elasticsearch index for video embeddings
+
+## Custom Report Templates
+
+For incident-based workflows, use custom templates with `template_report_gen`:
+
+```yaml
+functions:
+  template_report_gen:
+    _type: template_report_gen
+    object_store: local_object_store
+    base_url: http://localhost:8000/static
+    llm_name: nim_llm
+    template_path: "my_templates:templates"
+    template_name: "safety_report.md"
+    video_understanding_tool: video_understanding
+    vlm_prompts:
+      - "Describe all safety violations observed in this video."
+    report_prompt: |
+      Using the provided template and VLM analysis,
+      generate a comprehensive safety report.
+
+      Template:
+      {template}
+```
+
+## Report Access
+
+When the agent generates a report, it produces both Markdown (`.md`) and PDF (`.pdf`) files. These reports are served by the `vss-agent` container and can be accessed at the following URLs:
+
+- `http://<HOST_IP>:8000/static/agent_report_<DATE>.md`
+- `http://<HOST_IP>:8000/static/agent_report_<DATE>.pdf`
+
+Replace `<HOST_IP>` with the IP address of the machine running the agent, and `<DATE>` with the date of the report.
+
+<Note>
+Reports are stored in the container's ephemeral filesystem by default and will be lost when the `vss-agent` container restarts.
+</Note>
+
+<details>
+<summary>Default Storage Behavior and Persistent Report Storage</summary>
+
+**Default Storage Behavior**
+
+By default, the agent uses an in-memory object store for generated reports:
+
+```yaml
+object_stores:
+  local_object_store:
+    _type: in_memory
+```
+
+With this configuration, reports are held in the container's memory and served through the FastAPI static endpoint. Reports will be lost when the `vss-agent` container restarts.
+
+**Persistent Report Storage**
+
+To persist reports across container restarts, enable local copies in the `template_report_gen` or `video_report_gen` function configuration and mount the output directory as a Docker volume.
+
+1. In your agent configuration file, set `save_local_copy` to `true` and configure `output_dir` to a path inside the container:
+
+   ```yaml
+   functions:
+     template_report_gen:
+       _type: template_report_gen
+       object_store: local_object_store
+       save_local_copy: true
+       output_dir: /opt/reports
+       # ... other parameters
+   ```
+
+2. Mount a host directory to the container's `output_dir` path by adding a volume to your Docker Compose configuration:
+
+   ```yaml
+   services:
+     vss-agent:
+       volumes:
+         - /path/on/host/reports:/opt/reports
+   ```
+
+   Replace `/path/on/host/reports` with the desired directory on your host machine. Generated `.md` and `.pdf` reports will be saved to this directory and persist across container restarts.
+
+</details>
+
+## Related Topics
+
+- [Agent Configuration](/vss-agent/VSS-Agent-Configuration) - Full configuration reference
+- [Agent Customization](/vss-agent/VSS-Agent-Customization#agent-customization) - Additional customization options
+- [Agent Evaluation](/vss-agent/VSS-Agent-Evaluation) - Evaluate report quality with the Report Evaluator

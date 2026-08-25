@@ -1,0 +1,315 @@
+---
+title: "3D Multi Camera Detection and Tracking (Sparse4D)"
+description: ""
+position: 2
+---
+The **Real Time Video Intelligence CV Microservice** leverages [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk) to generate metadata for each stream that downstream microservices can use to generate spatial metrics and alerts.
+
+The microservice features `metropolis-perception-app`, a DeepStream pipeline that builds on the built-in [deepstream-test5 app](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) in the DeepStream SDK.
+This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema ](/Protobuf-Schema).
+
+The application features a modular architecture that integrates preprocessing plugins and a custom video template plugin (Sparse4D) specifically designed for multi-object detection and tracking in three-dimensional space.
+
+At its core, Sparse4D performs Birds-Eye-View (BEV) 3D object detection and temporal tracking across multiple synchronized camera sensors within defined BEV groups. Refer to the [Sparse4D model page ](/models/sparse4d) for more details on the model architecture and training process.
+
+The pipeline ingests multicamera video streams, processes them through calibrated projection matrices for spatial alignment, and utilizes a feedback mechanism with temporal instance banking to maintain object identity across frames.
+Detection results include 3D position, orientation, velocity, and instance IDs, enabling sophisticated multi-camera fusion capabilities.
+
+For detailed information on all components, APIs, and customization options, refer to the [../object-detection-tracking](/object-detection-tracking).
+
+The diagram below shows the perception pipeline used in the microservice:
+
+![Metropolis Perception App Architecture](/assets/images/ds_fs_app_sparse4d.png)
+
+## Configurations
+
+The Perception microservice requires several configuration files that control various aspects of the 3D multi-camera detection and tracking system. These files allow users to customize the system's behavior according to their specific requirements.
+
+### Docker Compose Volume Mounts
+
+For docker compose deployment, the `perception-3d` service in `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml` mounts host paths into the container as follows:
+
+```yaml
+volumes:
+  # General mountings
+  - perception-3d:/opt/storage
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml:/opt/data/ds-configurator/config.yaml
+
+  # Config mountings
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
+
+  # Model related mountings
+  - $VSS_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.2.onnx
+  - $VSS_DATA_DIR/models/sparse4d/ov/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy
+```
+
+The `perception-3d` named volume at `/opt/storage` persists TensorRT engine files across container restarts. Sparse4D ONNX and anchor files are mounted from `$VSS_DATA_DIR/models/sparse4d/ov/`. DeepStream pipeline configs (`ds-main-config.txt`, `ds-mtmc-preprocess-config.txt`, and related files) live on the host under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/` and appear in the container under `metropolis_perception_app/configs/`. The Sparse4D inference file `config.yaml` and calibration file are supplied to the DeepStream Configurator at `/opt/data/ds-configurator/`.
+
+### Inference Configuration File
+
+The main configuration file for Sparse4D, `config.yaml`, handles properties related to model inference and controls the core functionality of the 3D detection and tracking system. On the host, edit this file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml`; docker compose mounts it to `/opt/data/ds-configurator/config.yaml` for the DeepStream Configurator. The configuration parameters organize into the following categories:
+
+#### Inference Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `onnx_file` | Path to the ONNX model file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.2.onnx` |
+| `engine_file` | Path to the TensorRT engine file (stored in the `perception-3d` volume) | `/opt/storage/model.engine` |
+| `labels_file` | Path to the object class labels file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt` |
+| `gpu_id` | GPU ID to use for tensor operations | `0` |
+| `batch_size` | Sparse4D model batch size | `1` |
+| `num_sensors` | Number of camera sensors (DeepStream batch size) | `4` |
+| `enable_fp16` | Enable FP16 precision (faster but less accurate) | `True` |
+| `force_engine_rebuild` | Force rebuild of the engine even if it exists | `False` |
+| `feedback` | Enable temporal feedback mechanism | `True` |
+| `partial_batch` | Use partial batch for inference | `True` |
+| `interval` | Number of consecutive batches to be skipped for inference | `0` |
+
+#### Calibration Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `calib_file_path` | Path to the calibration file | `/opt/data/ds-configurator/calibration.json` |
+| `bev_group_name` | BEV group name for camera grouping | `bev-sensor-1` |
+| `calib_mode` | Calibration mode (synthetic or real) | `synthetic` |
+| `use_camera_groups` | Groups cameras for multi-view fusion in synthetic mode | `True` |
+| `recentering` | The model is trained and inferred in BEV coordinates. This flag re-centers the 3D bounding boxes from the original OV coordinates to the BEV coordinates. The Perception microservice converts the final output back to OV coordinates. Keep this flag enabled. | `True` |
+
+#### Preprocessing Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `preprocessed_height` | Height of preprocessed images | `540` |
+| `preprocessed_width` | Width of preprocessed images | `960` |
+| `aug_configs` | Dictionary of image augmentation parameters | See below |
+
+**Augmentation Configuration:**
+
+```yaml
+aug_configs:
+  resize: 0.5
+  resize_dims: [960, 540]
+  crop: [0, 0, 960, 540] # [x, y, width, height]
+  flip: False
+  rotate: 0
+  rotate_3d: 0
+```
+
+#### Instance Bank Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `num_anchor` | Number of anchors | `900` |
+| `embed_dims` | Embedding dimensions | `256` |
+| `anchor` | Path to anchor file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy` |
+| `anchor_handler` | Anchor handler implementation | `SparseBox3DKeyPointsGenerator` |
+| `num_temp_instances` | Number of temporal instances to track | `600` |
+| `default_time_interval` | Default time interval for temporal anchor projection | `0.05` |
+| `confidence_decay` | Confidence decay rate for temporal tracking | `0.8` |
+| `anchor_grad` | Enable anchor gradients | `False` |
+| `feat_grad` | Enable feature gradients | `False` |
+| `max_time_interval` | Maximum time interval to maintain object identity | `2` |
+| `reid_dims` | Re-identification dimensions | `-1` |
+
+#### Decoder Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `num_output` | Maximum number of bounding boxes to output | `300` |
+| `score_threshold` | Score threshold for decoding output | `0.1` |
+| `num_torch_threads` | Number of threads for PyTorch | `0` |
+
+#### Debugging Properties
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `log_level` | Logging level: info (all messages), warn (warnings & errors), error (errors only) | `error` |
+| `display_partial_batch_info` | Display partial batch information | `False` |
+| `display_tensor_info` | Whether to display tensor information | `False` |
+| `display_bbox_list_info` | Whether to display bboxlist information | `False` |
+| `max_objects_to_display` | Maximum number of objects to display in bboxlist | `5` |
+| `dump_frames` | Enable/disable frame dumping for debugging | `False` |
+| `dump_max_frames` | Number of frames to dump from each batch | `50` |
+| `gpu_postprocess` | Whether to perform postprocessing (instance bank & decoder) on GPU | `False` |
+| `trt_logger_severity` | TensorRT logger severity level: 0=INTERNAL_ERROR 1=ERROR 2=WARNING 3=INFO 4=VERBOSE 5=Show all messages | `2` |
+| `enable_profiler` | Enable TensorRT layer-wise profiler for performance analysis | `False` |
+
+### DeepStream Configuration File
+
+The DeepStream main configuration file (`ds-main-config.txt`) builds on the DeepStream test5 application configuration and provides essential settings for the overall pipeline. This file controls various aspects of the application, including source configuration, stream multiplexing, message broker settings, and visualization parameters.
+
+#### Key Configuration Sections
+
+| Section | Purpose |
+| --- | --- |
+| `[application]` | Controls performance measurement settings and global application parameters |
+| `[source-list]` | Defines input sources (RTSP streams), sensor IDs, and source management settings |
+| `[source-attr-all]` | Configures source attributes like latency handling and reconnection parameters |
+| `[streammux]` | Sets stream multiplexer parameters for batch processing and timestamp handling |
+| `[sink0]` to `[sink3]` | Configures various output sinks (visualization, messaging, file output) |
+| `[pre-process]` | Links to the preprocessing configuration file for input transformation |
+| `[primary-gie]` | Specifies the custom video template plugin configuration for Sparse4D |
+
+For a complete understanding of all configuration options, refer to the [DeepStream SDK Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html).
+
+### Preprocess Plugin Configuration File
+
+The **gst-nvdspreprocess** plugin performs all preprocessing operations such as resizing, scaling, cropping, format conversion, and normalization on incoming video frames before feeding them to the neural network. These preprocessing operations prepare the input data according to the specific requirements of the Sparse4D model. You can configure all these preprocessing operations via the preprocess configuration file `ds-mtmc-preprocess-config.txt`.
+
+For detailed information about the preprocessing configuration parameters and options, refer to the [DeepStream Preprocessing Plugin Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvdspreprocess.html#gst-nvdspreprocess-file-configuration-specifications).
+
+### Custom Video Template Plugin Configuration File
+
+The `ds-mtmc-videotemplate_custom_lib_config.txt` file contains the configuration parameters for the custom video template plugin. This file configures the custom video template plugin for the Perception microservice.
+
+```text
+gpu-id=0
+customlib-name=/opt/nvidia/deepstream/deepstream/lib/libnvdsgst_sparse4d.so
+```
+
+The configuration specifies which GPU to use for processing and the path to the custom Sparse4D library that implements the 3D detection and tracking functionality.
+
+### Kafka Configuration File
+
+The `ds-kafka-config.txt` file contains the Kafka configuration parameters for the Perception microservice. This file configures the Kafka producer and consumer settings for the Perception microservice.
+
+```text
+[message-broker]
+partition-key = sensorId
+```
+
+The partition key setting ensures that messages from the same sensor go to the same Kafka partition, maintaining message ordering per camera stream.
+
+### Calibration File
+
+The `calibration.json` file defines camera calibration parameters essential for 3D spatial understanding. This file contains intrinsic and extrinsic camera parameters for each camera in the system. On the host, it is located under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<SAMPLE_VIDEO_DATASET>/` and mounted into the container at `/opt/data/ds-configurator/calibration.json`. For detailed information about camera calibration parameters and setup, refer to the [calibration ](/calibration-schema).
+
+### Labels File
+
+The `labels.txt` file contains the class labels that the model can detect along with class-wise confidence thresholds for filtering detections. Each entry in the file corresponds to a class that the model recognizes with its associated confidence threshold. On the host, it is located at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt` and mounted into the container at `/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt`. Users can customize this file to match their specific detection requirements and fine-tune the detection sensitivity for each object class.
+
+The file format uses a semicolon-separated list where each entry follows the pattern `ClassName:ConfidenceThreshold`:
+
+```text
+Person:0.85;Fourier_GR1_T2_Humanoid:0.85;Agility_Digit_Humanoid:0.85;Nova_Carter:0.90;Transporter:0.90;Forklift:0.75;
+```
+
+These class labels represent common objects in industrial and warehouse environments that the Sparse4D model can detect and track in 3D space. Classes can be customized by training on domain-specific datasets using TAO Toolkit.
+
+### Anchor File
+
+The `/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy` file contains the anchor parameters for the Sparse4D model. This file configures the initial anchor parameters for the Sparse4D model.
+
+## Runtime Configuration Adjustments
+
+This section covers common configuration changes that users may need to make when adapting the Sparse4D pipeline for their specific deployment scenarios.
+
+### Modifying the Number of Input Streams
+
+When updating the number of input streams/cameras, you must update the batch size settings in multiple configuration files to ensure consistency. This step is critical for the proper operation of the Sparse4D pipeline.
+
+The related DeepStream configuration files can be found on the host at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/` (mounted into the container at `/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/`).
+
+#### Updating the Inference Configuration
+
+Modify the `config.yaml` file to update the number of sensors:
+
+```yaml
+num_sensors: 4  # Change this to match number of camera streams
+```
+
+#### Update DeepStream Configuration
+
+Modify the `ds-main-config.txt` file to update source and batch size settings:
+
+```text
+[source-list]
+# Set num-source-bins to match the number of streams
+num-source-bins=4
+# Update the source URLs, sensor IDs and names accordingly
+list=rtsp://server1:port/stream1;rtsp://server1:port/stream2;...
+sensor-id-list=Camera1;Camera2;Camera3;...
+sensor-name-list=Camera1;Camera2;Camera3;...
+
+[streammux]
+# Change batch-size to the number of streams
+batch-size=4
+```
+
+#### Updating Preprocess Configuration
+
+Modify the `ds-mtmc-preprocess-config.txt` file to update the network input shape:
+
+```text
+# Update network-input-shape 1st value to match the number of streams
+network-input-shape=4;3;540;960 # Change the first value to match number of camera streams
+```
+
+### Integrating a Sparse4D Model Checkpoint
+
+The Sparse4D plugin supports model swapping, allowing you to use different Sparse4D models based on your specific use case.
+
+#### Model Compatibility Requirements
+
+Ensure your new model meets these requirements:
+
+- Uses the same input tensor names and shapes as the plugin expects
+- Has a compatible output format with the post-processing logic
+- Follows the Sparse4D architecture pattern for 3D object detection
+
+#### Updating Sparse4D Configuration
+
+1. Place your new model, anchor, and labels files in the appropriate directories on the host. The container accesses them through the volume mounts shown in [Docker Compose Volume Mounts](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#docker-compose-volume-mounts) (add or update entries for custom files as needed):
+
+```yaml
+# docker compose (deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml)
+volumes:
+  # General mountings
+  - perception-3d:/opt/storage
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/your_new_labels.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/your_new_labels.txt
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml:/opt/data/ds-configurator/config.yaml
+
+  # Config mountings
+  - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
+
+  # Model related mountings
+  - $VSS_DATA_DIR/models/sparse4d/ov/your_new_model.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/your_new_model.onnx
+  - $VSS_DATA_DIR/models/sparse4d/ov/your_new_anchors.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/your_new_anchors.npy
+```
+
+- Place your new ONNX model (for example, `your_new_model.onnx`) and anchor file (for example, `your_new_anchors.npy`) in `$VSS_DATA_DIR/models/sparse4d/ov/` on the host.
+- Place your new labels file (for example, `your_new_labels.txt`) in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/` on the host.
+
+2. Update `config.yaml` on the host at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml`:
+
+```yaml
+onnx_file: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/your_new_model.onnx"
+engine_file: "/opt/storage/model.engine"
+force_engine_rebuild: True
+labels_file: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/your_new_labels.txt"
+anchor: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/your_new_anchors.npy"
+```
+
+The Perception microservice automatically builds the TensorRT engine for the new model on first run. Engine files persist in the `perception-3d` volume at `/opt/storage`.
+
+Your labels file must list classes in the same order your model was trained on.
+
+```text
+# Update the class labels - Example ``your_new_labels.txt``
+Person:0.85;Fourier_GR1_T2_Humanoid:0.85;Agility_Digit_Humanoid:0.85;Nova_Carter:0.90;Transporter:0.90;Forklift:0.75;
+```
+
+Since model training and inference depend on the initialized anchor `.npy` file, use the anchor file from the TAO finetuning process when you finetune on a new scene or set of classes.
+
+3. If the resolution is changed for the new model, set the `NETWORK_WIDTH` and `NETWORK_HEIGHT` environment variables to match the new model's input resolution.
+
+The `sparse4d_setup.sh` script automatically handles updating the required configuration parameters in `config.yaml` and `ds-mtmc-preprocess-config.txt` (under `metropolis_perception_app/configs/` in the container) based on these values.
+
+```bash
+# Example: Set environment variables for a model with 960x540 input resolution
+export NETWORK_WIDTH=960
+export NETWORK_HEIGHT=540
+```

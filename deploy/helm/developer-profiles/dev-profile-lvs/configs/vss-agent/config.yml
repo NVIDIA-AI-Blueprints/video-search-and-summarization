@@ -366,6 +366,19 @@ workflow:
   subagent_names:
   - report_agent
   # yamllint disable rule:line-length
+  # Keep named report requests deterministic for models that over-apply the
+  # top agent's default clarification examples.
+  plan_prompt: |
+    Review the available tools, the conversation history, and the user's question, then produce a concise numbered execution plan. Start each step with a tool name and a brief description of the step.
+    Put relevant context (for example, sensor IDs or time ranges) from the conversation history directly in the plan steps so the execution agent does not need to re-read the history.
+    A non-empty name supplied in the request is the sensor_id. For example, in "Generate a report for warehouse_sample", the sensor_id is "warehouse_sample"; this request is complete and MUST NOT trigger a clarifying question.
+    If the user requests a report and supplies a name, the plan MUST contain exactly one action: call `report_agent` directly with that exact name as sensor_id and the original request as user_query. Do not verify the name or media type first.
+    Ask which video or camera the user means only when the request contains no name and the conversation provides no usable name.
+    Only use tools from the available tools list. Never invent or assume tools that are not listed.
+
+    Example plan for "Generate a report for warehouse_sample":
+    1. Call `report_agent` with sensor_id="warehouse_sample" and user_query="Generate a report for warehouse_sample".
+
   prompt: |
     You are a routing agent for a video surveillance system. Your job is to route requests to the correct tool.
     ## Routing Rules:
