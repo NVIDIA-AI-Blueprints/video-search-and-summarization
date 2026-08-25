@@ -102,10 +102,11 @@ env:
   # Prebaked VIOS runtime-media packages (#1798). A repository variable so it
   # toggles from Settings; unset is not forwarded, so the default stands.
   VSS_VIOS_PREBAKE_PACKAGES: ${{ vars.VSS_VIOS_PREBAKE_PACKAGES }}
-  # Route two-GPU work onto 10.86.16.223 RTX PRO 6000 OpenShell runners
-  # and one-GPU work onto 10.86.14.74 H200 (8×1), using the H100 NIM
-  # profile there. Skip other GPU SKUs for this PR path. Unset on develop
-  # to restore coordinator labels. These VMs are registered from
+  # Capability-route one leg per spec across 8× A16 1-GPU runners,
+  # 4× A40 1-GPU runners, 2× A40 2-GPU runners, and 4× RTX PRO 6000
+  # 2-GPU runners. Exact A16/A40 hardware profiles and explicit per-spec
+  # metadata are prerequisites; missing compatibility emits a visible
+  # BLOCKED leg. Skip other GPU SKUs for this path. These VMs are registered from
   # the GitLab fleet repo (brev-openshell-gpu-runners); they are GitHub
   # Actions runners, not GitLab CI runners. After each job the host-side
   # OpenShell VM orchestrator recreates that one VM and restores its listener.
@@ -193,10 +194,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow 24 matrix legs so queued RTX cells do not hold every slot
-      # while 8 H200 + 4 RTX runners sit idle. Unavailable runner slots
-      # still queue in Actions; run_leg.py caps one leg per GPU box.
-      max-parallel: 24
+      # Total runner capacity is 18. Cohort-specific active + GPU-count labels
+      # cap each pool independently (8 A16-1g, 4 A40-1g, 2 A40-2g, 4 RTX-2g),
+      # so one cohort cannot consume another cohort's runners.
+      max-parallel: 18
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling
