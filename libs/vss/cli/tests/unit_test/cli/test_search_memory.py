@@ -94,8 +94,8 @@ def search_group(monkeypatch: pytest.MonkeyPatch) -> SearchGroup:
         lambda *_args, **_kwargs: MagicMock(),
     )
 
-    async def _critic(_deployment: Any) -> tuple[None, None]:
-        return None, None
+    async def _critic(_deployment: Any, *, eval_count: int | None = None) -> tuple[None, None, None]:
+        return None, None, None
 
     monkeypatch.setattr("vss_cli.search.group._critic_from", _critic)
 

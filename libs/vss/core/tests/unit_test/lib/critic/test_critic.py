@@ -42,6 +42,9 @@ class _FakeVST:
         timeline: tuple[str, str] = ("2025-01-01T00:00:00Z", "2025-01-01T00:01:00Z"),
     ) -> None:
         self._timeline = timeline
+        # Count of get_timeline calls, to prove the critic caches one fetch per
+        # sensor instead of one per candidate.
+        self.timeline_calls = 0
 
     def build_screenshot_url(self, *, sensor_id, timestamp, internal=False) -> str:
         return ""
@@ -50,6 +53,7 @@ class _FakeVST:
         return f"stream-{sensor_id}"
 
     async def get_timeline(self, stream_id: str) -> tuple[str, str]:
+        self.timeline_calls += 1
         return self._timeline
 
     async def aclose(self) -> None:
@@ -421,6 +425,36 @@ class TestCriticTimeFormat:
         )
         await c.run(CriticAgentInput(query="q", videos=[v]))
         assert vlm.calls[0]["end_timestamp"] == "60.0"
+
+    @pytest.mark.asyncio
+    async def test_iso_rebases_file_bounds_once_per_sensor(self):
+        """iso + file source rebases onto the real timeline, cached per sensor."""
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST(timeline=("2026-07-31T12:00:00Z", "2026-07-31T12:01:00Z"))
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="iso")
+        videos = [
+            _video(start=10, end=20, source_type="video_file"),
+            _video(start=30, end=40, source_type="video_file"),
+        ]
+        await c.run(CriticAgentInput(query="q", videos=videos))
+        # Rebated real ISO bounds are passed through (synthetic 00:00:10 +60s timeline start).
+        assert vlm.calls[0]["time_format"] == "iso"
+        assert vlm.calls[0]["start_timestamp"] == "2026-07-31T12:00:10.000Z"
+        assert vlm.calls[0]["end_timestamp"] == "2026-07-31T12:00:20.000Z"
+        assert vlm.calls[1]["start_timestamp"] == "2026-07-31T12:00:30.000Z"
+        # Two candidates, same sensor -> one timeline fetch, not two.
+        assert vst.timeline_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_iso_live_bounds_do_not_fetch_timeline(self):
+        """iso + non-file source passes wall-clock bounds through with no VST timeline call."""
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST()
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="iso")
+        await c.run(CriticAgentInput(query="q", videos=[_video(start=10, end=20, source_type="rtsp")]))
+        assert vlm.calls[0]["time_format"] == "iso"
+        assert vlm.calls[0]["start_timestamp"] == "2025-01-01T00:00:10Z"
+        assert vst.timeline_calls == 0
 
 
 class TestCriticOutputShape:
