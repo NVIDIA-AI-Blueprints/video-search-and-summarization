@@ -63,7 +63,46 @@ def _effective_mode(instance) -> str:
     )
 
 
+def _fallback_to_inline(
+    instance,
+    reason: str,
+    worker_id: int,
+    message: Dict[str, Any],
+    kafka_consumed_at: Optional[str],
+    kafka_published_at: Optional[str],
+    worker_assigned_at: Optional[str],
+    dispatch_slot_acquired: bool,
+) -> None:
+    """Return the slot, record why, and process on the calling thread.
+
+    Every dispatch failure ends here, so the semaphore is released in one
+    place. The accounting used to be repeated at each of the five exits and
+    had to be kept in step by hand. Module level rather than a method so a
+    test driving the mixin with a mock ``self`` still exercises it.
+    """
+    if dispatch_slot_acquired and instance._dispatch_backpressure_semaphore is not None:
+        instance._dispatch_backpressure_semaphore.release()
+    inc_async_dispatch_fallback(reason)
+    instance._process_single_message(
+        worker_id,
+        message,
+        kafka_consumed_at,
+        kafka_published_at,
+        worker_assigned_at=worker_assigned_at,
+    )
+
+
 class AsyncDispatchMixin:
+    @property
+    def async_io_enabled(self) -> bool:
+        """Whether thread_bridge machinery applies.
+
+        Derived rather than stored: it was previously a second attribute
+        assigned once from ``pipeline_mode``, which went stale the moment
+        anything reassigned the mode.
+        """
+        return getattr(self, "pipeline_mode", None) == PIPELINE_MODE_THREAD_BRIDGE
+
     def _effective_pipeline_mode(self) -> str:
         return _effective_mode(self)
 
@@ -73,7 +112,13 @@ class AsyncDispatchMixin:
         message_id: str,
         sensor_id: str,
         dispatch_slot_acquired: bool = False,
+        admission: Optional[Any] = None,
     ) -> None:
+        if admission is not None:
+            # First thing: a drain waiting on this partition must not be held
+            # up by the reporting that follows.
+            admission.release()
+
         with self._message_dispatch_lock:
             self._message_dispatch_futures.discard(future)
             in_flight = len(self._message_dispatch_futures)
@@ -148,6 +193,7 @@ class AsyncDispatchMixin:
         message_id: str,
         sensor_id: str,
         dispatch_slot_acquired: bool,
+        admission: Optional[Any] = None,
     ) -> None:
         with self._message_dispatch_lock:
             self._message_dispatch_futures.add(future)
@@ -166,11 +212,12 @@ class AsyncDispatchMixin:
         )
 
         future.add_done_callback(
-            lambda done_future, msg_id=message_id, sid=sensor_id, slot_acquired=dispatch_slot_acquired: self._on_dispatched_message_done(
+            lambda done_future, msg_id=message_id, sid=sensor_id, slot_acquired=dispatch_slot_acquired, adm=admission: self._on_dispatched_message_done(
                 done_future,
                 msg_id,
                 sid,
                 slot_acquired,
+                adm,
             )
         )
 
@@ -181,22 +228,28 @@ class AsyncDispatchMixin:
         kafka_consumed_at: Optional[str] = None,
         kafka_published_at: Optional[str] = None,
         worker_assigned_at: Optional[str] = None,
+        admission: Optional[Any] = None,
     ) -> None:
-        """
-        Dispatch message processing based on the effective pipeline mode.
+        """Dispatch one message according to the effective pipeline mode.
 
-        ``thread_bridge`` queues the blocking per-message flow onto a separate
-        dispatch executor so batch workers can quickly return to the
-        scheduling loop. ``event_loop`` submits a per-message coroutine to the
-        persistent async runtime so in-flight concurrency is bounded by the
-        backpressure semaphore rather than by thread count.
+        The modes differ only in where the work runs: inline for ``sync``, on
+        the dispatch executor for ``thread_bridge``, on the persistent event
+        loop for ``event_loop``. The backpressure slot, the availability check,
+        the fallback and the future bookkeeping are identical, so they are
+        written once rather than once per mode.
 
-        ``worker_assigned_at`` is the ISO timestamp stamped by the batch
-        scheduler the moment the sub-batch was dequeued from the worker
-        queue (C24). Threading it down this call chain — instead of
-        letting ``_process_single_message`` stamp its own timestamp —
-        keeps ``WORKER_QUEUE_WAIT_DURATION`` semantics stable across
-        sync and async modes.
+        ``worker_assigned_at`` is stamped when the message was accepted for
+        processing. Threading it down, instead of letting
+        ``_process_single_message`` stamp its own, keeps
+        ``WORKER_QUEUE_WAIT_DURATION`` comparable across modes.
+
+        The admission is taken by the caller and released by whoever ends up
+        owning the message: a dispatched message marks it transferred and its
+        completion callback releases, while every other way out -- inline
+        processing, a fallback, a submit that failed -- leaves it untransferred
+        for the caller's ``finally``. A release added here as well would
+        double-count, and one omitted there leaves a drain waiting out its
+        whole timeout.
         """
         mode = _effective_mode(self)
         if mode == PIPELINE_MODE_SYNC:
@@ -211,167 +264,87 @@ class AsyncDispatchMixin:
 
         message_id = str(message.get("Id") or message.get("id") or "unknown")
         sensor_id = str(message.get("sensorId", "N/A"))
+        on_event_loop = mode == PIPELINE_MODE_EVENT_LOOP
 
-        if mode == PIPELINE_MODE_EVENT_LOOP:
-            self._dispatch_message_to_event_loop(
-                worker_id,
-                message,
-                message_id,
-                sensor_id,
-                kafka_consumed_at,
-                kafka_published_at,
-                worker_assigned_at,
-            )
-            return
+        if on_event_loop:
+            missing_reason = "runtime_unavailable"
+            missing_log = "Event-loop runtime unavailable; falling back to inline message processing"
+            is_available = lambda: self.async_vlm_runtime is not None
+        else:
+            missing_reason = "executor_unavailable"
+            missing_log = "Async dispatch executor unavailable; falling back to inline message processing"
+            is_available = lambda: self._message_dispatch_executor is not None
 
         dispatch_slot_acquired = self._acquire_dispatch_slot(
-            worker_id,
-            message_id,
-            sensor_id,
-            lambda: self._message_dispatch_executor is not None,
+            worker_id, message_id, sensor_id, is_available
         )
 
-        dispatch_executor = self._message_dispatch_executor
-        if dispatch_executor is None:
-            if dispatch_slot_acquired and self._dispatch_backpressure_semaphore is not None:
-                self._dispatch_backpressure_semaphore.release()
-            logger.warning(
-                "Async dispatch executor unavailable; falling back to inline message processing"
-            )
-            # C26: make the silent fallback visible on dashboards. Mirrors
-            # the existing ``ASYNC_EXTERNAL_IO_FALLBACK_TOTAL`` pattern
-            # used by the dedup-state / VST / Elastic mixins — operators who
-            # already query ``rate(...)[5m]`` on that counter pick up the
-            # dispatch fallbacks automatically (same metric, new
-            # ``operation="dispatch_message"`` label value).
-            inc_async_dispatch_fallback("executor_unavailable")
-            self._process_single_message(
-                worker_id,
-                message,
-                kafka_consumed_at,
-                kafka_published_at,
-                worker_assigned_at=worker_assigned_at,
+        # Read the target once: shutdown can tear it down between the
+        # availability check and the submit.
+        target = self.async_vlm_runtime if on_event_loop else self._message_dispatch_executor
+        if target is None:
+            logger.warning(missing_log)
+            _fallback_to_inline(
+                self, missing_reason, worker_id, message, kafka_consumed_at,
+                kafka_published_at, worker_assigned_at, dispatch_slot_acquired,
             )
             return
 
-        logger.debug(
-            "Queueing message to async dispatch pipeline",
-            extra={
-                "worker_id": worker_id,
-                "message_id": message_id,
-                "sensor_id": sensor_id,
-            },
-        )
+        coroutine = None
         try:
-            future = dispatch_executor.submit(
-                self._process_single_message,
-                worker_id,
-                message,
-                kafka_consumed_at,
-                kafka_published_at,
-                worker_assigned_at,
-            )
+            if on_event_loop:
+                coroutine = self._process_single_message_async(
+                    worker_id,
+                    message,
+                    kafka_consumed_at,
+                    kafka_published_at,
+                    worker_assigned_at,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+                future = target.submit_coroutine(coroutine)
+                coroutine = None
+            else:
+                logger.debug(
+                    "Queueing message to async dispatch pipeline",
+                    extra={
+                        "worker_id": worker_id,
+                        "message_id": message_id,
+                        "sensor_id": sensor_id,
+                    },
+                )
+                future = target.submit(
+                    self._process_single_message,
+                    worker_id,
+                    message,
+                    kafka_consumed_at,
+                    kafka_published_at,
+                    worker_assigned_at,
+                )
         except Exception as exc:
-            if dispatch_slot_acquired and self._dispatch_backpressure_semaphore is not None:
-                self._dispatch_backpressure_semaphore.release()
+            # A coroutine that was built but never submitted would otherwise
+            # surface as a "never awaited" RuntimeWarning far from the failure.
+            if coroutine is not None:
+                coroutine.close()
             logger.warning(
-                "Async dispatch submit failed; falling back to inline processing",
+                "Dispatch submit failed; falling back to inline processing",
                 extra={
                     "worker_id": worker_id,
                     "message_id": message_id,
                     "sensor_id": sensor_id,
+                    "mode": mode,
                     "error": str(exc),
                     "error_type": type(exc).__name__,
                 },
             )
-            # C26: reuses the ``submit_error`` reason already used by
-            # ``_submit_sink_operation_with_mode`` in
-            # ``AsyncExternalIOMixin`` so dashboards don't need a
-            # special case — ``sum by (reason) (...)`` across both
-            # operations gives the natural "how often does async
-            # submission fall back" view.
-            inc_async_dispatch_fallback("submit_error")
-            self._process_single_message(
-                worker_id,
-                message,
-                kafka_consumed_at,
-                kafka_published_at,
-                worker_assigned_at=worker_assigned_at,
+            _fallback_to_inline(
+                self, "submit_error", worker_id, message, kafka_consumed_at,
+                kafka_published_at, worker_assigned_at, dispatch_slot_acquired,
             )
             return
 
+        # From here the message outlives this call, so ownership of the
+        # admission moves to the completion callback.
         self._track_dispatched_future(
-            future, worker_id, message_id, sensor_id, dispatch_slot_acquired
-        )
-
-    def _dispatch_message_to_event_loop(
-        self,
-        worker_id: int,
-        message: Dict[str, Any],
-        message_id: str,
-        sensor_id: str,
-        kafka_consumed_at: Optional[str],
-        kafka_published_at: Optional[str],
-        worker_assigned_at: Optional[str],
-    ) -> None:
-        dispatch_slot_acquired = self._acquire_dispatch_slot(
-            worker_id,
-            message_id,
-            sensor_id,
-            lambda: self.async_vlm_runtime is not None,
-        )
-
-        runtime = self.async_vlm_runtime
-        if runtime is None:
-            if dispatch_slot_acquired and self._dispatch_backpressure_semaphore is not None:
-                self._dispatch_backpressure_semaphore.release()
-            logger.warning(
-                "Event-loop runtime unavailable; falling back to inline message processing"
-            )
-            inc_async_dispatch_fallback("runtime_unavailable")
-            self._process_single_message(
-                worker_id,
-                message,
-                kafka_consumed_at,
-                kafka_published_at,
-                worker_assigned_at=worker_assigned_at,
-            )
-            return
-
-        task_dispatched_at = datetime.now(timezone.utc).isoformat()
-        coroutine = self._process_single_message_async(
-            worker_id,
-            message,
-            kafka_consumed_at,
-            kafka_published_at,
-            worker_assigned_at,
-            task_dispatched_at,
-        )
-        try:
-            future = runtime.submit_coroutine(coroutine)
-        except Exception as exc:
-            if dispatch_slot_acquired and self._dispatch_backpressure_semaphore is not None:
-                self._dispatch_backpressure_semaphore.release()
-            logger.warning(
-                "Event-loop dispatch submit failed; falling back to inline processing",
-                extra={
-                    "worker_id": worker_id,
-                    "message_id": message_id,
-                    "sensor_id": sensor_id,
-                    "error": str(exc),
-                    "error_type": type(exc).__name__,
-                },
-            )
-            inc_async_dispatch_fallback("submit_error")
-            self._process_single_message(
-                worker_id,
-                message,
-                kafka_consumed_at,
-                kafka_published_at,
-                worker_assigned_at=worker_assigned_at,
-            )
-            return
-
-        self._track_dispatched_future(
-            future, worker_id, message_id, sensor_id, dispatch_slot_acquired
+            future, worker_id, message_id, sensor_id, dispatch_slot_acquired,
+            admission=admission.transfer() if admission is not None else None,
         )

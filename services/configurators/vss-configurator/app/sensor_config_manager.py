@@ -68,6 +68,25 @@ def set_video_upload_status(status: str, message: str, uploaded_count: int = 0, 
 # Configuration cache to avoid re-reading environment variables
 _config_cache = {}
 
+NVSTREAMER_STREAMS_POLL_INTERVAL_SEC = 5
+
+
+def _parse_non_negative_int_env(env_var, default_value=0):
+    """Parse a non-negative integer from the environment; invalid values fall back to default."""
+    raw = os.environ.get(env_var)
+    if raw is None or str(raw).strip() == "":
+        return default_value
+    try:
+        parsed = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid {env_var}={raw!r}; using {default_value}")
+        return default_value
+    if parsed < 0:
+        logger.warning(f"{env_var}={parsed} is negative; using {default_value}")
+        return default_value
+    return parsed
+
+
 def get_config():
     """Get configuration from environment variables with caching."""
     if not _config_cache:
@@ -167,8 +186,11 @@ def get_config():
             # Deployment profile (2d or 3d) configuration
             'MODE': os.environ.get("MODE", "3d").lower(),
 
-            # VST stream validation (online and no Errors) retry configuration
-            'NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT': int(os.environ.get("NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT", "100")),
+            # Expected camera count from NVStreamer (0 = unknown; use list stability instead)
+            'NUM_STREAMS': _parse_non_negative_int_env("NUM_STREAMS", 0),
+
+            # After NVStreamer returns a non-empty but incomplete list, wait this many seconds for more streams
+            'NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT': int(os.environ.get("NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT", "120")),
             'NVSTREAMER_STREAM_VALIDATION_MAX_RETRIES': int(os.environ.get("NVSTREAMER_STREAM_VALIDATION_MAX_RETRIES", "50")),
             'NVSTREAMER_STREAM_VALIDATION_RETRY_DELAY': int(os.environ.get("NVSTREAMER_STREAM_VALIDATION_RETRY_DELAY", "5")),
 
@@ -713,58 +735,107 @@ def nvstreamer_stream_is_valid(stream_name):
     logger.warning(f"Stream '{stream_name}' validation failed after {max_retries} attempts")
     return False
 
+def _nvstreamer_stream_list_is_complete(current_count, last_count, expected_count):
+    """Return True when the NVStreamer stream list is ready to commit.
+
+    NVStreamer registers files serially, so a non-empty list is not complete.
+    Prefer NUM_STREAMS when set; otherwise require the count to stay stable
+    across two consecutive polls.
+    """
+    if current_count <= 0:
+        return False
+    if expected_count > 0:
+        return current_count >= expected_count
+    return last_count is not None and last_count == current_count
+
+
 def fetch_all_streams_from_nvstreamer():
     api_up = False
-    # start_time = time.time()
+    timeout = CONFIG['NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT']
+    expected_count = CONFIG.get('NUM_STREAMS', 0) or 0
+    last_count = None
+    json_vals = []
+    poll_interval = NVSTREAMER_STREAMS_POLL_INTERVAL_SEC
+    partial_wait_started_at = None
+
     while not api_up:
         try:
             logger.info("Checking Nvstreamer streams endpoint to see if it's ready")
             resp = requests.get(CONFIG['NVSTREAMER_STREAMS_ENDPOINT'])
-            # api_up = True
         except Exception as e:
-            logger.warning("Error while checking Nvstreamer streams endpoint, retrying in 5 seconds")
+            logger.warning(f"Error while checking Nvstreamer streams endpoint, retrying in {poll_interval} seconds")
             logger.debug(f"Exception details: {repr(e)}")
-            api_up = False
-            time.sleep(5)
+            time.sleep(poll_interval)
             continue
-
-        # if int(time.time() - start_time)  > CONFIG['NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT']:
-        #     logger.error("VST endpoint took too long to respond - skipping VST preload")
-        #     return []
-
-        # resp = requests.get(CONFIG['NVSTREAMER_STREAMS_ENDPOINT']) # TODO: Check if commenting this works
 
         if not resp.status_code == 200:
-            logger.info(f"Getting status code {resp.status_code} from VST endpoint {CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} - retrying in 5 seconds")
-            api_up = False
-            time.sleep(5)
+            logger.info(
+                f"Getting status code {resp.status_code} from Nvstreamer streams endpoint "
+                f"{CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} - retrying in {poll_interval} seconds"
+            )
+            time.sleep(poll_interval)
             continue
-        else:
-            # Check if response is not empty even with 200 status code
-            try:
-                json_vals = resp.json()
-                if not json_vals or len(json_vals) == 0:
-                    logger.info(f"Nvstreamer streams endpoint returned empty response - retrying in 5 seconds")
-                    api_up = False
-                    time.sleep(5)
-                    continue
-            except Exception as e:
-                logger.info(f"Failed to parse Nvstreamer response as JSON - retrying in 5 seconds. Exception: {repr(e)}")
-                api_up = False
-                time.sleep(5)
+
+        try:
+            json_vals = resp.json()
+            current_count = len(json_vals) if json_vals else 0
+            if current_count == 0:
+                logger.info(
+                    f"Nvstreamer streams endpoint returned empty response - retrying in {poll_interval} seconds"
+                )
+                last_count = None
+                partial_wait_started_at = None
+                time.sleep(poll_interval)
                 continue
-            
-            logger.info(f"Getting status code {resp.status_code} from Nvstreamer streams endpoint {CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} with valid response")
-            logger.info(f"Successfully parsed Nvstreamer streams endpoint response: {json_vals}")
+        except Exception as e:
+            logger.info(
+                f"Failed to parse Nvstreamer response as JSON - retrying in {poll_interval} seconds. "
+                f"Exception: {repr(e)}"
+            )
+            time.sleep(poll_interval)
+            continue
+
+        logger.info(
+            f"Getting status code {resp.status_code} from Nvstreamer streams endpoint "
+            f"{CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} with valid response"
+        )
+        logger.info(f"Successfully parsed Nvstreamer streams endpoint response: {json_vals}")
+
+        if _nvstreamer_stream_list_is_complete(current_count, last_count, expected_count):
             api_up = True
             break
 
-    # try:
-        # json_vals = resp.json()
-    #     logger.info(f"Successfully parsed VST endpoint response: {json_vals}")
-    # except Exception as e:
-    #     logger.info("Couldn't parse VST endpoint response, will retry. Exception was - " + repr(e))
-    #     return None
+        now = time.time()
+        if partial_wait_started_at is None:
+            partial_wait_started_at = now
+        partial_elapsed = now - partial_wait_started_at
+        if partial_elapsed >= timeout:
+            expected_note = f", expected {expected_count}" if expected_count else ""
+            logger.warning(
+                f"Nvstreamer reported {current_count} stream(s) for {partial_elapsed:.1f}s "
+                f"(NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT {timeout}s{expected_note}); "
+                "proceeding with the list collected so far"
+            )
+            break
+        retry_in = min(poll_interval, max(0.0, timeout - partial_elapsed))
+        if expected_count > 0:
+            logger.info(
+                f"Nvstreamer reported {current_count} stream(s), waiting for expected {expected_count} "
+                f"- retrying in {retry_in} seconds (timeout {timeout}s)"
+            )
+        else:
+            logger.info(
+                f"Nvstreamer reported {current_count} stream(s); waiting for the list to stabilize "
+                f"- retrying in {retry_in} seconds (timeout {timeout}s)"
+            )
+        last_count = current_count
+        time.sleep(retry_in)
+
+    if expected_count > 0 and len(json_vals) < expected_count:
+        logger.warning(
+            f"Fetched {len(json_vals)} stream(s) from Nvstreamer but NUM_STREAMS={expected_count}; "
+            "cameras may be missing from VST"
+        )
 
     nvstreamer_streams = []
     for stream in json_vals:
@@ -1044,7 +1115,15 @@ def process_sensor_info_from_nvstreamer():
     if CONFIG['CALL_SENSOR_ADD_API']:
         logger.info("Calling sensor add API for VMS/RTSP Server")
         [add_sensor(sensor_info) for sensor_info in sensor_mapping.sensors.values()]
-        logger.info(f"Successfully called sensor add API for {len(sensor_mapping.sensors)} sensors")
+        added_count = len(sensor_mapping.sensors)
+        expected_count = CONFIG.get('NUM_STREAMS', 0) or 0
+        if expected_count > 0 and added_count < expected_count:
+            logger.warning(
+                f"Called sensor add API for {added_count} sensors but NUM_STREAMS={expected_count}; "
+                "cameras may be missing from VST"
+            )
+        else:
+            logger.info(f"Successfully called sensor add API for {added_count} sensors")
     else:
         logger.info("Skipping sensor add API call as CALL_SENSOR_ADD_API is disabled")
     
