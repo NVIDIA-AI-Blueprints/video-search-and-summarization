@@ -16,7 +16,10 @@
 services:
   nvidia-nemotron-nano-9b-v2-vllm-toolcall-init:
     # Prepare the writable model cache and fetch the model-specific tool-call
-    # parser used by the optional BF16 DLFW services.
+    # parser used by the optional BF16 DLFW services. vLLM loads this file as a
+    # --tool-parser-plugin, so it executes inside the model server: pin it to an
+    # immutable commit rather than the mutable main ref, and verify its digest so
+    # an upstream replacement cannot run with the server's token and cache.
     image: docker.io/alpine/curl:8.21.0
     container_name: nvidia-nemotron-nano-9b-v2-vllm-toolcall-init
     profiles:
@@ -33,7 +36,8 @@ services:
         mkdir -p /opt/nim/.cache &&
         chown "${UID:-1000}:${GID:-1000}" /opt/nim/.cache &&
         curl -fSL -o /out/nemotron_toolcall_parser_no_streaming.py
-        https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-9B-v2/resolve/main/nemotron_toolcall_parser_no_streaming.py
+        https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-9B-v2/resolve/6533e8de2c68e4536bf7c411d7a3ce5734111476/nemotron_toolcall_parser_no_streaming.py &&
+        echo "5dda26a379b7de9b98c628ff615c2c97803923541de46b226fb880d26a93fe9f  /out/nemotron_toolcall_parser_no_streaming.py" | sha256sum -c -
     restart: "no"
 
   nvidia-nemotron-nano-9b-v2:
