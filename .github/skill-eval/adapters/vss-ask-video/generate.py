@@ -74,6 +74,29 @@ PREAMBLE = (
     "setup action the trial requires."
 )
 
+# Appended only to specs whose checks require the clip URL to come from
+# `vss vios clip`. Applied globally it also reached the direct-VLM spec, whose
+# checks assert the run never touches VIOS, and regressed it.
+CLI_CLAUSE = (
+    " When a question names a VIOS sensor, obtain the clip with the host checkout's "
+    "project-local CLI rather than any REST call: set "
+    "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
+    "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, then run "
+    "`uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss "
+    "vios clip --sensor <name>` and use its `media_url`. This applies to every step that "
+    "needs the clip, including a timestamp follow-up on a sensor already in play. Do not "
+    "hand-build `/vst/api/v1/storage/file/.../url` with times read from `/storage/timelines`."
+)
+
+
+def _preamble_for(spec: dict) -> str:
+    """PREAMBLE, plus the CLI clause only when this spec's checks demand it.
+
+    Keyed off the spec rather than a hardcoded name, so a spec that starts
+    requiring the CLI gets the instruction and one that forbids VIOS does not.
+    """
+    return PREAMBLE + CLI_CLAUSE if "vss vios clip" in json.dumps(spec) else PREAMBLE
+
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 
@@ -176,7 +199,7 @@ def generate_task(
         # agent can't write to the test rather than do the actual work.
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         lines = [
-            PREAMBLE,
+            _preamble_for(spec),
             "",
             "",
             f"## Query {idx} of {len(expects)}",

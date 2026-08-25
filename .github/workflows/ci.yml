@@ -540,7 +540,7 @@ jobs:
             packages/vss_core/src/vss_core/critic \
             packages/vss_core/src/vss_core/search_core \
             packages/vss_core/src/vss_core/vlm \
-            packages/vss_core/src/vss_core/vst \
+            packages/vss_core/src/vss_core/vios \
             packages/vss_cli/src/vss_cli
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
@@ -571,7 +571,7 @@ jobs:
           import vss_core.critic
           import vss_core.search_core
           import vss_core.vlm
-          import vss_core.vst
+          import vss_core.vios
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
           assert "nvidia-vss-core" in installed
@@ -584,7 +584,7 @@ jobs:
           assert importlib.util.find_spec("torch") is None
           assert importlib.util.find_spec("vss_agents") is None
           assert vss_core.critic is not None and vss_core.search_core is not None
-          assert vss_core.vlm is not None and vss_core.vst is not None
+          assert vss_core.vlm is not None and vss_core.vios is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
 
