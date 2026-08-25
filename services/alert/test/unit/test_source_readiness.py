@@ -641,3 +641,118 @@ class TestHooksSurviveRegistrationOrder:
         source.set_assignment_change_hook(lambda: seen.append("second"))
         hooks["on_assignment_change"]()
         assert seen == ["second"]
+
+
+class _WritableFakeArray(_FakeArray):
+    """A fake the publisher can write, not only read."""
+
+    def __setitem__(self, index, value):
+        self._values[index] = value
+
+
+class TestTheArrayIsWhatGetsWritten:
+    """Writing only the Prometheus gauges leaves /health blind.
+
+    The gauges are the scrape channel; the array is what the endpoint reads,
+    and it reads it whether or not metrics are exported -- which by default
+    they are not. Every one of these went green with the publish deleted, so
+    each pins a site that had no coverage: the fleet could stop being
+    reported and the suite would not notice.
+    """
+
+    @staticmethod
+    def _fresh():
+        from utils import fleet_state
+        array = _WritableFakeArray([fleet_state.UNPUBLISHED] * 3)
+        fleet_state.attach(array)
+        return array
+
+    def _publish_at_one_process(self, ready, assigned):
+        from unittest.mock import MagicMock, patch
+        import enhance_alert_with_vlm as entry
+        from utils import fleet_state
+
+        enhancer = MagicMock()
+        enhancer._publishes_own_fleet_state = True
+        enhancer.source.is_ready.return_value = ready
+        enhancer.source.assigned_partition_count.return_value = assigned
+
+        try:
+            self._fresh()
+            with patch("metrics.recorder.set_pipeline_process_counts"), \
+                 patch("metrics.recorder.set_assigned_partitions"):
+                entry.AnomalyEnhancer._publish_assignment_state(enhancer)
+            return fleet_state.read()
+        finally:
+            fleet_state.attach(None)
+
+    def test_a_lone_pipeline_reports_itself_as_its_own_fleet(self):
+        assert self._publish_at_one_process(ready=True, assigned=4) == (1, 1, 1)
+
+    def test_a_lone_pipeline_without_an_assignment_is_not_ready(self):
+        # The counts have to differ, or /health cannot tell the two apart.
+        assert self._publish_at_one_process(ready=False, assigned=0) == (1, 1, 0)
+
+    def test_a_supervised_child_leaves_the_array_to_the_parent(self):
+        # A child writing 1/1 would overwrite the parent's totals with its own.
+        from unittest.mock import MagicMock, patch
+        import enhance_alert_with_vlm as entry
+        from utils import fleet_state
+
+        enhancer = MagicMock()
+        enhancer._publishes_own_fleet_state = False
+        enhancer.source.is_ready.return_value = True
+        enhancer.source.assigned_partition_count.return_value = 4
+
+        self._fresh()
+        try:
+            with patch("metrics.recorder.set_pipeline_process_counts"), \
+                 patch("metrics.recorder.set_assigned_partitions"):
+                entry.AnomalyEnhancer._publish_assignment_state(enhancer)
+            assert fleet_state.read() is None
+        finally:
+            fleet_state.attach(None)
+
+    def test_the_api_child_adopts_the_array_before_it_starts_serving(self):
+        # Adopting it after uvicorn.run would be adopting it after the first
+        # probe can already have been answered -- and answered ok, because an
+        # unattached module reads as "nothing to report".
+        from unittest.mock import patch
+        import enhance_alert_with_vlm as entry
+        from utils import fleet_state
+
+        seen = []
+        array = _WritableFakeArray([7, 7, 3])
+        fleet_state.attach(None)
+        try:
+            with patch.object(entry, "uvicorn") as uvicorn_module:
+                uvicorn_module.run.side_effect = (
+                    lambda *a, **k: seen.append(fleet_state.read())
+                )
+                entry.start_fastapi(shared_fleet_state=array)
+            assert seen == [(7, 7, 3)]
+        finally:
+            fleet_state.attach(None)
+
+    def test_creating_the_array_publishes_the_configured_count(self):
+        # Creating and publishing are one step because splitting them is what
+        # went wrong: the publish ran first, found no array, returned early,
+        # and /health answered ok through a whole startup with no pipeline.
+        import multiprocessing
+        from utils import fleet_state
+
+        fleet_state.attach(None)
+        try:
+            fleet_state.create(multiprocessing.get_context("spawn"), 8)
+            assert fleet_state.read() == (8, 0, 0)
+        finally:
+            fleet_state.attach(None)
+
+    def test_a_pipeline_reports_its_own_fleet_unless_told_otherwise(self):
+        # The default is what a single-process deployment gets, and every
+        # shipped profile ships processes: 1. With this False and nothing
+        # else publishing, a completely healthy instance answers 503 for as
+        # long as it runs.
+        import enhance_alert_with_vlm as entry
+
+        assert entry.AnomalyEnhancer._publishes_own_fleet_state is True

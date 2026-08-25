@@ -399,3 +399,137 @@ class TestSplit:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+class TestTheReleaseSideIsWiredUp:
+    """Accepting is covered; releasing was not, at any of its three sites.
+
+    A leaked admission does not fail loudly. The partition stays owed, so
+    every later rebalance waits out the whole DEFAULT_DRAIN_TIMEOUT and hands
+    the partition over anyway -- the drain silently disabled. Each of these
+    goes green if its release is deleted, which is how all three came to be
+    written after the fact.
+    """
+
+    def test_the_dispatch_completion_callback_releases_what_it_was_given(self):
+        from unittest.mock import MagicMock
+        from handlers.async_dispatch_mixin import AsyncDispatchMixin
+
+        tracker = PartitionInFlight()
+        admission = tracker.accept(P0)
+        stub = MagicMock()
+        stub._message_dispatch_lock = threading.Lock()
+        stub._message_dispatch_futures = set()
+
+        AsyncDispatchMixin._on_dispatched_message_done(
+            stub, MagicMock(), "message-1", "cam-1", False, admission
+        )
+
+        assert tracker.in_flight(P0) == 0
+        # The consequence, not just the counter: a drain now completes.
+        assert tracker.drain([P0], timeout=0.2) is True
+
+    def test_a_drain_would_burn_its_whole_budget_if_it_did_not(self):
+        # The same shape with the release skipped, so the cost of losing it is
+        # written down next to the test that prevents it.
+        tracker = PartitionInFlight()
+        tracker.accept(P0)
+        started = time.monotonic()
+        drained = tracker.drain([P0], timeout=0.2)
+        assert drained is False
+        assert time.monotonic() - started >= 0.2
+
+    def test_a_rejected_submit_gives_back_what_it_took(self):
+        # A shutdown between reading and scheduling rejects the submit.
+        # process_batch_vlm is the only releaser and will never run, so
+        # without this the count is owed for the life of the process.
+        from unittest.mock import MagicMock
+        import enhance_alert_with_vlm as entry
+
+        tracker = PartitionInFlight()
+        stub = MagicMock()
+        stub._partition_in_flight = tracker
+        stub.config = {"alert_agent": {}}
+        stub.worker_queue.get.return_value = 3
+        pool = MagicMock()
+        pool.submit.side_effect = RuntimeError("cannot schedule new futures")
+        batch = {"topic": P0[0], "partition": P0[1]}
+
+        with pytest.raises(RuntimeError):
+            entry.AnomalyEnhancer._schedule_message(
+                stub, pool, {"id": "a"}, "Incident", batch
+            )
+
+        assert tracker.in_flight(P0) == 0
+        # The worker is handed back too, or the pool loses a slot each time.
+        stub.worker_queue.put.assert_called_once_with(3)
+
+    @staticmethod
+    def _run_batch(monkeypatch, admission, filter_results):
+        """Drive ``process_batch_vlm`` to a chosen exit and return the tracker.
+
+        ``filter_results`` is what the two Redis filters answer, so the exit
+        is named by the test rather than left to whichever attribute a stub
+        happens to be missing. An accidental exit would drift the moment an
+        attribute moves onto the class -- exactly the refactor this commit
+        performed elsewhere.
+        """
+        import json
+        from unittest.mock import Mock
+        import enhance_alert_with_vlm as entry
+
+        message = {
+            "sensorId": "cam-0",
+            "category": "loitering",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "end": "2025-01-01T00:00:02Z",
+            "objectIds": [],
+        }
+        stub = Mock(spec=entry.AnomalyEnhancer)
+        stub.config = {"alert_agent": {}}
+        stub.source_type = "kafka"
+        stub.vst_pass_through_mode = False
+        stub.redis_handler = Mock()
+        stub._run_redis_operation_with_mode = Mock(side_effect=filter_results)
+        monkeypatch.setattr(entry, "protobuf_anomalies_to_json_string_list",
+                            lambda *a, **k: [json.dumps(message)])
+        monkeypatch.setattr(entry, "normalize_alert_message", lambda m: m)
+
+        entry.AnomalyEnhancer.process_batch_vlm(
+            stub, 0, [message], "Behavior", admission=admission
+        )
+        return message
+
+    def test_a_batch_dropped_by_dedup_gives_its_admission_back(self, monkeypatch):
+        # The ordinary exit, not an error: every message was already seen, so
+        # the frame returns early. This is the common case in production, and
+        # it is the one a release loop moved out of the ``finally`` and into
+        # the ``except`` would stop covering -- silently, with the whole suite
+        # still green.
+        tracker = PartitionInFlight()
+        admission = tracker.accept(P0)
+        message = self._run_batch(monkeypatch, admission, [[{"kept": 1}], []])
+
+        assert tracker.in_flight(P0) == 0
+        assert tracker.drain([P0], timeout=0.2) is True
+
+    def test_a_batch_that_raised_gives_its_admission_back(self, monkeypatch):
+        # The other exit. The blanket ``except`` swallows the error, so
+        # without the ``finally`` the count would simply never come back.
+        tracker = PartitionInFlight()
+        admission = tracker.accept(P0)
+        self._run_batch(monkeypatch, admission, RuntimeError("filter failed"))
+
+        assert tracker.in_flight(P0) == 0
+        assert tracker.drain([P0], timeout=0.2) is True
+
+    def test_an_admission_handed_to_a_dispatcher_is_left_alone(self, monkeypatch):
+        # The other half: work that was handed on is still outstanding, and
+        # its completion callback owns the release. Releasing it here too
+        # would let a drain pass over a message that is still running.
+        tracker = PartitionInFlight()
+        admission = tracker.accept(P0)
+        admission.transfer()
+        self._run_batch(monkeypatch, admission, [[{"kept": 1}], []])
+
+        assert tracker.in_flight(P0) == 1
+        admission.release()

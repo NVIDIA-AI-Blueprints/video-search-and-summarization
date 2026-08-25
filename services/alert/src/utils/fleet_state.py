@@ -39,10 +39,19 @@ _SLOTS = 3
 _state = None
 
 
-def create(ctx) -> "object":
-    """Allocate the shared array on ``ctx``, the same context children spawn from."""
+def create(ctx, configured: int) -> "object":
+    """Allocate the shared array on ``ctx`` and publish the configured count.
+
+    The count is written here rather than by a separate call because the
+    separate call is what went wrong: it was made before the array existed,
+    so it returned early and the fleet stayed unpublished, and /health
+    answered ok for a whole startup with no pipeline running. Creating and
+    publishing in one step leaves no order to get wrong. ``ctx`` must be the
+    context the children spawn from, or they inherit a different array.
+    """
     array = ctx.Array("i", [UNPUBLISHED] * _SLOTS, lock=True)
     attach(array)
+    publish(configured, 0, 0)
     return array
 
 

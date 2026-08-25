@@ -349,6 +349,15 @@ class AnomalyEnhancer(
     AsyncVLMModeMixin,
     EventLoopPipelineMixin,
 ):
+    #: Whether this pipeline reports the fleet counts itself. True is the
+    #: single-process default -- a lone pipeline is the whole fleet, and if it
+    #: never publishes, a healthy instance reports 503 for its whole life. The
+    #: multi-process child entry point sets it False per instance, because
+    #: there the supervisor owns the totals and a child writing 1/1 would
+    #: overwrite them. Declared here rather than assigned in __init__ so the
+    #: default is something a test can read without building a pipeline.
+    _publishes_own_fleet_state = True
+
     def __init__(self, config_file="config.yaml", instance_leader: bool = True,
                  seed_shared_store: bool = True):
         """Build one complete pipeline.
@@ -383,9 +392,6 @@ class AnomalyEnhancer(
         # thread, so a per-consumer bound multiplies by the topic count against
         # a poll interval that does not.
         self._rebalance_drain_deadline: Optional[float] = None
-        # Set by the multi-process child entry point, where the supervisor owns
-        # the fleet gauges instead.
-        self._publishes_own_fleet_state = True
         self.source.set_revoke_hook(self._drain_revoked_partitions)
         # Registered here rather than only in the multi-process entry point,
         # because the revoke hook above is installed for every deployment: a
@@ -3381,15 +3387,12 @@ if __name__ == "__main__":
         enforce_log_level(args.config)
         validate_drain_fits_poll_interval(pipeline_config)
 
-        # Created where the count is first known and published before the
-        # endpoints open, so the first probe can tell "no pipeline yet" from
-        # "no pipeline needed". Written after start_api_child it went to a slot
-        # that did not exist, so the array stayed unpublished and health
-        # answered ok for the whole startup window -- the false-healthy state
-        # this channel exists to remove. Unconditional: unlike the gauges
-        # below, this one is not optional.
-        shared_fleet_state = fleet_state.create(_pipeline_mp_context())
-        fleet_state.publish(process_count, 0, 0)
+        # Where the count is first known, and before the endpoints open, so
+        # the first probe can already tell "no pipeline yet" from "no pipeline
+        # needed". Unconditional: unlike the gauges below, this one is not
+        # optional -- it is what /health reads when metrics are off, which is
+        # the default.
+        shared_fleet_state = fleet_state.create(_pipeline_mp_context(), process_count)
         if PROMETHEUS_ENABLED:
             from metrics.recorder import set_pipeline_process_counts
             set_pipeline_process_counts(process_count, 0, 0)
