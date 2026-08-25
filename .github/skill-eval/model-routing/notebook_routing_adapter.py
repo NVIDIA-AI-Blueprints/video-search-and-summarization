@@ -21,10 +21,24 @@ import json
 import os
 import sys
 import traceback
+import urllib.error
+import urllib.request
 from contextlib import redirect_stdout
 from pathlib import Path
 
 NOTEBOOK_RELATIVE_PATH = Path("deploy/docker/scripts/deploy_model_routing.ipynb")
+
+_DEFAULT_UPSTREAM = "https://inference-api.nvidia.com/v1"
+
+# Tried in order until two distinct ids authorize with the run's credential.
+# Different keys are scoped to different routes, so the targets are selected
+# per run instead of hardcoded.
+_CANDIDATE_TARGETS = (
+    "azure/anthropic/claude-opus-5",
+    "aws/anthropic/bedrock-claude-opus-5",
+    "openai/openai/gpt-5.6-sol",
+    "openai/openai/gpt-5.6-luna",
+)
 
 _DERIVED_SETTINGS_MARKER = (
     "# ================== Derived (no need to touch) =================="
@@ -55,6 +69,56 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _normalized_v1(url: str) -> str:
+    base = url.strip().rstrip("/")
+    return base if base.endswith("/v1") else f"{base}/v1"
+
+
+def _model_authorizes(base: str, key: str, model: str) -> bool:
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": "ok"}],
+        "max_tokens": 1,
+    }).encode()
+    request = urllib.request.Request(
+        f"{base}/chat/completions", data=body, method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=60):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def select_targets(base: str, key: str, env) -> None:
+    """Pick two upstream model ids the credential can actually call."""
+    preferred = [
+        value.strip()
+        for value in (env.get("ROUTER_TARGET_CAPABLE", ""),
+                      env.get("ROUTER_TARGET_EFFICIENT", ""),
+                      *env.get("UPSTREAM_CANDIDATE_MODELS", "").split(","))
+        if value.strip()
+    ]
+    tried: list[str] = []
+    selected: list[str] = []
+    for model in (*preferred, *_CANDIDATE_TARGETS):
+        if model in tried:
+            continue
+        tried.append(model)
+        if _model_authorizes(base, key, model):
+            selected.append(model)
+            if len(selected) == 2:
+                break
+    if len(selected) < 2:
+        raise RuntimeError(
+            "fewer than two upstream models authorize with this credential; "
+            "tried: " + ", ".join(tried)
+        )
+    env["ROUTER_TARGET_CAPABLE"], env["ROUTER_TARGET_EFFICIENT"] = selected
+    print(f"Selected router targets: {selected[0]}, {selected[1]}")
+
+
 def prepare_environment(env=None) -> None:
     """Map the CI environment to the notebook's native variables."""
     e = env if env is not None else os.environ
@@ -71,6 +135,9 @@ def prepare_environment(env=None) -> None:
             "inference hub during the end-to-end verification"
         )
     e["NVIDIA_API_KEY"] = key
+    base = _normalized_v1(e.get("UPSTREAM_BASE_URL") or _DEFAULT_UPSTREAM)
+    e["UPSTREAM_BASE_URL"] = base
+    select_targets(base, key, e)
     # Off the default port so a leftover local router cannot shadow the run;
     # always torn down so the runner is left clean.
     e.setdefault("ROUTER_PORT", "14000")

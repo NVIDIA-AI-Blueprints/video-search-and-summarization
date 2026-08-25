@@ -99,13 +99,17 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: |
           # This step runs code from the maintainer-approved mirror head
-          # (the /ok to test gate). Even so, expose only the one credential
-          # the run needs: the inference key is extracted from the
-          # coordinator .env in a subshell, and nothing else from that file
-          # reaches the notebook's environment.
-          key="$( (set -a; source /home/ubuntu/eval-coordinator/.env >/dev/null 2>&1; \
-                   printf '%s' "${NVIDIA_API_KEY:-${ANTHROPIC_API_KEY:-}}") )"
+          # (the /ok to test gate). Even so, expose only what the run needs:
+          # the inference key, plus the endpoint and model the coordinator
+          # already uses, extracted in a subshell. Nothing else from the
+          # coordinator .env reaches the notebook's environment.
+          extract() { (set -a; source /home/ubuntu/eval-coordinator/.env >/dev/null 2>&1; eval "printf '%s' \"$1\""); }
+          key="$(extract '${NVIDIA_API_KEY:-${ANTHROPIC_API_KEY:-}}')"
+          base="$(extract '${ANTHROPIC_BASE_URL:-}')"
+          model="$(extract '${ANTHROPIC_MODEL:-}')"
           NVIDIA_API_KEY="$key" \
+          UPSTREAM_BASE_URL="$base" \
+          UPSTREAM_CANDIDATE_MODELS="$model" \
             python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
 
       - name: Remove per-run state
