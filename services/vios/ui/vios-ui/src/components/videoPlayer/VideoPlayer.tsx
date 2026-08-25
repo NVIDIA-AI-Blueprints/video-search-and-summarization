@@ -34,7 +34,7 @@ import {
     Tooltip,
 } from '@mui/material';
 import { Settings, Close } from '@mui/icons-material';
-import { VideoPlayerProps, WebRTCStats, Timeline } from '../../interfaces/interfaces';
+import { VideoPlayerProps, WebRTCStats, Timeline, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 import StreamManager, {
     StreamConfig,
     StreamType,
@@ -77,7 +77,7 @@ const FALLBACK_START_TIME = '1970-01-01T00:00:00.000Z';
 const DEFAULT_QUALITY = 'auto';
 // Delay before auto-hiding the overlay controls while in fullscreen (YouTube/VLC style).
 const CONTROLS_HIDE_DELAY_MS = 3000;
-type LiveDeliveryProtocol = 'webrtc' | 'dash';
+
 
 interface SensorTimelineEntry {
     sensorId?: string;
@@ -159,15 +159,28 @@ const getNextPlaybackSpeed = (type: string, currentSpeed: number): number => {
     return currentSpeed === 1 ? -1 : currentSpeed / 2;
 };
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElementId, onWebRTCStatsUpdate, sensors, onClose }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({
+    sensor,
+    streamType,
+    videoElementId,
+    onWebRTCStatsUpdate,
+    sensors,
+    onClose,
+    protocol,
+}) => {
     // WebRTC and stream management
     const [inboundPeerId, setInboundPeerId] = useState<string>('');
     const [webRTCStats, setWebRTCStats] = useState<WebRTCStats>();
     const [fullWebRTCStats, setFullWebRTCStats] = useState<RTCStatsReport>();
-    // TEMPORARY: DASH is the default so a stream opens straight into it instead
-    // of starting on WebRTC and needing a manual switch.  Revert this single
-    // value to 'webrtc' to restore the shipping default.
-    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('dash');
+    // Chosen on the page alongside the sensors.  WebRTC unless the viewer says
+    // otherwise, and kept in step with the page so the two cannot disagree.
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>(protocol ?? 'webrtc');
+    useEffect(() => {
+        if (protocol && protocol !== deliveryProtocol) {
+            setDeliveryProtocol(protocol);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [protocol]);
     const bitrate = useBitrate(fullWebRTCStats);
 
     // Video playback controls
@@ -1681,24 +1694,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // one instance exists at a time (avoids duplicate element IDs used by automated tests).
     const controlsCluster = (
         <>
-            {(streamType === StreamType.Live || streamType === StreamType.Replay) && (
-                <Box sx={{ display: 'flex', gap: 0.5, mr: 1 }} aria-label='Delivery protocol'>
-                    <Button
-                        size='small'
-                        variant={deliveryProtocol === 'webrtc' ? 'contained' : 'outlined'}
-                        onClick={() => setDeliveryProtocol('webrtc')}
-                    >
-                        WebRTC
-                    </Button>
-                    <Button
-                        size='small'
-                        variant={deliveryProtocol === 'dash' ? 'contained' : 'outlined'}
-                        onClick={() => setDeliveryProtocol('dash')}
-                    >
-                        DASH
-                    </Button>
-                </Box>
-            )}
             <VideoControls
                 playbackStatus={playbackStatus}
                 playbackSpeed={playbackSpeed}
