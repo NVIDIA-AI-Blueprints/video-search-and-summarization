@@ -1,0 +1,218 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Fern docs CI. Runs on the copy-pr-bot mirror branches, which is how every
+# other PR-time workflow in this repo is triggered (see skills-review.yml).
+#
+# Why push-to-pull-request/* and not pull_request:
+#   - push events read the workflow file from the pushed branch, so this works
+#     from develop today. No dependency on the file reaching the default branch.
+#   - the mirror branch lives in this repo, so secrets are available, including
+#     for PRs opened from forks. pull_request cannot do that.
+#
+# Requires the DOCS_FERN_TOKEN repo secret.
+
+name: Fern Docs CI
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"   # copy-pr-bot mirror branches
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: fern-docs-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Trigger-level `paths:` filters are unreliable on push, because GitHub
+  # evaluates them against the diff of the pushed commits rather than the
+  # cumulative PR. Gate on an explicit diff instead, same as skills-eval.yml.
+  changed-files:
+    name: Detect docs changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs: ${{ steps.changes.outputs.docs }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for docs changes
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Default to running. Skipping on a bad diff would hide real changes.
+          DOCS=true
+          if [ "$EVENT_NAME" = "push" ] && \
+             [ -n "$BEFORE" ] && \
+             [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && \
+             git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            if git diff --name-only "$BEFORE" HEAD | grep -qE '^(docs/|fern/|\.github/workflows/fern-docs-ci\.yml)'; then
+              DOCS=true
+            else
+              DOCS=false
+            fi
+          fi
+          echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
+          echo "docs changed: $DOCS"
+
+  fern-check:
+    name: Fern Check
+    needs: changed-files
+    if: needs.changed-files.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve PR number
+        id: pr
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PR="${REF_NAME#pull-request/}"
+          if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+            echo "::notice::Not a copy-pr-bot mirror branch, no PR comment will be posted"
+            PR=""
+          fi
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .version fern/fern.config.json)
+          if ! [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?|latest)$ ]]; then
+            echo "::error::fern.config.json .version '$VERSION' is not a valid semver or 'latest'"
+            exit 1
+          fi
+          npm install -g "fern-api@${VERSION}"
+
+      - name: Check MDX safety
+        run: |
+          BAD=$(grep -rn '<img\b[^>]*[^/]>\|<img>' docs/ fern/ --include="*.md" --include="*.mdx" || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::Non-self-closing <img> tags found (MDX requires <img ... />):"
+            echo "$BAD"
+            exit 1
+          fi
+
+      - name: Fern check
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}   # enables the redirects check
+        run: fern check
+
+      - name: Check MDX validity
+        run: fern docs md check
+
+      - name: Check broken links
+        # Intentionally not --strict yet: the docs carry pre-existing broken
+        # links from #1763. Flip this on once that backlog is cleared.
+        run: fern docs broken-links
+
+      - name: Generate preview URL
+        id: generate-docs
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          PREVIEW_ID: pr-${{ steps.pr.outputs.number }}
+        working-directory: ./fern
+        run: |
+          set -o pipefail
+          fern generate --docs --preview --id "$PREVIEW_ID" 2>&1 | tee /tmp/fern-output.log
+          URL=$(grep -oP 'Published docs to \K.*(?= \()' /tmp/fern-output.log || true)
+          if [ -z "$URL" ]; then
+            echo "::error::Failed to generate preview URL. See fern output above."
+            exit 1
+          fi
+          echo "preview_url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Build page links for changed files
+        id: page-links
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          CHANGED_FILES=$(gh pr view "$PR_NUMBER" --json files -q '.files[].path' \
+            | grep -E '\.mdx?$' | paste -sd, - || true)
+
+          if [ -z "$CHANGED_FILES" ] || [ -z "$PREVIEW_URL" ]; then
+            echo "page_links=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          BASE_URL="${PREVIEW_URL%/}"
+          FILES_PARAM=$(printf '%s' "$CHANGED_FILES" \
+            | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip(), safe=',/'))")
+          RESPONSE=$(curl -sf -H "FERN_TOKEN: $FERN_TOKEN" \
+            "${PREVIEW_URL}/api/fern-docs/get-slug-for-file?files=${FILES_PARAM}" 2>/dev/null) || {
+            echo "page_links=" >> "$GITHUB_OUTPUT"; exit 0
+          }
+
+          PAGE_LINKS=$(echo "$RESPONSE" | jq -r --arg url "$BASE_URL" \
+            '.mappings[] | select(.slug != null) | "- [\(.slug)](\($url)/\(.slug))"')
+
+          if [ -n "$PAGE_LINKS" ]; then
+            { echo "page_links<<PLEOF"; echo "$PAGE_LINKS"; echo "PLEOF"; } >> "$GITHUB_OUTPUT"
+          else
+            echo "page_links=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post or update PR comment
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
+          PAGE_LINKS: ${{ steps.page-links.outputs.page_links }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- preview-docs -->"
+          {
+            printf ':herb: **Preview your docs:** <%s>\n' "$PREVIEW_URL"
+            if [ -n "${PAGE_LINKS:-}" ]; then
+              printf '\nPages you changed:\n%s\n' "$PAGE_LINKS"
+            fi
+            printf '\n%s\n' "$MARKER"
+          } > /tmp/comment.md
+
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" -X PATCH -F body=@/tmp/comment.md
+          else
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -F body=@/tmp/comment.md
+          fi
