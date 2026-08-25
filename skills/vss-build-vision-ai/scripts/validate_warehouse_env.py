@@ -173,10 +173,10 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
         )
 
     # 4. DGX-SPARK needs an sbsa perception image.
-    if hw == "DGX-SPARK" and "sbsa" not in env.get("PERCEPTION_TAG", ""):
+    if hw == "DGX-SPARK" and "sbsa" not in env.get("VSS_RT_CV_TAG", ""):
         errors.append(
-            "HARDWARE_PROFILE=DGX-SPARK requires PERCEPTION_TAG to contain 'sbsa'; "
-            f"got {env.get('PERCEPTION_TAG', '')!r}"
+            "HARDWARE_PROFILE=DGX-SPARK requires VSS_RT_CV_TAG to contain 'sbsa'; "
+            f"got {env.get('VSS_RT_CV_TAG', '')!r}"
         )
 
     # 5. Dataset <-> variant <-> stream count.

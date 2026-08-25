@@ -82,7 +82,7 @@ its absence from the service list is not a defect.
 | `RT_CV_DEVICE_ID` (0), `RT_VLM_DEVICE_ID` (1), `LLM_DEVICE_ID` (2) | GPU layout. |
 | `LLM_MODE`, `LLM_NAME`, `LLM_NAME_SLUG`, `LLM_BASE_URL` | `bp_wh` + `MODE=2d` only; `none` everywhere else. For `remote`, `LLM_BASE_URL` is the endpoint root **without** a trailing `/v1` — the agent config appends it. |
 | `VLM_MODE`, `VLM_NAME_SLUG` | Keep both `none`. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM path. |
-| `PERCEPTION_TAG` | Must be `sbsa`-tagged when `HARDWARE_PROFILE=DGX-SPARK`. |
+| `VSS_RT_CV_TAG` | Must be `sbsa`-tagged when `HARDWARE_PROFILE=DGX-SPARK`. |
 | `BP_CONFIGURATOR_ENV_FILE` | Point at the build's generated `configurator.env`. Without it the configurator reads the checked-in `overrides.env` and bakes the `<HOST_IP>` sentinel — see [`../services/configurator.md`](../services/configurator.md). |
 | `NVSTREAMER_<MODE>_CONFIG_DIR`, `TURN_PUBLIC_HOST` | Easily-missed closure members. `TURN_PUBLIC_HOST` derives from `HOST_IP` only transitively, through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`. |
 
@@ -96,7 +96,7 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 | `MODE` must be `2d` or `3d`, and `BP_PROFILE` one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis` | routes to a service list this skill does not support |
 | `BP_PROFILE=bp_wh` is 2D-only | unsupported combination |
 | `BP_PROFILE=bp_wh` is rejected on `IGX-THOR` and `DGX-SPARK` | configurator refuses |
-| `HARDWARE_PROFILE=DGX-SPARK` requires an `sbsa` `PERCEPTION_TAG` | configurator refuses |
+| `HARDWARE_PROFILE=DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
 | `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | compose dies with a bare "no such file" |
 | Dataset ↔ variant: `nv-warehouse-4cams` only with `bp_wh`+`2d` (4 streams); `warehouse-loading-dock-3cams-synthetic` with 2D kafka/redis (3); `warehouse-4cams-20mx20m-synthetic` with `3d` (4) | short stream count with every container healthy |
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
