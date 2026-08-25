@@ -72,7 +72,14 @@ const VideoWall = () => {
     return (
         <Grid container spacing={2}>
             <Grid size={{ xs: 12 }}>
-                <h1>Video Wall</h1>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <h1>Video Wall</h1>
+                    <DeliveryProtocolSelector
+                        value={deliveryProtocol}
+                        onChange={setDeliveryProtocol}
+                        disabled={isStreaming}
+                    />
+                </Box>
             </Grid>
             <Grid size={{ xs: 12 }}>
                 <div
@@ -102,7 +109,6 @@ const VideoWall = () => {
                         opacity: !isLiveStreamServiceAvailable ? 0.5 : 1,
                     }}
                 >
-                    <DeliveryProtocolSelector value={deliveryProtocol} onChange={setDeliveryProtocol} />
                     <Button
                         variant='contained'
                         color='primary'
