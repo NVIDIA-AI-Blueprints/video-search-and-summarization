@@ -1,0 +1,510 @@
+{
+  "_comment": "Single source of truth for the webhook BDD receivers. scripts/update_notification_config.py applies it to notification_config.json, and tests/notification/test_webhook_custom_body.py reads custom_body_cases. Standard receiver paths must match webhook_paths in test/bdd_tests/config.json.",
+  "receiver_base_url": "http://127.0.0.1:18088",
+  "request_defaults": {
+    "headers": {
+      "Content-Type": "application/json",
+      "streamId": "{{event.camera_id}}"
+    },
+    "query_params": {
+      "change": "{{event.change}}"
+    },
+    "timeout_ms": 5000,
+    "retry": {
+      "max_attempts": 3,
+      "backoff_ms": [
+        1000,
+        5000,
+        15000
+      ],
+      "retry_on_status": [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    }
+  },
+  "event_groups": {
+    "camera_add": {
+      "id": "wh-001"
+    },
+    "camera_streaming": {
+      "id": "wh-002"
+    },
+    "camera_remove": {
+      "id": "wh-003"
+    }
+  },
+  "standard_receivers": [
+    {
+      "event_group": "camera_add",
+      "path": "/bdd/webhooks/camera/add",
+      "method": "POST",
+      "camera_type": [
+        "file"
+      ]
+    },
+    {
+      "event_group": "camera_streaming",
+      "path": "/bdd/webhooks/camera/streaming",
+      "method": "PUT",
+      "camera_type": [
+        "file"
+      ]
+    },
+    {
+      "event_group": "camera_remove",
+      "path": "/bdd/webhooks/camera/remove",
+      "method": "DELETE",
+      "camera_type": [
+        "file"
+      ]
+    },
+    {
+      "event_group": "camera_add",
+      "path": "/bdd/webhooks/camera/add/rtsp-only",
+      "method": "POST",
+      "camera_type": [
+        "rtsp"
+      ]
+    },
+    {
+      "event_group": "camera_streaming",
+      "path": "/bdd/webhooks/camera/streaming/rtsp-only",
+      "method": "PUT",
+      "camera_type": [
+        "rtsp"
+      ]
+    },
+    {
+      "event_group": "camera_remove",
+      "path": "/bdd/webhooks/camera/remove/rtsp-only",
+      "method": "DELETE",
+      "camera_type": [
+        "rtsp"
+      ]
+    },
+    {
+      "event_group": "camera_add",
+      "path": "/bdd/webhooks/camera/add/unfiltered",
+      "method": "POST"
+    }
+  ],
+  "custom_body_cases": {
+    "valid": [
+      {
+        "case": "scalar_placeholders",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/scalar-placeholders",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "camera_id": "{{event.camera_id}}",
+          "camera_name": "{{event.camera_name}}",
+          "change": "{{event.change}}",
+          "alert": "{{alert_type}}",
+          "source": "{{source}}"
+        }
+      },
+      {
+        "case": "object_placeholder",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/object-placeholder",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "snapshot": "{{event}}",
+          "metadata": "{{event.metadata}}"
+        }
+      },
+      {
+        "case": "missing_path_renders_empty_string",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/missing-path",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "missing_root": "{{no_such_key}}",
+          "missing_nested": "{{event.metadata.no_such.deeper}}",
+          "missing_through_scalar": "{{event.camera_id.deeper}}",
+          "present": "{{event.camera_id}}"
+        }
+      },
+      {
+        "case": "literals_preserved",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/literals",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "int": 42,
+          "float": 1.5,
+          "bool_true": true,
+          "bool_false": false,
+          "null_value": null,
+          "text": "plain literal text",
+          "nested": {
+            "list": [
+              1,
+              "two",
+              false,
+              null
+            ]
+          }
+        }
+      },
+      {
+        "case": "array_forms",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/array-forms",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "representations": [
+            "{{event.camera_id}}",
+            {
+              "name": "camera_type",
+              "value": "{{event.camera_type}}"
+            },
+            [
+              "{{event.metadata}}",
+              "literal"
+            ]
+          ]
+        }
+      },
+      {
+        "case": "empty_object_body",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/empty-body",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {}
+      },
+      {
+        "case": "max_depth_32",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/max-depth",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "level_1": {
+            "level_2": {
+              "level_3": {
+                "level_4": {
+                  "level_5": {
+                    "level_6": {
+                      "level_7": {
+                        "level_8": {
+                          "level_9": {
+                            "level_10": {
+                              "level_11": {
+                                "level_12": {
+                                  "level_13": {
+                                    "level_14": {
+                                      "level_15": {
+                                        "level_16": {
+                                          "level_17": {
+                                            "level_18": {
+                                              "level_19": {
+                                                "level_20": {
+                                                  "level_21": {
+                                                    "level_22": {
+                                                      "level_23": {
+                                                        "level_24": {
+                                                          "level_25": {
+                                                            "level_26": {
+                                                              "level_27": {
+                                                                "level_28": {
+                                                                  "level_29": {
+                                                                    "level_30": {
+                                                                      "level_31": "{{event.camera_id}}"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "case": "body_wins_over_user_defined_metadata",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/body-wins",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "camera_id": "{{event.camera_id}}",
+          "kind": "custom-body"
+        },
+        "user_defined_metadata": {
+          "model": "ignored_model",
+          "chunk": 123
+        }
+      },
+      {
+        "case": "streaming_default_shape_with_custom_fields",
+        "event_group": "camera_streaming",
+        "path": "/bdd/webhooks/custom/streaming-default-shape",
+        "method": "PUT",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "alert_type": "{{alert_type}}",
+          "created_at": "{{created_at}}",
+          "event": {
+            "camera_id": "{{event.camera_id}}",
+            "camera_name": "{{event.camera_name}}",
+            "camera_type": "{{event.camera_type}}",
+            "camera_url": "{{event.camera_url}}",
+            "change": "{{event.change}}",
+            "metadata": {
+              "codec": "{{event.metadata.codec}}",
+              "file_start_time": "{{event.metadata.file_start_time}}",
+              "framerate": "{{event.metadata.framerate}}",
+              "resolution": "{{event.metadata.resolution}}",
+              "model": "cosmos-embed1-448p",
+              "chunk_duration": 10,
+              "chunk_overlap_duration": 0
+            },
+            "tags": "{{event.tags}}"
+          },
+          "source": "{{source}}"
+        }
+      },
+      {
+        "case": "remove_user_defined_metadata_passthrough",
+        "event_group": "camera_remove",
+        "path": "/bdd/webhooks/custom/remove-user-metadata",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "user_defined_metadata": {
+          "model": "some_model_name",
+          "chunk": 123,
+          "something": "{{event.something}}"
+        }
+      },
+      {
+        "case": "remove_elasticsearch_delete_query",
+        "event_group": "camera_remove",
+        "path": "/bdd/webhooks/custom/remove-delete-query",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "query_params": {
+          "conflicts": "proceed",
+          "refresh": "true"
+        },
+        "body": {
+          "query": {
+            "term": {
+              "sensor.id.keyword": "{{event.camera_id}}"
+            }
+          }
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "case": "unterminated_placeholder",
+        "reason": "malformed placeholder: no closing braces",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/invalid/unterminated",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "camera": "{{event.camera_id"
+        }
+      },
+      {
+        "case": "embedded_placeholder",
+        "reason": "placeholder embedded in other text",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/invalid/embedded",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "camera": "camera-{{event.camera_id}}"
+        }
+      },
+      {
+        "case": "braces_in_property_name",
+        "reason": "braces in an object property name",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/invalid/property-name",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "{{event.camera_id}}": "active"
+        }
+      },
+      {
+        "case": "empty_path_segment",
+        "reason": "doubled dot creates an empty path segment",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/invalid/empty-segment",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "camera": "{{event..camera_id}}"
+        }
+      },
+      {
+        "case": "empty_placeholder",
+        "reason": "placeholder with an empty path",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/invalid/empty-placeholder",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "camera": "{{}}"
+        }
+      },
+      {
+        "case": "bare_braces_literal",
+        "reason": "reserved braces outside a full-wrap placeholder",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/invalid/bare-braces",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "note": "this }} is reserved"
+        }
+      },
+      {
+        "case": "depth_33",
+        "reason": "value deeper than the 32-level limit",
+        "event_group": "camera_add",
+        "path": "/bdd/webhooks/custom/invalid/depth-33",
+        "method": "POST",
+        "camera_type": [
+          "file"
+        ],
+        "body": {
+          "level_1": {
+            "level_2": {
+              "level_3": {
+                "level_4": {
+                  "level_5": {
+                    "level_6": {
+                      "level_7": {
+                        "level_8": {
+                          "level_9": {
+                            "level_10": {
+                              "level_11": {
+                                "level_12": {
+                                  "level_13": {
+                                    "level_14": {
+                                      "level_15": {
+                                        "level_16": {
+                                          "level_17": {
+                                            "level_18": {
+                                              "level_19": {
+                                                "level_20": {
+                                                  "level_21": {
+                                                    "level_22": {
+                                                      "level_23": {
+                                                        "level_24": {
+                                                          "level_25": {
+                                                            "level_26": {
+                                                              "level_27": {
+                                                                "level_28": {
+                                                                  "level_29": {
+                                                                    "level_30": {
+                                                                      "level_31": {
+                                                                        "level_32": "{{event.camera_id}}"
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

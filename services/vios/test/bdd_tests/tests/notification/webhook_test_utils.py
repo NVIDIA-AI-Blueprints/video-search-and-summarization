@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -14,6 +15,64 @@ from typing import Any, Callable, Dict, List, Optional, cast
 from urllib.parse import parse_qs, urlsplit
 
 MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
+
+# A placeholder is a string whose complete value is {{dotted.path}}, per
+# docs/webhook-custom-body-template-spec.md.
+_PLACEHOLDER_RE = re.compile(r"^\{\{([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\}\}$")
+
+
+def _lookup_notification_value(notification: Any, path: str) -> Any:
+    """Walk a dotted path from the notification root; an absent path is ''."""
+    node = notification
+    for segment in path.split("."):
+        if not isinstance(node, dict) or segment not in node:
+            return ""
+        node = node[segment]
+    return node
+
+
+def render_body_template(template: Any, notification: Any) -> Any:
+    """Reference implementation of the custom body rendering rules.
+
+    Mirrors renderBodyTemplate in webhook_notifier.cpp so tests can compute the
+    body a valid template must produce for a captured notification: whole-value
+    placeholders resolve type-preservingly, missing paths render as "", and
+    literals, objects, and arrays are copied unchanged.
+    """
+    if isinstance(template, str):
+        match = _PLACEHOLDER_RE.match(template)
+        if match:
+            return _lookup_notification_value(notification, match.group(1))
+        return template
+    if isinstance(template, dict):
+        return {
+            name: render_body_template(value, notification)
+            for name, value in template.items()
+        }
+    if isinstance(template, list):
+        return [render_body_template(element, notification) for element in template]
+    return template
+
+
+def merge_user_metadata(tagged_body: Dict[str, Any], user_metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """Reference implementation of mergeUserMetadata in webhook_notifier.cpp.
+
+    Returns the default tagged body (webhook_id included) with the receiver's
+    user_defined_metadata members merged verbatim into event.metadata —
+    placeholder-looking values are copied literally, not rendered — creating
+    the metadata object when absent. User keys overwrite event-generated keys.
+    """
+    merged = json.loads(json.dumps(tagged_body))
+    event = merged.get("event")
+    if not isinstance(event, dict):
+        event = {}
+        merged["event"] = event
+    metadata = event.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        event["metadata"] = metadata
+    metadata.update(user_metadata)
+    return merged
 
 
 @dataclass(frozen=True)
