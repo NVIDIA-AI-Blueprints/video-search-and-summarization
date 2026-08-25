@@ -354,6 +354,24 @@ export class DashStream {
                 const bufferedAhead = buffered.length > 0
                     ? buffered.end(buffered.length - 1) - config.videoElement.currentTime
                     : 0;
+                // Start as soon as the element can play rather than holding out
+                // for a cushion.  A paused player fills lazily - it stopped at
+                // two seconds against a four second target - so waiting for the
+                // cushion means starting later with no more buffer than this,
+                // and then starving immediately.  A player left to start itself
+                // begins on almost nothing and fills as it goes, which is what
+                // runs smoothly; the cushion is something to accumulate during
+                // playback, not a precondition for it.
+                if (config.videoElement.readyState >= 3) {
+                    this.autoplayAttempted = true;
+                    this.clearAutoplayFallback();
+                    this.removeAutoplayListener();
+                    void config.videoElement.play().catch(error => {
+                        // eslint-disable-next-line no-console
+                        console.warn('[dash] muted autoplay was rejected; use the player controls to resume', error);
+                    });
+                    return;
+                }
                 if (bufferedAhead < autoplayBufferSeconds) {
                     // The cushion is worth waiting for, but not forever.  A
                     // player that is paused stops filling well short of it -
