@@ -4,7 +4,7 @@
 		"http_port":"30000",
 		"server_domain_name":"",
 		"stunurl_list": ["stun.l.google.com:19302","stun1.l.google.com:19302"],
-		"static_turnurl_list": [],
+		"static_turnurl_list": __STATIC_TURNURL_LIST__,
 		"use_coturn_auth_secret": false,
 		"coturn_turnurl_list_with_secret": [],
 		"use_twilio_stun_turn": false,
