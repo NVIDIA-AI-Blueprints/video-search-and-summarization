@@ -195,7 +195,7 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.hub.stop()
 
-    def test_snapshot_honors_endpoint_revision_layout_auth_and_warm_destination(
+    def test_snapshot_honors_public_http_endpoint_revision_and_warm_destination(
         self,
     ) -> None:
         for downloader in self.downloaders:
@@ -206,7 +206,8 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                 self.hub.requests.clear()
                 with environment(
                     HF_ENDPOINT=self.hub.endpoint,
-                    HF_TOKEN="synthetic-read-token",
+                    HF_TOKEN=None,
+                    HUGGING_FACE_HUB_TOKEN=None,
                     HF_HUB_DISABLE_XET="1",
                 ):
                     model_dir = Path(
@@ -244,13 +245,68 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                         for _, path, _ in self.hub.requests
                     )
                 )
-                self.assertTrue(
-                    all(
-                        auth == "Bearer synthetic-read-token"
-                        for _, _, auth in self.hub.requests
-                    )
-                )
+                self.assertTrue(all(not auth for _, _, auth in self.hub.requests))
                 self.assertEqual(os.environ["HF_HUB_DISABLE_XET"], "1")
+
+    def test_snapshot_token_aliases_require_https_before_client_invocation(
+        self,
+    ) -> None:
+        for downloader in self.downloaders:
+            for token_variable in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+                with (
+                    self.subTest(
+                        module=downloader.__file__, token_variable=token_variable
+                    ),
+                    tempfile.TemporaryDirectory() as root,
+                    environment(
+                        **{
+                            "HF_ENDPOINT": "http://cache.example",
+                            "HF_TOKEN": None,
+                            "HUGGING_FACE_HUB_TOKEN": None,
+                            token_variable: "synthetic-read-token",
+                        }
+                    ),
+                    mock.patch(
+                        "huggingface_hub.snapshot_download"
+                    ) as snapshot_download,
+                    self.assertRaisesRegex(ValueError, "must use HTTPS"),
+                ):
+                    downloader.download_model_hf(f"owner/repo@{REVISION}", root)
+                snapshot_download.assert_not_called()
+
+    def test_snapshot_token_aliases_are_forwarded_over_https(self) -> None:
+        for downloader in self.downloaders:
+            for token_variable in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+                with (
+                    self.subTest(
+                        module=downloader.__file__, token_variable=token_variable
+                    ),
+                    tempfile.TemporaryDirectory() as root,
+                ):
+                    captured: dict[str, object] = {}
+
+                    def fake_snapshot_download(**kwargs: object) -> str:
+                        captured.update(kwargs)
+                        Path(str(kwargs["local_dir"]), "config.json").write_text("{}\n")
+                        return str(kwargs["local_dir"])
+
+                    with (
+                        environment(
+                            **{
+                                "HF_ENDPOINT": "https://cache.example",
+                                "HF_TOKEN": None,
+                                "HUGGING_FACE_HUB_TOKEN": None,
+                                token_variable: "synthetic-read-token",
+                            }
+                        ),
+                        mock.patch(
+                            "huggingface_hub.snapshot_download",
+                            fake_snapshot_download,
+                        ),
+                    ):
+                        downloader.download_model_hf(f"owner/repo@{REVISION}", root)
+                    self.assertEqual(captured["token"], "synthetic-read-token")
+                    self.assertEqual(captured["endpoint"], "https://cache.example")
 
     def test_missing_revision_and_unverifiable_warm_directory_fail_closed(self) -> None:
         for downloader in self.downloaders:
@@ -308,6 +364,7 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                     environment(
                         HF_ENDPOINT="https://huggingface.co",
                         HF_TOKEN=None,
+                        HUGGING_FACE_HUB_TOKEN=None,
                         HF_HUB_DISABLE_XET="1",
                     ),
                     mock.patch(
@@ -346,14 +403,15 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
                     self.assertNotIn("HF_ENDPOINT", os.environ)
                 self.assertIsNone(captured["endpoint"])
 
-    def test_single_file_helper_uses_hf_hub_download_with_exact_revision(self) -> None:
+    def test_single_file_helper_uses_public_http_without_auth(self) -> None:
         helper = load_module(SINGLE_FILE_SCRIPT, "download_hf_file_test")
         with (
             tempfile.TemporaryDirectory() as root,
             tempfile.TemporaryDirectory() as hf_home,
             environment(
                 HF_ENDPOINT=self.hub.endpoint,
-                HF_TOKEN="synthetic-read-token",
+                HF_TOKEN=None,
+                HUGGING_FACE_HUB_TOKEN=None,
                 HF_HOME=hf_home,
                 HF_HUB_DISABLE_XET="1",
             ),
@@ -379,11 +437,99 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
             )
         self.assertTrue(
             any(
-                f"/{REVISION}/config.json" in path
-                and auth == "Bearer synthetic-read-token"
+                f"/{REVISION}/config.json" in path and not auth
                 for _, path, auth in self.hub.requests
             )
         )
+
+    def test_single_file_token_aliases_require_https_before_client_invocation(
+        self,
+    ) -> None:
+        helper = load_module(SINGLE_FILE_SCRIPT, "download_hf_file_security_test")
+        for token_variable in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+            with (
+                self.subTest(token_variable=token_variable),
+                tempfile.TemporaryDirectory() as root,
+                tempfile.TemporaryDirectory() as hf_home,
+                environment(
+                    **{
+                        "HF_ENDPOINT": "http://cache.example",
+                        "HF_TOKEN": None,
+                        "HUGGING_FACE_HUB_TOKEN": None,
+                        "HF_HOME": hf_home,
+                        token_variable: "synthetic-read-token",
+                    }
+                ),
+                mock.patch("huggingface_hub.hf_hub_download") as hf_hub_download,
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        str(SINGLE_FILE_SCRIPT),
+                        "--repo-id",
+                        "owner/repo",
+                        "--revision",
+                        REVISION,
+                        "--filename",
+                        "config.json",
+                        "--local-dir",
+                        root,
+                    ],
+                ),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                helper.main()
+            self.assertEqual(raised.exception.code, 2)
+            hf_hub_download.assert_not_called()
+
+    def test_single_file_token_aliases_are_forwarded_over_https(self) -> None:
+        helper = load_module(SINGLE_FILE_SCRIPT, "download_hf_file_https_test")
+        for token_variable in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+            with (
+                self.subTest(token_variable=token_variable),
+                tempfile.TemporaryDirectory() as root,
+                tempfile.TemporaryDirectory() as hf_home,
+            ):
+                captured: dict[str, object] = {}
+
+                def fake_hf_hub_download(**kwargs: object) -> str:
+                    captured.update(kwargs)
+                    destination = Path(
+                        str(kwargs["local_dir"]), str(kwargs["filename"])
+                    )
+                    destination.write_text("{}\n")
+                    return str(destination)
+
+                with (
+                    environment(
+                        **{
+                            "HF_ENDPOINT": "https://cache.example",
+                            "HF_TOKEN": None,
+                            "HUGGING_FACE_HUB_TOKEN": None,
+                            "HF_HOME": hf_home,
+                            token_variable: "synthetic-read-token",
+                        }
+                    ),
+                    mock.patch("huggingface_hub.hf_hub_download", fake_hf_hub_download),
+                    mock.patch.object(
+                        sys,
+                        "argv",
+                        [
+                            str(SINGLE_FILE_SCRIPT),
+                            "--repo-id",
+                            "owner/repo",
+                            "--revision",
+                            REVISION,
+                            "--filename",
+                            "config.json",
+                            "--local-dir",
+                            root,
+                        ],
+                    ),
+                ):
+                    self.assertEqual(helper.main(), 0)
+                self.assertEqual(captured["token"], "synthetic-read-token")
+                self.assertEqual(captured["endpoint"], "https://cache.example")
 
     def test_single_file_helper_clears_empty_compose_endpoint(self) -> None:
         helper = load_module(SINGLE_FILE_SCRIPT, "download_hf_file_empty_test")
@@ -432,6 +578,8 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
             "HF_ENDPOINT": "",
             "HF_HUB_DISABLE_XET": "1",
         }
+        env.pop("HF_TOKEN", None)
+        env.pop("HUGGING_FACE_HUB_TOKEN", None)
         result = subprocess.run(
             [
                 sys.executable,
@@ -453,21 +601,71 @@ class HuggingFaceModelAcquisitionTests(unittest.TestCase):
             str(EXEC_SCRIPT),
             sys.executable,
             "-c",
-            "from huggingface_hub import constants; print(constants.ENDPOINT)",
+            "import os; from huggingface_hub import constants; "
+            "print(constants.ENDPOINT); "
+            "print(os.environ.get('HF_HUB_DISABLE_IMPLICIT_TOKEN'))",
         ]
         env = {
             **os.environ,
             "HF_ENDPOINT": f"{self.hub.endpoint}/",
             "HF_HUB_DISABLE_XET": "1",
         }
+        env.pop("HF_TOKEN", None)
+        env.pop("HUGGING_FACE_HUB_TOKEN", None)
         result = subprocess.run(
             command, env=env, check=True, capture_output=True, text=True
         )
-        self.assertEqual(result.stdout.strip(), self.hub.endpoint)
+        self.assertEqual(result.stdout.splitlines(), [self.hub.endpoint, "1"])
         env["HF_ENDPOINT"] = f"{self.hub.endpoint}/unsupported"
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("origin", result.stderr)
+
+    def test_exec_wrapper_token_aliases_require_https_before_exec(self) -> None:
+        command = [
+            sys.executable,
+            str(EXEC_SCRIPT),
+            sys.executable,
+            "-c",
+            "print('command-ran')",
+        ]
+        for token_variable in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+            env = {
+                **os.environ,
+                "HF_ENDPOINT": "http://cache.example",
+                "HF_HUB_DISABLE_XET": "1",
+            }
+            env.pop("HF_TOKEN", None)
+            env.pop("HUGGING_FACE_HUB_TOKEN", None)
+            env[token_variable] = "synthetic-read-token"
+            result = subprocess.run(command, env=env, capture_output=True, text=True)
+            with self.subTest(token_variable=token_variable):
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("must use HTTPS", result.stderr)
+                self.assertNotIn("command-ran", result.stdout)
+
+    def test_exec_wrapper_accepts_token_aliases_over_https(self) -> None:
+        command = [
+            sys.executable,
+            str(EXEC_SCRIPT),
+            sys.executable,
+            "-c",
+            "print('command-ran')",
+        ]
+        for token_variable in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+            env = {
+                **os.environ,
+                "HF_ENDPOINT": "https://cache.example",
+                "HF_HUB_DISABLE_XET": "1",
+            }
+            env.pop("HF_TOKEN", None)
+            env.pop("HUGGING_FACE_HUB_TOKEN", None)
+            env[token_variable] = "synthetic-read-token"
+            result = subprocess.run(
+                command, env=env, check=True, capture_output=True, text=True
+            )
+            with self.subTest(token_variable=token_variable):
+                self.assertEqual(result.stdout.strip(), "command-ran")
 
     def test_active_acquisition_configs_have_no_hardcoded_hub_transport(self) -> None:
         active_paths = (
