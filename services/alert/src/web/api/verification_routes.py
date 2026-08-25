@@ -29,6 +29,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, status
 from fastapi.responses import JSONResponse
 from openai import BadRequestError
 
+import tracing
 from metrics import PROMETHEUS_ENABLED
 from metrics.recorder import inc_ondemand_request
 
@@ -147,12 +148,17 @@ async def verify_ondemand(
 
     correlation_id = message["id"]
     inc_ondemand_request("accepted")
+    # Captured here, not inside the task. Starlette runs background tasks after
+    # the response is sent, by which point the FastAPI server span has ended --
+    # so the task cannot read a current context and cannot be that span's child.
+    # What it can carry is a link back to the request that scheduled it.
     background_tasks.add_task(
         service.process_and_publish,
         message,
         user_prompt,
         system_prompt,
         request_start_time,
+        tracing.current_span_context(),
     )
 
     return JSONResponse(

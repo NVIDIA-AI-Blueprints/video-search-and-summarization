@@ -51,6 +51,22 @@ cors_cfg = load_config().get("cors", {})
 if cors_cfg.pop("enabled", True):
     app.add_middleware(CORSMiddleware, **cors_cfg)
 
+# Tracing for the API process (REQ-005, REQ-008).
+#
+# Initialised here rather than by the launcher because this runs in its own
+# process: ``enhance_alert_with_vlm.py`` starts the API as a separate
+# ``Process``, and an OTel provider does not survive that boundary. Module
+# level, because instrumenting installs ASGI middleware and FastAPI refuses
+# middleware once the app has started, which rules out the startup event.
+#
+# Both calls are no-ops when ENABLE_OTEL_MONITORING is off or the SDK is
+# absent, and neither raises - the API must come up whether or not anything is
+# collecting traces.
+import tracing as _tracing  # noqa: E402  - after app creation, by necessity
+
+_tracing.init_tracing()
+_tracing.instrument_fastapi_app(app)
+
 # Configure logging
 logger = logging.getLogger(__name__)
 

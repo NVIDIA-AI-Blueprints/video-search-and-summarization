@@ -36,6 +36,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from tracing import meters as _otel_meters
+
 from metrics import PROMETHEUS_ENABLED
 from utils.time_utils import iso_delta_seconds
 
@@ -485,6 +487,35 @@ def _count_by_sensor(messages) -> Dict[str, int]:
 # ── Aggregate event helpers ───────────────────────────────────────────────
 
 
+
+def _observe_verification_duration_otel(message: Dict[str, Any],
+                                        latency: Dict[str, Any],
+                                        pipeline_mode: Optional[str] = None) -> None:
+    """Mirror the E2E observation into the OTel histogram.
+
+    Derived here rather than shared with the Prometheus path: the two gates are
+    independent by design, and the duplication is the price of that. Silent when
+    the quantity is not derivable -- a missing or negative delta is upstream's
+    problem and must not cost an alert.
+    """
+    try:
+        seconds = iso_delta_seconds(
+            message.get("end"), datetime.now(timezone.utc).isoformat()
+        )
+        if seconds is None or seconds < 0:
+            return
+        _otel_meters.observe_verification_duration(
+            seconds,
+            # Passed in, not read off `latency`: nothing in the repository ever
+            # writes `pipelineMode` into that dict, so reading it produced a
+            # dimension that was silently absent forever.
+            pipeline_mode=pipeline_mode,
+            verdict=(message.get("info") or {}).get("verdict"),
+        )
+    except Exception:
+        pass
+
+
 def observe_pipeline_latency(
     message: Dict[str, Any],
     latency: Dict[str, Any],
@@ -534,6 +565,8 @@ def record_event_complete(
     message: Dict[str, Any],
     latency: Dict[str, Any],
     failure_reason: Optional[str] = None,
+    span_handle: Optional[Any] = None,
+    pipeline_mode: Optional[str] = None,
 ) -> None:
     """Record every per-event Prometheus metric at pipeline completion.
 
@@ -547,6 +580,25 @@ def record_event_complete(
     value is used purely for the E2E histogram observation without being
     written back into the caller's dict — the ES payload is left unmodified.
     """
+    # Above the Prometheus gate, deliberately. This is the only site that knows
+    # *why* an event ended -- malformed_message, no_prompt, a pre-processing
+    # class -- and the span is closed elsewhere, so decorating here is the only
+    # route by which that reason reaches the trace. Below the gate it would be
+    # lost on any deployment running with Prometheus off.
+    #
+    # Decorates, never closes: this runs before post-publish enrichment, so
+    # ending the span here would truncate the root and orphan whatever
+    # enrichment creates.
+    if span_handle is not None:
+        span_handle.decorate(latency, message, failure_reason)
+
+    # Same position, same reason. An earlier revision put this inside
+    # observe_pipeline_latency(), above *that* function's gate -- but its only
+    # production caller is below the gate here, so it was never entered. Clearing
+    # a function's own guard proves nothing; the call graph is what decides
+    # whether the line runs.
+    _observe_verification_duration_otel(message, latency, pipeline_mode)
+
     if not PROMETHEUS_ENABLED:
         return
 
@@ -702,6 +754,10 @@ def set_dispatch_in_flight(count: int) -> None:
 
 def observe_capacity_wait(service: str, seconds: float) -> None:
     """Record time spent waiting for a per-service concurrency slot."""
+    # Additive and independently gated: the OTel series must not depend on
+    # PROMETHEUS_METRICS_ENABLED, which is off in every shipped profile.
+    _otel_meters.observe_capacity_wait(seconds, service)
+
     if not PROMETHEUS_ENABLED:
         return
     CAPACITY_WAIT_DURATION.labels(service=service).observe(max(0.0, seconds))

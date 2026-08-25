@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from tracing import context as tracing_context
 from typing import Any, Dict, Optional
 
 from mdx.kafka_message_broker import KafkaMessageBroker
@@ -140,7 +141,12 @@ class VLMEnhancedKafkaSink(VLMEnhancedSink):
             else:
                 raise ValueError(f"Unsupported message_type for Kafka route: {message_type}")
             payload = proto_msg.SerializeToString()
-            self._producer.produce(topic=topic, value=payload, key=key)
+            # None when untraced, which confluent-kafka treats exactly as the
+            # header-less produce this line was before.
+            self._producer.produce(
+                topic=topic, value=payload, key=key,
+                headers=tracing_context.kafka_headers_for_current_span(),
+            )
             self._producer.flush()
             # Mirror Elastic sink post-publish logging
             log_enriched_event(self._logger, "Kafka", document.get("id"), document)

@@ -52,7 +52,27 @@ def _truncate_base64(text: str, max_length: int = _BASE64_TRUNCATE_LENGTH) -> st
     return _BASE64_DATA_URL_PATTERN.sub(replacer, text)
 
 
-class _SingleLineFormatter(logging.Formatter):
+class _TraceAppendMixin:
+    """Appends trace ids to an already-formatted line.
+
+    A mixin rather than a wrapper class. Wrapping worked but replaced whatever
+    formatter was installed, and `_SingleLineFormatter` is installed by identity
+    — code and tests both check `isinstance(handler.formatter, ...)`. Mixing the
+    behaviour in leaves that identity intact.
+    """
+
+    @staticmethod
+    def _append_trace(record: logging.LogRecord, line: str) -> str:
+        trace_id = getattr(record, "trace_id", "")
+        if not trace_id:
+            # Byte-identical to what this service emits today. The ids are
+            # appended after the formatted line rather than interpolated into
+            # config.yaml's format string precisely so this stays true.
+            return line
+        return f"{line} trace_id={trace_id} span_id={getattr(record, 'span_id', '')}"
+
+
+class _SingleLineFormatter(_TraceAppendMixin, logging.Formatter):
     """Formatter that collapses newlines and carriage returns into spaces.
 
     Keeps logs single-line even if the message contains embedded newlines.
@@ -75,7 +95,69 @@ class _SingleLineFormatter(logging.Formatter):
         formatted = formatted.replace("\n", " ").replace("\r", " ")
         if self.truncate_base64:
             formatted = _truncate_base64(formatted)
-        return formatted
+        return self._append_trace(record, formatted)
+
+class _TraceContextFilter(logging.Filter):
+    """Stamps the current trace/span ids onto every record.
+
+    Empty strings when tracing is off or no span is current. The facade it calls
+    needs no enable check of its own: with no context attached,
+    ``get_current_span()`` returns a non-recording span whose context is invalid,
+    which is exactly the signal needed.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            from tracing import current_trace_ids
+
+            trace_id, span_id = current_trace_ids()
+        except Exception:
+            trace_id = span_id = None
+        record.trace_id = trace_id or ""
+        record.span_id = span_id or ""
+        return True
+
+
+class _TraceCorrelationFormatter(_TraceAppendMixin, logging.Formatter):
+    """Adds the append to a formatter that does not already do it itself.
+
+    Used on the two fallback branches, which install a plain
+    ``logging.Formatter`` — correlation that only worked when config loading
+    succeeded would be missing exactly when something has already gone wrong.
+    """
+
+    def __init__(self, inner: logging.Formatter):
+        super().__init__()
+        self._inner = inner
+
+    def format(self, record: logging.LogRecord) -> str:
+        return self._append_trace(record, self._inner.format(record))
+
+
+def _install_trace_correlation() -> None:
+    """Attach the filter and wrap each root handler's formatter.
+
+    Called from all three ``setup_logging()`` branches, including the two
+    fallbacks — they use a different format string, and correlation that only
+    worked when config loading succeeded would be missing exactly when something
+    has already gone wrong.
+    """
+    try:
+        root = logging.getLogger()
+        for handler in root.handlers:
+            if any(isinstance(f, _TraceContextFilter) for f in handler.filters):
+                continue
+            handler.addFilter(_TraceContextFilter())
+            current = handler.formatter or logging.Formatter()
+            # Only wrap what is not already trace-aware. _SingleLineFormatter
+            # appends on its own, and replacing it would break the identity that
+            # the single-line and base64-truncation behaviour is selected by.
+            if not isinstance(current, _TraceAppendMixin):
+                handler.setFormatter(_TraceCorrelationFormatter(current))
+    except Exception:
+        # Correlation is an aid; losing it must not cost the service its logs.
+        pass
+
 
 def setup_logging(config_file: str = "config.yaml") -> None:
     """
@@ -126,6 +208,10 @@ def setup_logging(config_file: str = "config.yaml") -> None:
                     # Best-effort; keep default formatter if something goes wrong
                     pass
 
+        # After the single-line formatter above, so the wrapper wraps the
+        # formatter that is actually in use rather than the one it replaced.
+        _install_trace_correlation()
+
         # Demote noisy third-party libraries in production
         for name in (
             'urllib3',
@@ -167,6 +253,7 @@ def setup_logging(config_file: str = "config.yaml") -> None:
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
+        _install_trace_correlation()
         logger = logging.getLogger(__name__)
         logger.warning(f"Config file '{config_file}' not found. Using default logging configuration.")
         
@@ -176,6 +263,7 @@ def setup_logging(config_file: str = "config.yaml") -> None:
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
+        _install_trace_correlation()
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to load logging configuration from '{config_file}': {e}. Using defaults.")
 

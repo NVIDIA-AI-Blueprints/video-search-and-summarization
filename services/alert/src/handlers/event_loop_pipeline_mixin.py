@@ -40,6 +40,8 @@ from metrics.recorder import (
 )
 from utils.logging_config import get_logger
 from utils.time_utils import iso_delta_seconds
+from tracing import meters as _otel_meters
+from tracing import spans as tracing_spans
 from vst.exceptions import VSTError
 
 logger = get_logger(__name__)
@@ -65,7 +67,13 @@ class EventLoopPipelineMixin:
             yield
             return
         wait_started = time.time()
-        await semaphore.acquire()
+        # One span per acquisition. `latency['capacityWait'][service]` accumulates
+        # across acquisitions, so a single span reconstructed from that scalar
+        # would collapse two disjoint VST waits into one interval.
+        with tracing_spans.live_span(
+            f"{service.upper()} Capacity Wait", service=service
+        ):
+            await semaphore.acquire()
         waited = time.time() - wait_started
         observe_capacity_wait(service, waited)
         if latency is not None:
@@ -188,6 +196,7 @@ class EventLoopPipelineMixin:
         sensor_id: Any,
         latency: Dict[str, Any],
         worker_start_time: float,
+        span_handle: Any = None,
     ) -> Optional[tuple]:
         """Async mirror of ``_prepare_message_context``."""
         # Reject messages missing fields the downstream VST stage dereferences
@@ -207,7 +216,9 @@ class EventLoopPipelineMixin:
                 worker_start_time,
                 message,
                 latency,
+                span_handle=span_handle,
                 failure_reason="malformed_message",
+                pipeline_mode=getattr(self, 'pipeline_mode', None),
             )
             return None
 
@@ -224,7 +235,9 @@ class EventLoopPipelineMixin:
                 worker_start_time,
                 message,
                 latency,
+                span_handle=span_handle,
                 failure_reason=self._classify_pre_processing_failure(exc),
+                pipeline_mode=getattr(self, 'pipeline_mode', None),
             )
             return None
 
@@ -239,7 +252,9 @@ class EventLoopPipelineMixin:
                 worker_start_time,
                 message,
                 latency,
+                span_handle=span_handle,
                 failure_reason="no_prompt",
+                pipeline_mode=getattr(self, 'pipeline_mode', None),
             )
             return None
 
@@ -420,6 +435,7 @@ class EventLoopPipelineMixin:
         vlm_failure_reason: Optional[str],
         worker_start_time: float,
         latency: Dict[str, Any],
+        span_handle=None,
     ) -> None:
         """Async mirror of ``_publish_outcome_and_complete`` — the Elastic sink
         publish is awaited on the loop; non-Elastic sinks fall back to the
@@ -435,6 +451,7 @@ class EventLoopPipelineMixin:
                 vlm_failure_reason,
                 worker_start_time,
                 latency,
+                span_handle=span_handle,
             )
             return
 
@@ -470,6 +487,7 @@ class EventLoopPipelineMixin:
             message,
             latency,
             failure_reason=vlm_failure_reason,
+            span_handle=span_handle,
         )
 
     async def _publish_error_and_complete_async(
@@ -480,6 +498,7 @@ class EventLoopPipelineMixin:
         failure_reason: Optional[str],
         worker_start_time: float,
         latency: Dict[str, Any],
+        span_handle=None,
     ) -> None:
         await self._publish_outcome_and_complete_async(
             message,
@@ -489,6 +508,7 @@ class EventLoopPipelineMixin:
             failure_reason,
             worker_start_time,
             latency,
+            span_handle=span_handle,
         )
 
     async def _handle_vlm_exception_async(
@@ -500,6 +520,7 @@ class EventLoopPipelineMixin:
         storage_video_url: Optional[str],
         worker_start_time: float,
         latency: Dict[str, Any],
+        span_handle=None,
     ) -> None:
         """Async mirror of ``_handle_vlm_exception`` — same classification and
         error document, awaited error publish."""
@@ -513,6 +534,7 @@ class EventLoopPipelineMixin:
             failure_reason,
             worker_start_time,
             latency,
+            span_handle=span_handle,
         )
         self._log_vlm_exception(log_label, message, exc)
 
@@ -569,161 +591,247 @@ class EventLoopPipelineMixin:
         task_started_at = datetime.now(timezone.utc).isoformat()
         if worker_assigned_at is None:
             worker_assigned_at = task_started_at
-        sensor_id = message.get('sensorId')
 
-        latency = {
-            'timestamps': {
-                'kafkaPublishedAt': kafka_published_at,
-                'kafkaConsumedAt': kafka_consumed_at,
-                'workerAssignedAt': worker_assigned_at,
-                'taskDispatchedAt': task_dispatched_at,
-                'taskStartedAt': task_started_at,
-            },
+        # Root span for this event. `open_root_span` never raises and returns
+        # None on failure, so a tracing fault degrades to an untraced event
+        # rather than a lost one. Kafka parent context is not wired yet — the
+        # per-record envelope it needs lands with REQ-007.
+        # Built before the span so the root can start when the event actually
+        # entered the pipeline rather than when this coroutine reached it.
+        stage_timestamps = {
+            'kafkaPublishedAt': kafka_published_at,
+            'kafkaConsumedAt': kafka_consumed_at,
+            'workerAssignedAt': worker_assigned_at,
+            'taskDispatchedAt': task_dispatched_at,
+            'taskStartedAt': task_started_at,
         }
-
-        prompts = await self._prepare_message_context_async(
-            message, sensor_id, latency, worker_start_time
+        span_handle = tracing_spans.open_root_span(
+            message,
+            pipeline_mode='event_loop',
+            timestamps=stage_timestamps,
         )
-        if prompts is None:
-            return
-        user_prompt, system_prompt = prompts
-
-        video_url = None
-        storage_video_url = None
+        latency = None
+        # A local flag, not sys.exc_info(). exc_info() reports the exception being
+        # handled anywhere on this thread's stack, not just this frame — and the
+        # sync mirror of this function is called from inside an `except` handler
+        # (async_dispatch_mixin's inline fallback), so every event on that path
+        # would be stamped as a failure on a clean success.
+        _failed = False
         try:
-            async with self._capacity_slot(self._vst_capacity, 'vst', latency):
-                video_url, effective_start_time, effective_end_time, vst_error_captured = (
-                    await self._resolve_video_url_async(message, sensor_id, latency)
-                )
+            # Inside the guard: `message` is the one thing here that can be
+            # something other than a dict, and everything the root span
+            # needs comes from parameters, so the span is already open by
+            # the time this runs. That closes the last gap where an
+            # exception could escape the function untraced.
+            sensor_id = message.get('sensorId')
 
-            if not video_url:
-                await asyncio.to_thread(
-                    self._handle_media_collection_failure,
+            latency = {
+                'timestamps': stage_timestamps,
+            }
+
+            prompts = await self._prepare_message_context_async(
+                message, sensor_id, latency, worker_start_time, span_handle
+            )
+            if prompts is None:
+                return
+            user_prompt, system_prompt = prompts
+
+            video_url = None
+            storage_video_url = None
+            try:
+                async with self._capacity_slot(self._vst_capacity, 'vst', latency):
+                    video_url, effective_start_time, effective_end_time, vst_error_captured = (
+                        await self._resolve_video_url_async(message, sensor_id, latency)
+                    )
+
+                if not video_url:
+                    await asyncio.to_thread(
+                        self._handle_media_collection_failure,
+                        message,
+                        vst_error_captured,
+                        worker_start_time,
+                        latency,
+                        span_handle=span_handle,
+                    )
+                    return
+
+                vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
+
+                async with self._capacity_slot(self._vst_capacity, 'vst', latency):
+                    video_url_valid = await self._validate_video_url_async(video_url)
+                if not video_url_valid:
+                    await asyncio.to_thread(
+                        self._handle_url_validation_failure,
+                        message,
+                        storage_video_url,
+                        worker_start_time,
+                        latency,
+                        span_handle=span_handle,
+                    )
+                    return
+
+                category = message.get('category', '')
+                merged_vlm = await asyncio.to_thread(self._get_merged_vlm_config, category)
+
+                if merged_vlm.get('dynamic_frame_count', False):
+                    num_frames = self.set_max_frames(effective_start_time, effective_end_time)
+                else:
+                    num_frames = merged_vlm.get('num_frames', 10)
+
+                if os.getenv('LOG_VERBOSE_PROMPTS', 'false').lower() in ('1', 'true', 'yes'):
+                    logger.debug(f"User Prompt: {user_prompt}\nSystem Prompt: {system_prompt}")
+
+                max_retries = merged_vlm.get('max_retries', 1)
+                retry_delay = 0.5
+
+                response_content = None
+                verification_successful = False
+                vlm_failure_reason = None  # set if VLM parse fails on last attempt
+
+                for attempt in range(max_retries + 1):
+                    _attempt_start = time.time()
+                    _vlm_observed = False
+                    try:
+                        logger.info("VLM request sent (attempt %d/%d, base64=%s) [sensor=%s category=%s start=%s end=%s]",
+                                    attempt + 1, max_retries + 1, self.vlm_media_source_using_base64,
+                                    sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
+                        async with self._capacity_slot(self._vlm_capacity, 'vlm', latency):
+                            start = time.time()
+                            # Live, per attempt: `latency['vlmRequest']` is
+                            # overwritten each time round the loop, so a span
+                            # reconstructed from it would report only the last
+                            # attempt and hide a slow-then-fast retry — exactly
+                            # the pathology an operator opens a trace to find.
+                            with tracing_spans.live_span(
+                                "VLM Request",
+                                attempt=attempt + 1,
+                                max_retries=max_retries,
+                                # False up front, overwritten on the return path
+                                # below. REQ-003's named deliverable is that a
+                                # total VLM failure shows `success=false` on its
+                                # last attempt — and an attribute set after the
+                                # call is unreachable precisely when the call
+                                # raises, which is the only case that matters
+                                # here. Setting it afterwards recorded `success`
+                                # on exactly the attempts that did not need it.
+                                success=False,
+                            ) as _vlm_span:
+                                vlm_response = await self._analyze_video_url_async(
+                                    vlm_video_url,
+                                    user_prompt,
+                                    system_prompt,
+                                    num_frames=num_frames,
+                                    use_base64=self.vlm_media_source_using_base64,
+                                    config_overrides=merged_vlm,
+                                )
+                                if _vlm_span is not None:
+                                    _vlm_span.set_attribute(
+                                        "success", vlm_response is not None
+                                    )
+                            duration = round(time.time() - start, 3)
+                        latency['vlmRequest'] = {'success': vlm_response is not None, 'duration': duration}
+                        observe_vlm_duration(duration, sensor_id)
+                        # Per attempt, on both outcomes. Placed beside this call
+                        # rather than after the VLM request, because every failure
+                        # branch reaches its except before that point -- so the
+                        # counter recorded successes only, and the one thing it
+                        # exists to show, a VLM outage, produced silence.
+                        _otel_meters.count_vlm_attempt(
+                            success=vlm_response is not None, attempt=attempt + 1)
+                        _vlm_observed = True
+                        logger.info("VLM response received [sensor=%s category=%s] duration=%.3fs",
+                                    sensor_id, message.get('category', 'N/A'), duration)
+
+                        response_content = vlm_response.content
+                        if os.getenv('LOG_VERBOSE_VLM_RESPONSE', 'false').lower() in ('1', 'true', 'yes'):
+                            logger.debug(f"Raw VLM response: {response_content}")
+
+                        verification_successful, response_content = self._apply_vlm_response(
+                            message,
+                            response_content,
+                            merged_vlm,
+                            storage_video_url,
+                            latency,
+                        )
+                        break # Terminal outcome (success or pluggable-parser error)
+
+                    except (APITimeoutError, APIConnectionError, InternalServerError, UnprocessableEntityError) as e:
+                        if not _vlm_observed:
+                            observe_vlm_duration(
+                                round(time.time() - _attempt_start, 3),
+                                sensor_id,
+                            )
+                            # Per attempt, on both outcomes: every failure branch reaches its
+                            # except before the post-call site this used to sit at, so the
+                            # counter recorded successes only and a VLM outage produced silence.
+                            _otel_meters.count_vlm_attempt(success=False, attempt=attempt + 1)
+                        if attempt < max_retries:
+                            logger.warning("VLM API error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
+                            await asyncio.sleep(retry_delay)
+                        else:
+                            raise e
+
+                    except Exception as e:
+                        if not _vlm_observed:
+                            observe_vlm_duration(
+                                round(time.time() - _attempt_start, 3),
+                                sensor_id,
+                            )
+                            # Per attempt, on both outcomes: every failure branch reaches its
+                            # except before the post-call site this used to sit at, so the
+                            # counter recorded successes only and a VLM outage produced silence.
+                            _otel_meters.count_vlm_attempt(success=False, attempt=attempt + 1)
+                        if attempt < max_retries:
+                            logger.warning("VLM validation/processing error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
+                            await asyncio.sleep(retry_delay)
+                        else:
+                            vlm_failure_reason = self._apply_vlm_parse_failure(
+                                message, e, response_content, storage_video_url, latency
+                            )
+                            response_content = None
+                            break
+
+                await self._publish_outcome_and_complete_async(
                     message,
-                    vst_error_captured,
+                    user_prompt,
+                    system_prompt,
+                    response_content,
+                    vlm_failure_reason,
                     worker_start_time,
                     latency,
+                    span_handle=span_handle,
                 )
-                return
 
-            vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
-
-            async with self._capacity_slot(self._vst_capacity, 'vst', latency):
-                video_url_valid = await self._validate_video_url_async(video_url)
-            if not video_url_valid:
-                await asyncio.to_thread(
-                    self._handle_url_validation_failure,
+                if verification_successful:
+                    await self._process_enrichment_event_loop(
+                        message, vlm_video_url, system_prompt, sensor_id, merged_vlm
+                    )
+            except Exception as e:
+                await self._handle_vlm_exception_async(
+                    e,
                     message,
+                    user_prompt,
+                    system_prompt,
                     storage_video_url,
                     worker_start_time,
                     latency,
+                    span_handle=span_handle,
                 )
-                return
-
-            category = message.get('category', '')
-            merged_vlm = await asyncio.to_thread(self._get_merged_vlm_config, category)
-
-            if merged_vlm.get('dynamic_frame_count', False):
-                num_frames = self.set_max_frames(effective_start_time, effective_end_time)
-            else:
-                num_frames = merged_vlm.get('num_frames', 10)
-
-            if os.getenv('LOG_VERBOSE_PROMPTS', 'false').lower() in ('1', 'true', 'yes'):
-                logger.debug(f"User Prompt: {user_prompt}\nSystem Prompt: {system_prompt}")
-
-            max_retries = merged_vlm.get('max_retries', 1)
-            retry_delay = 0.5
-
-            response_content = None
-            verification_successful = False
-            vlm_failure_reason = None  # set if VLM parse fails on last attempt
-
-            for attempt in range(max_retries + 1):
-                _attempt_start = time.time()
-                _vlm_observed = False
-                try:
-                    logger.info("VLM request sent (attempt %d/%d, base64=%s) [sensor=%s category=%s start=%s end=%s]",
-                                attempt + 1, max_retries + 1, self.vlm_media_source_using_base64,
-                                sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
-                    async with self._capacity_slot(self._vlm_capacity, 'vlm', latency):
-                        start = time.time()
-                        vlm_response = await self._analyze_video_url_async(
-                            vlm_video_url,
-                            user_prompt,
-                            system_prompt,
-                            num_frames=num_frames,
-                            use_base64=self.vlm_media_source_using_base64,
-                            config_overrides=merged_vlm,
-                        )
-                        duration = round(time.time() - start, 3)
-                    latency['vlmRequest'] = {'success': vlm_response is not None, 'duration': duration}
-                    observe_vlm_duration(duration, sensor_id)
-                    _vlm_observed = True
-                    logger.info("VLM response received [sensor=%s category=%s] duration=%.3fs",
-                                sensor_id, message.get('category', 'N/A'), duration)
-
-                    response_content = vlm_response.content
-                    if os.getenv('LOG_VERBOSE_VLM_RESPONSE', 'false').lower() in ('1', 'true', 'yes'):
-                        logger.debug(f"Raw VLM response: {response_content}")
-
-                    verification_successful, response_content = self._apply_vlm_response(
-                        message,
-                        response_content,
-                        merged_vlm,
-                        storage_video_url,
+        except BaseException:
+            # Re-raises: this only records that the exit was not clean.
+            _failed = True
+            raise
+        finally:
+            if span_handle is not None:
+                # First, so a sink callback firing afterwards can tell the
+                # `finally` has already had its turn.
+                span_handle.mark_finally_reached()
+                if span_handle.should_close_from_finally():
+                    span_handle.close(
                         latency,
+                        message,
+                        failure_reason='uncaught_exception' if _failed else None,
                     )
-                    break # Terminal outcome (success or pluggable-parser error)
-
-                except (APITimeoutError, APIConnectionError, InternalServerError, UnprocessableEntityError) as e:
-                    if not _vlm_observed:
-                        observe_vlm_duration(
-                            round(time.time() - _attempt_start, 3),
-                            sensor_id,
-                        )
-                    if attempt < max_retries:
-                        logger.warning("VLM API error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
-                        await asyncio.sleep(retry_delay)
-                    else:
-                        raise e
-
-                except Exception as e:
-                    if not _vlm_observed:
-                        observe_vlm_duration(
-                            round(time.time() - _attempt_start, 3),
-                            sensor_id,
-                        )
-                    if attempt < max_retries:
-                        logger.warning("VLM validation/processing error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
-                        await asyncio.sleep(retry_delay)
-                    else:
-                        vlm_failure_reason = self._apply_vlm_parse_failure(
-                            message, e, response_content, storage_video_url, latency
-                        )
-                        response_content = None
-                        break
-
-            await self._publish_outcome_and_complete_async(
-                message,
-                user_prompt,
-                system_prompt,
-                response_content,
-                vlm_failure_reason,
-                worker_start_time,
-                latency,
-            )
-
-            if verification_successful:
-                await self._process_enrichment_event_loop(
-                    message, vlm_video_url, system_prompt, sensor_id, merged_vlm
-                )
-        except Exception as e:
-            await self._handle_vlm_exception_async(
-                e,
-                message,
-                user_prompt,
-                system_prompt,
-                storage_video_url,
-                worker_start_time,
-                latency,
-            )
+                # Always, on this thread, deferred or not: the context was
+                # attached here regardless of where close() eventually happens.
+                span_handle.detach()

@@ -30,6 +30,8 @@ Example:
 from __future__ import annotations
 import copy
 import json
+
+from tracing.spans import traced_io
 import logging
 from dataclasses import dataclass
 import os
@@ -184,6 +186,7 @@ class ElasticClient:
             date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             return f"{base_name}-{date_str}"
 
+    @traced_io("Elasticsearch write", **{"db.operation": "index"})
     def write_json(
         self,
         index: str,
@@ -239,6 +242,7 @@ class ElasticClient:
             )
             raise
 
+    @traced_io("Elasticsearch write", **{"db.operation": "index"})
     async def write_json_async(
         self,
         index: str,
@@ -284,6 +288,7 @@ class ElasticClient:
             )
             raise
 
+    @traced_io("Elasticsearch update", **{"db.operation": "update"})
     async def update_document_async(
         self,
         index: str,
@@ -324,6 +329,7 @@ class ElasticClient:
             )
             raise
 
+    @traced_io("Elasticsearch get", **{"db.operation": "get"})
     async def get_document_async(
         self,
         index: str,
@@ -389,6 +395,7 @@ class ElasticClient:
                 )
                 raise
 
+    @traced_io("Elasticsearch update", **{"db.operation": "update"})
     def update_document(
         self,
         index: str,
@@ -460,6 +467,7 @@ class ElasticClient:
             )
             raise
 
+    @traced_io("Elasticsearch get", **{"db.operation": "get"})
     def get_document(
         self,
         index: str,
