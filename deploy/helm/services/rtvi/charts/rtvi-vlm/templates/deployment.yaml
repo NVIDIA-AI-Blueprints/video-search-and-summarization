@@ -128,6 +128,8 @@ spec:
             {{- end }}
             - name: HF_ENDPOINT
               value: {{ .Values.hfEndpoint | default "" | quote }}
+            - name: HF_HUB_APPROVED_HTTP_ORIGINS
+              value: {{ .Values.hfHubApprovedHttpOrigins | default "" | quote }}
             - name: HF_HUB_DISABLE_XET
               value: "1"
             - name: HF_HUB_ENABLE_HF_TRANSFER
