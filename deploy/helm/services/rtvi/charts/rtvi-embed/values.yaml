@@ -135,8 +135,6 @@ nvidiaApiKey: ""
 hfToken: ""
 # Optional Hub-compatible origin. Empty uses the official Hub selected by the client.
 hfEndpoint: ""
-# Exact comma-separated HTTP host-cache origins approved for token-free use.
-hfHubApprovedHttpOrigins: ""
 # Optional: pull HF token from an existing Kubernetes secret instead of plain value.
 # If set, HF_TOKEN uses secretKeyRef and hfToken is ignored.
 hfTokenSecret:
