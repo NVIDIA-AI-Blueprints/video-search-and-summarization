@@ -220,7 +220,8 @@ services:
       - $INFRA_DIR/elk/logstash/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
       - $INFRA_DIR/elk/logstash/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
       - $INFRA_DIR/elk/logstash/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/mdx-kafka-logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - $INFRA_DIR/elk/logstash/pipelines/kafka/:/usr/share/logstash/pipelines/:ro
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
     environment:
       LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
     container_name: mdx-logstash

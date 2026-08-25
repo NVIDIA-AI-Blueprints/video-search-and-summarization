@@ -445,6 +445,14 @@ def compare_source_objects(source1: dict[str, Any],
                         'value2': value2
                     }
 
+    # `embeddings` is a logstash-pipeline artifact, not analytics output. The
+    # shared deployment pipeline leaves the (always empty) top-level field in
+    # place; the retired test-local pipeline stripped it. Comparing it would
+    # assert on which pipeline ran rather than on behaviour-analytics results.
+    # Only the top-level key is dropped -- nested embeddings under `object`
+    # are still compared.
+    ignore_keys(differences, ["embeddings"])
+
     if source1.get("type") == "mdx-events":
         ignore_keys(differences, EVENT_IGNORE_KEYS)
     elif source1.get("type") == "mdx-behavior":

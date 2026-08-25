@@ -1,0 +1,11 @@
+# Which shared pipelines this suite runs.
+#
+# The pipeline definitions themselves are shared from
+# deploy/docker/services/infra/elk/logstash/pipelines/; only the selection is
+# test-local. The deployment additionally runs mdx-lvs, which consumes
+# mdx-vlm-captions and mdx-structured-events-summary. Behaviour analytics does
+# not exercise LVS, this suite creates neither topic, and the broker runs with
+# KAFKA_AUTO_CREATE_TOPICS_ENABLE=false -- so declaring it here would leave a
+# consumer retrying against topics that never appear.
+- pipeline.id: mdx-kafka
+  path.config: "/usr/share/logstash/pipelines/mdx-logstash.conf"
