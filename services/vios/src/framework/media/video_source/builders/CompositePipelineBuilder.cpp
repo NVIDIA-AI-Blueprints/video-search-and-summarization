@@ -38,14 +38,27 @@
 void CompositePipelineBuilder::buildPipeline(const PipelineConfiguration& config)
 {
     m_config = config;
-    
-    // Create common components first
-    createCommonComponents(config);
-    
-    validateCompositorRequirements(config);
-    buildDecoderPipelines(config);
-    buildCompositorPipeline(config);
-    setupCompositorConsumers(config);
+
+    try {
+        // Create common components first
+        createCommonComponents(config);
+
+        validateCompositorRequirements(config);
+        buildDecoderPipelines(config);
+        buildCompositorPipeline(config);
+        setupCompositorConsumers(config);
+    } catch (...) {
+        // WAR: on a failed build, clean up through the normal close path.
+        // Otherwise decoders created here are left in the decoder pool with
+        // their producer still set; when the pool entry is removed later
+        // (e.g. closing a live stream of the same camera) the decoder is
+        // destructed and destroy_internal() calls shared_from_this() on the
+        // expiring object, throwing std::bad_weak_ptr on the decoder event
+        // loop and aborting the process.
+        LOG(error) << "Composite pipeline build failed, cleaning up partially built pipeline" << endl;
+        destroyPipeline();
+        throw;
+    }
 }
 
 void CompositePipelineBuilder::validateCompositorRequirements(const PipelineConfiguration& config) const
@@ -115,7 +128,11 @@ void CompositePipelineBuilder::buildDecoderPipelines(const PipelineConfiguration
             dec_result result = pool->tryDecoderStart(decoder, url_name_array[0]);
             if (!result.first) {
                 LOG(error) << "Error in Creating Pipeline for URL: " << url_name_array[0] << endl;
-                pool->removeStream(url_name_array[0]);
+                // WAR: do not evict the pool entry if another pipeline still
+                // consumes this decoder (see destroyPipeline Phase 3).
+                if (decoder->getVideoSinkListSize() == 0) {
+                    pool->removeStream(url_name_array[0]);
+                }
                 throw std::invalid_argument("Error in Creating Pipeline");
             }
             
@@ -513,6 +530,17 @@ void CompositePipelineBuilder::destroyPipeline()
             DecoderPool* pool = DecoderPool::getInstance();
             for (size_t i = 0; i < m_decoders.size() && i < m_decoderUris.size(); i++) {
                 if (m_decoders[i]) {
+                    // WAR: the pooled decoder may be shared with another pipeline
+                    // (e.g. a single-stream live playback of the same camera).
+                    // Our consumer was removed in Phase 1, so any remaining
+                    // consumer belongs to someone else. Evicting the pool entry
+                    // in that case forces the next composite start to create a
+                    // duplicate decoder that later crashes on teardown.
+                    if (m_decoders[i]->getVideoSinkListSize() > 0) {
+                        LOG(warning) << "Decoder for URI: " << m_decoderUris[i]
+                                     << " still has consumers, not removing from pool" << endl;
+                        continue;
+                    }
                     try {
                         pool->removeStream(m_decoderUris[i]);
                         LOG(info) << "Removed composite decoder from pool for URI: " << m_decoderUris[i] << endl;
