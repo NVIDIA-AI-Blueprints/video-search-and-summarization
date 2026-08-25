@@ -115,7 +115,10 @@ class LVSStreamUnderstandingOutput(BaseModel):
     def summary(self) -> str | None:
         """Final-answer hint consumed by the top agent for terminal stream states."""
         if self.status == LVSMediaStatus.NOT_CONFIGURED:
-            return None
+            # Terminal for this turn: the user must confirm captioning. Returning
+            # the prompt as summary stops the top agent from auto-calling
+            # lvs_config_media (HITL) on a summarize/report request.
+            return self.message
         if self.status == LVSMediaStatus.SUCCESS:
             if isinstance(self.content, dict):
                 formatted = self._format_lvs_content(self.content)
