@@ -125,8 +125,8 @@ PY
     NOSERVER*) bail "nothing is listening on ${DISPLAY}: ${probe#NOSERVER }"; return $? ;;
     REFUSED*)  bail "the X server on ${DISPLAY} refused this client: ${probe#REFUSED?*? }" \
                     "this is X access control, not a device or driver problem" \
-                    "grant by uid (this container is uid $(id -u)):  xhost +SI:localuser:\$(id -un)" \
-                    "or open it:  xhost +local:" \
+                    "on the host, grant this container's uid:  xhost +SI:localuser:#$(id -u)" \
+                    "or open it to all local clients:  xhost +local:" \
                     "or mount the display cookie and set XAUTHORITY (see README)"
                return $? ;;
     *)         echo "   X connection: unverified (${probe:-no result})" ;;
