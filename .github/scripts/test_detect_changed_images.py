@@ -241,9 +241,7 @@ class SelectImagesTest(unittest.TestCase):
             self.assertEqual(entry["source_path"], expected_fields["source_path"])
             if "native_platform_build" in expected_fields:
                 self.assertIs(entry["native_platform_build"], True)
-            self.assertEqual(
-                entry["platforms"], ["linux/amd64", "linux/arm64"]
-            )
+            self.assertEqual(entry["platforms"], ["linux/amd64", "linux/arm64"])
 
         va_entries, _ = dci.select_images(
             inventory, ["services/analytics/video-analytics-api/src/app.ts"]
@@ -529,12 +527,15 @@ class SelectImagesTest(unittest.TestCase):
                 "sdr-mw-l",
                 "vss-configurator",
                 "vss-rt-config-adaptor",
+                "vss-rt-vlm",
                 "vss-vios-sensor",
                 "vss-vios-streamprocessing",
                 "vss-vios-nvstreamer",
                 "vss-vios-ingress",
                 "vss-rt-embed",
                 "vss-rt-embed-sbsa",
+                "vss-rt-vlm-sbsa",
+                "vss-video-summarization-sbsa",
             },
         )
         self.assertNotIn(

@@ -1,0 +1,3 @@
+Parameter,Default,Description
+timeout,10,Request timeout in seconds for OpenStreetMap API
+

@@ -445,6 +445,21 @@ grep -qxF "${EXPECTED_CONN}" generated/configs/ds-main-config-mv3dt.txt || {
   grep '^msg-broker-conn-str=' generated/configs/ds-main-config-mv3dt.txt >&2 || true
   exit 1
 }
+
+INPUT_MODE_EFFECTIVE="${INPUT_MODE:-$(read_env INPUT_MODE)}"
+if [ "${INPUT_MODE_EFFECTIVE}" = "file" ]; then
+  require_ini() {
+    section="$1"; key="$2"; expected="$3"
+    actual="$(awk -F= -v sec="[${section}]" -v key="${key}" '/^\[/ { in_sec = ($0 == sec) } in_sec && $1 == key { print $2; exit }' generated/configs/ds-main-config-mv3dt.txt)"
+    [ "${actual}" = "${expected}" ] || {
+      echo "ERROR: file-mode staged config requires [${section}] ${key}=${expected}; found ${actual:-missing}" >&2
+      exit 1
+    }
+  }
+  require_ini source-list low-latency-mode 0
+  require_ini source-attr-all drop-on-latency 0
+  require_ini source-attr-all latency 100000
+fi
 ```
 
 If saved BEV is selected/defaulted, verify resolved BEV assets before launch:
@@ -458,25 +473,66 @@ If these assets are missing, return to `Resolve BEV Assets`. Continue with perce
 
 ## RTSP Stream Registration
 
-Use this only after compose is running and `docker logs vss-rtvi-cv-mv3dt` shows `ds-ready: YES`.
+Use this after stream-mode compose is running. Do not wait for the `ds-ready: YES` log marker. Poll REST `/api/v1/ready`, parse JSON, then add each stream through the DeepStream REST API. Use `scripts/add-streams.sh --list` only for inspection, because the add path has its own readiness wait.
 
-If the user supplied RTSP URLs, run this registration step as part of deployment. Use explicit `<sensor_id>=<rtsp_url>` pairs when present. If the user supplied only bare RTSP URLs, map them to calibration sensor ids in order only when the URL count exactly matches the generated camInfo count and the order is clear from the calibration handoff; otherwise ask the user for the sensor-id mapping before registering streams.
+Create or reuse a mapping file with one entry per expected camera:
 
-```bash
-cd "${RTCV3D_APP}"
-./scripts/add-streams.sh   '<sensor_id_1>=rtsp://host/path1'   '<sensor_id_2>=rtsp://host/path2'
-
-./scripts/add-streams.sh --list
-./scripts/add-streams.sh --remove '<sensor_id_1>=rtsp://host/path1'
+```text
+generated/run-state/rtsp-streams.txt
+Camera_A=rtsp://host/path-a
+Camera_B=rtsp://host/path-b
 ```
 
-Validate exact stream count and camera IDs after registration:
+Register the streams:
 
 ```bash
 cd "${RTCV3D_APP}"
 mkdir -p generated/run-state
+RTSP_STREAMS_FILE="${RTSP_STREAMS_FILE:-generated/run-state/rtsp-streams.txt}"
+test -f "${RTSP_STREAMS_FILE}" || { echo "ERROR: missing RTSP mapping file: ${RTSP_STREAMS_FILE}" >&2; exit 1; }
+
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+DS_HOST_EFFECTIVE="${DS_HOST:-localhost}"
+DS_PORT_EFFECTIVE="${DS_PORT:-${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}}"
+DS_PORT_EFFECTIVE="${DS_PORT_EFFECTIVE:-9000}"
+BASE="http://${DS_HOST_EFFECTIVE}:${DS_PORT_EFFECTIVE}"
+READY_TIMEOUT="${READY_TIMEOUT:-600}"
+
+deadline=$((SECONDS + READY_TIMEOUT))
+until ready_payload="$(curl -fsS --max-time 2 "${BASE}/api/v1/ready" 2>/dev/null)" && \
+      READY_PAYLOAD="${ready_payload}" python3 -c 'import json, os, sys; p=json.loads(os.environ["READY_PAYLOAD"]); sys.exit(0 if p.get("ready-info", {}).get("ds-ready") == "YES" else 1)'; do
+  [ "${SECONDS}" -lt "${deadline}" ] || { echo "ERROR: perception REST readiness did not report ds-ready YES" >&2; exit 1; }
+  sleep 3
+done
+printf '%s\n' "${ready_payload}" > generated/run-state/rtsp-ready.json
+
+while IFS= read -r entry; do
+  [ -n "${entry}" ] && [ "${entry#\#}" = "${entry}" ] || continue
+  sensor_id="${entry%%=*}"
+  url="${entry#*=}"
+  case "${sensor_id}" in *[!A-Za-z0-9_.-]*|'') echo "ERROR: unsafe sensor id: ${sensor_id}" >&2; exit 1 ;; esac
+  case "${url}" in rtsp://*) ;; *) echo "ERROR: expected RTSP URL for ${sensor_id}" >&2; exit 1 ;; esac
+  payload="$(python3 -c 'import json, sys; sid,url=sys.argv[1:3]; print(json.dumps({"key":"sensor","value":{"camera_id":sid,"camera_name":sid,"camera_url":url,"change":"camera_add","metadata":{"resolution":"1920x1080","codec":"h264","framerate":30}},"headers":{"source":"manual"}}))' "${sensor_id}" "${url}")"
+  code="$(printf '%s' "${payload}" | curl -sS -o generated/run-state/rtsp-add-${sensor_id}.json -w '%{http_code}' --max-time 30 --connect-timeout 5 -X POST "${BASE}/api/v1/stream/add" -H 'Content-Type: application/json' --data-binary @-)"
+  [ "${code}" = 200 ] || [ "${code}" = 201 ] || { echo "ERROR: failed to register ${sensor_id}: HTTP ${code}" >&2; cat "generated/run-state/rtsp-add-${sensor_id}.json" >&2; exit 1; }
+done < "${RTSP_STREAMS_FILE}"
+```
+
+Validate exact stream count and camera IDs after registration. Listing can use the helper because `--list` does not perform the readiness wait:
+
+```bash
+cd "${RTCV3D_APP}"
+mkdir -p generated/run-state
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+DS_HOST_EFFECTIVE="${DS_HOST:-localhost}"
+DS_PORT_EFFECTIVE="${DS_PORT:-${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}}"
+DS_PORT_EFFECTIVE="${DS_PORT_EFFECTIVE:-9000}"
 EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f\n' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
-./scripts/add-streams.sh --list > generated/run-state/stream-info.txt
+./scripts/add-streams.sh --ds-host "${DS_HOST_EFFECTIVE}" --ds-port "${DS_PORT_EFFECTIVE}" --list > generated/run-state/stream-info.txt
 EXPECTED_IDS="${EXPECTED_IDS}" python3 - <<'PY'
 import os, re
 expected = [x for x in os.environ['EXPECTED_IDS'].split(',') if x]
@@ -490,6 +546,19 @@ if ids != sorted(expected):
     raise SystemExit(f"ERROR: registered camera ids {ids} != expected {sorted(expected)}")
 print("registered stream set matches calibration")
 PY
+```
+
+For removal, pass the original mapping to the helper:
+
+```bash
+cd "${RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+DS_HOST_EFFECTIVE="${DS_HOST:-localhost}"
+DS_PORT_EFFECTIVE="${DS_PORT:-${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}}"
+DS_PORT_EFFECTIVE="${DS_PORT_EFFECTIVE:-9000}"
+./scripts/add-streams.sh --ds-host "${DS_HOST_EFFECTIVE}" --ds-port "${DS_PORT_EFFECTIVE}" --remove '<sensor_id_1>=rtsp://host/path1'
 ```
 
 ## Static RTSP Source-List Fallback

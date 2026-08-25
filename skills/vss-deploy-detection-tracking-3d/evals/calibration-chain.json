@@ -15,28 +15,13 @@
   },
   "expects": [
     {
-      "query": "Plan only; do not run commands, start containers, call AMC/VIOS, download data, or modify files. Deploy rtvi-cv-3d on /data/videos/cam_*.mp4 with MODELS_DIR=/data/vss-app-data/models and BEV_DATASET_PATH=/data/mv3dt/bev-dataset, but I do not have calibration yet. Return a detailed ordered plan that includes the future post-AMC export steps without executing them: fetching the mv3dt_result ZIP, calling export_calibration with POST, validating the export response, downloading calibration to a temporary file, validating camera sensors, and atomically publishing calibration.json.",
+      "query": "Plan only; do not run commands, start containers, call AMC/VIOS, download data, or modify files. Deploy rtvi-cv-3d on /data/videos/cam_*.mp4 with MODELS_DIR=/data/vss-app-data/models and BEV_DATASET_PATH=/data/mv3dt/bev-dataset, but calibration is missing. Return the high-level ordered plan: identify missing calibration, hand local MP4 calibration to vss-generate-video-calibration, include the AMC platform preflight and failure path, then after calibration use the validated AMC MV3DT export with the standalone RTVI-CV-3D deployment flow.",
       "checks": [
-        "The plan loads vss-deploy-detection-tracking-3d and identifies missing calibration before deployment.",
-        "The plan hands off to vss-generate-video-calibration for local MP4 calibration instead of inventing calibration files.",
-        "After AMC completes, the plan explicitly fetches the mv3dt_result ZIP and describes calling the AMC export_calibration POST endpoint; failed or nonzero export responses block deployment instead of being ignored.",
-        "The plan explicitly validates the AMC export response, downloads calibration to a temporary file, validates it, and atomically renames it to calibration.json rather than reusing an old export.",
-        "The exported calibration validation filters sensors to type == camera and requires valid JSON with at least two non-empty, safe, unique camera IDs.",
-        "The plan stages transforms.yml/map.png for BEV and treats BEV as ready only after both files are present in one BEV_DATASET_PATH.",
-        "The planned final deployment uses standalone config generation and compose, never warehouse calibration mount paths.",
-        "The agent does not actually deploy containers, invoke AMC/VIOS APIs, register RTSP streams, or require the placeholder /data and rtsp:// resources to exist."
-      ]
-    },
-    {
-      "query": "Plan only; do not run commands, start containers, call AMC/VIOS, download data, register RTSP streams, or modify files. I have live RTSP cameras Camera_01=rtsp://cam1/live Camera_02=rtsp://cam2/live Camera_03=rtsp://cam3/live Camera_04=rtsp://cam4/live, no calibration, MODELS_DIR=/data/vss-app-data/models, and I want MV3DT with saved output; assume no display is attached for this planning scenario. Return a detailed ordered RTSP calibration-to-deployment plan that includes: routing missing RTSP calibration to vss-generate-video-calibration; using vss-manage-video-io-storage by name only if the AMC RTSP VIOS prerequisite is not already reachable; confirming or setting VIOS_BASE_URL in the AMC environment, not standalone RT-CV-3D docker/.env; preserving the ordered RTSP URL list; after calibration/export, generating standalone configs and launching stream mode; waiting for ds-ready: YES; starting the saved fused BEV recorder before scripts/add-streams.sh and waiting for Kafka consumer group assignment evidence; running add-streams.sh with the supplied sensor_id=rtsp:// mappings; and verifying exact registered stream set, non-zero FPS, BEV Fusion health, and mdx-raw/mdx-bev offset growth.",
-      "checks": [
-        "The plan routes RTSP calibration through vss-generate-video-calibration.",
-        "The plan routes to vss-manage-video-io-storage by name only when RTSP calibration needs VIOS and it is not already deployed/reachable; VIOS is not treated as a standalone RT-CV-3D prerequisite.",
-        "The plan relies on the AMC RTSP flow to confirm or set VIOS_BASE_URL in the AMC env and never adds VIOS settings to standalone RT-CV-3D docker/.env.",
-        "The plan preserves the ordered RTSP URL list and automatically includes add-streams.sh after ds-ready when URLs were supplied.",
-        "If saved output is selected or defaulted, the plan includes starting the saved BEV recorder before add-streams.sh and waits for Kafka consumer group assignment evidence first.",
-        "The planned final RTSP success check requires exact stream set, non-zero FPS, BEV Fusion health, and mdx-raw/mdx-bev offset growth.",
-        "The agent does not actually deploy containers, invoke AMC/VIOS APIs, register RTSP streams, or require the placeholder /data and rtsp:// resources to exist."
+        "The plan identifies missing calibration before deployment and hands local MP4 calibration to vss-generate-video-calibration instead of inventing calibration files.",
+        "The plan includes the AMC platform preflight before upload/calibration work and says preflight failure stops the flow to request existing/generated calibration artifacts or a supported calibration host.",
+        "After AMC completes, the plan fetches/uses the AMC MV3DT export and validates calibration JSON by filtering sensors to type == camera with at least two non-empty safe unique camera IDs.",
+        "The plan stages BEV map/transforms assets and uses standalone RTVI-CV-3D config generation/compose, not warehouse calibration mount paths.",
+        "The agent does not actually deploy containers, invoke AMC/VIOS APIs, register RTSP streams, or require the placeholder /data resources to exist."
       ]
     }
   ]

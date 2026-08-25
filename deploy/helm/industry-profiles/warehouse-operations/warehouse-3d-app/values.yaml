@@ -15,6 +15,9 @@ global:
   useReleaseNamePrefix: false
   externalHost: ""
   externalPort: ""
+  # Comma-separated static TURN URLs (username:password@host:port). See
+  # deploy/helm/industry-profiles/warehouse-operations/TURN-SERVER.md.
+  turnServerUrl: ""
 
 bp-configurator:
   enabled: true

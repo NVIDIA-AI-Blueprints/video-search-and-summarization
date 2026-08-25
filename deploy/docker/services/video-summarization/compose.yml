@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-video-summarization:${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${CONTAINER_IMAGE:-${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-develop-latest}}
     container_name: vss-lvs
 
     profiles: ["lvs-server"]
@@ -132,6 +132,9 @@ services:
       nemotron-3-nano:
         condition: service_healthy
         required: false
+      nemotron-3.5-lightning-30b-a3b:
+        condition: service_healthy
+        required: false
       llama-3.3-nemotron-super-49b-v1.5:
         condition: service_healthy
         required: false
@@ -145,6 +148,9 @@ services:
         condition: service_healthy
         required: false
       nemotron-3-nano-shared-gpu:
+        condition: service_healthy
+        required: false
+      nemotron-3.5-lightning-30b-a3b-shared-gpu:
         condition: service_healthy
         required: false
       llama-3.3-nemotron-super-49b-v1.5-shared-gpu:

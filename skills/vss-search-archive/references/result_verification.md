@@ -24,66 +24,40 @@ resolve its main stream from VST, and request only the hit interval. Use
 : "${HIT_START:?exact CLI start_time}"
 : "${HIT_END:?exact CLI end_time}"
 [[ "${HIT_SENSOR_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || exit 1
-
 VSS_PUBLIC_URL="${VST_URL%/}"
-VST_API_BASE="${VSS_PUBLIC_URL}/vst/api/v1"
-STREAMS=$(curl -fsS --connect-timeout 5 --max-time 15 \
-  "${VST_API_BASE}/sensor/${HIT_SENSOR_ID}/streams") || exit 1
-STREAM_ID=$(printf '%s' "${STREAMS}" | jq -er '
-  if type == "array" then
-    ((map(select(.isMain == true)) + .)[0].streamId)
-  else
-    .streamId
-  end | select(type == "string" and length > 0)') || exit 1
-[[ "${STREAM_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || exit 1
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" \
+  --no-dev --extra cli vss)
 
-TIMELINE=$(curl -fsS --connect-timeout 5 --max-time 15 \
-  "${VST_API_BASE}/storage/${STREAM_ID}/timelines") || exit 1
+# The recorded timeline. `vios timeline` resolves the sensor and its main
+# stream itself, so there is no /sensor/<id>/streams call to make.
+TIMELINE=$("${VSS[@]}" vios timeline --sensor "${HIT_SENSOR_ID}") || exit 1
 TIMELINE_START=$(printf '%s' "${TIMELINE}" |
-  jq -er 'sort_by(.startTime) | first | .startTime') || exit 1
+  jq -er '.segments[0].start_time') || exit 1
 TIMELINE_END=$(printf '%s' "${TIMELINE}" |
-  jq -er 'sort_by(.startTime) | first | .endTime') || exit 1
+  jq -er '.segments[0].end_time') || exit 1
+
+# Rebase the synthetic hit interval onto the current file timeline, preserving
+# its exact duration. This is the one part the CLI does not do for you.
 mapfile -t MAPPED_BOUNDS < <(
   uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev python - \
     "${HIT_START}" "${HIT_END}" "${TIMELINE_START}" "${TIMELINE_END}" <<'PY'
 import sys
-from vss_core.vst import map_interval_to_timeline
+from vss_core.vios import map_interval_to_timeline
 
 for value in map_interval_to_timeline(*sys.argv[1:]):
     print(value)
 PY
 )
 [ "${#MAPPED_BOUNDS[@]}" -eq 2 ] || exit 1
-CLIP_START=${MAPPED_BOUNDS[0]}
-CLIP_END=${MAPPED_BOUNDS[1]}
 
-CLIP_RESPONSE=$(curl -fsS --connect-timeout 5 --max-time 120 --get \
-  "${VST_API_BASE}/storage/file/${STREAM_ID}/url" \
-  --data-urlencode "startTime=${CLIP_START}" \
-  --data-urlencode "endTime=${CLIP_END}" \
-  --data-urlencode 'container=mp4' \
-  --data-urlencode 'disableAudio=true') || exit 1
-VIDEO_URL=$(printf '%s' "${CLIP_RESPONSE}" |
-  jq -er '.videoUrl | select(type == "string" and length > 0)') || exit 1
-
-# VIOS 3.2.0 may prepend a scheme to an endpoint that already has one. Reduce
-# the response to its path, then attach the already validated deployment origin.
-while [[ "${VIDEO_URL}" =~ ^https?://https?:// ]]; do
-  VIDEO_URL="${VIDEO_URL#*://}"
-done
-VIDEO_HOST_AND_PATH="${VIDEO_URL#*://}"
-case "${VIDEO_HOST_AND_PATH}" in
-  */*) VIDEO_PATH_QUERY="/${VIDEO_HOST_AND_PATH#*/}" ;;
-  *) exit 1 ;;
-esac
-case "${VIDEO_PATH_QUERY}" in
-  /vst/*) ;;
-  /storage/*) VIDEO_PATH_QUERY="/vst${VIDEO_PATH_QUERY}" ;;
-  *) exit 1 ;;
-esac
-VIDEO_URL="${VSS_PUBLIC_URL}${VIDEO_PATH_QUERY}"
-curl -fS --connect-timeout 5 --max-time 120 \
-  "${VIDEO_URL}" -o /dev/null || exit 1
+# One call: the window is validated against what is actually recorded, the URL
+# is minted, normalised onto the configured origin, and its lazy render warmed.
+# The scheme-doubling and bare-/storage repairs that used to live here are the
+# CLI's job now.
+CLIP=$("${VSS[@]}" vios clip --sensor "${HIT_SENSOR_ID}" \
+  --start-time "${MAPPED_BOUNDS[0]}" --end-time "${MAPPED_BOUNDS[1]}") || exit 1
+VIDEO_URL=$(printf '%s' "${CLIP}" |
+  jq -er '.media_url | select(type == "string" and length > 0)') || exit 1
 export VIDEO_URL VSS_PUBLIC_URL
 ```
 

@@ -1,0 +1,122 @@
+---
+title: "RT-CV Performance"
+description: ""
+position: 4
+---
+
+## Overview
+
+The Real-Time Computer Vision (RT-CV) microservice leverages the NVIDIA DeepStream SDK to
+perform continuous object detection and multi-object tracking on live RTSP streams. Benchmarks
+measure the maximum number of concurrent 1080p streams a single GPU can sustain at 30 FPS
+with object detection and tracker enabled.
+
+<Frame caption="Max concurrent 1080p streams per GPU. RT-DETR Resnet50 provides the highest stream count on server GPUs (H100, RTX Pro 6000 SE); edge platforms (DGX Spark, AGX Thor) are best suited for lighter-weight deployments.">
+  <img src="/assets/images/performance/cv_max_streams_by_model.png" alt="RT-CV max concurrent 1080p streams per GPU by model" />
+</Frame>
+
+## Test Configuration
+
+| Parameter | Value |
+| --- | --- |
+| VSS Release | 3.2 |
+| Video resolution | 1920×1080 (1080p) |
+| Input format | H.264 |
+| Configured stream FPS | 30 |
+| Model precision | FP16 |
+| Inference engine | TensorRT (TRT) |
+| Tracker | Enabled |
+| Models tested | RT-DETR (Resnet50 backbone), RT-DETR (EfficientViT/L2 backbone), Grounding DINO (GDINO) |
+| GPUs tested | H100, RTX Pro 6000 SE, L40S, DGX Spark, AGX Thor |
+
+## Performance by GPU
+
+<Tabs>
+<Tab title="H100">
+
+| Model | Backbone | Max Streams | Avg Latency (ms) | p90 (ms) | p95 (ms) | GPU Core (%) | CPU Core (%) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| RT-DETR | Resnet50 | 50 | 408.46 | 858.32 | 901.02 | 92.1 | 2.6 |
+| RT-DETR | EfficientViT/L2 | 11 | 56.0 | 67.34 | 69.11 | 88.4 | 1.1 |
+| Grounding DINO | — | 6 | 61.47 | 75.25 | 75.61 | 90.0 | 0.9 |
+
+</Tab>
+<Tab title="RTX Pro 6000 SE">
+
+| Model | Backbone | Max Streams | Avg Latency (ms) | p90 (ms) | p95 (ms) | GPU Core (%) | CPU Core (%) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| RT-DETR | Resnet50 | 29 | 196.59 | 258.85 | 327.31 | 90.6 | 1.3 |
+| RT-DETR | EfficientViT/L2 | 17 | 62.02 | 73.18 | 74.84 | 87.0 | 0.8 |
+| Grounding DINO | — | 5 | 61.08 | 70.09 | 72.43 | 86.5 | 0.6 |
+
+</Tab>
+<Tab title="L40S">
+
+| Model | Backbone | Max Streams | Avg Latency (ms) | p90 (ms) | p95 (ms) | GPU Core (%) | CPU Core (%) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| RT-DETR | Resnet50 | 15 | 65.64 | 72.97 | 73.72 | 87.3 | 0.9 |
+| RT-DETR | EfficientViT/L2 | 4 | 53.14 | 66.07 | 70.5 | 88.9 | 0.6 |
+| Grounding DINO | — | 3 | 52.35 | 64.27 | 68.04 | 84.6 | 0.5 |
+
+</Tab>
+<Tab title="DGX Spark">
+
+| Model | Backbone | Max Streams | Avg Latency (ms) | p90 (ms) | p95 (ms) | GPU Core (%) | CPU Core (%) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| RT-DETR | Resnet50 | 5 | 171.91 | 206.27 | 221.29 | 95.5 | 21.9 |
+| RT-DETR | EfficientViT/L2 | 3 | 116.67 | 127.64 | 128.9 | 95.0 | 19.4 |
+| Grounding DINO\* | — | 1 | 26.71 | 44.37 | 45.07 | 54.3 | 13.7 |
+
+</Tab>
+<Tab title="AGX Thor">
+
+| Model | Backbone | Max Streams | Avg Latency (ms) | p90 (ms) | p95 (ms) | GPU Core (%) | CPU Core (%) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| RT-DETR | Resnet50 | 4 | 56.39 | 68.25 | 72.33 | 59.8 | 22.3 |
+| RT-DETR | EfficientViT/L2 | 3 | 60.31 | 76.68 | 78.48 | 88.1 | 20.6 |
+| Grounding DINO\* | — | 1 | 43.23 | 62.2 | 64.0 | 67.7 | 17.6 |
+
+</Tab>
+</Tabs>
+
+<Note>
+All benchmarks were measured at 30 FPS, 1080p, H.264 input, FP16 precision with TensorRT,
+and object tracker enabled. For production deployments, plan for 10–15% headroom below the
+maximum stream counts listed above.
+</Note>
+
+<Note>
+\* Grounding DINO on DGX Spark and AGX Thor is run with `interval=1` — inference is
+performed on every alternate frame to meet the reported stream counts.
+</Note>
+
+## Platform Limitations
+
+**Jetson Orin NX 8 GB (T234)**
+
+RT-DETR (Resnet50 backbone) at 1080p FP16 does not sustain 30 FPS on Jetson Orin NX 8 GB, even
+with a single stream. A standalone TensorRT measurement (`trtexec`, batch size 1) on this
+platform peaks at approximately 29 inferences per second, which is already below the 30 FPS
+target before any decode, tracker, or message broker overhead is added. The perception pipeline
+therefore reports 21–24 FPS for a single stream on this device.
+
+To run the perception pipeline in real time on this platform, do one of the following:
+
+* Set `interval=1` in the `[primary-gie]` group of the DeepStream application configuration
+  so that inference is performed on every alternate frame. The tracker maintains object
+  continuity on the skipped frames, which halves the inference load and allows a 30 FPS input
+  stream to be processed without frame drops.
+* Configure the source streams at 15 FPS instead of 30 FPS.
+
+Jetson Orin NX 8 GB is not part of the validated platform list in [Prerequisites](/prerequisites#hardware-requirements). For 30 FPS deployments without an inference interval, use one of
+the validated platforms listed in the `Performance by GPU`_ tables above.
+
+**Jetson AGX Orin**
+
+The RT-CV container image is large relative to the storage typically available on a Jetson AGX
+Orin device. The image is approximately 18 GB of compressed content and expands to approximately
+48 GB on disk. When the filesystem that hosts the container storage root has less free space than
+this, `docker pull` downloads all of the image layers and then fails during extraction with a
+`no space left on device` error, and the RT-CV microservice does not start. Confirm that at
+least 48 GB is free on that filesystem before deploying RT-CV on this platform. A reduction in
+the RT-CV image size is planned for a future release.

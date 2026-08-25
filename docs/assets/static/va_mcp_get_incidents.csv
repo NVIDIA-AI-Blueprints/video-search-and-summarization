@@ -1,0 +1,8 @@
+Parameter,Type,Description
+source,string,Sensor ID or place name
+source_type,string,"``sensor`` or ``place`` (required if source provided)"
+start_time,string,ISO format: ``YYYY-MM-DDTHH:MM:SS.sssZ``
+end_time,string,ISO format: ``YYYY-MM-DDTHH:MM:SS.sssZ``
+max_count,int,Maximum results (default: 10)
+includes,list,"Optional fields: ``objectIds``, ``info``"
+vlm_verdict,string,"Filter by VLM verdict (requires ``vlm_verified: true``)"

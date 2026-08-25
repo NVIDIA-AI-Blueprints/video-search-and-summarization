@@ -1,0 +1,266 @@
+---
+title: "SigLIP 2 object embeddings"
+description: ""
+position: 2
+---
+## Role in VSS
+
+The RT-CV microservice ([Object Detection and Tracking ](/object-detection-tracking)) can produce **object embeddings** from detection crops and **text embeddings** from prompts using a **combined CLIP-style ONNX** export: vision on TensorRT, text on ONNX Runtime with tokenizer assets. Runtime INI keys and APIs are documented under [ReID and Embeddings](/object-detection-tracking#reid-and-embeddings-rest-api-and-config-reference) on that page.
+
+<Note>
+**Purpose-built model cards** (inputs, outputs, licensing, integration notes) are maintained alongside NGC collaterals. For SigLIP 2, see `SigLIP_2` under `ngc-collaterals/multimodal/docs/purpose_built_models/` in the collaterals repo. Use those files together with the published TAO embedding guides when you need field-level model card detail.
+</Note>
+
+## SigLIP 2 at a glance
+
+**SigLIP 2** is a vision-language encoder that produces joint image and text embeddings for cross-modal retrieval, object search, and re-identification. The VSS 3.2.0 models section carries SigLIP 2 for RT-CV object embeddings. Variants include SO400M and giant backbones with image resolutions such as 224x224, 256x256, 384x384, and 512x512, and embedding dimensions from 768 to 1536 depending on the checkpoint. Typical TAO entry uses Hugging Face weights; `model.type` selects the variant (for example `siglip2-so400m-patch16-256` or `siglip2-giant-opt-patch16-384`). See the [SigLIP 2 model card](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/siglip_v2?version=deployable_v1.1) and the [SigLIP 2 paper](https://arxiv.org/abs/2502.14786).
+
+## Hardware and software requirements
+
+Follow the [TAO Toolkit Quick Start — Requirements](https://docs.nvidia.com/tao/tao-toolkit/latest/text/getting_started.html). Use a Linux environment with a supported NVIDIA GPU stack; CLIP training and export use the same TAO Launcher pattern as other embedding models.
+
+## Dataset requirements
+
+TAO CLIP fine-tuning expects **image–text pairs**. Two dataset layouts are supported in depth in the TAO docs:
+
+**Custom directory layout** — Images and captions in parallel trees; each `.txt` caption file shares a basename with its image (`images/foo.jpg` ↔ `captions/foo.txt`). Supported image extensions include `.jpg`, `.jpeg`, `.png`.
+
+**WebDataset (WDS)** — Sharded `.tar` archives with paired image and caption keys; suitable for large or cloud-hosted corpora (including S3 URLs via shard lists).
+
+For inference-time **text embedding**, provide a plain-text file with **one prompt per line** and set `inference.text_file` in the experiment spec. Full layout examples and YAML snippets are in the [CLIP introduction](https://docs.nvidia.com/tao/tao-toolkit/latest/text/embedding/clip/overview.html) (mirrors the in-repo `tlt-docs/docs/text/embedding/clip/overview.rst`).
+
+Supported `model.type` values (summary)
+
+## Supported `model.type` values (summary)
+
+The TAO **CLIP introduction** documents all CLIP-family options. The table below is the VSS 3.2.0 reference for RT-CV object embeddings.
+
+| Family | Example `model.type` values | Typical image size | Embedding dim | Weights source |
+| --- | --- | --- | --- | --- |
+| SigLIP 2 | `siglip2-so400m-patch16-256`, `siglip2-so400m-patch16-384`, `siglip2-giant-opt-patch16-384`, fixed-resolution variants listed on NGC | 224-512 | 768-1536 | Hugging Face / NGC |
+
+## Deployment limitations (read before export)
+
+* **TensorRT** deployment supports FP16 and FP32 for generated engines.
+* The `siglip2-so400m-patch16-naflex` variant supports dynamic resolution in training but **cannot** be exported to ONNX or TensorRT in current TAO—choose a fixed-resolution SigLIP 2 variant for RT-CV deployment.
+* `attention_mask` may appear as an ONNX input for backward compatibility; behavior is documented in the [CLIP introduction](https://docs.nvidia.com/tao/tao-toolkit/latest/text/embedding/clip/overview.html).
+
+## TAO fine-tuning configuration
+
+Fine-tuning uses a YAML **experiment specification** file (same pattern as other TAO embedding models). The spec is organized into sections that mirror the [CLIP training documentation](https://docs.nvidia.com/tao/tao-toolkit/latest/text/embedding/clip/training.html) and the in-repo sources under `tlt-docs/docs/text/embedding/clip/training.rst`.
+
+Invoke tasks with:
+
+```bash
+tao model clip <action> -e /path/to/experiment_spec.yaml [overrides]
+
+# TensorRT engine generation uses TAO Deploy:
+tao deploy clip gen_trt_engine -e /path/to/experiment_spec.yaml
+```
+
+Supported actions: `train`, `evaluate`, `inference`, `export`, and (TAO Deploy) `gen_trt_engine`.
+
+An experiment specification file consists of several main components:
+
+* `model` — backbone `type`, optional `adaptor_name`, freeze flags, text canonicalization
+* `train` — epochs, GPUs, loss (`siglip` / `clip`), precision, optimizer (`train.optim`), resume paths
+* `dataset` — `train` / `val` loaders (`custom` or `wds`), `augmentation`
+* `evaluate` — checkpoint and batch size for retrieval metrics
+* `inference` — image dirs, `text_file` for prompts
+* `export` — ONNX path, `encoder_type` (`combined` or `separate`), input height/width, opset
+* `gen_trt_engine` — ONNX input, TRT output path, TensorRT precision and batch bounds
+
+For field-by-field tables (defaults and valid options), use the published [CLIP training](https://docs.nvidia.com/tao/tao-toolkit/latest/text/embedding/clip/training.html) page (sourced from `tlt-docs`).
+
+### Example experiment specification
+
+The following example follows the TAO Launcher layout for **SigLIP 2** (`siglip2-so400m-patch16-256`): custom image-caption dataset, combined ONNX export at **256x256**, FP16 TensorRT profile. Adjust `model.type` and export resolution if you use another fixed-resolution SigLIP 2 checkpoint.
+
+```yaml
+results_dir: /results/clip_experiment
+
+model:
+  type: siglip2-so400m-patch16-256
+  adaptor_name: null
+  freeze_vision_encoder: false
+  freeze_text_encoder: false
+  canonicalize_text: false
+
+train:
+  num_epochs: 100
+  num_gpus: 1
+  num_nodes: 1
+  checkpoint_interval: 10
+  resume_training_checkpoint_path: null
+  pretrained_model_path: null
+  loss_type: siglip
+  precision: fp16
+  grad_checkpointing: false
+  grad_clip_norm: null
+  distributed_strategy: ddp
+  validation_interval: 1
+  val_check_interval: null
+  optim:
+    optimizer_type: adamw
+    vision_lr: 1.0e-4
+    text_lr: 1.0e-4
+    weight_decay: 1.0e-4
+    betas: [0.9, 0.95]
+    eps: 1.0e-6
+    warmup_steps: 100
+    scheduler: cosine
+
+dataset:
+  seed: 42
+  train:
+    type: custom
+    datasets:
+      - image_dir: /data/train/images
+        caption_dir: /data/train/captions
+        caption_file_suffix: .txt
+        image_list_file: null
+    batch_size: 16
+    num_workers: 8
+  val:
+    datasets:
+      - image_dir: /data/val/images
+        caption_dir: /data/val/captions
+    batch_size: 16
+    num_workers: 8
+  augmentation:
+    scale: [0.4, 1.0]
+    color_jitter: [0.8, 0.32, 0.32, 0.32, 0.08]
+    grayscale: 0.2
+
+evaluate:
+  checkpoint: /results/clip_experiment/train/epoch_100.pth
+  batch_size: 16
+
+inference:
+  checkpoint: /results/clip_experiment/train/epoch_100.pth
+  datasets:
+    - image_dir: /data/inference/images
+  text_file: /data/inference/prompts.txt
+  batch_size: 16
+
+export:
+  checkpoint: /results/clip_experiment/train/epoch_100.pth
+  onnx_file: /results/clip_experiment/export/clip_model.onnx
+  encoder_type: combined
+  input_height: 256
+  input_width: 256
+  batch_size: -1
+  opset_version: 17
+
+gen_trt_engine:
+  onnx_file: /results/clip_experiment/export/clip_model.onnx
+  trt_engine: /results/clip_experiment/deploy/clip_model.engine
+  batch_size: -1
+  tensorrt:
+    workspace_size: 4096
+    data_type: fp16
+    min_batch_size: 1
+    opt_batch_size: 8
+    max_batch_size: 16
+```
+
+### Launch model fine-tuning
+
+Below are important fields to set before launching training (match paths to your dataset):
+
+```yaml
+dataset:
+  train:
+    datasets:
+      - image_dir: ??  # training images
+        caption_dir: ??  # parallel captions (.txt per image)
+        caption_file_suffix: .txt
+        image_list_file: null
+  val:
+    datasets:
+      - image_dir: ??
+        caption_dir: ??
+```
+
+```yaml
+model:
+  type: siglip2-so400m-patch16-256
+  adaptor_name: null
+```
+
+```yaml
+train:
+  num_epochs: ??  # e.g. 50–100 for domain fine-tune
+  num_gpus: ??    # or pass train.num_gpus=4 on the CLI
+  pretrained_model_path: null  # or path to a TAO checkpoint
+  loss_type: siglip
+  precision: fp16
+```
+
+Launch training:
+
+```bash
+tao model clip train -e /path/to/experiment_spec.yaml \
+  results_dir=/results/clip_run1 \
+  train.num_gpus=4
+```
+
+### Evaluate the fine-tuned model
+
+Point `evaluate.checkpoint` at your trained `.pth` (or leave unset for zero-shot pretrained evaluation per TAO docs).
+
+```bash
+tao model clip evaluate -e /path/to/experiment_spec.yaml \
+  evaluate.checkpoint=/results/clip_experiment/train/epoch_100.pth
+```
+
+### Run inference (embedding extraction)
+
+Inference writes HDF5 outputs under `results_dir` (image and text embeddings). Configure `inference.datasets` and `inference.text_file` as in the example spec above.
+
+```bash
+tao model clip inference -e /path/to/experiment_spec.yaml \
+  inference.checkpoint=/results/clip_experiment/train/epoch_100.pth \
+  inference.text_file=/data/prompts.txt \
+  results_dir=/results/clip_experiment/inference
+```
+
+### Export the fine-tuned model
+
+Use `export.encoder_type: combined` for a single ONNX for RT-CV-style deployment (vision + text). Match `export.input_height` / `input_width` to the trained resolution. Export also emits `_config.yaml` and a tokenizer directory beside the ONNX—keep them together for TAO Deploy.
+
+```bash
+tao model clip export -e /path/to/experiment_spec.yaml \
+  export.checkpoint=/results/clip_experiment/train/epoch_100.pth \
+  export.onnx_file=/results/clip_experiment/export/clip_model.onnx \
+  export.encoder_type=combined
+```
+
+### Generate a TensorRT engine (TAO Deploy)
+
+```bash
+tao deploy clip gen_trt_engine -e /path/to/experiment_spec.yaml \
+  gen_trt_engine.onnx_file=/results/clip_experiment/export/clip_model.onnx \
+  gen_trt_engine.trt_engine=/results/clip_experiment/deploy/clip_model.engine \
+  gen_trt_engine.tensorrt.data_type=fp16
+```
+
+Further **export shapes**, separate vision/text ONNX, tokenizer artifacts, and ONNX external-data notes are in the **Exporting the Model** section of the [CLIP training documentation](https://docs.nvidia.com/tao/tao-toolkit/latest/text/embedding/clip/training.html).
+
+## Integrating fine-tuned weights into RT-CV
+
+1. Export a **combined** image+text ONNX (and tokenizer directory) so vision and text paths stay aligned.
+2. Deploy artifacts beside the RT-CV container or mount them with volumes.
+3. In DeepStream, enable the vision encoder and text embedder blocks; set `onnx-model-path` and `tokenizer-dir`; rebuild the **TensorRT** engine for the vision branch. Keep image size, tokenizer max length, and normalization consistent with training.
+4. Validate REST text embedding APIs, Kafka embedding dimensions, and downstream services (for example [Behavior Analytics ](/behavior-analytics)).
+
+<Note>
+Changing embedding dimension or geometry usually requires **re-indexing** vectors and rechecking similarity thresholds—see [Model customization overview ](/models/model-customization).
+</Note>
+
+## Source material in this repo’s doc trees
+
+The following paths (local checkouts) align with the published TAO URLs above and are useful when drafting or reviewing details:
+
+* `tlt-docs/docs/text/embedding/` — `index.rst`, `clip/overview.rst`, `clip/training.rst`, `clip/applications.rst`
+* `ngc-collaterals/multimodal/docs/purpose_built_models/` — `SigLIP_2/overview.md`

@@ -57,6 +57,12 @@ service:
   port: 9080
   type: ClusterIP
 
+# Seconds the pod gets to shut down. Must stay above the shutdown budget: at
+# alert_agent.processes: 1 that is up to 10s for the API child, up to 15s of
+# drain, up to 5s to close the event-loop clients and up to 15s to stop the
+# runtime -- 45s bounded. Lowering it cuts in-flight work instead of draining.
+terminationGracePeriodSeconds: 60
+
 resources: {}
 nodeSelector: {}
 tolerations: []

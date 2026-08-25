@@ -19,6 +19,24 @@ services:
     container_name: vss-alert-bridge
     profiles: ["alert-bridge"]
     restart: unless-stopped
+    # Shutdown is a chain of bounded waits, and Docker's 10s default cuts it
+    # in the middle -- in-flight work is killed rather than finished.
+    #
+    # At the shipped alert_agent.processes: 1 there is no supervisor, and this
+    # is the longer of the two paths:
+    #   <=10s  terminate and join the API child
+    #   <=15s  drain dispatch and sink work still in flight
+    #    <=5s  close the event-loop HTTP and Elastic clients
+    #   <=15s  stop the event-loop runtime (10s, then a 5s join)
+    #     0    the revoke that leaving the group delivers -- it inherits the
+    #          drain budget above rather than opening a second one
+    # 45s bounded. Above one process the supervisor owns the timeline instead
+    # -- drain T+15, terminate T+18, kill T+19, done T+20 -- and reaps the API
+    # child inside it, so that path is shorter.
+    #
+    # 60s leaves margin. The webhook forwarder, the notifier pool and the sink
+    # still close without a bound, and predate this, so no value is a promise.
+    stop_grace_period: 60s
     ports:
       - ${ALERT_BRIDGE_HOST_PORT:-9080}:${ALERT_BRIDGE_PORT:-9080}
     environment:

@@ -48,6 +48,16 @@ curl -sf "$ES/mdx-vlm-alerts-*/_search" -H 'Content-Type: application/json' -d '
   "size": 10, "sort": [{"@timestamp": "desc"}],
   "query": {"match": {"category": "<alert_type>"}}
 }' | jq '.hits.hits[]._source'
+```
+
+**An absent `mdx-vlm-alerts-*` index IS the answer: no CV verdicts recorded
+yet.** The index is created by the first verification write, so "index not
+found" and "zero hits" mean the same thing — report it. Do **not** fall back to
+`mdx-vlm-incidents-*`. That is the real-time incident store answering a
+different question, and sourcing a CV-verdict answer from it reports someone
+else's data as this one's.
+
+```bash
 
 # by verdict
 curl -sf "$ES/mdx-vlm-alerts-*/_search" -H 'Content-Type: application/json' -d '{

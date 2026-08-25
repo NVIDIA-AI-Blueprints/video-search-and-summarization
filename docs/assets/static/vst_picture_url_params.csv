@@ -1,0 +1,9 @@
+Parameter,Default,Description
+get_replay_picture_url_tool,vst_get_replay_picture_url,MCP tool for replay pictures
+get_live_picture_url_tool,None,MCP tool for live pictures (optional)
+get_sensor_list_tool,vst_sensor_list,MCP tool for getting sensor list
+vst_base_url,None,Override base URL from MCP response
+expiry_minutes,None,URL expiration time (default: 7 days)
+max_retries,3,Maximum retries for getting picture URL
+retry_delay_seconds,1,Delay between retries
+
