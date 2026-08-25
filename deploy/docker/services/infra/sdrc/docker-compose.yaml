@@ -113,25 +113,6 @@ services:
     entrypoint: ["/bin/sh", "/wait-for-redis.sh"]
     container_name: sdrc-wait-for-redis
 
-  wait-for-docker-workloads:
-    profiles: ["wait-for-docker-workloads"]
-    image: alpine:3.24.1
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - apk add --no-cache docker-cli >/dev/null && /wait-for-docker-workloads.sh
-    restart: "no"
-    user: "0:0"
-    depends_on:
-      wdm-env-from-config:
-        condition: service_completed_successfully
-    environment:
-      DOCKER_WORKLOAD_WAIT_SECONDS: "${DOCKER_WORKLOAD_WAIT_SECONDS:-300}"
-    volumes:
-      - ./wait-for-docker-workloads.sh:/wait-for-docker-workloads.sh:ro
-      - ./.wdm-env:/wdm-env:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    container_name: sdrc-wait-for-workloads
-
   # sdr-mw-l: host network, Kubernetes API + CA, Docker socket, docker_cluster_config.json (mixed docker/k8s).
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
   sdr-controller:

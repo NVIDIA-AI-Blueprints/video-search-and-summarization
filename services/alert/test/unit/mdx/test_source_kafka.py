@@ -66,7 +66,7 @@ LEGACY_CONFIG = {
 
 def make_source(config=NEW_CONFIG):
     with patch("mdx.source.source_kafka.KafkaMessageBroker") as broker_cls:
-        broker_cls.return_value.get_consumer.side_effect = lambda topic, group: MagicMock(
+        broker_cls.return_value.get_consumer.side_effect = lambda topic, group, on_revoke=None, on_assignment_change=None: MagicMock(
             name=f"consumer:{topic}"
         )
         return SourceKafka(config)
@@ -156,9 +156,13 @@ class TestEnsureConsumer:
         source._ensure_consumer("mdx-alerts")
 
         assert "mdx-alerts" in source.topic_consumer_map
-        source.kafka_message_broker.get_consumer.assert_called_once_with(
-            "mdx-alerts", "alert-bridge"
-        )
+        # The hooks are dereferenced when the callback fires rather than
+        # captured here, so what matters is that both are wired, not their
+        # value at subscribe time.
+        topic, group = source.kafka_message_broker.get_consumer.call_args.args
+        hooks = source.kafka_message_broker.get_consumer.call_args.kwargs
+        assert (topic, group) == ("mdx-alerts", "alert-bridge")
+        assert callable(hooks["on_revoke"]) and callable(hooks["on_assignment_change"])
 
     def test_the_consumer_is_cached(self, source):
         source._ensure_consumer("mdx-alerts")
@@ -187,7 +191,10 @@ class TestReadData:
         assert {b["kind"] for b in batches} == {"incident", "alert"}
         assert len(batches) == 2
 
-    def test_messages_from_several_partitions_merge_into_one_kind(self, source):
+    def test_each_partition_becomes_its_own_batch(self, source):
+        # Merging partitions into one batch per kind threw away the only thing
+        # that says which partition work belongs to, and a rebalance cannot
+        # drain what it cannot attribute.
         source.kafka_message_broker.get_consumed_messages.side_effect = [
             {
                 "mdx-incidents-0": [(b"cam-1", payload(), 1700000000000)],
@@ -198,8 +205,24 @@ class TestReadData:
 
         batches = source.read_data()
 
-        assert len(batches) == 1
-        assert len(batches[0]["messages"]) == 2
+        assert len(batches) == 2
+        assert all(len(b["messages"]) == 1 for b in batches)
+        assert sorted(b["partition"] for b in batches) == [0, 1]
+        assert {b["topic"] for b in batches} == {"mdx-incidents"}
+        assert {b["kind"] for b in batches} == {"incident"}
+
+    def test_a_hyphenated_topic_name_does_not_confuse_the_partition(self, source):
+        # The key is "<topic>-<partition>" and every shipped topic name has
+        # hyphens in it, so the number has to come off the right.
+        source.kafka_message_broker.get_consumed_messages.side_effect = [
+            {"mdx-incidents-11": [(b"cam-1", payload(), 1700000000000)]},
+            {},
+        ]
+
+        batches = source.read_data()
+
+        assert batches[0]["topic"] == "mdx-incidents"
+        assert batches[0]["partition"] == 11
 
     def test_empty_kinds_are_dropped(self, source):
         source.kafka_message_broker.get_consumed_messages.side_effect = [{}, {}]
@@ -401,3 +424,89 @@ class TestClose:
 
     def test_closing_before_any_poll_is_a_noop(self, source):
         source.close()
+
+
+class TestRecordsStrandedByARevokeAreCounted:
+    """A revoke delivered by the poll that filled the batch strands records.
+
+    They are already committed, so they are processed here while the incoming
+    owner starts on the same sensors. The drain cannot have counted them, so
+    the size of that residual is counted instead of assumed.
+    """
+
+    @staticmethod
+    def _source(revoked, owned=()):
+        from unittest.mock import MagicMock
+        from mdx.source.source_kafka import SourceKafka
+
+        source = SourceKafka.__new__(SourceKafka)
+        source.source_topics = ["t"]
+        source.topic_to_kind = {"t": "incident"}
+        source.topic_consumer_map = {"t": MagicMock()}
+        source._ensure_consumer = lambda topic: None
+        broker = MagicMock()
+        broker.get_consumed_messages.return_value = {
+            "t-3": [(b"k", b'{"id": "a"}', None), (b"k", b'{"id": "b"}', None)]
+        }
+        broker.was_revoked.side_effect = (
+            lambda consumer, topic, partition: (topic, partition) in revoked
+        )
+        source.kafka_message_broker = broker
+        return source
+
+    def _counted(self, revoked):
+        from unittest.mock import patch
+        source = self._source(revoked)
+        with patch("metrics.recorder.inc_records_read_after_revoke") as counter:
+            source.read_data()
+        return sum(call.args[0] for call in counter.call_args_list)
+
+    def test_stranded_records_are_counted_once_each(self):
+        assert self._counted({("t", 3)}) == 2
+
+    def test_a_missing_metrics_package_does_not_end_the_consume_loop(self):
+        # This module guards its metrics import on purpose. An unguarded one
+        # here raised ImportError out of read_data, which is caught only by
+        # the broad handler that exits the consume loop for good -- turning a
+        # packaging problem into a total outage.
+        from unittest.mock import patch
+        source = self._source({("t", 3)})
+        with patch("mdx.source.source_kafka._metrics", None):
+            batches = source.read_data()
+        assert len(batches) == 1
+
+    def test_records_on_a_partition_still_held_are_not_counted(self):
+        # The eager protocol revokes everything and hands most of it straight
+        # back; counting that as a stranding pages an operator on every deploy.
+        assert self._counted(set()) == 0
+
+
+class TestTheEagerAssignorIsPinned:
+    """revoked() clears the whole owned set; assigned() assigns the whole one.
+
+    Both are written for the eager protocol. Under a cooperative assignor the
+    callbacks are incremental, so the owned set would collapse to the
+    increment and readiness would drop on a partial revoke. Left overridable,
+    a deployment could select that quietly.
+    """
+
+    @staticmethod
+    def _resolve(value):
+        from mdx.kafka_message_broker import _require_eager_assignor
+        return _require_eager_assignor(value)
+
+    def test_the_default_is_eager(self):
+        assert self._resolve(None) == "range,roundrobin"
+
+    def test_an_explicit_eager_choice_is_honoured(self):
+        assert self._resolve("roundrobin") == "roundrobin"
+
+    def test_a_cooperative_assignor_is_refused(self):
+        import pytest
+        with pytest.raises(ValueError, match="cooperative-sticky"):
+            self._resolve("cooperative-sticky")
+
+    def test_a_mixed_request_is_refused_by_its_unsupported_half(self):
+        import pytest
+        with pytest.raises(ValueError, match="cooperative-sticky"):
+            self._resolve("range,cooperative-sticky")

@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda
@@ -39,6 +40,7 @@ from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
 from vss_agents.agents.top_agent import strip_frontend_tags
+from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
 
 
 class TestTopAgentConstants:
@@ -735,3 +737,110 @@ class TestAugmentContextClipOffsets:
         await _augment_context_clip_offsets(msg)
 
         assert sorted(timeline_calls) == ["stream-cam1", "stream-cam2"]
+
+
+class TestLvsConfigMediaCaptionGate:
+    """lvs_config_media must not run HITL unless the user asked to start captioning."""
+
+    def _agent_with_config_tool(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class ConfigTool:
+            args_schema = None
+
+            def __init__(self):
+                self.called = False
+
+            async def astream(self, input, config=None):
+                self.called = True
+                yield "should not run"
+
+        config_tool = ConfigTool()
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"lvs_config_media": config_tool}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        return agent, config_tool
+
+    @pytest.mark.asyncio
+    async def test_blocks_config_media_on_summarize_query(self, monkeypatch):
+        agent, config_tool = self._agent_with_config_tool(monkeypatch)
+        state = TopAgentState(
+            current_message=HumanMessage(
+                content="Summarize the stream sample_warehouse from 45 seconds until now",
+            ),
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling config",
+                    tool_calls=[
+                        {
+                            "name": "lvs_config_media",
+                            "args": {"stream_name": "sample_warehouse"},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert config_tool.called is False
+        assert state.final_answer == LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
+        assert any(
+            isinstance(msg, ToolMessage) and LVS_CONFIG_MEDIA_BLOCKED_MESSAGE in str(msg.content)
+            for msg in state.agent_scratchpad
+        )
+
+    @pytest.mark.asyncio
+    async def test_allows_config_media_on_start_captioning_query(self, monkeypatch):
+        agent, config_tool = self._agent_with_config_tool(monkeypatch)
+        state = TopAgentState(
+            current_message=HumanMessage(content="start captioning the stream sample_warehouse"),
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling config",
+                    tool_calls=[
+                        {
+                            "name": "lvs_config_media",
+                            "args": {"stream_name": "sample_warehouse"},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert config_tool.called is True
+        assert state.final_answer != LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_blocks_config_media_on_negated_caption_request(self, monkeypatch):
+        agent, config_tool = self._agent_with_config_tool(monkeypatch)
+        state = TopAgentState(
+            current_message=HumanMessage(
+                content="start captioning CAM_1, but actually don't",
+            ),
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling config",
+                    tool_calls=[
+                        {
+                            "name": "lvs_config_media",
+                            "args": {"stream_name": "CAM_1"},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert config_tool.called is False
+        assert state.final_answer == LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
