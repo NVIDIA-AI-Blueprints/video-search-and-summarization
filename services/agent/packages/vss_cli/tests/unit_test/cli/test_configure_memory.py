@@ -80,6 +80,12 @@ def test_memory_show_prints_only_effective_memory_configuration(config_home: Pat
         "backend": "elasticsearch",
         "index": "tenant-memory",
         "persist_by_default": True,
+        "markdown": {
+            "enabled": False,
+            "harness": "openclaw",
+            "workspace": None,
+            "write_by_default": False,
+        },
     }
     assert "services" not in result.output
     assert "base_url" not in result.output
@@ -204,3 +210,100 @@ def test_main_configure_preserves_memory_policy(
         index="tenant-memory",
         persist_by_default=False,
     )
+
+
+def test_configure_openclaw_markdown_settings(config_home: Path) -> None:
+    workspace = config_home / "openclaw-workspace"
+    workspace.mkdir()
+    result = _invoke(
+        "--markdown",
+        "--harness",
+        "openclaw",
+        "--workspace",
+        str(workspace),
+        "--write-notes-by-default",
+    )
+    assert result.exit_code == 0, result.output
+    memory_config = config_mod.load().memory
+    assert memory_config is not None
+    assert memory_config.markdown == config_mod.MarkdownMemoryConfig(
+        enabled=True,
+        harness="openclaw",
+        workspace=str(workspace),
+        write_by_default=True,
+    )
+    shown = json.loads(_invoke("show").output)
+    assert shown["markdown"]["workspace"] == str(workspace)
+    assert shown["markdown"]["write_by_default"] is True
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (("--markdown",), "requires `--workspace"),
+        (("--markdown", "--workspace", "relative/path"), "absolute path"),
+        (("--harness", "other"), "unsupported Markdown memory harness"),
+        (("--no-markdown", "--write-notes-by-default"), "while Markdown memory is disabled"),
+        (
+            (
+                "--markdown",
+                "--workspace",
+                "/tmp/openclaw",
+                "--write-notes-by-default",
+                "--no-persist-by-default",
+            ),
+            "authoritative persistence is disabled",
+        ),
+    ],
+)
+def test_invalid_markdown_configuration_exits_four(
+    config_home: Path,
+    args: tuple[str, ...],
+    message: str,
+) -> None:
+    result = _invoke(*args)
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert message in result.output
+
+
+def test_memory_check_validates_openclaw_workspace(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing = config_home / "missing-workspace"
+    assert _invoke("--markdown", "--workspace", str(missing)).exit_code == 0
+    monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "reachable")
+    result = _invoke("check")
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "workspace is invalid" in result.output
+
+    missing.mkdir()
+    result = _invoke("check")
+    assert result.exit_code == 0, result.output
+    assert "OpenClaw Markdown cache enabled" in result.output
+
+
+def test_memory_config_without_markdown_section_uses_disabled_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+    tmp_path.joinpath("config.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "base_url": "http://example",
+                "services": {"elasticsearch": {"url": "http://example/elasticsearch"}},
+                "memory": {
+                    "enabled": True,
+                    "backend": "elasticsearch",
+                    "index": "vss-memory",
+                    "persist_by_default": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    memory_config = config_mod.load().memory
+    assert memory_config is not None
+    assert memory_config.markdown == config_mod.MarkdownMemoryConfig()

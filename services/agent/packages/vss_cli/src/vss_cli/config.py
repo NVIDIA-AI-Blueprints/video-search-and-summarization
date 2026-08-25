@@ -122,6 +122,68 @@ class Service:
 
 
 @dataclass(frozen=True)
+class MarkdownMemoryConfig:
+    """Static OpenClaw cache capability and default note policy."""
+
+    enabled: bool = False
+    harness: str = "openclaw"
+    workspace: str | None = None
+    write_by_default: bool = False
+
+    def validate(self) -> MarkdownMemoryConfig:
+        if self.harness != "openclaw":
+            raise ConfigError(f"unsupported Markdown memory harness {self.harness!r}; configure `--harness openclaw`")
+        if self.workspace is not None:
+            workspace = Path(self.workspace)
+            if not workspace.is_absolute() or ".." in workspace.parts:
+                raise ConfigError("Markdown memory workspace must be an absolute path without '..'")
+        if self.enabled and not self.workspace:
+            raise ConfigError("enabled Markdown memory requires `--workspace /absolute/openclaw/workspace`")
+        if self.write_by_default and not self.enabled:
+            raise ConfigError(
+                "Markdown notes cannot be written by default while Markdown memory is disabled; "
+                "use `--markdown --workspace /absolute/path` or `--no-write-notes-by-default`"
+            )
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        self.validate()
+        return {
+            "enabled": self.enabled,
+            "harness": self.harness,
+            "workspace": self.workspace,
+            "write_by_default": self.write_by_default,
+        }
+
+    @classmethod
+    def from_json(cls, raw: object) -> MarkdownMemoryConfig:
+        if not isinstance(raw, dict):
+            raise ConfigError("config 'memory.markdown' must be a JSON object")
+        expected = {"enabled", "harness", "workspace", "write_by_default"}
+        unknown = sorted(set(raw) - expected)
+        if unknown:
+            raise ConfigError(f"config 'memory.markdown' contains unknown fields: {', '.join(unknown)}")
+        enabled = raw.get("enabled")
+        harness = raw.get("harness")
+        workspace = raw.get("workspace")
+        write_by_default = raw.get("write_by_default")
+        if not isinstance(enabled, bool):
+            raise ConfigError("config 'memory.markdown.enabled' must be true or false")
+        if not isinstance(harness, str):
+            raise ConfigError("config 'memory.markdown.harness' must be a string")
+        if workspace is not None and not isinstance(workspace, str):
+            raise ConfigError("config 'memory.markdown.workspace' must be a string or null")
+        if not isinstance(write_by_default, bool):
+            raise ConfigError("config 'memory.markdown.write_by_default' must be true or false")
+        return cls(
+            enabled=enabled,
+            harness=harness,
+            workspace=workspace,
+            write_by_default=write_by_default,
+        ).validate()
+
+
+@dataclass(frozen=True)
 class MemoryConfig:
     """Static policy and infrastructure for authoritative VSS memory."""
 
@@ -129,6 +191,7 @@ class MemoryConfig:
     backend: str = "elasticsearch"
     index: str = "vss-memory"
     persist_by_default: bool = True
+    markdown: MarkdownMemoryConfig = field(default_factory=MarkdownMemoryConfig)
 
     def validate(self) -> MemoryConfig:
         if self.backend != "elasticsearch":
@@ -139,6 +202,14 @@ class MemoryConfig:
                 "memory persistence cannot be enabled by default while memory is disabled; "
                 "use `vss configure memory --disable --no-persist-by-default`"
             )
+        self.markdown.validate()
+        if self.markdown.enabled and not self.enabled:
+            raise ConfigError("Markdown memory cannot be enabled while authoritative memory is disabled")
+        if self.markdown.write_by_default and not self.persist_by_default:
+            raise ConfigError(
+                "Markdown notes cannot be written by default while authoritative persistence is disabled; "
+                "use `--persist-by-default` or `--no-write-notes-by-default`"
+            )
         return self
 
     def to_json(self) -> dict[str, Any]:
@@ -148,13 +219,14 @@ class MemoryConfig:
             "backend": self.backend,
             "index": self.index,
             "persist_by_default": self.persist_by_default,
+            "markdown": self.markdown.to_json(),
         }
 
     @classmethod
     def from_json(cls, raw: object) -> MemoryConfig:
         if not isinstance(raw, dict):
             raise ConfigError("config 'memory' must be a JSON object")
-        expected = {"enabled", "backend", "index", "persist_by_default"}
+        expected = {"enabled", "backend", "index", "persist_by_default", "markdown"}
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'memory' contains unknown fields: {', '.join(unknown)}")
@@ -175,6 +247,7 @@ class MemoryConfig:
             backend=backend,
             index=index,
             persist_by_default=persist_by_default,
+            markdown=MarkdownMemoryConfig.from_json(raw["markdown"]) if "markdown" in raw else MarkdownMemoryConfig(),
         ).validate()
 
 

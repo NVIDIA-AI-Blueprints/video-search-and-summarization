@@ -229,6 +229,14 @@ def _check_memory_backend(
     default=None,
     help="Whether job-producing commands persist automatically.",
 )
+@click.option("--markdown/--no-markdown", "markdown_enabled", default=None, help="Enable the Markdown cache sink.")
+@click.option("--harness", default=None, help="Markdown memory harness (openclaw only).")
+@click.option("--workspace", default=None, help="Absolute OpenClaw workspace path.")
+@click.option(
+    "--write-notes-by-default/--no-write-notes-by-default",
+    default=None,
+    help="Whether persisted jobs write compact Markdown notes by default.",
+)
 @click.pass_context
 def configure_memory(
     ctx: click.Context,
@@ -236,17 +244,30 @@ def configure_memory(
     backend: str | None,
     index: str | None,
     persist_by_default: bool | None,
+    markdown_enabled: bool | None,
+    harness: str | None,
+    workspace: str | None,
+    write_notes_by_default: bool | None,
 ) -> None:
     """Configure static VSS memory infrastructure and persistence policy."""
     if ctx.invoked_subcommand is not None:
         return
     deployment = _load_memory_deployment()
     current = deployment.memory or config_mod.MemoryConfig()
+    current_markdown = current.markdown
     candidate = config_mod.MemoryConfig(
         enabled=current.enabled if enabled is None else enabled,
         backend=current.backend if backend is None else backend,
         index=current.index if index is None else index,
         persist_by_default=current.persist_by_default if persist_by_default is None else persist_by_default,
+        markdown=config_mod.MarkdownMemoryConfig(
+            enabled=current_markdown.enabled if markdown_enabled is None else markdown_enabled,
+            harness=current_markdown.harness if harness is None else harness,
+            workspace=current_markdown.workspace if workspace is None else workspace,
+            write_by_default=current_markdown.write_by_default
+            if write_notes_by_default is None
+            else write_notes_by_default,
+        ),
     )
     try:
         candidate.validate()
@@ -283,6 +304,16 @@ def check_memory() -> None:
     if not memory_config.enabled:
         _memory_config_error("memory is disabled; run `vss configure memory --enable`")
     click.echo(_check_memory_backend(deployment, memory_config))
+    if memory_config.markdown.enabled:
+        try:
+            from vss_core.memory import OpenClawDailyNoteStore
+
+            OpenClawDailyNoteStore(memory_config.markdown.workspace or "")
+        except (ImportError, ValueError) as error:
+            _memory_config_error(
+                f"Markdown memory workspace is invalid; re-run `vss configure memory --workspace /absolute/path` ({error})"
+            )
+        click.echo(f"OpenClaw Markdown cache enabled at {memory_config.markdown.workspace}/memory/YYYY-MM-DD-vss.md")
 
 
 @configure.command("show")

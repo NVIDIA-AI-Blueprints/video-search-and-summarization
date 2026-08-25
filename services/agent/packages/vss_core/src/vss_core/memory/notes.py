@@ -57,6 +57,7 @@ class OpenClawDailyNoteStore:
             raise ValueError(f"OpenClaw workspace is not a directory: {root}")
         self._workspace = root
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._note_path()
 
     def write(self, record: UnifiedMemoryRecord) -> MemoryNoteWriteResult:
         if record.job.is_child:
