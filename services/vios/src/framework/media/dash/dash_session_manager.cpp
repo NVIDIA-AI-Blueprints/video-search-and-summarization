@@ -86,6 +86,18 @@ constexpr uint64_t kDashRetainedSegments = 60;
 // availability shift, otherwise Chrome starts at the edge with no jitter
 // tolerance.  This adds startup time, but prevents recurring stalls.
 constexpr unsigned kDashPrerollSeconds = 8;
+
+/* How much media must exist before the manifest is published, as a count of
+ * segments.
+ *
+ * A live source produces one segment per keyframe interval, so a player cannot
+ * be given a cushion deeper than that however long it waits: what it needs is
+ * to start far enough behind the edge that the segment under the playhead is
+ * always one already written.  Two segments is that distance plus the room to
+ * absorb one arriving late, and expressing it in segments rather than seconds
+ * is what stops a long keyframe interval from holding the first frame for a
+ * minute and a short one from holding it for nine seconds. */
+constexpr unsigned kDashPrerollSegments = 2;
 /* The published timeline is built from the source's frame rate, so guessing it
  * is not harmless: a rate that is too high makes the timeline advance faster
  * than frames arrive, and every frame then reads as a gap in the timeline the
@@ -127,8 +139,14 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
         return configured;
     }
     const double seconds = static_cast<double>(pictures) / rate;
-    // A keyframe interval under a second still wants whole seconds of segment,
-    // and an implausible one is not worth trusting over the configured value.
+    /* Asking for more than the keyframe interval does not lengthen the segment
+     * reliably; the muxer still ends one at whichever keyframe it chooses, so a
+     * one second interval asked to produce two second segments yields a mix of
+     * the two.  A player handles the mix, but its buffer is sized from the
+     * longest segment while the short ones arrive at twice the rate, and that
+     * measured as a stall every few seconds.  Ask for what the source gives.
+     *
+     * An implausible interval is not worth trusting over the configured value. */
     if (seconds <= 1.0 || seconds > 60.0)
     {
         return configured;
@@ -885,8 +903,23 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
              */
             const vst::dash::PublishedMedia published =
                 vst::dash::publishedMedia(result.path.parent_path());
-            const bool enoughMedia = published.seconds >= static_cast<double>(kDashPrerollSeconds);
-            session->prerollComplete = enoughMedia && published.fragments >= 2;
+            /* Enough to cover the delay the player is asked to keep, which is
+             * itself a count of segments, and never fewer than two fragments: a
+             * player handed a single fragment has nothing to fetch next and
+             * stalls at the first boundary. */
+            /* The catalogue has to reach back to where the player will sit,
+             * which is the same 2.5 segments the client asks for and the
+             * manifest advertises as suggestedPresentationDelay.  Publishing
+             * sooner does not start playback sooner: the player is asked for
+             * media from before the session existed, waits for it, and starts
+             * with a cushion thinner than it was tuned for, which shows up as
+             * an occasional stall rather than a faster first frame. */
+            const double required = published.longestSeconds > 0.0
+                ? std::max(static_cast<double>(kDashPrerollSeconds),
+                           published.longestSeconds * 2.5)
+                : static_cast<double>(kDashPrerollSeconds);
+            const bool enoughMedia = published.seconds >= required;
+            session->prerollComplete = enoughMedia && published.fragments >= kDashPrerollSegments;
             result.starting = !session->prerollComplete;
             if (session->prerollComplete)
             {

@@ -82,16 +82,28 @@ export class DashStream {
      * below is expressed as a number of segments. */
     private static segmentSeconds(manifest: string): number {
         const timescale = /timescale="(\d+)"/.exec(manifest);
-        const first = /<S[^>]*\sd="(\d+)"/.exec(manifest);
-        if (!timescale || !first) {
+        if (!timescale) {
             return 0;
         }
         const scale = Number(timescale[1]);
-        const duration = Number(first[1]);
-        if (!Number.isFinite(scale) || !Number.isFinite(duration) || scale <= 0) {
+        if (!Number.isFinite(scale) || scale <= 0) {
             return 0;
         }
-        return duration / scale;
+        /* The longest segment, not the first.  A segment ends on a keyframe, so
+         * asking the muxer for a duration that is not a multiple of the
+         * keyframe interval yields a mix of lengths; every buffer below has to
+         * survive the longest of them. */
+        let longest = 0;
+        const entry = /<S[^>]*\sd="(\d+)"/g;
+        let match = entry.exec(manifest);
+        while (match !== null) {
+            const duration = Number(match[1]);
+            if (Number.isFinite(duration) && duration > longest) {
+                longest = duration;
+            }
+            match = entry.exec(manifest);
+        }
+        return longest / scale;
     }
 
     private async waitForManifest(manifestUrl: string, generation: number): Promise<string | null> {
