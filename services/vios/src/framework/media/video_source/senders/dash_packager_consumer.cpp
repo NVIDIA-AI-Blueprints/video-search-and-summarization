@@ -643,9 +643,15 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
             {
                 timeline.worstGapMs = gapMs;
             }
-            // A 30 fps source should deliver every 33 ms.  Anything past a
-            // quarter second means a segment is going to be late.
-            if (gapMs >= 250)
+            // Late means late for this source, not for a 30 fps one.  A ten
+            // frame a second stream delivers every 100 ms quite correctly, and
+            // a fixed quarter second threshold would call every frame of a four
+            // frame a second stream late.  Allow several frames of slack and
+            // never trip below a quarter second.
+            const double sourceRate = m_config.sourceFrameRate > 0.0 ? m_config.sourceFrameRate : 30.0;
+            const uint64_t lateThresholdMs =
+                std::max<uint64_t>(250, static_cast<uint64_t>((3.0 * 1000.0) / sourceRate));
+            if (gapMs >= lateThresholdMs)
             {
                 ++timeline.lateArrivals;
                 // A chronically slow source makes every frame late, so report
@@ -672,7 +678,11 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
                   << " after " << readyMs << " ms" << endl;
     }
 
-    if (++timeline.framesSinceReport >= 900)
+    // Report on a clock, not a frame count: nine hundred frames is thirty
+    // seconds at thirty a second and a minute and a half at ten.
+    const double reportRate = m_config.sourceFrameRate > 0.0 ? m_config.sourceFrameRate : 30.0;
+    const uint64_t framesPerReport = std::max<uint64_t>(1, static_cast<uint64_t>(reportRate * 30.0));
+    if (++timeline.framesSinceReport >= framesPerReport)
     {
         timeline.framesSinceReport = 0;
         LOG(info) << "DASH timeline for " << m_config.streamToken << ": pts="

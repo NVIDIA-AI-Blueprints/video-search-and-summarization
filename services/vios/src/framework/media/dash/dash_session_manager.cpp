@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <cmath>
+#include "dash_fragment_info.h"
 #include "dash_session_manager.h"
 
 #include "logger.h"
@@ -84,6 +86,56 @@ constexpr uint64_t kDashRetainedSegments = 60;
 // availability shift, otherwise Chrome starts at the edge with no jitter
 // tolerance.  This adds startup time, but prevents recurring stalls.
 constexpr unsigned kDashPrerollSeconds = 8;
+/* The published timeline is built from the source's frame rate, so guessing it
+ * is not harmless: a rate that is too high makes the timeline advance faster
+ * than frames arrive, and every frame then reads as a gap in the timeline the
+ * packager is closing. */
+double parseFrameRate(const std::string& value, double fallback)
+{
+    try
+    {
+        const double parsed = std::stod(value);
+        return (parsed > 0.0 && parsed <= 1000.0) ? parsed : fallback;
+    }
+    catch (const std::exception&)
+    {
+        return fallback;
+    }
+}
+
+/* Segment duration for a source with this keyframe interval.
+ *
+ * A segment can only end on a keyframe, so its length is the keyframe interval
+ * whatever the muxer is asked for.  Asking for less does not shorten it; it
+ * only splits the segment into several movie fragments, and the fragments after
+ * the first carry a decode time relative to the segment rather than the
+ * presentation timeline.  A player places them by that time, so they land back
+ * near the start of the timeline and leave the live edge with a fraction of a
+ * segment to play: the playhead reaches the end of what it has, waits, and
+ * stutters once per segment.  Asking for the interval itself keeps one fragment
+ * per segment and the timeline continuous.
+ *
+ * Falls back to the configured duration when the interval is not known yet,
+ * which is the behaviour every session had before it was measured. */
+unsigned segmentDurationFor(const std::string& govLength, const std::string& frameRate,
+                            unsigned configured)
+{
+    const unsigned pictures = parsePositive(govLength, 0);
+    const double rate = parseFrameRate(frameRate, 0.0);
+    if (pictures == 0 || rate <= 0.0)
+    {
+        return configured;
+    }
+    const double seconds = static_cast<double>(pictures) / rate;
+    // A keyframe interval under a second still wants whole seconds of segment,
+    // and an implausible one is not worth trusting over the configured value.
+    if (seconds <= 1.0 || seconds > 60.0)
+    {
+        return configured;
+    }
+    return static_cast<unsigned>(std::ceil(seconds));
+}
+
 } // namespace
 
 DashSessionManager& DashSessionManager::instance()
@@ -309,11 +361,16 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         std::lock_guard<std::mutex> lock(m_mutex);
         packagerConfig.streamToken = createStreamToken(streamId);
         packagerConfig.outputRoot = m_outputRoot;
-        packagerConfig.targetDurationSeconds = m_targetDuration;
+        packagerConfig.targetDurationSeconds = segmentDurationFor(
+            stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
+            m_targetDuration);
         packagerConfig.playlistLength = m_playlistLength;
         packagerConfig.enableAac = enableAac;
         packagerConfig.audioSampleRate = parsePositive(stream->settings.audioEncoderValues.sample_rate, 48000);
         packagerConfig.audioChannels = parsePositive(stream->settings.audioEncoderValues.channels, 2);
+        // What the camera actually runs at, rather than the thirty frames a
+        // second the packager would otherwise assume.
+        packagerConfig.sourceFrameRate = parseFrameRate(stream->settings.encoderValues.frameRate, 30.0);
         if (compositeRequested)
         {
             // A wall is composed at a rate we choose rather than one a camera
@@ -328,6 +385,14 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
             // slow - measured at half real time, which leaves the live edge
             // falling permanently behind and the viewer looking at nothing.
             packagerConfig.useArrivalTimestamps = true;
+            // The wall is composed at the rate the request asked for, which is
+            // not the rate any one camera runs at.  The arrival clock does not
+            // consult it, but nothing downstream should read the camera's rate
+            // and believe it describes the composed stream.
+            if (!frameRate.empty())
+            {
+                packagerConfig.sourceFrameRate = parseFrameRate(frameRate, packagerConfig.sourceFrameRate);
+            }
         }
     }
 
@@ -535,11 +600,16 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         // of one recording must not share an output directory.
         packagerConfig.streamToken = createStreamToken(streamId) + "-" + generate_uuid();
         packagerConfig.outputRoot = m_outputRoot;
-        packagerConfig.targetDurationSeconds = m_targetDuration;
+        packagerConfig.targetDurationSeconds = segmentDurationFor(
+            stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
+            m_targetDuration);
         packagerConfig.playlistLength = m_playlistLength;
         // Recordings are selected by whole file, so the first one usually starts
         // before the requested window; the packager drops what precedes it.
         packagerConfig.startEpochMs = static_cast<int64_t>(getEpocTimeInMS(startTime));
+        // A replay timeline is synthesised from the frame index, so the rate is
+        // not a refinement here: it decides the speed the recording plays at.
+        packagerConfig.sourceFrameRate = parseFrameRate(stream->settings.encoderValues.frameRate, 30.0);
     }
 
     auto session = std::make_shared<Session>();
@@ -797,23 +867,33 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
                           && session->packager->state() != DashPackagerState::Failed;
         if (!result.starting && !session->prerollComplete)
         {
-            const unsigned required = std::max(1U, kDashPrerollSeconds / std::max(1U, m_targetDuration));
-            unsigned produced = 0;
-            std::error_code ec;
-            for (const auto& entry : std::filesystem::directory_iterator(result.path.parent_path(), ec))
-            {
-                if (ec)
-                {
-                    break;
-                }
-                const std::string name = entry.path().filename().string();
-                if (entry.path().extension() == ".mp4" && name.rfind("video_", 0) == 0 && ++produced >= required)
-                {
-                    break;
-                }
-            }
-            session->prerollComplete = produced >= required;
+            /* Measure the catalogue, do not count it.
+             *
+             * A fragment is only as long as the gap between the keyframes it
+             * was cut on, so its length follows the encoder's keyframe interval
+             * rather than the target duration.  Counting fragments and calling
+             * each one a target duration long therefore holds the manifest for
+             * the wrong amount of time by exactly that ratio: at an interval of
+             * 250 on a 30 fps source each fragment carries over eight seconds,
+             * and waiting for eight of them keeps the viewer on a black screen
+             * for more than a minute.
+             *
+             * Two fragments are required whatever they measure.  A player given
+             * a single fragment has nothing to fetch next and stalls at the
+             * first boundary, and on a long keyframe interval one fragment can
+             * satisfy the seconds requirement on its own.
+             */
+            const vst::dash::PublishedMedia published =
+                vst::dash::publishedMedia(result.path.parent_path());
+            const bool enoughMedia = published.seconds >= static_cast<double>(kDashPrerollSeconds);
+            session->prerollComplete = enoughMedia && published.fragments >= 2;
             result.starting = !session->prerollComplete;
+            if (session->prerollComplete)
+            {
+                LOG(info) << "DASH preroll complete for " << session->streamToken << ": "
+                          << published.fragments << " fragments carrying "
+                          << published.seconds << " s of media" << endl;
+            }
         }
     }
     else if (result.path.extension() == ".m4s")
