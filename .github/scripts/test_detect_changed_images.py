@@ -534,6 +534,7 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-vios-ingress",
                 "vss-rt-embed",
                 "vss-rt-embed-sbsa",
+                "vss-rt-vlm-sbsa",
                 "vss-video-summarization-sbsa",
             },
         )

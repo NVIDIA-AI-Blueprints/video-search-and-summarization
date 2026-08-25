@@ -7,7 +7,7 @@
     "expected_behavior": [
       "Loads vss-deploy-detection-tracking-3d for generic MV3DT intent.",
       "Identifies the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
-      "Uses bundled broker mode, but for file input runs bundled resource preflight before config generation/staging, starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
+      "Uses bundled broker mode, but for file input runs bundled resource preflight before config generation/staging, verifies staged file-mode latency dropping is disabled, starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
       "Reports resolved runtime images only from docker compose config --images and does not hardcode a runtime image version.",
       "Does not mention warehouse compose as the deployment path.",
       "Does not print plaintext API tokens."
@@ -70,6 +70,31 @@
       "Resolves BEV_DATASET_PATH only after map.png and transforms.yml are both present.",
       "Uses standalone compose and bundled brokers for the deployment plan.",
       "Does not mention warehouse calibration mount paths.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "mv3dt-negative-warehouse-blueprint",
+    "question": "Deploy the full VSS warehouse blueprint stack with MV3DT and the rest of the warehouse services. Which workflow should handle it?",
+    "expected_skill": null,
+    "ground_truth": "This is an explicit warehouse blueprint/profile request, so vss-deploy-detection-tracking-3d should not activate as the deployment skill. The user should be routed to the warehouse/profile deployment workflow.",
+    "expected_behavior": [
+      "Does not load vss-deploy-detection-tracking-3d for the full warehouse blueprint request.",
+      "Routes to vss-deploy-profile or warehouse/profile deployment guidance.",
+      "Explains that the standalone RT-CV-3D skill is only the default for generic standalone MV3DT requests.",
+      "Does not instruct the user to deploy the full warehouse stack with services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "mv3dt-negative-single-camera-2d",
+    "question": "Run single-camera 2D DeepStream object detection and tracking on one RTSP camera. Which workflow should handle it?",
+    "expected_skill": null,
+    "ground_truth": "This is single-camera 2D detection/tracking, not standalone RTVI-CV-3D or MV3DT. vss-deploy-detection-tracking-3d should not activate as the deployment skill.",
+    "expected_behavior": [
+      "Does not load vss-deploy-detection-tracking-3d for single-camera 2D tracking.",
+      "Routes to the 2D tracking or DeepStream workflow.",
+      "Does not mention BEV Fusion, MV3DT calibration, or multi-camera 3D setup as required for this request.",
       "Does not print plaintext API tokens."
     ]
   }

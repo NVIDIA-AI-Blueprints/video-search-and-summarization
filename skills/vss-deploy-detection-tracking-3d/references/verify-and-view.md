@@ -126,12 +126,24 @@ if [ "${INPUT_MODE:-}" = file ]; then
   grep -q 'App run successful' "${CURRENT_LOG}" || { echo "ERROR: current file run lacks App run successful after ${PERCEPTION_STARTED_AT}" >&2; exit 1; }
   echo 'current file-input run completed successfully after EOS'
 else
+  DS_HTTP_PORT_EFFECTIVE="${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}"
+  DS_HTTP_PORT_EFFECTIVE="${DS_HTTP_PORT_EFFECTIVE:-9000}"
+  READY_URL="${RTCV3D_READY_URL:-http://localhost:${DS_HTTP_PORT_EFFECTIVE}/api/v1/ready}"
   deadline=$((SECONDS + ${PERCEPTION_READY_TIMEOUT:-120}))
-  until current_logs | grep -q 'ds-ready: YES'; do
-    [ "${SECONDS}" -lt "${deadline}" ] || { echo "ERROR: ds-ready: YES not observed before timeout"; exit 1; }
+  ready_payload=""
+  until ready_payload="$(curl -fsS --max-time 2 "${READY_URL}" 2>/dev/null)" &&
+        printf "%s\n" "${ready_payload}" | grep -Eq "\"ds-ready\"[[:space:]]*:[[:space:]]*\"YES\""; do
+    [ "${SECONDS}" -lt "${deadline}" ] || {
+      echo "ERROR: REST readiness did not report ds-ready YES before timeout" >&2
+      current_logs | tail -80 >&2 || true
+      exit 1
+    }
     sleep 2
   done
-  echo 'perception reached ds-ready: YES'
+  echo "perception REST readiness reported ds-ready YES"
+  if ! current_logs | grep -q "ds-ready: YES"; then
+    echo "INFO: ds-ready log marker not observed; using REST readiness evidence"
+  fi
 fi
 ```
 

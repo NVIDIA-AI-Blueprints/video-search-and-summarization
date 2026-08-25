@@ -1,0 +1,261 @@
+---
+title: "VIOS Performance"
+description: ""
+position: 7
+---
+
+Runtime profiling of the VIOS microservice in terms of number of RTSP/WebRTC streams.
+
+| Description | GPU Utilization | CPU Memory | CPU Utilization | Comment |
+| --- | --- | --- | --- | --- |
+| RTSP Streams Perf | Decoder: 11.33%, Encoder: 0%, GPU: 26% | 10.21 GiB | 28.41% | Number of Streams: 30 GPU usage will go up based on how many users are accessing the UI and using the overlay feature. |
+| WebRTC Streams Perf | Decoder: 35%, Encoder: 0%, GPU: 41% | 10.5 GiB | 73.00% | Number of Streams: 30 GPU usage will go up based on how many users are accessing the UI and using the overlay feature. |
+
+Metrics obtained on the below system configuration:
+
+    * GPU: NVIDIA A100
+    * CPU: AMD EPYC 7313P @ 3GHz - 16 Cores
+
+## Streams per Replica/POD
+
+The table below summarizes the maximum number of concurrent sensor streams that a single Unified Stream Processing MS replica (pod) can support with the **default VIOS configuration** (out-of-the-box deployment, no custom tuning). All test streams use the same profile — **H.264, 1080p, 30 FPS, 4 Mbps**.
+
+| Test | GPU | Use Case | Max Streams per Replica/Pod |
+| --- | --- | --- | --- |
+| 1 | NVIDIA L40 (HW encoder via NVENC) | \| Recording × 70 \| RTSP × 70 \| Video Download × 70 (offset 100, with transcode) \| Picture Download × 20 \| WebRTC × 8 | 70 |
+| 2 | NVIDIA H100 (SW encoder, no NVENC) | \| Recording × 20 \| RTSP × 20 \| Video Download × 20 (offset 100, with transcode) \| Picture Download × 10 \| WebRTC × 8 | 20 |
+
+<Note>
+These results were measured on **x86_64** hosts with the following specs:
+
+* **Test 1 (L40)**: Intel Xeon Platinum 8362 @ 2.80 GHz (128 CPUs) and ~1 TB RAM.
+* **Test 2 (H100)**: Intel Xeon Platinum 8480+ (224 CPUs) and ~2 TB RAM.
+
+Stream counts may differ on other host architectures or on smaller / lower-spec hosts.
+</Note>
+
+## Per-Request Latency Benchmarks
+
+End-to-end request latency measured on an **NVIDIA RTX PRO 6000 Blackwell** GPU paired with an **Intel(R) Xeon(R) Gold 6444Y** CPU when the Unified Stream Processing MS serves video download and picture API requests over RTSP. Each scenario is measured with both H.264 and H.265 streams using a *Very recent* recency pattern, so codec impact can be read directly off each table. All latency values (`Avg Latency`, `P50`, `P99`, `Max`) are in milliseconds.
+
+### Single-Stream Video Download
+
+Latency for a single in-flight video-download request, measured for both H.264 and H.265 with and without server-side transcoding across nine `(clip duration, offset)` combinations.
+
+| Codec | Clip Duration | Offset (ms) | Transcode | Avg Latency (ms) | P50 (ms) | P99 (ms) | Max (ms) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H.264 | 15s | 100 | without | 183 | 182 | 188 | 193 |
+| H.265 | 15s | 100 | without | 196 | 184 | 300 | 300 |
+| H.264 | 15s | 500 | without | 36 | 37 | 40 | 41 |
+| H.265 | 15s | 500 | without | 34 | 34 | 36 | 36 |
+| H.264 | 15s | 1000 | without | 36 | 37 | 38 | 41 |
+| H.265 | 15s | 1000 | without | 34 | 35 | 38 | 39 |
+| H.264 | 30s | 100 | without | 184 | 180 | 185 | 216 |
+| H.265 | 30s | 100 | without | 195 | 186 | 286 | 286 |
+| H.264 | 30s | 500 | without | 65 | 46 | 249 | 249 |
+| H.265 | 30s | 500 | without | 54 | 34 | 242 | 242 |
+| H.264 | 30s | 1000 | without | 45 | 46 | 48 | 48 |
+| H.265 | 30s | 1000 | without | 37 | 38 | 39 | 41 |
+| H.264 | 60s | 100 | without | 177 | 178 | 187 | 187 |
+| H.265 | 60s | 100 | without | 182 | 183 | 185 | 189 |
+| H.264 | 60s | 500 | without | 74 | 73 | 79 | 80 |
+| H.265 | 60s | 500 | without | 43 | 44 | 46 | 46 |
+| H.264 | 60s | 1000 | without | 74 | 74 | 79 | 86 |
+| H.265 | 60s | 1000 | without | 45 | 45 | 49 | 50 |
+| H.264 | 15s | 100 | with | 466 | 479 | 489 | 491 |
+| H.265 | 15s | 100 | with | 493 | 490 | 498 | 535 |
+| H.264 | 15s | 500 | with | 474 | 479 | 488 | 494 |
+| H.265 | 15s | 500 | with | 484 | 482 | 500 | 596 |
+| H.264 | 15s | 1000 | with | 482 | 483 | 488 | 490 |
+| H.265 | 15s | 1000 | with | 489 | 487 | 496 | 499 |
+| H.264 | 30s | 100 | with | 493 | 480 | 601 | 601 |
+| H.265 | 30s | 100 | with | 484 | 488 | 494 | 496 |
+| H.264 | 30s | 500 | with | 479 | 476 | 486 | 490 |
+| H.265 | 30s | 500 | with | 626 | 531 | 743 | 746 |
+| H.264 | 30s | 1000 | with | 497 | 479 | 662 | 662 |
+| H.265 | 30s | 1000 | with | 534 | 489 | 608 | 745 |
+| H.264 | 60s | 100 | with | 960 | 974 | 986 | 999 |
+| H.265 | 60s | 100 | with | 986 | 985 | 995 | 1002 |
+| H.264 | 60s | 500 | with | 973 | 975 | 987 | 996 |
+| H.265 | 60s | 500 | with | 983 | 987 | 995 | 996 |
+| H.264 | 60s | 1000 | with | 974 | 972 | 984 | 986 |
+| H.265 | 60s | 1000 | with | 817 | 753 | 999 | 1058 |
+
+### Single-Stream Picture API
+
+Latency for a single picture-API request, with and without overlay compositing on the returned frame.
+
+| Codec | Offset (ms) | Overlay | Avg Latency (ms) | P50 (ms) | P99 (ms) | Max (ms) |
+| --- | --- | --- | --- | --- | --- | --- |
+| H.264 | 100 | without | 404 | 399 | 463 | 579 |
+| H.265 | 100 | without | 524 | 501 | 603 | 606 |
+| H.264 | 500 | without | 193 | 194 | 200 | 203 |
+| H.265 | 500 | without | 252 | 271 | 303 | 313 |
+| H.264 | 1000 | without | 190 | 191 | 197 | 199 |
+| H.265 | 1000 | without | 233 | 218 | 305 | 308 |
+| H.264 | 100 | with | 399 | 398 | 453 | 456 |
+| H.265 | 100 | with | 400 | 401 | 497 | 497 |
+| H.264 | 500 | with | 206 | 207 | 215 | 216 |
+| H.265 | 500 | with | 251 | 221 | 318 | 322 |
+| H.264 | 1000 | with | 206 | 206 | 212 | 218 |
+| H.265 | 1000 | with | 237 | 233 | 266 | 333 |
+
+### Concurrent Video Download
+
+Latency under concurrent load for video-download requests, measured for both H.264 and H.265 across three concurrency levels and three offsets. Each clip is 15 seconds long.
+
+| Codec | Concurrency | Offset (ms) | Transcode | Avg Latency (ms) | P50 (ms) | P99 (ms) | Max (ms) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H.264 | 3 | 100 | without | 231 | 231 | 231 | 232 |
+| H.265 | 3 | 100 | without | 191 | 191 | 191 | 193 |
+| H.264 | 3 | 500 | without | 53 | 53 | 53 | 54 |
+| H.265 | 3 | 500 | without | 33 | 35 | 35 | 35 |
+| H.264 | 3 | 1000 | without | 50 | 51 | 51 | 52 |
+| H.265 | 3 | 1000 | without | 32 | 33 | 33 | 33 |
+| H.264 | 7 | 100 | without | 213 | 213 | 219 | 222 |
+| H.265 | 7 | 100 | without | 140 | 142 | 143 | 144 |
+| H.264 | 7 | 500 | without | 97 | 100 | 107 | 109 |
+| H.265 | 7 | 500 | without | 51 | 52 | 53 | 53 |
+| H.264 | 7 | 1000 | without | 96 | 98 | 99 | 101 |
+| H.265 | 7 | 1000 | without | 45 | 44 | 50 | 52 |
+| H.264 | 10 | 100 | without | 304 | 303 | 317 | 318 |
+| H.265 | 10 | 100 | without | 151 | 148 | 157 | 162 |
+| H.264 | 10 | 500 | without | 237 | 160 | 1042 | 1042 |
+| H.265 | 10 | 500 | without | 66 | 67 | 71 | 73 |
+| H.264 | 10 | 1000 | without | 156 | 158 | 169 | 172 |
+| H.265 | 10 | 1000 | without | 63 | 63 | 67 | 67 |
+| H.264 | 3 | 100 | with | 476 | 483 | 483 | 488 |
+| H.265 | 3 | 100 | with | 542 | 538 | 559 | 559 |
+| H.264 | 3 | 500 | with | 667 | 668 | 668 | 685 |
+| H.265 | 3 | 500 | with | 587 | 584 | 598 | 598 |
+| H.264 | 3 | 1000 | with | 653 | 660 | 660 | 665 |
+| H.265 | 3 | 1000 | with | 600 | 603 | 603 | 621 |
+| H.264 | 7 | 100 | with | 1082 | 1070 | 1211 | 1211 |
+| H.265 | 7 | 100 | with | 1202 | 1218 | 1224 | 1226 |
+| H.264 | 7 | 500 | with | 1094 | 1098 | 1112 | 1113 |
+| H.265 | 7 | 500 | with | 1252 | 1257 | 1267 | 1275 |
+| H.264 | 7 | 1000 | with | 1030 | 1032 | 1053 | 1055 |
+| H.265 | 7 | 1000 | with | 1303 | 1307 | 1359 | 1366 |
+| H.264 | 10 | 100 | with | 1597 | 1584 | 1634 | 1638 |
+| H.265 | 10 | 100 | with | 1832 | 1840 | 1897 | 1931 |
+| H.264 | 10 | 500 | with | 1726 | 1735 | 1744 | 1753 |
+| H.265 | 10 | 500 | with | 1699 | 1744 | 1784 | 1799 |
+| H.264 | 10 | 1000 | with | 1641 | 1642 | 1669 | 1669 |
+| H.265 | 10 | 1000 | with | 1776 | 1850 | 1882 | 1892 |
+
+### Concurrent Picture API
+
+Latency under concurrent load for picture-api requests, measured for both H.264 and H.265 across three concurrency levels and three offsets.
+
+| Codec | Concurrency | Offset (ms) | Overlay | Avg Latency (ms) | P50 (ms) | P99 (ms) | Max (ms) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H.264 | 3 | 100 | without | 634 | 679 | 679 | 693 |
+| H.265 | 3 | 100 | without | 702 | 703 | 703 | 720 |
+| H.264 | 3 | 500 | without | 426 | 420 | 466 | 466 |
+| H.265 | 3 | 500 | without | 468 | 477 | 477 | 497 |
+| H.264 | 3 | 1000 | without | 406 | 394 | 450 | 450 |
+| H.265 | 3 | 1000 | without | 504 | 497 | 550 | 550 |
+| H.264 | 7 | 100 | without | 972 | 1050 | 1141 | 1200 |
+| H.265 | 7 | 100 | without | 1249 | 1226 | 1301 | 1351 |
+| H.264 | 7 | 500 | without | 922 | 902 | 1032 | 1051 |
+| H.265 | 7 | 500 | without | 1076 | 1138 | 1163 | 1186 |
+| H.264 | 7 | 1000 | without | 896 | 916 | 1002 | 1047 |
+| H.265 | 7 | 1000 | without | 1037 | 1077 | 1198 | 1344 |
+| H.264 | 10 | 100 | without | 1473 | 1492 | 1647 | 1696 |
+| H.265 | 10 | 100 | without | 1812 | 1845 | 1980 | 2031 |
+| H.264 | 10 | 500 | without | 1326 | 1315 | 1459 | 1482 |
+| H.265 | 10 | 500 | without | 1584 | 1595 | 1772 | 1792 |
+| H.264 | 10 | 1000 | without | 1262 | 1264 | 1461 | 1496 |
+| H.265 | 10 | 1000 | without | 1670 | 1778 | 1866 | 1939 |
+| H.264 | 3 | 100 | with | 600 | 613 | 613 | 628 |
+| H.265 | 3 | 100 | with | 634 | 656 | 656 | 670 |
+| H.264 | 3 | 500 | with | 435 | 447 | 447 | 464 |
+| H.265 | 3 | 500 | with | 538 | 537 | 557 | 557 |
+| H.264 | 3 | 1000 | with | 449 | 449 | 449 | 467 |
+| H.265 | 3 | 1000 | with | 491 | 480 | 530 | 530 |
+| H.264 | 7 | 100 | with | 1102 | 1132 | 1194 | 1216 |
+| H.265 | 7 | 100 | with | 1180 | 1247 | 1321 | 1342 |
+| H.264 | 7 | 500 | with | 859 | 845 | 873 | 1246 |
+| H.265 | 7 | 500 | with | 1124 | 1168 | 1251 | 1316 |
+| H.264 | 7 | 1000 | with | 918 | 880 | 1073 | 1095 |
+| H.265 | 7 | 1000 | with | 982 | 1064 | 1127 | 1152 |
+| H.264 | 10 | 100 | with | 1437 | 1369 | 1652 | 1665 |
+| H.265 | 10 | 100 | with | 1610 | 1595 | 1979 | 1992 |
+| H.264 | 10 | 500 | with | 1295 | 1244 | 1543 | 1576 |
+| H.265 | 10 | 500 | with | 1694 | 1615 | 1950 | 1983 |
+| H.264 | 10 | 1000 | with | 1259 | 1309 | 1482 | 1520 |
+| H.265 | 10 | 1000 | with | 1496 | 1530 | 1711 | 1776 |
+
+### Key Observations
+
+* **Transcoding dominates single-stream video-download cost.** With transcode disabled, latency is **~32-75 ms** at offsets ≥ 500 ms; with transcode enabled it jumps to **~470-630 ms (15 s and 30 s clips)** and **~820-1000 ms (60 s clips)** — roughly an order of magnitude higher for the same workload.
+* **Offset, not codec, drives non-transcode latency.** Without transcode, the 100 ms-offset rows are **~3-5× slower** (~177-196 ms) than the 500 ms / 1000 ms rows (~32-75 ms) for both codecs, because a smaller offset leaves less buffered data ready to serve. Beyond that offset effect, H.264 and H.265 are within tens of milliseconds of each other.
+* **Transcode latency shows broad codec parity.** With transcode enabled, H.264 and H.265 single-stream latencies are nearly identical at 15 s and 60 s clips (e.g., 60 s / 100 ms: 960 ms H.264 vs 986 ms H.265; 15 s / 100 ms: 466 ms vs 493 ms). At 30 s, H.265 runs modestly higher (e.g., 30 s / 500 ms: 626 ms H.265 vs 479 ms H.264), but neither codec carries a consistent transcode-cost advantage overall.
+* **Transcode latency is roughly flat through 30 s, then steps up at 60 s.** Both codecs stay around **~470-630 ms for 15 s and 30 s clips**, then climb to **~820-1000 ms at 60 s** — a step at the longest clip rather than smooth scaling with duration.
+* **Picture API latency is tightly bounded.** Single-stream picture-api stays within **~190-525 ms** across both codecs and with/without overlay; overlay compositing adds only a few milliseconds. The 100 ms-offset rows (~399-524 ms) sit well above offsets ≥ 500 ms (~190-252 ms), and H.265 runs ~30-60 ms higher than H.264 at the larger offsets.
+* **Concurrent video-download without transcode favors H.265.** Under concurrent load H.265 is consistently faster than H.264 (e.g., 10 concurrent / 1000 ms: 63 ms H.265 vs 156 ms H.264). Scaling 3 → 10 concurrent at 1000 ms offset is sub- to near-linear: H.265 **32 → 63 ms** (~2.0×), H.264 **50 → 156 ms** (~3.1×) against the 3.3× concurrency increase.
+* **Concurrent video-download with transcode scales ~3.4× and stays close to codec-neutral.** At 100 ms offset, 3 → 10 concurrent goes **476 → 1597 ms** for H.264 and **542 → 1832 ms** for H.265 (~3.4× each). H.265 runs slightly heavier at 7-10 concurrent, with the gap staying within ~25% (e.g., 7 concurrent / 1000 ms: 1030 ms H.264 vs 1303 ms H.265).
+* **Concurrent picture-api scales ~2-3× per 3.3× concurrency step and favors H.264.** Across overlay modes, 3 → 10 concurrent goes from **~406-700 ms** to **~1259-1812 ms** (~2.3-2.6×). H.264 is modestly faster than H.265 under load (e.g., 10 concurrent / 100 ms without overlay: 1473 ms vs 1812 ms), and overlay overhead remains small.
+
+## How to Run Profiling Tools
+
+Use below tools from inside any VIOS container at path: `/home/vst/vst_release/tools`.
+These tools are based on x86_64 ubuntu22.04
+
+* To measure RTSP streams perf:
+
+```
+# Specify RTSP streams or VIOS/NVStreamer endpoint to play & get FPS.
+
+#./testRTSPClient
+Usage: ./testRTSPClient --urls "<rtsp-url-1>, <rtsp-url-12>, ... <rtsp-url-N>"
+        (where each <rtsp-url-i> is a "rtsp://" URL)
+
+=================== Options =========================
+--tcp                                => stream over tcp (Default is udp)
+--urls                               => Specify rtsp urls in "<rtsp-url-1>, <rtsp-url-12>, ... <rtsp-url-N>"
+--live555 or -l                      => use live555 stack instead of gst plugin
+--decode                             => Publish decoder fps instead of source fps. Applicable only in case of gst
+--port <port_number>                 => client start port number
+--fps                                => Display received fps of the stream
+--fps-interval <interval_in_seconds> => Publish fps at this interval (Default interval is 5sec)
+--csv-file <filePath to dump fps>    => Provide path & filename Eg. fps_report.csv
+--num-streams <Max num of streams>   => Max number of streams to be played (Default no limit)
+--socket-buffer-size                 => OS socket buffer size in bytes (needs to be root)
+--jitter-buffer-size                 => JitterBuffer/reordering buffer size in ms (default 200ms)
+--gst-frame-debug                    => Print every frame info in case of gst
+--vst-endpoint <ip:port>             => VIOS endpoint to fetch rtsp streams
+--vst-rtspserver-endpoint <ip:port>  => VIOS rtspserver endpoint to fetch rtsp streams
+
+================== Examples =========================
+1. Play two RTSP streams
+        ./testRTSPClient --urls "rtsp://10.0.0.1:8554/stream1,rtsp://10.0.0.1:8554/stream2"
+
+2. Play two rtsp streams, stream over tcp & use client start port number as 30000
+        ./testRTSPClient --tcp --port 30000 --urls "rtsp://10.0.0.1:8554/stream1,rtsp://10.0.0.1:8554/stream2"
+
+3. Play two rtsp streams, specify Names
+        ./testRTSPClient --urls "Amcrest_1|rtsp://10.0.0.1:8554/stream1, Amcrest_2|rtsp://10.0.0.1:8554/stream2"
+
+4. Play two rtsp streams & log fps on console for every 5second
+        ./testRTSPClient --fps --fps-inteval 5 --urls "Amcrest_1|rtsp://10.0.0.1:8554/stream1, Amcrest_2|rtsp://10.0.0.1:8554/stream2"
+
+5. Play two rtsp streams & dump fps data in given csv file
+        ./testRTSPClient --fps --csv-file /home/vst/fps_report.csv --urls "Amcrest_1|rtsp://10.0.0.1:8554/stream1, Amcrest_2|rtsp://10.0.0.1:8554/stream2"
+
+6. Play all rtsp streams from given vst endpoint & dump fps in csv file
+        ./testRTSPClient --fps --csv-file /home/vst/fps_report.csv --vst-endpoint 10.0.0.1:30000
+
+7. Play 4 rtsp streams from given vst endpoint & dump fps in csv file
+        ./testRTSPClient --fps --csv-file /home/vst/fps_report.csv --num-streams 4 --vst-endpoint 10.0.0.1:30000
+
+8. Play 4 rtsp streams from given vst rtsp-server endpoint & dump fps in csv file
+    ./testRTSPClient --fps --csv-file /home/vst/fps_report.csv --num-streams 4 --vst-rtspserver-endpoint 10.0.0.1:31000
+```
+
+* To measure WebRTC streams perf:
+
+```
+# specify VIOS/NVStreamer endpoint to play the WebRTC streams
+  ./testWebrtcClient --duration 600 --vst-endpoint 10.0.0.1:30000 --fps-interval 10 --num-streams 4 --csv-file ./fps_file.csv
+```

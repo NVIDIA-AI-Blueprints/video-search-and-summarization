@@ -1,0 +1,36 @@
+---
+title: "SDG Calibration"
+description: ""
+position: 2
+---
+## Overview
+
+Synthetic data is a great source for training models, developing systems and incubating AI which can be eventually transferred onto the real world.
+Warehouse blueprint system can work with synthetic data and like real-world cameras, synthetic cameras must be calibrated to enable warehouse blueprint analytics as well.
+
+Our blueprints and sample workflows depend on [NVIDIA Isaac Sim](https://developer.nvidia.com/isaac/sim) to create synthetic data.
+With full control of the synthetic cameras in Isaac Sim, users don't need to manually select reference points.
+Instead, the **isaacsim.sensors.rtx.placement** extension within Isaac Sim can output
+the desired parameters of virtual cameras in the expected calibration schema at the click of a button.
+(To learn the details about **isaacsim.sensors.rtx.placement**,
+please refer to the [Camera Calibration section in Isaac Sim documentation](https://docs.isaacsim.omniverse.nvidia.com/latest/action_and_event_data_generation/ext_sensors_rtx_placement/camera_calibration.html).)
+
+The logic of isaacsim.sensors.rtx.placement for camera calibration can be briefly summarized as follows:
+
+* Anchor points are selected by casting rays from the camera and randomly select points along the rays. Selecting the points considers FOV coverage, occlusions and user specified conditions such as distance range to the camera.
+* For the selected anchor points, isaacsim.sensors.rtx.placement will auto compute the 2D pixel location in the target camera view and the 3D coordinates in Isaac Sim.
+* Camera parameters including intrinsic and extrinsic matrices are computed from either the camera properties or the selected anchor points.
+* The floor plan map is generated from a top-view camera view, along with the transformation from Isaac Sim coordinates to the top-view camera coordinates.
+
+Brief steps for using the **isaacsim.sensors.rtx.placement** extension are listed below:
+
+* Step1, prepare your virtual cameras to be calibrated in Isaac Sim.
+* Step2, create a top view camera.
+* Step3, set up the calibration tool attributes in the UI panel.
+* Step4, generate calibration dots.
+* Step5, generate the `calibration.json` file.
+* Step6, generate the floor plan map image as well as the `imageMetadata.json` file.
+
+Creating synthetic cameras in Isaac Sim is straightforward and enables generation of synthetic video data for various downstream tasks including model training and simulation.
+The **isaacsim.sensors.rtx.placement** extension provides a convenient tool to create formatted camera calibration files,
+making synthetic cameras from Isaac Sim readily usable in various reference workflows and applications.

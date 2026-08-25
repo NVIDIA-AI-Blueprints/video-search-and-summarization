@@ -50,6 +50,9 @@ deploy/docker/services/nim/llama-3.3-nemotron-super-49b-v1.5/compose.yml nvcr.io
 deploy/docker/services/nim/nemotron-3-nano/compose.yml alpine:3.24.1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml alpine:3.24.1
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml docker.io/alpine/curl:8.21.0
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3

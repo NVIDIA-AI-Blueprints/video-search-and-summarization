@@ -144,6 +144,7 @@ COMPOSE_FILES = {
 }
 COMPOSE_TAG_VARIABLES = {
     "vss-rt-vlm": "VSS_RT_VLM_TAG",
+    "vss-video-summarization": "VSS_VIDEO_SUMMARIZATION_TAG",
 }
 
 

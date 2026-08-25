@@ -1,0 +1,41 @@
+---
+title: "VST Record Stream Management API"
+description: ""
+position: 4
+---
+This page provides API reference for the VST Stream Recorder Service.
+
+## Overview
+
+The Stream Recorder service is used to manage recording of sensors. This service provides comprehensive control over video recording operations for all connected sensors.
+
+## Key Features
+
+The service provides the following capabilities:
+
+- **Recording Control**: Start and stop recording for individual sensors
+- **Stream Management**: Add and remove streams from the recorder service
+- **Schedule Management**: Configure recording schedules using cron expressions
+- **Event Recording**: Trigger event-based recording for specific incidents
+- **Timeline Query**: Get timelines of recorded video segments
+- **Recording Status**: Query the current recording state of sensors
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `https://localhost/api`
+
+All API endpoints are prefixed with `/v1/record`.
+
+## Authentication
+
+The VST Record Stream Management API uses optional bearer token authentication for endpoints that modify recording configuration or perform operations. GET requests typically do not require authentication.
+
+<Note>
+Endpoints that require authentication are marked with a security requirement in the API specification.
+</Note>
+
+## Reference
+
+OpenAPI Specification can be found [here ](/vst-record-stream-management-api-reference).

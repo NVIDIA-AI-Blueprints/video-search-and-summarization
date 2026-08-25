@@ -16,54 +16,49 @@
     {
       "query": "I want to deploy MV3DT. Which skill should I use and what does it deploy? Do not run containers.",
       "checks": [
-        "The agent identifies vss-deploy-detection-tracking-3d as the default skill for generic MV3DT intent.",
-        "The answer names the standalone RT-CV-3D compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
-        "The answer lists perception, bev-fusion, bundled mosquitto, bundled kafka, and kafka-topic-init.",
-        "The answer does not hardcode a runtime image version.",
-        "The answer does not select vss-deploy-profile unless the user explicitly asked for warehouse.",
+        "The agent identifies vss-deploy-detection-tracking-3d as the default skill for generic MV3DT / RTVI-CV-3D intent.",
+        "The answer names the standalone RT-CV-3D compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml and summarizes perception, BEV Fusion, bundled Mosquitto, bundled Kafka, and kafka-topic-init.",
+        "The answer does not hardcode a runtime image version and does not infer image tags from the skill version.",
+        "The answer routes to vss-deploy-profile only for explicit warehouse blueprint/profile MV3DT requests.",
         "No docker compose up, docker pull, or docker run command is executed."
       ]
     },
     {
-      "query": "Deploy multi-cam tracking on my calibrated MP4s and save output because I think this server is headless. Do not run anything. Still include the required real display probe before staging, then use saved output with saved fused BEV if no working display is found.",
+      "query": "Deploy multi-cam tracking on my calibrated MP4s and save output because I think this server is headless. Do not run anything. Give the high-level standalone RTVI-CV-3D flow, including display probing before choosing saved output.",
       "checks": [
-        "The agent loads vss-deploy-detection-tracking-3d.",
-        "The plan uses INPUT_MODE=file and validates that MP4 basenames match filtered camera sensor ids from calibration.json.",
-        "The plan runs the real display probe before staging; for headless/saved output it stages with SAVE_VIDEO=1 and starts saved fused BEV by default when map assets are present.",
-        "The plan records Kafka offset baselines before starting finite-file perception.",
-        "The plan starts BEV in the same long-lived shell/session for finite file runs, waits for Kafka consumer group assignment evidence, and verifies the BEV recorder PID is alive before starting perception.",
-        "The plan preflights ffprobe before saved-output runs and validates saved grid and BEV artifacts before reporting success.",
-        "The plan uses bundled broker mode, runs bundled resource preflight before config generation/staging, asserts the staged Kafka sink matches KAFKA_BOOTSTRAP, captures Kafka baselines before file-mode perception, and does not use warehouse BP_PROFILE syntax."
+        "The plan uses standalone RTVI-CV-3D / MV3DT with INPUT_MODE=file and validates calibration/camera IDs before staging.",
+        "The plan runs a real display probe before deciding on OSD versus saved output; saved/headless output includes the camera grid video and fused BEV video when BEV assets are available.",
+        "The plan uses bundled broker mode with resource preflight before config generation/staging and does not use warehouse BP_PROFILE syntax.",
+        "The plan follows the file-mode two-phase order: support services first, Kafka offset baselines, BEV readiness when enabled, then perception without recreating brokers.",
+        "The plan verifies finite-file EOS, Kafka offset deltas, and current-run saved artifacts before reporting success."
       ]
     },
     {
-      "query": "Deploy MV3DT on the sample dataset / 4-cam example dataset. Do not run containers.",
+      "query": "Deploy MV3DT on the sample dataset / 4-cam example dataset. Do not run containers. Provide the high-level standalone plan, including display probing before choosing saved output and live OSD plus live fused BEV when display works.",
       "checks": [
-        "The agent loads vss-deploy-detection-tracking-3d and references/sample-dataset.md for sample-dataset intent.",
-        "The plan keeps the standalone RT-CV-3D compose path and does not route to vss-deploy-profile unless the user asks for the full warehouse blueprint.",
-        "The plan uses NGC warehouse app-data only as the source for sample models/videos and does not infer the app-data version from the skill version.",
-        "The plan checks that the required sample app-data model files are present before launch.",
-        "The plan uses the repo sample calibration.json and images/Top.png, generates transforms.yml, sets NUM_CAMS=4 and INPUT_MODE=file, and points VIDEO_DIR at warehouse-4cams-20mx20m-synthetic.",
-        "The sample plan runs bundled resource preflight before generate-configs.sh/stage-configs.sh and validates the staged Kafka sink after staging.",
-        "The plan does not force saved output for the generic sample request before probing display availability; it uses both the live OSD camera-grid window and live fused BEV window when a working display is found, starts BEV before file playback, and finalizes live BEV after EOS.",
+        "The agent uses vss-deploy-detection-tracking-3d and the standalone RT-CV-3D sample-dataset flow, not vss-deploy-profile or warehouse compose unless the user asks for the full warehouse blueprint.",
+        "The plan uses NGC warehouse app-data only as the source for sample models/videos and does not infer the app-data or runtime image version from the skill version.",
+        "The plan validates required sample models/videos plus repo sample calibration/map assets before launch, then sets NUM_CAMS=4, INPUT_MODE=file, and the sample video directory.",
+        "The plan probes display before forcing saved output; with a working display it uses both the live OSD camera-grid window and live fused BEV window, and when saved/headless it saves both grid and fused BEV output.",
+        "The sample plan includes bundled resource preflight before config generation/staging and validates file-mode staged latency settings before launch.",
         "No docker compose up, docker pull, ngc download, or docker run command is executed."
       ]
     },
     {
-      "query": "How do I deploy multi-view 3D tracking on the VSS warehouse stack with the rest of the warehouse blueprint?",
+      "query": "How do I deploy multi-view 3D tracking on the VSS warehouse stack with the rest of the warehouse blueprint? Also clarify how this differs from a generic MV3DT request.",
       "checks": [
         "The agent treats explicit warehouse intent as the exception and routes to vss-deploy-profile or warehouse compose guidance.",
-        "The answer explains that generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT uses warehouse/profile deployment.",
+        "The answer explains the boundary: generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT uses warehouse/profile deployment.",
         "The agent does not claim the standalone compose deploys VST, ELK, agents, LLM, or VLM services."
       ]
     },
     {
-      "query": "I have RTSP URLs and no calibration. How would you run RTVI-CV-3D after calibration? Do not run anything.",
+      "query": "I have RTSP URLs and no calibration. How would you run RTVI-CV-3D after calibration? Do not run anything. Include that supplied RTSP URLs should be registered automatically after stream-mode readiness.",
       "checks": [
-        "The agent routes missing RTSP calibration through vss-generate-video-calibration and uses vss-manage-video-io-storage only when VIOS is missing for RTSP calibration.",
-        "The post-calibration RTSP plan uses scripts/generate-configs.sh, scripts/stage-configs.sh with INPUT_MODE=stream, selected broker compose launch, then scripts/add-streams.sh after ds-ready: YES.",
-        "When RTSP URLs are supplied, the agent runs scripts/add-streams.sh automatically after readiness.",
-        "The plan validates exact registered stream count, exact camera IDs, no duplicates/extras, recent non-zero FPS, BEV Fusion health, and mdx-raw/mdx-bev offset growth before reporting success."
+        "The agent routes missing RTSP calibration through vss-generate-video-calibration before standalone RTVI-CV-3D deployment.",
+        "The post-calibration RTSP plan uses standalone config generation/staging with INPUT_MODE=stream, selected broker compose launch, then direct REST stream registration after readiness.",
+        "When RTSP URLs are supplied, the plan includes automatic direct REST stream registration instead of asking the user to register streams manually.",
+        "The plan verifies exact registered stream set, non-zero FPS, BEV Fusion health, and mdx-raw/mdx-bev offset growth before reporting success."
       ]
     }
   ]

@@ -1,0 +1,16 @@
+---
+title: "Known Limitations"
+description: ""
+position: 5
+---
+This section aligns with PRD and current release constraints, providing transparency about known limitations.
+
+## Security Considerations
+
+The VSS Blueprint has undergone security assessment and several known security issues have been identified.
+
+**Communication security** is a primary concern, as many inter-component connections currently lack encryption. Communication channels between the Agent and VA MCP, Agent and Nemotron, Agent and Video Understanding Tool, and several other critical pathways do not implement TLS/HTTPS encryption, creating potential vulnerabilities for eavesdropping and man-in-the-middle attacks. Additionally, there is no implementation of digital signatures or Message Authentication Codes (MACs) to ensure data integrity, which means that alert JSON data and video analysis results transmitted between components could potentially be intercepted and modified by attackers with network access. These vulnerabilities are particularly significant for real-time alert verification workflows where accuracy and timeliness are critical.
+
+**Authentication and authorization mechanisms** are not consistently implemented across the system. The Agent does not authenticate users before processing requests to generate reports or access sensitive information, which could allow unauthorized users with access to the interface to retrieve city traffic or warehouse data. Similarly, the MCP servers and various tools lack authentication mechanisms to validate the identity and permissions of requesting components. This absence of proper access controls means that if an attacker gains access to the network, they could potentially query incident data, manipulate geo-location information, or overwhelm the Video Understanding Tool with malicious requests. The risk is elevated in scenarios where the system processes sensitive information such as warehouse operations data.
+
+**Denial-of-service vulnerabilities** have been identified throughout the system due to missing rate limiting and timeout mechanisms. The Agent lacks protections against infinite loops in report generation, and the Video Understanding Tool can be overwhelmed with complex video analysis requests. The Geo Location Tool is susceptible to specially crafted queries that could cause infinite loops in geo-coordinate calculations. Without proper rate limiting on API endpoints and timeout mechanisms for long-running operations, an attacker could degrade system availability, impacting critical functions like real-time alert verification and incident response. Users should be aware that the system currently operates in environments where these security controls are assumed to be provided by network-level security measures or deployment within trusted, isolated networks. Organizations deploying this system should implement additional security hardening at the infrastructure level, including network segmentation, intrusion detection systems, and comprehensive logging and monitoring to detect potential security incidents.

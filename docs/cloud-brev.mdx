@@ -1,0 +1,55 @@
+---
+title: "Brev Launchable"
+description: ""
+position: 1
+---
+Launchables are a part of [NVIDIA Brev](https://developer.nvidia.com/brev#section-browse-launchables) that deliver preconfigured, fully optimized compute and software environments.
+
+This deployment uses the Docker Compose deployment method to setup this blueprint.
+
+[Link to GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) used in this launchable.
+
+<a href="https://brev.nvidia.com/launchable/deploy?launchableID=env-2tYIjRXL4eMCbH9Az8mJC5WPAI4" target="_blank" class="btn btn-primary" style="padding:10px 15px; background-color:#76b900; color:white; text-decoration:none; border-radius:5px;">
+Launch Blueprint
+</a>
+
+## Prerequisites
+
+### Host System Prerequisites
+
+Brev Launchable takes care of all these requirements. The provided notebook adjusts the system requirements.
+
+- Ubuntu 22.04 or Ubuntu 24.04
+- Minimum NVIDIA driver
+
+  - 580.105.08 (x86 hosts with Ubuntu 24.04)
+  - 580.65.06 (x86 hosts with Ubuntu 22.04)
+- Docker Compose v2.39.1+ (Recommended minimum version)
+
+### Obtain NGC API Key
+
+To obtain the required NGC API Key, follow the steps in:
+
+*   [NGC User Guide](https://docs.nvidia.com/ngc/gpu-cloud/ngc-user-guide/index.html#generating-api-key)
+*   [9.3. Generating NGC API Keys](https://docs.nvidia.com/ngc/gpu-cloud/ngc-user-guide/index.html#generating-api-key)
+
+## Steps to Launch the Blueprint
+
+1. Go to the [Launchable page](https://brev.nvidia.com/launchable/deploy?launchableID=env-2tYIjRXL4eMCbH9Az8mJC5WPAI4).
+
+    ![](/assets/images/cloud/brev_launchable.png)
+
+2. Click on 'Deploy Launchable' on top right.
+3. Click on 'Go to Instance Page'
+4. Click on 'Open Notebook' button after  it is enabled (This could take a couple of minutes).
+
+    ![VSS Brev Launchable Notebook](/assets/images/cloud/brev_notebook_button.png)
+
+5. Navigate and open `video-search-and-summarization/deploy/docker/scripts/deploy_vss_launchable.ipynb` notebook.
+    This notebook is designed to run as a launchable on 2xRTX PRO 6000 SE GPUs on AWS Cloud Provider.
+6. Add your NGC_API_KEY in the first code cell.
+7. Run each cell and follow the instructions in the notebook to access video search and summarization blueprint UI.
+
+<Note>
+The complete setup takes around 10 minutes as it downloads the containers and sets up the services.
+</Note>

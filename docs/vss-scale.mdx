@@ -1,0 +1,540 @@
+---
+title: "VLM Autoscaling"
+description: ""
+position: 4
+---
+This guide describes how to autoscale NVIDIA NIM for VLM using Kubernetes Horizontal Pod Autoscaler (HPA) and custom metrics.
+
+## Overview
+
+This setup enables autoscaling of NVIDIA NIM for VLM workloads based on custom latency metrics. The system scales up when request latency degrades and scales down during low utilization optimizing resource usage while maintaining performance SLAs.
+
+**Prerequisites:**
+
+- **StorageClass**: Kubernetes cluster must be provisioned with a StorageClass that supports "ReadWriteMany"
+- **Prometheus Adapter**: Exposes custom Prometheus metrics to Kubernetes HPA. Installation instructions provided below
+- **HPA**: Natively supported by Kubernetes and automatically scales NIM service pods based on custom metrics
+- **NIM Operator**: Deploys the NVIDIA NIM for VLM microsrvice. Follow instructions to install [NIM operator cluster wide](https://github.com/NVIDIA/k8s-nim-operator)
+
+## 1. Persistent Volume Setup
+
+### 1.1 Create Persistent Volume
+
+Create a manifest file `pv-nim-cache.yaml`:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cosmos-reason1-7b-lfs-pv
+spec:
+  capacity:
+    storage: 500Gi  # Adjust based on your file system size
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: <enter your driver setup>
+    volumeHandle: <enter your volume handle setup>  # Replace with your MGS address and mount name
+    fsType: <enter fs type>
+    volumeAttributes:
+      setupLnet: "true"
+```
+
+Apply the PV:
+
+```bash
+kubectl apply -f pv-nim-cache.yaml
+```
+
+Verify PV creation:
+
+```bash
+kubectl get pv cosmos-reason1-7b-lfs-pv
+```
+
+Expected output:
+
+```text
+NAME                        CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      STORAGECLASS   AGE
+cosmos-reason1-7b-lfs-pv    500Gi      RWX            Retain           Available                  1m
+```
+
+### 1.2 Create Persistent Volume Claim (PVC)
+
+Create a manifest file `pvc-nim-cache.yaml`:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cosmos-reason1-7b-lfs-pvc
+  namespace: vlm
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""  # Must be empty string for static provisioning
+  volumeName: cosmos-reason1-7b-lfs-pv
+  resources:
+    requests:
+      storage: 500Gi  # Must match PV capacity
+```
+
+Apply the PVC:
+
+```bash
+kubectl apply -f pvc-nim-cache.yaml
+```
+
+Verify PVC is bound:
+
+```bash
+kubectl get pvc -n vlm cosmos-reason1-7b-lfs-pvc
+```
+
+Expected output:
+
+```text
+NAME                        STATUS   VOLUME                      CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+cosmos-reason1-7b-lfs-pvc   Bound    cosmos-reason1-7b-lfs-pv    500Gi      RWX                           1m
+```
+
+### 1.3 Create NIM Cache Using PVC
+
+Once the PVC is bound, create a NIMCache resource to load model weights on the shared volume. This step downloads the model weights once and makes it available to all NIM pods. Visit [NIM operator github](https://github.com/NVIDIA/k8s-nim-operator)  for detailed description on custom resources provided by the operator.
+
+Create required NGC secrets for pulling model files and NGC hosted containers:
+
+```bash
+# Create NGC API secret
+kubectl create secret generic ngc-api-secret \
+  --from-literal=NGC_API_KEY=<your-ngc-api-key> \
+  -n vlm
+
+# Create Docker registry secret
+kubectl create secret docker-registry ngc-secret \
+  --docker-server=nvcr.io \
+  --docker-username='$oauthtoken' \
+  --docker-password=<your-ngc-api-key> \
+  -n vlm
+```
+
+Create a manifest file `nim_cache.yaml`:
+
+```yaml
+apiVersion: apps.nvidia.com/v1alpha1
+kind: NIMCache
+metadata:
+  name: cosmos-reason1-7b-lfs-pvc
+  namespace: vlm
+spec:
+  source:
+    ngc:
+      modelPuller: nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.0
+      pullSecret: ngc-secret
+      authSecret: ngc-api-secret
+      model:
+        profiles:
+          - all
+  storage:
+    pvc:
+      name: cosmos-reason1-7b-lfs-pvc
+      create: false
+      volumeAccessMode: ReadWriteOnce
+  resources: {}
+```
+
+**Configuration Breakdown:**
+
+| Field | Value | Description |
+| --- | --- | --- |
+| `name` | `cosmos-reason1-7b-lfs-pvc` | NIMCache resource name |
+| `modelPuller` | `nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.0` | Container image to pull model |
+| `pullSecret` | `ngc-secret` | Docker registry secret for NGC |
+| `authSecret` | `ngc-api-secret` | NGC API key for authentication |
+| `profiles` | `all` | Downloads all model profiles |
+| `pvc.name` | `cosmos-reason1-7b-lfs-pvc` | Name of existing PVC |
+| `pvc.create` | `false` | Use existing PVC (don't create) |
+| `volumeAccessMode` | `ReadWriteOnce` | Access mode for cache download |
+
+Apply the NIMCache resource:
+
+```bash
+kubectl apply -f nim_cache_lustre.yaml
+```
+
+Monitor the cache creation progress:
+
+```bash
+# Check NIMCache status
+kubectl get nimcache -n vlm cosmos-reason1-7b-lfs-pvc
+
+# Watch the cache pod logs
+kubectl logs -n vlm -l app=nim-cache -f
+
+# Check cache completion
+kubectl describe nimcache -n vlm cosmos-reason1-7b-lfs-pvc
+```
+
+Wait for the NIMCache to reach `Ready` status. This may take 10-30 minutes depending on model size and network speed.
+
+Expected output when ready:
+
+```text
+NAME                         STATUS   AGE
+cosmos-reason1-7b-lfs-pvc    Ready    15m
+```
+
+Once the NIMCache is ready, the model weights are stored in the volume and available for all NIM pods to use.
+
+## 2. Prometheus Adapter Installation and Configuration
+
+The Prometheus Adapter exposes custom Prometheus metrics to Kubernetes, enabling HPA to scale based on application-specific metrics like request latency.
+
+### 2.1 Install Prometheus Adapter
+
+If not already installed, deploy Prometheus Adapter using Helm:
+
+```bash
+# Add Prometheus Community Helm repo
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# Create namespace for monitoring if it doesn't exist
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# Install Prometheus Adapter
+helm install prom-adapter prometheus-community/prometheus-adapter \
+  --namespace monitoring \
+  --set prometheus.url=http://kratos-metrics-prometheus-server.monitoring.svc.cluster.local \
+  --set prometheus.port=80
+```
+
+Verify installation:
+
+```bash
+helm ls -n monitoring
+kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus-adapter
+```
+
+### 2.2 Configure Custom Metrics
+
+The NVIDIA NIM for VLM exposes a Prometheus endpoint with many metrics. The custom metric `e2e_request_latency_seconds_over_1s_fraction` calculates the percentage of requests taking over 1 second measured every minutes and is created in the PromQL formula below that uses the "e2e_request_latency_seconds_bucket" histogram exposed by the NVIDIA NIM for VLM Prometheus endpoint.
+
+**Metric Formula:**
+
+```text
+(Total Requests - Requests under 1s) / Total Requests
+```
+
+Create or update the ConfigMap:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prom-adapter-prometheus-adapter
+  namespace: monitoring
+data:
+  config.yaml: |\
+    rules:
+    - seriesQuery: 'e2e_request_latency_seconds_count{namespace="vlm"}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          service: {resource: "service"}
+      name:
+        matches: "^e2e_request_latency_seconds_count$"
+        as: "e2e_request_latency_seconds_over_1s_fraction"
+      metricsQuery: >
+        (
+          sum(increase(e2e_request_latency_seconds_count{<<.LabelMatchers>>, service="cosmos-reason1-7b"}[1m])) by (namespace, service)
+          -
+          sum(increase(e2e_request_latency_seconds_bucket{<<.LabelMatchers>>, service="cosmos-reason1-7b", le="1.0"}[1m])) by (namespace, service)
+        )
+        /
+        (sum(increase(e2e_request_latency_seconds_count{<<.LabelMatchers>>, service="cosmos-reason1-7b"}[1m])) by (namespace, service) + 0.0001)
+EOF
+```
+
+**Configuration Breakdown:**
+
+- **seriesQuery**: Identifies the Prometheus metric to query (`e2e_request_latency_seconds_count`)
+- **resources.overrides**: Maps Prometheus labels to Kubernetes resources
+- **name.as**: Defines the custom metric name exposed to Kubernetes
+- **metricsQuery**: PromQL query that calculates the latency fraction
+
+  - Numerator: Requests that took > 1 second
+  - Denominator: Total requests (+ 0.0001 to avoid division by zero)
+  - `[1m]`: 1-minute window for rate calculation
+
+### 2.3 Restart Prometheus Adapter
+
+After updating the ConfigMap, restart the adapter:
+
+```bash
+kubectl rollout restart deployment prom-adapter-prometheus-adapter -n monitoring
+kubectl rollout status deployment prom-adapter-prometheus-adapter -n monitoring
+```
+
+### 2.4 Verify Custom Metrics
+
+Check if the custom metric is available:
+
+```bash
+kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1" | jq .
+```
+
+Query the specific metric:
+
+```bash
+kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/namespaces/vlm/services/cosmos-reason1-7b/e2e_request_latency_seconds_over_1s_fraction" | jq .
+```
+
+Expected output:
+
+```json
+{
+  "kind": "MetricValueList",
+  "apiVersion": "custom.metrics.k8s.io/v1beta1",
+  "metadata": {},
+  "items": [
+    {
+      "describedObject": {
+        "kind": "Service",
+        "namespace": "vlm",
+        "name": "cosmos-reason1-7b"
+      },
+      "metricName": "e2e_request_latency_seconds_over_1s_fraction",
+      "timestamp": "2025-11-06T12:00:00Z",
+      "value": "200m"
+    }
+  ]
+}
+```
+
+## 3. NIM Service with HPA Configuration
+
+The NIMService custom resource combines the NIM deployment with HPA configuration.
+
+### 3.1 Create NGC Secrets
+
+Create secrets for pulling NIM images if not done in the previous step:
+
+```bash
+# NGC API secret for authentication
+kubectl create secret generic ngc-api-secret \
+  --from-literal=NGC_API_KEY=<your_ngc_api_key> \
+  -n vlm
+
+# Docker registry secret for image pull
+kubectl create secret docker-registry ngc-secret \
+  --docker-server=nvcr.io \
+  --docker-username='$oauthtoken' \
+  --docker-password=<your_ngc_api_key> \
+  -n vlm
+```
+
+### 3.2 Deploy NIM Service with HPA
+
+Create `nimservice-cosmos-reason1-7b.yaml`, note the configuration below uses the H100 profile:
+
+```yaml
+apiVersion: apps.nvidia.com/v1alpha1
+kind: NIMService
+metadata:
+  name: cosmos-reason1-7b
+  namespace: vlm
+spec:
+  authSecret: ngc-api-secret
+
+  # Environment variables
+  env:
+  - name: NIM_MODEL_PROFILE
+    value: vllm-h100-fp8-tp1-pp1-2330:10de-8d137b4aaeafce007c372fd21278f4e55cc44b168fb15a0a0c119abbe0fb5c5d # This profile is for H100 and is optional
+  - name: NIM_ENABLE_OTEL
+    value: "1"
+  - name: OTEL_TRACES_EXPORTER # Enabling tracing is optional but recommended
+    value: otlp
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: <enter your otel collector url>
+  - name: OTEL_SERVICE_NAME
+    value: vlm-cosmos-reason1-7b
+
+  # Service exposure
+  expose:
+    service:
+      port: 8000
+      type: ClusterIP
+
+  # Image configuration
+  image:
+    pullPolicy: IfNotPresent
+    pullSecrets:
+    - ngc-secret
+    repository: nvcr.io/nim/nvidia/cosmos-reason1-7b
+    tag: 1.4.0
+
+  # Initial replica count (HPA will manage this)
+  replicas: 1
+
+  # Resource requirements per pod
+  resources:
+    limits:
+      cpu: "12"
+      memory: 48Gi
+      nvidia.com/gpu: "1"
+    requests:
+      cpu: "12"
+      memory: 48Gi
+      nvidia.com/gpu: "1"
+
+  # HPA Configuration
+  scale:
+    enabled: true
+    hpa:
+      minReplicas: 1
+      maxReplicas: 8
+
+      # Metrics for scaling decisions
+      metrics:
+      - type: Object
+        object:
+          describedObject:
+            apiVersion: v1
+            kind: Service
+            name: cosmos-reason1-7b
+          metric:
+            name: e2e_request_latency_seconds_over_1s_fraction
+          target:
+            type: Value
+            value: 400m  # Scale when 40% or more of requests take > 1 second
+
+      # Scaling behavior optional but recommended
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0  # Scale up immediately
+          policies:
+          - type: Pods
+            value: 3                     # Add 3 pods at a time
+            periodSeconds: 15            # Evaluate every 15 seconds
+
+        scaleDown:
+          stabilizationWindowSeconds: 180  # Wait 3 minutes before scaling down
+          policies:
+          - type: Percent
+            value: 50                    # Remove max 50% of pods
+            periodSeconds: 120           # Evaluate every 2 minutes
+          selectPolicy: Min              # Use the policy that removes fewer pods
+
+  # storage for model cache
+  storage:
+    nimCache:
+      name: cosmos-reason1-7b-lfs-pvc
+```
+
+**Configuration Highlights:**
+
+**HPA Metrics:**
+
+- **Threshold**: `400m` (0.4 or 40%)
+- **Interpretation**: Scale up when 40% or more requests exceed 1 second latency
+- **Type**: Object metric (tied to the Service resource)
+
+**Scale Up Behavior:**
+
+- **Immediate**: No stabilization window (fast response to load)
+- **Aggressive**: Add 3 pods per scaling event
+- **Frequency**: Check every 15 seconds
+
+**Scale Down Behavior:**
+
+- **Conservative**: 3-minute observation period (prevents flapping)
+- **Gradual**: Remove max 50% of pods per event
+- **Slow**: Check every 2 minutes
+- **Safe**: Always choose the policy that removes fewer pods
+
+<Note>
+The Scale UP and Scale Down scenarios and HPA configuration should be tuned based on your specific traffic patterns and use case requirements. The values shown above are examples and may need adjustment for:
+
+- **Bursty vs. steady traffic**: Aggressive scale-up for sudden spikes vs. gradual scaling for predictable growth
+- **SLA requirements**: Stricter latency targets may require more aggressive scaling policies
+- **Pod startup time**: Longer initialization times may need earlier/faster scale-up triggers
+</Note>
+
+### 3.3 Deploy the NIM Service
+
+```bash
+kubectl apply -f nimservice-cosmos-reason1-7b.yaml
+```
+
+Verify deployment:
+
+```bash
+# Check NIMService
+kubectl get nimservice -n vlm cosmos-reason1-7b
+
+# Check pods
+kubectl get pods -n vlm -l app=cosmos-reason1-7b
+
+# Check HPA
+kubectl get hpa -n vlm
+
+# Check service
+kubectl get svc -n vlm cosmos-reason1-7b
+```
+
+### 3.4 Monitor HPA Status
+
+View detailed HPA information:
+
+```bash
+kubectl describe hpa -n vlm
+```
+
+Expected output:
+
+```text
+Name:                                                        cosmos-reason1-7b
+Namespace:                                                   vlm
+Reference:                                                   NIMService/cosmos-reason1-7b
+Metrics:                                                     ( current / target )
+  "e2e_request_latency_seconds_over_1s_fraction" on Service: 200m / 400m
+Min replicas:                                                1
+Max replicas:                                                8
+Current replicas:                                            1
+Desired replicas:                                            1
+```
+
+## 4. Testing and Monitoring HPA Scaling
+
+4.1 Generate Load using `genai-perf`
+
+### 4.1 Generate Load using `genai-perf`
+
+Now you can send traffic to your NIM VLM microservice and watch HPA increase and decrease replicas. For synthetic traffic generation use [genai-perf](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/perf_analyzer/genai-perf/README.html).
+
+### 4.2 Monitor Scaling Events
+
+Watch HPA behavior in real-time:
+
+- `kubectl get hpa -n vlm -w` - Watch HPA status
+- `kubectl get pods -n vlm` - Monitor pod count
+- `kubectl get events -n vlm` - View scaling events
+
+### 4.3 Test Scaling Scenarios
+
+Verify HPA behavior under different load patterns:
+
+- **Gradual increase**: Ensure smooth scale-up as load grows
+- **Sudden spike**: Test rapid scale-up capability
+- **Load decrease**: Verify proper scale-down with stabilization
+
+## Additional Resources
+
+- [NVIDIA NIM Documentation](https://docs.nvidia.com/nim/)
+- [Kubernetes HPA Documentation](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/)
+- [Prometheus Adapter Configuration](https://github.com/kubernetes-sigs/prometheus-adapter/blob/master/docs/config.md)
+- [Oracle Lustre File Storage Documentation](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengcreatingpersistentvolumeclaim_Provisioning_PVCs_on_Lustre.htm)

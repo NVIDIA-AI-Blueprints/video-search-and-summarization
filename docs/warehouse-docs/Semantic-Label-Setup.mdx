@@ -1,0 +1,23 @@
+---
+title: "Semantic Label Setup"
+description: ""
+position: 3
+---
+Label the relevant objects so Ground Truth (GT) data can be generated for your targets. If the asset scene is SimReady, you can reuse its existing semantic labels for SDG. Otherwise, follow the steps below to add semantic labels.
+
+Navigate to the `sdg/semantic_labeling` path:
+
+```bash
+cd $MDX_SAMPLE_APPS_DIR/deploy-warehouse-compose/modules/sdg/semantic_labeling/
+```
+
+- Using boxes in the scene as an example, first find the prim paths of the boxes to label by searching with keywords such as `box`. See `box_check.py` for details.
+
+- Set your **output_file** path.
+
+- Run the script and review the output **.txt** file to confirm the identified boxes are correct.
+
+  - If they are correct, uncomment `enable_semantics(prim, category, "class")` at lines 64 and 73, then rerun the script.
+  - If they are not correct, refine the keywords in the script to narrow the search, then review the updated **.txt** file.
+
+- To remove all labels in the scene, use the example script `remove_label.py`, then repeat the steps above.

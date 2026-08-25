@@ -1,0 +1,399 @@
+---
+title: "Prerequisites"
+description: ""
+position: 3
+---
+This section covers the prerequisites for deploying and using the Warehouse Blueprint.
+
+## Hardware Requirements
+
+The Warehouse Blueprint has been validated and tested on the following NVIDIA GPUs:
+
+- NVIDIA RTX PRO 6000 Blackwell
+- NVIDIA H100 (NVL, SXM HBM3)
+- NVIDIA L40S
+- NVIDIA IGX-THOR
+- NVIDIA DGX-SPARK
+
+## Software Requirements
+
+The following software must be installed on your system:
+
+- **OS:**
+
+  - x86 hosts: Ubuntu 24.04
+  - DGX-SPARK: DGX OS 7.5.0
+  - IGX-THOR (T5000 and T7000): IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04)
+- **NVIDIA Driver:**
+
+  - 580.105.08 (x86 hosts with Ubuntu 24.04)
+  - 580.159.03 (DGX-SPARK)
+  - Bundled with IGX-SW 2.0 (580 series) (IGX-THOR)
+- **NVIDIA Fabric Manager:** 580.105.08 (for H100 SXM HBM3 to run local LLM) - See [Installation Guide](/warehouse-docs/FAQ)
+- **NVIDIA Container Toolkit:** 1.17.8+
+- **Docker:** 28.3.3+ and earlier than 29.5.0
+- **Docker Compose:** v2.39.1+
+- **NGC CLI:** 4.10.0+
+
+<Note>
+For detailed installation instructions for the software requirements listed above, see the [Appendix](/warehouse-docs/Prerequisites#prerequisite-software-installation-guide):
+
+- **x86 systems**
+
+  - [Install NVIDIA Driver](/warehouse-docs/Prerequisites#install-nvidia-driver)
+  - [Install Docker](/warehouse-docs/Prerequisites#install-docker)
+  - [Install NVIDIA Container Toolkit](/warehouse-docs/Prerequisites#install-nvidia-container-toolkit)
+- **DGX-SPARK, IGX-THOR**
+
+  - [Setup DGX-SPARK](/warehouse-docs/Prerequisites#setup-dgx-spark)
+  - [Setup IGX-THOR](/warehouse-docs/Prerequisites#setup-igx-thor)
+- **all systems**
+
+  - [Configure Docker](/warehouse-docs/Prerequisites#configure-docker)
+  - [Install Docker Compose](/warehouse-docs/Prerequisites#install-docker-compose)
+  - [Install NGC CLI](/warehouse-docs/Prerequisites#install-ngc-cli)
+</Note>
+
+## Runtime Environment Settings
+
+### Linux Kernel Settings
+
+```bash
+# Ensure the sysctl.d directory exists
+sudo mkdir -p /etc/sysctl.d
+
+# Write VSS kernel settings to 99-vss.conf (persistent across reboots)
+sudo bash -c "printf '%s\n' \
+  'net.ipv6.conf.all.disable_ipv6 = 1' \
+  'net.ipv6.conf.default.disable_ipv6 = 1' \
+  'net.ipv6.conf.lo.disable_ipv6 = 1' \
+  'net.core.rmem_max = 5242880' \
+  'net.core.wmem_max = 5242880' \
+  'net.ipv4.tcp_rmem = 4096 87380 16777216' \
+  'net.ipv4.tcp_wmem = 4096 65536 16777216' \
+  > /etc/sysctl.d/99-vss.conf"
+
+# Reload sysctl to apply the new settings
+sudo sysctl --system
+```
+
+### Cache cleaner (only on DGX-SPARK, IGX-THOR)
+
+Run the cache cleaner script for DGX SPARK and Jetson Thor.
+
+Create the cache cleaner script at `/usr/local/bin/sys-cache-cleaner.sh`:
+
+```bash
+sudo tee /usr/local/bin/sys-cache-cleaner.sh << 'EOF'
+#!/bin/bash
+# Exit immediately if any command fails
+set -e
+
+# Disable hugepages
+echo "disable vm/nr_hugepage"
+echo 0 | tee /proc/sys/vm/nr_hugepages
+
+# Notify that the cache cleaner is running
+echo "Starting cache cleaner - Running"
+echo "Press Ctrl + C to stop"
+# Repeatedly sync and drop caches every 3 seconds
+while true; do
+	sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
+	sleep 3
+done
+EOF
+
+sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
+```
+
+#### Running in the background
+
+```bash
+sudo -b /usr/local/bin/sys-cache-cleaner.sh
+```
+
+<Note>
+The above runs the cache cleaner in the current session only; it does not persist across reboots. To have the cache cleaner run across reboots, create a systemd service instead.
+</Note>
+
+### VIC clocks (IGX-THOR only)
+
+For IGX Thor, VIC clocks need to be boosted for best performance and latency. Run the following before deployment:
+
+```bash
+sudo nvpmodel -m 0
+sudo jetson_clocks
+sudo su
+# Run the following in the root shell (after sudo su):
+echo performance > /sys/class/devfreq/8188050000.vic/governor
+```
+
+<Note>
+If `vss-rtvi-cv` fails when streams are added and kernel logs show `tegra-vic` power-up failures, see [FAQ ](/warehouse-docs/FAQ) for the IGX Thor `NvBufSurfTransform error -2` workaround. Lower FPS may be observed when using this workaround.
+</Note>
+
+## Minimum System Requirements
+
+The following requirements ensure reliable performance for real-time video analytics workloads, including GPU-accelerated inference, video decoding, and data streaming. These specifications support processing multiple camera streams simultaneously while maintaining low latency for analytics and alerting.
+
+- 18 core CPU (x86 systems)
+- 128 GB RAM
+- 1 TB SSD
+- 1 × 1 Gbps network interface
+
+## NGC API Key Access
+
+To deploy the Warehouse Blueprint, you need an NGC API key with access to the required resources.
+
+### Create an NVIDIA NGC Account
+
+1. Go to https://ngc.nvidia.com
+2. Click **Sign up** if you don't have an account, or **Sign in** if you do
+3. Complete the registration process with your email address
+
+### Generate an API Key
+
+1. Once logged in, click on your username in the top right corner
+2. Select **Setup** from the dropdown menu
+3. Navigate to **API Keys** under the **Keys/Secrets** section
+4. Click **Generate API Key**
+5. Click **Generate Personal Key** (available at both the top-center and top-right of the page)
+6. Provide a descriptive name for your API key (e.g., "Warehouse Blueprint Development")
+7. Select **NGC Catalog** for Key Permissions
+8. Click **Generate Personal Key**
+9. Copy the generated API key immediately - you won't be able to see it again
+10. Store it securely in a password manager or encrypted file
+
+<Note>
+Keep your NGC API key secure and never commit it to version control systems.
+</Note>
+
+<Info>
+The Cosmos3 Reasoner NIM (1.7.0+) requires a **Personal API Key**. Legacy NGC API keys
+are not supported and will fail authentication when pulling or running this container.
+</Info>
+
+### Verify Your NGC Access
+
+To verify your NGC key has the correct permissions:
+
+```bash
+# Set your NGC API key
+export NGC_CLI_API_KEY='your_ngc_api_key'
+
+# Test access to the required resources
+ngc registry resource list "nvidia/vss-warehouse/*"
+ngc registry resource list "nvidia/vss-core/*"
+
+# Test access to the required images
+ngc registry image list "nvidia/vss-core/*"
+```
+
+If you encounter permission errors, contact NVIDIA support for assistance.
+
+## Prerequisite Software Installation Guide
+
+### Install NVIDIA Driver
+
+NVIDIA Driver version 580.105.08 is required.
+
+You can download the driver directly from:
+https://www.nvidia.com/en-us/drivers/details/257738/
+
+For detailed installation instructions, refer to the official NVIDIA Driver Installation Guide:
+https://docs.nvidia.com/datacenter/tesla/driver-installation-guide/index.html
+
+You can also browse drivers for your specific GPU and platform from the NVIDIA Driver Downloads page:
+https://www.nvidia.com/Download/index.aspx
+
+<Note>
+After installation, verify the driver is correctly installed by running `nvidia-smi` to confirm the driver version and GPU detection.
+</Note>
+
+<Note>
+**NVIDIA Fabric Manager Requirement**
+
+NVIDIA Fabric Manager is required on systems with multiple GPUs that are connected using NVLink or NVSwitch technology. This typically applies to:
+
+- Multi-GPU systems with NVLink bridges (e.g., DGX systems, HGX platforms)
+- Systems with NVSwitch fabric interconnects
+- Hosts running NVIDIA H100, A100, V100, or other datacenter GPUs with NVLink
+
+Fabric Manager is **not required** for:
+
+- Single GPU systems
+- Multi-GPU systems without NVLink/NVSwitch (PCIe-only configurations)
+
+For installation instructions, refer to the official NVIDIA Fabric Manager documentation:
+
+- Installation Guide: https://docs.nvidia.com/datacenter/tesla/fabric-manager-user-guide/index.html
+
+Verify Fabric Manager status after installation:
+
+```bash
+sudo systemctl status nvidia-fabricmanager
+```
+
+</Note>
+
+### Install Docker
+
+Docker version 28.3.3 or later and earlier than 29.5.0 is required. Follow the guide here for installing Docker: https://docs.docker.com/engine/install/ubuntu/
+
+<Note>
+Do not install Docker via `snap`. The snap-packaged Docker runs inside a confined sandbox with restricted filesystem access, which can perform differently in the deployment process. Install Docker using the official Docker apt repository as linked above.
+</Note>
+
+#### Run docker without sudo
+
+After installation, complete the Linux post-installation steps so that Docker can run without sudo. See [Linux post-installation steps for Docker Engine](https://docs.docker.com/engine/install/linux-postinstall/).
+
+### Configure Docker
+
+After installing Docker, you must configure it to use the cgroupfs cgroup driver.
+
+**Edit the Docker daemon configuration file:**
+
+Add or verify the following entry in `/etc/docker/daemon.json`:
+
+```json
+"exec-opts": ["native.cgroupdriver=cgroupfs"]
+```
+
+This configuration must be included within the JSON object. For example:
+
+```json
+{
+    "exec-opts": ["native.cgroupdriver=cgroupfs"]
+}
+```
+
+If your `/etc/docker/daemon.json` already contains other settings, ensure this entry is added to the existing configuration.
+
+**Apply the configuration:**
+
+After editing the daemon configuration, restart Docker to apply the changes:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+```
+
+<Note>
+Restarting Docker will temporarily stop all running containers. Plan accordingly if you have containers running.
+</Note>
+
+### Install Docker Compose
+
+Docker Compose v2.39.1 or later is required. Docker Compose v2 is typically installed as a plugin with modern Docker installations.
+
+**Check if Docker Compose is already installed and meets the minimum version:**
+
+```bash
+docker compose version
+```
+
+The default `docker-compose-plugin` package in Ubuntu repositories may provide a version older than v2.39.1.
+If the version is missing or too old, install the required version manually:
+
+```bash
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+```
+
+**Verify installation:**
+
+```bash
+docker compose version
+```
+
+<Note>
+Docker Compose v2 uses the command `docker compose` (without hyphen) instead of the older `docker-compose` command.
+</Note>
+
+### Install NVIDIA Container Toolkit
+
+The NVIDIA Container Toolkit is required to run the NVIDIA containers. Follow the guide here for installing the NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+
+### Install NGC CLI
+
+NGC CLI version 4.10.0 or later is required to download blueprints and authenticate with NGC resources.
+
+**Download and install NGC CLI:**
+
+For ARM64 Linux:
+
+```bash
+curl -sLo "/tmp/ngccli.zip" https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/4.10.0/files/ngccli_arm64.zip
+```
+
+For AMD64 Linux:
+
+```bash
+curl -sLo "/tmp/ngccli.zip" https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/4.10.0/files/ngccli_linux.zip
+```
+
+After downloading, install NGC CLI:
+
+```bash
+sudo mkdir -p /usr/local/bin
+sudo unzip -qo /tmp/ngccli.zip -d /usr/local/lib
+sudo chmod +x /usr/local/lib/ngc-cli/ngc
+sudo ln -sfn /usr/local/lib/ngc-cli/ngc /usr/local/bin/ngc
+```
+
+**Verify installation:**
+
+```bash
+ngc --version
+```
+
+**Configure NGC CLI with your API key:**
+
+```bash
+ngc config set
+```
+
+When prompted, enter your NGC API key. For information on obtaining an NGC API key, see the [NGC API Key Access](/warehouse-docs/Prerequisites#minimum-system-requirements) section.
+
+<Note>
+For the latest version of NGC CLI, visit the NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli
+</Note>
+
+### Setup DGX-SPARK
+
+For setup instructions, see the [DGX Spark User Guide](https://docs.nvidia.com/dgx/dgx-spark/index.html).
+
+Setup installs DGX OS (including the NVIDIA driver), Docker with NVIDIA Container Toolkit integration, and NGC access.
+
+DGX Spark deployments require DGX OS 7.5.0 and its NVIDIA driver version 580.159.03.
+
+<Note>
+- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/warehouse-docs/Prerequisites#run-docker-without-sudo).
+</Note>
+
+### Setup IGX-THOR
+
+Setup IGX-SW 2.0 Production (LTS), including IGX OS 2.0, via instructions in the [Jetson IGX Thor User Guide](https://docs.nvidia.com/igx/user-guide/latest/OV/introduction.html).
+
+Steps:
+- Setup installs the NVIDIA driver bundled with IGX-SW 2.0 (580 series).
+- Install JetPack after the BSP is in place (for CUDA and other components), as described in the user guide.
+
+Additional IGX resources:
+
+- For IGX Thor setup questions and troubleshooting, see the [NVIDIA Developer Forums: IGX Thor Support](https://forums.developer.nvidia.com/c/robotics-edge-computing/igx-orin-systems/igx-thor-support/751).
+- If IGX OS installation returns to a black screen or cannot update older QSPI firmware, update the QSPI firmware manually using the [Jetson Linux BSP flashing procedure](https://docs.nvidia.com/igx/user-guide/latest/SW/using-jetson-linux-bsp.html#flashing-procedure), then retry the ISO installation.
+
+<Note>
+Use the public IGX-SW 2.0 GA release for customer-facing deployments.
+Do not use pre-release builds unless the Tegra team has approved an exception.
+</Note>
+
+<Note>
+- When using the Jetson USB installation method, Docker and the NVIDIA Container Toolkit are included. When using L4T flash or SDK Manager, install them separately: [Install Docker](/warehouse-docs/Prerequisites#install-docker), [Install NVIDIA Container Toolkit](/warehouse-docs/Prerequisites#install-nvidia-container-toolkit).
+- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/warehouse-docs/Prerequisites#run-docker-without-sudo).
+- If NVIDIA containers fail to run after boot (CDI device injection error), see [IGX Thor: nvidia-cdi-refresh.service does not start on boot](/warehouse-docs/FAQ#nvidia-cdi-refresh-service-does-not-start-on-boot) in the [FAQ ](/warehouse-docs/FAQ).
+</Note>
