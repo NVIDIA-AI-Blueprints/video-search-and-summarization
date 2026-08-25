@@ -36,8 +36,12 @@ services:
           - vss-vlm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
-      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_TOKEN:
+      HUGGING_FACE_HUB_TOKEN:
+      HUGGINGFACE_TOKEN:
+      HF_TOKEN_PATH:
       HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HUB_APPROVED_HTTP_ORIGINS: "${HF_HUB_APPROVED_HTTP_ORIGINS:-}"
       HF_HOME: /tmp/huggingface
       HF_HUB_DISABLE_XET: "1"
       HF_HUB_ENABLE_HF_TRANSFER: "0"
@@ -88,8 +92,12 @@ services:
           - vss-vlm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
-      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_TOKEN:
+      HUGGING_FACE_HUB_TOKEN:
+      HUGGINGFACE_TOKEN:
+      HF_TOKEN_PATH:
       HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HUB_APPROVED_HTTP_ORIGINS: "${HF_HUB_APPROVED_HTTP_ORIGINS:-}"
       HF_HOME: /tmp/huggingface
       HF_HUB_DISABLE_XET: "1"
       HF_HUB_ENABLE_HF_TRANSFER: "0"
