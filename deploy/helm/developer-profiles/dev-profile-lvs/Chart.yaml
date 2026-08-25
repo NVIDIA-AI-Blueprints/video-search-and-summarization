@@ -48,11 +48,9 @@ dependencies:
     version: 3.3.0
     repository: "file://../../services/rtvi"
     condition: rtvi.enabled
-  # Mirrors the LVS compose profile's dcgm-exporter opt-in (see
-  # deploy/docker/developer-profiles/dev-profile-lvs/overrides.env,
-  # COMPOSE_PROFILES=...,dcgm-exporter,...). Chart-level toggle;
-  # sub-services (prometheus/grafana/node-exporter/dcgm) are gated by
-  # monitoring.*.enabled in values-lvs.yaml.
+  # Optional monitoring stack. The chart-level toggle and individual
+  # monitoring.*.enabled values are disabled by default so clusters that
+  # already use the GPU Operator do not get a duplicate dcgm-exporter.
   - name: monitoring
     version: 3.3.0
     repository: "file://../../services/monitoring"
