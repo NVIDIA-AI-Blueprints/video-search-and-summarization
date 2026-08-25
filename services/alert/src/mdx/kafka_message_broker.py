@@ -154,6 +154,14 @@ class KafkaMessageBroker:
             with self._assignment_lock:
                 # Undecided again until the coordinator answers: this member
                 # holds nothing and does not yet know what it will hold.
+                #
+                # This discard has to stay ahead of the on_assignment_change
+                # below. That hook republishes assignment state, and it clears
+                # the rebalance drain budget when the source reads as ready --
+                # so with the two reordered, the budget shutdown hands to the
+                # close-time revoke would be wiped before the revoke uses it,
+                # and the revoke would mint a fresh one. Load-bearing, and no
+                # test covers the ordering.
                 self._assignment_decided.discard(id(consumer))
                 self._owned[id(consumer)] = set()
                 # Unioned, not replaced: a second revoke before the

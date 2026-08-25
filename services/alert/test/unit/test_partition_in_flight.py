@@ -25,6 +25,7 @@ import time
 import pytest
 
 from utils.partition_in_flight import PartitionInFlight
+from utils.process_supervisor import DRAIN_SECONDS
 
 P0, P1 = ("mdx-incidents", 0), ("mdx-incidents", 1)
 
@@ -533,3 +534,265 @@ class TestTheReleaseSideIsWiredUp:
 
         assert tracker.in_flight(P0) == 1
         admission.release()
+
+
+class TestADispatchedMessageStaysCounted:
+    """The one expression the whole rebalance drain rests on.
+
+    A dispatched message outlives the frame that read it, so its admission
+    has to move to the completion callback rather than be released by the
+    caller. That handover is a single call -- ``admission.transfer()`` at the
+    dispatch site. Without it the caller's ``finally`` sees an untransferred
+    admission and releases it, and the completion callback releases it again:
+    the count reaches zero while the message is still running, a drain reports
+    nothing owed, and the partition moves to another consumer mid-message.
+    That is the overlap this feature exists to prevent.
+
+    These have to run through ``process_batch_vlm``, not straight into the
+    dispatch helper. Called directly there is no caller ``finally``, so the
+    missing transfer costs nothing and the mutant survives -- which is exactly
+    how the first version of this test passed while testing nothing.
+    """
+
+    @staticmethod
+    def _dispatch_one(monkeypatch, admission, running, release, executor):
+        """Read one message and dispatch it, leaving it running."""
+        import json
+        from unittest.mock import Mock
+        import enhance_alert_with_vlm as entry
+        from handlers.async_dispatch_mixin import AsyncDispatchMixin
+
+        message = {
+            "sensorId": "cam-0",
+            "category": "loitering",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "end": "2025-01-01T00:00:02Z",
+            "objectIds": [],
+        }
+        stub = Mock(spec=entry.AnomalyEnhancer)
+        stub.config = {"alert_agent": {}}
+        stub.source_type = "kafka"
+        stub.vst_pass_through_mode = False
+        stub.redis_handler = Mock()
+        # Every filter passes the batch through unchanged. A list of results
+        # would bind this test to how many filters there are: drop one and it
+        # would keep passing while exercising a shorter path, add one and the
+        # StopIteration is swallowed by the frame's broad except and surfaces
+        # 5s later as "the message never reached the executor".
+        stub._run_redis_operation_with_mode = (
+            lambda name, operation, messages, **kwargs: messages
+        )
+        stub._apply_vlm_rate_limit = lambda messages: messages
+        stub._vst_handler = Mock()
+
+        # Real dispatch wiring: the point is the production handover, so the
+        # mixin's own methods are bound rather than mocked.
+        stub.pipeline_mode = "thread_bridge"
+        stub.async_vlm_runtime = None
+        stub._message_dispatch_executor = executor
+        stub._message_dispatch_lock = threading.Lock()
+        stub._message_dispatch_futures = set()
+        stub._dispatch_backpressure_semaphore = threading.Semaphore(4)
+        stub.async_dispatch_max_in_flight = 4
+        for name in (
+            "_process_single_message_with_mode", "_acquire_dispatch_slot",
+            "_track_dispatched_future", "_on_dispatched_message_done",
+        ):
+            setattr(stub, name, getattr(AsyncDispatchMixin, name).__get__(stub))
+        stub._process_single_message = (
+            lambda *a, **k: (running.set(), release.wait(timeout=5))
+        )
+
+        monkeypatch.setattr(entry, "protobuf_anomalies_to_json_string_list",
+                            lambda *a, **k: [json.dumps(message)])
+        monkeypatch.setattr(entry, "normalize_alert_message", lambda m: m)
+
+        entry.AnomalyEnhancer.process_batch_vlm(
+            stub, 0, [message], "Behavior", admission=admission
+        )
+
+    def test_the_count_survives_the_frame_that_dispatched_it(self, monkeypatch):
+        from concurrent.futures import ThreadPoolExecutor
+
+        tracker = PartitionInFlight()
+        admission = tracker.accept(P0)
+        running, release = threading.Event(), threading.Event()
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            self._dispatch_one(monkeypatch, admission, running, release, executor)
+            assert running.wait(timeout=5), "the message never reached the executor"
+
+            # The batch frame has returned; the message has not finished.
+            assert tracker.in_flight(P0) == 1
+            assert tracker.drain([P0], timeout=0.2) is False, \
+                "a drain must not pass over a message that is still running"
+
+            release.set()
+            executor.shutdown(wait=True)
+            assert tracker.in_flight(P0) == 0
+            assert tracker.drain([P0], timeout=0.5) is True
+        finally:
+            release.set()
+            executor.shutdown(wait=True)
+
+    def test_the_admission_is_marked_as_handed_on(self, monkeypatch):
+        # The mark is what the caller's ``finally`` reads to decide it must
+        # not release. Asserted separately so a failure says which half broke.
+        from concurrent.futures import ThreadPoolExecutor
+
+        tracker = PartitionInFlight()
+        admission = tracker.accept(P0)
+        running, release = threading.Event(), threading.Event()
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            self._dispatch_one(monkeypatch, admission, running, release, executor)
+            assert running.wait(timeout=5)
+            assert admission.transferred is True
+        finally:
+            release.set()
+            executor.shutdown(wait=True)
+
+
+class TestShutdownDoesNotSpendItsDrainTwice:
+    """Leaving the group at close time must not open a second drain budget.
+
+    ``consumer.close()`` leaves the consumer group, and librdkafka delivers
+    the revoke on the closing thread. That revoke finds no open budget --
+    the last decided assignment cleared it -- so it would mint a fresh
+    DEFAULT_DRAIN_TIMEOUT, a second full drain after the shutdown drain above
+    it already ran and expired. On a container that is 15 more seconds of
+    grace nobody accounted for, and the SIGKILL lands mid-close.
+    """
+
+    @staticmethod
+    def _run_shutdown(monkeypatch):
+        import threading as _threading
+        from concurrent.futures import Future
+        from unittest.mock import Mock
+        import enhance_alert_with_vlm as entry
+
+        # The drain has to actually spend its window, or "inherited" and
+        # "minted at close time" land microseconds apart and no assertion can
+        # tell them apart -- which is how the first version of this test let a
+        # fresh-budget regression through five runs out of five. A short
+        # window and one future that never completes make the gap real while
+        # keeping the test fast.
+        window = 0.3
+        monkeypatch.setattr(entry, "DRAIN_SECONDS", window)
+
+        seen = {}
+        stub = Mock()
+        stub.config = {"alert_agent": {}}
+        stub.pipeline_mode = "event_loop"
+        stub.vst_pass_through_mode = False
+        stub._needs_worker_pool = lambda: False
+        stub.async_vlm_runtime = None
+        stub._webhook_forwarder = None
+        stub._openclaw_notifier = None
+        stub._message_dispatch_lock = _threading.Lock()
+        stub._sink_async_lock = _threading.Lock()
+        stub._message_dispatch_futures = {Future()}   # never completes
+        stub._sink_async_futures = set()
+        # Steady state: the last decided assignment closed the budget.
+        stub._rebalance_drain_deadline = None
+        stub.source.read_data.side_effect = KeyboardInterrupt()
+        stub.source.close.side_effect = (
+            lambda: seen.__setitem__("deadline", stub._rebalance_drain_deadline)
+        )
+
+        # Sampled here, after the import and immediately before the frame
+        # runs, so the assertion measures the teardown rather than however
+        # long importing the entry point took. Taken outside, a cold bytecode
+        # cache ate the whole slack and the test went red on clean code.
+        seen["entered"] = time.monotonic()
+        seen["window"] = window
+        try:
+            entry.AnomalyEnhancer.process_anomalies(stub)
+        except BaseException:
+            pass
+        return seen
+
+    def test_the_close_time_revoke_inherits_the_shutdown_budget(self, monkeypatch):
+        seen = self._run_shutdown(monkeypatch)
+
+        assert "deadline" in seen, "source.close() was never reached"
+        deadline = seen["deadline"]
+
+        # Without the handover the budget is None here -- the last decided
+        # assignment cleared it -- and the revoke inside close() opens a
+        # second one.
+        assert deadline is not None, (
+            "the close-time revoke would open a fresh DEFAULT_DRAIN_TIMEOUT"
+        )
+        # And it is the drain's own deadline, not a second window opened at
+        # close time. The drain above spent its whole window, so a freshly
+        # minted budget would land a further window later; inheriting lands
+        # one window after the frame was entered.
+        window = seen["window"]
+        assert deadline == pytest.approx(seen["entered"] + window, abs=window / 2)
+
+
+class TestClosingTheEventLoopClientsIsBounded:
+    """This step sits between two bounded ones in a teardown the container
+    is timing, and it used to have no deadline of its own.
+
+    Two things are pinned: a runtime that never ran is not started just to
+    close clients that were never opened, and the wait has a deadline at all.
+
+    That the deadline also spans the submit is NOT pinned here. It matters --
+    submit_coroutine starts the runtime when it is down, and that start has
+    its own ten-second wait -- but a Mock runtime returns from submit
+    instantly, so moving the deadline after it leaves these tests green. The
+    guarantee lives in the source and in review, not in this file.
+    """
+
+    @staticmethod
+    def _shutdown_with_runtime(monkeypatch, runtime):
+        import threading as _threading
+        from unittest.mock import Mock
+        import enhance_alert_with_vlm as entry
+
+        monkeypatch.setattr(entry, "DRAIN_SECONDS", 0.05)
+        stub = Mock()
+        stub.config = {"alert_agent": {}}
+        stub.pipeline_mode = "event_loop"
+        stub.vst_pass_through_mode = False
+        stub._needs_worker_pool = lambda: False
+        stub.async_vlm_runtime = runtime
+        stub._webhook_forwarder = None
+        stub._openclaw_notifier = None
+        stub._message_dispatch_lock = _threading.Lock()
+        stub._sink_async_lock = _threading.Lock()
+        stub._message_dispatch_futures = set()
+        stub._sink_async_futures = set()
+        stub._rebalance_drain_deadline = None
+        stub.source.read_data.side_effect = KeyboardInterrupt()
+        try:
+            entry.AnomalyEnhancer.process_anomalies(stub)
+        except BaseException:
+            pass
+
+    def test_a_runtime_that_never_ran_is_not_started_to_close_it(self, monkeypatch):
+        from unittest.mock import Mock
+
+        runtime = Mock()
+        runtime.is_running.return_value = False
+        self._shutdown_with_runtime(monkeypatch, runtime)
+
+        runtime.submit_coroutine.assert_not_called()
+        # It is still stopped -- stop() on a runtime that never ran is cheap
+        # and idempotent, and skipping it would leak a started one.
+        runtime.stop.assert_called_once()
+
+    def test_a_running_runtime_has_its_clients_closed(self, monkeypatch):
+        from unittest.mock import Mock
+        import enhance_alert_with_vlm as entry
+
+        runtime = Mock()
+        runtime.is_running.return_value = True
+        self._shutdown_with_runtime(monkeypatch, runtime)
+
+        runtime.submit_coroutine.assert_called_once()
+        # Bounded, and by no more than the documented cap.
+        timeout = runtime.submit_coroutine.return_value.result.call_args.kwargs["timeout"]
+        assert 0.0 <= timeout <= entry.CLIENT_CLOSE_TIMEOUT

@@ -126,6 +126,12 @@ MIN_FLEET_WAIT_SECONDS = MINIMUM_STARTUP_TIMEOUT_SECONDS
 # the two ended in a dead heat decided by microseconds of thread start-up --
 # which is not a relationship worth resting on.
 WATCHDOG_MARGIN_SECONDS = 5.0
+
+# How long shutdown waits for the event-loop HTTP and Elasticsearch clients to
+# close. Short on purpose: this runs between two bounded steps of a teardown
+# the container is timing, and a client that will not close is not worth the
+# whole grace period.
+CLIENT_CLOSE_TIMEOUT = 5.0
 from utils.process_supervisor import DRAIN_SECONDS, ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
 from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
@@ -1261,10 +1267,27 @@ class AnomalyEnhancer(
             ):
                 # Close async clients in order (HTTP -> Elastic) before the
                 # runtime closes the VLM client and stops the loop.
-                try:
-                    self.async_vlm_runtime.run_coroutine(self._aclose_event_loop_clients())
-                except Exception:
-                    logger.exception("Failed closing event-loop clients during shutdown")
+                #
+                # Skipped on a runtime that never ran: the runtime is built
+                # lazily, so submitting here would start the loop thread and
+                # a fresh client in order to close clients that were never
+                # opened, and stop() would then tear it all down again.
+                #
+                # Bounded, unlike run_coroutine, which waits on the future
+                # forever -- a client whose aclose() never returned held the
+                # whole shutdown past any container grace. The deadline covers
+                # the submit as well as the wait, because submit_coroutine
+                # starts the runtime if it is not up and that start has its
+                # own ten-second wait: timing only the result would have made
+                # a step documented as five seconds take fifteen.
+                if self.async_vlm_runtime.is_running():
+                    close_deadline = time.monotonic() + CLIENT_CLOSE_TIMEOUT
+                    try:
+                        self.async_vlm_runtime.submit_coroutine(
+                            self._aclose_event_loop_clients()
+                        ).result(timeout=max(0.0, close_deadline - time.monotonic()))
+                    except Exception:
+                        logger.exception("Failed closing event-loop clients during shutdown")
             if self.async_vlm_runtime is not None:
                 self.async_vlm_runtime.stop()
             if self._webhook_forwarder is not None:
@@ -1272,6 +1295,15 @@ class AnomalyEnhancer(
             if self._openclaw_notifier is not None:
                 self._openclaw_notifier.close()
             self.sink.close()
+            # Closing the consumer leaves the group, which delivers a revoke
+            # on this thread. That revoke would otherwise find no open budget
+            # -- the last decided assignment cleared it -- and mint a fresh
+            # DEFAULT_DRAIN_TIMEOUT, a second full drain after the one above
+            # already ran. Handing it the drain's own deadline gives it
+            # whatever is left of that one window: the full budget if nothing
+            # was in flight, nothing at all if the drain used it up. Either
+            # way shutdown cannot spend its allowance twice.
+            self._rebalance_drain_deadline = drain_until
             self.source.close()
             logger.info("Resources closed successfully")
 

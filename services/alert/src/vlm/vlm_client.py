@@ -948,6 +948,18 @@ class AsyncVLMRuntime:
             await asyncio.gather(*pending, return_exceptions=True)
         asyncio.get_running_loop().stop()
 
+    def is_running(self) -> bool:
+        """Whether the loop thread is up.
+
+        The runtime is built lazily and started on first use, so a process
+        that never dispatched a message has one that has never run. Shutdown
+        asks before submitting: starting the loop in order to close clients
+        that were never opened costs the teardown its own start timeout.
+        """
+        with self._lock:
+            thread = self._thread
+        return thread is not None and thread.is_alive()
+
     def stop(self, timeout: float = 10.0) -> None:
         """Stop the runtime loop and wait for thread shutdown."""
         with self._lock:

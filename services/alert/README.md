@@ -276,7 +276,47 @@ alert_agent:
   `/ready` answers the same, for deployments that prefer the conventional
   name. A multi-process instance reports no ready pipelines for the whole of
   its startup, so give a startup probe a failure threshold that covers
-  `alert_agent.startup_timeout_seconds` rather than the default.
+  `alert_agent.startup_timeout_seconds` rather than the default. **Do not
+  point a liveness probe at it.** It reports whether this instance is serving
+  its partitions, not whether the process is alive, so a liveness probe
+  restarts the container for every rebalance -- at any process count,
+  including one.
+- **Shutdown needs 60s of container grace, and the budget differs by process
+  count.** The shipped profiles set it (`stop_grace_period` on Compose,
+  `terminationGracePeriodSeconds` from `values.yaml` on Kubernetes). Docker's
+  own default is 10s, which SIGKILLs the parent mid-teardown and cuts
+  in-flight work rather than finishing it.
+  - At `processes: 1` and `pipeline_mode: event_loop`, which is what every
+    shipped profile sets, **there is no supervisor**, and this is the longer
+    of the two paths: up to 10s to terminate and join the
+    API child, then up to 15s of drain, then up to 5s to close the event-loop
+    HTTP and Elasticsearch clients, then up to 15s to stop the runtime. 45s
+    bounded. Leaving the consumer group delivers one more revoke, but it
+    inherits the drain budget above rather than opening a second one.
+  - Above one process the supervisor owns the timeline: drain at T+15,
+    terminate at T+18, kill at T+19, finished by T+20. The API child is reaped
+    inside that timeline rather than after it, so this path is the shorter of
+    the two. Cutting it short means the children die by `PR_SET_PDEATHSIG`
+    with none of the supervisor's exit accounting run.
+
+  In the other modes the arithmetic does not hold at all: `thread_bridge`
+  and `sync` shut their executors down with an unbounded wait that runs
+  before the drain window is even opened. Nothing shipped selects them, and
+  more than one process requires `event_loop`.
+
+  What is still unbounded, and all of it predates this work: the consumer's
+  own close, which commits and leaves the group against a coordinator that
+  may be gone; the webhook forwarder's Kafka close; the notifier's thread
+  pool; the sink's close; and
+  -- the one that lands last -- the async runtime's `ab-vlm-io` executor.
+  Its workers are not daemons, so the interpreter joins them on the way out,
+  after `main()` has returned and after the line that says shutdown is
+  complete; and when `stop()` has to force the loop down, the runtime's own
+  attempt to shut that executor raises and the pool is never closed at all.
+  A blocking call that will not return -- a VST download on a half-open
+  socket, say -- holds the process there for as long as it takes. 60s covers
+  everything that is bounded, with margin, but no grace period is a promise
+  while those five can wait indefinitely.
 - **No shared state is needed.** `mdx-incidents` is partitioned by `sensorId`
   and every dedup cohort key is prefixed with it, so Kafka routes a whole
   cohort to one partition and therefore to exactly one child; confirmed-verdict
@@ -315,6 +355,11 @@ alert_agent:
   Watch `alert_bridge_rebalance_drains_total{outcome="timed_out"}` — the bound
   has been exercised against a stubbed backend, where a drain finished in
   under half a second, and a real VLM is slower by orders of magnitude.
+  One expected source of that counter is shutdown itself: the revoke that
+  leaving the group delivers shares the shutdown drain's window rather than
+  opening its own, so a restart with work still running records a timeout
+  here where it used to record a clean drain. Alert on the rate during
+  steady state, not on restarts.
 - **Metrics aggregate automatically.** Children inherit
   `PROMETHEUS_MULTIPROC_DIR` and the parent scrapes with
   `MultiProcessCollector`, so `:9081` stays the single endpoint. Counters and
