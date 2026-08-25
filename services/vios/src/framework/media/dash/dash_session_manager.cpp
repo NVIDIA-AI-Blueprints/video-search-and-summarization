@@ -322,12 +322,12 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
             // cannot place and the session dies after its initialisation
             // segment.  The rate is known, so build the timeline from the frame
             // index the way a recording does.
-            packagerConfig.synthesizeTimestamps = true;
-            const double requested = frameRate.empty() ? 0.0 : std::atof(frameRate.c_str());
-            if (requested > 0.0)
-            {
-                packagerConfig.sourceFrameRate = requested;
-            }
+            // Stamp when each composed frame arrives rather than counting them.
+            // A wall is composed live, and counting made any frame lost between
+            // the compositor and the packager show up as a timeline running
+            // slow - measured at half real time, which leaves the live edge
+            // falling permanently behind and the viewer looking at nothing.
+            packagerConfig.useArrivalTimestamps = true;
         }
     }
 
