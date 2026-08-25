@@ -26,11 +26,13 @@ __all__ = [
     "MemoryDecodeError",
     "MemoryInput",
     "MemoryNotFoundError",
+    "MemoryNoteWriteResult",
     "MemoryOutput",
     "MemoryQuery",
     "MemoryService",
     "MemoryStore",
     "NestedCollectionError",
+    "OpenClawDailyNoteStore",
     "PersistResult",
     "RecordBundle",
     "UnifiedMemoryRecord",
@@ -61,6 +63,8 @@ _LAZY_EXPORTS = {
     "register_adapter": ".adapters",
     "get_adapter": ".adapters",
     "MemoryAdapter": ".adapters",
+    "MemoryNoteWriteResult": ".notes",
+    "OpenClawDailyNoteStore": ".notes",
     "render_memory_note": ".notes",
 }
 
@@ -76,6 +80,8 @@ if TYPE_CHECKING:
     from .models import MemoryInput
     from .models import MemoryOutput
     from .models import UnifiedMemoryRecord
+    from .notes import MemoryNoteWriteResult
+    from .notes import OpenClawDailyNoteStore
     from .notes import render_memory_note
     from .service import MemoryNotFoundError
     from .service import MemoryService

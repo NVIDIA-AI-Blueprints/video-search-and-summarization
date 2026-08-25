@@ -4,9 +4,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import contextlib
+from dataclasses import dataclass
+from datetime import UTC
+from datetime import datetime
 import html
+import os
+from pathlib import Path
 import re
 import shlex
+import tempfile
+from typing import Literal
 
 from .models import UnifiedMemoryRecord
 
@@ -17,6 +26,65 @@ MAX_SENSORS = 8
 
 _BLOCK_OPEN = "<!-- vss-job:{job_id} -->"
 _BLOCK_CLOSE = "<!-- /vss-job:{job_id} -->"
+
+Clock = Callable[[], datetime]
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryNoteWriteResult:
+    """Outcome of one idempotent OpenClaw daily-note update."""
+
+    written: bool
+    path: str
+    job_id: str
+    status: Literal["written", "replaced", "unchanged"]
+
+
+class OpenClawDailyNoteStore:
+    """Atomically upsert bounded VSS blocks in ``memory/YYYY-MM-DD-vss.md``."""
+
+    def __init__(self, workspace: str | Path, *, clock: Clock | None = None) -> None:
+        supplied = Path(workspace)
+        if not supplied.is_absolute():
+            raise ValueError("OpenClaw workspace must be an absolute path")
+        if ".." in supplied.parts:
+            raise ValueError("OpenClaw workspace must not contain '..'")
+        try:
+            root = supplied.resolve(strict=True)
+        except OSError as error:
+            raise ValueError(f"OpenClaw workspace does not exist: {supplied}") from error
+        if not root.is_dir():
+            raise ValueError(f"OpenClaw workspace is not a directory: {root}")
+        self._workspace = root
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def write(self, record: UnifiedMemoryRecord) -> MemoryNoteWriteResult:
+        if record.job.is_child:
+            raise ValueError("Markdown memory notes are parent-job summaries, not child records")
+        path = self._note_path()
+        relative = path.relative_to(self._workspace).as_posix()
+        block = render_memory_note(record)
+        status = _upsert_block(path, workspace=self._workspace, block=block, job_id=record.job.job_id)
+        return MemoryNoteWriteResult(
+            written=status != "unchanged",
+            path=relative,
+            job_id=record.job.job_id,
+            status=status,
+        )
+
+    def _note_path(self) -> Path:
+        now = self._clock()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        else:
+            now = now.astimezone(UTC)
+        path = self._workspace / "memory" / f"{now.date().isoformat()}-vss.md"
+        resolved_parent = path.parent.resolve(strict=False)
+        try:
+            resolved_parent.relative_to(self._workspace)
+        except ValueError as error:
+            raise ValueError(f"OpenClaw memory path escapes workspace: {resolved_parent}") from error
+        return path
 
 
 def render_memory_note(record: UnifiedMemoryRecord) -> str:
@@ -124,10 +192,74 @@ def _fenced(value: str) -> str:
     return f"{fence}text\n{safe}\n{fence}"
 
 
+def _upsert_block(
+    path: Path,
+    *,
+    workspace: Path,
+    block: str,
+    job_id: str,
+) -> Literal["written", "replaced", "unchanged"]:
+    import fcntl
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_parent = path.parent.resolve(strict=True)
+    try:
+        resolved_parent.relative_to(workspace)
+    except ValueError as error:
+        raise ValueError(f"OpenClaw memory directory escapes workspace: {resolved_parent}") from error
+
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            existing = path.read_text(encoding="utf-8") if path.exists() else ""
+            open_marker, close_marker = block_markers(job_id)
+            pattern = re.compile(
+                re.escape(open_marker) + r"\n.*?" + re.escape(close_marker) + r"\n?",
+                re.DOTALL,
+            )
+            match = pattern.search(existing)
+            if match is not None:
+                if match.group(0).rstrip("\n") == block.rstrip("\n"):
+                    return "unchanged"
+                updated = existing[: match.start()] + block + existing[match.end() :]
+                status: Literal["written", "replaced", "unchanged"] = "replaced"
+            else:
+                if open_marker in existing or close_marker in existing:
+                    raise ValueError(f"malformed existing memory-note block for job_id={job_id!r}")
+                separator = "" if not existing or existing.endswith("\n") else "\n"
+                updated = existing + separator + block
+                status = "written"
+            _atomic_write(path, updated, workspace=workspace)
+            return status
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _atomic_write(path: Path, content: str, *, workspace: Path) -> None:
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        temporary.resolve(strict=True).relative_to(workspace)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        with contextlib.suppress(OSError):
+            temporary.unlink()
+        raise
+
+
 __all__ = [
     "MAX_ANSWER_CHARS",
     "MAX_MEMORY_NOTE_CHARS",
     "MAX_REQUEST_CHARS",
+    "MemoryNoteWriteResult",
+    "OpenClawDailyNoteStore",
     "block_markers",
     "render_memory_note",
 ]
