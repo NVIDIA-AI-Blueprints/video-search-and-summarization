@@ -123,7 +123,7 @@ def test_ask_video_accepts_only_pre_resolved_confirmed_search_handoff() -> None:
     ask_video = (ASK_VIDEO_SKILL / "SKILL.md").read_text(encoding="utf-8")
     normalized = " ".join(ask_video.split())
 
-    assert 'version: "3.2.0"' in ask_video
+    assert 'version: "3.3.0"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
     assert "Treat that URL as Path A; do not rerun search or resolve a different interval" in normalized
     assert "The caller owns verdict validation and any fallback" in normalized
