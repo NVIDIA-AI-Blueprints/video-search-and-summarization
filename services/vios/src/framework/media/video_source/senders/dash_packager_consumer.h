@@ -110,6 +110,7 @@ private:
         GstClockTime carried = 0;
         uint64_t jumps = 0;
         uint64_t framesSinceReport = 0;
+        uint64_t framesPushed = 0;
         // Wall-clock arrival, which is what decides whether a segment is written
         // in time for a viewer sitting near the live edge.  The media timeline
         // can be perfectly continuous while the frames producing it arrive late.
@@ -121,6 +122,7 @@ private:
 
     [[nodiscard]] bool pushFrame(GstElement* appsrc, const uint8_t* data, size_t size,
                                  GstClockTime rawPts, TimelineState& timeline);
+    void reportDroppedFrame(const char* kind);
     void setFailure(const std::string& message);
     static GstBusSyncReply busSyncHandler(GstBus* bus, GstMessage* message, gpointer userData);
 
@@ -144,4 +146,8 @@ private:
     bool m_sourceCapsSet = false;
     TimelineState m_videoTimeline;
     TimelineState m_audioTimeline;
+    // Session accounting, reported once on stop rather than per frame.
+    std::chrono::steady_clock::time_point m_startedAt{};
+    std::atomic<bool> m_firstFrameLogged{false};
+    std::atomic<uint64_t> m_droppedFrames{0};
 };
