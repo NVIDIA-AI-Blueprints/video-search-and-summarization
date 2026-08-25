@@ -107,10 +107,22 @@ class TestUserRequestedCaptionGeneration:
             "never set up stream CAM_1",
             "do not configure stream warehouse_cam",
             "not start captioning CAM_1",
+            "Do not, under any circumstances, start captioning CAM_1",
+            "Please don't, under any circumstances, configure stream warehouse_cam",
+            "I never want you to set up stream CAM_1",
+            "I do not, at this time, start captioning sample_warehouse",
         ],
     )
     def test_summarize_and_empty_turns_are_not_caption_requests(self, text):
         assert user_requested_caption_generation(text) is False
+
+    def test_later_sentence_can_still_request_captioning(self):
+        assert (
+            user_requested_caption_generation(
+                "I have not configured captions yet. start captioning CAM_1",
+            )
+            is True
+        )
 
 
 class TestLVSConfigMediaInner:

@@ -822,7 +822,9 @@ class TestLvsConfigMediaCaptionGate:
     async def test_blocks_config_media_on_negated_caption_request(self, monkeypatch):
         agent, config_tool = self._agent_with_config_tool(monkeypatch)
         state = TopAgentState(
-            current_message=HumanMessage(content="do not start captioning CAM_1"),
+            current_message=HumanMessage(
+                content="Do not, under any circumstances, start captioning CAM_1",
+            ),
             agent_scratchpad=[
                 AIMessage(
                     content="calling config",
