@@ -136,7 +136,7 @@
 		"gpu_indices" : [],
 		"webrtc_out_enable_insert_sps_pps" : true,
 		"webrtc_out_set_iframe_interval" : 30,
-		"webrtc_out_set_idr_interval" : 256,
+		"webrtc_out_set_idr_interval" : 30,
 		"webrtc_out_min_drc_interval" : 5,
 		"webrtc_out_encode_fallback_option" : "software",
 		"device_name" : "VST",
