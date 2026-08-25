@@ -236,7 +236,7 @@ class SummarizeOptions(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    persist: bool = Field(True, description="Persist the summary to unified memory.")
+    no_persist: bool = Field(False, description="Skip persistence for this summary.")
     video_id: str | None = Field(
         None,
         description="video_id recorded for the persisted record. Defaults to --id; required with --url.",
@@ -468,8 +468,8 @@ class SummarizeGroup(CommandGroup):
     Input: ClassVar[type[BaseModel] | None] = SummarizeInput
     #: Checked before dispatch, so a deployment without LVS says so instead of
     #: failing later and less clearly -- as `--model cannot be defaulted`, which
-    #: names the wrong cause -- and before `--persist` opens Elasticsearch for a
-    #: summarization that was never going to run.
+    #: names the wrong cause -- and before configured persistence opens
+    #: Elasticsearch for a summarization that was never going to run.
     requires: ClassVar[frozenset[str]] = frozenset({"lvs"})
     extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SummarizeOptions))
     #: Which memory adapter this group's records are built by, alongside the
@@ -486,11 +486,14 @@ class SummarizeGroup(CommandGroup):
 
         deployment = ctx.deployment or config_mod.load()
         options = SummarizeOptions(**{k: v for k, v in ctx.extra.items() if k in SummarizeOptions.model_fields})
+        from vss_cli.memory_policy import effective_persist
+
+        want_persist = effective_persist(deployment, no_persist=options.no_persist)
 
         # Fail before the expensive summarization: a persisted record needs a
         # video_id, which for a --url summary can only come from --video-id.
         asset_id = options.video_id or inputs.id
-        if options.persist and not asset_id:
+        if want_persist and not asset_id:
             raise InvalidInput("cannot persist a --url summary without --video-id (pass --video-id or --no-persist)")
 
         request = inputs.model_dump(exclude_none=True, exclude_defaults=True)
@@ -500,7 +503,7 @@ class SummarizeGroup(CommandGroup):
         # Opened before the VLM call, not after: a deployment with no memory at
         # all is worth an immediate exit 4, rather than an hour of
         # summarization followed by the discovery that nothing can hold it.
-        memory = self.memory(ctx) if options.persist else None
+        memory = self.memory(ctx) if want_persist else None
 
         from vss_core.memory.adapters import utc_now_iso
 

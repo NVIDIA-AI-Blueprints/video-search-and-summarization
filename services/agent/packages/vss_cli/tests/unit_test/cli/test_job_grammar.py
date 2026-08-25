@@ -167,6 +167,22 @@ def test_read_verbs_fail_honestly_without_a_deployment(tmp_path, monkeypatch: py
         assert "memory" in result.output.lower()
 
 
+def test_read_verbs_require_enabled_memory(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+    config_mod.save(
+        config_mod.Deployment(
+            base_url="http://h:7777",
+            services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
+            memory=config_mod.MemoryConfig(enabled=False, persist_by_default=False),
+        )
+    )
+    for argv in (["status", "--job-id", "x"], ["get", "--job-id", "x"], ["list"]):
+        result = CliRunner().invoke(_Group().cli(), argv)
+        assert result.exit_code == int(Exit.CONFIGURATION), argv
+        assert "memory is disabled" in result.output
+        assert "vss configure memory --enable" in result.output
+
+
 def test_since_only_advertises_what_it_accepts(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A rejected `--since` is the caller's mistake, so it exits 2 with a sentence.
 

@@ -61,7 +61,11 @@ def _deployment(
     }
     if services is not None:
         recorded = services
-    return config_mod.Deployment(base_url=BASE_URL, services=recorded)
+    return config_mod.Deployment(
+        base_url=BASE_URL,
+        services=recorded,
+        memory=config_mod.MemoryConfig(),
+    )
 
 
 @pytest.fixture
@@ -296,9 +300,10 @@ def test_endpoint_flags_are_gone() -> None:
 
 def test_persistence_options_are_not_request_fields() -> None:
     """They configure the job, not the VLM call, so they must not reach the payload."""
-    assert {"persist", "video_id", "media_source"} <= set(SummarizeOptions.model_fields)
-    assert not {"persist", "video_id", "media_source"} & set(SummarizeInput.model_fields)
-    assert {"--persist", "--no-persist", "--video-id"} <= _run_flags()
+    assert {"no_persist", "video_id", "media_source"} <= set(SummarizeOptions.model_fields)
+    assert not {"no_persist", "video_id", "media_source"} & set(SummarizeInput.model_fields)
+    assert {"--no-persist", "--video-id"} <= _run_flags()
+    assert "--persist" not in _run_flags()
 
 
 # --------------------------------------------------------------------------
@@ -1039,6 +1044,49 @@ def test_a_timeout_without_persistence_claims_no_record(
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
     assert _body(result)["record"] == "absent"
+
+
+@pytest.mark.parametrize(
+    "memory_config",
+    [
+        None,
+        config_mod.MemoryConfig(enabled=False, persist_by_default=False),
+        config_mod.MemoryConfig(enabled=True, persist_by_default=False),
+    ],
+)
+def test_static_policy_can_make_summarize_stdout_only(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory_config: config_mod.MemoryConfig | None,
+) -> None:
+    config_mod.save(
+        config_mod.Deployment(
+            base_url=configured.base_url,
+            services=configured.services,
+            memory=memory_config,
+            written_at=configured.written_at,
+        )
+    )
+    _capture_post(monkeypatch)
+    monkeypatch.setattr(memory_mod, "build", lambda *_args, **_kwargs: pytest.fail("memory initialized"))
+
+    result = _run("--id", "v1")
+    assert result.exit_code == int(Exit.SUCCESS), result.output
+    assert _body(result)["record"] == "absent"
+    assert _marker(result)["persisted"] is False
+
+
+def test_summarize_no_persist_never_initializes_memory(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _capture_post(monkeypatch)
+    monkeypatch.setattr(memory_mod, "build", lambda *_args, **_kwargs: pytest.fail("memory initialized"))
+
+    result = _run("--id", "v1", "--no-persist")
+    assert result.exit_code == int(Exit.SUCCESS), result.output
+    assert _body(result)["record"] == "absent"
+    assert _marker(result)["persisted"] is False
 
 
 @pytest.mark.parametrize(("argv", "worth"), [((), "closed"), (("--no-persist",), "absent")])

@@ -231,7 +231,7 @@ class SearchPersistOptions(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    persist: bool = Field(True, description="Persist the search job and hits to unified memory.")
+    no_persist: bool = Field(False, description="Skip persistence for this search.")
 
 
 def _ulid() -> str:
@@ -441,18 +441,13 @@ class SearchGroup(CommandGroup):
         persist_options = SearchPersistOptions(
             **{k: v for k, v in ctx.extra.items() if k in SearchPersistOptions.model_fields}
         )
-        # Distinguish unset (default persist) from explicit ``--persist``.
-        explicit_persist = "persist" in ctx.extra and bool(ctx.extra.get("persist"))
-        want_persist = persist_options.persist
+        from vss_cli.memory_policy import effective_persist
+
+        want_persist = effective_persist(deployment, no_persist=persist_options.no_persist)
 
         memory: memory_mod.Memory | None = None
         if want_persist:
-            try:
-                memory = self.memory(ctx)
-            except memory_mod.MemoryUnavailable:
-                if explicit_persist:
-                    raise
-                memory = None
+            memory = self.memory(ctx)
 
         from vss_core.memory.adapters import utc_now_iso
 

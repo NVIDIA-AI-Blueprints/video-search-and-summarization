@@ -40,6 +40,7 @@ def _deployment() -> config_mod.Deployment:
             "elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch", indices=["mdx-embed-filtered-1"]),
             "rt_embed": config_mod.Service(url="http://h:7777/cosmos-embed", models=["cosmos-embed"]),
         },
+        memory=config_mod.MemoryConfig(),
     )
 
 
@@ -60,6 +61,12 @@ def _search_output(n: int = 2) -> SearchOutput:
         ],
         search_messages=[],
     )
+
+
+def test_search_exposes_only_the_safe_persistence_opt_out() -> None:
+    options = {option for param in SearchGroup.extra_params for option in param.opts}
+    assert "--no-persist" in options
+    assert "--persist" not in options
 
 
 @pytest.fixture
@@ -93,12 +100,16 @@ def search_group(monkeypatch: pytest.MonkeyPatch) -> SearchGroup:
     return group
 
 
-def test_search_succeeds_without_memory_soft_persist(search_group: SearchGroup) -> None:
-    # Deployment without Elasticsearch → Memory.build raises; default persist soft-skips.
+def test_search_succeeds_without_memory_configuration(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A deployment route is enough to search; absent memory policy means stdout-only.
     dep = config_mod.Deployment(
         base_url="http://h:7777",
         services={"rt_embed": config_mod.Service(url="http://h:7777/cosmos-embed", models=["m"])},
     )
+    monkeypatch.setattr("vss_cli.memory.build", lambda *_args, **_kwargs: pytest.fail("memory initialized"))
     ctx = Context(deployment=dep)
     result = search_group.run("embed", _inputs(), ctx)
     assert result.exit == Exit.SUCCESS
@@ -109,18 +120,45 @@ def test_search_succeeds_without_memory_soft_persist(search_group: SearchGroup) 
     assert result.extra["marker"]["persisted"] is False
 
 
-def test_no_persist_writes_nothing(search_group: SearchGroup) -> None:
-    store = InMemoryStore()
+@pytest.mark.parametrize(
+    "memory_config",
+    [
+        config_mod.MemoryConfig(enabled=False, persist_by_default=False),
+        config_mod.MemoryConfig(enabled=True, persist_by_default=False),
+    ],
+)
+def test_search_static_policy_can_disable_automatic_persistence(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+    memory_config: config_mod.MemoryConfig,
+) -> None:
+    deployment = _deployment()
+    deployment = config_mod.Deployment(
+        base_url=deployment.base_url,
+        services=deployment.services,
+        memory=memory_config,
+    )
+    monkeypatch.setattr("vss_cli.memory.build", lambda *_args, **_kwargs: pytest.fail("memory initialized"))
+    result = search_group.run("embed", _inputs(), Context(deployment=deployment))
+    assert result.exit == Exit.SUCCESS
+    assert result.body["persisted"] is False
+    assert result.body["record"] == "absent"
+    assert result.extra["marker"]["persisted"] is False
+
+
+def test_no_persist_never_initializes_memory(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vss_cli.memory.build", lambda *_args, **_kwargs: pytest.fail("memory initialized"))
     ctx = Context(
         deployment=_deployment(),
-        memory=Memory(MemoryService(store), index="vss-memory"),
-        extra={"persist": False},
+        extra={"no_persist": True},
     )
     result = search_group.run("embed", _inputs(), ctx)
     assert result.exit == Exit.SUCCESS
     assert result.body["persisted"] is False
     assert result.body["record"] == "absent"
-    assert store._records == {}
 
 
 def test_persisted_search_parent_and_children(search_group: SearchGroup) -> None:
