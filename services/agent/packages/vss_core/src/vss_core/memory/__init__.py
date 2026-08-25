@@ -37,6 +37,7 @@ __all__ = [
     "build_memory_service",
     "get_adapter",
     "register_adapter",
+    "render_memory_note",
 ]
 
 _LAZY_EXPORTS = {
@@ -60,6 +61,7 @@ _LAZY_EXPORTS = {
     "register_adapter": ".adapters",
     "get_adapter": ".adapters",
     "MemoryAdapter": ".adapters",
+    "render_memory_note": ".notes",
 }
 
 if TYPE_CHECKING:
@@ -74,6 +76,7 @@ if TYPE_CHECKING:
     from .models import MemoryInput
     from .models import MemoryOutput
     from .models import UnifiedMemoryRecord
+    from .notes import render_memory_note
     from .service import MemoryNotFoundError
     from .service import MemoryService
     from .service import NestedCollectionError
