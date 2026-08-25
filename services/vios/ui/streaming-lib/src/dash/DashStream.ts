@@ -66,19 +66,40 @@ export class DashStream {
     // report its own failure, because by then the failure belongs to a stream
     // that no longer exists and reporting it tears down its replacement.
     private startGeneration = 0;
+    /* Published segment length for the session in flight.  Buffers, the live
+     * delay and the watchdog are all really counts of segments. */
+    private segmentSeconds = 0;
     private autoplayFallbackTimer: ReturnType<typeof setTimeout> | null = null;
     // Remembered so the session is released through the same API that created it.
     private replay = false;
     private config: DashStreamConfig | null = null;
 
-    // False means this start was overtaken while waiting and should be
+    // Null means this start was overtaken while waiting and should be
     // abandoned quietly.  Anything genuinely wrong still throws.
-    private async waitForManifest(manifestUrl: string, generation: number): Promise<boolean> {
+    /* The published segment length, in seconds, or 0 when the manifest does
+     * not say.  A segment is as long as the encoder's keyframe interval, so it
+     * is a property of the source rather than a constant, and every buffer
+     * below is expressed as a number of segments. */
+    private static segmentSeconds(manifest: string): number {
+        const timescale = /timescale="(\d+)"/.exec(manifest);
+        const first = /<S[^>]*\sd="(\d+)"/.exec(manifest);
+        if (!timescale || !first) {
+            return 0;
+        }
+        const scale = Number(timescale[1]);
+        const duration = Number(first[1]);
+        if (!Number.isFinite(scale) || !Number.isFinite(duration) || scale <= 0) {
+            return 0;
+        }
+        return duration / scale;
+    }
+
+    private async waitForManifest(manifestUrl: string, generation: number): Promise<string | null> {
         const deadline = Date.now() + MANIFEST_READY_TIMEOUT_MS;
         let lastStatus = 0;
         while (Date.now() < deadline) {
             if (generation !== this.startGeneration) {
-                return false;
+                return null;
             }
             const response = await fetch(manifestUrl, { credentials: 'include' });
             lastStatus = response.status;
@@ -89,7 +110,7 @@ export class DashStream {
             if (response.ok) {
                 const manifest = await response.text();
                 if (manifest.includes('<MPD')) {
-                    return true;
+                    return manifest;
                 }
                 throw new Error('DASH manifest endpoint returned a non-MPD response');
             }
@@ -101,8 +122,8 @@ export class DashStream {
     private async attachPlayer(config: DashStreamConfig, result: DashStartResponse,
                                generation: number): Promise<void> {
         const manifestUrl = new URL(result.manifestUrl, config.endpoint).toString();
-        const ready = await this.waitForManifest(manifestUrl, generation);
-        if (!ready || generation !== this.startGeneration) {
+        const manifest = await this.waitForManifest(manifestUrl, generation);
+        if (manifest === null || generation !== this.startGeneration) {
             return;
         }
         const player = dashjs.MediaPlayer().create();
@@ -143,7 +164,29 @@ export class DashStream {
         // the edge.  Sitting further back means every request is for something
         // already written.
         const isComposite = Boolean(config.composite);
-        const liveDelay = config.liveDelaySeconds ?? (isReplay ? 8 : (isComposite ? 10 : 5));
+        /* Every buffer here is really a number of segments, and a segment is as
+         * long as the source's keyframe interval.  At one keyframe a second the
+         * defaults below are already several segments deep.  At an interval of
+         * 250 on a 30 fps source a segment runs over eight seconds, so a five
+         * second delay puts the playhead inside the segment still being
+         * written: the player waits out the rest of it on every boundary, which
+         * measures as playback running slow and stalling once per segment.
+         * Scale with what the manifest actually publishes, and never shrink
+         * below the tuned defaults. */
+        const segmentSeconds = DashStream.segmentSeconds(manifest);
+        this.segmentSeconds = segmentSeconds;
+        const baseDelay = config.liveDelaySeconds ?? (isReplay ? 8 : (isComposite ? 10 : 5));
+        const liveDelay = segmentSeconds > 0
+            ? Math.max(baseDelay, Math.ceil(segmentSeconds * 2.5))
+            : baseDelay;
+        // The cushion has to outlast a segment arriving late, so it is measured
+        // in segments too.
+        const bufferSeconds = segmentSeconds > 0
+            ? Math.max(12, Math.ceil(segmentSeconds * 3))
+            : 12;
+        const initialBuffer = segmentSeconds > 0
+            ? Math.max(config.initialBufferSeconds ?? 4, Math.ceil(segmentSeconds))
+            : (config.initialBufferSeconds ?? 4);
         // Keys follow the dash.js 5.x layout that package.json pins.  dash.js
         // silently rejects unknown keys with a console warning instead of
         // failing, so a key from the pre-5 flat layout would leave the default
@@ -162,9 +205,9 @@ export class DashStream {
                 // right after start-up while the connection is still ramping,
                 // so playback is held until a cushion has been fetched and
                 // the trough never starts near zero.
-                initialBufferLevel: config.initialBufferSeconds ?? 4,
-                bufferTimeDefault: 12,
-                bufferTimeAtTopQuality: 12,
+                initialBufferLevel: initialBuffer,
+                bufferTimeDefault: bufferSeconds,
+                bufferTimeAtTopQuality: bufferSeconds,
             },
             // Without catch-up a player that stalls once stays permanently
             // behind: it resumes from where it stopped while the live edge
@@ -508,10 +551,17 @@ export class DashStream {
     private startStrandWatchdog(video: HTMLVideoElement,
                                 trace: (what: string, detail: unknown) => void): void {
         this.stopStrandWatchdog();
-        const STALL_TICKS = 4;      // ~2s at the 500ms period below
+        /* Patience has to be measured in segments, not seconds.  Waiting for
+         * the next segment is normal, and on a source with a long keyframe
+         * interval that wait is the segment length: at eight seconds a fixed
+         * two second threshold calls every ordinary boundary a stall and seeks
+         * the playhead forward, which is a far worse fault than the one this
+         * exists to fix.  Never drop below the original thresholds. */
+        const segment = this.segmentSeconds > 0 ? this.segmentSeconds : 1;
+        const STALL_TICKS = Math.max(4, Math.ceil((segment * 1.5) / 0.5));
         // Longer, because a playhead that has media under it is usually just
         // rebuffering and deserves a chance to recover on its own.
-        const STUCK_DECODER_TICKS = 8;   // ~4s
+        const STUCK_DECODER_TICKS = STALL_TICKS * 2;
         let lastTime = -1;
         let stalledTicks = 0;
         this.strandTimer = setInterval(() => {
