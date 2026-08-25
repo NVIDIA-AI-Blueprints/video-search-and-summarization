@@ -205,7 +205,7 @@ RUN mkdir -p /tmp/l4t-artifacts \
             "nvidia-l4t-multimedia=$L4T_PACKAGE_VERSION" \
             "nvidia-l4t-multimedia-utils=$L4T_PACKAGE_VERSION" \
         && for package in ./*.deb; do dpkg-deb -x "$package" /tmp/l4t-root; done \
-        && ds_path=/opt/nvidia/deepstream/deepstream-9.1 \
+        && ds_path=/opt/nvidia/deepstream/deepstream-9.1/lib \
         && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so.1.0.0 \
             "$ds_path/libnvbufsurface.so" \
         && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so.1.0.0 \
