@@ -75,7 +75,8 @@ def _normalized_v1(url: str) -> str:
     return base if base.endswith("/v1") else f"{base}/v1"
 
 
-def _model_authorizes(base: str, key: str, model: str, wire: str) -> bool:
+def _probe(base: str, key: str, model: str, wire: str) -> str:
+    """One upstream probe. Returns \"ok\" or a short failure label."""
     if wire == "anthropic_messages":
         url = f"{base}/messages"
         headers = {"Content-Type": "application/json",
@@ -94,19 +95,30 @@ def _model_authorizes(base: str, key: str, model: str, wire: str) -> bool:
     request = urllib.request.Request(url, data=body, method="POST",
                                      headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=60):
-            return True
-    except (urllib.error.URLError, OSError):
-        return False
+        with urllib.request.urlopen(request, timeout=20):
+            return "ok"
+    except urllib.error.HTTPError as error:
+        return f"http {error.code}"
+    except urllib.error.URLError as error:
+        return f"unreachable ({getattr(error.reason, 'strerror', None) or error.reason})"
+    except OSError as error:
+        return f"unreachable ({error})"
 
 
-def select_targets(base: str, key: str, env) -> None:
-    """Pick a wire format and two upstream model ids the credential can call.
+def select_targets(env) -> None:
+    """Pick a key, endpoint, wire format, and two model ids that work together.
 
-    Keys differ in scope: some authorize chat completions, some only the
-    Anthropic messages endpoint. The router translates between its client
-    API and the upstream wire, so either works once configured.
+    Credentials differ in scope (chat completions vs the Anthropic messages
+    endpoint) and hosts differ in reachability, so every combination is
+    probed and the statuses are printed; the router translates its client
+    API to whichever upstream wire is chosen.
     """
+    keys = [k for k in (env.get("NVIDIA_API_KEY", "").strip(),
+                        env.get("UPSTREAM_KEY_FALLBACK", "").strip()) if k]
+    keys = list(dict.fromkeys(keys))
+    bases = list(dict.fromkeys(
+        _normalized_v1(b) for b in (env.get("UPSTREAM_BASE_URL", "").strip(),
+                                    _DEFAULT_UPSTREAM) if b))
     preferred = [
         value.strip()
         for value in (env.get("ROUTER_TARGET_CAPABLE", ""),
@@ -117,18 +129,33 @@ def select_targets(base: str, key: str, env) -> None:
     candidates = list(dict.fromkeys((*preferred, *_CANDIDATE_TARGETS)))
     forced = env.get("UPSTREAM_FORMAT", "").strip()
     wires = [forced] if forced else ["openai_chat", "anthropic_messages"]
-    for wire in wires:
-        selected = [m for m in candidates
-                    if _model_authorizes(base, key, m, wire)][:2]
-        if len(selected) == 2:
-            env["UPSTREAM_FORMAT"] = wire
-            env["ROUTER_TARGET_CAPABLE"], env["ROUTER_TARGET_EFFICIENT"] = selected
-            print(f"Selected upstream wire {wire}; "
-                  f"targets: {selected[0]}, {selected[1]}")
-            return
+
+    for key_index, key in enumerate(keys, start=1):
+        for base in bases:
+            for wire in wires:
+                selected = []
+                for model in candidates:
+                    status = _probe(base, key, model, wire)
+                    print(f"probe key{key_index} {base} {wire} {model}: {status}")
+                    if status == "ok":
+                        selected.append(model)
+                        if len(selected) == 2:
+                            break
+                    elif status.startswith("unreachable"):
+                        break  # host-level failure; same for every model
+                if len(selected) == 2:
+                    env["UPSTREAM_API_KEY"] = key
+                    env["NVIDIA_API_KEY"] = key
+                    env["UPSTREAM_BASE_URL"] = base
+                    env["UPSTREAM_FORMAT"] = wire
+                    env["ROUTER_TARGET_CAPABLE"] = selected[0]
+                    env["ROUTER_TARGET_EFFICIENT"] = selected[1]
+                    print(f"Selected key{key_index} at {base} via {wire}; "
+                          f"targets: {selected[0]}, {selected[1]}")
+                    return
     raise RuntimeError(
-        "fewer than two upstream models authorize with this credential on "
-        f"{' or '.join(wires)}; tried: " + ", ".join(candidates)
+        "no key/endpoint/wire combination authorizes two upstream models; "
+        "statuses above"
     )
 
 
@@ -148,9 +175,7 @@ def prepare_environment(env=None) -> None:
             "inference hub during the end-to-end verification"
         )
     e["NVIDIA_API_KEY"] = key
-    base = _normalized_v1(e.get("UPSTREAM_BASE_URL") or _DEFAULT_UPSTREAM)
-    e["UPSTREAM_BASE_URL"] = base
-    select_targets(base, key, e)
+    select_targets(e)
     # Off the default port so a leftover local router cannot shadow the run;
     # always torn down so the runner is left clean.
     e.setdefault("ROUTER_PORT", "14000")
