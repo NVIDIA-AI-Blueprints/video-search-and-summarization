@@ -328,6 +328,8 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
 
     async def _lvs_config_media(lvs_input: LVSConfigMediaInput) -> LVSConfigMediaOutput:
         """
+        Do NOT call this tool for "summarize", "describe", "give a summary of", or "report" requests — those route to `lvs_stream_understanding`, `lvs_video_understanding`, or `report_agent`. This tool opens a HITL modal; calling it on a summarize query is always wrong.
+
         Set up a live stream for LVS caption generation.
 
         Trigger: call this tool ONLY when the user explicitly asks to start caption
