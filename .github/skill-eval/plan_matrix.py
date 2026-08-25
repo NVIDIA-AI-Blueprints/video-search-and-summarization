@@ -398,6 +398,20 @@ def spec_platform_config(spec_path: str) -> dict[str, dict]:
     }
 
 
+def spec_requires_video_codec(spec_path: str) -> bool:
+    """Whether a spec requires hardware video codec capability.
+
+    H200/H100 are valid one-GPU destinations for compute-only profiles, but
+    they do not provide the NVDEC/NVENC path required by LVS media processing.
+    Keep this as explicit spec data instead of growing SKU-specific stem lists.
+    """
+    try:
+        data = json.loads((REPO_ROOT / spec_path).read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("requires_video_codec") is True
+
+
 def spec_platforms(spec_path: str) -> list[str]:
     """Sorted platform keys from a spec's resources.platforms.
 
@@ -485,6 +499,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
             platform_config = spec_platform_config(meta["spec_path"])
+            requires_video_codec = spec_requires_video_codec(meta["spec_path"])
             platforms = sorted(platform_config) or [""]
             if os.environ.get("OPENSHELL_GPU_FLEET"):
                 platforms = [p for p in platforms if p in ("RTXPRO6000BW", "H200")]
@@ -495,15 +510,20 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 if (
                     os.environ.get("OPENSHELL_GPU_FLEET")
                     and platform == "H200"
-                    and _gpu_count(plat_cfg or {}) >= 2
+                    and (
+                        _gpu_count(plat_cfg or {}) >= 2
+                        or requires_video_codec
+                    )
                 ):
-                    # Do not emit a skip-runner ubuntu job for 2-GPU H200
-                    # entries. Those specs run on RTX 223 when declared.
+                    # Do not emit unsupported H200 legs. Two-GPU specs run on
+                    # RTX 223 when declared; codec-dependent one-GPU specs stay
+                    # on RTX because H200/H100 have no NVDEC/NVENC.
                     continue
                 if (
                     os.environ.get("OPENSHELL_GPU_FLEET")
                     and platform == "RTXPRO6000BW"
                     and _gpu_count(plat_cfg or {}) < 2
+                    and not requires_video_codec
                 ):
                     # 1-GPU (and gpu_count:0 → gpus-1) is H200 instead of
                     # Blackwell — do not also emit an RTX leg (doubles hours).
@@ -550,7 +570,32 @@ def build_matrix(changed: list[str]) -> list[dict]:
         # filtered out, do not substitute vss-deploy-profile/base — that
         # would report Skills Eval success without testing the named skill.
         named_a_skill = any(f.startswith("skills/") for f in changed)
-        if not named_a_skill:
+        if named_a_skill:
+            # A changed skill with no eligible OpenShell platform must fail
+            # visibly. An empty matrix would make required coverage look green.
+            owners = sorted(
+                {
+                    owner
+                    for path in changed
+                    if (owner := skill_for_file(path, discover_skills()))
+                }
+            )
+            for skill in owners or ["changed-skill"]:
+                include.append({
+                    "skill": skill,
+                    "spec_path": "",
+                    "spec_stem": "no-eligible-openshell-platform",
+                    "platform": "",
+                    "kind": "not_run_infra_acquisition",
+                    "skip_reason": (
+                        "NOT_RUN_INFRA_ACQUISITION: changed skill has no "
+                        "eligible OpenShell platform; required coverage was not run"
+                    ),
+                    "slug": f"{skill}__no-eligible-openshell-platform",
+                    "name": f"{skill} · NOT_RUN_INFRA_ACQUISITION",
+                    "runs_on": list(SKIP_RUNNER),
+                })
+        else:
             include.append({
                 "skill": "vss-deploy-profile",
                 "spec_path": SMOKE_SPEC,

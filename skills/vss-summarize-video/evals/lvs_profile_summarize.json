@@ -3,25 +3,24 @@
     "vss-summarize-video",
     "vss-deploy-profile"
   ],
+  "requires_video_codec": true,
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
-        "gpu_count": 1
-      },
-      "H200": {
         "gpu_count": 1
       }
     }
   },
   "expects": [
     {
-      "query": "Deploy the VSS **lvs** profile on `{{platform}}` via `/vss-deploy-profile -p lvs`. Run autonomously.\n\n**Environment and required setup:** Deploy a **full-remote VSS lvs profile** (deploy mode = `remote-all`; the agent's LLM and the VLM called by the video summarization service use remote launchpad endpoints, with no local NIMs). Run on ONE `RTXPRO6000BW` host with `gpu_count: 1`. After deployment, download and extract the exact NGC sample required by the following summarization task: `nvidia/vss-developer/dev-profile-sample-data:3.2.0`. Confirm `/tmp/vss-sample-data/dev-profile-sample-data/warehouse_sample.mp4` exists. Do not substitute `/data/videos/cam_*.mp4`, calibration fixtures, or another warehouse-looking file. The summarization task will upload this exact file through VIOS if needed and immediately consume a fresh clip URL, so do not create or persist a temporary media URL here.\n\nThen prepare the host CLI the summarization task will use. Set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate that `services/agent/pyproject.toml` exists under it, and run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss summarize run --help`. Record the deployment with `vss configure --base-url http://localhost:7777` — the HAProxy ingress origin, never the LVS container port 38111, which routes no Elasticsearch — then inspect `vss configure show` and require that it lists both an `lvs` service and an `elasticsearch` service: summarization needs the first and memory persistence the second.\n\nRequired services: video summarization at http://localhost:38111/v1/ready (HTTP 200; retry only 503 warmup), VIOS at http://localhost:30888/vst/api/v1, and the VSS Agent at http://localhost:8000/docs.",
+      "query": "Deploy the VSS **lvs** profile on `{{platform}}` via `/vss-deploy-profile -p lvs`. Run autonomously.\n\n**Environment and required setup:** Deploy a **full-remote VSS lvs profile** (deploy mode = `remote-all`; the agent's LLM and the VLM called by the video summarization service use remote launchpad endpoints, with no local NIMs). Run on ONE `RTXPRO6000BW` host with `gpu_count: 1`; this codec-dependent profile requires NVDEC/NVENC and must not be routed to H200/H100. After deployment, download and extract the exact NGC sample required by the following summarization task: `nvidia/vss-developer/dev-profile-sample-data:3.2.0`. Confirm `/tmp/vss-sample-data/dev-profile-sample-data/warehouse_sample.mp4` exists. Do not substitute `/data/videos/cam_*.mp4`, calibration fixtures, or another warehouse-looking file. Before this step passes, require `vss-vios-streamprocessing` to be healthy with restart count zero and perform a bounded sample upload probe of that exact file through VIOS, verifying the resulting sensor/timeline and then deleting only that probe registration. The summarization task will upload the exact file again if needed and immediately consume a fresh clip URL, so do not create or persist a temporary media URL here.\n\nThen prepare the host CLI the summarization task will use. Set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate that `services/agent/pyproject.toml` exists under it, and run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss summarize run --help`. Record the deployment with `vss configure --base-url http://localhost:7777` — the HAProxy ingress origin, never the LVS container port 38111, which routes no Elasticsearch — then inspect `vss configure show` and require that it lists both an `lvs` service and an `elasticsearch` service: summarization needs the first and memory persistence the second.\n\nRequired services: video summarization at http://localhost:38111/v1/ready (HTTP 200; retry only 503 warmup), VIOS at http://localhost:30888/vst/api/v1, and the VSS Agent at http://localhost:8000/docs.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:38111/v1/ready` returns exit 0 (video summarization API ready)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
         "`test -s /tmp/vss-sample-data/dev-profile-sample-data/warehouse_sample.mp4` returns exit 0",
+        "`docker inspect vss-vios-streamprocessing` reports health `healthy` and restart count exactly zero, and a bounded VIOS upload/timeline probe using the exact warehouse sample succeeds before setup passes; only the probe's own registration is removed afterward",
         "The project-local CLI is usable from the validated checkout: `cd \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\" && uv run --project \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent\" --no-dev --extra cli vss summarize run --help` returns exit 0. The `--extra cli` flag is required; a globally installed `vss` is not an acceptable substitute",
         "The agent recorded the deployment against the ingress origin `http://localhost:7777` rather than the LVS container port `:38111`, and the recorded configuration reports both an `lvs` service and an `elasticsearch` service. Verify by running `vss configure show` from the validated checkout and inspecting the reported services"
       ]

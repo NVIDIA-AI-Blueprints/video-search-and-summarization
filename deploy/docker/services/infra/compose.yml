@@ -196,6 +196,7 @@ services:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/kafka-health-check.Dockerfile
       target: kafka-base
+      network: host
     image: vss-kafka-topic-init
     container_name: vss-kafka-topics
     profiles: ["kafka-topic-init-container"]

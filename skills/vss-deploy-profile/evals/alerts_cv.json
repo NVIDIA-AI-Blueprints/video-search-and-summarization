@@ -8,7 +8,11 @@
     "perception-alerts",
     "vss-behavior-analytics-alerts",
     "alert-bridge",
-    "nvstreamer-alerts"
+    "nvstreamer-alerts",
+    "rtvi-vlm"
+  ],
+  "fail_fast_services": [
+    "rtvi-vlm"
   ],
   "resources": {
     "platforms": {
@@ -19,7 +23,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **alerts** profile on {{platform}} for CV-driven alert generation with VLM-as-verifier. Run end-to-end and autonomously.",
+      "query": "Deploy the VSS **alerts** profile on {{platform}} for CV-driven alert generation with VLM-as-verifier. Run end-to-end and autonomously. Supervise the local RT-VLM/vLLM model service from launch: if its service or model process exits, restarts, becomes unhealthy, or is OOM-killed, immediately archive bounded sanitized service identity, inspect/OOM state, recent logs, Docker events, and PID-to-container mapping, then fail without waiting out the remaining trial budget. Require stable model health across consecutive bounded probes before starting or accepting dependent alert services.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0 (Agent backend)",
@@ -27,7 +31,8 @@
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-CV perception \u2014 the 'CV' in this mode)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (rule-based alert generation on CV output)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge` returns exit 0 (routes CV-generated alerts to VLM verifier)",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0 (video ingestion source)"
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0 (video ingestion source)",
+        "The local RT-VLM/vLLM model service remains running and healthy across at least two bounded readiness probes before dependent services are accepted; an exit/restart/unhealthy/OOM path fails immediately and retains bounded sanitized inspect, logs, events, and PID-to-container evidence instead of waiting for the trial ceiling"
       ]
     }
   ]

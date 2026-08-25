@@ -212,10 +212,15 @@ class RealSpecCorpus(unittest.TestCase):
             self.assertNotIn(key, seen, f"duplicate fleet demand: {key}")
             seen.add(key)
             if demand == "gpus-1":
-                self.assertEqual(leg["platform"], "H200")
-                self.assertEqual(leg["hardware_profile"], "H100")
-                self.assertIn("openshell-h200-active", leg["runs_on"])
-                self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
+                if plan_matrix.spec_requires_video_codec(leg["spec_path"]):
+                    self.assertEqual(leg["platform"], "RTXPRO6000BW")
+                    self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
+                    self.assertNotIn("openshell-h200-active", leg["runs_on"])
+                else:
+                    self.assertEqual(leg["platform"], "H200")
+                    self.assertEqual(leg["hardware_profile"], "H100")
+                    self.assertIn("openshell-h200-active", leg["runs_on"])
+                    self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
             elif demand == "gpus-2":
                 self.assertEqual(leg["platform"], "RTXPRO6000BW")
                 self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
@@ -605,7 +610,10 @@ class OpenshellGpuFleet(unittest.TestCase):
         inc = plan_matrix.build_matrix(
             ["skills/vss-search-archive/evals/search.json"]
         )
-        self.assertEqual(inc, [])
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["kind"], "not_run_infra_acquisition")
+        self.assertEqual(inc[0]["skill"], "vss-search-archive")
+        self.assertNotEqual(inc[0]["skill"], "vss-deploy-profile")
 
     def test_non_rtxpro_labels_are_skip_runner(self):
         self.assertEqual(

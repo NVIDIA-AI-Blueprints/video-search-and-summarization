@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "An RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. Build from one current developer profile as the Foundation. Use `_builds/in-1/` only as a filesystem label. Existing files under `deploy/docker/` remain authoritative and unmodified.",
+  "env": "A one-GPU `{{platform}}` host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. In the OpenShell matrix this compatible one-GPU leg runs on H200 while using the H100 NIM hardware profile; report the actual H200 GPU identity from runtime evidence rather than describing it as RTX PRO 6000. Build from one current developer profile as the Foundation. Use `_builds/in-1/` only as a filesystem label. Existing files under `deploy/docker/` remain authoritative and unmodified.",
   "expects": [
     {
       "query": "Use `/vss-build-vision-agent` to propose the architecture for: \"Provide VLM Q&A and dense captioning for streamed and uploaded video. Video must remain retrievable through VIOS. Publish streamed captions to Kafka topic `mdx-vlm-captions` and store them in Elasticsearch.\" Do not write files or deploy yet. Explain the selected current Foundation, the smallest delta, the canonical build location `_builds/in-1/`, and the validation/deployment path.",

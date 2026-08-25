@@ -2323,6 +2323,23 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
     """SSH in and count GPUs via nvidia-smi. Raises only if the box has
     FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
+    identity = await _run_brev_exec(
+        instance_name,
+        "nvidia-smi -L",
+        timeout=30,
+    )
+    if identity.return_code == 0 and (identity.stdout or "").strip():
+        logger.info(
+            "Instance '%s' GPU identity (nvidia-smi -L):\n%s",
+            instance_name,
+            identity.stdout.strip(),
+        )
+    else:
+        logger.warning(
+            "nvidia-smi -L identity probe failed on '%s': %s",
+            instance_name,
+            (identity.stderr or identity.stdout or "")[-300:],
+        )
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
@@ -2367,6 +2384,18 @@ async def _check_local_gpu_requirements(instance_name: str, req: dict) -> None:
     required_count = int(req.get("gpu_count", 1) or 0)
     if required_count == 0:
         return
+
+    identity = await _run_local_exec("nvidia-smi -L", timeout=30)
+    if identity.return_code != 0 or not (identity.stdout or "").strip():
+        raise RuntimeError(
+            f"Local GPU runner '{instance_name}' failed nvidia-smi -L: "
+            f"{(identity.stderr or identity.stdout or '')[-300:]}"
+        )
+    logger.info(
+        "Local GPU runner '%s' identity (nvidia-smi -L):\n%s",
+        instance_name,
+        identity.stdout.strip(),
+    )
 
     result = await _run_local_exec(
         "nvidia-smi --query-gpu=name,memory.total "

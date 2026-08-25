@@ -187,6 +187,13 @@ jobs:
     # silently killed while waiting on a box with no verdict — the exit-4 trap).
     timeout-minutes: 840
     steps:
+      - name: Report required coverage not acquired
+        if: matrix.kind == 'not_run_infra_acquisition'
+        run: |
+          echo "NOT_RUN_INFRA_ACQUISITION: ${{ matrix.skip_reason }}"
+          echo "Required changed-skill coverage did not run; this is an infrastructure acquisition failure, not a skill result."
+          exit 1
+
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:

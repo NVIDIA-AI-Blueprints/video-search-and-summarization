@@ -477,6 +477,7 @@ jobs:
             .github/skill-eval/tests/test_detection_tracking_2d_remove.py \
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
+            .github/skill-eval/tests/test_pr1751_job_regressions.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/tests/test_vss_build_vision_agent_guidance.py \

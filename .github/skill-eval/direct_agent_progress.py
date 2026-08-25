@@ -39,6 +39,7 @@ MAX_JOURNAL_EVENTS = 512
 MAX_DIAGNOSTIC_SERVICES = 64
 MAX_EXPECTED_SERVICES = 64
 MAX_REQUIRED_LOCAL_IMAGES = 32
+MAX_REQUIRED_LOCAL_PATHS = 32
 MAX_CLEANUP_CONTAINERS = 256
 MAX_PROGRESS_KEYS = 256
 MAX_SEEN_IMAGE_IDS = 4096
@@ -50,12 +51,24 @@ MAX_SPEC_BYTES = 1024 * 1024
 MAX_COMPOSE_BYTES = 4 * 1024 * 1024
 MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024
 MAX_INNER_READ_BYTES = 1024 * 1024
+MAX_FAILURE_LOG_BYTES = 64 * 1024
+MAX_FAILURE_EVIDENCE_BYTES = 2 * 1024 * 1024
+_SECRET_TEXT_RE = re.compile(
+    r"(?i)(token|password|secret|api[_-]?key|authorization)"
+    r"(\s*[=:]\s*)([^\s,;]+)"
+)
+_BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+")
+_KNOWN_TOKEN_RE = re.compile(
+    r"\b(?:nvapi-|hf_|gh[pousr]_|github_pat_)[A-Za-z0-9_-]{8,}\b"
+)
+_URL_USERINFO_RE = re.compile(r"(https?://)[^/@\s]+@")
 
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SAFE_IMAGE_RE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$"
 )
 _SAFE_HASH_RE = re.compile(r"^[a-f0-9]{64}$")
+_SAFE_ENV_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _STATES = frozenset(
     {
         "created",
@@ -161,12 +174,13 @@ def _run_bounded(
     *,
     timeout: float,
     output_limit: int = MAX_COMMAND_OUTPUT_BYTES,
+    merge_stderr: bool = False,
 ) -> BoundedCommandResult:
     """Run a fixed argv with bounded retained output and process-group reap."""
     proc = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
         start_new_session=True,
     )
     assert proc.stdout is not None
@@ -212,6 +226,13 @@ def _run_bounded(
         retained.decode("utf-8", errors="replace"),
         truncated,
     )
+
+
+def _sanitize_diagnostic_text(value: str) -> str:
+    value = _BEARER_RE.sub("Bearer [REDACTED]", value)
+    value = _SECRET_TEXT_RE.sub(r"\1\2[REDACTED]", value)
+    value = _KNOWN_TOKEN_RE.sub("[REDACTED]", value)
+    return _URL_USERINFO_RE.sub(r"\1[REDACTED]@", value)
 
 
 def _safe_name(value: object, default: str = "unknown") -> str:
@@ -366,6 +387,22 @@ def load_expected_services(spec_path: Path) -> tuple[str, ...]:
     return services
 
 
+def load_fail_fast_services(spec_path: Path) -> tuple[str, ...]:
+    try:
+        data = _read_json_bounded(spec_path)
+    except (OSError, TypeError, ValueError):
+        return ()
+    if not isinstance(data, dict):
+        return ()
+    raw = data.get("fail_fast_services") or []
+    if not isinstance(raw, list) or len(raw) > MAX_EXPECTED_SERVICES:
+        raise ValueError("fail_fast_services must be a bounded JSON list")
+    services = tuple(dict.fromkeys(_safe_name(item, "") for item in raw))
+    if any(not item for item in services):
+        raise ValueError("fail_fast_services contains an unsafe service name")
+    return services
+
+
 def load_required_local_images(spec_path: Path) -> tuple[str, ...]:
     try:
         data = _read_json_bounded(spec_path)
@@ -382,6 +419,95 @@ def load_required_local_images(spec_path: Path) -> tuple[str, ...]:
     if any(not _SAFE_IMAGE_RE.fullmatch(item) for item in images):
         raise ValueError("required_local_images contains an unsafe image name")
     return images
+
+
+def load_required_local_path_env(spec_path: Path) -> tuple[str, ...]:
+    """Environment variables naming externally provisioned prerequisite paths."""
+    try:
+        data = _read_json_bounded(spec_path)
+    except (OSError, TypeError, ValueError):
+        return ()
+    if not isinstance(data, dict):
+        return ()
+    raw = data.get("required_local_path_env") or []
+    if not isinstance(raw, list):
+        raise ValueError("required_local_path_env must be a JSON list")
+    if len(raw) > MAX_REQUIRED_LOCAL_PATHS:
+        raise ValueError("required_local_path_env exceeds watchdog path limit")
+    names = tuple(dict.fromkeys(str(item).strip() for item in raw))
+    if any(not _SAFE_ENV_RE.fullmatch(item) for item in names):
+        raise ValueError("required_local_path_env contains an unsafe variable name")
+    return names
+
+
+def missing_required_local_paths(required_env: tuple[str, ...]) -> tuple[str, ...]:
+    """Return unset, absent, or non-absolute prerequisite path variables."""
+    missing: list[str] = []
+    for name in required_env:
+        value = os.environ.get(name, "")
+        path = Path(value) if value else None
+        if path is None or not path.is_absolute() or not path.exists():
+            missing.append(name)
+    return tuple(missing)
+
+
+def load_required_docker_build_network(spec_path: Path) -> str | None:
+    try:
+        data = _read_json_bounded(spec_path)
+    except (OSError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("required_docker_build_network")
+    if value is None:
+        return None
+    if value != "host":
+        raise ValueError("required_docker_build_network must be 'host'")
+    return value
+
+
+def load_required_resolved_env(spec_path: Path) -> tuple[str, ...]:
+    """Environment variables which must not be empty or template placeholders."""
+    try:
+        data = _read_json_bounded(spec_path)
+    except (OSError, TypeError, ValueError):
+        return ()
+    if not isinstance(data, dict):
+        return ()
+    raw = data.get("required_resolved_env") or []
+    if not isinstance(raw, list) or len(raw) > MAX_REQUIRED_LOCAL_PATHS:
+        raise ValueError("required_resolved_env must be a bounded JSON list")
+    names = tuple(dict.fromkeys(str(item).strip() for item in raw))
+    if any(not _SAFE_ENV_RE.fullmatch(item) for item in names):
+        raise ValueError("required_resolved_env contains an unsafe variable name")
+    return names
+
+
+def missing_required_resolved_env(required_env: tuple[str, ...]) -> tuple[str, ...]:
+    missing = []
+    for name in required_env:
+        value = os.environ.get(name, "").strip()
+        if not value or re.search(r"<[^>]+>", value):
+            missing.append(name)
+    return tuple(missing)
+
+
+def docker_build_network_available(network: str | None) -> bool:
+    if network is None:
+        return True
+    result = _run_bounded(
+        [
+            "docker",
+            "network",
+            "inspect",
+            network,
+            "--format",
+            "{{.Driver}}",
+        ],
+        timeout=10,
+        output_limit=1024,
+    )
+    return result.returncode == 0 and result.stdout.strip() == network
 
 
 def missing_required_local_images(
@@ -876,10 +1002,49 @@ class DirectAgentProgress:
         self.results_root = results_root
         self.repo_root = repo_root
         self.expected_services = load_expected_services(spec_path)
+        self.fail_fast_services = load_fail_fast_services(spec_path)
         self.required_local_images = load_required_local_images(spec_path)
+        self.required_local_path_env = load_required_local_path_env(spec_path)
+        self.required_docker_build_network = (
+            load_required_docker_build_network(spec_path)
+        )
+        self.required_resolved_env = load_required_resolved_env(spec_path)
         self.required_local_image_ids = required_local_image_ids(
             self.required_local_images
         )
+        missing_images = tuple(
+            image
+            for image in self.required_local_images
+            if image not in self.required_local_image_ids
+        )
+        missing_paths = missing_required_local_paths(self.required_local_path_env)
+        missing_env = missing_required_resolved_env(self.required_resolved_env)
+        missing_network = not docker_build_network_available(
+            self.required_docker_build_network
+        )
+        if missing_images or missing_paths or missing_env or missing_network:
+            details = []
+            if missing_images:
+                details.append(
+                    "local images=" + ",".join(missing_images)
+                )
+            if missing_paths:
+                details.append(
+                    "path env=" + ",".join(missing_paths)
+                )
+            if missing_env:
+                details.append(
+                    "unresolved env=" + ",".join(missing_env)
+                )
+            if missing_network:
+                details.append(
+                    "docker build network="
+                    + str(self.required_docker_build_network)
+                )
+            raise RuntimeError(
+                "BLOCKED: external prerequisite missing before Harbor: "
+                + "; ".join(details)
+            )
         self.tracker = tracker or ProgressTracker(monotonic=monotonic)
         self.journal = journal or ProgressJournal(results_root / "progress-journal.jsonl", monotonic=monotonic)
         self._monotonic = monotonic
@@ -1130,6 +1295,23 @@ class DirectAgentProgress:
             rows = self._safe_service_rows()
         except (OSError, subprocess.SubprocessError):
             rows = []
+        failed_fast = [
+            row
+            for row in rows
+            if row["service"] in self.fail_fast_services
+            and (
+                row["state"] in {"exited", "restarting", "dead"}
+                or row["health"] == "unhealthy"
+                or row["exit_code"] != 0
+            )
+        ]
+        if failed_fast:
+            with suppress(OSError, ValueError, subprocess.SubprocessError):
+                self._archive_failed_service_evidence(failed_fast)
+            service = failed_fast[0]["service"]
+            raise DirectAgentWatchdogExpired(
+                f"fail-fast dependency exited or became unhealthy: {service}"
+            )
         current = {
             row["service"]: (
                 row["state"],
@@ -1287,6 +1469,161 @@ class DirectAgentProgress:
                 json.dumps(summaries, sort_keys=True, indent=2) + "\n",
                 encoding="utf-8",
             )
+        with suppress(OSError, ValueError, subprocess.SubprocessError):
+            self._archive_failed_service_evidence(nonhealthy_rows)
+
+    def _archive_failed_service_evidence(self, rows: list[dict]) -> None:
+        """Persist bounded, allowlisted Docker evidence before cleanup."""
+        if not rows or self.compose_file is None:
+            return
+        compose = _run_bounded(
+            [
+                "docker", "compose", "-f", str(self.compose_file),
+                "config", "--format", "json",
+            ],
+            timeout=20,
+            output_limit=MAX_COMPOSE_BYTES,
+        )
+        compose_summary: dict[str, object] = {}
+        if compose.returncode == 0 and not compose.truncated:
+            with suppress(ValueError):
+                parsed = json.loads(compose.stdout)
+                services = parsed.get("services", {}) if isinstance(parsed, dict) else {}
+                if isinstance(services, dict):
+                    compose_summary = {
+                        name: {
+                            "image": cfg.get("image"),
+                            "build": {
+                                key: cfg["build"][key]
+                                for key in (
+                                    "context",
+                                    "dockerfile",
+                                    "network",
+                                    "target",
+                                )
+                                if isinstance(cfg.get("build"), dict)
+                                and key in cfg["build"]
+                            },
+                            "network_mode": cfg.get("network_mode"),
+                            "depends_on": sorted((cfg.get("depends_on") or {}).keys()),
+                            "mount_targets": sorted(
+                                mount.get("target", "")
+                                for mount in (cfg.get("volumes") or [])
+                                if isinstance(mount, dict) and mount.get("target")
+                            ),
+                        }
+                        for name, cfg in services.items()
+                        if name in self.expected_services and isinstance(cfg, dict)
+                    }
+
+        evidence: dict[str, object] = {
+            "schema": 1,
+            "retention": {
+                "max_services": MAX_DIAGNOSTIC_SERVICES,
+                "max_log_bytes_per_service": MAX_FAILURE_LOG_BYTES,
+                "max_artifact_bytes": MAX_FAILURE_EVIDENCE_BYTES,
+            },
+            "effective_compose": compose_summary,
+            "services": [],
+        }
+        service_evidence: list[dict[str, object]] = []
+        for row in rows[:MAX_DIAGNOSTIC_SERVICES]:
+            service = row["service"]
+            ps = _run_bounded(
+                [
+                    "docker", "compose", "-f", str(self.compose_file),
+                    "ps", "-a", "-q", service,
+                ],
+                timeout=10,
+                output_limit=4096,
+            )
+            ids = (ps.stdout or "").strip().splitlines()[:1]
+            if ps.returncode != 0 or not ids:
+                continue
+            cid = ids[0]
+            inspect = _run_bounded(
+                ["docker", "inspect", cid],
+                timeout=10,
+                output_limit=MAX_COMMAND_OUTPUT_BYTES,
+            )
+            inspected: dict[str, object] = {}
+            if inspect.returncode == 0 and not inspect.truncated:
+                with suppress(ValueError, IndexError, TypeError):
+                    raw = json.loads(inspect.stdout)[0]
+                    state = raw.get("State") or {}
+                    inspected = {
+                        "container_id": str(raw.get("Id") or "")[:12],
+                        "name": str(raw.get("Name") or "").lstrip("/"),
+                        "image": (raw.get("Config") or {}).get("Image"),
+                        "state": state.get("Status"),
+                        "health": (state.get("Health") or {}).get("Status"),
+                        "exit_code": state.get("ExitCode"),
+                        "oom_killed": state.get("OOMKilled"),
+                        "restart_count": raw.get("RestartCount"),
+                        "pid": state.get("Pid"),
+                        "network_mode": (raw.get("HostConfig") or {}).get(
+                            "NetworkMode"
+                        ),
+                        "mount_targets": sorted(
+                            mount.get("Destination", "")
+                            for mount in (raw.get("Mounts") or [])
+                            if mount.get("Destination")
+                        ),
+                    }
+            logs = _run_bounded(
+                ["docker", "logs", "--tail", "400", cid],
+                timeout=10,
+                output_limit=MAX_FAILURE_LOG_BYTES,
+                merge_stderr=True,
+            )
+            events = _run_bounded(
+                [
+                    "docker", "events", "--since", "15m", "--until", "0s",
+                    "--filter", f"container={cid}", "--format", "{{json .}}",
+                ],
+                timeout=10,
+                output_limit=MAX_FAILURE_LOG_BYTES,
+            )
+            service_evidence.append(
+                {
+                    "service": service,
+                    "inspect": inspected,
+                    "logs_tail": _sanitize_diagnostic_text(logs.stdout),
+                    "logs_truncated": logs.truncated,
+                    "events": _sanitize_diagnostic_text(events.stdout),
+                    "events_truncated": events.truncated,
+                    "pid_to_container": {
+                        "pid": inspected.get("pid"),
+                        "container_id": inspected.get("container_id"),
+                        "service": service,
+                    },
+                }
+            )
+        evidence["services"] = service_evidence
+        encoded = json.dumps(evidence, sort_keys=True, indent=2) + "\n"
+        if len(encoded.encode()) > MAX_FAILURE_EVIDENCE_BYTES:
+            raise ValueError("failure evidence exceeds retention bound")
+        self.results_root.mkdir(parents=True, exist_ok=True)
+        (self.results_root / "failed-service-evidence.json").write_text(
+            encoded,
+            encoding="utf-8",
+        )
+
+    def archive_failure(self) -> None:
+        """Capture the same durable evidence when the agent fails before timeout."""
+        try:
+            rows = self._safe_service_rows()
+        except (OSError, subprocess.SubprocessError):
+            return
+        failed = [
+            row
+            for row in rows
+            if row["state"] in {"exited", "restarting", "dead"}
+            or row["health"] == "unhealthy"
+            or row["exit_code"] != 0
+        ]
+        with suppress(OSError, ValueError, subprocess.SubprocessError):
+            self._archive_failed_service_evidence(failed)
 
     def cleanup_after_timeout(self) -> bool:
         """Reconcile only the observed Compose project after agent reap."""
@@ -1375,6 +1712,8 @@ async def run_with_progress_watchdog(
             await asyncio.gather(watchdog_task, return_exceptions=True)
             result = agent_task.result()
             agent_completed = True
+            if result != 0:
+                progress.archive_failure()
             return result
         watchdog_task.result()
         agent_task.cancel()

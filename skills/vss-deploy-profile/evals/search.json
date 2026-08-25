@@ -20,7 +20,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **search** profile on this two-GPU {{platform}} host using the `/vss-deploy-profile` skill end-to-end and autonomously. Override the default local RT-VLM and use the configured remote VLM endpoint instead; keep the local `vss-rtvi-vlm` service as the OpenAI-compatible proxy.",
+      "query": "Deploy the VSS **search** profile on this two-GPU {{platform}} host using the `/vss-deploy-profile` skill end-to-end and autonomously. Perform exactly one destructive full-stack deploy / `compose up`; never restart that full deployment or reset its readiness deadline. Use one bounded readiness deadline that reserves time for verification and durable diagnostics. Retry only an individually failing selected service, and only within that original deadline. On failure, persist bounded sanitized effective Compose, selected-service inspect/OOM state, recent logs, Docker events, and PID-to-container mapping. Override the default local RT-VLM and use the configured remote VLM endpoint instead; keep the local `vss-rtvi-vlm` service as the OpenAI-compatible proxy.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
@@ -30,7 +30,9 @@
         "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:8018/v1/models` returns exit 0 (search RT-VLM proxy responsive)",
-        "The deployed search configuration uses `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, `VLM_MODE=remote`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, and `RTVI_VLM_MODEL_PATH=none`"
+        "The deployed search configuration uses `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, `VLM_MODE=remote`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, and `RTVI_VLM_MODEL_PATH=none`",
+        "The canonical command stream contains exactly one destructive full-stack deploy / full `compose up`; readiness uses one bounded deadline with verification time reserved, and any retry is targeted to an individual selected service rather than another full deploy",
+        "A failed readiness path retains bounded sanitized effective Compose, selected-service inspect/OOM state, recent logs, Docker events, and PID-to-container mapping in result artifacts before cleanup"
       ]
     }
   ]
