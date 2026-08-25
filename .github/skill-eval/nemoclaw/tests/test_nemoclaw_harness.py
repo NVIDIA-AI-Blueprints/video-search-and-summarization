@@ -94,6 +94,112 @@ class NotebookRunnerTests(unittest.TestCase):
             "aws/anthropic/bedrock-claude-sonnet-4-6",
         )
 
+    def test_relay_cell_commands_and_allowlist_decision(self) -> None:
+        settings, relay = self._relay_cells()
+        self.assertIn('RELAY_RELEASE = "0.7.3"', settings)
+        # Re-runs must survive "plugin already exists".
+        self.assertIn("--force", relay)
+        # `openclaw plugins install` skips the optional platform binding, and
+        # without it the exporter never runs. Resolve it inside the sandbox.
+        self.assertIn("nemo-relay-node-linux-$(node -p process.arch)-gnu", relay)
+        self.assertNotIn("platform.machine()", settings)
+        # Turning the flag back off must stop an earlier opt-in from recording.
+        self.assertIn("openclaw plugins disable nemo-relay", relay)
+        self.assertIn('key="plugins.entries.nemo-relay"', relay)
+        # `plugins.allow` is an exclusive allowlist: naming one plugin there
+        # switches off every other non-bundled plugin in the sandbox.
+        self.assertNotIn('key="plugins.allow"', relay)
+
+    def _relay_cells(self) -> tuple[str, str]:
+        notebook = json.loads(
+            (REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb").read_text(
+                encoding="utf-8"
+            )
+        )
+        cells = {cell.get("id"): "".join(cell["source"]) for cell in notebook["cells"]}
+        return cells["e67f6da4"], cells["c3a90f5e"]
+
+    def _settings_namespace(self, environment: dict[str, str]) -> dict[str, object]:
+        """Execute the settings cell the way the notebook does."""
+        settings, _ = self._relay_cells()
+        namespace: dict[str, object] = {}
+        base = {
+            "HOME": os.environ.get("HOME", str(Path.home())),
+            "PATH": os.environ.get("PATH", ""),
+            "NVIDIA_API_KEY": "nvapi-test",
+        }
+        with (
+            mock.patch.dict(os.environ, {**base, **environment}, clear=True),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            for name in ("NVIDIA_API_KEY", "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL"):
+                namespace.setdefault(name, os.environ.get(name, ""))
+            namespace.setdefault("COMPATIBLE_API_KEY", "")
+            exec(  # noqa: S102 - checked-in notebook settings cell only.
+                compile(settings, "deploy_nemoclaw.ipynb:e67f6da4", "exec"),
+                namespace,
+            )
+        return namespace
+
+    def test_relay_observability_is_opt_in(self) -> None:
+        # The plugin records the agent's final message in its session-close
+        # summary whatever the capture flags say, so it must not default on.
+        self.assertIs(self._settings_namespace({})["RELAY_OBSERVABILITY"], False)
+
+    def test_relay_observability_switches_on_from_the_environment(self) -> None:
+        namespace = self._settings_namespace({"RELAY_OBSERVABILITY": "true"})
+        self.assertIs(namespace["RELAY_OBSERVABILITY"], True)
+        # One pinned release drives both the plugin and its native binding.
+        self.assertEqual(
+            namespace["RELAY_PLUGIN_PACKAGE"], "npm:nemo-relay-openclaw@0.7.3"
+        )
+        self.assertEqual(
+            namespace["RELAY_ATIF_DIR"], "/sandbox/.openclaw/nemo-relay-atif"
+        )
+
+    def test_relay_entry_written_when_enabled_keeps_payloads_out(self) -> None:
+        """Evaluate the config the enabled cell actually writes."""
+        _, relay = self._relay_cells()
+        start = relay.index("_relay_entry = {")
+        depth, end = 0, None
+        for index in range(relay.index("{", start), len(relay)):
+            if relay[index] == "{":
+                depth += 1
+            elif relay[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        self.assertIsNotNone(end, "could not delimit _relay_entry")
+        namespace: dict[str, object] = {
+            "RELAY_ATIF_DIR": "/sandbox/.openclaw/nemo-relay-atif"
+        }
+        exec(  # noqa: S102 - checked-in notebook literal only.
+            compile(relay[start:end], "deploy_nemoclaw.ipynb:c3a90f5e", "exec"),
+            namespace,
+        )
+        entry = namespace["_relay_entry"]
+        self.assertTrue(entry["enabled"])
+        self.assertTrue(entry["hooks"]["allowConversationAccess"])
+        config = entry["config"]
+        self.assertEqual(config["backend"], "hooks")
+        self.assertEqual(
+            config["capture"],
+            {
+                "includePrompts": False,
+                "includeResponses": False,
+                "stripToolArgs": True,
+                "stripToolResults": True,
+            },
+        )
+        component = config["plugins"]["components"][0]
+        self.assertEqual(component["kind"], "observability")
+        self.assertEqual(
+            component["config"]["atif"]["output_directory"],
+            "/sandbox/.openclaw/nemo-relay-atif",
+        )
+        self.assertFalse(component["config"]["opentelemetry"]["enabled"])
+
     def test_orchestrator_ci_values_are_injected_without_source_edits(self) -> None:
         environment = {
             "NGC_CLI_API_KEY": "ngc-test",

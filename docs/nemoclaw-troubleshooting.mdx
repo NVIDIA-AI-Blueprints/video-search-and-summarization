@@ -28,7 +28,7 @@ Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kerne
 
 ## Agent UI Not Reachable
 
-**Symptom**: The Agent UI link from `deploy_nemoclaw.ipynb` Section 3.7 fails to load, hangs, or times out.
+**Symptom**: The Agent UI link from `deploy_nemoclaw.ipynb` Section 3.8 fails to load, hangs, or times out.
 
 **Cause**: The OpenShell dashboard forward on `18789` stopped, was never created, or points at the wrong sandbox.
 
@@ -111,13 +111,13 @@ Then re-run Section 3 of `deploy_nemoclaw.ipynb`.
 
 ## VSS Skills Missing
 
-**Symptom**: `list your available skills` does not show VSS skills, the Skills tab is empty, or Section 3.8 reports no non-bundled skills.
+**Symptom**: `list your available skills` does not show VSS skills, the Skills tab is empty, or Section 3.9 reports no non-bundled skills.
 
 **Solution**:
 
 The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or another agent harness, run the equivalent checks for that harness.
 
-1. Run `deploy_nemoclaw.ipynb` Section 3.8 to inspect `openclaw plugins doctor` and `openclaw skills list --json`.
+1. Run `deploy_nemoclaw.ipynb` Section 3.9 to inspect `openclaw plugins doctor` and `openclaw skills list --json`.
 
 2. Check skills from the host:
 
@@ -161,7 +161,7 @@ nemoclaw <sandbox> destroy
 nemoclaw gc
 ```
 
-Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox, reapplies the VSS policy, reinstalls the VSS skills, re-uploads the workspace docs, and re-registers the `vss_orchestrator` MCP. Run Section 3.7 to generate a fresh Agent UI link.
+Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox, reapplies the VSS policy, reinstalls the VSS skills, re-uploads the workspace docs, and re-registers the `vss_orchestrator` MCP. Run Section 3.8 to generate a fresh Agent UI link.
 
 ## Clean Reinstall
 

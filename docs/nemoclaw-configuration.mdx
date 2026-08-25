@@ -153,7 +153,7 @@ Pins the tested Docker stack before Section 3 creates the sandbox:
 
 Run this before Section 3 creates the sandbox. A Docker downgrade restarts `dockerd` and would disrupt live sandbox containers if it ran later in the notebook. When the installed Docker Engine already falls in the tested range (`28.3.3` through `29.5.0`), the downgrade is skipped and the packages are held at their current versions with `apt-mark hold` so later package operations do not drift the instance.
 
-### Verify sandbox, policy, skills, and webhooks (deploy_nemoclaw.ipynb Section 3.8)
+### Verify sandbox, policy, skills, and webhooks (deploy_nemoclaw.ipynb Section 3.9)
 
 Runs additional checks against the live sandbox after Section 3:
 
@@ -176,7 +176,7 @@ The notebook reports one of the following results for each checked port:
 
 ## Agent webhooks
 
-When `AGENT_HOOKS_ENABLED` is true, `deploy_nemoclaw.ipynb` generates a random `AGENT_HOOKS_TOKEN` and configures agent webhooks at `AGENT_HOOKS_PATH` (Section 3.6). Section 3.8 sends a local authenticated `POST` to `http://127.0.0.1:18789/hooks/agent` to confirm acceptance.
+When `AGENT_HOOKS_ENABLED` is true, `deploy_nemoclaw.ipynb` generates a random `AGENT_HOOKS_TOKEN` and configures agent webhooks at `AGENT_HOOKS_PATH` (Section 3.6). Section 3.9 sends a local authenticated `POST` to `http://127.0.0.1:18789/hooks/agent` to confirm acceptance.
 
 Disable webhooks by setting:
 
