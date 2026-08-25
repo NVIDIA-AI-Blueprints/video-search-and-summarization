@@ -29,8 +29,8 @@ from vss_core._foundation.time import datetime_to_iso8601
 
 SCHEMA_ID: Literal["nv.vss.memory/1.0"] = "nv.vss.memory/1.0"
 
-MemoryGroup = Literal["summary", "search", "alert", "media", "vlm"]
-KNOWN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "media", "vlm"})
+MemoryGroup = Literal["summary", "search", "alert", "vlm"]
+KNOWN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "vlm"})
 
 RecordType = Literal["event", "search_hit", "incident"]
 KNOWN_RECORD_TYPES: frozenset[str] = frozenset({"event", "search_hit", "incident"})

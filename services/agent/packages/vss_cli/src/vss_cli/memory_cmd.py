@@ -134,7 +134,7 @@ def get_record(
 @memory.command("query")
 @click.option("--query", "text", default=None, help="Free-text match over memory content.")
 @click.option("--job-id")
-@click.option("--group", type=click.Choice(("summary", "search", "alert", "media", "vlm")))
+@click.option("--group", type=click.Choice(("summary", "search", "alert", "vlm")))
 @click.option("--status", type=click.Choice(("submitted", "running", "completed", "failed", "partial", "timeout")))
 @click.option("--sensor-id")
 @click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))

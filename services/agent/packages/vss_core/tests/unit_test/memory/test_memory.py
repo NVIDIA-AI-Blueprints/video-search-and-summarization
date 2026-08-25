@@ -231,21 +231,21 @@ def test_inline_vectors_rejected() -> None:
         MemoryOutput.model_validate({"embedding": [{"vector": [0.1, 0.2]}]})
 
 
-def test_media_group_accepted() -> None:
-    record = UnifiedMemoryRecord.model_validate(
-        {
-            "schema": SCHEMA_ID,
-            "job": {
-                "job_id": "media-1",
-                "group": "media",
-                "operation": "run",
-                "status": "completed",
-                "created_at": "2026-07-22T12:00:00Z",
-            },
-            "output": {"handles": {"media_urls": ["https://x/clip.mp4"]}, "ext": {"kind": "clip"}},
-        }
-    )
-    assert record.job.group == "media"
+def test_media_group_rejected() -> None:
+    with pytest.raises(ValidationError):
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": SCHEMA_ID,
+                "job": {
+                    "job_id": "media-1",
+                    "group": "media",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+                "output": {"handles": {"media_urls": ["https://x/clip.mp4"]}, "ext": {"kind": "clip"}},
+            }
+        )
 
 
 def test_unknown_group_rejected() -> None:

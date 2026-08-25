@@ -130,6 +130,7 @@ def test_events_empty_filters_succeed_for_known_asset(injected_memory: Memory) -
 
 def test_invalid_inputs_exit_two() -> None:
     assert _invoke("upsert", "--json", "{").exit_code == int(Exit.INVALID_INPUT)
+    assert _invoke("query", "--group", "media").exit_code == int(Exit.INVALID_INPUT)
     mismatch = _invoke("get", "--job-id", "summary-01", "--record-type", "event")
     assert mismatch.exit_code == int(Exit.INVALID_INPUT)
     unsupported = _invoke("events", "--asset-id", "camera-1", "--window", "1h")
