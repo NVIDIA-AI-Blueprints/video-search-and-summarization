@@ -27,9 +27,8 @@ export interface AlertData {
 export type AlertsView = 'view' | 'create';
 
 /**
- * Kind of alert exposed by the Create Alert Rules editor. Only `real-time`
- * has a working implementation today; `verification` is reserved for the
- * disabled placeholder tab and is wired up in a follow-up.
+ * Kind of alert exposed by the Create Alert Rules editor: `real-time` rules
+ * or `verification` configs (shown in the UI as CV Alerts Verification).
  */
 export type AlertRulesType = 'real-time' | 'verification';
 
@@ -89,6 +88,37 @@ export interface RealtimeAlertRuleDraft {
 }
 
 /**
+ * Prompt configuration used to verify a CV-generated alert category.
+ * `alert_type` is the immutable natural key used by the REST API.
+ */
+export interface VerificationAlertConfig {
+  alert_type: string;
+  prompt: string;
+  /** Returned by Alert Bridge; not edited or sent by the UI. */
+  system_prompt?: string | null;
+  enrichment_prompt?: string | null;
+  output_category?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface VerificationAlertConfigDraft {
+  draftId: string;
+  alert_type: string;
+  prompt: string;
+  enrichment_prompt: string;
+  output_category: string;
+  saving?: boolean;
+  error?: string;
+}
+
+export interface VerificationAlertConfigUpdate {
+  prompt?: string | null;
+  enrichment_prompt?: string | null;
+  output_category?: string | null;
+}
+
+/**
  * Control handlers interface for external rendering
  */
 export interface AlertsSidebarControlHandlers {
@@ -131,6 +161,8 @@ export interface AlertsComponentProps {
     vlmVerifiedAlertReportPromptTemplate?: string;
     maxSearchTimeLimit?: string; // Format: "0" (unlimited), "10m", "2h", "3d", "1w", "2M", "1y"
     mediaWithObjectsBbox?: boolean; // Enable overlay bounding boxes on thumbnails and videos
+    enableRealtimeAlerts?: boolean; // Show Manage Alerts → Real-time Alerts
+    enableCvAlertsVerification?: boolean; // Show Manage Alerts → CV Alerts Verification
   } | null;
   serverRenderTime?: string;
   // External controls rendering

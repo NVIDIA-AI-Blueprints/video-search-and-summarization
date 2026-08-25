@@ -57,6 +57,10 @@ agent:
     cosmosEmbedEnabled: false
     vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
+vss-agent-ui:
+  alertsRealtimeEnabled: true
+  alertsCvVerificationEnabled: true
+
 vssIngress:
   enabled: true
   ingressClassName: haproxy

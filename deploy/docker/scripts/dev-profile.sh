@@ -230,6 +230,40 @@ function set_alerts_ui_subtitle_from_mode() {
   esac
 }
 
+# Expose the Manage Alerts editors for the selected pipeline.
+# generated.env overrides the stable .env when --mode real-time is selected
+# (CV verification off). Verification mode keeps both editors.
+function set_alerts_ui_rule_kinds_from_mode() {
+  local _generated_env="${1}"
+  local _mode _realtime _verification
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  case "${_mode}" in
+    2d_cv)
+      _realtime=true
+      _verification=true
+      ;;
+    2d_vlm)
+      _realtime=true
+      _verification=false
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  for _entry in \
+    "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=${_realtime}" \
+    "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=${_verification}"; do
+    local _name="${_entry%%=*}"
+    if grep -q "^${_name}=" "${_generated_env}"; then
+      sed -i "s|^${_name}=.*|${_entry}|" "${_generated_env}"
+    else
+      printf '%s\n' "${_entry}" >> "${_generated_env}"
+    fi
+  done
+  echo "[INFO] Set Alerts Manage tabs for MODE=${_mode} (real-time=${_realtime}, CV verification=${_verification})"
+}
+
 # Alerts RT-VLM Kafka publishing: overrides.env disables it for verification
 # (2d_cv), where nothing consumes the output and RT-VLM would emit duplicate
 # incidents with file-relative timestamps. Real-time (2d_vlm) drives alerts from
@@ -1350,6 +1384,7 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    set_alerts_ui_rule_kinds_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
     # Alerts VLM mode uses a different explicit service list than CV mode.
     if [[ "${mode_env}" == "2d_vlm" ]]; then

@@ -18,6 +18,7 @@ import {
   VLM_VERDICT,
   isValidVlmVerdict,
   AlertsView,
+  AlertRulesType,
 } from './types';
 import { useAlerts } from './hooks/useAlerts';
 import { useFilters } from './hooks/useFilters';
@@ -30,6 +31,7 @@ import { AlertsTable } from './components/AlertsTable';
 import { FilterControls } from './components/FilterControls';
 import { Controls, ALERTS_VIEW_PANEL_ID } from './components/Controls';
 import { CreateAlertRulesView, triggerRealtimeAddDraft } from './components/CreateAlertRulesView';
+import { triggerVerificationAddDraft } from './components/CvAlertsVerificationTab';
 
 const readSessionState = <T,>(key: string, fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -116,6 +118,12 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   submitChatMessage,
 }) => {
   const isDark = theme === 'dark';
+  const enableRealtimeAlerts = alertsData?.enableRealtimeAlerts ?? true;
+  const enableCvAlertsVerification = alertsData?.enableCvAlertsVerification ?? true;
+  const manageAlertsEnabled = enableRealtimeAlerts || enableCvAlertsVerification;
+  const defaultAlertRulesKind: AlertRulesType = enableRealtimeAlerts
+    ? 'real-time'
+    : 'verification';
 
   // Primitive session-persisted state. `useSessionState` reads sessionStorage
   // synchronously in the useState initializer; React 18 patches the DOM if the
@@ -140,6 +148,16 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   const [alertsView, setAlertsView] = useSessionPersistedState<AlertsView>(
     'alertsTabView',
     'view',
+    (value) => (manageAlertsEnabled && value === 'create' ? 'create' : 'view'),
+  );
+  const [alertRulesKind, setAlertRulesKind] = useSessionPersistedState<AlertRulesType>(
+    'alertsTabRulesKind',
+    defaultAlertRulesKind,
+    (value) => {
+      if (value === 'real-time' && enableRealtimeAlerts) return 'real-time';
+      if (value === 'verification' && enableCvAlertsVerification) return 'verification';
+      return defaultAlertRulesKind;
+    },
   );
 
   // Mount Manage Alerts once the user opens it; keep it mounted afterward so RTSP
@@ -148,6 +166,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   // Alerts session mounts on the first client paint without waiting for deferred
   // hydration — the panel stays `display:none` until `alertsView` catches up.
   const [hasOpenedManageAlerts, setHasOpenedManageAlerts] = React.useState(() => {
+    if (!manageAlertsEnabled) return false;
     if (typeof window === 'undefined') return false;
     try {
       const raw = sessionStorage.getItem('alertsTabView');
@@ -163,20 +182,26 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     }
   }, [alertsView]);
 
-  // Switch into the create view and append a new draft row. The realtime tab
-  // owns its draft list, so we delegate via a module-level bridge. If the tab
-  // hasn't mounted yet (sidebar click from View mode), retry on subsequent
-  // animation frames until the bridge is wired up — bounded so we don't spin
-  // forever if CreateAlertRulesView fails to mount for some reason.
+  // Switch into Manage Alerts and append a draft in the selected kind tab
+  // (Real-time Alerts or CV Alerts Verification). Each editor owns its draft list, so we
+  // delegate via module-level bridges. If the tab hasn't mounted yet (sidebar
+  // click from View mode), retry on subsequent animation frames until the
+  // bridge is wired up — bounded so we don't spin forever if
+  // CreateAlertRulesView fails to mount for some reason.
   const handleAddNewAlertRule = React.useCallback(() => {
+    if (!manageAlertsEnabled) return;
     setAlertsView('create');
-    if (triggerRealtimeAddDraft()) return;
+    const triggerAddDraft =
+      alertRulesKind === 'verification'
+        ? triggerVerificationAddDraft
+        : triggerRealtimeAddDraft;
+    if (triggerAddDraft()) return;
 
     const MAX_ATTEMPTS = 10;
     let attempts = 0;
     let rafId = 0;
     const tick = () => {
-      if (triggerRealtimeAddDraft()) return;
+      if (triggerAddDraft()) return;
       attempts += 1;
       if (attempts >= MAX_ATTEMPTS) return;
       rafId = requestAnimationFrame(tick);
@@ -185,8 +210,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     // The retry chain self-terminates on success or after MAX_ATTEMPTS;
     // `rafId` is captured here only so a future caller can cancel if needed.
     void rafId;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [alertRulesKind, manageAlertsEnabled, setAlertsView]);
 
   const {
     timeWindow,
@@ -341,9 +365,10 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         alertsView={alertsView}
         onAlertsViewChange={setAlertsView}
         onAddNewAlertRule={handleAddNewAlertRule}
+        manageAlertsEnabled={manageAlertsEnabled}
       />
     ),
-    [isDark, alertsView, setAlertsView, handleAddNewAlertRule],
+    [isDark, alertsView, setAlertsView, handleAddNewAlertRule, manageAlertsEnabled],
   );
 
   // Push control handlers to the parent whenever relevant state changes so
@@ -398,7 +423,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     >
       {/* Keep both sub-views mounted (display:none when hidden) so Manage Alerts
           RTSP thumbnails and draft state are not torn down on tab switches. */}
-      {hasOpenedManageAlerts && (
+      {manageAlertsEnabled && hasOpenedManageAlerts && (
         <div
           id={ALERTS_VIEW_PANEL_ID.create}
           role="tabpanel"
@@ -409,10 +434,13 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         >
           <CreateAlertRulesView
             isDark={isDark}
-            activeKind="real-time"
+            activeKind={alertRulesKind}
+            onActiveKindChange={setAlertRulesKind}
             onAddNew={handleAddNewAlertRule}
             alertsApiUrl={alertsApiUrl}
             vstApiUrl={vstApiUrl}
+            enableRealtimeAlerts={enableRealtimeAlerts}
+            enableCvAlertsVerification={enableCvAlertsVerification}
           />
         </div>
       )}

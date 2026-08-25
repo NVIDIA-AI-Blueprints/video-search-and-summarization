@@ -38,6 +38,12 @@ const ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE =
   process?.env?.NEXT_PUBLIC_ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE;
 const ALERTS_TAB_MAX_SEARCH_TIME_LIMIT = env('NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT;
 const ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX = env('NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX;
+const ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS =
+  env('NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS') ||
+  process?.env?.NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS;
+const ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION =
+  env('NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION') ||
+  process?.env?.NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION;
 
 
 export async function fetchAlertsData() {
@@ -67,7 +73,10 @@ export async function fetchAlertsData() {
     // Include max search time limit from environment variables (0 = unlimited, default: 0)
     maxSearchTimeLimit: ALERTS_TAB_MAX_SEARCH_TIME_LIMIT || '0',
     // Include media with objects bbox flag from environment variables (default: false)
-    mediaWithObjectsBbox: ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX === 'true'
+    mediaWithObjectsBbox: ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX === 'true',
+    // Manage Alerts kinds are enabled by default for backwards compatibility.
+    enableRealtimeAlerts: ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS !== 'false',
+    enableCvAlertsVerification: ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION !== 'false',
   };
 }
 

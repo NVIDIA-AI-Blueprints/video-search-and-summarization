@@ -7,7 +7,7 @@
  * the configured alerts API base URL (which carries the API version prefix).
  * Users supply only `live_stream_url`, `alert_type`, and `prompt`.
  *
- * The "Alert Verification" sub-view is hidden until its implementation is wired up.
+ * CV Alerts Verification (verification configs) are managed in a sibling kind tab.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -20,7 +20,7 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconBolt,
-  // IconShieldCheck, // Alert Verification tab (coming soon) — hidden from UI
+  IconShieldCheck,
   IconDeviceFloppy,
   IconAlertCircle,
   IconLoader2,
@@ -31,6 +31,7 @@ import {
 import { AlertRulesType, RealtimeAlertRuleDraft, RealtimeAlertRule } from '../types';
 import { useRealtimeAlertRules } from '../hooks/useRealtimeAlertRules';
 import { VstStreamThumbnail } from './VstStreamThumbnail';
+import { CvAlertsVerificationTab } from './CvAlertsVerificationTab';
 import {
   deriveSensorNameFromLiveStreamUrl,
   fetchVstLiveStreamCatalog,
@@ -41,11 +42,14 @@ import {
 interface CreateAlertRulesViewProps {
   isDark: boolean;
   activeKind: AlertRulesType;
+  onActiveKindChange?: (kind: AlertRulesType) => void;
   onAddNew: () => void;
   /** vss-alert-bridge base URL (NEXT_PUBLIC_ALERTS_API_URL). */
   alertsApiUrl?: string;
   /** Base URL of the VST service (NEXT_PUBLIC_VST_API_URL); used for sensor thumbnails. */
   vstApiUrl?: string;
+  enableRealtimeAlerts?: boolean;
+  enableCvAlertsVerification?: boolean;
 }
 
 type RealtimeSortKey = 'alert_type' | 'prompt' | 'status' | null;
@@ -55,18 +59,13 @@ const KIND_TABS: Array<{
   id: AlertRulesType;
   label: string;
   icon: React.ReactNode;
-  disabled?: boolean;
-  disabledReason?: string;
 }> = [
   { id: 'real-time', label: 'Real-time Alerts', icon: <IconBolt size={14} /> },
-  // Alert Verification sub-view — not yet implemented; hidden from Manage Rules UI.
-  // {
-  //   id: 'verification',
-  //   label: 'Alert Verification',
-  //   icon: <IconShieldCheck size={14} />,
-  //   disabled: true,
-  //   disabledReason: 'Coming soon',
-  // },
+  {
+    id: 'verification',
+    label: 'CV Alerts Verification',
+    icon: <IconShieldCheck size={14} />,
+  },
 ];
 
 const generateDraftId = () =>
@@ -75,15 +74,19 @@ const generateDraftId = () =>
 export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   isDark,
   activeKind,
+  onActiveKindChange = () => undefined,
   onAddNew,
   alertsApiUrl,
   vstApiUrl,
+  enableRealtimeAlerts = true,
+  enableCvAlertsVerification = true,
 }) => {
-  // `onAddNew` is the sidebar's "+ Create alert rule" handler; only the
-  // realtime tab uses it today (it appends a new draft row via a module-level
-  // bridge — see `triggerRealtimeAddDraft`). `void` it here so future-tab
-  // wiring isn't blocked by an unused-prop lint.
+  // `onAddNew` is owned by AlertsComponent (sidebar "+ Create alert rule").
+  // That handler routes to the active kind tab via module-level bridges.
   void onAddNew;
+  const enabledKindTabs = KIND_TABS.filter((tab) =>
+    tab.id === 'real-time' ? enableRealtimeAlerts : enableCvAlertsVerification,
+  );
   // --- shared styles ---------------------------------------------------------
   const inputClass = `w-full rounded-md px-3 py-1.5 text-sm focus:outline-none transition-colors ${
     isDark
@@ -100,8 +103,6 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   }`;
 
   // --- kind tabs -------------------------------------------------------------
-  // Decorative only: only `real-time` is shown today. Tabs are not interactive —
-  // selected state reflects `activeKind` for visual continuity.
   const kindTabs = (
     <div
       className={`flex-shrink-0 px-6 pt-4 border-b ${
@@ -109,33 +110,17 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
       }`}
     >
       <div role="tablist" aria-label="Alert kind" className="flex items-end gap-1">
-        {KIND_TABS.map((tab) => {
-          const isSelected = activeKind === tab.id && !tab.disabled;
+        {enabledKindTabs.map((tab) => {
+          const isSelected = activeKind === tab.id;
           const baseClass = 'flex items-center gap-2 px-4 py-2 text-sm border-b-2 -mb-px';
-          if (tab.disabled) {
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={false}
-                aria-disabled
-                disabled
-                title={tab.disabledReason ?? 'Disabled'}
-                data-testid={`create-alert-kind-${tab.id}`}
-                className={`${baseClass} border-transparent cursor-not-allowed opacity-50 ${
-                  isDark ? 'text-neutral-500' : 'text-gray-400'
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            );
-          }
           return (
-            <div
+            <button
               key={tab.id}
+              type="button"
               role="tab"
               aria-selected={isSelected}
+              aria-controls={`create-alert-kind-panel-${tab.id}`}
+              onClick={() => onActiveKindChange(tab.id)}
               data-testid={`create-alert-kind-${tab.id}`}
               className={`${baseClass} ${
                 isSelected
@@ -148,7 +133,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
             >
               {tab.icon}
               {tab.label}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -156,14 +141,41 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   );
 
   const body = (
-    <RealtimeAlertsTab
-      isDark={isDark}
-      alertsApiUrl={alertsApiUrl}
-      vstApiUrl={vstApiUrl}
-      inputClass={inputClass}
-      readOnlyCellClass={readOnlyCellClass}
-      thClass={thClass}
-    />
+    <div className="flex flex-col flex-1 min-h-0">
+      {enableRealtimeAlerts && (
+        <div
+          id="create-alert-kind-panel-real-time"
+          role="tabpanel"
+          hidden={activeKind !== 'real-time'}
+          className="flex flex-col flex-1 min-h-0"
+          style={{ display: activeKind === 'real-time' ? 'flex' : 'none' }}
+        >
+          <RealtimeAlertsTab
+            isDark={isDark}
+            alertsApiUrl={alertsApiUrl}
+            vstApiUrl={vstApiUrl}
+            inputClass={inputClass}
+            readOnlyCellClass={readOnlyCellClass}
+            thClass={thClass}
+          />
+        </div>
+      )}
+      {enableCvAlertsVerification && (
+        <div
+          id="create-alert-kind-panel-verification"
+          role="tabpanel"
+          hidden={activeKind !== 'verification'}
+          className="flex flex-col flex-1 min-h-0"
+          style={{ display: activeKind === 'verification' ? 'flex' : 'none' }}
+        >
+          <CvAlertsVerificationTab
+            isDark={isDark}
+            alertsApiUrl={alertsApiUrl}
+            visible={activeKind === 'verification'}
+          />
+        </div>
+      )}
+    </div>
   );
 
   return (

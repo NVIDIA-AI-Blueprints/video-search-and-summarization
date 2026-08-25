@@ -427,6 +427,13 @@ agent:
       enabled: true
       waitForMcp: true
 
+# Off by default; enable with the alerts stack. Warehouse 2D exposes both
+# Real-time Alerts and CV Alerts Verification under Manage Alerts.
+vss-agent-ui:
+  enabled: false
+  alertsRealtimeEnabled: true
+  alertsCvVerificationEnabled: true
+
 # Prometheus + Grafana (K8s port of deploy/docker/services/monitoring).
 # dcgmExporter stays off because the NVIDIA GPU operator already runs
 # nvidia-dcgm-exporter, which Prometheus scrapes via prometheus.gpuOperator.
