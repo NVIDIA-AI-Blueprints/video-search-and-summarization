@@ -56,7 +56,12 @@ LVS_CONFIG_MEDIA_BLOCKED_MESSAGE = (
 )
 # Phrases that count as an explicit user request to start LVS caption generation.
 _CAPTION_GENERATION_REQUEST_RE = re.compile(
-    r"(?i)\b(?:start\s+captioning|set\s+up\s+stream|configure\s+stream)\b",
+    r"(?i)\b(?P<trigger>start\s+captioning|set\s+up\s+stream|configure\s+stream)\b",
+)
+# Reject "do not start captioning …" / "never configure stream …" even though the
+# trigger phrase is present.
+_CAPTION_GENERATION_NEGATION_RE = re.compile(
+    r"(?i)(?:\b(?:do\s+not|don't|dont|never)\b(?:\s+\w+){0,4}|\bnot)\s+$",
 )
 
 
@@ -64,7 +69,12 @@ def user_requested_caption_generation(user_text: str | None) -> bool:
     """Return True when the current user turn explicitly asks to start captions."""
     if not user_text or not user_text.strip():
         return False
-    return _CAPTION_GENERATION_REQUEST_RE.search(user_text) is not None
+    for match in _CAPTION_GENERATION_REQUEST_RE.finditer(user_text):
+        prefix = user_text[: match.start()]
+        if _CAPTION_GENERATION_NEGATION_RE.search(prefix):
+            continue
+        return True
+    return False
 
 
 class LVSMediaStatus(StrEnum):

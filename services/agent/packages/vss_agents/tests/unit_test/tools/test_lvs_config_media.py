@@ -101,6 +101,12 @@ class TestUserRequestedCaptionGeneration:
             "Summarize the stream sample_warehouse from 45 seconds until now",
             "Do you want me to start generating captions for the stream?",
             "There are no captions stored for stream 'sample_warehouse'.",
+            "do not start captioning CAM_1",
+            "don't start captioning sample_warehouse",
+            "please do not start captioning the stream",
+            "never set up stream CAM_1",
+            "do not configure stream warehouse_cam",
+            "not start captioning CAM_1",
         ],
     )
     def test_summarize_and_empty_turns_are_not_caption_requests(self, text):

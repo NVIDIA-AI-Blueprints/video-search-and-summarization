@@ -817,3 +817,28 @@ class TestLvsConfigMediaCaptionGate:
 
         assert config_tool.called is True
         assert state.final_answer != LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_blocks_config_media_on_negated_caption_request(self, monkeypatch):
+        agent, config_tool = self._agent_with_config_tool(monkeypatch)
+        state = TopAgentState(
+            current_message=HumanMessage(content="do not start captioning CAM_1"),
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling config",
+                    tool_calls=[
+                        {
+                            "name": "lvs_config_media",
+                            "args": {"stream_name": "CAM_1"},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert config_tool.called is False
+        assert state.final_answer == LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
