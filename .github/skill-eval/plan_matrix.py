@@ -176,6 +176,14 @@ OPENSHELL_A40_LABELS: tuple[str, ...] = (
     "video-codec",
     "openshell-a40-active",
 )
+OPENSHELL_H200_LABELS: tuple[str, ...] = (
+    "vss-skill-eval-gpu",
+    "openshell",
+    "h200",
+    "gpu-h200",
+    "gpu-nvidia-h200",
+    "openshell-h200-active",
+)
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
 
@@ -184,6 +192,7 @@ SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
 # .github/skill-eval/adapters/*/generate.py.
 PLATFORM_LABELS: dict[str, str | None] = {
     "H100": "gpu-h100",
+    "H200": "gpu-h200",
     "L40S": "gpu-l40s",
     "RTXPRO6000BW": "gpu-rtxpro6000bw",
     "A16": "gpu-a16",
@@ -208,8 +217,9 @@ class OpenShellCohort(NamedTuple):
 
 # Order is the placement preference: use the smallest explicitly-supported
 # cohort that satisfies every per-GPU capability. Capacity is runner capacity,
-# not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, and 4
-# two-GPU RTX PRO 6000 VMs.
+# not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, 8 one-GPU
+# H200 VMs, and 4 two-GPU RTX PRO 6000 VMs. H200 has no NVENC; do not give it
+# RTX PRO 6000 labels.
 OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
         "a16-1g", "A16", "A16", 1, 16, 8,
@@ -222,6 +232,11 @@ OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
         "a40-2g", "A40", "A40", 2, 48, 2,
         (*OPENSHELL_A40_LABELS, "gpus-2"),
+    ),
+    OpenShellCohort(
+        "h200-1g", "H200", "H200", 1, 141, 8,
+        (*OPENSHELL_H200_LABELS, "gpus-1"),
+        video_codec=False,
     ),
     OpenShellCohort(
         "rtxpro6000-2g", "RTXPRO6000BW", "RTXPRO6000BW", 2, 96, 4,
@@ -304,6 +319,10 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
             if count not in (1, 2):
                 return list(SKIP_RUNNER)
             return [*OPENSHELL_A40_LABELS, f"gpus-{count}"]
+        if platform == "H200":
+            if count != 1:
+                return list(SKIP_RUNNER)
+            return [*OPENSHELL_H200_LABELS, "gpus-1"]
         return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
     if count <= 0:

@@ -448,7 +448,7 @@ class HarnessScopeTests(unittest.TestCase):
         eval_job = workflow.split("\n  eval:\n", 1)[1]
         self.assertIn('default: "claude-code"', workflow)
         self.assertIn("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}", eval_job)
-        self.assertIn("max-parallel: 8", eval_job)
+        self.assertIn("max-parallel: 26", eval_job)
         self.assertEqual(workflow.count("Run skills eval agent (single spec)"), 1)
         self.assertIn("EVAL_AGENT:", workflow)
         self.assertNotIn("nemoclaw_instance", workflow)

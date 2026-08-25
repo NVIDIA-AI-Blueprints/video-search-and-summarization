@@ -492,6 +492,7 @@ The canonical harbor command is in § Harbor invocation.
 |---|---|---|
 | `a16` | Direct OpenShell GHA cohort (`openshell-a16-active`) | 8 VMs × 1 NVIDIA A16 16 GB. Only explicitly A16-supported, one-GPU workloads at or below 16 GB/GPU; codec capability is available. |
 | `a40` | Direct OpenShell GHA cohort (`openshell-a40-active`) | 4 VMs × 1 A40 plus 2 VMs × 2 A40, 48 GB/GPU. `gpus-1` and `gpus-2` are distinct demands; two cards are not one 96 GB address space. |
+| `h200` | Direct OpenShell GHA cohort (`openshell-h200-active`) | 8 VMs × 1 H200 141 GB. Labels `gpu-h200` + `openshell-h200-active` only — never `gpu-rtxpro6000bw`. No NVENC. |
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
@@ -501,7 +502,7 @@ For the direct OpenShell path, each spec's required `openshell` object is the
 authoritative placement contract: GPU count, minimum VRAM **per GPU**, codec
 need, multi-GPU support, Blackwell need, and supported exact hardware
 profiles. `plan_matrix.py` emits exactly one smallest compatible cohort. Missing
-or stale metadata, an absent exact `hw-A16*.env` / `hw-A40*.env` profile, or no
+or stale metadata, an absent exact `hw-A16*.env` / `hw-A40*.env` / `hw-H200*.env` profile, or no
 compatible cohort produces a visible `BLOCKED_NO_COMPATIBLE_COHORT` leg. Never
 substitute another SKU's profile or add two cards' VRAM together.
 

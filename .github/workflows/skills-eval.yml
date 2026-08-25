@@ -171,10 +171,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Total runner capacity is 18. Cohort-specific active + GPU-count labels
-      # cap each pool independently (8 A16-1g, 4 A40-1g, 2 A40-2g, 4 RTX-2g),
-      # so one cohort cannot consume another cohort's runners.
-      max-parallel: 18
+      # Total runner capacity is 26. Cohort-specific active + GPU-count labels
+      # cap each pool independently (8 A16-1g, 4 A40-1g, 2 A40-2g, 8 H200-1g,
+      # 4 RTX-2g), so one cohort cannot consume another cohort's runners.
+      max-parallel: 26
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
