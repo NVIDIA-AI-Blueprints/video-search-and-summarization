@@ -48,9 +48,8 @@ of these.
 
 ## Capability owners present
 
-`<mode>` is `2d` or `3d`. Perception, behavior analytics, nvstreamer and the VST
-stack use the **same container names** in both — there is no `-2d` / `-3d`
-container suffix, only compose *service* suffixes.
+`<mode>` is `2d` or `3d`; the suffix is on the compose *service* name only
+([`../services/vios.md`](../services/vios.md)).
 
 | Owner | Service profile keys |
 |---|---|
@@ -113,16 +112,10 @@ checked-in `calibration.json` that Compose bind-mounts by path:
 warehouse-<mode>-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json
 ```
 
-| `MODE` | Dataset | Checked-in calibration |
-|---|---|---|
-| `2d` | `nv-warehouse-4cams` | yes — 4 sensors |
-| `2d` | `warehouse-loading-dock-3cams-synthetic` | yes |
-| `3d` | `warehouse-4cams-20mx20m-synthetic` | yes — 4 sensors, plus `rois` |
-
-3D mounts it three ways — behavior analytics reads `/resources/calibration.json`,
-and `ds-configurator-3d` and perception read
-`/opt/data/ds-configurator/calibration.json`. Nothing is staged under
-`$VSS_DATA_DIR`.
+All three shipped datasets carry one. 3D mounts it three ways — behavior
+analytics reads `/resources/calibration.json`, `ds-configurator-3d` and
+perception read `/opt/data/ds-configurator/calibration.json`. Nothing is staged
+under `$VSS_DATA_DIR`.
 
 Only a **custom** dataset needs a calibration run — produced by
 `vss-generate-video-calibration` — dropped at the path above under its dataset
@@ -144,15 +137,9 @@ docker logs --since 60s vss-rtvi-cv 2>&1 | grep -a "Active sources" | tail -1
 ```
 
 Expect one `stream_name` line per source at roughly source framerate, and an
-active-source count equal to `NUM_STREAMS`.
-
-> **Do not `grep -i fps`.** DeepStream prints exactly one line containing that
-> string — a valueless header — so matching it reports success no matter how
-> badly perception is doing. Match `stream_name` instead.
->
-> **`mdx-raw` is empty in 3D.** Sparse4D publishes BEV frames directly to
-> `mdx-bev`, so an empty `mdx-raw` is not evidence that 3D perception is dead.
-> 2D publishes tracked detections on `mdx-raw` as normal.
+active-source count equal to `NUM_STREAMS`. Do **not** `grep -i fps` —
+DeepStream's only line containing that string is a valueless header, so it
+reports success regardless.
 
 HTTP probes, when the selected list ships them:
 
@@ -164,23 +151,11 @@ curl -sf "http://${HOST_IP}:5601/kibana/api/status"        # extended, or bp_wh
 curl -sf "http://${HOST_IP}:8000/health"                   # bp_wh only
 ```
 
-> Two of these are easy to mis-probe and read as a broken deployment:
->
-> - **`vss-video-analytics-api` serves `/livez`, not `/health`.** `/health` and
->   `/readyz` both return **404** on this image while the service is fully up
->   and serving. Confirm with `docker logs vss-video-analytics-api`, which shows
->   its own `HEAD /livez 200` startup probe.
-> - **Kibana serves under the `/kibana` base path.** Bare `/`, `/api/status`
->   and `/app/home` all return **404**; the container health check still reports
->   `healthy`. Use `/kibana/api/status` (`status.overall.level: available`).
->
-> A single-node Elasticsearch reports `yellow`, never `green` — replicas stay
-> unassigned with one node. `curl -sf` passes on yellow, so treat it as healthy.
-
-> `/behavior-analytics` and `/perception-sdr` are defined HAProxy routes that
-> **always** 503 — the first publishes no HTTP listener, the second names a
-> container no warehouse list deploys. Read behaviors from the `mdx-behavior`
-> topic or the `mdx-behavior-*` indices instead.
+> Endpoint quirks that read as a dead service are in
+> [`../services/elk.md`](../services/elk.md). `/behavior-analytics` and
+> `/perception-sdr` always 503 — the first publishes no HTTP listener
+> ([`../services/behavior-analytics.md`](../services/behavior-analytics.md)),
+> the second names a container no warehouse list deploys.
 
 ## Sources
 

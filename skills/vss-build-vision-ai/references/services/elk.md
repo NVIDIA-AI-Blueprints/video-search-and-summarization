@@ -14,6 +14,12 @@
 ## Required peers
 
 - Use `elasticsearch-init-container` with `elasticsearch`.
+- **Probe these at the right paths — the wrong one reads as a dead service.**
+  `vss-video-analytics-api` serves `/livez`; `/health` and `/readyz` return 404
+  while it is up and serving. Kibana serves under the `/kibana` base path, so
+  bare `/` and `/api/status` 404 while the container reports healthy — use
+  `/kibana/api/status`. A single-node Elasticsearch reports `yellow`, never
+  `green`; `curl -sf` passes on yellow, so treat it as healthy.
 - On `warehouse`, ELK is present in `bp_wh` and in every **extended** Kafka/Redis
   list, and absent from every `…_MINIMAL` list. Removing it from a `3d` build
   also removes the `mdx-bev-YYYY-MM-DD` indices Logstash writes, so BEV output
