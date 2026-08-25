@@ -867,18 +867,36 @@ function process_args() {
       # remote+remote). Other profiles carry their own GB300 handling and must
       # not be routed through this resolution.
       if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
-        # Device IDs may come from the profile environment or CLI. CLI values
-        # already take precedence when the profile environment is loaded.
+        # Device IDs reach here from the CLI or from the profile environment, and
+        # only a CLI value is an explicit selection. The profile defaults describe
+        # the two-GPU layout (LLM on 1, VLM on 0), which cannot apply to a single
+        # shared GB300, so disagreeing profile values are advisory: fall through to
+        # auto-detection rather than rejecting a command the user never typed.
+        local _llm_id_is_cli=0 _vlm_id_is_cli=0
+        if contains_element "llm-device-id" "${options_provided[@]}"; then
+          _llm_id_is_cli=1
+        fi
+        if contains_element "vlm-device-id" "${options_provided[@]}"; then
+          _vlm_id_is_cli=1
+        fi
+
+        local _llm_selector="" _vlm_selector=""
         if [[ "${_llm_is_remote}" -eq 0 ]] && [[ -n "${llm_device_id}" ]]; then
-          hardware_device_id="${llm_device_id}"
+          _llm_selector="${llm_device_id}"
         fi
         if [[ "${_vlm_is_remote}" -eq 0 ]] && [[ -n "${vlm_device_id}" ]]; then
-          if [[ -n "${hardware_device_id}" ]] && [[ "${hardware_device_id}" != "${vlm_device_id}" ]]; then
+          _vlm_selector="${vlm_device_id}"
+        fi
+
+        if [[ -n "${_llm_selector}" ]] && [[ -n "${_vlm_selector}" ]] && [[ "${_llm_selector}" != "${_vlm_selector}" ]]; then
+          # A conflict the user actually expressed is an error; one inherited
+          # wholly from the profile environment is not.
+          if [[ "${_llm_id_is_cli}" -eq 1 ]] || [[ "${_vlm_id_is_cli}" -eq 1 ]]; then
             echo "[ERROR] GB300 search requires local LLM and VLM device IDs to select the same GPU"
             ((_all_good++))
-          else
-            hardware_device_id="${vlm_device_id}"
           fi
+        else
+          hardware_device_id="${_llm_selector:-${_vlm_selector}}"
         fi
 
         if [[ -z "${hardware_device_id}" ]]; then

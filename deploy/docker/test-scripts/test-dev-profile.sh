@@ -486,6 +486,21 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up
   "VSS_RT_EMBED_TAG" '"develop-latest-sbsa"' \
   "VSS_RT_CV_TAG" '"develop-latest-sbsa"'
 
+# Stock profile defaults place the LLM on GPU 1 and the VLM on GPU 0, a two-GPU
+# layout that cannot apply to a single shared GB300. Inheriting them must not be
+# treated as a user-expressed conflict: `-H GB300` with no device-ID options is
+# the documented command and must auto-detect the GB300.
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up_and_check_generated_env \
+  "generated.env search GB300 auto-detects despite mismatched profile device IDs" "search" \
+  -i 127.0.0.1 -H GB300 -d -- \
+  "HARDWARE_PROFILE" "GB300" \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1"
+
 # Profile environment device IDs are supported selectors too. Matching IDs
 # must select the GB300 even when neither device-ID CLI option is passed.
 _search_overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/overrides.env"
