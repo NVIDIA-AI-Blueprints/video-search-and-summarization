@@ -8,6 +8,13 @@
 # The diff gate runs in-job against the cumulative head...base range: a
 # top-level `paths:` filter only sees the pushed commits and silently skips
 # on mirror merge commits.
+#
+# Trust model: mirror branches contain only maintainer-approved SHAs (the
+# /ok to test gate), the job token is read-only, and no credential exists
+# in the job (the check runs against a local stub upstream). The job needs
+# the Docker daemon to build and run the router, so in-job sandboxing would
+# not add a real boundary; stronger isolation, if desired, is a dedicated
+# runner for this workflow's label.
 
 name: Model Routing Notebook
 
