@@ -182,6 +182,14 @@ rtvi_vlm:
     max_inter_alert_gap_seconds: 60
     max_event_duration_seconds: 300
     representative: "latest"
+    # Durable consolidated events; see services/alert/config.yaml for the
+    # reasoning behind each bound.
+    persistence:
+      enabled: false
+      collection: "alert-realtime-events"
+      fold_interval_seconds: 30
+      fold_window_seconds: 600
+      retention_days: 7
 
 # Webhook Notification — fire-and-forget POST on VLM-verified incidents
 webhook:

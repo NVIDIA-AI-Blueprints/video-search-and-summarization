@@ -120,7 +120,17 @@ Two secondary entry paths share the same packages:
 ### `realtime/` — realtime rules
 | Path | Purpose |
 |---|---|
-| `realtime/services/` | `realtime_service`, `always_on_service`, `incident_service`, `rule_store`, `rtvi_client` (RTVI VLM client). |
+| `realtime/services/` | `realtime_service`, `always_on_service`, `incident_service`, `rule_store`, `rtvi_client` (RTVI VLM client), `event_folder`, `event_store`, `elastic_factory`. |
+
+The last three are the durable-event path, off by default behind
+`rtvi_vlm.consolidation.persistence.enabled`. `event_folder` runs a background
+thread on the **instance leader only** — the same rule the verdict-retention
+reaper follows — periodically re-folding a tail window of raw evidence into
+consolidated events in `ab-alert-realtime-events`, which `GET
+/api/v1/realtime/events` serves. A lock document in that index keeps two
+replicas from folding at once, and every write is additionally conditioned on
+the version it read, so a stalled cycle cannot land on top of a newer one.
+
 | `realtime/schemas/` | Alert-config + always-on-config schemas. |
 | `realtime/config/` | Service config + constants. |
 

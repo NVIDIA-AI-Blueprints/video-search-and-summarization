@@ -32,7 +32,11 @@ invoked from non-REST callers (agent flows, replay tools, integration
 tests) without going through HTTP.
 """
 
+import asyncio
+import base64
+import hashlib
 import json
+import threading
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -45,6 +49,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from ..schemas.realtime_schemas import (
+    EventListResponse,
     AlwaysOnEventRequest,
     IncidentListResponse,
     RealtimeAlertDeleteResponse,
@@ -54,6 +59,14 @@ from ..schemas.realtime_schemas import (
     RealtimeAlertRequest,
     RealtimeAlertResponse,
     RealtimeReplayResponse,
+)
+from realtime.config import ErrorCode
+from realtime.services.elastic_factory import build_elastic_client
+from realtime.services.event_store import (
+    DEFAULT_COLLECTION,
+    DEFAULT_FOLD_WINDOW_SECONDS,
+    EventStoreUnavailable,
+    RealtimeEventStore,
 )
 from realtime import (
     AlertRuleConfig,
@@ -145,58 +158,36 @@ def _always_on_response(
 # ---------------------------------------------------------------------------
 
 
-@lru_cache()
+_ELASTIC_CLIENT = None
+_ELASTIC_CLIENT_LOCK = threading.Lock()
+
+
 def get_elastic_client():
     """Shared Elasticsearch client for the realtime API.
 
-    Returns None if ES is disabled in config, allowing the service to
-    return 503 gracefully.
+    Delegates so the folding job, which runs in the pipeline process and cannot
+    import the web layer, builds its client from the same configuration.
+    Returns None if ES is disabled, letting callers answer 503 rather than
+    pretending the store is empty.
+
+    Only a *successful* build is remembered. Memoising the failure — which an
+    ``lru_cache`` here did — pins every route that depends on this at 503 for
+    the life of the process because one request happened to arrive during an
+    Elasticsearch restart, long after the cluster is healthy again. The retry
+    costs one connection attempt per request while the cluster is down, which
+    is the state in which nothing else is happening anyway.
     """
-    config = load_config()
-    es_cfg = config.get("elastic", {}) or {}
+    global _ELASTIC_CLIENT
 
-    if not es_cfg.get("enabled", False):
-        return None
-
-    hosts_config = es_cfg.get("hosts", [])
-    if isinstance(hosts_config, str):
-        hosts = (hosts_config,)
-    elif isinstance(hosts_config, (list, tuple)):
-        hosts = tuple(str(h).strip() for h in hosts_config if h)
-    else:
-        hosts = tuple()
-
-    if not hosts:
-        logger.warning("Elasticsearch enabled but no hosts configured")
-        return None
-
-    try:
-        from clients.elastic import ElasticClient, ElasticConfig
-
-        return ElasticClient(
-            config=ElasticConfig(
-                hosts=hosts,
-                username=es_cfg.get("username"),
-                password=es_cfg.get("password"),
-                api_key=es_cfg.get("api_key"),
-                verify_certs=es_cfg.get("verify_certs", False),
-                ca_certs=es_cfg.get("ca_certs"),
-                request_timeout=es_cfg.get("request_timeout", 10),
-            )
-        )
-    except ConnectionError as exc:
-        logger.error(
-            "Elasticsearch cluster unreachable at %s: %s", hosts, exc
-        )
-        return None
-    except (ValueError, TypeError) as exc:
-        logger.error(
-            "Invalid Elasticsearch configuration: %s", exc
-        )
-        return None
-    except Exception:
-        logger.exception("Unexpected error creating Elasticsearch client")
-        return None
+    if _ELASTIC_CLIENT is not None:
+        return _ELASTIC_CLIENT
+    # This runs on the anyio worker threadpool, so N concurrent first requests
+    # would otherwise each build a client with its own connection pool, and all
+    # but one would be orphaned with nothing left to close it.
+    with _ELASTIC_CLIENT_LOCK:
+        if _ELASTIC_CLIENT is None:
+            _ELASTIC_CLIENT = build_elastic_client()
+    return _ELASTIC_CLIENT
 
 
 @lru_cache()
@@ -292,6 +283,164 @@ def get_incident_service() -> IncidentService:
         index_base=index_base,
         consolidation=consolidation,
     )
+
+
+def _filter_tag(sensor_id, category, start_time, end_time) -> str:
+    """A short digest of the filters a cursor was issued under.
+
+    Carried inside the token so a cursor cannot be replayed against a different
+    query. ``search_after`` resumes at an ordering position, and that position
+    only means anything relative to the filter set that produced it — reusing a
+    cursor from one query on another silently skips or repeats rows rather than
+    failing.
+
+    This is a coherence check, not a security control: the token is not signed,
+    and this endpoint has no authorization boundary to enforce anyway. It stops
+    a client from misusing its own cursors, which is the realistic failure.
+    """
+    canonical = json.dumps(
+        [sensor_id or "", category or "", start_time or "", end_time or ""],
+        separators=(",", ":"),
+    )
+    return hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:12]
+
+
+def _encode_cursor(cursor: Optional[tuple], filter_tag: str) -> Optional[str]:
+    """Pack the ordering key and its filter tag into an opaque token.
+
+    Opaque on purpose: the values inside are an implementation detail of how
+    the store orders events, and a caller that parsed them would be broken by
+    any later change to that ordering.
+    """
+    if not cursor:
+        return None
+    raw = json.dumps(
+        [cursor[0], cursor[1], filter_tag], separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_cursor(token: Optional[str], filter_tag: str) -> Optional[tuple]:
+    """Unpack a cursor, or None if it did not come from this endpoint and query."""
+    if not token:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("ascii"))
+        values = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(values, list) or len(values) != 3:
+        return None
+    if values[2] != filter_tag:
+        return None
+    # The first element is fed to ``search_after`` against a date field. A
+    # forged-but-well-formed token would make Elasticsearch answer 400, which
+    # the store cannot tell from an outage — so a client's bad cursor would be
+    # reported as a cluster failure. Checked here, where it is still a 400.
+    # Note this normalises rather than merely checking. Validating the parsed
+    # integer while forwarding the original rendering let anything ``int()``
+    # accepts but ``str()`` renders differently through — ``1e20`` becomes
+    # ``"1e+20"``, which Elasticsearch rejects as a date, which the store
+    # cannot tell from an outage. The value sent is now the value checked.
+    if isinstance(values[0], bool):
+        return None
+    try:
+        position = str(int(values[0]))
+    except (TypeError, ValueError):
+        return None
+    return (position, str(values[1]))
+
+
+@lru_cache()
+def event_persistence_enabled() -> bool:
+    """Whether this deployment folds evidence into durable events at all."""
+    return bool(
+        load_config()
+        .get("rtvi_vlm", {})
+        .get("consolidation", {})
+        .get("persistence", {})
+        .get("enabled", False)
+    )
+
+
+def get_event_store() -> Optional[RealtimeEventStore]:
+    """Create the event store with the shared ES client.
+
+    ``None`` means Elasticsearch is unreachable or switched off — an outage
+    from the caller's point of view. It deliberately does *not* cover the
+    feature being disabled: that is a different answer to the caller (501, not
+    503) and is decided by :func:`event_persistence_enabled` instead. Folding
+    the two together would have every default deployment report a healthy
+    cluster as unavailable.
+    """
+    es_client = get_elastic_client()
+    if es_client is None:
+        # Deliberately not cached. ``None`` is a statement about right now, and
+        # memoising it would pin the endpoint at 503 for the life of the
+        # process because one request happened to arrive during an
+        # Elasticsearch restart.
+        return None
+    # The horizon comes from the same function the folder validates with, so
+    # the two cannot drift: ``status`` is a claim about what a cycle can still
+    # reach, and a read path guessing that number would answer it wrongly.
+    #
+    # Constructed per request rather than cached. It is two attribute
+    # assignments, and a cache keyed on the client object would hold a strong
+    # reference to every client ever built — including any orphaned by a race
+    # in :func:`get_elastic_client` — for the life of the process.
+    collection, horizon = _persistence_settings()
+    return RealtimeEventStore(
+        es_client, collection=collection, rewrite_horizon_seconds=horizon,
+    )
+
+
+@lru_cache()
+def _consolidation_gap() -> Optional[int]:
+    """The inter-alert gap events were grouped on."""
+    value = (
+        load_config().get("rtvi_vlm", {}).get("consolidation", {}) or {}
+    ).get("max_inter_alert_gap_seconds", 60)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+@lru_cache()
+def _persistence_settings():
+    """The collection and horizon this deployment folds with.
+
+    Cached because deriving them re-reads and re-parses the whole config file —
+    about eleven milliseconds of blocking CPU on a shared, bounded threadpool,
+    on an endpoint whose actual work is one Elasticsearch search. The client
+    itself is deliberately *not* cached this way; see
+    :func:`get_elastic_client`.
+    """
+    config = load_config()
+    consolidation = config.get("rtvi_vlm", {}).get("consolidation", {}) or {}
+    persistence = consolidation.get("persistence", {}) or {}
+    return (
+        persistence.get("collection", DEFAULT_COLLECTION),
+        _rewrite_horizon(consolidation, persistence),
+    )
+
+
+def _rewrite_horizon(consolidation, persistence) -> Optional[float]:
+    """How far back a fold cycle can still reach, or a safe default.
+
+    A misconfiguration is not this path's to report — the pipeline process
+    fails startup on it. Here it only means the horizon cannot be computed, so
+    the answer is ``None``: never claim an event is settled. Erring towards
+    ``open`` tells a caller an event might still change, which is never the
+    dangerous direction to be wrong in.
+    """
+    from realtime.services.event_folder import validate_persistence_config
+
+    try:
+        return validate_persistence_config(persistence, consolidation)[1]
+    except (TypeError, ValueError):
+        logger.warning(
+            "Persistence bounds are not usable; reporting every event as open "
+            "rather than claiming any is settled"
+        )
+        return None
 
 
 def validate_always_on_config_at_startup() -> None:
@@ -632,7 +781,7 @@ async def list_incidents(
             status_code=400,
             content={
                 "status": "error",
-                "error": "validation_failed",
+                "error": ErrorCode.VALIDATION_FAILED,
                 "message": (
                     "consolidate=true requires both start_time and end_time "
                     "(a bounded time window)"
@@ -650,6 +799,257 @@ async def list_incidents(
         consolidate=consolidate,
     )
     return JSONResponse(status_code=status_code, content=response_data)
+
+
+def _persistence_disabled_response() -> JSONResponse:
+    """501, not 503 and not an empty 200.
+
+    Every shipped configuration has persistence off by default, so this is the
+    first response an operator meets; answering 503 would blame a healthy
+    cluster and 200 would say nothing has happened.
+    """
+    return JSONResponse(
+        status_code=501,
+        content={
+            "status": "error",
+            "error": ErrorCode.PERSISTENCE_DISABLED,
+            "message": (
+                "Durable realtime events are disabled in this deployment. "
+                "Set 'rtvi_vlm.consolidation.persistence.enabled' and restart."
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+def _elasticsearch_unavailable_response() -> JSONResponse:
+    """Distinguishable from "no events exist" on purpose: a caller that cannot
+    tell the two apart would read a dead store as agreement."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": "error",
+            "error": ErrorCode.ELASTICSEARCH_UNAVAILABLE,
+            "message": "Elasticsearch is not available",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/realtime/events/{event_id}
+# ---------------------------------------------------------------------------
+@router.get(
+    "/events/{event_id}",
+    summary="Fetch one consolidated event, following a moved identity",
+    description=(
+        "Read a single durable event by id.\n\n"
+        "### Why an id can move\n"
+        "An event's identity is derived from its evidence, which is what makes "
+        "it independent of the order that evidence arrives in: fold the same "
+        "set in either order and you get the same id. The cost is that "
+        "evidence predating an event changes where it starts, and so changes "
+        "its id. When that happens the previous id is kept as an alias, and "
+        "this endpoint follows it — so a reference you already hold keeps "
+        "working.\n\n"
+        "When the answer came through an alias, `requested_id` carries the id "
+        "you asked for. Treat that as a signal to update your reference: "
+        "aliases are reaped on the same retention clock as the events "
+        "themselves and will not resolve for ever."
+    ),
+    responses={
+        404: {"description": "No event or alias with that id.",
+              "model": RealtimeAlertErrorResponse},
+        501: {"description": "Durable events are disabled on this deployment.",
+              "model": RealtimeAlertErrorResponse},
+        503: {"description": "Elasticsearch could not be reached.",
+              "model": RealtimeAlertErrorResponse},
+    },
+)
+async def get_event(
+    event_id: str,
+    store: Optional[RealtimeEventStore] = Depends(get_event_store),
+):
+    if not event_persistence_enabled():
+        return _persistence_disabled_response()
+    if store is None:
+        return _elasticsearch_unavailable_response()
+    try:
+        event, requested_id = await asyncio.to_thread(store.resolve, event_id)
+    except EventStoreUnavailable:
+        logger.error("Event store unavailable while resolving %s", event_id)
+        return _elasticsearch_unavailable_response()
+    if event is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "status": "error",
+                "error": ErrorCode.NOT_FOUND,
+                "message": f"No event with id {event_id}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "event": event,
+            # Present only when the identity moved, so a caller can tell the
+            # difference between "this is what you asked for" and "this is what
+            # absorbed what you asked for".
+            "requested_id": requested_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/realtime/events
+# ---------------------------------------------------------------------------
+@router.get(
+    "/events",
+    response_model=EventListResponse,
+    responses={
+        400: {
+            "description": (
+                "The `cursor` was not issued by this endpoint for these "
+                "filters. Restart paging without a cursor. Returned with "
+                "`error: validation_failed`."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
+        501: {
+            "description": (
+                "Durable events are disabled on this deployment "
+                "(`rtvi_vlm.consolidation.persistence.enabled`). Distinct from "
+                "`503`, which means the cluster could not be reached, and from "
+                "`200` with no events. Every shipped configuration has this "
+                "off by default. Returned with `error: persistence_disabled`."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
+        503: {
+            "description": (
+                "Elasticsearch could not be reached, or a query against it "
+                "failed. Answered rather than returning an empty page, so an "
+                "outage is not read as 'no events exist'. Returned with "
+                "`error: elasticsearch_unavailable`."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
+    },
+    summary="List consolidated realtime events from the durable store",
+    description=(
+        "Read consolidated events that the background folder has already "
+        "written, rather than folding raw chunks on demand.\n\n"
+        "### How this differs from `/incidents?consolidate=true`\n"
+        "`/incidents` computes the consolidated view for every request and is "
+        "as fresh as Elasticsearch. This endpoint serves a stored result, so it "
+        "trails live evidence by up to one fold interval — the actual lag is "
+        "returned as `fold_lag_seconds` rather than left to be assumed. Both "
+        "produce the same events from the same evidence.\n\n"
+        "### Paging\n"
+        "Cursor-based. Pass the `next_cursor` from the previous response. The "
+        "cursor encodes an ordering key fixed when the event was created, so a "
+        "page boundary stays valid while an event is still growing; a cursor "
+        "anchored on the event's end time would revisit rows and never reach "
+        "the older ones.\n\n"
+        "### Time filters\n"
+        "Unlike `consolidate=true`, a window is optional here: the store is "
+        "already bounded by its retention period."
+    ),
+)
+async def list_events(
+    sensor_id: Optional[str] = Query(None, description="Filter by sensor name."),
+    category: Optional[str] = Query(None, description="Filter by alert type."),
+    start_time: Optional[datetime] = Query(
+        None, description="Return events overlapping at or after this time."
+    ),
+    end_time: Optional[datetime] = Query(
+        None, description="Return events starting at or before this time."
+    ),
+    limit: int = Query(50, ge=1, le=1000, description="Events per page."),
+    cursor: Optional[str] = Query(
+        None, description="Opaque cursor from a previous response's next_cursor."
+    ),
+    store: Optional[RealtimeEventStore] = Depends(get_event_store),
+):
+    logger.info(
+        "GET /api/v1/realtime/events — sensor_id=%s category=%s limit=%d cursor=%s",
+        sensor_id, category, limit, "yes" if cursor else "no",
+    )
+    if not event_persistence_enabled():
+        return _persistence_disabled_response()
+    if store is None:
+        return _elasticsearch_unavailable_response()
+    filter_tag = _filter_tag(
+        sensor_id,
+        category,
+        start_time.isoformat() if start_time else None,
+        end_time.isoformat() if end_time else None,
+    )
+    decoded = _decode_cursor(cursor, filter_tag)
+    if cursor and decoded is None:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "error": "validation_failed",
+                "message": (
+                    "cursor is not a value this endpoint returned for these "
+                    "filters; restart paging without a cursor"
+                ),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    try:
+        page, lag = await asyncio.gather(
+            asyncio.to_thread(
+                store.page,
+                sensor_id=sensor_id,
+                category=category,
+                start_time=start_time.isoformat() if start_time else None,
+                end_time=end_time.isoformat() if end_time else None,
+                limit=limit,
+                cursor=decoded,
+            ),
+            asyncio.to_thread(store.fold_lag_seconds),
+            return_exceptions=True,
+        )
+        if isinstance(page, BaseException):
+            raise page
+        events, next_cursor, total, total_capped = page
+        if isinstance(lag, BaseException):
+            # Only the freshness document failed. The page itself was read, and
+            # suppressing it would mirror the writer's mistake — that path
+            # refuses to disown work that landed just because the bookkeeping
+            # write did not. ``fold_lag_seconds`` is nullable for exactly this.
+            logger.warning("Fold freshness could not be read: %s", lag)
+            lag = None
+    except EventStoreUnavailable:
+        # A failed query must not look like an empty store. Answering 200 with
+        # no events would have a consumer read an outage as "the condition
+        # cleared".
+        logger.error("Event store unavailable while serving /events")
+        return _elasticsearch_unavailable_response()
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "events": events,
+            "count": len(events),
+            "total": total,
+            "total_is_lower_bound": total_capped,
+            "next_cursor": _encode_cursor(next_cursor, filter_tag),
+            "fold_lag_seconds": lag,
+            # So a consumer of this endpoint alone can join consecutive events
+            # of one long condition without hardcoding the server's constant.
+            "consolidation_max_inter_alert_gap_seconds": _consolidation_gap(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

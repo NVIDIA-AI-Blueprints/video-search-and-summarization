@@ -563,6 +563,61 @@ REPLAY_RULE_FAILURES = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Realtime event folder metrics
+#
+# Aggregate-only, with no per-sensor or per-category labels: the folder walks
+# every camera every cycle, so labelling by group would grow the series count
+# with the fleet.
+# ---------------------------------------------------------------------------
+
+FOLD_DURATION = Histogram(
+    'alert_bridge_fold_duration_seconds',
+    'Duration of one realtime event fold cycle',
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0],
+)
+
+FOLD_EVENTS_PERSISTED = Counter(
+    'alert_bridge_fold_events_persisted_total',
+    'Consolidated events written to the durable store',
+)
+
+FOLD_EVENTS_SUPERSEDED = Counter(
+    'alert_bridge_fold_events_superseded_total',
+    'Stored events deleted because a re-fold replaced them',
+)
+
+FOLD_CYCLES_SKIPPED = Counter(
+    'alert_bridge_fold_cycles_skipped_total',
+    'Fold cycles skipped because one was already running or the lock was held',
+)
+
+FOLD_TRUNCATED = Counter(
+    'alert_bridge_fold_truncated_total',
+    'Groups skipped because their evidence could not be read whole',
+)
+
+FOLD_EVENTS_PURGED = Counter(
+    'alert_bridge_fold_events_purged_total',
+    'Events removed by the retention reaper',
+)
+
+FOLD_FRESHNESS_UNPUBLISHED = Counter(
+    'alert_bridge_fold_freshness_unpublished_total',
+    'Completed cycles whose freshness record could not be written',
+)
+
+FOLD_CYCLES_ABORTED = Counter(
+    'alert_bridge_fold_cycles_aborted_total',
+    'Cycles whose output could not be trusted, by reason',
+    ['reason'],
+)
+
+FOLD_LAST_COMPLETED = Gauge(
+    'alert_bridge_fold_last_completed_timestamp_seconds',
+    'Unix time of the last completed fold cycle',
+)
+
+# ---------------------------------------------------------------------------
 # RTVI VLM call metrics
 # ---------------------------------------------------------------------------
 
