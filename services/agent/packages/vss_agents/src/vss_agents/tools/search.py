@@ -116,7 +116,22 @@ Output: {{"query": "object ids 5, 6", "object_ids": [5, 6], "has_action": false}
 
 Example 10:
 User query: "find more objects like object 42 near warehouse entrance"
-Output: {{"query": "objects like object 42 near warehouse entrance", "object_ids": [42], "video_sources": ["warehouse entrance"], "has_action": false}}"""
+Output: {{"query": "objects like object 42 near warehouse entrance", "object_ids": [42], "video_sources": ["warehouse entrance"], "has_action": false}}
+
+Example 11:
+User query: "Find a person stacking crates in loading_bay_cam"
+Output: {{"query": "person stacking crates", "video_sources": ["loading_bay_cam"], "source_type": "video_file", "attributes": [], "has_action": true}}
+
+Example 12:
+User query: "someone sweeping the floor near the shelves in aisle_video"
+Output: {{"query": "someone sweeping the floor near the shelves", "video_sources": ["aisle_video"], "source_type": "video_file", "attributes": [], "has_action": true}}
+
+Example 13:
+User query: "Find safety barriers being installed in the corridor video depot_footage"
+Output: {{"query": "safety barriers being installed in the corridor", "video_sources": ["depot_footage"], "source_type": "video_file", "attributes": [], "has_action": true}}
+
+Note: attributes describe what a PERSON LOOKS LIKE (clothing, appearance), never actions or
+objects. When the query mentions no clock time, OMIT timestamp_start and timestamp_end entirely."""
 
 
 class DecomposedQuery(BaseModel):
