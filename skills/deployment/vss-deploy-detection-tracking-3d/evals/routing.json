@@ -5,16 +5,7 @@
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
-        "gpu_count": 0,
-        "modes": [
-          "standalone"
-        ]
-      },
-      "H200": {
-        "gpu_count": 0,
-        "modes": [
-          "standalone"
-        ]
+        "gpu_count": 1
       }
     }
   },
@@ -67,5 +58,15 @@
         "The plan verifies exact registered stream set, non-zero FPS, BEV Fusion health, and mdx-raw/mdx-bev offset growth before reporting success."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": true,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }

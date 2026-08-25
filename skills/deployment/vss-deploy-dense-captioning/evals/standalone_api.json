@@ -4,10 +4,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "standalone"
-        ]
+      "A40": {
+        "gpu_count": 1
       }
     }
   },
@@ -40,5 +38,15 @@
         "The agent did not reference or try to run `tests/kafka/test_kafka_consumer.py`."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": true,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

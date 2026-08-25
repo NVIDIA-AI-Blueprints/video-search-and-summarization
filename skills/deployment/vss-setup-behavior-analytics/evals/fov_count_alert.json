@@ -4,20 +4,30 @@
   ],
   "resources": {
     "platforms": {
-      "ANY": {
-        "gpu_count": 0
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
   "expects": [
     {
-      "query": "Using the `/vss-setup-behavior-analytics` skill, end-to-end and autonomously, deploy the `vss-behavior-analytics` service on this host and configure it to **raise an incident/alert whenever more than 5 people are simultaneously in a camera's field of view**.\n\n**Environment & prerequisites:** A bare Brev host with Docker + `NGC_CLI_API_KEY` for image pull. `vss-behavior-analytics` is **CPU-only** (`gpu_count: 0` = skip GPU enforcement; `ANY` = no-constraint pool selector). A live message broker / perception input is NOT required — this task verifies the service is **deployed with the correct alert configuration**, so a container that restart-loops waiting for a broker is acceptable. Choose an app entrypoint and a config that make the FOV-count violation incident fire for the person class; do not rely on a default config that leaves it disabled.",
+      "query": "Using the `/vss-setup-behavior-analytics` skill, end-to-end and autonomously, deploy the `vss-behavior-analytics` service on this host and configure it to **raise an incident/alert whenever more than 5 people are simultaneously in a camera's field of view**.\n\n**Environment & prerequisites:** A bare Brev host with Docker + `NGC_CLI_API_KEY` for image pull. `vss-behavior-analytics` is **CPU-only** (`gpu_count: 0` = skip GPU enforcement; `ANY` = no-constraint pool selector). A live message broker / perception input is NOT required \u2014 this task verifies the service is **deployed with the correct alert configuration**, so a container that restart-loops waiting for a broker is acceptable. Choose an app entrypoint and a config that make the FOV-count violation incident fire for the person class; do not rely on a default config that leaves it disabled.",
       "checks": [
         "`docker ps -a --format '{{.Names}}' | grep -q vss-behavior-analytics` returns exit 0 (a behavior-analytics container was created)",
-        "`docker inspect $(docker ps -aq --filter name=vss-behavior-analytics | head -1) --format '{{json .Config.Cmd}}' | grep -qE 'main_search_and_alerts_app.py|main_analytics_2d_app.py|main_analytics_3d_app.py|main_public_safety_app.py|main_composite_app.py'` returns exit 0 (an entrypoint that produces FOV-count incidents is used — any app running the frame-enhancement/incident processor qualifies, which is why public_safety and composite count too)",
-        "The config the container actually mounts (resolve it via `docker inspect <container> --format '{{json .Mounts}}'` and read the host source, or read `/resources/*config.json` inside the container) enables FOV-count alerts for people: `fovCountViolationIncidentEnable` is \"true\", `fovCountViolationIncidentObjectType` is set to the person class the perception layer emits, and `fovCountViolationIncidentObjectThreshold` is set to \"5\" (or \"6\" if 'more than 5' is read as strictly greater). If the entrypoint is `main_composite_app.py`, `numWorkersForFrameEnhancement` must also be non-zero — that is the processor that emits these incidents, and composite registers nothing by default.",
-        "The people-COUNT threshold is set on `fovCountViolationIncidentObjectThreshold` (an object count) — NOT on `fovCountViolationIncidentThreshold`, which is a persistence-duration-in-seconds knob. The two must not be swapped."
+        "`docker inspect $(docker ps -aq --filter name=vss-behavior-analytics | head -1) --format '{{json .Config.Cmd}}' | grep -qE 'main_search_and_alerts_app.py|main_analytics_2d_app.py|main_analytics_3d_app.py|main_public_safety_app.py|main_composite_app.py'` returns exit 0 (an entrypoint that produces FOV-count incidents is used \u2014 any app running the frame-enhancement/incident processor qualifies, which is why public_safety and composite count too)",
+        "The config the container actually mounts (resolve it via `docker inspect <container> --format '{{json .Mounts}}'` and read the host source, or read `/resources/*config.json` inside the container) enables FOV-count alerts for people: `fovCountViolationIncidentEnable` is \"true\", `fovCountViolationIncidentObjectType` is set to the person class the perception layer emits, and `fovCountViolationIncidentObjectThreshold` is set to \"5\" (or \"6\" if 'more than 5' is read as strictly greater). If the entrypoint is `main_composite_app.py`, `numWorkersForFrameEnhancement` must also be non-zero \u2014 that is the processor that emits these incidents, and composite registers nothing by default.",
+        "The people-COUNT threshold is set on `fovCountViolationIncidentObjectThreshold` (an object count) \u2014 NOT on `fovCountViolationIncidentThreshold`, which is a persistence-duration-in-seconds knob. The two must not be swapped."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }
