@@ -1,5 +1,5 @@
 ## Description: <br>
-Summarize recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning. <br>
+Use when summarizing a recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -31,6 +31,8 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Video Summarization Debugging](references/video-summarization-debugging.md) <br>
 - [Video Summarization Deployment](references/video-summarization-deployment.md) <br>
 - [Video Summarization Environment Variables](references/video-summarization-environment-variables.md) <br>
+- [Deploy LVS Service](references/deploy-lvs-service.md) <br>
+- [Integrate LVS Service](references/integrate-lvs-service.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
@@ -70,7 +72,7 @@ Reported benchmark dimensions: <br>
 | Efficiency | N/A | N/A | N/A |
 
 ## Skill Version(s): <br>
-3.2.1 (source: frontmatter) <br>
+3.2.2 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

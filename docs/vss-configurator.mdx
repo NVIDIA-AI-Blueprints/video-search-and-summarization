@@ -1,0 +1,2118 @@
+---
+title: "VSS Configurator"
+description: ""
+position: 1
+---
+The VSS Configurator is a unified configuration management service that provides two main components:
+
+| Component | Purpose |
+| --- | --- |
+| **Profile Configuration Manager** | Automatically adjusts application settings based on hardware profiles (GPU type) and deployment modes (2D/3D) |
+| **Sensor Configuration Manager** | Manages camera/sensor configurations, calibration data, and sensor mappings for blueprints |
+
+## Profile Configuration Manager
+
+### Overview
+
+The Profile Configuration Manager automatically adjusts application settings based on hardware profiles (GPU type) and deployment modes (2D/3D).
+
+<Info>
+To enable the Profile Configuration Manager, you **must** set:
+
+```bash
+ENABLE_PROFILE_CONFIGURATOR=true
+```
+
+By default, the Profile Configurator is disabled (`ENABLE_PROFILE_CONFIGURATOR=false`).
+When enabled, it runs before the API server starts and adjusts configuration files based on your GPU hardware profile.
+</Info>
+
+**Architecture:**
+
+<Frame caption="Profile Configuration Manager Architecture">
+  <img src="/assets/images/vss-configurator/profile-configuration-manager.png" alt="Profile Configuration Manager Architecture" />
+</Frame>
+
+**Key Features:**
+
+- Detects your GPU type (H100, L40S, L4, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK, etc.)
+- Adjusts settings based on 2D or 3D deployment mode
+- Updates YAML, JSON, and text configuration files
+- Validates that your environment is configured correctly
+
+**When you need it:**
+
+- Deploying to different GPU hardware
+- Switching between 2D and 3D modes
+- Ensuring configurations match hardware capabilities
+
+**Execution Flow:**
+
+1. **Load Environment Variables** - Read `HARDWARE_PROFILE`, `MODE`, etc.
+2. **Select Profile** - Use the requested hardware profile if provided; unknown profile names are preserved and can still use `commons` configuration
+3. **Validate Environment** - Check env vars have valid values
+4. **Execute Prerequisites** - Run pre-processing operations (e.g., count files)
+5. **Compute Variables** - Calculate `final_stream_count`, timeouts, etc.
+6. **Execute File Operations** - Update YAML, JSON, text files
+
+### Quick Start
+
+**Minimal working example** - Copy this and modify for your GPU:
+
+```yaml
+# blueprint_config.yml
+
+# Shared rules for ALL GPUs
+commons:
+  variables:
+    2d:
+      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+    3d:
+      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+  file_operations:
+    2d:
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        updates:
+          num_sensors: ${final_stream_count}
+    3d:
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        updates:
+          num_sensors: ${final_stream_count}
+
+# GPU-specific settings
+H100:
+  2d:
+    max_streams_supported: 26
+  3d:
+    max_streams_supported: 12
+
+L4:
+  2d:
+    max_streams_supported: 4
+  3d:
+    max_streams_supported: 2   # L4 is less powerful in 3D mode
+```
+
+**What happens:**
+
+1. User sets `HARDWARE_PROFILE=L4` and `MODE=3d` and `NUM_STREAMS=8`
+2. Configurator looks up L4's 3D limit: `max_streams_supported=2`
+3. Computes: `final_stream_count = min(8, 2) = 2`
+4. Updates `config.yaml` with `num_sensors: 2`
+
+**That's it!** The L4 GPU won't be overloaded because the system automatically capped the streams.
+
+### Core Concepts
+
+#### Two-Part Structure: Commons + Profiles
+
+| Section | Purpose | Analogy |
+| --- | --- | --- |
+| `commons` | Shared rules for ALL GPUs | Company-wide policies |
+| `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `IGX-THOR`, `DGX-SPARK`, etc. | GPU-specific overrides/limits | Department-specific rules |
+
+**How they work together:**
+
+```yaml
+commons:
+  variables:
+    3d:
+      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+      # ↑ This formula works for ANY GPU
+
+H100:
+  3d:
+    max_streams_supported: 12   # H100's limit
+    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 12)
+
+L4:
+  3d:
+    max_streams_supported: 2   # L4's limit
+    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 2)
+```
+
+The same formula produces different results based on each GPU's capabilities.
+
+#### 2D vs 3D Modes
+
+Every configuration has separate rules for 2D and 3D deployment modes:
+
+| Mode | Use Case | Resource Usage |
+| --- | --- | --- |
+| `2d` | 2D Warehouse Blueprint (tracking, detection) | Lower GPU load → more streams |
+| `3d` | 3D Warehouse Blueprint (depth, positioning) | Higher GPU load → fewer streams |
+
+**Example:** An L4 GPU might support 4 streams in 2D mode but only 2 in 3D mode.
+
+#### Inheritance Model
+
+By default, Hardware profiles **inherit** from commons and can **add** their own rules:
+
+**Key point:** Profile-specific settings are APPENDED to commons, not replaced (unless you explicitly disable inheritance).
+
+`commons` is shared metadata and shared behavior. It is not a selectable hardware profile.
+
+If `HARDWARE_PROFILE` is not present in the profile configuration file, the Configurator preserves the requested hardware profile name and runs with common configuration only. This is useful for deployments where the shared `commons` sections are enough for the selected mode. Commons-only operation works only when all referenced values can resolve without profile-specific variables, or when the configuration provides a fallback variable such as `effective_max_streams_supported`.
+
+#### Required Environment Variables
+
+The following environment variables **must** be set to use the Profile Configuration Manager:
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `ENABLE_PROFILE_CONFIGURATOR` | `false` | `true`, `false` | \| **Must be set to** `true` **to activate the Profile Configurator.** \| **true**: Run profile configurator before starting API server, adjusts config files based on detected GPU \| **false**: Skip profile configuration entirely (default) |
+| `HARDWARE_PROFILE` | `default` | `H100`, `L40S`, `L40`, `L4`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `IGX-THOR`, `DGX-SPARK`, `default`, or a custom value | \| GPU type/model to use for configuration. \| If it matches a profile in the config file, profile-specific settings are appended to `commons`. \| If it does not match, the requested name is preserved and commons-only configuration can still run when all referenced values are available without profile-specific variables, or when fallbacks such as `effective_max_streams_supported` are defined. |
+| `MODE` | `3d` | `2d`, `3d` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D Warehouse Blueprint (tracking, detection) - typically allows more streams \| **3d**: 3D Warehouse Blueprint (depth, positioning) - typically allows fewer streams |
+| `NUM_STREAMS` | (user-defined) | Positive integer | Desired number of video streams. Will be capped to `max_streams_supported` for the hardware profile. |
+
+#### Optional Environment Variables
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `PROFILE_CONFIG_FILE` | `gpu_configs_generic.yaml` | Valid file path | Path to the hardware profile configuration YAML file containing GPU profiles and commons |
+| `ENABLE_SENSOR_CONFIGURATOR` | `true` | `true`, `false` | \| Controls whether the Sensor Configuration Manager API server starts after the optional profile configuration step. \| **true**: Start the API server and sensor mapping flow \| **false**: Exit after profile configuration completes |
+| `DEPLOYMENT_MODES_ENABLED` | `true` | `true`, `false` | \| Controls whether profile config uses mode-specific sections. \| **true**: Read `MODE` and use nested `2d` or `3d` sections under `commons` and hardware profiles \| **false**: Use mode-less profile configuration directly under the hardware profile, with direct or `default` commons lists |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` | \| Logging verbosity level. \| **DEBUG**: Detailed diagnostic information including variable substitutions \| **INFO**: General operational messages \| **WARN**: Warning messages for potential issues \| **ERROR**: Error messages only |
+| `PROFILE_CONFIG_READY_FILE` | `/tmp/profile_config_ready` | Valid file path | \| Marker file path indicating profile configuration completed successfully. \| Used by `/readyz` endpoint for Kubernetes readiness checks. \| Created when profile configuration finishes successfully. |
+| `PORT` | `5000` | Any valid port number | HTTP port used when the Sensor Configuration Manager API server starts |
+
+### Configuration Reference
+
+#### Config File Schema
+
+##### Full Schema
+
+The `blueprint_config.yml` file has this structure:
+
+```yaml
+commons:
+  prerequisites:              # Runs before variables, after validation (optional)
+    2d:
+      - operation_type: "file_management"
+        # ... operations that generate variables
+    3d:
+      - operation_type: "file_management"
+  variable_validation:
+    2d:
+      - variable: "VAR_NAME"
+        allowed_values: ["value1", "value2"]
+    3d:
+      - variable: "VAR_NAME"
+        allowed_patterns: ["pattern*"]
+  variables:
+    2d:
+      - variable_name: "expression"
+    3d:
+      - variable_name: "expression"
+  file_operations:
+    2d:
+      - operation_type: "..."
+        backup: true|false    # Optional, default: true
+    3d:
+      - operation_type: "..."
+
+HARDWARE_PROFILE:
+  2d:
+    max_streams_supported: <integer>
+    use_commons:
+      variable_validation: true|false|2d|3d
+      variables: true|false|2d|3d
+      file_operations: true|false|2d|3d
+    variable_validation:
+      - variable: "VAR_NAME"
+    variables:
+      - variable_name: "expression"
+    file_operations:
+      - operation_type: "..."
+  3d:
+    # Same structure as 2d
+```
+
+##### Field Reference
+
+**max_streams_supported**
+
+**Type:** Integer
+**Required:** Yes (for each deployment mode)
+**Purpose:** Maximum concurrent streams this GPU can handle
+
+```yaml
+L4:
+  2d:
+    max_streams_supported: 4
+  3d:
+    max_streams_supported: 2 
+```
+
+This value becomes available as `${max_streams_supported}` in variable expressions.
+To add a new hardware profile (e.g. a new GPU), add a profile block with `max_streams_supported` for each mode; the profile automatically inherits all commons rules unless `use_commons` is set to `false`.
+
+<Note>
+Refer to [RT-DETR Real-Time Performance](/models/rt-detr) for 2D profile, 2D profile with Agents, and [Sparse4D Real-Time Performance](/models/sparse4d#real-time-inference-throughput-latency) for 3D profile for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used.
+</Note>
+
+##### Hardware Profiles Reference
+
+The following hardware profiles are defined in `blueprint_config.yml`. Names and `max_streams_supported` values must match the config file.
+
+| Profile | 2D max streams | 3D max streams | Notes |
+| --- | --- | --- | --- |
+| `H100` | 26 | 12 | Stream limits only; inherits commons. |
+| `L40S` | 12 | 7 | Stream limits only; inherits commons. |
+| `L4` | 4 | 2 | Stream limits only; inherits commons. |
+| `RTXA6000` | 4 | 2 | Stream limits only; inherits commons. |
+| `RTXA6000ADA` | 8 | 7 | Stream limits only; inherits commons. |
+| `RTXPRO6000BW` | 16 | 14 | Stream limits only; inherits commons. |
+| `IGX-THOR` | 7 | 6 | \| 2D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: drop-on-latency, msg-conv-msg2p-lib, compute-hw, low-latency-mode; ds-nvdcf-accuracy-tracker-config.yml). \| 3D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: batched-push-timeout 67000, low-latency-mode; config.yaml: interval 1; vst_config_kafka.json, vst_config_redis.json: overlay.enable_overlay_skip_frame true). |
+| `DGX-SPARK` | 7 | 6 | \| 2D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: msg-conv-msg2p-lib). \| 3D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: batched-push-timeout 67000; config.yaml: interval 1; vst_config_kafka.json, vst_config_redis.json: overlay.enable_overlay_skip_frame true). \| When `HARDWARE_PROFILE=DGX-SPARK`, image tags (e.g. PERCEPTION_TAG, VST_*_IMAGE_TAG, NVSTREAMER_IMAGE_TAG) must contain `sbsa`. |
+
+**use_commons**
+
+**Type:** Object
+**Required:** No (defaults to `true` for all)
+**Purpose:** Control inheritance from commons section
+
+```yaml
+use_commons:
+  variable_validation: true|false|"2d"|"3d"
+  variables: true|false|"2d"|"3d"
+  file_operations: true|false|"2d"|"3d"
+```
+
+**Values:**
+
+- `true` (default): Use commons for current mode (2d or 3d)
+- `false`: Don't use commons, only profile-specific
+- `"2d"` or `"3d"`: Use commons from specified mode regardless of current mode
+
+**variables**
+
+**Type:** List of key-value dictionaries
+**Required:** No
+**Purpose:** Define computed values
+
+```yaml
+variables:
+  - timeout_multiplier: "2"
+  - adjusted_timeout: "${timeout_multiplier} * 25000"
+```
+
+Variables are evaluated top-to-bottom, so later ones can reference earlier ones.
+
+**file_operations**
+
+**Type:** List of operation objects
+**Required:** No
+**Purpose:** Define config file modifications
+
+See [Operation Types Reference](/vss-configurator#operation-types-reference) for details.
+
+**prerequisites**
+
+**Type:** List of operation objects
+**Required:** No
+**Purpose:** Operations that run BEFORE variable processing
+
+Prerequisites are useful when you need to dynamically generate variables based on file system state. For example, counting video files before deciding stream limits.
+
+```yaml
+commons:
+  prerequisites:
+    2d:
+      - operation_type: "file_management"
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+        file_management:
+          action: "file_count"
+          parameters:
+            pattern: "*.mp4"
+          output_variable: "available_video_count"
+  variables:
+    2d:
+      # Now we can use the count from prerequisites
+      - final_stream_count: "min(${NUM_STREAMS}, ${available_video_count})"
+```
+
+**Execution order:** Validation -> Prerequisites -> Variables -> File Operations
+
+--------
+
+#### Operation Types Reference
+
+Choose the operation type by file format:
+
+| File Type | Operation | Typical use |
+| --- | --- | --- |
+| `.yaml`, `.yml` | `yaml_update` | Kubernetes configs, application settings |
+| `.json` | `json_update` | VST configs, API settings |
+| `.txt`, `.conf`, `.cfg` | `text_config_update` | DeepStream configs, INI-style files |
+| (any) | `file_management` | Keep only N files in a directory, or count files (prerequisites) |
+
+##### Common Options (All Operations)
+
+All file operations support these options:
+
+**backup** - Automatic file backup
+
+**Type:** Boolean
+**Default:** `true`
+**Purpose:** Create a timestamped backup before modifying the file
+
+```yaml
+- operation_type: "yaml_update"
+  target_file: "${DS_CONFIG_DIR}/config.yaml"
+  backup: true    # Creates: config.backup_20240115_143022.yaml
+  updates:
+    # ...
+
+- operation_type: "json_update"
+  target_file: "${VST_CONFIG_DIR}/settings.json"
+  backup: false   # No backup created (use with caution!)
+  updates:
+    # ...
+```
+
+**Backup filename format:** `{original_name}.backup_{YYYYMMDD_HHMMSS}{extension}`
+
+--------
+
+##### 1. yaml_update
+
+Updates values in YAML files while preserving structure.
+
+```yaml
+- operation_type: "yaml_update"
+  target_file: "${DS_CONFIG_DIR}/config.yaml"
+  backup: true    # Optional, default: true
+  updates:
+    num_sensors: ${final_stream_count}
+    enable_debug: false
+    nested.config.batch_size: 4   # Dot notation for nested keys
+```
+
+**Before:**
+
+```yaml
+num_sensors: 1
+enable_debug: true
+nested:
+  config:
+    batch_size: 1
+```
+
+**After:**
+
+```yaml
+num_sensors: 4
+enable_debug: false
+nested:
+  config:
+    batch_size: 4
+```
+
+##### 2. text_config_update
+
+Updates key-value pairs in text files (`.txt`, `.conf`, `.cfg`).
+
+```yaml
+- operation_type: "text_config_update"
+  target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+  backup: true    # Optional, default: true
+  updates:
+    num-source-bins: "0"
+    max-batch-size: "${final_stream_count}"
+    batched-push-timeout: "50000"
+```
+
+**Supported formats:** `key=value`, `key: value`, `key value`
+
+##### 3. json_update
+
+Updates values in JSON files with nested object support.
+
+```yaml
+- operation_type: "json_update"
+  target_file: "${VST_CONFIG_DIR}/vst-config.json"
+  backup: true    # Optional, default: true
+  updates:
+    data.nv_streamer_sync_file_count: ${final_stream_count}
+    overlay.enable_overlay_skip_frame: true
+```
+
+**Before:**
+
+```json
+{
+  "data": {
+    "nv_streamer_sync_file_count": 1
+  },
+  "overlay": {
+    "enable_overlay_skip_frame": false
+  }
+}
+```
+
+**After:**
+
+```json
+{
+  "data": {
+    "nv_streamer_sync_file_count": 4
+  },
+  "overlay": {
+    "enable_overlay_skip_frame": true
+  }
+}
+```
+
+##### 4. file_management
+
+Manages files in directories. Supports two actions: `keep_count` and `file_count`.
+
+**Action: keep_count** - Keep only N files, remove the rest
+
+```yaml
+- operation_type: "file_management"
+  target_directories:
+    - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+  file_management:
+    action: "keep_count"
+    parameters:
+      count: ${final_stream_count}
+      pattern: "*.mp4"
+```
+
+**Use case:** If you can only process 4 streams, keep only 4 sample video files:
+
+- **Before:** 10 video files
+- **After (count=4):** 4 video files (first 4 alphabetically kept, rest removed)
+
+<Warning>
+When `keep_count` removes video files, each removed filename without its extension is treated as a sensor ID. If `CALIBRATION_DIR_MOUNT_PATH` and `CALIBRATION_FILE_NAME` point to `calibration.json`, matching sensors are removed from `sensors`, ROI `sensors` lists are filtered, and ROIs with no remaining sensors are dropped. After stream-count changes, verify the filtered `calibration.json` before relying on downstream calibration, ROI, or BEV behavior.
+</Warning>
+
+**Action: file_count** - Count files and store result in a variable
+
+```yaml
+- operation_type: "file_management"
+  target_directories:
+    - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+    - "${VSS_DATA_DIR}/videos/warehouse-3d-app"
+  file_management:
+    action: "file_count"
+    parameters:
+      pattern: "*.mp4"
+    output_variable: "total_video_count"
+```
+
+**Use case:** Dynamically determine how many video files are available, then use that count in variable calculations.
+
+**Parameters:**
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `action` | Yes | `keep_count` or `file_count` |
+| `parameters.count` | For keep_count | Number of files to keep |
+| `parameters.pattern` | No | Glob pattern (default: `*` for file_count, `*.mp4` for keep_count) |
+| `output_variable` | For file_count | Variable name to store the count result |
+
+**Note:** `file_count` is typically used in the `prerequisites` section so the count is available for variable calculations
+
+--------
+
+#### Variable System Reference
+
+##### Declaration Syntax
+
+Variables are declared as a list of single-key dictionaries:
+
+```yaml
+variables:
+  - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+  - batch_size: "max(1, ${final_stream_count})"
+  - timeout: "${batch_size} * 10000"
+```
+
+**Evaluation order:** Top to bottom. Later variables can reference earlier ones.
+
+##### Environment Variable Substitution
+
+Use `${VAR_NAME}` to reference environment variables:
+
+```yaml
+variables:
+  - stream_count: "${NUM_STREAMS}"              # Direct reference
+  - config_path: "${DS_CONFIG_DIR}/configs"     # Concatenation
+  - limited: "min(${NUM_STREAMS}, 4)"           # In expressions
+```
+
+##### Supported Functions
+
+| Function | Description | Example |
+| --- | --- | --- |
+| `min(a, b, ...)` | Returns minimum value | `min(${NUM_STREAMS}, 4)` |
+| `max(a, b, ...)` | Returns maximum value | `max(1, ${count})` |
+| `abs(x)` | Absolute value | `abs(${diff})` |
+| `round(x)` | Round to nearest integer | `round(${ratio})` |
+| `int(x)` | Convert to integer | `int(${value})` |
+| `float(x)` | Convert to float | `float(${value})` |
+
+##### Supported Operators
+
+| Operator | Description | Example |
+| --- | --- | --- |
+| `+` | Addition | `${NUM_STREAMS} + 1` |
+| `-` | Subtraction | `${MAX_COUNT} - 2` |
+| `*` | Multiplication | `${BATCH_SIZE} * 1000` |
+| `/` | Division | `${TOTAL} / ${COUNT}` |
+| `//` | Floor division | `${TOTAL} // 2` |
+| `%` | Modulo | `${NUM} % 10` |
+| `**` | Exponentiation | `2 ** 8` |
+
+##### Conditional Expressions (If-Else)
+
+Python-style ternary expressions:
+
+```yaml
+variables:
+  - batch_size: "4 if ${num_cameras} > 10 else 2"
+```
+
+**Syntax:** `value_if_true if condition else value_if_false`
+
+**Comparison operators:** `>`, `<`, `>=`, `<=`, `==`, `!=`
+
+**Logical operators:** `and`, `or`, `not`
+
+**Examples:**
+
+```yaml
+# Simple condition
+- quality_mode: "high if ${gpu_memory} >= 16 else standard"
+
+# Multiple conditions (AND)
+- enable_hq: "true if ${gpu_memory} >= 16 and ${num_cameras} < 20 else false"
+
+# Multiple conditions (OR)
+- use_fallback: "true if ${mode} == 'legacy' or ${compatibility} == 'true' else false"
+
+# Nested (if-elif-else)
+- quality: "high if ${batch_size} >= 4 else medium if ${batch_size} >= 2 else low"
+```
+
+--------
+
+#### Validation Reference
+
+##### Basic Validation
+
+**allowed_values** - Exact match against a list:
+
+```yaml
+- variable: NIM
+  allowed_values: ["none", "local", "remote"]
+  error_message: "NIM must be one of: none, local, remote"
+```
+
+**allowed_patterns** - Wildcard match (`*` = any characters, `?` = single character):
+
+```yaml
+- variable: COMPOSE_PROFILES
+  allowed_patterns:
+    - "bp_wh_kafka*"
+    - "bp_wh_redis*"
+```
+
+**disallowed_values** - Block specific values:
+
+```yaml
+- variable: MODE
+  disallowed_values: ["deprecated", "legacy", "test"]
+```
+
+**disallowed_patterns** - Block values matching patterns:
+
+```yaml
+- variable: CONFIG_PATH
+  disallowed_patterns:
+    - "/tmp/*"
+    - "*/test/*"
+```
+
+**regex** - Regular expression match:
+
+```yaml
+- variable: STREAM_ID
+  regex: "^stream_[0-9]{3}$"
+  error_message: "STREAM_ID must be in format stream_XXX (3 digits)"
+```
+
+##### Validation Options
+
+**required** - Skip validation if variable is not set:
+
+```yaml
+- variable: OPTIONAL_VAR
+  required: false
+  allowed_values: ["a", "b"]
+```
+
+**error_message** - Custom error message:
+
+```yaml
+- variable: NIM
+  allowed_values: ["none", "local", "remote"]
+  error_message: "NIM configuration error: Check your environment settings."
+```
+
+##### Conditional Validation
+
+Apply validation only when a condition is met:
+
+```yaml
+- variable: API_KEY
+  condition:
+    variable: ENV
+    equals: "production"
+  regex: "^[A-Za-z0-9]{32}$"
+  error_message: "Production API_KEY must be 32 alphanumeric characters"
+```
+
+**Condition operators:**
+
+| Operator | Description | Example |
+| --- | --- | --- |
+| `equals` | Exact match | `equals: "production"` |
+| `not_equals` | Not equal | `not_equals: "test"` |
+| `in` | In list | `in: ["prod", "staging"]` |
+| `not_in` | Not in list | `not_in: ["dev", "test"]` |
+| `matches` | Wildcard match | `matches: "prod_*"` |
+| `regex` | Regex match | `regex: "^v[0-9]+$"` |
+| `is_set` | Variable exists | `is_set: true` |
+
+##### Advanced Validation
+
+**Compound conditions (AND/OR):**
+
+```yaml
+# AND - all conditions must be true
+- variable: COMPOSE_PROFILES
+  condition:
+    and:
+      - variable: MODE
+        equals: "2d"
+      - variable: STREAM_TYPE
+        equals: "kafka"
+  allowed_patterns:
+    - "bp_wh_kafka_2d*"
+
+# OR - at least one condition must be true
+- variable: CONFIG_PATH
+  condition:
+    or:
+      - variable: ENV
+        equals: "production"
+      - variable: ENV
+        equals: "staging"
+  disallowed_patterns:
+    - "/tmp/*"
+```
+
+**Trigger-based validation (when_equals + validate_conditions):**
+
+Use this to validate OTHER variables when THIS variable has a specific value:
+
+```yaml
+# When dataset is "nv-warehouse-4cams", validate that MODE=2d and NUM_STREAMS=4
+- variable: SAMPLE_VIDEO_DATASET
+  when_equals: "nv-warehouse-4cams"
+  validate_conditions:
+    and:
+      - variable: MODE
+        equals: "2d"
+      - variable: NUM_STREAMS
+        equals: "4"
+  error_message: "Dataset nv-warehouse-4cams requires MODE=2d and NUM_STREAMS=4"
+```
+
+**Logic:**
+
+- IF `SAMPLE_VIDEO_DATASET` = `"nv-warehouse-4cams"` → check the conditions
+- IF `SAMPLE_VIDEO_DATASET` is anything else → skip this validation
+
+**Comparison: condition vs when_equals:**
+
+| Pattern | Use Case | Logic |
+| --- | --- | --- |
+| `condition` + `allowed_values` | Validate THIS variable when OTHER conditions met | IF (conditions) THEN validate this variable |
+| `when_equals` + `validate_conditions` | Validate OTHER variables when THIS has specific value | IF (this = value) THEN validate other variables |
+
+### Examples & Best Practices
+
+#### Complete Examples
+
+##### Example 1: Minimal Profile (Most Common)
+
+Just specify stream limits; inherit everything else:
+
+```yaml
+H100:
+  2d:
+    max_streams_supported: 26
+  3d:
+    max_streams_supported: 12
+```
+
+"I'm an H100. I can handle 26 streams in 2D and 12 in 3D. Use all standard rules from commons."
+
+##### Example 2: Profile with Extra Operations
+
+Inherit commons but add GPU-specific operations:
+
+```yaml
+IGX-THOR:
+  2d:
+    max_streams_supported: 7
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          drop-on-latency: "1"
+          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
+          compute-hw: "2"
+          low-latency-mode: "0"
+      # ... ds-main-redis-config.txt, ds-nvdcf-accuracy-tracker-config.yml
+  3d:
+    max_streams_supported: 6
+    file_operations:
+      # These APPEND to commons.file_operations.3d
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          batched-push-timeout: "67000"
+          low-latency-mode: "0"
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        backup: true
+        updates:
+          interval: "1"
+      - operation_type: "json_update"
+        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_kafka.json"
+        updates:
+          overlay.enable_overlay_skip_frame: true
+      - operation_type: "json_update"
+        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_redis.json"
+        updates:
+          overlay.enable_overlay_skip_frame: true
+```
+
+"I'm an IGX-THOR. Use commons rules, BUT add extra config changes for 2D (DeepStream/VPI) and 3D (timeouts, VST overlay)."
+
+**Execution order:**
+
+1. Commons file operations run first
+2. IGX-THOR specific operations run after
+
+##### Example 3: Profile with Custom Variables
+
+Add calculated variables for a less powerful GPU:
+
+```yaml
+L4:
+  3d:
+    max_streams_supported: 2
+    variables:
+      # Appended to commons variables
+      - timeout_multiplier: "2"
+      - adjusted_timeout: "${timeout_multiplier} * 25000"
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          batched-push-timeout: "${adjusted_timeout}"
+```
+
+"I'm an L4 (slower GPU). I need 2× longer timeouts."
+
+##### Example 4: Complete Override
+
+Completely custom behavior, ignoring commons:
+
+```yaml
+EXPERIMENTAL_GPU:
+  2d:
+    max_streams_supported: 8
+    use_commons:
+      variables: false
+      file_operations: false
+    variables:
+      - custom_count: "min(${NUM_STREAMS}, 8)"
+      - custom_batch: "${custom_count} * 2"
+    file_operations:
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/experimental.yaml"
+        updates:
+          streams: ${custom_count}
+          batch_size: ${custom_batch}
+```
+
+"I'm experimental hardware. Ignore all commons; I define everything myself."
+
+##### Example 5: Using Prerequisites and File Count
+
+Dynamic configuration based on available files:
+
+```yaml
+commons:
+  prerequisites:
+    2d:
+      # Count how many video files are available
+      - operation_type: "file_management"
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+        file_management:
+          action: "file_count"
+          parameters:
+            pattern: "*.mp4"
+          output_variable: "available_video_count"
+    3d:
+      - operation_type: "file_management"
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/warehouse-3d-app"
+        file_management:
+          action: "file_count"
+          parameters:
+            pattern: "*.mp4"
+          output_variable: "available_video_count"
+
+  variables:
+    2d:
+      # Can't use more streams than we have videos
+      - final_stream_count: "min(${NUM_STREAMS}, ${available_video_count}, ${max_streams_supported})"
+    3d:
+      - final_stream_count: "min(${NUM_STREAMS}, ${available_video_count}, ${max_streams_supported})"
+
+  file_operations:
+    2d:
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        backup: true    # Keep backup before modifying
+        updates:
+          num_sensors: ${final_stream_count}
+
+H100:
+  2d:
+    max_streams_supported: 26
+  3d:
+    max_streams_supported: 12
+```
+
+"Count available videos first, then limit streams to the minimum of: user request, available videos, and GPU capacity."
+
+##### Example 6: Full Configuration File
+
+A complete `blueprint_config.yml` showing all features:
+
+```yaml
+# Shared rules for all GPUs
+commons:
+  variable_validation:
+    2d:
+      - variable: NIM
+        required: false
+        allowed_values: ["none", "local", "remote"]
+        error_message: "NIM must be: none, local, or remote"
+    3d:
+      - variable: NIM
+        required: false
+        allowed_values: ["none", "local", "remote"]
+
+  variables:
+    2d:
+      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+      - batch_size: "4 if ${final_stream_count} > 10 else 2"
+    3d:
+      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+      - batch_size: "2 if ${final_stream_count} > 6 else 1"
+
+  file_operations:
+    2d:
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        updates:
+          num_sensors: ${final_stream_count}
+          batch_size: ${batch_size}
+      - operation_type: "file_management"
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+        file_management:
+          action: "keep_count"
+          parameters:
+            count: ${final_stream_count}
+            pattern: "*.mp4"
+    3d:
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        updates:
+          num_sensors: ${final_stream_count}
+          batch_size: ${batch_size}
+
+# Hardware profiles
+H100:
+  2d:
+    max_streams_supported: 26
+  3d:
+    max_streams_supported: 12
+
+L40S:
+  2d:
+    max_streams_supported: 12
+  3d:
+    max_streams_supported: 7
+
+L4:
+  2d:
+    max_streams_supported: 4
+  3d:
+    max_streams_supported: 2
+    variables:
+      - timeout_multiplier: "2"
+      - adjusted_timeout: "${timeout_multiplier} * 25000"
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          batched-push-timeout: "${adjusted_timeout}"
+
+RTXA6000:
+  2d:
+    max_streams_supported: 4
+  3d:
+    max_streams_supported: 2
+
+RTXA6000ADA:
+  2d:
+    max_streams_supported: 8
+  3d:
+    max_streams_supported: 7
+
+RTXPRO6000BW:
+  2d:
+    max_streams_supported: 16
+  3d:
+    max_streams_supported: 14
+
+IGX-THOR:
+  2d:
+    max_streams_supported: 7
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          drop-on-latency: "1"
+          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
+          compute-hw: "2"
+          low-latency-mode: "0"
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        updates:
+          drop-on-latency: "1"
+          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
+          compute-hw: "2"
+          low-latency-mode: "0"
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/ds-nvdcf-accuracy-tracker-config.yml"
+        backup: true
+        updates:
+          TargetManagement.maxTargetsPerStream: 50
+          VisualTracker.visualTrackerType: 2
+          VisualTracker.vpiBackend4DcfTracker: 2
+  3d:
+    max_streams_supported: 6
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          batched-push-timeout: "67000"
+          low-latency-mode: "0"
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        updates:
+          batched-push-timeout: "67000"
+          low-latency-mode: "0"
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        backup: true
+        updates:
+          interval: "1"
+      - operation_type: "json_update"
+        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_kafka.json"
+        updates:
+          overlay.enable_overlay_skip_frame: true
+      - operation_type: "json_update"
+        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_redis.json"
+        updates:
+          overlay.enable_overlay_skip_frame: true
+
+DGX-SPARK:
+  2d:
+    max_streams_supported: 7
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        updates:
+          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
+  3d:
+    max_streams_supported: 6
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          batched-push-timeout: "67000"
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        updates:
+          batched-push-timeout: "67000"
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        backup: true
+        updates:
+          interval: "1"
+      - operation_type: "json_update"
+        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_kafka.json"
+        updates:
+          overlay.enable_overlay_skip_frame: true
+      - operation_type: "json_update"
+        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_redis.json"
+        updates:
+          overlay.enable_overlay_skip_frame: true
+```
+
+#### Adding a New Hardware Profile
+
+You do not always need to add a profile for hardware that is not in the predefined list (H100, L40S, L4, etc.). If the shared `commons` configuration can resolve all variables for the selected mode, the Configurator preserves the requested `HARDWARE_PROFILE` value and applies commons-only configuration.
+
+Add a profile in `blueprint_config.yml` when the hardware needs profile-specific values, such as stream limits, timeouts, or file updates. Commons-only custom hardware also needs either no profile-specific variable references, or fallback variables such as `effective_max_streams_supported`. If commons validation restricts `HARDWARE_PROFILE` to an allowed list, update that validation before using a new custom value.
+
+**Steps:**
+
+1. **Add a profile block only if needed** in `blueprint_config.yml` under the hardware profiles section. Use a clear, unique name (e.g. `MY-GPU`, `CUSTOM-EDGE`) that you will set in `HARDWARE_PROFILE`.
+
+2. **Define stream limits** for each mode. At minimum, set `max_streams_supported` for `2d` and `3d`. The configurator will inherit all commons rules (variables, file_operations, validation) unless you override them.
+
+3. **Optional:** Add profile-specific `variables` or `file_operations` if this hardware needs different timeouts, config keys, or file updates than the commons.
+
+4. **Optional:** If the new profile name must be accepted by validation, add it to the `HARDWARE_PROFILE` `allowed_values` in the `commons.variable_validation` section for both `2d` and `3d`.
+
+**Minimal new hardware (stream limits only):**
+
+```yaml
+# In blueprint_config.yml - add alongside H100, L4, etc.
+MY-GPU:
+  2d:
+    max_streams_supported: 6
+  3d:
+    max_streams_supported: 4
+```
+
+Then set `HARDWARE_PROFILE=MY-GPU` when deploying. Commons will apply; stream count will be capped to 6 (2D) or 4 (3D).
+
+**New hardware with custom config updates:**
+
+```yaml
+CUSTOM-EDGE:
+  2d:
+    max_streams_supported: 4
+  3d:
+    max_streams_supported: 3
+    variables:
+      - timeout_multiplier: "2"
+      - adjusted_timeout: "${timeout_multiplier} * 25000"
+    file_operations:
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          batched-push-timeout: "${adjusted_timeout}"
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        updates:
+          batched-push-timeout: "${adjusted_timeout}"
+```
+
+Here the profile inherits commons and adds longer timeouts and extra file updates for 3D mode. Ensure `CUSTOM-EDGE` is added to `allowed_values` for `HARDWARE_PROFILE` in `commons.variable_validation` if you use validation.
+
+### Best Practices
+
+1. **Use Commons for Shared Logic**
+
+   Put common calculations and operations in the commons section. Most profiles should only specify `max_streams_supported`.
+
+2. **Keep Profiles Simple**
+
+   A minimal profile is better:
+
+   ```yaml
+   H100:
+     2d:
+       max_streams_supported: 26
+     3d:
+       max_streams_supported: 12
+   ```
+
+3. **Use Variables for Computed Values**
+
+   Don't hardcode values that depend on hardware:
+
+   ```yaml
+   # Good - adapts to hardware
+   num_sensors: ${final_stream_count}
+   
+   # Bad - hardcoded
+   num_sensors: 4
+   ```
+
+4. **Validate Early**
+
+   Use variable validation to catch errors before they cause runtime failures.
+
+5. **Use Meaningful Names**
+
+   Choose descriptive variable names:
+
+   ```yaml
+   # Good
+   - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+   
+   # Bad
+   - x: "min(${NUM_STREAMS}, ${max_streams_supported})"
+   ```
+
+6. **Keep Conditionals Simple**
+
+   Prefer simple conditions over deeply nested ternaries:
+
+   ```yaml
+   # Good - readable
+   - quality: "high if ${streams} <= 4 else standard"
+   
+   # Avoid - hard to read
+   - quality: "ultra if ${a} > 10 else high if ${b} > 5 and ${c} < 3 else medium if ${d} else low"
+   ```
+
+7. **Document Custom Configurations**
+
+   Add comments explaining why profile-specific overrides are needed:
+
+   ```yaml
+   L4:
+     3d:
+       max_streams_supported: 2
+       variables:
+         # L4 needs longer timeouts due to slower processing
+         - timeout_multiplier: "2"
+   ```
+
+8. **Test All Modes**
+
+   Ensure your config works for both 2d and 3d modes on each hardware profile.
+
+--------
+
+#### Troubleshooting
+
+##### Common Errors
+
+**"Variable not found" or empty value**
+
+```text
+ERROR - Variable ${final_stream_count} not found
+```
+
+**Causes:**
+
+- Variable name typo
+- Variable defined after it's used (evaluation order matters)
+- Variable defined in different mode section
+
+**Fix:** Check spelling and ensure variables are defined before use:
+
+```yaml
+variables:
+  - final_stream_count: "..."   # Define first
+  - batch_size: "${final_stream_count}"   # Then use
+```
+
+**"Validation failed"**
+
+```text
+ERROR - Validation failed: NIM must be one of: none, local, remote
+```
+
+**Cause:** Environment variable has invalid value.
+
+**Fix:** Check your environment variable:
+
+```bash
+echo $NIM   # Should be: none, local, or remote
+```
+
+**"File not found" or "Permission denied"**
+
+```text
+ERROR - Cannot update file: /opt/configs/config.yaml
+```
+
+**Causes:**
+
+- Path doesn't exist
+- Environment variable in path is not set
+- Permission issues
+
+**Fix:** Verify the path and environment variables:
+
+```bash
+echo $DS_CONFIG_DIR   # Check the variable is set
+ls -la $DS_CONFIG_DIR/config.yaml   # Check file exists
+```
+
+**"Hardware profile not found, using common configurations only"**
+
+```text
+WARNING - Hardware profile: UNKNOWN_GPU not found in GPU configurations: [...]. Using common configurations only
+```
+
+**Cause:** `HARDWARE_PROFILE` does not match a top-level hardware profile in the profile configuration file.
+
+**Fix:** If commons-only behavior is intended, make sure all commons variables and file operations can resolve without profile-specific values, or provide fallbacks such as `effective_max_streams_supported`. If the hardware needs profile-specific limits or file updates, add a profile block and update any `HARDWARE_PROFILE` validation rules that restrict allowed values.
+
+```bash
+echo $HARDWARE_PROFILE
+```
+
+**"Variable from file_count not available"**
+
+```text
+ERROR - Variable ${available_video_count} not found
+```
+
+**Cause:** The `file_count` operation is in `file_operations` instead of `prerequisites`.
+
+**Fix:** Move file_count to prerequisites so it runs before variable processing:
+
+```yaml
+commons:
+  prerequisites:           # ← Correct location
+    2d:
+      - operation_type: "file_management"
+        file_management:
+          action: "file_count"
+          output_variable: "available_video_count"
+
+  variables:
+    2d:
+      - final_count: "${available_video_count}"   # Now available
+```
+
+**"Backup file not created"**
+
+**Causes:**
+
+- `backup: false` is explicitly set
+- Permission issues in the target directory
+- Target file doesn't exist (nothing to backup)
+
+**Fix:** Check your operation has `backup: true` (or omit it, since true is the default):
+
+```yaml
+- operation_type: "yaml_update"
+  target_file: "${DS_CONFIG_DIR}/config.yaml"
+  backup: true    # Explicit, or just remove this line
+  updates:
+    # ...
+```
+
+##### Debugging Tips
+
+1. **Check environment variables first:**
+
+   ```bash
+   echo "HARDWARE_PROFILE=$HARDWARE_PROFILE"
+   echo "MODE=$MODE"
+   echo "NUM_STREAMS=$NUM_STREAMS"
+   ```
+
+2. **Use simple profiles to isolate issues:**
+
+   ```yaml
+   DEBUG_GPU:
+     2d:
+       max_streams_supported: 4
+     3d:
+       max_streams_supported: 4
+   ```
+
+3. **Check variable evaluation order:**
+
+   Variables are processed top-to-bottom. A variable can only reference variables defined above it.
+
+4. **Verify file paths exist:**
+
+   Before running the configurator, check that target files exist at the expected paths.
+
+5. **Review the execution flow:**
+
+   Remember: Prerequisites → Validation → Variables → File Operations
+
+   - If prerequisites fail, nothing else runs
+   - If validation fails, variables and file operations won't run
+   - Variables from `file_count` are only available if defined in `prerequisites`
+
+## Sensor Configuration Manager
+
+### Overview
+
+The Sensor Configuration Manager handles camera/sensor configurations for blueprint deployments. It runs as a background service alongside the Profile Configurator.
+
+**What it does:**
+
+- Fetches sensor information from various sources (Sensor Bridge, NVStreamer, or file)
+- Fetches calibration data from various sources (API, upload, or file mount)
+- Creates sensor mappings with RTSP URLs, groups, and regions
+- Registers sensors with VMS
+- Publishes sensor configuration events to message brokers (Kafka/Redis)
+
+**Architecture:**
+
+<Frame caption="Sensor Configuration Manager Architecture">
+  <img src="/assets/images/vss-configurator/sensor-configuration-manager-architecture.png" alt="Sensor Configuration Manager Architecture" />
+</Frame>
+
+### Core Concepts
+
+#### Sensor Information Sources
+
+The manager can fetch sensor information from three sources:
+
+| Source | Environment Variable | Description |
+| --- | --- | --- |
+| `msb` | `SENSOR_INFO_SOURCE=msb` | Metropolis Sensor Bridge - fetches RTSP URLs from sensor bridge service |
+| `nvstreamer` | `SENSOR_INFO_SOURCE=nvstreamer` | NVStreamer - fetches streams from NVIDIA streaming service with validation |
+| `file` | `SENSOR_INFO_SOURCE=file` | JSON file - reads sensor definitions from a mounted file |
+
+#### Calibration Modes
+
+Calibration data contains camera parameters (intrinsic/extrinsic) needed for warehouse blueprint.
+
+| Mode | Environment Variable | Description |
+| --- | --- | --- |
+| `fetch` | `CALIBRATION_MODE=fetch` | Periodically fetches calibration from an API endpoint (default) |
+| `upload` | `CALIBRATION_MODE=upload` | Accepts calibration data via POST to `/calibration` endpoint |
+| `mount` | `CALIBRATION_MODE=mount` | Reads calibration from a volume-mounted file |
+
+#### Sensor Mapping
+
+The sensor mapping connects:
+
+- **Sensor ID/Name** - Unique identifier for the camera
+- **RTSP URL** - Stream URL for the camera
+- **Group ID** - Logical grouping of cameras
+- **Region** - Physical location/area
+
+**Example mapping:**
+
+```json
+{
+  "sensors": {
+    "camera-01": {
+      "name": "camera-01",
+      "url": "rtsp://<IP_address:port>/stream1",
+      "group_id": "entrance-group",
+      "region": "building-A"
+    },
+    "camera-02": {
+      "name": "camera-02",
+      "url": "rtsp://<IP_address:port>/stream1",
+      "group_id": "parking-group",
+      "region": "building-B"
+    }
+  }
+}
+```
+
+### Configuration Reference
+
+This section provides a comprehensive reference for all environment variables used by the Sensor Configuration Manager.
+
+<Note>
+This reference lists environment variables read by the VSS Configurator service source code. Deployment and profile-config variables such as `BP_PROFILE`, `STREAM_TYPE`, `COMPOSE_PROFILES`, `VSS_APPS_DIR`, and `VSS_DATA_DIR` are inputs to the warehouse deployment and profile configuration files. They are documented in the Warehouse Quickstart and profile examples, and are not Sensor Configuration Manager runtime knobs unless a profile configuration file references them.
+</Note>
+
+#### General Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `ENABLE_PROFILE_CONFIGURATOR` | `false` | `true`, `false` | \| Starts the Profile Configuration Manager before the API server. \| When true, `/readyz` checks only the profile-config marker file. |
+| `ENABLE_SENSOR_CONFIGURATOR` | `true` | `true`, `false` | \| Starts the Sensor Configuration Manager API server after the optional profile configuration step. \| When false, the container exits after profile configuration. |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` | \| Logging verbosity level. \| **DEBUG**: Detailed diagnostic information \| **INFO**: General operational messages \| **WARN**: Warning messages for potential issues \| **ERROR**: Error messages only |
+| `PORT` | `5000` | Any valid port number | HTTP port for the Flask API server |
+| `MODE` | `3d` | `2d`, `3d` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D Warehouse Blueprint (tracking, detection) - lower GPU load \| **3d**: 3D Warehouse Blueprint (depth, positioning) - higher GPU load |
+
+#### Calibration Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `ENABLE_CALIBRATION_PROCESS` | `true` | `true`, `false` | \| Master switch for calibration processing. \| **true**: Enable calibration data processing and sensor mapping \| **false**: Disable calibration endpoints and processing |
+| `CALIBRATION_MODE` | `fetch` | `fetch`, `upload`, `mount` | \| How calibration data is obtained. \| **fetch**: Calls API endpoint on startup, retries every `GET_CALIBRATION_DELAY` seconds until successful, saves fetched data locally for persistence \| **upload**: Accepts data via POST to `/calibration` endpoint \| **mount**: Reads from volume-mounted file at `CALIBRATION_FILE_PATH` on startup |
+| `CALIBRATION_API_ENDPOINT` | (empty) | Valid HTTP/HTTPS URL | \| API endpoint URL for fetching calibration data. \| **Required** when `CALIBRATION_MODE=fetch` \| Example: `http://config-service:8080/api/calibration` |
+| `CALIBRATION_API_TIMEOUT` | `30` | Positive integer (seconds) | Timeout in seconds for calibration API requests |
+| `GET_CALIBRATION_DELAY` | `30` | Positive integer (seconds) | \| Delay between calibration fetch retry attempts. \| Used when API is unavailable or file not found (upload mode) |
+| `CALIBRATION_DIR_MOUNT_PATH` | `/usr/src/app/calibration_store` | Valid directory path | Directory path where calibration files are stored |
+| `CALIBRATION_FILE_NAME` | `calibration.json` | Valid filename | Name of the calibration JSON file |
+| `CHECK_SENSOR_IN_CALIBRATION_FILE` | `false` | `true`, `false` | \| Deployment compatibility variable retained in some environments. \| The current service source does not read this variable; sensor/calibration mismatches are handled by the sensor mapping flow. |
+
+**Uploading Calibration Data (upload mode):**
+
+```bash
+curl -X POST http://localhost:5000/calibration \
+  -H "Content-Type: application/json" \
+  -d @calibration.json
+```
+
+**Mount Mode Volume Example:**
+
+```bash
+-v /host/path/calibration.json:/usr/src/app/calibration_store/calibration.json
+```
+
+#### Sensor Source Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `SENSOR_INFO_SOURCE` | `msb` | `msb`, `nvstreamer`, `file`, `not_required` | \| Source for sensor/camera information. \| **msb**: Metropolis Sensor Bridge - fetches RTSP URLs from sensor bridge service \| **nvstreamer**: NVStreamer - fetches streams from NVIDIA streaming service with validation \| **file**: JSON file - reads sensor definitions from mounted JSON file \| **not_required**: Skip sensor data processing |
+| `SENSOR_BRIDGE_HTTP_ENDPOINT` | `http://metropolis-sb-wdm-envoy-deployment-envoy-service:8000/mtmc/urls` | Valid HTTP URL | \| HTTP endpoint for Metropolis Sensor Bridge. \| Used when `SENSOR_INFO_SOURCE=msb` |
+| `SENSOR_BRIDGE_RTSP_SERVICE_NAME` | (empty) | Hostname or IP | \| Override hostname/IP in RTSP URLs from sensor bridge. \| Useful when sensor bridge returns internal IPs that need translation |
+| `SENSOR_FILE_PATH` | `${CALIBRATION_DIR_MOUNT_PATH}/sensors.json` | Valid file path | \| Path to sensors JSON file. \| Used when `SENSOR_INFO_SOURCE=file` |
+
+**Sensor File Format (for file mode):**
+
+```json
+{
+  "sensors": [
+    {
+      "camera_name": "camera-01",
+      "rtsp_url": "rtsp://<IP_address:port>/stream1",
+      "group_id": "entrance-group",
+      "region": "building-A"
+    },
+    {
+      "camera_name": "camera-02",
+      "rtsp_url": "rtsp://<IP_address:port>/stream1"
+    }
+  ]
+}
+```
+
+**Required fields:** `camera_name`, `rtsp_url`
+
+**Optional fields:** `group_id`, `region` (can also be obtained from calibration data)
+
+<Note>
+When `SENSOR_INFO_SOURCE=file`, the RTSP URLs provided in the sensor info source file must be accessible from the machine where VSS is deployed. If the RTSP streams originate from remote machines, ensure those streams are discoverable by VIOS.
+</Note>
+
+#### NVStreamer Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `NVSTREAMER_STREAMS_ENDPOINT` | `http://localhost:30000/api/v1/live/streams` | Valid HTTP URL | \| NVStreamer API endpoint for listing available streams. \| Used when `SENSOR_INFO_SOURCE=nvstreamer` |
+| `NVSTREAMER_SENSOR_STATUS_ENDPOINT` | `http://localhost:30000/api/v1/sensor/status` | Valid HTTP URL | \| NVStreamer API endpoint for checking stream status. \| Used to validate streams are online before adding |
+| `NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT` | `100` | Positive integer (seconds) | Timeout for NVStreamer streams endpoint requests |
+| `NVSTREAMER_STREAM_VALIDATION_MAX_RETRIES` | `50` | Positive integer | \| Maximum number of retry attempts for stream validation. \| Each stream is validated to be online before adding to mapping |
+| `NVSTREAMER_STREAM_VALIDATION_RETRY_DELAY` | `5` | Positive integer (seconds) | Delay between stream validation retry attempts |
+
+#### VMS Integration Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `CALL_SENSOR_ADD_API` | `true` | `true`, `false` | \| Enable automatic sensor registration with VMS. \| **true**: Register each sensor with VMS via API call \| **false**: Skip VMS registration |
+| `VST_CAMERA_ADD_ENDPOINT` | `http://vms-vms-svc:30000/api/v1/sensor/add` | Valid HTTP URL | \| VMS API endpoint for sensor registration. \| Sensors are registered with name, URL, and tags (region\|group_id) |
+
+**Sensor Registration Details:**
+
+Each sensor is registered with the VMS containing:
+
+- **Sensor name**: Unique identifier for the camera
+- **RTSP URL**: Stream URL for the camera
+- **Tags**: Combined region and group_id in format `region|group_id`
+
+#### Message Broker Settings
+
+**Common Settings:**
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `MESSAGE_BROKER_TYPE` | `kafka` | `kafka`, `redis` | \| Type of message broker for publishing sensor events. \| **kafka**: Use Apache Kafka for event streaming \| **redis**: Use Redis Streams for event streaming |
+| `SEND_CONFIG_TO_SDR` | `true` | `true`, `false` | \| Enable sending sensor configuration events to message broker. \| **true**: Publish sensor config events after mapping is created \| **false**: Skip message broker publishing |
+
+**Kafka Settings:**
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `WDM_KFK_BOOTSTRAP_URL` | (empty) | Comma-separated host:port list | \| Kafka bootstrap servers. \| **Required** when `MESSAGE_BROKER_TYPE=kafka` \| Example: `kafka:9092` or `kafka1:9092,kafka2:9092` |
+| `WDM_KFK_TOPIC` | (empty) | Valid Kafka topic name | \| Kafka topic for publishing sensor configuration events. \| Example: `sensor.config` |
+| `WDM_KFK_MSG_KEY` | `sensor` | String | Kafka message key for sensor configuration messages |
+| `WDM_WL_ID_FIELD` | `camera_id` | String | \| Field name for sensor/camera ID in message payload. \| Used in both Kafka and Redis message formats |
+| `WDM_WL_EVENT_FIELD` | `event` | String | \| Field name for event data in message payload. \| Used in both Kafka and Redis message formats |
+
+**Redis Settings:**
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `WDM_REDIS_HOST` | `localhost` | Hostname or IP | Redis server hostname or IP address |
+| `WDM_REDIS_PORT` | `6379` | Valid port number | Redis server port |
+| `REDIS_DB` | `0` | 0-15 | \| Redis database number. \| Redis supports databases 0-15 by default |
+| `WDM_REDIS_STREAM_NAME` | `sensor` | String | \| Redis stream name for publishing sensor configuration events. \| Example: `sensor.config` |
+| `WDM_REDIS_MSG_KEY` | `sensor.id` | String | Field name/key used in Redis stream messages |
+
+**Redis Duplicator Settings:**
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `ENABLE_REDIS_DUPLICATOR_THREAD` | `false` | `true`, `false` | \| Enable Redis event duplication thread. \| **true**: Read events from source topic and duplicate to CV and PN26 topics \| **false**: Disable event duplication |
+| `REDIS_SOURCE_TOPIC` | `vst.event` | String | \| Source Redis stream to read events from. \| Events from this stream are duplicated to target topics |
+| `REDIS_TARGET_TOPIC_CV` | `vst.event.cv` | String | \| Target Redis stream for CV (Computer Vision) events. \| Camera names get `CV_SUFFIX` appended |
+| `REDIS_TARGET_TOPIC_PN26` | `vst.event.pn26` | String | \| Target Redis stream for PN26 events. \| Camera names get `PN_SUFFIX` appended |
+
+**How Redis Duplicator Works:**
+
+1. Reads events from the source stream (e.g., `vst.event`)
+2. For CV target topic: appends `CV_SUFFIX` to camera names (e.g., `camera-01` → `camera-01-cv`)
+3. For PN26 target topic: appends `PN_SUFFIX` to camera names (or uses original if empty)
+4. Publishes modified events to both target streams simultaneously
+
+#### Naming/Suffix Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `CV_SUFFIX` | `-cv` | String | \| Suffix appended to camera names for CV (Computer Vision) pipeline. \| Example: `camera-01` becomes `camera-01-cv` |
+| `PN_SUFFIX` | (empty) | String | \| Suffix appended to camera names for PN26 pipeline. \| Empty by default (no suffix added) |
+
+#### Config Message Metadata Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `CONFIG_TOPIC_PREFIX` | `mdx-bev` | String | \| Topic prefix included in Kafka and Redis config message metadata. \| Used by downstream services for topic naming |
+| `CONFIG_TOPIC_PARTITION` | `10` | Positive integer | \| Topic partition count included in Kafka and Redis config message metadata. \| Used by downstream services for partitioning |
+
+#### BEV Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `RECOMPUTE_BEV_CENTERS_ENABLED` | `false` | `true`, `false` | \| Enable automatic BEV center recomputation. \| **true**: Recompute BEV group centers from calibration (only in 3D mode) \| **false**: Use existing BEV centers from calibration file |
+
+#### Video Upload Settings
+
+| Variable | Default | Possible Values | Description |
+| --- | --- | --- | --- |
+| `ENABLE_NVSTREAMER_VIDEO_UPLOAD` | `false` | `true`, `false` | \| Upload videos from `VIDEO_SOURCE_DIR` to NVStreamer before sensor data processing. \| The upload status is exposed by `GET /video-upload-status`. |
+| `ENABLE_VMS_VIDEO_UPLOAD` | `false` | `true`, `false` | \| Upload videos from `VIDEO_SOURCE_DIR` to VMS before sensor data processing. \| Can be enabled independently or together with NVStreamer upload. |
+| `VIDEO_SOURCE_DIR` | (empty) | Valid directory path | Directory containing videos to upload when either video upload switch is enabled |
+| `VIDEO_UPLOAD_TIMEOUT` | `300` | Positive integer (seconds) | Timeout used for individual video upload requests |
+| `VIDEO_UPLOAD_DELAY` | `0` | Non-negative integer (seconds) | Delay between video upload attempts |
+| `NVSTREAMER_UPLOAD_BASE_URL` | `http://localhost:30000` | Valid HTTP URL | Base URL for NVStreamer video upload; the service posts to `/api/v1/storage/file` under this base URL |
+| `VMS_UPLOAD_BASE_URL` | `http://localhost:30888` | Valid HTTP URL | Base URL for VMS video upload |
+
+### Examples
+
+#### Example 1: Upload Mode with Redis
+
+Gets sensor/RTSP URLs from the Metropolis Sensor Bridge (MSB) and accepts calibration via POST to `/calibration` (upload mode).
+Publishes sensor configuration events to Redis; use when you have an external sensor bridge and want to upload calibration manually.
+
+```bash
+docker run -d \
+  --name vss-configurator \
+  -p 5000:5000 \
+  -e CALIBRATION_MODE=upload \
+  -e SENSOR_INFO_SOURCE=msb \
+  -e SENSOR_BRIDGE_HTTP_ENDPOINT=http://sensor-bridge:8000/mtmc/urls \
+  -e MESSAGE_BROKER_TYPE=redis \
+  -e WDM_REDIS_HOST=redis \
+  -e WDM_REDIS_PORT=6379 \
+  -e WDM_REDIS_STREAM_NAME=sensor.config \
+  vss-configurator
+
+# Upload calibration data
+curl -X POST http://localhost:5000/calibration \
+  -H "Content-Type: application/json" \
+  -d @calibration.json
+```
+
+#### Example 2: NVStreamer Source with VMS
+
+Reads the stream list from NVStreamer (streams and status endpoints), builds sensor mapping from calibration (mount mode), and optionally recomputes BEV centers in 3D mode.
+Registers each sensor with the VMS via `VST_CAMERA_ADD_ENDPOINT` and sends config to SDR; matches warehouse blueprint deployments (e.g. `bp-configurator-2d` / `bp-configurator-3d`).
+
+```bash
+docker run -d \
+  --name vss-configurator \
+  -p 5000:5000 \
+  -e CALIBRATION_MODE=mount \
+  -e SENSOR_INFO_SOURCE=nvstreamer \
+  -e NVSTREAMER_STREAMS_ENDPOINT=http://localhost:31000/api/v1/sensor/streams \
+  -e NVSTREAMER_SENSOR_STATUS_ENDPOINT=http://localhost:31000/api/v1/sensor/status \
+  -e CALL_SENSOR_ADD_API=true \
+  -e VST_CAMERA_ADD_ENDPOINT=http://localhost:30888/vst/api/v1/sensor/add \
+  -v /opt/calibration:/usr/src/app/calibration_store \
+  vss-configurator
+```
+
+#### Example 3: File-based Sensors
+
+Uses a static sensor list from a JSON file at `SENSOR_FILE_PATH` and calibration from a mounted volume (mount mode).
+Publishes sensor configuration events to Kafka; for environments where sensor metadata is file-driven rather than from MSB or NVStreamer.
+
+```bash
+docker run -d \
+  --name vss-configurator \
+  -p 5000:5000 \
+  -e CALIBRATION_MODE=mount \
+  -e SENSOR_INFO_SOURCE=file \
+  -e SENSOR_FILE_PATH=/usr/src/app/calibration_store/sensors.json \
+  -e MESSAGE_BROKER_TYPE=kafka \
+  -e WDM_KFK_BOOTSTRAP_URL=kafka:9092 \
+  -e WDM_KFK_TOPIC=sensor.config \
+  -v /opt/config:/usr/src/app/calibration_store \
+  vss-configurator
+```
+
+#### Example 4: Docker Compose (Complete)
+
+Runs the full VSS Configurator: profile configurator (GPU/mode), NVStreamer as sensor source, calibration from a mount, VMS registration, and Kafka for sensor events.
+Single compose file with all integration points (profile config, sensor mapping, SDR, VST add API, message broker) for a complete deployment.
+
+```yaml
+version: '3.8'
+
+services:
+  vss-configurator:
+    image: vss-configurator:latest
+    ports:
+      - "5001:5001"
+    environment:
+      # Profile Configurator
+      ENABLE_PROFILE_CONFIGURATOR: "true"
+      HARDWARE_PROFILE: "L4"
+      MODE: "3d"
+
+      # Calibration
+      CALIBRATION_MODE: "mount"
+      CALIBRATION_DIR_MOUNT_PATH: /opt/data
+      CALIBRATION_FILE_NAME: calibration.json
+
+      # Sensor Source
+      SENSOR_INFO_SOURCE: "nvstreamer"
+      NVSTREAMER_STREAMS_ENDPOINT: "http://localhost:31000/api/v1/sensor/streams"
+      NVSTREAMER_SENSOR_STATUS_ENDPOINT: "http://localhost:31000/api/v1/sensor/status"
+
+      # VMS Integration
+      CALL_SENSOR_ADD_API: "true"
+      VST_CAMERA_ADD_ENDPOINT: "http://localhost:30888/vst/api/v1/sensor/add"
+
+      # Message Broker
+      MESSAGE_BROKER_TYPE: "kafka"
+      WDM_KFK_BOOTSTRAP_URL: "localhost:9092"
+      WDM_KFK_TOPIC: "mdx-notification"
+
+      # Application Configuration
+      PORT: "5001"
+
+    volumes:
+      - ./config:/app/config
+      - ./calibration:/usr/src/app/calibration_store
+    depends_on:
+      - kafka
+      - nvstreamer
+      - sdr
+      - vms
+```
+
+### Troubleshooting
+
+#### Sensor Manager Issues
+
+**"Calibration file not found"**
+
+```text
+ERROR - Calibration file not found at /usr/src/app/calibration_store/calibration.json
+```
+
+**Causes:**
+
+- Calibration file doesn't exist at the specified path
+- Volume mount is incorrect
+- API endpoint is unreachable (fetch mode)
+
+**Fix:**
+
+```bash
+# Check the file exists
+ls -la /usr/src/app/calibration_store/
+
+# For fetch mode, verify API endpoint
+curl http://config-api:8080/calibration
+```
+
+**"Sensor mapping not created yet"**
+
+```text
+ERROR - Sensor mapping not created yet. Please wait till valid calibration file is added.
+```
+
+**Cause:** Calibration data hasn't been received/processed yet.
+
+**Fix:** Wait for calibration to be fetched, or upload it manually:
+
+```bash
+curl -X POST http://localhost:5000/calibration \
+  -H "Content-Type: application/json" \
+  -d @calibration.json
+```
+
+**"Sensor not found in calibration file"**
+
+```text
+WARNING - camera-01 from sensor bridge output is not present in calibration file
+```
+
+**Cause:** Sensor exists in MSB/NVStreamer but not in calibration data.
+
+**Fix:** Ensure the calibration file and the selected sensor source use the same sensor IDs. Check sensor mapping logs for any skipped sensors or calibration mismatches.
+
+**"Error connecting to Kafka/Redis"**
+
+```text
+ERROR - Error sending message via kafka: NoBrokersAvailable
+```
+
+**Causes:**
+
+- Kafka/Redis server is not running
+- Incorrect host/port configuration
+- Network connectivity issues
+
+**Fix:**
+
+```bash
+# Test Kafka connectivity
+nc -zv kafka 9092
+
+# Test Redis connectivity
+redis-cli -h redis ping
+```
+
+### API Reference
+
+The VSS Configurator exposes the following REST API endpoints:
+
+#### Calibration Endpoints
+
+##### POST /calibration
+
+Upload calibration data (upload mode) or receive warning (fetch mode).
+
+**Request:**
+
+```bash
+curl -X POST http://localhost:5000/calibration \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensors": [...],
+    "calibrationType": "intrinsic_extrinsic",
+    "calibration_data": {...}
+  }'
+```
+
+**Response (Upload Mode - Success):**
+
+```json
+{
+  "status": "success",
+  "message": "Calibration File added"
+}
+```
+
+**Response (Fetch Mode - Warning):**
+
+```json
+{
+  "status": "warning",
+  "message": "Calibration mode is set to 'fetch'. Data will be fetched from http://api.example.com/calibration. Upload ignored."
+}
+```
+
+**Status Codes:**
+
+- `200 OK` - Success or warning
+- `400 Bad Request` - Invalid calibration data
+- `503 Service Unavailable` - Calibration process disabled
+
+##### GET /download
+
+Download the current calibration file.
+
+**Request:**
+
+```bash
+curl -O http://localhost:5000/download
+```
+
+**Response:** Binary file download (`calibration.json`)
+
+**Status Codes:**
+
+- `200 OK` - File downloaded
+- `404 Not Found` - No calibration file available
+- `500 Internal Server Error` - Error sending file
+- `503 Service Unavailable` - Calibration process disabled
+
+#### Sensor Endpoints
+
+##### GET /cameras
+
+Get list of all configured sensor/camera information.
+
+**Request:**
+
+```bash
+curl http://localhost:5000/cameras
+```
+
+**Response:**
+
+```json
+[
+  "camera-001|entrance-group|rtsp://<IP_address:port>/stream1",
+  "camera-002|parking-group|rtsp://<IP_address:port>/stream1"
+]
+```
+
+**Status Codes:**
+
+- `200 OK` - Success
+- `503 Service Unavailable` - Sensor mapping not created yet
+- `500 Internal Server Error` - Error retrieving sensor list
+
+##### GET /groups
+
+Get list of all sensor group names.
+
+**Request:**
+
+```bash
+curl http://localhost:5000/groups
+```
+
+**Response:**
+
+```json
+[
+  "building-A|entrance-group",
+  "building-B|parking-group"
+]
+```
+
+**Status Codes:**
+
+- `200 OK` - Success
+- `503 Service Unavailable` - Sensor mapping not created yet or calibration disabled
+- `500 Internal Server Error` - Error retrieving group list
+
+#### Health Endpoints
+
+##### GET /healthz
+
+Liveness probe - checks if the service is running.
+
+**Request:**
+
+```bash
+curl http://localhost:5000/healthz
+```
+
+**Response:**
+
+```json
+{
+  "status": "healthy"
+}
+```
+
+**Status Codes:**
+
+- `200 OK` - Service is healthy
+
+##### GET /readyz
+
+Readiness probe - checks the profile-config readiness marker state.
+
+**Request:**
+
+```bash
+curl http://localhost:5000/readyz
+```
+
+**Response (Ready):**
+
+```json
+{
+  "status": "ready",
+  "message": "Profile configuration completed successfully"
+}
+```
+
+**Response (Not Ready):**
+
+```json
+{
+  "status": "not_ready",
+  "message": "Profile configuration is pending or failed"
+}
+```
+
+**Status Codes:**
+
+- `200 OK` - Profile-config readiness marker exists, or profile configuration is disabled
+- `503 Service Unavailable` - Profile-config readiness marker is missing while profile configuration is enabled
+
+**Note:** If `ENABLE_PROFILE_CONFIGURATOR=false`, this endpoint always returns ready.
+
+**Scope:** `/readyz` only reflects whether the profile-config marker file exists when profile configuration is enabled. It does not prove calibration processing, sensor mapping, SDR/message broker publish, VMS sensor registration, BEV center recompute, Redis duplication, or video upload completion. Use logs, `/cameras`, broker or VMS checks, and `/video-upload-status` as appropriate for those workflows.
+
+##### GET /video-upload-status
+
+Reports the current NVStreamer and/or VMS video upload state. This endpoint is useful for callers that need to wait until configured videos are uploaded before continuing.
+
+**Request:**
+
+```bash
+curl http://localhost:5000/video-upload-status
+```
+
+**Response (Completed):**
+
+```json
+{
+  "status": "completed",
+  "message": "All videos uploaded successfully (4 total)",
+  "uploaded_count": 4,
+  "ready": true
+}
+```
+
+**Response (Pending):**
+
+```json
+{
+  "status": "in_progress",
+  "message": "Uploading all videos to NVStreamer",
+  "uploaded_count": 0,
+  "ready": false
+}
+```
+
+**Response (Failed):**
+
+```json
+{
+  "status": "failed",
+  "message": "Video upload to NVStreamer failed",
+  "uploaded_count": 0,
+  "error": "Invalid video source directory",
+  "ready": false
+}
+```
+
+**Response (Disabled):**
+
+```json
+{
+  "status": "disabled",
+  "message": "Video upload is not enabled (ENABLE_NVSTREAMER_VIDEO_UPLOAD and ENABLE_VMS_VIDEO_UPLOAD=false)",
+  "uploaded_count": 0,
+  "ready": false
+}
+```
+
+**Status Values:**
+
+- `completed` - Upload finished; `ready` is true
+- `failed` - Upload failed; response includes `error`
+- `in_progress` - Upload is currently running
+- `not_started` - Upload is enabled but has not started yet
+- `disabled` - Both video upload features are disabled
+
+**Response Fields:**
+
+- `status` - One of `completed`, `failed`, `in_progress`, `not_started`, or `disabled`
+- `message` - Human-readable status detail
+- `uploaded_count` - Number of videos uploaded so far
+- `ready` - True only when upload status is `completed`
+- `error` - Optional error detail for failed uploads
+
+**Status Codes:**
+
+- `200 OK` - Video upload completed
+- `503 Service Unavailable` - Video upload is pending, in progress, or failed
+- `404 Not Found` - Video upload is disabled
+
+#### API Usage Examples
+
+##### Check Service Health
+
+```bash
+# Liveness check
+curl http://localhost:5000/healthz
+
+# Readiness check (waits for profile config)
+curl http://localhost:5000/readyz
+```
+
+##### Upload and Verify Calibration
+
+```bash
+# Upload calibration
+curl -X POST http://localhost:5000/calibration \
+  -H "Content-Type: application/json" \
+  -d @calibration.json
+
+# Verify by downloading
+curl -O http://localhost:5000/download
+
+# Check cameras are registered
+curl http://localhost:5000/cameras
+```
+
+##### Kubernetes Probes Configuration
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 5000
+  initialDelaySeconds: 30
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+```

@@ -1,0 +1,6 @@
+Parameter,Type,Description
+_type,string,Must be ``report_agent``
+get_incidents_tool,string,Tool to fetch incident list
+get_incident_tool,string,Tool to fetch single incident details
+template_report_tool,string,Tool for generating templated reports
+

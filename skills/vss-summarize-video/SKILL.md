@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Summarize recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning.
+description: Use when summarizing a recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning.
 license: Apache-2.0
 metadata:
   version: "3.2.2"
@@ -22,10 +22,10 @@ metadata:
 Runnable scenarios live under `evals/`. The command implementations are in
 [`references/end-to-end-example.md`](references/end-to-end-example.md).
 
-## Purpose
+## When to Use
 
-Produce one polished narrative summary with timestamped events when LVS is
-available.
+Use when summarizing a recorded video through HITL-gated LVS, to produce one
+polished narrative summary with timestamped events when LVS is available.
 
 Do not use this skill for:
 
@@ -39,11 +39,16 @@ Load these files only as directed:
 
 - [`references/end-to-end-example.md`](references/end-to-end-example.md): load
   before executing the recorded-video workflow. It contains the exact
-  readiness, VIOS preparation, one-request LVS, and VLM fallback commands.
+  readiness, VIOS preparation, single-run summarize, and VLM fallback commands.
+- [`references/cli_usage.md`](references/cli_usage.md): load before Stage 4.
+  `vss summarize run` issues the summarize request and persists the result;
+  this reference has its flags, exit codes, output shape, and read verbs.
 - [`references/video-summarization-api.md`](references/video-summarization-api.md):
-  load before constructing any live LVS operation. Follow its **Runtime
-  OpenAPI Discovery** procedure on Docker. On Kubernetes, follow the K8s
-  note there — stock LVS Ingress does not publish LVS `/openapi.json`.
+  load before constructing a live LVS operation **by hand** — a direct API
+  question, or the approved VLM fallback. Follow its **Runtime OpenAPI
+  Discovery** procedure on Docker. On Kubernetes, follow the K8s note there —
+  stock LVS Ingress does not publish LVS `/openapi.json`. The ordered
+  workflow does not build a summarize payload; the CLI owns that.
 - [`references/hitl-prompts.md`](references/hitl-prompts.md): load when
   collecting LVS scenario, events, and optional objects of interest.
 - [`references/video-summarization-debugging.md`](references/video-summarization-debugging.md):
@@ -55,6 +60,15 @@ Load these files only as directed:
   service environment.
 - [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
   Kubernetes `VSS_PUBLIC_URL` contract and LVS Exact `/v1` routes.
+- [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md): load
+  when asked about LVS's own container image, GPU/CPU/storage sizing, or
+  deployment contract as a peer service (heavier than
+  `video-summarization-deployment.md`, which covers operating an already
+  running deployment).
+- [`references/integrate-lvs-service.md`](references/integrate-lvs-service.md):
+  load when another agent or skill needs to integrate with LVS as a peer
+  service — required peers, integration interfaces, API schema, and network
+  requirements.
 
 ## Core Invariants
 
@@ -62,10 +76,14 @@ Load these files only as directed:
 - HTTP 200 from `/v1/ready` selects LVS. Empty response bodies do not mean
   unavailable.
 - Once LVS is selected, do not call a VLM `/v1/chat/completions` endpoint.
-- Issue exactly one `POST /v1/summarize` per user summarize request. Never
-  retry, hedge, broaden events, or run a second backend automatically.
-- Save the complete request and response. Diagnose failures from those files,
-  service logs, and non-mutating GET requests.
+- Issue exactly one `vss summarize run` per user summarize request. One run is
+  one `POST /v1/summarize`. Never retry, hedge, broaden events, or run a second
+  backend automatically.
+- Endpoints come from the deployment `vss configure` recorded. Never pass an
+  endpoint, index, or model flag the caller did not name, and never replace a
+  failed run with hand-rolled curl against `/v1/summarize`.
+- Save the complete command and its stdout. Diagnose failures from those files,
+  the run's own exit code, service logs, and non-mutating GET requests.
 - Render `video_summary` and every returned event verbatim. Do not paraphrase,
   truncate descriptions, add fields, or fabricate `id`.
 - Direct VLM fallback requires explicit user approval unless the original
@@ -78,6 +96,26 @@ Load these files only as directed:
 - `curl` and `jq` on the agent host.
 - Network reachability from the LVS service to the final VIOS clip URL (Docker:
   from `vss-lvs`; Kubernetes: deploy must mint a URL the LVS pod can fetch).
+- A checkout containing `services/agent` and host `uv`, for `vss summarize run`.
+- One recorded deployment origin. Configure it once, before Stage 4:
+
+```bash
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
+  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
+  exit 1
+}
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+cd "${VSS_REPO_ROOT}" && "${VSS[@]}" summarize run --help >/dev/null || exit 1
+# Compose publishes the ingress on :7777; Kubernetes uses VSS_PUBLIC_URL.
+VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+"${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}" || exit 1
+```
+
+`--extra cli` is mandatory: the base distribution holds the core libraries,
+while `nvidia-vss-cli` declares the `vss` executable. Configure against the
+ingress origin, never `:38111` — that LVS container port exposes no
+Elasticsearch, so a deployment recorded from it cannot persist.
 
 The `vss-deploy-profile` skill can deploy the profile. A remote fallback VLM
 must be able to fetch the clip URL; it generally cannot fetch localhost or
@@ -88,7 +126,12 @@ private addresses.
 - Direct VLM fallback cannot target LVS scenarios or events and is lower
   quality.
 - Private VIOS URLs may be unreachable from remote VLM endpoints.
-- Each user request permits one LVS summarize POST, with no automatic retry.
+- Each user request permits one `vss summarize run`, with no automatic retry.
+- Persistence needs a routed Elasticsearch. A deployment without one summarizes
+  and reports the result unpersisted rather than failing the job.
+- Both edges are configured to wait an hour, matching the CLI's own default, so
+  a long summarization is not cut short by a 504 that would be recorded as a
+  failed job. An Ingress the deployment overrides shorter still caps the wait.
 - Stock LVS Helm Ingress does not publish LVS `/models`, LVS `/openapi.json`,
   `/recommended_config`, or `/metrics` — those remain Docker `:38111` only.
 
@@ -170,11 +213,17 @@ If LVS is unavailable, ask:
 
 ### Stage 1: Select the Backend
 
-Load the end-to-end and API references. Run the LVS readiness probe before
+Load the end-to-end and CLI references. Run the LVS readiness probe before
 preparing the clip. Also probe VLM `/v1/models` so an approved fallback can be
 validated, but do not infer against it while LVS is ready.
 
-Discover model IDs from the selected service:
+The summarization model needs no discovery: `vss configure` recorded the id LVS
+reports serving, and `vss summarize run` defaults to it on both Docker and
+Kubernetes. Pass `--model` only when the caller named one, and read the recorded
+value from `vss configure show` when it has to be reported.
+
+Discover a model id by hand only for an approved VLM fallback, which does not
+run through the CLI:
 
 - **Docker:** honor `${VLM_NAME}` only if it matches an id from LVS `GET /models`;
   otherwise use the sole advertised LVS id.
@@ -199,9 +248,9 @@ reference (uses `${VST_API_BASE}`).
 3. Poll the returned stream's timelines and obtain the complete minimum start
    and maximum end time.
 4. Generate a fresh temporary MP4 URL for that full interval with audio
-   disabled. Pass that minted URL into LVS **as returned** (after stripping a
+   disabled. Pass that minted URL to `--url` **as returned** (after stripping a
    doubled `http://` scheme if present). Do not rewrite it for browser Ingress
-   paths before `POST /v1/summarize`.
+   paths before the summarize run.
 5. If LVS was selected, verify one-byte reachability:
    - **Docker:** `docker exec vss-lvs` Python range probe in the reference.
    - **Kubernetes:** bounded Range GET of the minted URL from the agent host
@@ -224,7 +273,7 @@ on Docker.
 ### Stage 3: Collect LVS Settings
 
 When LVS is selected, load the HITL reference and collect `scenario`, `events`,
-and optional `objects_of_interest` before the summarize POST.
+and optional `objects_of_interest` before the summarize run.
 
 When the caller explicitly says to run autonomously without prompting and asks
 for defaults or supplies no settings, use these values verbatim:
@@ -238,40 +287,74 @@ This is the only HITL bypass. Do not infer defaults from filenames or sensor
 names. Mention defaults in the final response and offer a separate rerun with
 specific settings.
 
-### Stage 4: Discover the Contract and Submit Once
+### Stage 4: Submit Once Through the CLI
 
-Prefer `POST /v1/summarize`; `/summarize` is only a Docker compatibility alias
-and is **not** on stock LVS Ingress.
+Load the CLI reference. `vss summarize run` issues the summarize request on both
+Docker and Kubernetes, and persists the result to unified memory. Do not build a
+`/v1/summarize` payload by hand, and do not fetch `/openapi.json` to construct
+one — the CLI owns the request shape, and `vss configure` owns the endpoint.
 
-- **Docker:** fetch `/openapi.json` from the same LVS instance immediately
-  before building the operation. Confirm `/v1/summarize`, inspect its live JSON
-  schema, and use that schema rather than a hardcoded copy. Discover the model
-  via LVS `GET /models`.
-- **Kubernetes:** do not fetch public `/openapi.json` (Agent) or LVS `/models`
-  (not published). Confirm the request against the checked-in summarize
-  contract in the API reference, resolve the model as in Stage 1, and POST
-  Exact `/v1/summarize` on `${VIDEO_SUMMARIZATION_URL}`.
+Use the invocation in the end-to-end reference. It passes the fresh VIOS URL
+from Stage 2, the exact HITL values from Stage 3, `--chunk-duration 10`, and
+`--seed 1`; repeat `--event` per event and add `--object-of-interest` only when
+the caller provided objects. Pass no endpoint flag.
 
-Build the request with the selected model, fresh VIOS URL, exact HITL values,
-`chunk_duration: 10`, and `seed: 1`. Include `objects_of_interest` only when
-provided.
+Persistence is on by default and needs two values:
 
-Do not send `num_frames_per_second_or_fixed_frames_chunk`,
-`use_fps_for_chunking`, or deprecated `num_frames_per_chunk` in the standard
-workflow. RT-VLM owns frame sampling; remote Docker LVS configures five fixed
-frames per chunk for endpoints with that image limit.
+- `--video-id`, required alongside `--url`. Use the recording's VIOS **sensor**
+  id — from `sensor/list`, or from the `sensorId` an upload returns — never the
+  stream id. It becomes the record's sensor, which is what `list --sensor-id`
+  and time-windowed recall key on. Without `--video-id` the run exits 2 before
+  summarizing rather than after.
+- `--creation-time`, the media's absolute start. LVS reports event times as
+  offsets into the clip unless this anchors them, and unified memory stores
+  instants — so without it the events cannot be written and the run degrades to
+  exit 6. For uploaded sample media use the same `2025-01-01T00:00:00.000Z`
+  Stage 2 uploaded with.
 
-Use the one-request implementation in the end-to-end reference. Preserve its
-HTTP status and complete body in files. Keep a long client timeout (at least
-300s; Ingress allows up to 600s). After that POST:
+Do not pass `--num-frames-per-chunk` in the standard workflow. RT-VLM owns frame
+sampling; unset fields are absent from the request, so the deployment's own
+default applies.
 
-- On curl or HTTP failure, report the exact failure and saved response.
-- If `choices[0].message.content` cannot be parsed, report the exact body.
-- Never repeat the POST for diagnosis. A new POST requires a separate user
-  request.
-- If `video_summary` and `events` are empty, inspect the same response's
-  `usage.total_chunks_processed`. A positive integer confirms processing; zero
-  or missing means processing was not confirmed. Do not claim "no detections."
+The final line of stdout is one JSON object naming the job. Read that line and
+the exit code; the prose on stderr is a diagnostic, not the result. A call
+refused before a job exists prints no marker at all and stderr is the whole
+result — check stdout is non-empty before parsing it. Emptiness, not the exit
+code, is what says whether a job was created.
+
+| exit | meaning | action |
+|---|---|---|
+| 0 | summarized and persisted | present the result |
+| 2 | a flag the CLI refused, before anything was submitted | fix the call, then run once |
+| 2 | LVS rejected the request it was sent; the marker names a job closed as failed | report the failure with that `job_id` |
+| 3 | LVS unreachable or returned 5xx | report it with the marker's `job_id` |
+| 4 | nothing configured, or `lvs`/`elasticsearch` not routed | no job, no marker — `vss configure`, then run once |
+| 6 | summary produced, persistence failed | present the summary; report it unpersisted |
+| 7 | timed out | reconcile with `vss summarize get --job-id`; do not re-run |
+
+Exits 6 and 7 both mean the summarization already happened. Never repeat the run
+to obtain a different view of it, and never repeat it for diagnosis — a second
+run requires a separate user request. The exit 2 that carries a marker is the
+same story earlier: the request reached LVS and came back refused, so the one
+submission this request had is spent and a corrected call belongs to a new
+request. Once a job exists, every outcome names its `job_id`; use it rather than
+re-running. A call refused before a job exists names
+nothing, which is why empty stdout is the test.
+
+The marker's `persist` object is the report on the write: `status` is `complete`
+with the index it landed in and how many events went with it, and exit 6 says the
+summary survived but the write did not. Alongside it on every marker, `record`
+says what the `job_id` is worth to a later read — `closed`, `absent` when nothing
+was persisted, or `stale` when the record still reads `submitted` and `status`
+would therefore call the job running. Do not read the record back to confirm
+it, and never read Elasticsearch directly — recalling memory is a separate
+skill's job. The one read that belongs here is reconciling an exit 7, whose
+outcome is genuinely unknown until `vss summarize get --job-id <job_id>` answers.
+
+If `video_summary` and `events` are empty, inspect the same payload's
+`summary.usage.total_chunks_processed`. A positive integer confirms processing;
+zero or missing means processing was not confirmed. Do not claim "no
+detections."
 
 ### VLM Fallback for Stages 3-4
 
@@ -299,10 +382,15 @@ Summary of <video_name> (<duration>)
 
 Use `Ns` below 60 seconds and `Mm Ss` otherwise.
 
-For LVS, parse the JSON string in `choices[0].message.content` while preserving
-top-level `usage`. Render `video_summary` verbatim, followed by every event in
+For LVS, the CLI nests the service's own envelope under `summary`: parse the
+JSON string in `summary.choices[0].message.content` while preserving
+`summary.usage`. Render `video_summary` verbatim, followed by every event in
 service order. Preserve every returned field and the full `description`; use a
 per-event list if a table would truncate text.
+
+Close with the job's identity: the `job_id` and whether the record persisted.
+State the summary is unpersisted whenever `persist.status` is not `complete`,
+including the exit-6 case, instead of implying it was stored.
 
 For VLM, render `choices[0].message.content` verbatim. For Cosmos output, omit
 the `<think>...</think>` block and show the answer. Do not add emojis or
@@ -314,7 +402,11 @@ re-voice either backend's content.
 |---|---|
 | `/v1/ready` remains 503 | Treat LVS as unavailable after the warmup loop. |
 | Readiness stdout is empty | Use the HTTP status; a 200 body may be empty. |
-| Summary and events are empty | Inspect saved `usage.total_chunks_processed`; do not retry. |
+| Summary and events are empty | Inspect saved `summary.usage.total_chunks_processed`; do not retry. |
+| `vss` not found | Keep `--extra cli` and verify `VSS_REPO_ROOT`; never install globally. |
+| Run exits 4 | `vss configure --base-url <ingress origin>`; `:38111` routes no memory. |
+| Run exits 6 | Persistence failed. Present the summary; do not re-run the job. |
+| Run exits 7 | Timed out. `vss summarize get --job-id <id>`; do not re-run. |
 | VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
 | K8s `/openapi.json` looks like Agent | Expected — do not use it as LVS schema. |
 | K8s `/models` 404 / HTML | Expected — use Exact `/v1/models` (RT-VLM) or `VLM_NAME`. |

@@ -128,7 +128,7 @@ jq -e '.choices[0].message.content | length > 0'
 | `LVS_BACKEND_URL` | Host-facing LVS API URL used by operators and agents | `http://${HOST_IP}:38111` | Yes |
 | `LVS_IMAGE` | LVS image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Yes |
 | `LVS_TAG` | LVS image tag (multi-arch; same on every platform) | `develop-latest` | Yes |
-| `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `false` | No |
+| `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `true` | No |
 | `LVS_DATABASE_BACKEND` | Active database backend | `elasticsearch_db` | Yes |
 | `KAFKA_ENABLED` | Enable Kafka integration | `true` in the LVS developer profile | Yes for shared VSS infra |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker address from the LVS container | `${HOST_IP}:9092` | Yes when Kafka is enabled |

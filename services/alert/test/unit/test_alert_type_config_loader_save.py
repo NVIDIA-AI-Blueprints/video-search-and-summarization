@@ -138,3 +138,35 @@ class TestSeedingMerge:
         })
         loader.seed_to_store("collision", _config(), store)
         assert store.get("collision")["vlm_params"] == {"max_tokens": 1024}
+
+
+class TestAMissingConfigFileIsTolerated:
+    """The file is optional -- absence logs a warning and nothing more.
+
+    _load_configurations returns early when it is not there, and every reader
+    then raised AttributeError on an attribute only ever assigned on the
+    success path. Two readers already guarded with hasattr and three did not,
+    so the same object answered some calls and blew up on others. Seeding now
+    runs in the supervising process before any pipeline exists, so that
+    AttributeError took the whole instance down at startup rather than one
+    child.
+    """
+
+    @staticmethod
+    def _loader():
+        from handlers.prompt_handler.alert_type_config_loader import AlertTypeConfigLoader
+        return AlertTypeConfigLoader(config_file_path="/nonexistent/alert_type_config.json")
+
+    def test_construction_survives(self):
+        assert self._loader().alert_configs == {}
+
+    def test_listing_the_types_returns_nothing(self):
+        assert self._loader().get_all_alert_types() == []
+
+    def test_looking_one_up_returns_none(self):
+        assert self._loader().get_config_for_alert_type("collision") is None
+
+    def test_the_startup_seeding_loop_finds_nothing_to_do(self):
+        # The exact call that crashed: _seed_prompts_to_store iterates the
+        # types, so an unset attribute here failed the whole boot.
+        assert list(self._loader().get_all_alert_types()) == []

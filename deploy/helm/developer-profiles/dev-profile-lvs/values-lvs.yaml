@@ -21,7 +21,7 @@
 
 profile: lvs
 mode: ""
-llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
+llmNameSlug: "" # Reserved compatibility value; model selection uses nims.* and service settings.
 vlmNameSlug: none # LVS uses the integrated RT-VLM checkpoint, not a VLM NIM subchart.
 vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
@@ -39,7 +39,7 @@ global:
   # Remote NIM: one place for vss-agent + vss-summarization. Use the same base URL for both (e.g. http://host:31081); vss-summarization adds /v1 internally when absent.
   llmBaseUrl: ""
   vlmBaseUrl: ""
-  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 
@@ -59,7 +59,6 @@ vios:
 # Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
 # LVS backend routes VLM calls through vss-rtvi-vlm by default (RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
 vss-summarization:
-  llmService: ""
   vlmService: "vss-rtvi-vlm"
 
 # LVS always enables vss-rtvi-vlm (integrated checkpoint, Kafka enabled in values.yaml). Override here only when
@@ -71,13 +70,11 @@ rtvi:
     enabled: true
     useSharedNim: false
 
-# Mirrors dev-profile-lvs/overrides.env → COMPOSE_PROFILES=...,dcgm-exporter,...
-# Compose activates only dcgm-exporter (GPU hardware telemetry on port 9400);
-# prometheus / grafana / node-exporter stay off. If your cluster already runs
-# the NVIDIA GPU Operator (which bundles its own dcgm-exporter), leave
-# monitoring.dcgmExporter.enabled=false to avoid duplicate DaemonSets.
+# Monitoring is opt-in because clusters using the NVIDIA GPU Operator commonly
+# already run dcgm-exporter. To deploy this chart's exporter, set both
+# monitoring.enabled=true and monitoring.dcgmExporter.enabled=true.
 monitoring:
-  enabled: true
+  enabled: false
   prometheus:
     enabled: false
   grafana:
@@ -85,7 +82,7 @@ monitoring:
   nodeExporter:
     enabled: false
   dcgmExporter:
-    enabled: true
+    enabled: false
 
 # Helm-managed Ingress (uses existing IngressClass). Set ingressClassName to match your controller (default haproxy).
 vssIngress:
@@ -102,6 +99,9 @@ vssIngress:
   kibanaPort: 5601
   phoenixPort: 6006
   # HAProxy ingress request timeouts. Default controller value is 50s, which is
-  # too short for /v1/summarize (long-running LVS pipeline) and causes 504s.
-  timeoutClient: "600s"
-  timeoutServer: "600s"
+  # too short for /v1/summarize (long-running LVS pipeline) and causes 504s. Ten
+  # minutes is still short of what a long video takes, and a 504 arrives at the
+  # CLI as a failed job while LVS keeps working, so match the client the ingress
+  # is fronting: `vss summarize run` waits 3600s, as does the Docker edge.
+  timeoutClient: "3600s"
+  timeoutServer: "3600s"

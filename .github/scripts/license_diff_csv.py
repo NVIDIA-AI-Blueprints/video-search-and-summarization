@@ -4,22 +4,30 @@
 
 """Generate a license-diff CSV between two git refs for OSRB review.
 
-Walks every Python lockfile (`uv.lock`, `Pipfile.lock`) and Node lockfile
-(`package-lock.json`) tracked by the repo at the base and head refs — at any
-nesting depth (services/*, tools/*, repo root) — diffs the (package, version)
-sets, and writes one CSV row per change. Python rows are enriched with license
-+ repository URL from PyPI; Node rows use the metadata embedded in the lockfile.
+Walks every Python lockfile (`uv.lock`, `Pipfile.lock`, `pdm.lock`,
+`poetry.lock`) and Node lockfile (`package-lock.json`) tracked by the repo at
+the base and head refs —
+at any nesting depth (services/*, tools/*, repo root) — diffs the
+(package, version) sets, and writes one CSV row per change. Python rows are
+enriched with license + repository URL from PyPI; Node rows use the metadata
+embedded in the lockfile.
 
 For Pipfile.lock only the `default` (runtime) section is inventoried — dev-only
-deps never ship, so OSRB does not review them.
+deps never ship, so OSRB does not review them. PDM and Poetry follow the same
+rule: only packages in the `default` / `main` groups are inventoried.
 
-Services that ship a plain `requirements.txt` (no lockfile) get a lighter,
-name-level pass: direct dependencies ADDED to / REMOVED from a requirements.txt
-are reported (with the license of the pinned version, or of the latest release
-when the line is unpinned), and `==`-pinned bumps are flagged. This is driven
-by the committed file diff, so it is deterministic — unchanged unpinned lines
-never produce phantom rows. It does NOT resolve the transitive closure; a
-committed lockfile remains the way to get full coverage.
+Services that ship a plain `requirements.txt` or `pyproject.toml` (no
+recognized lockfile) get a lighter, name-level pass: direct dependencies
+ADDED to / REMOVED from those manifests are reported (with the license of the
+pinned version, or of the latest release when the line is unpinned), and
+`==`-pinned bumps are flagged. This is driven by the committed file diff, so
+it is deterministic — unchanged unpinned lines never produce phantom rows.
+It does NOT resolve the transitive closure; a committed lockfile remains the
+way to get full coverage.
+
+Added files whose names look like a lock or manifest (`pyproject.toml`,
+`*.lock`, `requirements*.txt`) but are not in that scan set are logged as a
+WARNING so a new lock format cannot stay invisible PR-by-PR.
 
 CSV columns: language, package, change, old_version, new_version, old_license,
 new_license, repository_url, notes.
@@ -79,6 +87,71 @@ def _list_lockfiles(ref: str, filename: str) -> list[str]:
         if p.endswith("/" + filename) or p == filename
         if "node_modules/" not in p
     ]
+
+
+# Basenames this scanner inventories. The tool is filename-recursive (any
+# nesting depth), not a path allow-list — the coverage gap is an unrecognized
+# *name*, which is how pdm.lock on RTVI-VLM slipped past OSRB.
+_SCANNED_BASENAMES = {
+    "uv.lock",
+    "pipfile.lock",
+    "pdm.lock",
+    "poetry.lock",
+    "package-lock.json",
+    "pyproject.toml",
+}
+
+# Lock-shaped files that are not language package inventories.
+_NON_PACKAGE_LOCK_BASENAMES = {
+    "chart.lock",  # Helm chart dependency pin, not a language lockfile
+}
+
+
+def _basename(path: str) -> str:
+    return path.rsplit("/", 1)[-1]
+
+
+def looks_like_manifest(path: str) -> bool:
+    """True for added-file names that OSRB would expect License Diff to read."""
+    if "node_modules/" in path:
+        return False
+    base = _basename(path).lower()
+    if base in _NON_PACKAGE_LOCK_BASENAMES:
+        return False
+    if base == "pyproject.toml" or base.endswith(".lock"):
+        return True
+    return base.startswith("requirements") and base.endswith(".txt")
+
+
+def is_scanned_manifest(path: str) -> bool:
+    """True when this filename is one the inventory walkers already handle."""
+    base = _basename(path).lower()
+    if base in _SCANNED_BASENAMES:
+        return True
+    # requirements*.txt is handled, including the apt exclusion — that skip
+    # is deliberate, not a coverage gap.
+    return base.startswith("requirements") and base.endswith(".txt")
+
+
+def unscanned_added_manifests(base_paths: list[str], head_paths: list[str]) -> list[str]:
+    """Return added lock/manifest paths that no inventory walker will read."""
+    added = sorted(set(head_paths) - set(base_paths))
+    return [
+        path
+        for path in added
+        if looks_like_manifest(path) and not is_scanned_manifest(path)
+    ]
+
+
+def warn_unscanned_added_manifests(paths: list[str]) -> None:
+    """Log each coverage gap to stderr and as a GitHub Actions warning."""
+    for path in paths:
+        message = f"Skipped path — not in scan set: {path}"
+        _log(f"WARNING: {message}")
+        print(
+            f"::warning title=License Diff coverage gap::{message}",
+            file=sys.stderr,
+        )
 
 
 def parse_uv_lock(data: bytes) -> Inventory:
@@ -202,7 +275,59 @@ def parse_pipfile_lock(data: bytes) -> Inventory:
     return out
 
 
+_RUNTIME_LOCK_GROUPS = {"default", "main"}
+
+
+def parse_pdm_lock(data: bytes) -> Inventory:
+    """Return {(name, version): {repository_url}} parsed from pdm.lock.
+
+    PDM records every resolved package under ``[[package]]`` with a ``groups``
+    list. Only ``default`` / ``main`` groups ship in a release artifact, so
+    ``dev`` and other extra groups are omitted — the same policy as
+    Pipfile.lock ``default`` and uv.lock's skip of ``dev-dependencies``.
+    Packages that omit ``groups`` are kept so an unexpected lock format cannot
+    silently drop a runtime dependency from OSRB review.
+    """
+    doc = tomllib.loads(data.decode("utf-8"))
+    out: Inventory = {}
+    for pkg in doc.get("package", []) or []:
+        groups = {str(group).lower() for group in (pkg.get("groups") or [])}
+        if groups and groups.isdisjoint(_RUNTIME_LOCK_GROUPS):
+            continue
+        name = (pkg.get("name") or "").lower()
+        version = str(pkg.get("version") or "")
+        if not name or not version:
+            continue
+        out[(name, version)] = {"repository_url": ""}
+    return out
+
+
+def parse_poetry_lock(data: bytes) -> Inventory:
+    """Return {(name, version): {repository_url}} parsed from poetry.lock.
+
+    Poetry 2 records ``groups``; Poetry 1 used ``category``. Only ``main`` /
+    ``default`` runtime membership is inventoried. A package present in both
+    ``main`` and ``dev`` is kept; a ``dev``-only package is omitted.
+    """
+    doc = tomllib.loads(data.decode("utf-8"))
+    out: Inventory = {}
+    for pkg in doc.get("package", []) or []:
+        category = str(pkg.get("category") or "").lower()
+        if category and category not in _RUNTIME_LOCK_GROUPS:
+            continue
+        groups = {str(group).lower() for group in (pkg.get("groups") or [])}
+        if groups and groups.isdisjoint(_RUNTIME_LOCK_GROUPS):
+            continue
+        name = (pkg.get("name") or "").lower()
+        version = str(pkg.get("version") or "")
+        if not name or not version:
+            continue
+        out[(name, version)] = {"repository_url": ""}
+    return out
+
+
 _REQ_NAME_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+_EXACT_VERSION_RE = re.compile(r"^\d+(?:\.\d+)*(?:[a-zA-Z0-9._+-]*)?$")
 
 
 def parse_requirements(data: bytes) -> dict[str, str]:
@@ -270,12 +395,73 @@ def requirements_inventory(ref: str) -> dict[str, str]:
     return merged
 
 
-def diff_requirements(
-    base: dict[str, str], head: dict[str, str], covered_names: set[str]
-) -> list[dict[str, str]]:
-    """Diff direct-dependency NAME sets across requirements.txt files.
+def _direct_pin(spec: str) -> str:
+    """Return an exact pin from a PEP 440 / Poetry version string, else ''."""
+    spec = spec.strip().strip("'\"")
+    if spec.startswith("=="):
+        return spec[2:].strip().split(",", 1)[0].strip()
+    if _EXACT_VERSION_RE.match(spec):
+        return spec
+    return ""
 
-    Reports packages added to / removed from requirements.txt, and `==`-pinned
+
+def parse_pyproject(data: bytes) -> dict[str, str]:
+    """Return {canonical_name: pinned_version_or_''} from a pyproject.toml.
+
+    Reads PEP 621 ``[project].dependencies`` and Poetry
+    ``[tool.poetry.dependencies]``. Optional extras, PEP 735 dependency
+    groups, and Poetry ``group.*.dependencies`` are omitted — those are
+    typically dev/test and do not ship. Same name-level contract as
+    ``parse_requirements``: only ``==`` pins (or Poetry exact versions) are
+    recorded; ranges stay unpinned so PyPI drift cannot fabricate rows.
+    """
+    doc = tomllib.loads(data.decode("utf-8"))
+    project = doc.get("project") or {}
+    specs = [str(spec) for spec in (project.get("dependencies") or [])]
+    out = parse_requirements("\n".join(specs).encode())
+
+    poetry = ((doc.get("tool") or {}).get("poetry") or {}).get("dependencies") or {}
+    for name, spec in poetry.items():
+        if not name or name.lower() == "python":
+            continue
+        if isinstance(spec, dict) and (spec.get("git") or spec.get("url") or spec.get("path")):
+            continue
+        version_spec = spec.get("version") if isinstance(spec, dict) else spec
+        version = _direct_pin(str(version_spec or ""))
+        lname = name.lower()
+        if lname not in out or (version and not out[lname]):
+            out[lname] = version
+    return out
+
+
+def pyproject_inventory(ref: str) -> dict[str, str]:
+    """Merge every pyproject.toml at `ref` into {name: pinned_version_or_''}."""
+    merged: dict[str, str] = {}
+    for path in _list_lockfiles(ref, "pyproject.toml"):
+        data = _git_show(ref, path)
+        if data is None:
+            continue
+        try:
+            parsed = parse_pyproject(data)
+        except tomllib.TOMLDecodeError as exc:
+            _log(f"skip {path}@{ref}: {exc}")
+            continue
+        for name, version in parsed.items():
+            if name not in merged or (version and not merged[name]):
+                merged[name] = version
+    return merged
+
+
+def diff_requirements(
+    base: dict[str, str],
+    head: dict[str, str],
+    covered_names: set[str],
+    *,
+    source: str = "requirements.txt",
+) -> list[dict[str, str]]:
+    """Diff direct-dependency NAME sets across requirements.txt / pyproject.toml.
+
+    Reports packages added to / removed from the manifest, and `==`-pinned
     version bumps. Packages already inventoried by a lockfile (`covered_names`)
     are skipped — the lockfile diff covers them more accurately. Driven purely
     by the committed file contents, so it is deterministic: unchanged unpinned
@@ -291,7 +477,7 @@ def diff_requirements(
         if not in_base and in_head:  # newly added direct dependency
             meta = pypi_metadata(name, hv)
             resolved = meta.get("version") or hv
-            note = "new requirements.txt dependency"
+            note = f"new {source} dependency"
             if not hv:
                 note += "; unpinned (license shown for latest)"
             rows.append({
@@ -305,14 +491,14 @@ def diff_requirements(
                 "language": "python", "package": name, "change": "removed",
                 "old_version": bv or "(unpinned)", "new_version": "",
                 "old_license": "", "new_license": "",
-                "repository_url": "", "notes": "removed from requirements.txt",
+                "repository_url": "", "notes": f"removed from {source}",
             })
         elif bv != hv and bv and hv:  # pinned == bump on both sides
             old_meta = pypi_metadata(name, bv)
             new_meta = pypi_metadata(name, hv)
             old_license = old_meta.get("license", "")
             new_license = new_meta.get("license", "")
-            notes = "requirements.txt version pin changed"
+            notes = f"{source} version pin changed"
             if old_license and new_license and old_license != new_license:
                 notes += "; license changed"
             rows.append({
@@ -549,13 +735,21 @@ def main() -> int:
     args = parser.parse_args()
 
     _log(f"Comparing {args.base_ref} -> {args.head_ref}")
+    warn_unscanned_added_manifests(
+        unscanned_added_manifests(_ls_tree(args.base_ref), _ls_tree(args.head_ref))
+    )
 
     # Each (filename, parser) is scanned recursively across the whole repo tree
     # at the given ref (_list_lockfiles uses `git ls-tree -r`), so lockfiles at
     # any nesting depth — services/<svc>/..., tools/<tool>/..., or the repo
-    # root — are all picked up. Python deps may be locked by uv (uv.lock) or
-    # pipenv (Pipfile.lock); merge both into one Python inventory.
-    PYTHON_LOCKS = [("uv.lock", parse_uv_lock), ("Pipfile.lock", parse_pipfile_lock)]
+    # root — are all picked up. Python deps may be locked by uv (uv.lock),
+    # pipenv (Pipfile.lock), PDM (pdm.lock), or Poetry (poetry.lock).
+    PYTHON_LOCKS = [
+        ("uv.lock", parse_uv_lock),
+        ("Pipfile.lock", parse_pipfile_lock),
+        ("pdm.lock", parse_pdm_lock),
+        ("poetry.lock", parse_poetry_lock),
+    ]
 
     def python_inventory(ref: str) -> Inventory:
         merged: Inventory = {}
@@ -573,14 +767,22 @@ def main() -> int:
     rows.extend(diff_language("python", py_base, py_head))
     rows.extend(diff_language("node", nd_base, nd_head))
 
-    # Minimal requirements.txt coverage: catch direct deps added to (or removed
-    # from) plain requirements.txt files that have no lockfile. Deduped against
-    # names already in the lockfile inventory, which the diff above covers more
-    # accurately (resolved version + transitive closure).
+    # Minimal manifest coverage: catch direct deps added to (or removed from)
+    # plain requirements.txt / pyproject.toml files that have no recognized
+    # lockfile. Deduped against names already in the lockfile inventory, which
+    # the diff above covers more accurately (resolved version + transitive
+    # closure). pyproject.toml is also deduped against requirements.txt so a
+    # package declared in both does not produce two rows.
     lock_names = {name for name, _ in py_base} | {name for name, _ in py_head}
     req_base = requirements_inventory(args.base_ref)
     req_head = requirements_inventory(args.head_ref)
     rows.extend(diff_requirements(req_base, req_head, lock_names))
+    direct_covered = lock_names | set(req_base) | set(req_head)
+    pj_base = pyproject_inventory(args.base_ref)
+    pj_head = pyproject_inventory(args.head_ref)
+    rows.extend(
+        diff_requirements(pj_base, pj_head, direct_covered, source="pyproject.toml")
+    )
 
     with open(args.output, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)

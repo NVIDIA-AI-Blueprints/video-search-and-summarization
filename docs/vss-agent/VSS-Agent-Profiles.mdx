@@ -1,0 +1,173 @@
+---
+title: "Agent Profiles"
+description: ""
+position: 2
+---
+The VSS Agent connects to a matching backend blueprint. Each profile configures the agent
+for a specific use case with tailored prompts, tools, and report templates.
+
+## Blueprint Profiles
+
+Three production blueprint profiles are available. The agent configuration connects to
+the corresponding backend analytics pipeline.
+
+### Warehouse Blueprint
+
+Industrial facility monitoring for safety incidents.
+
+- **Config:** `deploy/docker/industry-profiles/warehouse-operations/vss-agent/configs/config.yml`
+- [Warehouse Blueprint Documentation ](/warehouse-docs/warehouse-toc)
+
+### Smart Cities Blueprint
+
+Traffic and urban monitoring at intersections.
+
+- **Config:** `deployments/smartcities/vss-agent/configs/config.yml`
+- [Smart Cities Blueprint Documentation ](/smartcity-docs/smartcity-toc)
+
+## Developer Profiles
+
+For development and testing without a full blueprint deployment, three developer profiles are available.
+These use OOBE (Out-of-Box Experience) mode for standalone operation.
+
+### dev-profile-base
+
+Basic video upload and analysis without VA-MCP or incident database.
+
+- **Config:** `deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml`
+- **Use Case:** Upload videos, generate reports, answer questions about video content
+
+**Capabilities:**
+
+- Upload videos via `/api/v1/videos` endpoint
+- Generate video analysis reports with timestamped observations
+- Answer follow-up questions about video content or report content
+- Retrieve snapshots and video clips
+
+**Tools Available:**
+
+- `video_understanding`: Analyze video content using Cosmos VLM
+- `vst_video_clip`: Get video playback URLs
+- `vst_snapshot`: Get snapshot images at specific timestamps
+- `vst_stream_list`: List available video streams
+
+### dev-profile-lvs
+
+Video Summarization and stream analysis with interactive Human-in-the-Loop (HITL) prompts.
+
+- **Config:** `deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config.yml`
+- **Use Case:** Summarize uploaded videos, generate reports, configure stream captioning, and answer questions over stored stream captions.
+
+**Capabilities:**
+
+All dev-profile-base capabilities, plus:
+
+- Video Summarization for uploaded videos.
+- Report generation for one or more uploaded videos.
+- Stream caption generation with configurable scenario, events, and objects of interest (experimental).
+- Stream summarization over a requested timestamp range (experimental).
+- Report generation for a live stream over a requested time range (experimental).
+- Stored-caption retrieval for questions about configured live streams (experimental).
+- RTVI-VLM as the VLM path used by the Video Summarization profile.
+
+**Additional Tools:**
+
+- `lvs_video_understanding`: Summarize uploaded videos with configurable Video Summarization parameters.
+- `lvs_config_media`: Start caption generation for a live stream after collecting HITL parameters (experimental).
+- `lvs_stream_understanding`: Summarize a live stream over a requested timestamp range (experimental).
+- `lvs_caption_retrieval`: Retrieve stored captions and events from Elasticsearch for stream Q&A (experimental).
+- `video_report_gen`: Generate downloadable reports for uploaded videos or live streams.
+
+**HITL Prompts:**
+
+When using the Video Summarization profile, the agent prompts for:
+
+1. **Scenario**: What type of monitoring (e.g., "warehouse monitoring", "traffic monitoring")
+2. **Events**: Comma-separated list of events to detect (e.g., "accident, forklift stuck, person entering restricted area")
+3. **Objects** (optional): Objects to focus on (e.g., "forklifts, pallets, workers")
+
+**Routing Examples:**
+
+| User request | Agent behavior |
+| --- | --- |
+| `Summarize video1.mp4` | Uses Video Summarization video understanding for the uploaded video. |
+| `Generate a report for video1.mp4` | Calls report generation with the uploaded video. |
+| `Generate reports for video1.mp4 and video2.mp4` | Calls report generation with both uploaded videos. |
+| `Start generating captions for stream CAM_1` | Collects stream captioning parameters, then configures Video Summarization caption generation. |
+| `Summarize the stream CAM_1 from 45 seconds till now` | Uses stream summarization for the requested time range. |
+| `Generate a report for stream CAM_1 from 45 seconds till now` | Calls report generation with a stream for the requested time range. |
+| `Generate one report for video1.mp4 and video2.mp4` | Calls report generation once with both videos. |
+| `Summarize the stream CAM_1 from 2026-05-13T21:00:00Z to 2026-05-13T21:05:00Z` | Uses stream summarization for the requested timestamp range. |
+| `Were there PPE violations in CAM_1 from 2026-05-13T21:00:00Z to 2026-05-13T21:05:00Z?` | Retrieves stored stream captions and events, then answers with cited timestamps. |
+
+**Requirements:**
+
+- Video Summarization backend service.
+- RTVI-VLM service.
+- Elasticsearch for summaries, captions, and events.
+- Kafka and Logstash for the live-stream caption path.
+
+**Stream Caption Limitations:**
+
+- Stream summarization and stored-caption Q&A require captions in Elasticsearch for the requested timestamp range.
+- If multiple agent sessions or instances connect to the same backend, the caption generation prompt is overwritten by the latest query.
+- The agent cannot see caption prompts set by other agent instances.
+
+### dev-profile-search
+
+Video embedding search with semantic queries.
+
+- **Config:** `deploy/docker/developer-profiles/dev-profile-search/vss-agent/configs/config.yml`
+- **Use Case:** Semantic search across video content using Cosmos Embed
+
+**Capabilities:**
+
+All dev-profile-base capabilities, plus:
+
+- Semantic video search using Cosmos Embed embeddings
+- Real-time video ingest with embedding generation
+- Search API endpoint at `/api/search`
+
+**Additional Tools:**
+
+- `search`: Semantic search across indexed video content
+- `embed_search`: Low-level embedding search against Elasticsearch
+
+**Requirements:**
+
+- Cosmos Embed NIM endpoint for embedding generation
+- Elasticsearch for storing and querying embeddings
+- RTVI service for real-time video ingest
+
+### Developer Profile Comparison
+
+| Feature | dev-profile-base | dev-profile-lvs | dev-profile-search |
+| --- | --- | --- | --- |
+| Video Upload | ✓ | ✓ | ✓ |
+| Video Analysis (VLM) | ✓ | ✓ | ✓ |
+| Report Generation | ✓ | ✓ | ✓ |
+| Video Summarization Support | ✗ | ✓ (Video Summarization) | ✗ |
+| Live Stream Captioning | ✗ | ✓ | ✗ |
+| Semantic Search | ✗ | ✗ | ✓ |
+| Elasticsearch Required | ✗ | ✓ | ✓ |
+| Kafka Required | ✗ | ✓ | ✓ |
+
+## Services
+
+When deployed, the following services are available:
+
+| Service | Default URL | Description |
+| --- | --- | --- |
+| VSS Agent | `http://localhost:8000` | Agent API |
+| VA-MCP | `http://localhost:9901` | Video Analytics MCP |
+
+For deployment instructions, see the respective blueprint documentation linked above.
+
+<Note>
+Each profile can also be deployed and operated through [Agent Skills](/agent-skills)
+by a coding agent (Claude Code, Codex, NemoClaw). For example, `vss-deploy-profile`
+brings up any VSS profile via Docker Compose, `vss-query-analytics` queries the
+Warehouse and Smart Cities analytics pipelines through the VA-MCP server, and
+`vss-summarize-video` / `vss-search-archive` exercise the Video Summarization
+and Search developer profiles.
+</Note>

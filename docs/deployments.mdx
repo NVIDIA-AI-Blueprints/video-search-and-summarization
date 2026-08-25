@@ -1,0 +1,25 @@
+---
+title: "Additional Deployments"
+description: ""
+position: 3
+---
+VSS can be deployed in several ways depending on how quickly you want to get started and
+how much control you need over the configuration. This page summarizes the available
+options, from the fastest quickstart script to fully customizable Docker Compose and
+Helm Chart deployments.
+
+## Quickstart Script
+
+The fastest way to get started is the quickstart script documented in the
+[Agent Workflows ](/agent-workflows) section. The [Quickstart ](/quickstart)
+deploys a basic vision agent in minutes, and the other agent workflows build on it with
+additional capabilities (video summarization, search, alerts). This is the recommended
+starting point, but it offers limited customization compared to the Docker Compose and
+Helm Chart options below.
+
+## Other Deployment Options
+
+- [Brev Launchable ](/cloud-brev) - A preconfigured, fully optimized NVIDIA Brev compute and software environment that uses the Docker Compose method to stand up the blueprint with minimal setup.
+- [Edge Deployment ](/edge-deployment) - Deploy the base vision agent on edge platforms (DGX Spark, IGX Thor, AGX Thor) using edge-optimized Nemotron LLMs.
+- [Helm Deployment ](/helm-deployment) - Deploy VSS developer profiles on Kubernetes using Helm, the fully customizable alternative to Docker Compose for production and multi-node clusters.
+- [Secure Deployment ](/secure-deployment) - A network-segmentation recipe to follow before exposing VSS in environments where untrusted users, services, or networks may be present.

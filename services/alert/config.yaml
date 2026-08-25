@@ -50,6 +50,14 @@ kafka:
   max_poll_interval_ms: 60000      # 60 seconds
   session_timeout_ms: 10000        # 10 seconds
   heartbeat_interval_ms: 3000      # 3 seconds
+  # Commit offsets once per poll batch (highest offset per partition) instead
+  # of once per message, removing one commit call per message from the
+  # GIL-bound consume thread. This does NOT make the pipeline at-least-once:
+  # the batch is flushed before any message is dispatched, so in-flight work
+  # is lost on a crash either way. It opens a redelivery window of one poll
+  # batch, entered only when a crash lands inside the poll loop. Enable only
+  # where duplicates within that window are tolerated.
+  batch_commit: false
 
 #VLM Configuration
 vlm:
@@ -177,11 +185,30 @@ alert_type_config_file: "alert_type_config.json"
 
 # Alert Agent Configuration - Processing Settings
 alert_agent:
+  # Number of independent pipeline processes (positive integer). The GIL is
+  # per-process, so this — not num_workers — is what lets one instance use
+  # more than ~1 core: each process runs its own consume loop, its own event
+  # loop and its own clients. Dedup stays correct without coordination because
+  # mdx-incidents is partitioned by sensorId, so a whole cohort lands on one
+  # process.
+  #
+  # Above 1 the value is validated at startup rather than adjusted: it
+  # requires pipeline_mode: event_loop, and it must not exceed the partitions
+  # on ANY ONE source topic, or startup fails. Per topic, not summed: each
+  # process runs one consumer per topic in the same group, so Kafka assigns
+  # each topic independently and a topic with fewer partitions than there are
+  # processes leaves the difference holding none of it. With N replicas the
+  # constraint is replicas x processes <= partitions, per topic.
+  processes: 1
+  # The whole of startup -- topic metadata, prompt seeding, VLM warmup and
+  # every pipeline joining its group -- shares this one budget. Raise it where
+  # the default cannot be met: topics created by a Job that races this
+  # deployment, or several processes building their stores at once.
+  startup_timeout_seconds: 60
   num_workers: 10                                # Number of worker threads
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
-  chunk_size: 1
 
   # In-process event filtering / dedup tuning (no external store).
   event_filters:
@@ -215,35 +242,29 @@ alert_agent:
     # with a bounded sensor fleet and a known series budget (~10k per target).
     per_sensor_labels: false
   # Pipeline execution mode: sync | thread_bridge | event_loop.
-  # Unset -> derived from async_io.enabled (false=sync, true=thread_bridge).
   # An invalid value fails startup. Also accepted at async_io.pipeline_mode.
   # event_loop runs one coroutine per message on a persistent event loop with
   # async clients per stage (VLM: AsyncOpenAI, VST: httpx, sink/verdict:
-  # AsyncElasticsearch): concurrency is bounded by async_dispatch_max_in_flight
-  # plus the per-service caps below instead of by thread count, so Kafka
-  # consumption stays decoupled from VLM latency.
-  # Per-mode meaning of the two dispatch knobs (see README "Pipeline modes"):
-  #   async_dispatch_workers      thread_bridge: dispatch-pool thread count =
-  #                               VLM concurrency ceiling. event_loop: no pool
-  #                               is created; only the default for the caps.
-  #   async_dispatch_max_in_flight  both async modes: global in-flight bound
-  #                               (backpressure to the Kafka consume loop).
+  # AsyncElasticsearch), so Kafka consumption stays decoupled from VLM latency.
+  # Each mode has exactly one throughput knob:
+  #   sync           num_workers
+  #   thread_bridge  async_dispatch_workers
+  #   event_loop     async_io.max_vlm_concurrent
   # pipeline_mode: event_loop
   async_io:
-    enabled: false                               # guardrail: keep sync behavior by default
-    vst_enabled: false                           # Guardrail: async-submit VST lookup path (thread_bridge only)
-    elastic_enabled: false                       # Guardrail: async-submit Elastic sink publishing path (thread_bridge only)
-    dedup_enabled: false                         # Guardrail: async-submit in-process dedup/state operations (thread_bridge only)
     external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
-    sink_warn_in_flight: 20                      # Warning threshold for in-flight async sink operations
-    # event_loop per-service concurrency caps (default: async_dispatch_workers,
-    # which keeps downstream pressure identical to the thread_bridge profile).
     # max_vlm_concurrent MUST stay at or below the benchmarked concurrency
     # ceiling of the VLM backend (see README "VLM concurrency ceiling
     # benchmark") — above it, requests pile onto the backend and its latency
     # balloons instead of throughput improving.
     # max_vlm_concurrent: 8
-    # max_vst_concurrent: 8
+    #
+    # Derived unless set; the formulas below are the defaults, and each key is
+    # still honoured when present:
+    #   async_dispatch_workers       = num_workers
+    #   async_dispatch_max_in_flight = 2 x async_dispatch_workers
+    #   async_io.max_vst_concurrent  = async_dispatch_workers
+    #   async_io.sink_warn_in_flight = async_dispatch_max_in_flight
 
   # URL Transformation - transforms internal IPs to external for VLM/UI access
   url_transform:

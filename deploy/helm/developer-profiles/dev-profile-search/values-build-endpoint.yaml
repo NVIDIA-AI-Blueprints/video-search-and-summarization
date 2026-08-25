@@ -14,10 +14,19 @@
 # limitations under the License.
 
 # values-build-endpoint.yaml
-# Override file for deploying with NVIDIA Build Endpoint (hosted NIMs).
-# LLM inference runs at https://integrate.api.nvidia.com. VLM calls route through
-# vss-rtvi-vlm (openai-compat proxy) which forwards to the same hosted endpoint.
-# Perception and RTVI Embed still run locally.
+# Override file for serving the LLM and VLM from remote endpoints instead of
+# in-cluster NIMs. LLM inference can use https://integrate.api.nvidia.com, but the
+# VLM must be an endpoint you provide: Cosmos3 (nvidia/cosmos3-nano-reasoner) is not
+# served on https://integrate.api.nvidia.com, so override vlmBaseUrl and vlmName
+# below with your own OpenAI-compatible VLM. vss-rtvi-vlm is still deployed here as
+# an openai-compat proxy in front of that endpoint. Perception and RTVI Embed still
+# run locally.
+#
+# RT-VLM authenticates to the remote VLM with VIA_VLM_API_KEY, injected from
+# global.ngcApiSecret (ngc-api-key-secret / NGC_API_KEY). Point
+# rtvi.vss-rtvi-vlm.ngcApiSecret at your own Secret when the endpoint expects a
+# different token. The OPENAI_API_KEY / NVIDIA_API_KEY values of NOAPIKEYSET below
+# are inert, because VIA_VLM_API_KEY takes precedence over both.
 #
 # Usage:
 #   helm upgrade --install vss-search ./dev-profile-search \
@@ -26,6 +35,9 @@
 #     --set global.externalHost=vss-search.$NODE_EXTERNAL_IP.nip.io \
 #     --set global.ngcApiKey=$NGC_CLI_API_KEY \
 #     --set nims.global.ngcApiKey=$NGC_CLI_API_KEY \
+#     --set global.vlmBaseUrl=<YOUR VLM ENDPOINT> \
+#     --set global.vlmName=<MODEL ID THAT ENDPOINT SERVES> \
+#     --set agent.vss-agent.vlmName=<SAME MODEL ID> \
 #     (set NGC key via global.ngcApiKey / nims.global.ngcApiKey as in your environment) \
 #     --wait=false
 
@@ -34,6 +46,13 @@ vios:
   enabled: true
 
 global:
+  # These two are what redirect the rtvi-vlm proxy (VIA_VLM_ENDPOINT /
+  # VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME); agent.vss-agent.vlmBaseUrl does not.
+  # Placeholders: NVIDIA Build does not serve cosmos3-nano-reasoner. Override both
+  # with your own OpenAI-compatible VLM endpoint and the model id it advertises on
+  # /v1/models, and keep agent.vss-agent.vlmName equal to vlmName below.
+  # Left non-empty on purpose — an empty vlmBaseUrl makes rtvi-vlm fall back to the
+  # in-cluster nvidia-cosmos3-reasoner Service that this file disables.
   vlmBaseUrl: "https://integrate.api.nvidia.com"
   vlmName: "nvidia/cosmos3-nano-reasoner"
 
@@ -50,6 +69,8 @@ agent:
   vss-agent:
     llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
     llmBaseUrl: "https://integrate.api.nvidia.com"
+    # Placeholder — override with the model id your own VLM endpoint serves. Must
+    # match global.vlmName, which is what rtvi-vlm forwards to that endpoint.
     vlmName: "nvidia/cosmos3-nano-reasoner"
     evalLlmJudgeName: "nvidia/nvidia-nemotron-nano-9b-v2"
     evalLlmJudgeBaseUrl: "https://integrate.api.nvidia.com"

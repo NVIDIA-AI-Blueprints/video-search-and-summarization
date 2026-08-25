@@ -152,6 +152,7 @@ infra:
       - name: mdx-events
       - name: mdx-incidents
       - name: mdx-vlm-incidents
+      - name: mdx-vlm-captions
       - name: mdx-vlm
       - name: mdx-embed
       - name: mdx-embed-filtered
@@ -263,7 +264,9 @@ agent:
       - name: RTVI_EMBED_PORT
         value: ''
       - name: RTVI_CV_PORT
-        value: ''
+        value: '9010'
+      - name: RTVI_CV_ENDPOINT
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx }}{{- printf "http://%s:9010" $host -}}'
       - name: VSS_ES_PORT
         value: '9200'
       - name: VST_BASE_URL
@@ -278,6 +281,8 @@ agent:
         value: ''
       - name: OPENAI_API_KEY
         value: ''
+      - name: INSTALL_PROPRIETARY_CODECS
+        value: 'true'
       # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
       # deploy/docker/services/agent/compose.yml.
       - name: RAG_SERVER_URL
@@ -465,6 +470,14 @@ rtvi:
         org: nvidia
         sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
         destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
+      # NvDCF_accuracy ReID model. The NGC rt-cv image bundles this under
+      # DS_APP_DIR/models; GHCR-built images ship no models, so it has to be
+      # downloaded. ds-start.sh prefers this copy and falls back to the
+      # in-image one, so the entry is harmless on either image.
+      - model: nvidia/tao/reidentificationnet:deployable_v1.0
+        org: nvidia
+        sourcePath: reidentificationnet_vdeployable_v1.0/resnet50_market1501.etlt
+        destPath: rtdetr-its/resnet50_market1501.etlt
     engineCache:
       enabled: true
       subPath: engines

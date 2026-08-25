@@ -27,7 +27,16 @@
 {{- end }}
 {{- end }}
 {{- end }}
-{{- define "vss-vios-nvstreamer.image" -}}{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}{{- end -}}
+{{- define "vss-vios-nvstreamer.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-vios-nvstreamer" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
 
 {{/* Shared streamer_videos claim created by the vios parent chart. */}}
 {{- define "vss-vios-nvstreamer.sharedVstClaimStreamerVideos" -}}

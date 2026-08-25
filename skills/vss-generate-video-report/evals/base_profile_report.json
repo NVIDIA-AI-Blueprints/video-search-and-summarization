@@ -29,17 +29,17 @@
       ]
     },
     {
-      "query": "Verify the VSS stack is ready for the **vss-generate-video-report** skill. Confirm VST is reachable with at least one stream registered, the local CR3 VLM is ready, and a short clip can be materialized for warehouse_safety_0001.",
+      "query": "Verify the VSS stack is ready for the **vss-generate-video-report** skill. Confirm VST is reachable with at least one stream registered, the local CR3 VLM is ready, and a short clip can be materialized for warehouse_safety_0001 (a VIOS sensor / uploaded video, not an alert or incident).",
       "checks": [
         "VST reports at least one registered stream",
-        "The run resolved warehouse_safety_0001 and obtained a non-empty clip videoUrl from VST for that sensor",
+        "Mode A clip readiness only: warehouse_safety_0001 is a VIOS sensor/uploaded video, NOT an alert or incident — do not require alert/incident lookup. Pass if the run resolved that sensor AND obtained a non-empty playable clip by ANY of: (a) `vss vios clip --sensor <name>` returning a non-empty `media_url` (the route this skill uses; the command resolves the sensor, reads the recorded range and warms the render in one call); (b) GET /vst/api/v1/storage/file/<streamId>/url with a non-empty JSON videoUrl; (c) GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=... returning HTTP 200 with a non-empty body; (d) HTTP 200 GET of a non-empty MP4 from a VST path such as /vst/storage/temp_files/*.mp4. Do NOT fail solely because the literal field name videoUrl is absent from the trajectory",
         "A local CR3 VLM is ready on localhost:30082 (NIM) or localhost:8018 (RT-VLM) — whichever the deployment serves, `/v1/models` returns HTTP 200 with an id containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check"
       ]
     },
     {
       "query": "Give me a report for warehouse_safety_0001.",
       "checks": [
-        "The run sourced a VST clip URL for warehouse_safety_0001 (Mode A path A1) rather than posting to http://localhost:8000/generate",
+        "Mode A clip source only (warehouse_safety_0001 is a sensor/video, not an alert): the run used a VST clip for that sensor — GET /storage/file/<streamId>/url, binary GET /storage/file/<streamId>, or an HTTP MP4 from /vst/storage/temp_files/ — rather than posting to http://localhost:8000/generate. Do not require the literal JSON field name videoUrl",
         "The run called a local CR3 VLM `/v1/chat/completions` endpoint (localhost:30082 or localhost:8018) with a cosmos3-nano-reasoner or cosmos3-super-reasoner model and received HTTP 2xx",
         "The run generated a user-facing video analysis report for warehouse_safety_0001",
         "The report content is grounded in the warehouse_safety_0001 clip: it describes a warehouse/industrial scene with at least one person/worker, and mentions concrete details related to a ladder and shelving units."

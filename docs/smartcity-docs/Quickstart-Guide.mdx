@@ -1,0 +1,366 @@
+---
+title: "Quickstart Guide - Docker Compose"
+description: ""
+position: 3
+---
+This Quickstart Guide provides a comprehensive step-by-step walkthrough to help you quickly set up and start using the Smart City Blueprint with Docker Compose.
+
+## Components Overview
+
+The high-level diagram illustrates the components of the Smart City Blueprint. The system features a layered architecture that comprises:
+
+- **Foundational Microservices** - Based on vision language models (VLMs) and computer vision (CV) models
+- **Real-time Video Processing Pipelines** - For processing live camera feeds
+- **AI Agents** - For intelligent analysis and interaction
+
+![Component Diagram - Smart City Blueprint components](/assets/images/scbp/SCBP-ArchOverview.png)
+
+## Prerequisites
+
+Before you begin, ensure all of the prerequisites are met. See the [Prerequisites](/smartcity-docs/Prerequisites)  page for more details.
+
+## Deployment Options
+
+The Smart City Blueprint provides a unified deployment profile that includes all available features:
+
+**bp_smc - Smart City Blueprint**
+
+- CV-based object detection and tracking using GDINO or RTDETR models via the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/object-detection-tracking)
+- VLM-based verification for enhanced alert accuracy via the [Alerts Microservice ](/alert-verification-service)
+- Agents and Agent UI for natural language interaction with the system via the [VSS Agents Microservice ](/VSS-Agents)
+- Integration options:
+
+  - API
+  - Kibana dashboard
+  - Kafka event streams
+  - Web UI with map view
+
+## Supported Workload
+
+This section provides details of supported stream count for each model deployment configuration per supported GPU. The goal is to enable the user to scope the supported workload ensuring optimal operation of the blueprint, while taking into account resource availability based on GPUs available at their disposal.
+
+| GPU Type | Number of Streams (RTDETR) | Number of Streams (GDINO) | Number of GPUs | Number of GPUs | Number of GPUs |
+|  |  |  | Local VLM+LLM (dedicated GPU each) (default) | Local VLM+LLM (shared GPU) | Remote VLM+LLM |
+| --- | --- | --- | --- | --- | --- |
+| H100 | 30 | 12 | 3 | 2 | 1 |
+| L40S | 30 | 6 | 3 | NA | 1 |
+| RTX PRO 6000 Blackwell | 30 | 12 | 3 | 2 | 1 |
+
+<Note>
+- Above numbers are based on the default configurations using streams at 1080p 10fps
+- To use GDINO instead of RTDETR (default), update `MODEL_NAME_2D` to `GDINO` and modify `NUM_SENSORS` based on your GPU capabilities in the `.env` file
+</Note>
+
+## Install Smart City Blueprint
+
+The following section will guide you through the steps to install the Smart City Blueprint.
+
+1. Download the Notebook
+
+   Download the VSS notebook on your local machine at https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/docker/scripts/deploy_smartcities_launchable.ipynb
+
+2. Install Jupyter Notebook in a Python virtual environment
+
+   From the GPU server system root where you want to deploy the stack:
+
+   ```bash
+   python3 -m venv .venv-sqa
+   source .venv-sqa/bin/activate
+   pip install --upgrade pip
+   pip install notebook jupyterlab ipykernel
+   ```
+
+3. Launch Jupyter
+
+   From the repository root, with the venv still active.
+   After running the below command, Jupyter will print a URL in the form of: `http://<HOST>:8888/?token=<TOKEN>`
+
+   ```bash
+   jupyter notebook --no-browser --ip=0.0.0.0 --port=8888 --NotebookApp.token="$(openssl rand -hex 16)"
+   ```
+
+4. Access the Jupyter Interface
+
+    In your browser, navigate to `http://<server-IP>`:8888, replacing `<server-IP>` with the IP address or hostname of your GPU server.
+
+5. Authenticate with Your Secure Token
+
+   When prompted, enter the token generated during launch. To retrieve it, open a new SSH session on the server and run the following commands:
+
+   ```bash
+   source .venv-sqa/bin/activate
+   jupyter server list
+   ```
+
+   The output will include a URL in the form `http://<HOST>`:8888/?token=`<TOKEN>`. Copy the token value and paste it into the browser authentication field, then click Log in to open the Jupyter interface.
+
+6. Open the deployment notebook
+
+   In the Jupyter file browser, click on **Upload**: add your `deploy_smartcities_launchable.ipynb`.
+   Once uploaded, double click on it to open the notebook.
+
+7. Follow the notebook
+
+   From here, execute the notebook cells in order. The notebook contains every remaining step: prerequisites check, environment variables, NGC data/model downloads, remote LLM/VLM configuration, deployment, verification, and UI exploration.
+
+<Note>
+- You will find four sample SDG clips, one of which has a collision, are each 1 minute in length. Due to the length of the video, you should see collision alerts consistently appear once per minute since NVStreamer repeats clips upon completion.
+</Note>
+
+### Verify Deployment
+
+1. Verify if containers are in running state:
+
+```bash
+docker ps
+```
+
+2. Check to make sure streams were properly added to VST. To do so, navigate to the VST UI (see endpoint below) and check the Dashboard to confirm your streams are in a healthy state. If you do not see them there, check NVStreamer or your source to make sure they are active.
+
+3. Check RTVI CV FPS to make sure the [RTVI CV microservice ](/object-detection-tracking) is running properly. View the `vss-rtvi-cv` logs by running the following command and looking for FPS lines in the logs. Ensure it is running at the desired FPS (10fps with the sample streams). If this is lower than expected, make sure your GPU is not oversaturated.
+
+```bash
+docker logs -f vss-rtvi-cv
+```
+
+4. Check Kibana for traffic statistics and alerts. Go to the endpoint listed below and navigate to the dashboard.
+
+5. Check the VSS UI (see endpoint below) and test a few prompts after the system is up for a few minutes and a few alerts are present.
+
+## Endpoints
+
+Once deployed, the following endpoints are available:
+
+| Service | Endpoint |
+| --- | --- |
+| VSS-UI | `http://<HOST_IP>:7777` |
+| Video-Analytics-UI (Map View) | `http://<HOST_IP>:3002` |
+| Grafana-UI | `http://<HOST_IP>:35000/` |
+| Kibana-UI | `http://<HOST_IP>:7777/kibana/app/home#/` |
+| NvStreamer-UI | `http://<HOST_IP>:31000/#/dashboard` |
+| VST-UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
+| Phoenix-UI (Telemetry) | `http://<HOST_IP>:7777/phoenix/projects` |
+
+| Service | Endpoint |
+| --- | --- |
+| Video-Analytics-API | `http://<HOST_IP>:8081` |
+| VST-MCP | `http://<HOST_IP>:8001` |
+| VA-MCP | `http://<HOST_IP>:9901` |
+| LLM-NIM | `http://<HOST_IP>:30081` |
+| VLM-NIM | `http://<HOST_IP>:8018` |
+
+## Explore the Blueprint
+
+Now that you have an up and running system, let’s explore the different features the Smart City Blueprint offers.
+
+We will delve into the four salient features of the blueprint, namely: chat interface, alerts with VLM verification, metrics dashboard, and map visualization - using corresponding tabs on the top-left of the UI.
+
+![VSS UI](/assets/images/scbp/vssui.png)
+
+### Chat
+
+The chat allows you to interact with the system in natural language. The system is optimized to understand the different sensors and situations such as alerts.
+
+As a key intuition, it is important to interact with the sensor using the sensor IDs.
+
+In the chat reference section below, we provide some typical prompts users can use to interact with the system. The reference below is organized from basic to advanced.
+
+**Quick Start Chat Reference**
+
+**1. Sensor Discovery & Live Monitoring**
+
+- **Check Availability:** "What sensors are available?"
+- **Live View:** "Can you take a snapshot of sensor [Sensor ID]?"
+
+**2. Searching for Incidents**
+
+You can filter incidents by count, specific time ranges, or location.
+
+- **By Recent Activity:** "List the last 5 incidents for [Sensor ID]."
+- **By Time Window:** "List all incidents from [Start Time] to [End Time] for sensor [Sensor ID]."
+- **By Duration:** "Retrieve all incidents for [Sensor ID] in the last 24 hours."
+- **By Location:** "Retrieve all incidents for [Place Name]."
+
+**3. Reporting**
+
+Generate detailed summaries for specific events found in your search results.
+
+- **Specific Incident:** "Generate a report for incident [Incident ID]."
+- **Most Recent:** "Generate a report for the last incident at [Location/Sensor]."
+
+**4. Interactive Commands (Context Aware)**
+
+The system remembers your previous questions, allowing you to ask follow-ups without repeating details.
+
+- **Drill-down:**
+
+  - User: "List the last 5 incidents for [Sensor ID]."
+  - User: "Generate a report for the second one."
+
+- **Pagination:**
+
+  - User: "List all incidents in the past 24h."
+  - User: "Show the next 20 incidents."
+
+- **Clarification:**
+
+  - User: "Are there any incidents?"
+  - System: "For which sensor?"
+  - User: "[Sensor ID]"
+
+### Alerts
+
+![Alerts Tab](/assets/images/scbp/scbp-alerts.png)
+
+The Alerts tab is a centralized view of all alerts generated from RTVI CV metadata. The alerts can be reviewed by using the different filters available in the system. Below is a table summarizing these filters:
+
+| Filter | Description |  |  |
+| --- | --- | --- | --- |
+| VLM Verified | Toggle VLM verified to identify what the VLM alert verification has removed as a false positive. This provides a powerful insight into the value of VLMs as part of a real-time computer vision application. |  |  |
+| Verdict | Expand your filter to identify alerts that have been either **rejected** or **confirmed**. There is a third status for **verification failed**, that can be used to identify potential system setup or configuration issues. |  |  |
+| Period | Pulldown allows users to select the time period that the alert page should show. From the pull-down you can select between 10 minutes to two hours. In addition there is an option to enter a custom value. |  |  |
+| Sensor | Pulldown with all sensors available in the system. |  |  |
+| Alert Type | The current release only supports collision. This can be expanded as needed. |  |  |
+| Alert Triggered | The alert triggered by can filter by: | Abnormal movement | Stop by speed |
+| Refresh frequency icon | Allows to turn on/off auto refresh and configure the refresh interval. |  |  |
+
+### Dashboard
+
+#### Explore the data in Kibana
+
+You can explore traffic data in Kibana at `http://<HOST_IP>:7777/kibana/`. An init container imports a custom dashboard for the Smart City app and creates all the required indexes. Access the dashboard by going to Menu > Dashboard and clicking on the ITS dashboard. To see the results corresponding to a particular sensor, click on the filter button, select the sensor keyword and enter the sensor name.
+
+![Smart City Kibana Dashboard](/assets/images/scbp/kibana_its_dashboard_1.png)
+
+![Smart City Kibana Dashboard Details](/assets/images/scbp/kibana_its_dashboard_2.png)
+
+**Dashboard Charts**
+
+The dashboard provides several visualizations to analyze traffic patterns:
+
+- **Sensor Table**: Displays the count of objects detected per sensor, helping identify high-traffic intersections.
+- **Vehicle Speed**: A donut chart showing the distribution of vehicle speeds in miles per hour, grouped into ranges (0-15, 15-30, 30-45, etc.).
+- **Vehicle Distance**: Shows the distribution of distances traveled by detected vehicles in meters.
+- **Direction**: Visualizes the directional distribution of vehicle movement (North, South, East, West).
+
+**Alerts and VLM Verified Alerts**
+
+The bottom section of the dashboard displays alert information:
+
+- **Alerts Count**: Shows all alerts generated by the CV pipeline, categorized by sensor and analytics module (Stop Anomaly Module, Movement Anomaly Module).
+- **VLM Verified Alerts Count**: Displays alerts that have been verified by the Vision Language Model (VLM). This helps distinguish true positives from false alarms by leveraging VLM reasoning capabilities.
+- **Incidents Count**: Shows all incidents generated by the CV pipeline, categorized by sensor and type.
+- **VLM Verified Incidents Count**: Shows incidents that have passed VLM verification, providing higher confidence results.
+
+The Kibana dashboard is a powerful tool to visualize data. You can interact with any of the visualization panels to filter the data according to a selection. For example, clicking on the 'west' direction on the direction panel will filter the data across the dashboard to only show results for vehicles travelling westward. You can read more about dashboards in the official [Kibana dashboard documentation](https://www.elastic.co/guide/en/kibana/current/dashboard.html).
+
+### Map
+
+#### City Level View
+
+![Visual Glossary City Level View](/assets/images/scbp/its-visual-glossary-city.svg)
+
+The city level view is default upon loading the web client. This section discusses in detail the specific UI features available at this view level along with intersections.
+
+##### City context header bar
+
+![City Context Header Bar](/assets/images/scbp/its-city-level-city-context-header-bar.svg)
+
+The city context header bar contains City Name on the left and the current UTC in GMT time for the city on the right.
+
+##### Intersection markers
+
+![City Context Intersection Marker Tooltip](/assets/images/scbp/its-city-level-intersection-marker-tooltip.svg)
+
+Intersection Markers can be of three colors - green, blue and red. The green color signifies active intersection, which means at-least one of the cameras at the intersection is giving out data to the MDX System. The blue color signifies that the intersection belongs to the current selected corridor, (corridor selection is discussed in one of the subsections below). The red color signifies there was a recent severe alert at the intersection. To dismiss the red color that acts as an alert, the user can go inside the intersection level view of the intersection. When the user comes back to the city view, the red colored icon now shows as green or blue.
+
+##### City Level Road Network
+
+The road network is constructed of smaller road segments. Each road segment can be interacted with individually by the user.
+
+![City Context Road Segments](/assets/images/scbp/its-city-level-road-segments.svg)
+
+In the image above, two of the upper horizontal road segments can be seen colored orange and green. The significance of the colors is explained in the Speed Legend sub-section. In brief, these colors depict the range of the average vehicle speed around that area on road in the real world.
+
+However, the grey colored segments are discussed here. The grey colored segments are called the inactive segments. These segments are those which have not been marked active since the launch of the current instance of the web client. A segment is marked active when at least once since the launch of the UI instance, the UI has received either a positive vehicle count or an average vehicle speed for the segment. For inactive segments, the tooltip text,upon hovering the mouse over, notifies user of the inactive state of the segment.
+
+The active road segments can be interacted more and Speed display boxes can be spawned for more information. Speed boxes are explained in one of the following sub-sections.
+
+##### Speed legend
+
+![City Context Speed Legend](/assets/images/scbp/its-city-level-speed-legend.svg)
+
+The speed legend UI component is a static component. The left most color depicts busy traffic at a road segment and the right most color depicts free flowing traffic. The colored boxes can be hovered upon to see the range of integral speed they depict.
+
+###### Intersection Level Live View
+
+![Visual Glossary Intersection Level Live View"](/assets/images/scbp/its-visual-glossary-intersection-live.svg)
+
+The user reaches the intersection level view for an intersection upon left-clicking an intersection icon in the city view. This section discusses, in detail, the specific UI features available at this view level.
+
+##### Going back to city view
+
+![Intersection view back to city](/assets/images/scbp/its-intersection-level-back-to-city.svg)
+
+The city context header bar shows the same in the intersection view with one difference. The city name on the left of the bar now can be clicked to go back to the city view from the intersection view.
+
+##### Alerts Panel
+
+The alerts panel in the live mode, shows a list of recent alerts captured by any of the cameras at the intersection. These alerts are single clickable items. Clicking on any alert leads to the alert view mode for that alert.
+
+The 'Last Updated Time' in GMT/UTC shows that time of the last event updated by the MDX detection module for any of the cameras at the intersection.
+
+##### Alert View mode
+
+![Visual Glossary Intersection Level Alert View](/assets/images/scbp/its-visual-glossary-intersection-alert.svg)
+
+The alert view mode at the intersection level is to present a contextual graphics for a selected alert. During this mode, some of the live view mode functionalities get replaced - Alerts list, live video feed, real-time dynamic road links, KPIs.
+
+The alerts panel in this mode shows the selected alert only along with the back button to go back to the live mode.
+
+![Intersection view Alert View Trajectory](/assets/images/scbp/its-intersection-level-alert-view-trajectory.svg)
+
+Instead of real-time dynamically changing overlaid road segments on the map, in this mode, anomaly vehicle trajectory is shown in an animated fashion.
+The circle icon on the trajectory line is animated over the trajectory, giving a sense of direction of movement of the vehicle.
+This animation helps in cases where the traveled direction by the vehicle is a lot different from the expected.
+The vehicle ID is the one generated by the Video Analytics layer.
+Change in color to grey of the animation circle icon, denotes end of the animation.
+
+The video played in this case is the segment of the detected traffic anomaly for the alert which has been retrieved from the VMS using the MMS APIs. The anomaly video playback auto starts by default upon entering the alert view for an anomaly. The trajectory animation along with the video can help recognize the vehicle in the video more conveniently.
+
+The KPI panel in this mode is not shown since live KPIs are incongruent with an alert recorded in past time.
+
+'Last Updated Time' is also not shown in this mode.
+
+##### Intersection KPIS
+
+![Intersection view kpi](/assets/images/scbp/its-intersection-level-kpi.svg)
+
+The KPI panel shows the same as the city level, with the difference that the KPI metrics may be different as these sets are pertaining to an intersection and not a corridor. The other difference is that the KPI panel is prepended with the current intersection name instead of a corridor name.
+
+##### Cameras
+
+![Intersection view camera marker](/assets/images/scbp/its-intersection-level-camera-marker.svg)
+
+The cameras installed at an intersection in the real world are drawn as camera icons on the 2D map surface along with their real world orientation and the field of view. The radius in pixels of the field of view arc drawn is approximated to the real world distance.
+
+A selected camera in the view is a color-filled icon, while the others are outlined only. At any moment, there can be only one selected camera.
+
+In the live view, the video feed from the selected camera, is streamed.
+
+##### Roads Network at Intersection level
+
+The only difference between the road network shown at the intersection level and the city level is - only roads pertaining to the intersection are drawn on the map rather than a wider city. So if the map is panned away from the center of the intersection, then no other road components would be visible that were at the city level.
+
+The colors showing the traffic density show up in the same way as the city level. The speed display boxes are also spawned and interacted in the same way as before.
+
+##### Clustering Behavior
+
+![Intersection view Clustering Behavior](/assets/images/scbp/its-intersection-level-clustering-behaviour.svg)
+
+To see the clustering widget right click on a sensor in the intersection live mode. The clustering behavior is shown for a single camera. The widget has following items:
+
+* Title bar: Shows the selected camera name
+* Left top widget menu
+* Left bottom Bar Chart view of Clusters
+* Geo Map view of Clusters

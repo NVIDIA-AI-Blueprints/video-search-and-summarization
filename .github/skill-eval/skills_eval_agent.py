@@ -359,6 +359,194 @@ async def _block_bash_background(input_data, tool_use_id, context):
     return {}
 
 
+def build_user_prompt(*, eval_kind: str, eval_skill: str, eval_spec_path: str,
+                      eval_platform: str, eval_slug: str, eval_spec_stem: str,
+                      pr_repo: str, pr_number: str, pr_base: str, pr_head: str,
+                      run_id: str, manual: bool, daily_run: bool) -> str:
+    """Build the turn prompt for one leg.
+
+    Module level and free of any SDK dependency so the prompt each branch
+    actually sends can be asserted directly in a test. Nothing constructed a
+    prompt in a test before, which is how a change that wired only the PR
+    branch and left the nightly branch rebuilding the table by hand looked
+    complete.
+    """
+    results_root, summary_path, report_path = leg_paths(
+        eval_slug, eval_spec_stem)
+
+    # Single-sourced so the PR leg and the nightly leg cannot drift apart:
+    # both render through leg_report.py and both must land the body where
+    # build_benchmark_md() globs for it.
+    render_block = f"""→ render the comment with ONE command (§ Result comment format):
+
+    python3 {REPO_ROOT}/.github/skill-eval/leg_report.py \\
+      --results-root "{results_root}" --spec-path "{eval_spec_path}" \\
+      --platform "{eval_platform}" --head-sha "{pr_head}" \\
+      --summary-json "{summary_path}" \\
+      --out "{report_path}"
+
+  Every path above is absolute on purpose. Do NOT substitute $RES or
+  $SCRATCH: shell state does not persist between Bash calls, so they are
+  unset and would silently render an empty results tree.
+  DO NOT read the results tree, trajectories or judge.json yourself and DO
+  NOT rebuild the table by hand — the renderer owns the format, and doing it
+  by hand is what used to cost ~114s of rediscovery per leg.
+  If the renderer exits NON-ZERO the leg FAILED. Do not inspect raw results
+  and do not use `BLOCKED`; end with
+  `DONE: 0/1 specs passed; leg_report.py failed (exit N)`."""
+
+    verdict_block = f"""After a zero renderer exit, read `{summary_path}` for the verdict. The leg
+passed only if every entry in `steps[]` has `state == "recorded-pass"`;
+`recorded-fail`, `no-verdict`, `not-run` and `ambiguous` all mean it did not.
+A non-empty `collection_errors` also means it did not."""
+
+    if eval_kind == "missing_adapter":
+        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
+        user_prompt = f"""
+{target}: skill `{eval_skill}` ships eval specs but has NO adapter at
+`.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
+collapsed every spec on this skill into this one leg so the adapter is
+committed exactly once.
+
+Context:
+  repo         = {pr_repo}
+  PR number    = {pr_number or "(manual sweep — no PR)"}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+
+Per AGENTS.md § "Single-spec mode" (missing-adapter case) + § 3c: generate
+the adapter and COMMIT it directly to the source PR's `headRefName` (NOT the
+mirror) so the eval re-runs against it on the next sync. Do NOT run any trial
+in this leg (the re-run evaluates the committed adapter), and do NOT post a
+results comment. For an external-fork PR (the bot can't push to a fork),
+comment that the contributor must add the adapter and BLOCK instead. If this
+is a manual sweep (`PR number` above is blank) there is no branch to commit
+to — record the missing adapter in `$GITHUB_STEP_SUMMARY` and BLOCK.
+
+End with `BLOCKED: missing adapter for {eval_skill} auto-committed (<sha>)`
+once pushed, `BLOCKED: fork PR — adapter must be added by the contributor`
+for a fork, `BLOCKED: missing adapter for {eval_skill} (manual sweep)` for a
+manual run, or `BLOCKED: <reason>` if you could not commit.
+"""
+    elif daily_run:
+        user_prompt = f"""
+Develop: evaluate exactly ONE spec on ONE platform —
+`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
+
+Context:
+  repo         = {pr_repo}
+  base branch  = develop
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+  spec         = {eval_spec_path}
+  platform     = {eval_platform or "(read from spec)"}
+  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
+
+Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
+already selected this (spec, platform). Run steps 2–7 for it only:
+ensure its adapter exists under `.github/skill-eval/adapters/{eval_skill}/`
+(missing/stale → just skip this spec)
+→ generate the dataset → acquire a per-box flock
+on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run harbor synchronously for this platform (§ Harbor invocation; never
+background it)
+{render_block}
+→ append `{report_path}` to `$GITHUB_STEP_SUMMARY` (no PR to comment on).
+Do NOT touch any other spec or skill.
+
+{verdict_block}
+
+End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
+<the failing steps and their states>` when it did not, or
+`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
+"""
+    else:
+        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
+        post_step = (
+            "append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on)"
+            if manual else "post ONE PR comment for this spec"
+        )
+        user_prompt = f"""
+{target}: evaluate exactly ONE spec on ONE platform —
+`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
+
+Context:
+  repo         = {pr_repo}
+  PR number    = {pr_number or "(manual sweep — no PR)"}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+  spec         = {eval_spec_path}
+  platform     = {eval_platform or "(read from spec)"}
+  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
+
+Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
+already selected this (spec, platform). Run steps 2–7 for it only:
+ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
+(missing/stale → handle per § 3c, then exit BLOCKED — never run a
+locally-patched adapter in this leg) → generate the dataset → select a
+`vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
+never background it; the wrapper holds the per-box lock while Harbor runs)
+{render_block}
+→ {post_step}, posting `{report_path}` verbatim
+  (`gh pr comment --body-file`).
+Do NOT touch any other spec or skill.
+
+{verdict_block}
+
+End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
+<the failing steps and their states>` when it did not, or
+`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
+"""
+    return user_prompt
+
+
+def leg_paths(eval_slug: str, eval_spec_stem: str = "spec") -> tuple[Path, Path, Path]:
+    """Return (results_root, summary_path, report_path) for one leg.
+
+    Absolute and precomputed: the agent's Bash tool starts a fresh shell per
+    call, so a command written against $RES / $SCRATCH would expand to empty
+    strings and render an empty tree.
+
+    The body is keyed by EVAL_SLUG, never the spec stem. Stems are not unique
+    across skills (`search` and `standalone_deploy` are each shared by more
+    than one skill, covering 5 legs of the current matrix), and every leg of a
+    run shares the scratch dir on a self-hosted runner host, so a stem-keyed
+    name lets one leg overwrite another leg's comment. plan_matrix.py already uniqueness-checks the slug, and the
+    resulting name still matches BENCHMARK_INPUT_GLOB.
+    """
+    results_root = Path(f"/tmp/skill-eval/results/{eval_slug}/{_RUN_ID}")
+    return (results_root,
+            results_root / "leg-summary.json",
+            _SCRATCH / f"pr-{eval_slug or eval_spec_stem}.md")
+
+
+def missing_renderer_outputs(marker: str, results_root: Path,
+                             summary_path: Path,
+                             report_path: Path) -> list[Path]:
+    """Renderer outputs that must exist but do not, given the agent's marker.
+
+    leg_report.py exits 2 (no trials) or 3 (unusable spec) and can crash, and
+    none of that reaches this process, which gates only on the final marker.
+    Without this, `BLOCKED: leg_report.py crashed` is a GREEN check on a leg
+    that really ran. Both prompts forbid rebuilding the table by hand, so
+    there is no correct-but-slow fallback to fall back on either.
+
+    A genuine pre-trial BLOCKED stays green: it has no trials and claims no
+    DONE, so nothing is required of it. Returns [] when nothing is owed.
+    """
+    owes_output = marker.startswith("DONE:") or any(
+        results_root.rglob("result.json"))
+    if not owes_output:
+        return []
+    return [p for p in (summary_path, report_path) if not p.is_file()]
+
+
 def _last_nonempty_line(text_blocks: list[str]) -> str | None:
     """Return the final printed assistant line without accepting leading space."""
     for block in reversed(text_blocks):
@@ -470,6 +658,10 @@ async def run_agent() -> int:
     eval_skill = _require("EVAL_SKILL")
     eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
     eval_platform = os.environ.get("EVAL_PLATFORM", "")
+    # The workflow exports this alongside EVAL_SPEC_PATH; the renderer writes
+    # `$SCRATCH/pr-<spec>.md` and the benchmark step globs for exactly that.
+    eval_spec_stem = os.environ.get("EVAL_SPEC_STEM", "") or "spec"
+    eval_slug = os.environ.get("EVAL_SLUG", "")
     manual = not pr_number
 
     if not AGENTS_MD.exists():
@@ -478,100 +670,14 @@ async def run_agent() -> int:
 
     system_prompt = AGENTS_MD.read_text()
 
-    if eval_kind == "missing_adapter":
-        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
-        user_prompt = f"""
-{target}: skill `{eval_skill}` ships eval specs but has NO adapter at
-`.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
-collapsed every spec on this skill into this one leg so the adapter is
-committed exactly once.
-
-Context:
-  repo         = {pr_repo}
-  PR number    = {pr_number or "(manual sweep — no PR)"}
-  base branch  = {pr_base}
-  mirror head  = {pr_head}
-  workflow run = {run_id}
-  working dir  = {REPO_ROOT}
-
-Per AGENTS.md § "Single-spec mode" (missing-adapter case) + § 3c: generate
-the adapter and COMMIT it directly to the source PR's `headRefName` (NOT the
-mirror) so the eval re-runs against it on the next sync. Do NOT run any trial
-in this leg (the re-run evaluates the committed adapter), and do NOT post a
-results comment. For an external-fork PR (the bot can't push to a fork),
-comment that the contributor must add the adapter and BLOCK instead. If this
-is a manual sweep (`PR number` above is blank) there is no branch to commit
-to — record the missing adapter in `$GITHUB_STEP_SUMMARY` and BLOCK.
-
-End with `BLOCKED: missing adapter for {eval_skill} auto-committed (<sha>)`
-once pushed, `BLOCKED: fork PR — adapter must be added by the contributor`
-for a fork, `BLOCKED: missing adapter for {eval_skill} (manual sweep)` for a
-manual run, or `BLOCKED: <reason>` if you could not commit.
-"""
-    elif daily_run:
-        user_prompt = f"""
-Develop: evaluate exactly ONE spec on ONE platform —
-`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
-
-Context:
-  repo         = {pr_repo}
-  base branch  = develop
-  mirror head  = {pr_head}
-  workflow run = {run_id}
-  working dir  = {REPO_ROOT}
-  spec         = {eval_spec_path}
-  platform     = {eval_platform or "(read from spec)"}
-  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
-
-Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
-already selected this (spec, platform). Run steps 2–7 for it only:
-ensure its adapter exists under `.github/skill-eval/adapters/{eval_skill}/`
-(missing/stale → just skip this spec)
-→ generate the dataset → acquire a per-box flock
-on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
-run harbor synchronously for this platform (§ Harbor invocation; never
-background it) → gather results →
-append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on). Do NOT touch
-any other spec or skill.
-
-End with `DONE: N/N specs passed; <optional summary>` after posting the comment, or
-`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
-"""
-    else:
-        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
-        post_step = (
-            "append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on)"
-            if manual else "post ONE PR comment for this spec"
-        )
-        user_prompt = f"""
-{target}: evaluate exactly ONE spec on ONE platform —
-`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
-
-Context:
-  repo         = {pr_repo}
-  PR number    = {pr_number or "(manual sweep — no PR)"}
-  base branch  = {pr_base}
-  mirror head  = {pr_head}
-  workflow run = {run_id}
-  working dir  = {REPO_ROOT}
-  spec         = {eval_spec_path}
-  platform     = {eval_platform or "(read from spec)"}
-  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
-
-Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
-already selected this (spec, platform). Run steps 2–7 for it only:
-ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
-(missing/stale → handle per § 3c, then exit BLOCKED — never run a
-locally-patched adapter in this leg) → generate the dataset → select a
-`vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
-run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
-never background it; the wrapper holds the per-box lock while Harbor runs)
-→ gather results →
-{post_step} (§ Result comment format). Do NOT touch any other spec or skill.
-
-End with `DONE: N/N specs passed; <optional summary>` after posting the result, or
-`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
-"""
+    user_prompt = build_user_prompt(
+        eval_kind=eval_kind, eval_skill=eval_skill,
+        eval_spec_path=eval_spec_path, eval_platform=eval_platform,
+        eval_slug=eval_slug, eval_spec_stem=eval_spec_stem,
+        pr_repo=pr_repo, pr_number=pr_number, pr_base=pr_base,
+        pr_head=pr_head, run_id=run_id, manual=manual, daily_run=daily_run)
+    results_root, summary_path, report_path = leg_paths(
+        eval_slug, eval_spec_stem)
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
     print(f"[agent] starting · pr={pr_number} base={pr_base} head={pr_head[:8]} "
@@ -663,6 +769,23 @@ End with `DONE: N/N specs passed; <optional summary>` after posting the result, 
     # result; 0/N and partial N/M outcomes are completed eval failures.
     exit_code, reason = _evaluate_terminal_marker(final_text)
     print(f"[agent] {reason}", file=sys.stderr)
+
+    # Fail closed on a renderer that never produced output. leg_report.py
+    # exits 2 (no trials) or 3 (unusable spec) and can crash; none of that
+    # reaches this process, which gates only on the agent's final marker. So
+    # `BLOCKED: leg_report.py crashed` would otherwise be a GREEN check on a
+    # leg that really ran. Both prompts now forbid rebuilding the table by
+    # hand, so there is no correct-but-slow fallback to rely on either.
+    # A genuine pre-trial BLOCKED stays green: no result.json, no DONE.
+    if eval_kind == "eval" and exit_code == 0:
+        missing = missing_renderer_outputs(
+            _last_nonempty_line(final_text) or "",
+            results_root, summary_path, report_path)
+        if missing:
+            names = ", ".join(str(p) for p in missing)
+            print(f"[agent] mandatory renderer output missing: {names}",
+                  file=sys.stderr)
+            return _EVAL_FAILURE_EXIT_CODE
     return exit_code
 
 

@@ -42,7 +42,8 @@ from handlers.prompt_handler.prompt_manager import PromptManager
 CONFIG_YAML = "prompt:\n  prefer_payload_prompt: false\n"
 
 
-def make_manager(config_yaml=CONFIG_YAML, store=None, loader=None, loader_error=None):
+def make_manager(config_yaml=CONFIG_YAML, store=None, loader=None, loader_error=None,
+                 seed_prompts=True):
     """Build a PromptManager with the config file, store and loader stubbed."""
     store = MagicMock() if store is None else store
     with patch("builtins.open", mock_open(read_data=config_yaml)), patch(
@@ -52,7 +53,7 @@ def make_manager(config_yaml=CONFIG_YAML, store=None, loader=None, loader_error=
         side_effect=loader_error,
         return_value=MagicMock() if loader is None else loader,
     ):
-        return PromptManager("config.yaml")
+        return PromptManager("config.yaml", seed_prompts=seed_prompts)
 
 
 @pytest.fixture
@@ -72,6 +73,37 @@ def manager(store):
 
 
 MESSAGE = {"category": "collision", "sensorId": "cam-1"}
+
+
+class TestStartupSeeding:
+    """The startup write is per instance; reads stay per pipeline.
+
+    With several pipeline processes per instance, every one of them seeding
+    would issue the same writes against a shared store concurrently, and a
+    later process could overwrite a prompt the verification API had already
+    changed on an earlier one.
+    """
+
+    OVERRIDE = "prompt:\n  override_prompts_on_start: true\n"
+
+    @staticmethod
+    def _seeds(**kwargs):
+        with patch.object(PromptManager, "_seed_prompts_to_store") as seed:
+            make_manager(**kwargs)
+        return seed.called
+
+    def test_seeds_by_default(self):
+        assert self._seeds(config_yaml=self.OVERRIDE) is True
+
+    def test_does_not_seed_when_not_the_seeding_process(self):
+        assert self._seeds(config_yaml=self.OVERRIDE, seed_prompts=False) is False
+
+    def test_still_silent_when_override_is_off(self):
+        assert self._seeds(config_yaml=CONFIG_YAML) is False
+
+    def test_reads_stay_available_without_seeding(self, store):
+        manager = make_manager(config_yaml=self.OVERRIDE, store=store, seed_prompts=False)
+        assert manager.alert_config_store is store
 
 
 class TestConstruction:

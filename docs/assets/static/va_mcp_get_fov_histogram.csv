@@ -1,0 +1,7 @@
+Parameter,Type,Description
+source,string,Sensor ID or place name
+source_type,string,"``sensor`` or ``place``"
+start_time,string,ISO format: ``YYYY-MM-DDTHH:MM:SS.sssZ``
+end_time,string,ISO format: ``YYYY-MM-DDTHH:MM:SS.sssZ``
+object_type,string,"Optional filter: ``Person``, ``Vehicle``"
+bucket_count,int,Number of time buckets (default: 10)

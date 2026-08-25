@@ -270,5 +270,24 @@ INGRESS_SERVICES.update(
             describe="/rtvi-vlm/v1/models",
             describes="models",
         ),
+        # Long-video summarization, its own service rather than a route on the
+        # agent: it serves POST /v1/summarize on its own port, and the agent
+        # exposes no summarize endpoint to proxy it.
+        #
+        # Probed on liveness, not readiness: /v1/ready answers 503 through
+        # several minutes of model warmup, which would record the route as
+        # absent on a deployment that is merely still starting, while /v1/live
+        # answers as soon as the service is listening.
+        #
+        # Described from /models -- unprefixed, unlike the /v1 health routes,
+        # and verified OpenAI-shaped against a live deployment. It reports the
+        # VLM this service summarizes with, so the config carries the backend's
+        # own answer instead of a model id someone typed.
+        "lvs": ServiceRoute(
+            mount="/lvs",
+            probe="/lvs/v1/live",
+            describe="/lvs/models",
+            describes="models",
+        ),
     }
 )

@@ -40,7 +40,7 @@ the mapping above is the composition surface, not a second source of truth.
 
 | Environment variable | Use |
 |---|---|
-| `PERCEPTION_IMAGE`, `PERCEPTION_TAG` | Select the RT-CV image. |
+| `VSS_RT_CV_IMAGE`, `VSS_RT_CV_TAG` | Select the RT-CV image. |
 | `RT_CV_DEVICE_ID`, `RTVI_CV_PORT`, `RTVI_CV_HOST_PORT` | Select GPU and ports. |
 | `MODEL_TYPE`, `MODEL_NAME_2D`, `DS_MODEL_FAMILY` | Select the detector/model family supported by mounted configs. This also fixes the **class-label taxonomy** — the exact class names and their casing emitted on `mdx-raw`. Different model families emit different label sets and casing, so Foundations that ship different families are not interchangeable here. |
 | `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the Search vision encoder NGC package. |

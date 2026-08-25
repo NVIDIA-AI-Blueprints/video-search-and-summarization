@@ -31,7 +31,6 @@ from handlers.async_dispatch_mixin import (
 class _DispatchStub(AsyncDispatchMixin):
     def __init__(self, pipeline_mode=PIPELINE_MODE_EVENT_LOOP, max_in_flight=2):
         self.pipeline_mode = pipeline_mode
-        self.async_io_enabled = pipeline_mode == PIPELINE_MODE_THREAD_BRIDGE
         self._message_dispatch_lock = threading.Lock()
         self._message_dispatch_futures = set()
         self.async_dispatch_max_in_flight = max_in_flight

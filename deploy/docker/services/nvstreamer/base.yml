@@ -20,7 +20,7 @@
 # would leak into every service that extends it.
 services:
   nvstreamer-base:
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     container_name: vss-vios-nvstreamer
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
@@ -33,6 +33,11 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      # Install from the shared APT cache (populated by vios-apt-cache-init in
+      # the streamprocessing compose) instead of downloading. The ro mount and
+      # the dependency below are inherited by every nvstreamer variant via
+      # `extends`; the volume and init service share this project via `include`.
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
@@ -46,6 +51,10 @@ services:
       - ${VSS_APPS_DIR}/services/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/services/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - vios_apt_cache:/opt/apt-cache:ro
+    depends_on:
+      vios-apt-cache-init:
+        condition: service_completed_successfully
     deploy:
       restart_policy:
         condition: on-failure

@@ -7,6 +7,32 @@
 {{- $kibanaStackEnabled := and $fk (default true $fk.enabled) }}
 {{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
 {{- $phoenixStackEnabled := and $fp (default true $fp.enabled) }}
+{{/*
+  CLI edge routes, matching the mounts the Docker edge publishes in
+  deploy/docker/services/infra/haproxy/haproxy.cfg.template so `vss configure`
+  resolves the same paths on both. `vss summarize run` needs /lvs to reach the
+  summarization API and /elasticsearch to persist the job to unified memory.
+
+  Off by default, as in dev-profile-search: enabling it publishes Elasticsearch
+  on the public origin with no per-path guard, because an Ingress annotation
+  cannot express one.
+
+  Summarization is bounded by the ingress-wide timeouts below rather than by the
+  CLI's --request-timeout-seconds, so a run that outlasts them arrives as a 504
+  -- exit 3 and a terminal `failed` record -- for a job LVS is probably still
+  working on. Both routes to that backend are affected: /v1/summarize, which
+  direct API callers use, and /lvs, which the CLI resolves through.
+
+  The default is therefore 3600s, matching the CLI's own default, the Docker
+  edge's per-backend `timeout server`, and dev-profile-search, which this
+  profile's cliRoutes block is modelled on. Unlike Docker, an Ingress
+  annotation cannot scope that to one backend, so it does apply to every route
+  here; the narrower fix is a `haproxy.org/backend-config-snippet` on the
+  summarization Service, which is worth doing if the wide ceiling ever costs
+  something.
+*/}}
+{{- $cli := $vi.cliRoutes | default dict }}
+{{- $cliOn := default false $cli.enabled }}
 {{- if $host }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -19,15 +45,23 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   annotations:
     # LVS /v1/summarize runs the full chunk -> VLM caption -> merge -> aggregate
-    # pipeline and can take several minutes. Raise the HAProxy timeouts well
-    # above the 50s controller default so the ingress does not return a
-    # 504 Gateway Time-out while the summarization backend is still working.
-    haproxy.org/timeout-client: {{ $vi.timeoutClient | default "600s" | quote }}
-    haproxy.org/timeout-server: {{ $vi.timeoutServer | default "600s" | quote }}
-  {{- if $phoenixStackEnabled }}
+    # pipeline, which on a long video outlasts ten minutes. Raise the HAProxy
+    # timeouts well above the 50s controller default so the ingress does not
+    # return a 504 Gateway Time-out while the backend is still working.
+    haproxy.org/timeout-client: {{ $vi.timeoutClient | default "3600s" | quote }}
+    haproxy.org/timeout-server: {{ $vi.timeoutServer | default "3600s" | quote }}
+  {{- if or $phoenixStackEnabled $cliOn }}
     haproxy.org/path-rewrite: |
+    {{- if $phoenixStackEnabled }}
       /phoenix/(.*) /\1
       /phoenix /
+    {{- end }}
+    {{- if $cliOn }}
+      /lvs/(.*) /\1
+      /lvs /
+      /elasticsearch/(.*) /\1
+      /elasticsearch /
+    {{- end }}
   {{- end }}
 spec:
   ingressClassName: {{ default "haproxy" $vi.ingressClassName | quote }}
@@ -135,6 +169,22 @@ spec:
                 name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
                 port:
                   number: {{ $vi.vstIngressPort }}
+{{- if $cliOn }}
+          - path: /lvs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }}
+                port:
+                  number: {{ $vi.lvsBackendPort | default 38111 }}
+          - path: /elasticsearch
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "elasticsearch") }}
+                port:
+                  number: {{ $cli.elasticsearchPort | default 9200 }}
+{{- end }}
 {{- if $phoenixStackEnabled }}
           - path: /phoenix
             pathType: Prefix

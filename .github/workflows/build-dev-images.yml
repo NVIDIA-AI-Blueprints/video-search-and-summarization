@@ -128,6 +128,16 @@ jobs:
           git lfs install --local
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
 
+      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
+        run: |
+          for lfs_asset in \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s "$lfs_asset"
+          done
+
       - name: Compute immutable candidate coordinates
         id: meta
         run: |
@@ -137,7 +147,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -186,6 +196,18 @@ jobs:
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392  # v3.6.0
 
+      # Multiarch images retain both emulated-platform layers in BuildKit's
+      # content store. Reclaim preinstalled hosted-runner tooling first so the
+      # standard build has sufficient working space.
+      - name: Reclaim disk space for standard image build
+        if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo apt-get clean
+          sudo docker system prune --all --force --volumes
+          df -h /
+          docker system df
+
       - name: Set up Buildx
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
@@ -197,6 +219,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
+          build-args: ${{ matrix.build_args }}
           push: true
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
@@ -213,6 +236,13 @@ jobs:
             index:com.nvidia.vss.image_name=${{ matrix.name }}
             index:com.nvidia.vss.source_path=${{ matrix.source_path }}
             index:com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
+
+      - name: Remove local standard build cache
+        if: always() && steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
+        run: |
+          docker buildx prune --all --force || true
+          sudo docker system prune --all --force --volumes || true
+          df -h /
 
       # Post-push proof of the gate contract: read the labels back through the
       # SAME code path check-*-container-source uses and require the tree hash,
@@ -296,6 +326,16 @@ jobs:
           git lfs install --local
           git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
 
+      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
+        run: |
+          for lfs_asset in \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s "$lfs_asset"
+          done
+
       - name: Compute immutable candidate coordinates
         id: meta
         run: |
@@ -305,7 +345,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Compute platform staging tag
@@ -353,6 +393,20 @@ jobs:
             --ref "${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}" \
             --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
 
+        # Reclaim preinstalled hosted-runner tooling before BuildKit starts allocating
+        # its content store so the native build has sufficient working space.
+      - name: Reclaim disk space for native image build
+        if: >-
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo apt-get clean
+          sudo docker system prune --all --force --volumes
+          df -h /
+          docker system df
+
       - name: Set up Buildx
         if: >-
           steps.candidate-preflight.outputs.skip != 'true' &&
@@ -370,6 +424,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
+          build-args: ${{ matrix.build_args }}
           push: true
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.arch }}
@@ -378,6 +433,17 @@ jobs:
             com.nvidia.vss.image_name=${{ matrix.name }}
             com.nvidia.vss.source_path=${{ matrix.source_path }}
             com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
+
+      - name: Remove local native build cache
+        if: >-
+          always() &&
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        run: |
+          docker buildx prune --all --force || true
+          sudo docker system prune --all --force --volumes || true
+          df -h /
 
       - name: Verify platform staging labels
         if: >-
@@ -430,7 +496,7 @@ jobs:
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
-            --tag-suffix "${{ matrix.tag_suffix }}" \
+            --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -474,15 +540,23 @@ jobs:
 
       - name: Merge native platform images into multiarch candidate
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
+        env:
+          PLATFORM_LIST: ${{ matrix.platforms }}
         run: |
+          platform_refs=()
+          for platform in ${PLATFORM_LIST//,/ }; do
+            platform_refs+=(
+              "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${platform##*/}"
+            )
+          done
+
           docker buildx imagetools create \
             --annotation "index:com.nvidia.vss.image_name=${{ matrix.name }}" \
             --annotation "index:com.nvidia.vss.source_path=${{ matrix.source_path }}" \
             --annotation "index:com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-amd64" \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-arm64"
+            "${platform_refs[@]}"
 
       - name: Verify pushed labels satisfy the container-source gate
         env:

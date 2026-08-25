@@ -14,47 +14,45 @@
 # limitations under the License.
 
 apiVersion: v2
-name: vss
+name: vss-dev-profile-lvs
 description: "VSS stack - Helm chart for developer profiles - LVS (Long Video Summarization)"
 type: application
-version: 3.2.1
+version: 3.3.0
 appVersion: "1.0"
 dependencies:
   - name: infra
-    version: 3.2.0
+    version: 3.3.0
     repository: "file://../../services/infra"
     condition: infra.enabled
   - name: vios
-    version: 3.2.0
+    version: 3.3.0
     repository: "file://../../services/vios"
     condition: vios.enabled
   - name: agent
-    version: 3.2.0
+    version: 3.3.0
     repository: "file://../../services/agent"
     condition: agent.enabled
   - name: vss-agent-ui
-    version: 3.2.0
+    version: 3.3.0
     repository: "file://../../services/ui"
     condition: vss-agent-ui.enabled
   - name: nims
-    version: 3.2.0
+    version: 3.3.0
     repository: "file://../../services/nims"
     condition: nims.enabled
   - name: vss-summarization
-    version: 3.2.1
+    version: 3.3.0
     repository: "file://../../services/video-summarization"
     condition: vss-summarization.enabled
   - name: rtvi
-    version: 3.2.1
+    version: 3.3.0
     repository: "file://../../services/rtvi"
     condition: rtvi.enabled
-  # Mirrors the LVS compose profile's dcgm-exporter opt-in (see
-  # deploy/docker/developer-profiles/dev-profile-lvs/overrides.env,
-  # COMPOSE_PROFILES=...,dcgm-exporter,...). Chart-level toggle;
-  # sub-services (prometheus/grafana/node-exporter/dcgm) are gated by
-  # monitoring.*.enabled in values-lvs.yaml.
+  # Optional monitoring stack. The chart-level toggle and individual
+  # monitoring.*.enabled values are disabled by default so clusters that
+  # already use the GPU Operator do not get a duplicate dcgm-exporter.
   - name: monitoring
-    version: 3.2.0
+    version: 3.3.0
     repository: "file://../../services/monitoring"
     condition: monitoring.enabled
   # Optional HAProxy Kubernetes Ingress controller was previously vendored here; it pulled

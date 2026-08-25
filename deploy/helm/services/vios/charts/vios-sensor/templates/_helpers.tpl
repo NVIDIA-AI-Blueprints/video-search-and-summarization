@@ -34,7 +34,16 @@
 {{- define "vss-vios-sensor.streamprocessingSharedPvcBase" -}}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
-{{- define "vss-vios-sensor.image" -}}{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}{{- end -}}
+{{- define "vss-vios-sensor.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-vios-sensor" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
 {{/* Matches charts/vios/charts/vios-postgres vss-vios-postgres.fullname (sibling subchart). */}}
 {{- define "vss-vios-sensor.postgresFullname" -}}
 {{- $g := .Values.global | default dict }}

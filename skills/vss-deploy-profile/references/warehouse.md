@@ -561,7 +561,7 @@ the profile-specific stream cap and per-profile tuning are skipped.
 | Platform: NVIDIA IGX Thor (kit / board) | `IGX-THOR` |
 | Platform: NVIDIA DGX Spark | `DGX-SPARK` |
 
-`HARDWARE_PROFILE=DGX-SPARK` also *requires* an SBSA-tagged `PERCEPTION_TAG` — the configurator
+`HARDWARE_PROFILE=DGX-SPARK` also *requires* an SBSA-tagged `VSS_RT_CV_TAG` — the configurator
 rejects the deployment otherwise (see the DGX-SPARK note in Phase 5).
 
 > **Do NOT use a higher profile on lower-profile hardware** (e.g. `H100` on an `L4`) — the env file warns against this directly.
@@ -592,7 +592,7 @@ So `OTHER` is a safe fallback for the **NIM sizing** half only — it still matc
 Three ways `HARDWARE_PROFILE` hard-fails a deploy:
 
 1. `BP_PROFILE=bp_wh` with `IGX-THOR` or `DGX-SPARK` — explicitly disallowed by the configurator.
-2. `HARDWARE_PROFILE=DGX-SPARK` without an `sbsa`-tagged `PERCEPTION_TAG` — enforced in all three modes.
+2. `HARDWARE_PROFILE=DGX-SPARK` without an `sbsa`-tagged `VSS_RT_CV_TAG` — enforced in all three modes.
 3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nvidia-nemotron-nano-9b-v2` ships only `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=L4` (or `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`) fails with that model. Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
 
 **Required driver versions:** see the canonical per-platform pins in [`prerequisites.md` § 1 GPU Detection](prerequisites.md#1-gpu-detection) and [§ Canonical version matrix](prerequisites.md#canonical-version-matrix) — that table also covers Ubuntu 22.04 and AGX-THOR, which the warehouse profile does not restrict. On x86 Ubuntu 24.04 the pin is **`580.105.08`**.
@@ -1182,7 +1182,7 @@ echo "$COMPOSE_PROFILES"
 
 > **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Use the [resolve-env prelude](#resolve-env); it exports the resolved value before `docker compose up`.
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variant. Comment the default `PERCEPTION_TAG="3.3.0-26.07.2"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.2"`. `PERCEPTION_TAG` is the only key with a commented `-sbsa` line in the warehouse `overrides.env` — there is nothing to uncomment for `RTVI_VLM_IMAGE_TAG`, and no warehouse variant deployable on DGX-SPARK includes `rtvi-vlm`.
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variant, which lives in the same GHCR repository. Comment the default `VSS_RT_CV_TAG` line and uncomment `VSS_RT_CV_TAG="develop-latest-sbsa"`. `VSS_RT_CV_TAG` is the only key with a commented `-sbsa` line in the warehouse `overrides.env` — there is nothing to uncomment for `RTVI_VLM_IMAGE_TAG`, and no warehouse variant deployable on DGX-SPARK includes `rtvi-vlm`.
 
 ---
 

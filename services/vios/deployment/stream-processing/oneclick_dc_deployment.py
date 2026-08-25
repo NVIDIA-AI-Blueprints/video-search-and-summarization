@@ -2370,41 +2370,86 @@ class DeploymentManager:
         return val or str(self.config.default_vst_volume)
 
     def _remove_postgres_named_volume(self) -> None:
-        """Remove the postgres named volume (pg_data) used by the
-        centralizedb service.
+        """Remove the postgres named volume (vst_pg_data) used by the
+        centralizedb service, while preserving the shared APT cache.
 
         PGDATA was switched from a host bind mount
         (``${VST_VOLUME}/postgres/db``) to a Docker-managed named
-        volume (``pg_data``) so the postgres entrypoint's chown to
+        volume (``vst_pg_data``) so the postgres entrypoint's chown to
         uid 70 works under rootless Docker. The host bind-mount
-        cleanup in ``remove_vst_volume`` no longer wipes PGDATA, so
-        we run ``docker compose down -v`` against the same compose
-        file to let compose remove the project-prefixed named volume
-        (e.g. ``docker-compose_pg_data``). Idempotent: succeeds even
-        if the volume doesn't exist yet.
+        cleanup in ``remove_vst_volume`` no longer wipes PGDATA.
+
+        We deliberately do NOT use ``docker compose down -v`` here: that
+        also destroys the pinned ``vios_apt_cache`` volume (~138MB of
+        cached .deb packages that keep the next deploy fast). ``--clean``
+        should reset VST data, not the rebuildable package cache. Callers
+        who really want the cache gone opt in explicitly via
+        ``--delete-apt-cache`` (handled by ``remove_apt_cache_volume``).
+        Instead we bring the project down without ``-v`` (named volumes
+        survive) and remove only the postgres volume by name. The compose
+        default project name prefixes pg_data (e.g.
+        ``docker-compose_vst_pg_data``), whereas ``vios_apt_cache`` is
+        pinned and unprefixed, so a ``vst_pg_data`` name filter can never
+        match the cache volume. Idempotent: succeeds even if the volume
+        doesn't exist yet.
         """
-        Logger.info("Removing postgres named volume (pg_data)...")
-        cmd = (
-            "docker compose -f docker-compose.yaml --env-file ./compose.env "
-            "down -v --remove-orphans"
-        )
+        Logger.info("Removing postgres named volume (vst_pg_data), preserving APT cache...")
         try:
+            SystemUtils.run_command(
+                "docker compose -f docker-compose.yaml --env-file ./compose.env "
+                "down --remove-orphans",
+                cwd=str(self.config.vst_compose_dir), check=False,
+            )
             result = SystemUtils.run_command(
-                cmd, cwd=str(self.config.vst_compose_dir), check=False,
+                "docker volume ls -q -f name=vst_pg_data",
+                capture_output=True, check=False,
             )
         except Exception as e:
             # check=False suppresses CalledProcessError, so anything that
             # surfaces here is structural (docker binary missing, cwd
             # inaccessible, etc.). Keep this best-effort — don't abort
             # the broader cleanup flow on a volume-removal hiccup.
-            Logger.warning(f"Failed to invoke docker compose for postgres volume cleanup: {e}")
+            Logger.warning(f"Failed to invoke docker for postgres volume cleanup: {e}")
             return
-        if result.returncode == 0:
+        volumes = [v for v in (result.stdout or "").split() if v]
+        if not volumes:
             Logger.success("Postgres named volume removed (or was not present)")
+            return
+        failed = []
+        for vol in volumes:
+            rm = SystemUtils.run_command(f"docker volume rm -f {vol}", check=False)
+            if rm.returncode != 0:
+                failed.append(vol)
+        if failed:
+            Logger.warning(
+                f"Could not remove postgres volume(s) {', '.join(failed)}; "
+                "they may still be in use (see stderr above)"
+            )
+        else:
+            Logger.success(f"Postgres named volume(s) removed: {', '.join(volumes)}")
+
+    def remove_apt_cache_volume(self) -> None:
+        """Remove the shared APT package cache volume (``vios_apt_cache``).
+
+        Explicit opt-in via ``--delete-apt-cache``. ``--clean`` preserves
+        the cache so redeploys stay fast; this wipes it when the user
+        really wants a cold package fetch. The cache is shared by the VST
+        and NVStreamer compose projects, so both must be stopped first — a
+        volume held by a running container cannot be removed. ``-f`` makes
+        removal of a missing volume a no-op.
+        """
+        Logger.info("Removing shared APT package cache volume (vios_apt_cache)...")
+        result = SystemUtils.run_command(
+            "docker volume rm -f vios_apt_cache",
+            capture_output=True, check=False,
+        )
+        if result.returncode == 0:
+            Logger.success("APT package cache volume removed (or was not present)")
         else:
             Logger.warning(
-                f"docker compose down -v exited {result.returncode} while removing "
-                "postgres named volume; volume may still exist (see stderr above)"
+                "Could not remove vios_apt_cache — it may still be in use by a "
+                "running container. Stop all VST/NVStreamer services first, then "
+                "retry with --delete-apt-cache."
             )
 
     def remove_vst_volume(self, *, auto_confirm: bool = False):
@@ -2647,9 +2692,14 @@ class DeploymentManager:
             self.stop_existing_deployments()
         else:
             Logger.info("No running deployments found, attempting cleanup anyway...")
+            # Best-effort teardown: no `-v`, so named volumes (postgres
+            # vst_pg_data and the shared vios_apt_cache) survive a plain stop.
+            # Persistent-data removal is the job of --clean (postgres, via
+            # remove_vst_volume) and --delete-apt-cache (the shared cache), not
+            # of stop.
             stop_commands = [
                 "docker compose -f docker-compose.yaml --env-file ./compose.env "
-                "down --remove-orphans -v",
+                "down --remove-orphans",
             ]
             for cmd in stop_commands:
                 SystemUtils.run_command(
@@ -2657,7 +2707,7 @@ class DeploymentManager:
                 )
             SystemUtils.run_command(
                 "docker compose -f docker-compose.yaml --env-file ./compose.env "
-                "down --remove-orphans -v",
+                "down --remove-orphans",
                 cwd=str(self.config.nvstreamer_compose_dir),
                 check=False,
             )
@@ -2814,6 +2864,11 @@ DEPLOYMENT OPTIONS:
                         - stop vst --clean         -> remove VST volume directory
                         - stop nvstreamer --clean  -> remove NVStreamer videos directory
                         - stop --clean             -> remove both
+                        Preserves the shared APT package cache (vios_apt_cache);
+                        use --delete-apt-cache to wipe that too.
+    --delete-apt-cache  When used with `stop`, also remove the shared APT package
+                        cache volume (vios_apt_cache). Kept out of --clean so
+                        redeploys stay fast; pass this for a cold package fetch.
     --pull-always       Pull latest Docker images before deployment
     --skip-sysctl       Skip host sysctl network-buffer tuning entirely
                         (avoids sudo prompt; throughput may be lower under load).
@@ -2885,9 +2940,10 @@ EXAMPLES:
     python3 oneclick_dc_deployment.py stop nvstreamer       # stops NVStreamer only
 
     # Stop + clean persistent data (--clean)
-    python3 oneclick_dc_deployment.py stop --clean              # stop + wipe both
+    python3 oneclick_dc_deployment.py stop --clean              # stop + wipe both (APT cache kept)
     python3 oneclick_dc_deployment.py stop vst --clean          # stop VST + wipe vst_volume/
     python3 oneclick_dc_deployment.py stop nvstreamer --clean   # stop NVS + wipe videos/
+    python3 oneclick_dc_deployment.py stop --clean --delete-apt-cache  # wipe data AND the APT cache
 
     # Update configuration only (compose.env files), without deploying
     python3 oneclick_dc_deployment.py config-only
@@ -3136,7 +3192,13 @@ def main():
                         help='When used with `stop`, also delete persistent data: '
                              'VST volume directory (target=vst) and/or NVStreamer '
                              'videos directory (target=nvstreamer). Bare `stop --clean` '
-                             'cleans both.')
+                             'cleans both. Preserves the shared APT package cache '
+                             '(use --delete-apt-cache to wipe that too).')
+    parser.add_argument('--delete-apt-cache', action='store_true',
+                        help='When used with `stop`, also remove the shared APT '
+                             'package cache volume (vios_apt_cache). Not removed by '
+                             '--clean so redeploys stay fast; pass this for a cold '
+                             'package fetch. Stop all VST/NVStreamer services first.')
     parser.add_argument('--pull-always', action='store_true',
                         help='Pull latest Docker images before deployment')
     parser.add_argument('--skip-sysctl', action='store_true',
@@ -3291,6 +3353,14 @@ def main():
             if effective_stop_target in ('all', 'nvstreamer'):
                 deployment_manager.remove_nvstreamer_videos(auto_confirm=True)
             Logger.success("Clean completed")
+
+        # --delete-apt-cache: opt-in removal of the shared APT package cache
+        # volume. Kept separate from --clean so a normal clean stays fast on the
+        # next deploy; combine the two to wipe everything. Requires both VST and
+        # NVStreamer to be stopped (done above) since the volume is shared.
+        if args.delete_apt_cache:
+            print()
+            deployment_manager.remove_apt_cache_volume()
     elif action == 'config-only':
         config_manager = ConfigurationManager(config)
         interactive_config = InteractiveConfiguration(config)

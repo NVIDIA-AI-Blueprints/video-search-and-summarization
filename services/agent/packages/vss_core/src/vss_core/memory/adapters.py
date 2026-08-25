@@ -1,16 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Group adapters that map CLI/backend payloads into ``nv.vss.memory/1.0`` records.
+"""Memory adapter contract — not group-specific domain mappers.
 
-Adapters are separate from storage: registering a future ``alert`` or ``vlm``
-adapter must not require changes to the store, lifecycle engine, or common
-schema models. VIOS does not write memory (no ``media`` group).
+Command groups (search, summarize, alerts, …) own the translation from their
+backend payloads into :class:`UnifiedMemoryRecord` / :class:`RecordBundle`.
+This module only defines the lifecycle protocol, the multi-record write unit,
+and small helpers that know nothing about LVS events or search hits.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
+from hashlib import sha256
+import json
 from typing import Any
 from typing import Protocol
 
@@ -22,8 +26,7 @@ from .models import MemoryError
 from .models import MemoryGroup
 from .models import MemoryInput
 from .models import MemoryOutput
-from .models import OutputHandles
-from .models import SensorInfo
+from .models import RecordType
 from .models import TimestampPoint
 from .models import TimeWindow
 from .models import UnifiedMemoryRecord
@@ -31,14 +34,113 @@ from .store import coerce_utc_instant
 
 _ADAPTER_REGISTRY: dict[MemoryGroup, type[MemoryAdapter]] = {}
 
+#: Row keys that may carry a result row's start instant, in precedence order.
+START_INSTANT_KEYS: tuple[str, ...] = ("timestamp", "start_time", "start", "ts")
+
+#: Row keys that may carry a result row's end instant, in precedence order.
+END_INSTANT_KEYS: tuple[str, ...] = ("end_time", "end", "end_ts")
+
 
 def utc_now_iso() -> str:
     """Return the current UTC instant as an ISO-8601 ``Z`` string."""
     return datetime_to_iso8601(datetime.now(UTC))
 
 
+def utc_instant(value: str | datetime) -> datetime:
+    """Parse a required UTC instant, rejecting empty/naive/unparseable values."""
+    parsed = coerce_utc_instant(value)
+    if parsed is None:
+        raise ValueError("timestamp is required")
+    return parsed
+
+
+def row_instant(row: dict[str, Any], *, keys: tuple[str, ...] = START_INSTANT_KEYS) -> datetime | None:
+    """First parseable instant among ``keys``; ``None`` when the row carries none.
+
+    Group-agnostic: nested ``{"timestamp": ...}`` points and bare scalars both
+    resolve, so adapters do not each re-implement row time extraction.
+    """
+    for key in keys:
+        value = row.get(key)
+        if isinstance(value, dict):
+            value = value.get("timestamp")
+        if value is None:
+            continue
+        if isinstance(value, datetime):
+            return utc_instant(value)
+        if str(value).strip():
+            return utc_instant(str(value))
+    return None
+
+
+def window_from_row(
+    row: dict[str, Any],
+    *,
+    start_keys: tuple[str, ...] = START_INSTANT_KEYS,
+    end_keys: tuple[str, ...] = END_INSTANT_KEYS,
+) -> TimeWindow | None:
+    """Build a child ``input.window`` from a result row, or ``None`` if untimed."""
+    start = row_instant(row, keys=start_keys)
+    if start is None:
+        return None
+    end = row_instant(row, keys=end_keys)
+    return TimeWindow(
+        start=TimestampPoint(timestamp=start),
+        end=TimestampPoint(timestamp=end) if end is not None else None,
+    )
+
+
+def collect_values(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[str]:
+    """Ordered, de-duplicated string values pulled from ``keys`` (or ``metadata``)."""
+    found: list[str] = []
+    for row in rows:
+        for key in keys:
+            value = row.get(key)
+            if value is None and isinstance(row.get("metadata"), dict):
+                value = row["metadata"].get(key)
+            if value is None:
+                continue
+            if isinstance(value, list):
+                found.extend(str(item) for item in value)
+            else:
+                found.append(str(value))
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in found:
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
+
+
+@dataclass(frozen=True)
+class RecordBundle:
+    """One parent job record plus zero or more terminal child result records."""
+
+    parent: UnifiedMemoryRecord
+    children: tuple[UnifiedMemoryRecord, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.parent.job.is_child:
+            raise ValueError("RecordBundle.parent must be a parent job record")
+        for child in self.children:
+            if not child.job.is_child:
+                raise ValueError("RecordBundle.children must be child records")
+            if child.job.job_id != self.parent.job.job_id:
+                raise ValueError("child job_id must match parent job_id")
+
+    @property
+    def all_records(self) -> tuple[UnifiedMemoryRecord, ...]:
+        return (self.parent, *self.children)
+
+
 class MemoryAdapter(Protocol):
-    """Per-group mapper between domain payloads and unified memory records."""
+    """Per-group mapper between domain payloads and unified memory records.
+
+    Concrete adapters live with their command groups / domain packages, not
+    in this module. They register via :func:`register_adapter` when a lookup
+    registry is useful (tests, optional discovery).
+    """
 
     group: MemoryGroup
 
@@ -76,7 +178,7 @@ class MemoryAdapter(Protocol):
 
 
 def register_adapter(adapter_cls: type[MemoryAdapter]) -> type[MemoryAdapter]:
-    """Register a group adapter. Used by tests to prove future groups plug in cleanly."""
+    """Register a group adapter (optional discovery / tests)."""
     group = adapter_cls.group
     _ADAPTER_REGISTRY[group] = adapter_cls
     return adapter_cls
@@ -90,46 +192,126 @@ def get_adapter(group: MemoryGroup) -> MemoryAdapter:
 
 
 def clear_adapter_registry() -> None:
-    """Reset the adapter registry (test isolation)."""
+    """Reset the adapter registry (test isolation). Does not re-register builtins."""
     _ADAPTER_REGISTRY.clear()
-    # Re-register built-ins after a clear.
-    register_adapter(SummaryAdapter)
-    register_adapter(SearchAdapter)
 
 
-def _base_record(
+def _dump_optional_input(input_data: MemoryInput | None) -> dict[str, Any] | None:
+    if input_data is None:
+        return None
+    payload = input_data.model_dump(mode="json", exclude_none=True)
+    return payload or None
+
+
+def _dump_optional_output(output: MemoryOutput | None) -> dict[str, Any] | None:
+    if output is None:
+        return None
+    payload = output.model_dump(by_alias=True, mode="json", exclude_none=True)
+    return payload or None
+
+
+def build_record(
     *,
     job_id: str,
     group: MemoryGroup,
     status: JobStatus,
     created_at: str,
-    updated_at: str,
-    input_data: MemoryInput,
+    updated_at: str | None = None,
+    input_data: MemoryInput | None = None,
     output: MemoryOutput | None = None,
     error: MemoryError | None = None,
     backend_ref: str | None = None,
+    record_id: str | None = None,
+    record_type: RecordType | None = None,
 ) -> UnifiedMemoryRecord:
-    return UnifiedMemoryRecord.model_validate(
-        {
-            "schema": SCHEMA_ID,
-            "job": {
-                "job_id": job_id,
-                "group": group,
-                "operation": "run",
-                "status": status,
-                "created_at": created_at,
-                "updated_at": updated_at,
-                "backend_ref": backend_ref,
-            },
-            "input": input_data.model_dump(mode="json"),
-            "output": (output or MemoryOutput()).model_dump(by_alias=True, mode="json"),
-            "error": error.model_dump(mode="json") if error else None,
-        }
+    """Build one parent or child record from schema fields (no domain mapping)."""
+    job: dict[str, Any] = {
+        "job_id": job_id,
+        "group": group,
+        "operation": "run",
+        "status": status,
+        "created_at": created_at,
+    }
+    if updated_at is not None:
+        job["updated_at"] = updated_at
+    if backend_ref is not None:
+        job["backend_ref"] = backend_ref
+    if record_id is not None:
+        job["record_id"] = record_id
+    if record_type is not None:
+        job["record_type"] = record_type
+    payload: dict[str, Any] = {
+        "schema": SCHEMA_ID,
+        "job": job,
+    }
+    input_payload = _dump_optional_input(input_data)
+    if input_payload is not None:
+        payload["input"] = input_payload
+    output_payload = _dump_optional_output(output)
+    if output_payload is not None:
+        payload["output"] = output_payload
+    if error is not None:
+        payload["error"] = error.model_dump(mode="json", exclude_none=True)
+    return UnifiedMemoryRecord.model_validate(payload)
+
+
+def child_record(
+    *,
+    job_id: str,
+    group: MemoryGroup,
+    record_id: str,
+    record_type: RecordType,
+    created_at: str,
+    input_data: MemoryInput | None = None,
+    output: MemoryOutput | None = None,
+    status: JobStatus = "completed",
+) -> UnifiedMemoryRecord:
+    """Construct a terminal child result record."""
+    if status in {"submitted", "running"}:
+        raise ValueError("child records must be terminal")
+    return build_record(
+        job_id=job_id,
+        group=group,
+        status=status,
+        created_at=created_at,
+        updated_at=None,
+        input_data=input_data,
+        output=output,
+        record_id=record_id,
+        record_type=record_type,
     )
 
 
-class _BaseGroupAdapter:
-    """Shared lifecycle helpers for concrete group adapters."""
+def deterministic_record_id(*, prefix: str, payload: dict[str, Any]) -> str:
+    """Stable digest-based child id when no upstream identifier exists."""
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    digest = sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}-{digest}"
+
+
+def resolve_child_record_id(
+    row: dict[str, Any],
+    *,
+    preferred_keys: tuple[str, ...] = ("event_id", "id", "uuid", "_id"),
+    prefix: str,
+    digest_payload: dict[str, Any] | None = None,
+) -> str:
+    """Prefer a stable upstream id; otherwise derive a deterministic digest id."""
+    for key in preferred_keys:
+        value = row.get(key)
+        if value is None and isinstance(row.get("metadata"), dict):
+            value = row["metadata"].get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return deterministic_record_id(prefix=prefix, payload=digest_payload or row)
+
+
+class LifecycleAdapter:
+    """Shared parent lifecycle helpers for group adapters to subclass.
+
+    Fills only ``job.*`` / envelope fields. Domain ``build_input`` /
+    ``terminal_bundle`` logic belongs in the owning command group.
+    """
 
     group: MemoryGroup
 
@@ -141,7 +323,7 @@ class _BaseGroupAdapter:
         input_data: MemoryInput,
         backend_ref: str | None = None,
     ) -> UnifiedMemoryRecord:
-        return _base_record(
+        return build_record(
             job_id=job_id,
             group=self.group,
             status="submitted",
@@ -161,7 +343,7 @@ class _BaseGroupAdapter:
         updated_at: str | None = None,
     ) -> UnifiedMemoryRecord:
         stamp = updated_at or utc_now_iso()
-        return _base_record(
+        return build_record(
             job_id=job_id,
             group=self.group,
             status="running",
@@ -186,7 +368,7 @@ class _BaseGroupAdapter:
         if status not in {"completed", "failed", "partial", "timeout"}:
             raise ValueError(f"status {status!r} is not terminal")
         stamp = updated_at or utc_now_iso()
-        return _base_record(
+        return build_record(
             job_id=job_id,
             group=self.group,
             status=status,
@@ -199,213 +381,22 @@ class _BaseGroupAdapter:
         )
 
 
-@register_adapter
-class SummaryAdapter(_BaseGroupAdapter):
-    """Map summarization requests/results into unified memory records."""
-
-    group: MemoryGroup = "summary"
-
-    @staticmethod
-    def build_input(
-        *,
-        prompt: str | None,
-        video_id: str | None,
-        media_ref: dict[str, Any] | None,
-        params: dict[str, Any] | None,
-        window: TimeWindow | None = None,
-        intent: str | None = None,
-    ) -> MemoryInput:
-        sensors: list[SensorInfo] = []
-        if video_id:
-            info = dict(media_ref or {})
-            sensors.append(SensorInfo(id=str(video_id), type=str(info.get("source") or "video"), info=info))
-        return MemoryInput(
-            query=prompt,
-            intent=intent,
-            sensors=sensors,
-            window=window,
-            params=dict(params or {}),
-        )
-
-    @staticmethod
-    def build_output(
-        *,
-        answer: str | None,
-        events: list[dict[str, Any]] | None = None,
-        ext: dict[str, Any] | None = None,
-        event_ids: list[str] | None = None,
-        media_urls: list[str] | None = None,
-        related_job_ids: list[str] | None = None,
-    ) -> MemoryOutput:
-        normalized_events = [_require_row_timestamp(dict(event), kind="summary event") for event in (events or [])]
-        resolved_event_ids = list(event_ids or _event_ids_from(normalized_events))
-        payload_ext = dict(ext or {})
-        if "incidents" in payload_ext:
-            incidents = payload_ext["incidents"]
-            if not isinstance(incidents, list):
-                raise ValueError("output.ext.incidents must be a list of timestamped incident dicts")
-            payload_ext["incidents"] = [_require_row_timestamp(dict(item), kind="incident") for item in incidents]
-        if normalized_events:
-            payload_ext.setdefault("events", normalized_events)
-        if resolved_event_ids:
-            payload_ext.setdefault("event_ids", resolved_event_ids)
-        handles = OutputHandles(
-            media_urls=list(media_urls or []),
-            related_job_ids=list(related_job_ids or []),
-        )
-        return MemoryOutput(answer=answer, Embedding=[], handles=handles, ext=payload_ext)
-
-
-@register_adapter
-class SearchAdapter(_BaseGroupAdapter):
-    """Map archive-search requests/results into unified memory records."""
-
-    group: MemoryGroup = "search"
-
-    @staticmethod
-    def build_input(
-        *,
-        query: str | None,
-        sensors: list[dict[str, Any]] | list[SensorInfo] | None,
-        window: TimeWindow | dict[str, Any] | None,
-        params: dict[str, Any] | None,
-        intent: str | None = None,
-    ) -> MemoryInput:
-        sensor_models: list[SensorInfo] = []
-        for item in sensors or []:
-            if isinstance(item, SensorInfo):
-                sensor_models.append(item)
-            else:
-                sensor_models.append(
-                    SensorInfo(
-                        id=str(item.get("id") or item.get("sensor_id") or ""),
-                        type=str(item.get("type") or "video"),
-                        info={k: v for k, v in item.items() if k not in {"id", "sensor_id", "type"}},
-                    )
-                )
-        window_model: TimeWindow | None = None
-        if isinstance(window, TimeWindow):
-            window_model = window
-        elif isinstance(window, dict):
-            has_start = bool(window.get("start"))
-            has_end = bool(window.get("end"))
-            if has_start ^ has_end:
-                raise ValueError(
-                    "input.window requires both start and end; a single bound is not "
-                    "silently dropped (resolve the covering segment or reject upstream)"
-                )
-            if has_start and has_end:
-                start = window["start"]
-                end = window["end"]
-                start_ts = start["timestamp"] if isinstance(start, dict) else str(start)
-                end_ts = end["timestamp"] if isinstance(end, dict) else str(end)
-                window_model = TimeWindow(
-                    start=TimestampPoint(timestamp=start_ts),
-                    end=TimestampPoint(timestamp=end_ts),
-                )
-        return MemoryInput(
-            query=query,
-            intent=intent,
-            sensors=sensor_models,
-            window=window_model,
-            params=dict(params or {}),
-        )
-
-    @staticmethod
-    def build_output(
-        *,
-        answer: str | None,
-        results: list[dict[str, Any]] | None = None,
-        ext: dict[str, Any] | None = None,
-        object_ids: list[str] | None = None,
-        frame_ids: list[str] | None = None,
-        media_urls: list[str] | None = None,
-        event_ids: list[str] | None = None,
-        related_job_ids: list[str] | None = None,
-    ) -> MemoryOutput:
-        rows = [_require_row_timestamp(dict(row), kind="search result") for row in (results or [])]
-        resolved_event_ids = list(event_ids or [])
-        resolved_object_ids = list(object_ids or _collect_ids(rows, ("object_ids", "object_id")))
-        resolved_frame_ids = list(frame_ids or _collect_ids(rows, ("frame_ids", "frame_id")))
-        handles = OutputHandles(
-            media_urls=list(media_urls or _collect_ids(rows, ("screenshot_url", "media_url", "url"))),
-            related_job_ids=list(related_job_ids or []),
-        )
-        payload_ext = dict(ext or {})
-        if rows:
-            payload_ext.setdefault("results", rows)
-        payload_ext.setdefault("result_count", len(rows))
-        if resolved_event_ids:
-            payload_ext.setdefault("event_ids", resolved_event_ids)
-        if resolved_object_ids:
-            payload_ext.setdefault("object_ids", resolved_object_ids)
-        if resolved_frame_ids:
-            payload_ext.setdefault("frame_ids", resolved_frame_ids)
-        return MemoryOutput(answer=answer, Embedding=[], handles=handles, ext=payload_ext)
-
-
-def _event_stamp(event: dict[str, Any]) -> str | None:
-    for key in ("timestamp", "start_time", "start", "ts"):
-        value = event.get(key)
-        if value is not None and str(value).strip():
-            return str(value)
-    return None
-
-
-def _require_row_timestamp(event: dict[str, Any], *, kind: str) -> dict[str, Any]:
-    """Normalize/require a parseable instant on events, incidents, and search results."""
-    stamp = _event_stamp(event)
-    if stamp is None:
-        raise ValueError(
-            f"{kind} rows require a timestamp field (timestamp|start_time|start|ts) for time-windowed recall"
-        )
-    coerce_utc_instant(stamp)
-    if "timestamp" not in event:
-        event = dict(event)
-        event["timestamp"] = stamp
-    return event
-
-
-def _event_ids_from(events: list[dict[str, Any]]) -> list[str]:
-    ids: list[str] = []
-    for event in events:
-        for key in ("event_id", "id", "uuid"):
-            value = event.get(key)
-            if value is not None:
-                ids.append(str(value))
-                break
-    return ids
-
-
-def _collect_ids(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[str]:
-    found: list[str] = []
-    for row in rows:
-        for key in keys:
-            value = row.get(key)
-            if value is None and isinstance(row.get("metadata"), dict):
-                value = row["metadata"].get(key)
-            if value is None:
-                continue
-            if isinstance(value, list):
-                found.extend(str(item) for item in value)
-            else:
-                found.append(str(value))
-    # Preserve order, drop duplicates.
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for item in found:
-        if item not in seen:
-            seen.add(item)
-            ordered.append(item)
-    return ordered
-
-
 __all__ = [
+    "END_INSTANT_KEYS",
+    "START_INSTANT_KEYS",
+    "LifecycleAdapter",
     "MemoryAdapter",
-    "SearchAdapter",
-    "SummaryAdapter",
+    "RecordBundle",
+    "build_record",
+    "child_record",
     "clear_adapter_registry",
+    "collect_values",
+    "deterministic_record_id",
     "get_adapter",
     "register_adapter",
+    "resolve_child_record_id",
+    "row_instant",
+    "utc_instant",
     "utc_now_iso",
+    "window_from_row",
 ]

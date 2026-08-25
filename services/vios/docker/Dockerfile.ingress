@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# =============================================================================
+# vss-vios-ingress -- GHCR-native, self-contained build of the VST nginx ingress.
+#
+# Equivalent to `./build.sh container ingress` (image $REGISTRY/vst-ingress), but
+# folds the vios-ui build into the Dockerfile so CI can `docker build` directly
+# (no pre-staging of deployment/scaling/ingress/vst-ui). Context = services/vios.
+#
+#   Stage 1 (ui-builder): build ui/vios-ui + its sibling ui/streaming-lib
+#     (`npm run install:link && npm run build`), mirroring build.sh's
+#     build_vios_ui. Uses the VIOS toolchain image (which carries npm); CI may
+#     override TOOLCHAIN_IMAGE with a prebuilt one. This stage is discarded.
+#   Stage 2 (runtime): nginx on nvcr.io/nvidia/base/ubuntu:24.04 -- byte-identical
+#     to deployment/scaling/ingress/Dockerfile, except vst-ui is COPYed from the
+#     ui-builder stage instead of a pre-staged dir.
+# =============================================================================
+
+ARG CUDA_VERSION=13.2.0
+ARG UBUNTU_VERSION=ubuntu24.04
+# Defaults to the public CUDA devel image so a clean clone builds with no creds.
+ARG TOOLCHAIN_IMAGE=nvcr.io/nvidia/cuda:${CUDA_VERSION}-devel-${UBUNTU_VERSION}
+
+# -----------------------------------------------------------------------------
+# ui-builder -- build the vios-ui web assets (mirrors build.sh build_vios_ui)
+# -----------------------------------------------------------------------------
+FROM ${TOOLCHAIN_IMAGE} AS ui-builder
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Node 22 for the UI build. Ubuntu 24.04 apt nodejs is 18 (EOL, below vite 8's
+# ^20.19/>=22.12; the tooling imports node:util `styleText`, added in 20.12/22,
+# so Node 18 fails). Install from NodeSource via an explicit keyring -- same
+# method as cicd_files/x86_64/devel/Dockerfile.devel, not the setup script.
+ARG NODE_MAJOR=22
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates wget gnupg git \
+    && install -d -m 0755 /usr/share/keyrings \
+    && wget -qO- https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* && node -v && npm -v
+
+# install:link builds+links the sibling package ui/streaming-lib (../streaming-lib
+# relative to ui/vios-ui), so the whole ui/ tree is needed, not just vios-ui.
+COPY ui/ /workspace/ui/
+WORKDIR /workspace/ui/vios-ui
+RUN npm run install:link && npm run build
+
+# -----------------------------------------------------------------------------
+# runtime -- nginx (deployment/scaling/ingress/Dockerfile, verbatim)
+# -----------------------------------------------------------------------------
+FROM nvcr.io/nvidia/base/ubuntu:24.04 AS runtime
+
+# Install nginx and dependencies.
+# Enforce a minimum version (>= 1.24.0-2ubuntu7.8) rather than an exact pin so the
+# CVE-2026-42945 fix is guaranteed while still resolving to whatever patched build
+# is currently in noble-security.
+RUN apt-get update \
+    && apt-get satisfy -y --no-install-recommends \
+         "nginx (>= 1.24.0-2ubuntu7.8)" \
+         "nginx-common (>= 1.24.0-2ubuntu7.8)" \
+         ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r nginx \
+    && useradd -r -g nginx -s /usr/sbin/nologin nginx
+
+# Create necessary /tmp/nginx and /var/lib/nginx subdirectories and set permissions
+RUN mkdir -p /tmp/nginx/client-body \
+             /tmp/nginx/proxy \
+             /tmp/nginx/fastcgi \
+             /tmp/nginx/uwsgi \
+             /tmp/nginx/scgi \
+             /tmp/nginx/cache \
+    && mkdir -p /var/lib/nginx/body \
+               /var/lib/nginx/proxy \
+               /var/lib/nginx/fastcgi \
+               /var/lib/nginx/uwsgi \
+               /var/lib/nginx/scgi \
+    && mkdir -p /var/log/nginx \
+    && chown -R nginx:nginx /tmp/nginx \
+    && chown -R nginx:nginx /var/lib/nginx \
+    && chown -R nginx:nginx /var/log/nginx \
+    && chmod -R 755 /tmp/nginx /var/lib/nginx /var/log/nginx
+
+# Copy your custom nginx.conf
+#COPY nginx.conf /etc/nginx/nginx.conf
+
+# Copy the vios-ui build output (staged in build.sh as deployment/scaling/ingress/
+# vst-ui) to /vst-ui -- here taken straight from the ui-builder stage.
+COPY --from=ui-builder /workspace/ui/vios-ui/dist/ /vst-ui/
+
+# Ship the 3rd-party license text alongside the UI, matching build.sh
+# (cp -f LICENSE.3rdparty vst-ui/LICENSE.3rdparty) so the image carries the same
+# OSS attributions as the released NGC image.
+COPY LICENSE.3rdparty /vst-ui/LICENSE.3rdparty
+
+# Ensure nginx workers can traverse directories and read the UI files even when
+# the build host uses a restrictive umask.
+RUN chown -R nginx:nginx /vst-ui \
+    && chmod -R a+rX /vst-ui
+
+# Set the user to nginx (non-root)
+#USER nginx
+
+# Expose the port nginx is configured to use
+EXPOSE 30888
+
+# Start Nginx with config dump to help debugging on startup
+CMD ["sh", "-c", "cat /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]

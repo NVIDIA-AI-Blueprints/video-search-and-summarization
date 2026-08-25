@@ -8,6 +8,7 @@ The sample includes GT, so the run produces evaluation metrics (L2 distance, rep
 
 ## Mode-specific Prerequisites
 
+- **AMC platform preflight passes** — run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0--platform-preflight) before sample upload/calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement, stop instead of continuing the sample run, and ask the user to provide existing/generated calibration artifacts or run AMC on a supported calibration host.
 - **Sample zip present at `assets/sdg_08_2_sample_data_010926.zip`** — **the VSS repo does not ship this file.** See [Obtain the sample zip](#obtain-the-sample-zip) below.
 - **Python 3 with `requests` available** — or use the [Swagger UI walkthrough](#alternative-swagger-ui-walkthrough) below.
   - The inline run block self-heals: if `requests` is missing it creates a throwaway venv under `${TMPDIR:-/tmp}/amc-sample-test-venv` (nothing written to the repo).
@@ -27,11 +28,12 @@ The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SK
 
 **"test sample dataset" (MS already running):**
 
-1. Detect backend: scan ports 8000–8009 (and 8010) for a `/v1/ready` response.
-2. If none → walk `deploy-auto-calibration-service.md` first.
-3. Extract sample data if not already cached.
-4. Run the inline block (heredoc-piped Python — no file written).
-5. Report metrics.
+1. Run the platform preflight from `deploy-auto-calibration-service.md` Step 0.
+2. Detect backend: scan ports 8000–8009 (and 8010) for a `/v1/ready` response.
+3. If none → walk `deploy-auto-calibration-service.md` first.
+4. Extract sample data if not already cached.
+5. Run the inline block (heredoc-piped Python — no file written).
+6. Report metrics.
 
 ### Detect Running Backend
 

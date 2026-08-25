@@ -1,0 +1,8 @@
+---
+title: "Sim2Real Data Transfer"
+description: ""
+position: 5
+---
+Sim2Real data transfer bridges the domain gap between synthetic multi-view videos generated in NVIDIA Omniverse and real-world warehouse imagery. By converting rendered multi-view videos into realistic variants, developers can validate perception models earlier, improve robustness, and reduce the cost of collecting or rerendering large real-world datasets.
+
+Developers can plug NVIDIA Cosmos Transfer 1 into their simulation and synthetic data generation workflows to transform synthetic multi-view warehouse videos into photorealistic outputs while preserving scene structure. Apply consistent prompts and controls (for example, depth and edge) across camera views to maintain spatial and temporal coherence. This reduces the sim-to-real domain gap, improves downstream detection and tracking performance, and avoids expensive rerendering when exploring lighting, texture, or ambient variations. It also scales data diversity (fog, low light, texture changes) without altering the underlying scene layout. For a step-by-step recipe that processes multi-view warehouse videos with Cosmos Transfer 1, refer to the Cosmos Cookbook guide: [Cosmos Transfer 1 Sim2Real for Multi-View Warehouse Detection and Tracking](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer1/inference-warehouse-mv/inference.html?h=warehouse#use-case-description).

@@ -10,6 +10,7 @@ See below files for the licenses:
 - services/configurators/vss-rt-config-adaptor/3rdParty_Licenses.md
 - services/sdrc/3rdParty_Licenses.md
 - services/rtvi/rt-embed/LICENSE-3rd-party.txt
+- services/rtvi/rt-vlm/LICENSE.3rdparty
 - services/rtvi/rt-cv-3d/rt-cv-mv3dt/3rdParty_Licenses.md
 - services/rtvi/rt-cv-3d/rt-cv-bev-fusion/3rdParty_Licenses.md
 - deploy/docker/scripts/LICENSE-3rd-party-dev-profile.txt

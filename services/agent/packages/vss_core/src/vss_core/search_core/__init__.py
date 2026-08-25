@@ -47,6 +47,7 @@ __all__ = [
     "NoFinalResultError",
     "PartialResultEvent",
     "Search",
+    "SearchAdapter",
     "SearchError",
     "SearchEvent",
     "SearchRuntime",
@@ -67,6 +68,7 @@ _LAZY_EXPORTS = {
     "NoFinalResultError": ".errors",
     "PartialResultEvent": ".events",
     "Search": ".primitives.search",
+    "SearchAdapter": ".memory_adapter",
     "SearchError": ".errors",
     "SearchEvent": ".events",
     "SearchRuntime": ".runtime",
@@ -89,6 +91,7 @@ if TYPE_CHECKING:
     from .events import SearchEvent
     from .events import StatusEvent
     from .host import VSSSearch
+    from .memory_adapter import SearchAdapter
     from .primitives.attribute_search import AttributeSearch
     from .primitives.embed_search import EmbedSearch
     from .primitives.search import Search

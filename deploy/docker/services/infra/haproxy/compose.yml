@@ -41,6 +41,9 @@ services:
       # the compose network, where the published port does not apply.
       RTVI_VLM_SERVICE_HOST: ${RTVI_VLM_SERVICE_HOST:-rtvi-vlm}
       RTVI_VLM_SERVICE_PORT: ${RTVI_VLM_SERVICE_PORT:-8000}
+      # BACKEND_PORT is lvs-server's container port, not BACKEND_HOST_PORT.
+      LVS_SERVICE_HOST: ${LVS_SERVICE_HOST:-lvs-server}
+      LVS_SERVICE_PORT: ${BACKEND_PORT:-38111}
       HAPROXY_PORT: ${HAPROXY_PORT:-7777}
       HAPROXY_HOST_PORT: ${HAPROXY_HOST_PORT:-7777}
       HAPROXY_BIND_ADDR: ${HAPROXY_BIND_ADDR:-*}

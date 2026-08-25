@@ -125,7 +125,7 @@ spec:
       {{- end }}
       containers:
         - name: vss-rtvi-embed
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "vss-rtvi-embed.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.securityContext }}
           securityContext:

@@ -19,13 +19,7 @@ The VSS RTVI Embed Microservice supports the following input types:
 
 
 ## Prerequisites
-- **NGC API key** to download the base container and any NGC-hosted model.
-- **Docker registry access** — authenticate to NGC before `docker compose pull`:
-
-```bash
-export NGC_API_KEY=<your-key>
-echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
-```
+- **NGC API key** only when using an NGC-hosted model or asset source. The default public GHCR image does not require registry authentication.
 
 ### Software Requirements
 - **OS**: Ubuntu 24.04/22.04 or compatible Linux distribution
@@ -57,7 +51,7 @@ Create `docker/.env` with the variables you want to override. A starting templat
 
 ```bash
 BACKEND_PORT=8017
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1
+RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest
 #RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #HF_TOKEN=<HF_TOKEN>
@@ -70,7 +64,7 @@ MESSAGE_BUS_TOPIC=mdx-embed
 ERROR_BUS=kafka
 ```
 
-Replace `<tag>` with the NGC image tag for your platform (for example `3.3.0-26.08.1` on x86, or `3.3.0-26.08.1-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
+Set `RTVI_IMAGE` in `docker/.env` to a promoted or immutable GHCR tag when you need to pin an exact image for your deployment.
 
 `compose.yaml` provides defaults for every other variable — see [Complete Environment Variable Reference](#complete-environment-variable-reference) below for the full list.
 
@@ -120,14 +114,17 @@ The monitoring profile uses the configs under [`configs/`](configs/): [`promethe
 Only needed if you've edited files under [`src/`](src/) and want those changes baked into the running container. Otherwise skip this step.
 
 ```bash
-# From the rt-embed/ directory — Dockerfile expects src/ in the build context
-docker build -f docker/Dockerfile -t rtvi-embed:3.3.0-custom .
+# From the rt-embed/ directory — Dockerfile expects src/ in the build context.
+# The source build uses BuildKit bind mounts and requires the target architecture.
+DOCKER_BUILDKIT=1 docker build --network host \
+  --build-arg TARGETARCH="$(dpkg --print-architecture)" \
+  -f docker/Dockerfile -t rtvi-embed:3.3.0-custom .
 ```
 
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1
+#RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest
 RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 ```
 
@@ -173,7 +170,7 @@ python3 rtvi_client_cli.py generate-video-embeddings\
 ### Use python client to generate embeddings for live-stream
 
 ```bash
-LIVE_STREAM="rtsp://nv-wowza-pdc.nvidia.com:1935/vod/Jensen_AI_Summit_India_1080p_blackwell_opus.mp4"
+LIVE_STREAM="${RTVI_TEST_LIVE_STREAM_URL:?Set RTVI_TEST_LIVE_STREAM_URL to an RTSP stream URL}"
 
 # Add live stream
 STREAM_ID=$(python3 rtvi_client_cli.py add-live-stream "$LIVE_STREAM" \
@@ -577,7 +574,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Docker Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1` | No |
+| `RTVI_IMAGE` | Docker image to use | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest` | No |
 | `HF_TOKEN` | Hugging Face Hub access token for private `git:` model downloads; forwarded from `docker/.env` into the container by Compose | - | No |
 
 #### AWS Configuration
@@ -595,7 +592,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 |----------|-------------|---------|----------|
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Total timeout for asset (file) download via url in seconds | `300` | No |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Timeout for establishing connection for asset (file) download via url in seconds | `10` | No |
-| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains to skip SSL verification (e.g., `artifactory.nvidia.com`) | *(empty)* | No |
+| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains to skip SSL verification (e.g., `media.example.com`) | *(empty)* | No |
 | `ASSET_DOWNLOAD_MAX_REDIRECTS` | Max redirect hops for URL downloads (0 = disabled, max 10). SSRF-validated. | `0` | No |
 | `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` | Max file size for HTTP/data URI asset ingestion. Direct multipart uploads are constrained by `ASSET_TMPFS_SIZE` or `ASSET_STORAGE_DIR` plus `MAX_ASSET_STORAGE_SIZE_GB`. | `8` | No |
 | `ASSET_DOWNLOAD_AUTH_TOKENS` | Server-level auth for URL downloads. Format: `domain1=Bearer token1;domain2=Basic xyz` | *(empty)* | No |

@@ -1,0 +1,77 @@
+---
+title: "Dataset Post-Processing"
+description: ""
+position: 4
+---
+Post-processing is also a crucial step to verify the correctness of all generated data and convert the ground truth data into a specific format compatible with the model.
+
+Generated data for MTMC training includes as follows:
+
+- RGB images.
+- 2D & 3D bboxes.
+- Depth maps.
+- Camera calibration.
+
+Post-processing is mainly divided into two steps as follows:
+
+**Data Sanity Check**:
+
+* Sanity checks for RGB, depth maps, and ground truth focuses on identifying issues such as dropped frames or data corruption.
+* Sanity check for calibration focuses on identifying the correctness of calibration, including intrinsic matrix, extrinsic matrix, point pairs array, projection matrix, and homography matrix.
+* Sanity check for b frame focuses on identifying if the b-frames are present in a video.
+
+Navigate to the `sdg/data_sanity_check` path:
+
+```bash
+cd $MDX_SAMPLE_APPS_DIR/deploy-warehouse-compose/modules/sdg/data_sanity_check/
+```
+
+```bash
+# RGB image sanity check
+python dataset_sanity_check_rgb.py --base_dir data/scene --total_frames 9000
+
+# Depth map sanity checks
+# Raw depth maps (.npy) and converted .png files should both be validated
+python dataset_sanity_check_npy.py --base_dir data/scene --total_frames 9000  
+python dataset_sanity_check_png.py --base_dir data/scene --total_frames 9000
+
+# Ground truth sanity check
+python dataset_sanity_check_json.py --base_dir data/scene --total_frames 9000
+
+# Calibration sanity check
+python dataset_sanity_check_calibration.py --base_dir data/scene --calibration data/scene/calibration.json
+
+# Video b-frame sanity check
+bash dataset_sanity_check_videos.sh data/scene/videos
+```
+
+**Data Conversion**:
+
+Conversions for depth maps, RGB images, and ground truth are designed to save storage space and reduce redundant ground truth data, while schema conversion is performed for downstream tasks such as E2E model & pipeline evaluation.
+
+Navigate to the `sdg/data_conversion` path:
+
+```bash
+cd $MDX_SAMPLE_APPS_DIR/deploy-warehouse-compose/modules/sdg/data_conversion/
+```
+
+```bash
+# Depth map conversion
+python convert_npy_to_png_depthmap.py data/scene
+
+# Video conversion
+bash convert_images_to_videos_no_bframes.sh data/scene/videos
+
+# Ground truth conversion
+python convert_ground_truth.py data/scene --calibration data/scene/calibration.json --output data/scene/ground_truth --max_frames 9000 --xform_info data/scene/xform_info.json
+```
+
+<Note>
+Generate `xform_info.json` (required by ground truth conversion):
+
+1. Load the scene in Isaac Sim.
+2. Open the Script Editor.
+
+   ![Script Editor location](/assets/images/simulation/Editor_Script.png)
+
+</Note>

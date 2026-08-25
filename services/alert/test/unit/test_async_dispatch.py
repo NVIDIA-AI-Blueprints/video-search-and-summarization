@@ -68,6 +68,7 @@ class TestAsyncDispatchMode:
             "msg-1",
             "sensor-1",
             True,
+            None,      # partition key: absent for a source without partitions
         )
 
     def test_process_single_message_falls_back_when_dispatch_executor_missing(self):
@@ -118,7 +119,7 @@ class TestAsyncDispatchDoneCallback:
 class TestAsyncExternalIOMode:
     def test_get_video_stream_url_uses_async_runtime_when_enabled(self):
         stub = type("VSTStub", (), {})()
-        stub.async_vst_enabled = True
+        stub.async_io_enabled = True
         stub.async_vlm_runtime = Mock()
         stub.async_external_timeout_seconds = 5.0
         stub._vst_handler = Mock()

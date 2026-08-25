@@ -73,6 +73,26 @@ PREAMBLE = (
     "setup action the trial requires."
 )
 
+# Appended only to specs whose checks require the clip URL to come from the CLI.
+# Without it the agent hand-builds /storage/file/<streamId>/url, whose
+# startTime/endTime are mandatory, and gets HTTP 400 / InvalidParameterError --
+# the failure `vss vios clip` exists to make impossible. Same fix, and same
+# keying, as the vss-ask-video adapter.
+CLI_CLAUSE = (
+    " When a step needs a clip from a VIOS sensor, obtain it with the host checkout's "
+    "project-local CLI rather than a REST call: set "
+    "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
+    "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, then run "
+    "`uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss "
+    "vios clip --sensor <name>` and use its `media_url`. A picture/frame endpoint returns a "
+    "JPEG, which is not a clip."
+)
+
+
+def _preamble_for(spec: dict) -> str:
+    """PREAMBLE, plus the CLI clause only when this spec's checks demand it."""
+    return PREAMBLE + CLI_CLAUSE if "vss vios clip" in json.dumps(spec) else PREAMBLE
+
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 
@@ -160,7 +180,7 @@ def generate_task(
         # agent can't write to the test rather than do the actual work.
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         lines = [
-            PREAMBLE,
+            _preamble_for(spec),
             "",
             "",
             f"## Query {idx} of {len(expects)}",

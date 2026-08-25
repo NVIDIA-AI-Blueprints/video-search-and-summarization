@@ -1,0 +1,40 @@
+---
+title: "NemoClaw"
+description: ""
+position: 1
+---
+NemoClaw is an open-source reference stack for running always-on AI agents more safely inside NVIDIA OpenShell sandboxes. Integrated with the Video Search and Summarization (VSS) blueprint, it onboards an agent harness such as OpenClaw or Hermes—which provides the chat UI for controlling VSS deployments through natural language—backed by the repository's VSS skills, workspace bootstrap docs, a VSS policy preset, and a host-side orchestrator MCP server.
+
+## What NemoClaw brings to VSS
+
+Running VSS through NemoClaw turns a multi-service Docker Compose deployment into a chat session:
+
+* **Natural-language operations.** Prompts like *"Deploy the VSS alerts profile in verification mode"* or *"Show me the logs from vss-alert-bridge"* are mapped to the right orchestrator tools in the right order, without manual `.env` editing or compose flag juggling.
+* **Guided host setup.** Two bundled Jupyter notebooks walk through the Brev/host prerequisites: credentials, Docker version pinning, NGC CLI setup, `nvcr.io` login, the VSS agent Python environment, and the host-side MCP server.
+* **Policy-controlled skills.** The setup applies NemoClaw's VSS policy specified in a yaml file, installs the repository's VSS skills, and uploads the NemoClaw workspace bootstrap docs into the sandbox.
+* **Safe operations.** The agent asks before destructive actions such as `docker_down` and streams progress, logs, and errors back into chat so you can remediate without leaving the UI.
+
+## How to run NemoClaw with VSS
+
+<Note>
+The NemoClaw notebooks are released as an Early Access feature.
+</Note>
+
+There are two host-side pieces working together:
+
+1. **Two setup notebooks** that run in order on the Brev instance:
+
+   * `deploy_nemoclaw.ipynb` chooses the agent chat model provider, pins Docker to the tested package versions, installs or reuses the pinned NemoClaw release, applies the VSS policy, installs the VSS skills and workspace docs, registers the VSS Orchestrator MCP, and opens the Agent UI.
+   * `deploy_vss_orchestrator.ipynb` prepares the host for local NIM-backed profiles, starts the MCP server, deploys and manages VSS from the Agent UI, and optionally verifies sandbox-to-host reachability.
+
+   See [Setup VSS and Skills ](/nemoclaw-deploy-vss-and-skills).
+2. **The VSS Orchestrator MCP server** - a host process started by `deploy_vss_orchestrator.ipynb` on port `9988`. It exposes nine `vss_orchestrator__*` tools that the NemoClaw agent calls to:
+
+   * Generate compose artifacts.
+   * Run `docker compose` operations.
+   * Inspect containers.
+   * Fetch logs.
+
+   See [VSS Orchestrator MCP ](/vss-orchestrator-mcp).
+
+For per-variable details, provider choices, and optional verification steps, see [Additional Configuration ](/nemoclaw-configuration).

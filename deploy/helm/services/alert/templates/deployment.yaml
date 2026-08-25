@@ -35,6 +35,13 @@ spec:
       annotations:
         checksum/config: {{ tpl (.Files.Get "configs/config.yml") . | sha256sum }}
     spec:
+      # At alert_agent.processes: 1, the shipped default, there is no
+      # supervisor: up to 10s to terminate and join the API child, up to 15s
+      # of drain, up to 5s to close the event-loop clients, up to 15s to stop
+      # the runtime. 45s bounded.
+      # Kubernetes' own 30s default does not cover that, and a cluster-wide
+      # change to it would cut the drain short silently.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 60 }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

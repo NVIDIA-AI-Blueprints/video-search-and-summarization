@@ -1,13 +1,20 @@
 ---
 name: vss-deploy-profile
-description: Use to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). Not for standalone microservices — use the vss-deploy-* skill.
+description: Use when the user asks to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). Not for standalone microservices — use the vss-deploy-* skill.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.2.1"
+  author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
 # VSS Deploy
+
+Do not use this skill for:
+
+- Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
+- Summarizing or querying a video once `lvs` is deployed — use `vss-summarize-video`.
+- NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or `vss-deploy-profile` will run it as part of the credential gate.
 
 ## Available Scripts
 
@@ -15,6 +22,7 @@ metadata:
 |---|---|---|
 | `scripts/normalize_resolved_yml.py` | Strip optional `depends_on` entries for services filtered out of `resolved.yml` before deploy. | Path to `resolved.yml` |
 | `scripts/probe_remote_models.sh` | Probe an OpenAI-compatible remote LLM/VLM endpoint and verify the selected model id. | Base URL, optional expected model id |
+| `scripts/check_credentials.sh` | Probe `NGC_CLI_API_KEY`/`NGC_API_KEY`, `NVIDIA_API_KEY`, and `HF_TOKEN` against their services; see [`references/credentials.md`](references/credentials.md). | None (reads env vars) |
 
 ## Profile Routing
 

@@ -27,7 +27,7 @@ services:
     command: ["/bin/sh", "/scripts/sensor-bp-wait-bp-configurator.sh"]
 
   sensor-ms:
-    image: ${VST_SENSOR_IMAGE}
+    image: ${VSS_VIOS_SENSOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-sensor}:${VSS_VIOS_SENSOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["sensor-ms"]
     user: "0:0"
     runtime: nvidia
@@ -74,7 +74,7 @@ services:
         required: false
 
   sensor-ms-2d:
-    image: ${VST_SENSOR_IMAGE}
+    image: ${VSS_VIOS_SENSOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-sensor}:${VSS_VIOS_SENSOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["sensor-ms-2d"]
     user: "0:0"
     runtime: nvidia
@@ -124,7 +124,7 @@ services:
         required: false
 
   sensor-ms-3d:
-    image: ${VST_SENSOR_IMAGE}
+    image: ${VSS_VIOS_SENSOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-sensor}:${VSS_VIOS_SENSOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["sensor-ms-3d"]
     user: "0:0"
     runtime: nvidia
@@ -171,7 +171,7 @@ services:
         required: false
 
   sensor-ms-mv3dt:
-    image: ${VST_SENSOR_IMAGE}
+    image: ${VSS_VIOS_SENSOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-sensor}:${VSS_VIOS_SENSOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["sensor-ms-mv3dt"]
     user: "0:0"
     runtime: nvidia

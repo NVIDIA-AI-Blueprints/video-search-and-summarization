@@ -1,0 +1,44 @@
+---
+title: "VST Sensor Management API"
+description: ""
+position: 1
+---
+This page provides API reference for the VST Sensor Management Service.
+
+## Overview
+
+The Sensor Management service is a comprehensive system designed to facilitate the administration and control of sensor-related functionalities. It streamlines sensor operations, enhances monitoring capabilities, and provides efficient management of sensors across the network.
+
+## Key Features
+
+The service provides the following capabilities:
+
+- **Configuration Management**: Retrieval and modification of sensor image and encoding settings
+- **Sensor Integration**: Addition and removal of sensors using RTSP URLs or IP addresses
+- **Status Monitoring**: Real-time status updates on sensors to identify and report issues
+- **Authentication**: Verification of sensor credentials for secure access and operation
+- **Performance Analytics**: Quality of Service (QoS) statistics for each sensor
+- **Network Information**: Retrieval and management of network-related data for individual sensors
+- **Remote Management**: Capability to reboot sensors remotely
+- **Inventory Management**: Comprehensive list of all connected sensors and their associated streams
+- **Stream Management**: Configuration of primary and multiple secondary streams for each sensor
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `https://localhost/api`
+
+All API endpoints are prefixed with `/v1/sensor`.
+
+## Authentication
+
+The VST Sensor Management API uses optional bearer token authentication for endpoints that modify sensor configuration or perform operations. GET requests typically do not require authentication.
+
+<Note>
+Endpoints that require authentication are marked with a security requirement in the API specification.
+</Note>
+
+## Reference
+
+OpenAPI Specification can be found [here ](/vst-sensor-management-api-reference).

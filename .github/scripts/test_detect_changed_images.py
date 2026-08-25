@@ -241,9 +241,7 @@ class SelectImagesTest(unittest.TestCase):
             self.assertEqual(entry["source_path"], expected_fields["source_path"])
             if "native_platform_build" in expected_fields:
                 self.assertIs(entry["native_platform_build"], True)
-            self.assertEqual(
-                entry["platforms"], ["linux/amd64", "linux/arm64"]
-            )
+            self.assertEqual(entry["platforms"], ["linux/amd64", "linux/arm64"])
 
         va_entries, _ = dci.select_images(
             inventory, ["services/analytics/video-analytics-api/src/app.ts"]
@@ -293,6 +291,110 @@ class SelectImagesTest(unittest.TestCase):
             ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
         )
 
+    def test_repository_inventory_builds_rtvi_embed_with_lfs_assets(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        entry = next(
+            item for item in inventory["images"] if item["name"] == "vss-rt-embed"
+        )
+
+        self.assertTrue(entry["ghcr_build"])
+        self.assertEqual(entry["strategy"], "build")
+        self.assertEqual(entry["source_path"], "services/rtvi/rt-embed")
+        self.assertEqual(entry["context"], "services/rtvi/rt-embed")
+        self.assertEqual(
+            entry["lfs_include"], "services/rtvi/rt-embed/docker/binaries/**"
+        )
+        self.assertEqual(entry["platforms"], ["linux/amd64", "linux/arm64"])
+
+        sbsa_entry = next(
+            item for item in inventory["images"] if item["name"] == "vss-rt-embed-sbsa"
+        )
+        self.assertTrue(sbsa_entry["ghcr_build"])
+        self.assertTrue(sbsa_entry["native_platform_build"])
+        self.assertEqual(sbsa_entry["repository"], "vss-rt-embed")
+        self.assertEqual(sbsa_entry["tag_suffix"], "-sbsa")
+        self.assertEqual(
+            sbsa_entry["lfs_include"], "services/rtvi/rt-embed/docker/binaries/**"
+        )
+        self.assertEqual(sbsa_entry["build_args"], {"ARM_PLATFORM": "sbsa"})
+        self.assertEqual(sbsa_entry["platforms"], ["linux/arm64"])
+        self.assertEqual(sbsa_entry["compose_image_names"], [])
+        self.assertEqual(sbsa_entry["tag_variables"], [])
+
+        entries, _ = dci.select_images(
+            inventory, ["services/rtvi/rt-embed/src/main.py"]
+        )
+        self.assertEqual(
+            [item["name"] for item in entries],
+            ["vss-rt-embed", "vss-rt-embed-sbsa"],
+        )
+
+        matrix = dci.to_matrix(entries)
+        self.assertEqual(matrix["include"][1]["build_args"], "ARM_PLATFORM=sbsa")
+
+        matrices = dci.split_build_matrices(entries)
+        self.assertIn(
+            {
+                "name": "vss-rt-embed-sbsa",
+                "repository": "vss-rt-embed",
+                "tag_suffix": "-sbsa",
+                "context": "services/rtvi/rt-embed",
+                "dockerfile": "services/rtvi/rt-embed/docker/Dockerfile",
+                "lfs_include": "services/rtvi/rt-embed/docker/binaries/**",
+                "platforms": "linux/arm64",
+                "source_path": "services/rtvi/rt-embed",
+                "build_args": "ARM_PLATFORM=sbsa",
+                "platform": "linux/arm64",
+                "arch": "arm64",
+                "runner": "ubuntu-24.04-arm",
+                "runner_arch": "ARM64",
+                "kernel_arch": "aarch64",
+            },
+            matrices["native_platform_matrix"]["include"],
+        )
+
+    def test_rtvi_embed_lfs_assets_are_verified_in_both_build_paths(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        workflow = (
+            repo_root / ".github/workflows/build-dev-images.yml"
+        ).read_text()
+        verifier = """      - name: Verify RT Embed LFS shared objects
+        if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
+        run: |
+          for lfs_asset in \\
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurface.so \\
+            services/rtvi/rt-embed/docker/binaries/igpu/libnvbufsurftransform.so \\
+            services/rtvi/rt-embed/docker/binaries/igpu/libgstnvdsseimeta.so; do
+            test -s \"$lfs_asset\"
+          done"""
+
+        self.assertEqual(workflow.count(verifier), 2)
+
+    def test_workflow_passes_dash_prefixed_variant_suffix_unambiguously(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        workflow = (
+            repo_root / ".github/workflows/build-dev-images.yml"
+        ).read_text()
+
+        self.assertEqual(
+            workflow.count('--tag-suffix="${{ matrix.tag_suffix }}"'), 3
+        )
+        self.assertNotIn('--tag-suffix "${{ matrix.tag_suffix }}"', workflow)
+
+    def test_native_manifest_uses_declared_platforms(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        workflow = (
+            repo_root / ".github/workflows/build-dev-images.yml"
+        ).read_text()
+
+        self.assertIn("PLATFORM_LIST: ${{ matrix.platforms }}", workflow)
+        self.assertIn("for platform in ${PLATFORM_LIST//,/ }; do", workflow)
+        self.assertIn(
+            '"${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${platform##*/}"',
+            workflow,
+        )
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
@@ -310,6 +412,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
+                        "build_args": "",
                     },
                     {
                         "name": "vss-agent-ui",
@@ -320,6 +423,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/ui",
+                        "build_args": "",
                     },
                 ]
             },
@@ -347,6 +451,7 @@ class SelectImagesTest(unittest.TestCase):
                 "lfs_include": "",
                 "platforms": "linux/arm64",
                 "source_path": "services/rtvi/rt-cv",
+                "build_args": "",
             },
         )
 
@@ -418,7 +523,20 @@ class SelectImagesTest(unittest.TestCase):
                 for name, entry in by_name.items()
                 if entry.get("native_platform_build") is True
             },
-            {"sdr-mw-l", "vss-configurator", "vss-rt-config-adaptor"},
+            {
+                "sdr-mw-l",
+                "vss-configurator",
+                "vss-rt-config-adaptor",
+                "vss-rt-vlm",
+                "vss-vios-sensor",
+                "vss-vios-streamprocessing",
+                "vss-vios-nvstreamer",
+                "vss-vios-ingress",
+                "vss-rt-embed",
+                "vss-rt-embed-sbsa",
+                "vss-rt-vlm-sbsa",
+                "vss-video-summarization-sbsa",
+            },
         )
         self.assertNotIn(
             "native_platform_build", dci.matrix_entry(by_name["sdr-mw-l"])

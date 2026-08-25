@@ -315,7 +315,7 @@ Then follow `SKILL.md` Steps 7–9.
   writing the build override for `HARDWARE_PROFILE=DGX-SPARK`, set each image
   tag to its `-sbsa` variant (the commented
   `# …-sbsa` line in the profile's `.env`): `RTVI_VLM_IMAGE_TAG` (RT-VLM),
-  `PERCEPTION_TAG` (RT-CV), and `LVS_TAG` (LVS).
+  `VSS_RT_CV_TAG` (RT-CV), and `LVS_TAG` (LVS).
 - **DGX Spark NIM is local but configured as remote in VSS.** This is only
   because the image is not wired into compose yet. `LLM_MODE=remote` skips the
   local LLM compose service and points the agent at `localhost:30081`.

@@ -462,7 +462,8 @@ services:
 | `RECOMPUTE_BEV_CENTERS_ENABLED` | `false` | Recompute BEV group origins via `spatialai_data_utils` (3D mode only) |
 | `NVSTREAMER_STREAMS_ENDPOINT` | `http://localhost:30000/api/v1/live/streams` | NVStreamer streams endpoint |
 | `NVSTREAMER_SENSOR_STATUS_ENDPOINT` | `http://localhost:30000/api/v1/sensor/status` | NVStreamer status endpoint |
-| `NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT` | `100` | Timeout for NVStreamer endpoint (seconds) |
+| `NUM_STREAMS` | `0` | Expected NVStreamer camera count; wait until the stream list reaches this size before registering with VST (`0` = wait for a stable non-empty list instead) |
+| `NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT` | `120` | Seconds to keep waiting after NVStreamer returns a non-empty list that is still below `NUM_STREAMS` (or not yet stable when `NUM_STREAMS=0`). Then the partial list is used. Unreachable / non-200 / empty responses retry indefinitely |
 | `NVSTREAMER_STREAM_VALIDATION_MAX_RETRIES` | `50` | Max retries for stream validation |
 | `NVSTREAMER_STREAM_VALIDATION_RETRY_DELAY` | `5` | Delay between validation retries (seconds) |
 | **Video upload (NVStreamer / VMS)** | | |

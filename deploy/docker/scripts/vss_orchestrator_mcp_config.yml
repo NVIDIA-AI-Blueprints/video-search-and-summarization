@@ -124,7 +124,10 @@ function_groups:
             LLM_NAME: nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
             LLM_NAME_SLUG: nvidia-nemotron-nano-9b-v2-fp8
             RTVI_VLM_IMAGE_TAG: "3.3.0-26.08.2-sbsa"
-            PERCEPTION_TAG: "3.3.0-sbsa-26.07.2"
+            # SBSA shares the vss-rt-cv GHCR repository, distinguished only by
+            # an -sbsa tag suffix, so this is a tag-only override -- the image
+            # default already resolves to the managed GHCR channel.
+            VSS_RT_CV_TAG: "develop-latest-sbsa"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             # Unified alerts value, matching dev-profile.sh

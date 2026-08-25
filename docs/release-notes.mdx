@@ -1,0 +1,621 @@
+---
+title: "Release Notes"
+description: ""
+position: 1
+---
+These Release Notes describe the key features, software enhancements and improvements, and known issues for the VSS release product package.
+
+## VSS 3.2.1
+
+VSS 3.2.1 is a bug fix release for the VSS 3.2.0 release.
+
+### Key Features and Enhancements
+
+- Updated the default VLM model for the Real-Time Video Language Model (RT-VLM) microservice and the agent workflows to Cosmos Reason 3 Nano.
+- Updated the Smart City Industry profile to use 3.2.0 microservices.
+- Updated CPU-based multimedia support.
+
+Note: Users should use the VSS 3.2.1 GitHub release/branch and the container tags referenced by the 3.2.1 deployment assets. The 3.2.1 manifests may intentionally reference a mix of new 3.2.1 tags and unchanged 3.2 tags; this is expected. Only containers requiring a remediation or feature delta were republished.
+
+Older affected 2.x, 3.0, and 3.1 container images are deprecated and should not be used for new deployments. These older images will be removed from NGC on September 30, 2026.
+
+## VSS 3.2.0
+
+These are the VSS 3.2.0 Release Notes. This is the first 3.X General Availability (GA) release. It hardens the modular architecture and
+documents the developer profiles.
+
+### Key Features and Enhancements
+
+- **Source code released** for all microservices and agent workflows on GitHub.
+- **Agent Skills** ([Agent Skills](/agent-skills)) (*Early Access*) are now available for agent-driven deployment
+  and operations with support for [multiple agent harnesses](/agent-harnesses). Skills are provided for:
+
+  - Profile deployment.
+  - Agent workflow use cases such as video summarization, search, and report generation.
+  - Deployment and management of RTVI, Alerts, and Behavior Analytics microservices.
+  - Camera and stream management.
+
+- Added **Helm chart support** for all of the agent workflows.
+- Added optional **audio-in-video support** on the base agent profile: remote Nemotron 3 Nano Omni VLM with audio-enabled prompts and configurations.
+- Added a Real-time Computer Vision 3D (RT-CV-3D) microservice with support for **MV3DT-based 3D multi-camera detection and tracking**, and integrated it into a new Warehouse Blueprint application.
+- Added the **Automatic Calibration** microservice for automated camera position and orientation calibration.
+- **NemoClaw + VSS** (*Early Access*): The `deploy_nemoclaw_vss.ipynb` notebook for deploying and
+  operating VSS from the [NemoClaw ](/nemoclaw) / OpenClaw chat UI, bundled with the
+  VSS OpenClaw plugin, VSS [Agent Skills](/agent-skills), a VSS policy preset, and
+  the host-side [VSS Orchestrator MCP server ](/vss-orchestrator-mcp).
+
+### Agent Workflows
+
+<Tabs>
+<Tab title="Video Summarization">
+- Updated the Video Summarization developer profile to integrate the current Video Summarization microservice and API flow (renamed from Long Video Summarization microservice).
+- Updated Video Summarization to use RTVI-VLM as the default VLM path for video understanding and summarization.
+- Added support for generating one report across multiple uploaded videos.
+- *Early Access (EA)* Feature: Video Summarization live-stream caption generation, stream summary, stream report
+  generation, and Q&A based on captions in Elasticsearch.
+
+- Requests for an RTSP stream summary return empty results if no captions are available in Elasticsearch for the requested time period. This can happen if:
+
+  - The requested time period is before caption generation started.
+  - The caption generation prompt causes no captions to be stored in Elasticsearch for the requested time period.
+
+- If multiple agent sessions or agent instances connect to the same backend, either simultaneously or at different times, the caption generation prompt is overwritten by the latest query.
+- The agent has no visibility into caption prompts set by other agent instances.
+- A generated caption containing the substring `yes` or `true` (case-insensitive) will result in a spurious record in the `mdx-vlm-incidents-1970-01-01` index.
+</Tab>
+<Tab title="Base">
+- Expanded Base profile model and deployment options around the existing default pair (Nemotron Nano 9B v2 + Cosmos Reason2 8B), with documented local, shared-GPU, and remote endpoint layouts.
+- Added optional audio-enabled Base workflow support with remote Nemotron Nano Omni VLM and audio-aware prompts/configuration.
+- Clarified Base profile service scope and dependencies, including VIOS + Agent + NIM deployment boundaries and profile-specific service activation behavior.
+- Added and documented Base workflow Agent Skills for deployment, video I/O management, visual Q&A, and report generation from coding-agent environments.
+- Added Helm chart support for Base workflow deployment to match Compose-based profile behavior.
+- Removed legacy SDR/Envoy routing from Base profile deployment and moved to direct Stream Processing endpoint wiring for a simpler default stack.
+- Added and hardened chunked video-upload handshake flow in the Base agent API for large-file ingest and completion handling.
+- Improved browser-reachable clip/media URL handling for Brev and ingress-based deployments by rewriting report and playback links to the public host/port.
+
+- `cosmos-reason2-8b` NIM can fail to recover after a stop/crash; redeploy the stack when this occurs.
+- Reports are in-memory by default and are lost on container restart unless persistent storage is configured.
+- Default Base shared-GPU layout may require manual memory-fraction tuning on constrained GPUs to avoid inference instability.
+- On single-GPU 48 GB hosts (for example L40S), the default FP16 LLM+VLM shared layout can exceed practical memory headroom and may require dedicated-GPU or remote endpoint configuration.
+</Tab>
+<Tab title="Search">
+- Added Search by Image for finding visually similar objects from selected bounding boxes on paused video frames or referenced object IDs.
+- Added follow-up support for Search results in Vision Agent workflow, including questions about returned clips and refined searches that adjust the prior query, time range, source type, result count, or critic setting.
+- Added support for up to 100 streams in Search deployments by tuning the VST `max_devices_supported` setting for the target device memory. Up to 16 concurrent active sources (1920x1080) have been tested with no FPS drop.
+- Enabled the critic agent by default for agent/chat search. The critic uses a VLM to verify search results, can be turned on or off per query with the **Enable Critic** toggle, and evaluates the top results according to `num_videos_to_evaluate`.
+- Updated Search profile GPU and model defaults, including local and remote LLM/VLM layouts, the two base GPU requirement for RTVI-CV, VIOS Stream Processing, and RTVI-Embed, LLM defaults, the optional local VLM GPU for critic verification, `Cosmos-Embed1-448p-anomaly-detection` for RTVI-Embed, and `SigLIP2` object embeddings for RTVI-CV.
+- Added the `vss-search-archive` Agent Skill to run top-level VSS fusion search on archived video, ingest video files or RTSP streams for search, and delete search-ingested sources from a coding agent.
+
+- Search embeddings for uploaded videos and streams remain searchable until the Elasticsearch index lifecycle minimum age is reached. The default minimum index age is 48 hours; after cleanup, the media remains visible in video management but must be uploaded or added again before it is searchable.
+- Adding an RTSP stream starts embedding generation asynchronously. A successful add response confirms the request was accepted, but search results appear only after enough chunks have been indexed in Elasticsearch.
+- Search quality can vary for broad or ambiguous queries. Negative-intent queries can match positive-intent results, false positives can appear, and single-word queries such as `person` can return no results.
+</Tab>
+<Tab title="Alerts">
+* Alerts Microservice now supports post-alert processing for various use cases, including:
+
+  * **Verification:** Provides a yes/no response indicating whether an event occurred.
+  * **Contextualization:** Provides additional information about an event.
+  * **Classification:** Classifies an event into two or more categories.
+
+* Added RTVI-VLM-based alert generation for live videos through the new real-time API interface.
+* Added support for remote managed model endpoints (for example, OpenAI) and RTVI-VLM.
+* Added "always-on" alert functionality to automatically start processing added streams.
+* Added custom VLM response processing.
+* Added performance improvements, including non-blocking VLM execution and multithreaded request processing for increased throughput.
+* Added Agent Skills for natural-language-based alert creation, querying, management, and notification.
+
+* **Real-time alert rules**: Create, list, retrieve, and delete real-time
+  VLM alert rules registered with RTVI VLM via `POST /api/v1/realtime`,
+  `GET /api/v1/realtime`, `GET /api/v1/realtime/{alert_rule_id}`, and
+  `DELETE /api/v1/realtime/{alert_rule_id}`.
+* **Always-on alerts**: Start or stop always-on alert rules for an incoming
+  camera event via `POST /api/v1/realtime/always-on`.
+* **Rule replay**: Re-apply all persisted active or failed rules onto RTVI
+  VLM via `POST /api/v1/realtime/replay`.
+* **Incident retrieval**: List generated incidents from Elasticsearch via
+  `GET /api/v1/realtime/incidents`.
+* **On-demand verification**: Verify an alert on demand via
+  `POST /api/v1/verification/ondemand`.
+* **Alert-type verification config**: List all configs and create a new
+  config via `GET /api/v1/verification/config` and
+  `POST /api/v1/verification/config`; get, update, and delete the config
+  for a specific alert type via
+  `GET /api/v1/verification/config/{alert_type}`,
+  `PUT /api/v1/verification/config/{alert_type}`, and
+  `DELETE /api/v1/verification/config/{alert_type}`.
+
+* `RTVI_VLM_MODEL_TO_USE` — Selects the VLM model served by the RTVI-VLM
+  backend used for alert verification and real-time alerts (for example,
+  `vllm-compatible`).
+* `RTVI_VLM_BASE_URL` — Base URL of the RTVI-VLM microservice
+  (OpenAI-compatible VLM endpoint) that the Alerts microservice calls for
+  inference.
+* `CONFIG_PATH` — Path to the service configuration file (`config.yml`).
+* `ALWAYS_ON_RULES_CONFIG` — Explicit path to the always-on (real-time)
+  alert rules YAML file; takes precedence over the default
+  `realtime-config.yaml` lookup.
+
+* Docker Compose x86 default: `nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0`.
+* Helm chart default: `nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0`.
+  Set `image.tag` to the required release tag for your deployment package.
+</Tab>
+<Tab title="Warehouse Operations">
+- Added MV3DT and Auto Calibration profiles.
+- Launchable and Skills:
+
+  - Warehouse deploy launchable notebook.
+  - Warehouse deploy and debug skills.
+  - Behavior Analytics standalone deploy skill.
+  - Video Analytics API standalone deploy skill.
+
+- Added RTVI-VLM always-on alerts for Load Quality, PPE, Spillover, and Pathway / Unexpected Obstructions; RTVI-VLM replaces the local VLM path.
+- Added Auto Calibration support for 3D profile deployment, image coordinates, and RTSP inputs.
+- Behavior Analytics: Added support for dynamic configuration changes.
+- Added dynamic configuration support in Video Analytics API to store and audit configuration changes of Behavior Analytics.
+- Added Spatial AI Data Utils support for assigning region and group metadata to global ROIs and tripwires, 3D IoU-based tracking evaluation, data validation and evaluation for 3D inference data, and visualization tools.
+- Added VSS Configurator support for toggling Kafka/Redis configurations and editing JSON configuration files.
+- Added SDR stream auto re-addition after Docker restart for perception services.
+- Refactored Docker Compose to improve microservice modularity.
+- Added retry mechanisms for Kafka broker, Elasticsearch, and related service connections in Video Analytics API.
+- Added retry mechanisms for Kafka broker, Elasticsearch, Redis, MQTT, and related service connections in Behavior Analytics.
+- Improved Spatial AI Data Utils camera grouping algorithms.
+- Added backup and cleanup support for `calibration.json` and schema validation after VSS Configurator operations.
+- Added JSON output support for VLM verification and improved Near Miss Violation verification accuracy through prompt tuning.
+- Added top-view image visualization on Thor and Spark platforms, and improved 3D bounding-box visualization by using individual camera timestamps when present.
+- Models - Core AI models for perception and analytics:
+
+  - [RT-DETR - 2D Warehouse Model v1.0.2 ](/models/rt-detr) - Model for 2D Single-Camera Object Detection.
+  - [Sparse4D - 3D Warehouse Model v2.2 ](/models/sparse4d) - Model for 3D Multi-Camera Object Detection and Tracking.
+
+See [Warehouse Known Limitations ](/warehouse-docs/Known-Limitations) for current warehouse profile constraints and workarounds.
+</Tab>
+</Tabs>
+
+### System Components
+
+<Tabs>
+<Tab title="RT-VLM">
+* **Endpoint rename:** `/v1/generate_captions_alerts` has been renamed
+  to `/v1/generate_captions`. Update any 3.1.0-era client code
+  accordingly.
+* **Duplicate live-stream / camera IDs** are now rejected with HTTP 409
+  (`DuplicateCameraId` / `DuplicateStreamId`) instead of being
+  silently overwritten. Remove the prior stream first, or surface the
+  409 to the caller.
+* **Repeated RTSP caption requests now start independent jobs.**
+  Repeated `/v1/generate_captions` calls for the same RTSP stream ID no
+  longer reconnect to the existing live caption request. Each call returns a
+  distinct request ID. `DELETE /v1/generate_captions/{stream_id}` or
+  deleting the stream stops all active caption jobs for that stream ID.
+
+* **Cosmos Reason 3** reasoning VLMs. Two checkpoints are supported:
+  [Cosmos3-Nano-Reasoner](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner) and
+  [Cosmos3-Super-Reasoner](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner?version=bf16-final). Set
+  `VLM_MODEL_TO_USE=cosmos-reason3`. For Nano, set
+  `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`.
+  For Super, set
+  `MODEL_PATH=ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final`.
+* **Nemotron Nano Omni** with native video + audio understanding. Enable
+  with `VLM_TRUST_REMOTE_CODE=true` and (for audio)
+  `VLM_MODEL_SUPPORTS_AUDIO=true`. Use
+  `INSTALL_PROPRIETARY_CODECS=true` when inputs contain proprietary
+  audio codecs.
+* **Qwen 3.5** and **Qwen 3.5 MoE** VLMs. The service
+  auto-detects `Qwen3_5ForConditionalGeneration` /
+  `Qwen3_5MoeForConditionalGeneration` and runs them against the
+  bundled vLLM runtime. The
+  MoE variant uses the `triton` MoE backend (auto-selected on B200,
+  configurable via `VLLM_MOE_BACKEND`).
+* Default model is now `cosmos-reason2`
+  (`ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8`).
+
+* **URL-based processing** on `/v1/generate_captions` and
+  `/v1/files`: `http://`, `https://`, `s3://`, `file://`
+  (with allowlist via `FILE_URL_ALLOWED_DIRS`). New request fields
+  `url`, `media_type`, `creation_time`, `url_headers`; new
+  response field `chunk_id` (zero-based).
+* **Native audio** for Omni models via `enable_audio: true`;
+  `audio_transcript` is returned per chunk.
+* **Reasoning** via `enable_reasoning: true`; `reasoning_description`
+  is returned per chunk.
+* **Reasoning propagation to Kafka/protobuf**: parsed VLM reasoning is added
+  to `VisionLLM.info` and `Incident.info` as both `reasoning` and
+  `reasoningDescription`.
+* **Alert categorization** via the `alert_category` field on incidents.
+* **CV-compatible stream API**: `POST /v1/stream/add`,
+  `POST /v1/stream/remove`, `GET /v1/stream/get-stream-info`
+  alongside the existing `/v1/streams/*` endpoints.
+* **Text-only chat completions** via `/v1/chat/completions` (no media
+  required); multi-turn conversations and token-level SSE streaming.
+* `POST /v1/files` accepts an HTTP/S URL for server-side fetch.
+* **Proprietary audio codec support** for Omni models via
+  `INSTALL_PROPRIETARY_CODECS=true`.
+
+* **Efficient Video Sampling (EVS)** via `VLM_VIDEO_PRUNING_RATE`.
+  Supported on Nemotron Nano VL and Qwen 2.5 VL (not Cosmos Reason).
+* **GOP-aware decode optimization** via `RTVI_ENABLE_GOP_DECODE_OPT`
+  (default `true`; file decode only).
+* New vLLM tuning knobs: `VLLM_MM_PROCESSOR_CACHE_GB`,
+  `VLLM_ENFORCE_EAGER`, `VLLM_MAX_NUM_BATCHED_TOKENS`,
+  `VLLM_DISABLE_MM_PREPROCESSOR_CACHE`.
+
+* `VLM_MAX_GENERATION_TOKENS` — Cap on tokens generated per request
+  (default `16384`).
+* `VLM_PROMPT_MAX_LENGTH` — Maximum user-prompt length in characters
+  (default `10240`).
+* `VLM_SYSTEM_PROMPT_MAX_LENGTH` — Maximum system-prompt length in
+  characters (default `10240`).
+* `VLM_MODEL_SUPPORTS_AUDIO` — Enable native audio decoding for Omni
+  models (default `false`).
+* `VLM_TRUST_REMOTE_CODE` — Enable `trust_remote_code` in vLLM and
+  `AutoProcessor`. Required for Omni and some custom models
+  (default `false`).
+* `VLM_VIDEO_PRUNING_RATE` — EVS video-token pruning rate
+  (`0.0`–`1.0`). Supported on Nemotron Nano VL and Qwen 2.5 VL; not
+  on Cosmos Reason.
+* `VLLM_MOE_BACKEND` — Override vLLM MoE backend (e.g., `triton`).
+  Auto-defaults to `triton` on B200.
+* `VLLM_MM_PROCESSOR_CACHE_GB` — vLLM multimodal preprocessor cache
+  size in GB (default `1`).
+* `VLLM_ENFORCE_EAGER` — Force eager execution in vLLM (A100/Ampere
+  CR2 FP8 workaround) (default `false`).
+* `VLLM_MAX_NUM_BATCHED_TOKENS` — Cap on the prefill batch token size
+  to improve decode throughput (default `16384`).
+* `RTVI_ENABLE_GOP_DECODE_OPT` — GOP-aware decode optimization for
+  file decode (default `true`; no effect on RTSP).
+* `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` — Maximum queued in-flight async
+  Kafka sends (default `1024`).
+* `FILE_URL_ALLOWED_DIRS` — Comma-separated absolute directories
+  allowlisted for `file://` URL ingestion. `file://` is rejected
+  when unset.
+* `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` — Domains for which SSL
+  verification is skipped on URL download.
+* `ASSET_DOWNLOAD_MAX_REDIRECTS` — Maximum redirect hops on URL
+  download (default `0` disables; max `10`).
+* `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` — Maximum size (GB) of files
+  fetched via URL (default `8`).
+* `ASSET_DOWNLOAD_AUTH_TOKENS` — Per-domain auth headers
+  (`domain1=Bearer xxx;domain2=Basic yyy`).
+* `ASSET_MAX_AGE_HOURS` — Auto-evict uploaded assets older than this
+  many hours (default `0` disables).
+
+* Docker Compose x86 default: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0`.
+* Docker Compose DGX Spark/SBSA image:
+  `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa`.
+* Helm chart default: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0`.
+  Set `image.tag` to the required release tag for your deployment package.
+</Tab>
+<Tab title="RT-CV">
+* **Source code and Helm chart released** on GitHub for the RT-CV
+  microservice.
+* **On-demand image embedding** via a new vision-encoder REST API that
+  generates image embeddings on request.
+
+**2D Single-Camera Models:**
+
+* [RT-DETR](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse?version=deployable_rn50_v1.0.2) **(Warehouse Blueprint)**: Real-Time Detection Transformer object detection model optimized for warehouse environments
+
+**3D Multi-Camera Models:**
+
+* [Sparse4D](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50?version=deployable_v2.2) **(Warehouse Blueprint)**: Multi-Camera 3D Detection and Tracking model with 4D (spatial-temporal) capabilities for Birds-Eye-View (BEV) detection across multiple synchronized camera sensors with temporal instance banking
+
+**Embedding Models:**
+
+* [RADIO-CLIP](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/radio-clip): Object embedding model for appearance-based feature extraction and re-identification
+
+* [SigLIP v2](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/siglip_v2): Object embedding model for appearance-based feature extraction and re-identification
+
+* **Vision-encoder inference optimizations.** For optimal performance, the
+  following config changes are enabled by default in `ds-main-config.txt`:
+
+  ``ini
+  [visionencoder]
+  smart-infer=1
+  ofa-predict=1
+  ``
+
+* **Thor tracker tuning.** For optimal tracker performance on Thor, the
+  following config changes are enabled by default in the tracker configuration:
+
+  ``ini
+  TargetManagement.maxTargetsPerStream: 50
+  VisualTracker.visualTrackerType: 2
+  VisualTracker.vpiBackend4DcfTracker: 1
+  ``
+
+* Fixed a failure when deleting an RTSP stream that had already ended
+
+* Docker Compose x86 default: `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0`.
+* Docker Compose DGX Spark/SBSA image:
+  `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0-sbsa`.
+* Helm chart default: `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0`.
+  Set `image.tag` to the required release tag for your deployment package.
+</Tab>
+<Tab title="RT-Embed">
+* **Duplicate live-stream / camera IDs** are now rejected with HTTP 409
+  (`DuplicateCameraId` / `DuplicateStreamId`) instead of being
+  silently overwritten. Remove the prior stream first, or surface the
+  409 to the caller.
+
+* **Cosmos-Embed1-448p-anomaly-detection**: 448p model with anomaly
+  detection support
+  ([HF](https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection)).
+
+* **base64 data URL input**: `POST /v1/generate_video_embeddings` now
+  accepts inline base64 media via RFC 2397 `data:` URIs in the `url`
+  field.
+* **CV-compatible stream API**: `POST /v1/stream/add`,
+  `POST /v1/stream/remove`, `GET /v1/stream/get-stream-info`
+  alongside the existing `/v1/streams/*` endpoints.
+
+* **GOP-aware decode optimization** via `RTVI_ENABLE_GOP_DECODE_OPT`
+  (default `true`; file decode only).
+
+* `NGC_API_KEY` — NGC API key for downloading models from NGC via the
+  `ngc:` scheme.
+* `COSMOS_EMBED1_TRT_PRECISION` — trtexec network precision for
+  Cosmos-Embed1 video/text TensorRT engines (`fp32`, `fp16`,
+  `bf16`, `int8`, `fp8`, `best`; default `fp16`).
+* `COSMOS_EMBED1_TRT_EXTRA_ARGS` — Extra trtexec arguments
+  (shell-quoted string) appended to both video and text engine builds
+  (for example, `--stronglyTyped --builderOptimizationLevel=5`).
+* `RTVI_ENABLE_GOP_DECODE_OPT` — GOP-aware decode optimization for
+  file decode (default `true`; no effect on RTSP).
+* `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` — Maximum queued in-flight async
+  Kafka sends (default `1024`).
+* `FILE_URL_ALLOWED_DIRS` — Comma-separated absolute directories
+  allowlisted for `file://` URL ingestion. `file://` is rejected
+  when unset.
+* `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` — Domains for which SSL
+  verification is skipped on URL download.
+* `ASSET_DOWNLOAD_MAX_REDIRECTS` — Maximum redirect hops on URL
+  download (default `0` disables; max `10`).
+* `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` — Maximum size (GB) of files
+  fetched via URL (default `8`).
+* `ASSET_DOWNLOAD_AUTH_TOKENS` — Per-domain auth headers
+  (`domain1=Bearer xxx;domain2=Basic yyy`).
+* `ASSET_MAX_AGE_HOURS` — Auto-evict uploaded assets older than this
+  many hours (default `0` disables).
+
+* Docker Compose x86 default: `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.0`.
+* Docker Compose DGX Spark/SBSA image:
+  `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.0-sbsa`.
+* Helm chart default: `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.0`.
+  Set `image.tag` to the required release tag for your deployment package.
+</Tab>
+<Tab title="VIOS">
+* **Source code and Helm chart released** on GitHub for the VIOS
+  microservice (Sensor, StreamProcessing, Ingress, and NVStreamer
+  containers, plus the VIOS Streaming UI).
+* **One-click Docker Compose deployment** for the StreamProcessing
+  service that bundles `NVStreamer` and removes the legacy
+  `minio` / `mcp` services. Configurable per-deployment via
+  environment variables for ports, video sources, storage paths,
+  deployment profiles, and Prometheus / Grafana hooks.
+* **Unified multi-arch container** for X86_64, AGX Thor and DGX Spark
+  (single `multiarch` image, replacing the previous Thor / SBSA
+  split) — `./build.sh arch=arm64 container` or `./build.sh arch=amd64 container`.
+* **Per-camera timestamp** for 3D multi-camera use cases — replay
+  and live-overlay metadata is duplicated per sensor when
+  per-camera time information is present.
+* **B-frame** support added to all download use-cases
+  (transcode + remux + overlay) on x86 and aarch64.
+* **HEVC multi-slice** and **H.265 Aggregation Packet
+  (RFC 7798)** support in both VST recording and NVStreamer,
+  including SEI `frameId` injection on aggregated VCL units.
+* **VST audio recording** end-to-end fix — AAC
+  `AudioSpecificConfig` is now embedded in the container, MKV
+  media-info reports correct sample-rate/channels, and audio
+  delivery waits for the first video buffer to land (no more
+  out-of-sync audio at start-of-recording).
+* **NVStreamer republish with audio** — `vst-streamer` now
+  forwards audio tracks to RTSP consumers (was video-only).
+* **Floor map** view supports SVG and JPEG inputs and renders on
+  AGX Thor.
+* **VST UI rebranded to VSS VIOS** — title bar, dashboard, and
+  bundled UI lib at `/vst-ui` inside the ingress container.
+
+* **Picture API in Storage Service** — `GET
+  /v1/storage/stream/\{streamId\}/picture` and
+  `/v1/storage/stream/\{streamId\}/picture/url` return JPEG
+  snapshots and temporary URLs for any sensor / clip; works for
+  live and replay, including disconnected sensors.
+* **Replay-picture for disconnected H.265 sensors** —
+  `GET /v1/replay/stream/\{streamId\}/picture` now succeeds for
+  codec-specific corner cases that previously timed out.
+* **Conflict-aware** `POST /v1/sensor/add` — returns the
+  existing `sensorId` and three distinct error contracts when
+  the URL and / or name collide with an already-onboarded sensor,
+  unblocking the Auto-Calibration MS programmatic onboarding flow.
+* **Full-file download** without processing on the clip / download
+  path when `userRequest` requests it — bypasses transcode +
+  remux for byte-identical pulls.
+* **QoS debug endpoint** —
+  `GET /v1/proxy/debug/qos` exposes per-stream QoS counters
+  (frame-rate, drops, jitter) consumed by the dashboard QoS view.
+* **Hardened request-body validation** — added 35 BDD scenarios
+  covering upload, sensor, storage, recording, and picture flows,
+  and tightened input validation across all upload / download
+  APIs.
+
+* **Clip-generation latency** reduced by ~200–300 ms by moving
+  cleanup to an async thread; an additional ~50 ms saved at clip
+  start by the decoder-library update.
+* **RTSP recording start-up latency** reduced from ~3 s to a few
+  milliseconds via non-blocking `gst_get_state` polling and
+  unbuffered `filesink` mode.
+* **Configurable picture-API timeout** via environment variable.
+* **Configurable storage cap** — `MAX_STORAGE_SIZE` environment
+  variable lets operators tune per-deployment video-storage
+  ceilings without rebuilding.
+* **Decoder library memory-leak fixes** in `libcuvidv4l2` for
+  both x86_64 and aarch64.
+* **Postgres bind-mount → docker-managed volume** to eliminate
+  host-permission flakiness on first boot.
+
+* **Memory leaks** fixed in upload-video, download,
+  `libcuvidv4l2` decoder (x86_64 + aarch64), and
+  stream-processing cleanup paths.
+* **Stability**: fixed crash on H100 under 40 concurrent
+  downloads + 20 picture-API requests; fixed NVStreamer
+  buffer-full crash on video+audio streams; fixed audio-path
+  crash and recursion / stack-overflow risk in ADTS / H264
+  byte-stream sources.
+* **VST audio recording** AAC profile and AV-sync regression
+  resolved (NTP-to-epoch offset and unit-mismatch corrections).
+* **Stream / sensor metadata**: fixed empty proxy URL in
+  `GET /streams`, sensor-count cache drift / ghost files, and
+  blank sensor name on UI for removed file-based sensors (with
+  sensor-id fallback when name is missing).
+* **Frame accuracy**: corrected last-frame detection in clip
+  download and the frame-accurate picture API.
+* **API contracts**: `DELETE /sensor/{id}` no longer reports an
+  invalid delete status; UI multipart-upload regression fixed;
+  stream-ID removed from PUT-upload headers.
+* **Pipeline fixes**: video-wall framerate handling; SW-encoder
+  transcode FPS via `videorate` + `capsfilter`; Live555
+  proxy burst-mode duplicate-PTS handling now strictly monotonic
+  (eliminating SEI / frameId aliasing); HEVC pre-transcode codec
+  persistence on upload — DB and DeviceManager re-read media
+  information after replace.
+* **Security / OSS**: resolved CVE-2026-42945 in the ingress
+  container; refreshed OSS base images (Postgres, Redis);
+  disabled IPv6 in the ingress to work around an upstream NGINX
+  dual-stack issue.
+
+VIOS images are published as **multi-arch OCI image indexes** — a
+single tag serves `linux/amd64` (x86_64) and `linux/arm64`
+(AGX Thor and DGX Spark / SBSA).
+
+* Docker Compose / Helm chart default tags:
+
+  * `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.0`
+  * `nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.0`
+  * `nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.0`
+  * `nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.0`
+</Tab>
+<Tab title="Auto-Calibration">
+* Added support for single camera calibration.
+* Added RTSP stream recording and injection using VIOS for input.
+* Added support for global tripwires and ROIs for the 3D use case, including Global ROIs and TWs under the Parameters tab.
+
+* Updated the AMC pipeline to use Model Runner for lens distortion estimation and video rectification.
+* Integrated Model Runner to improve focal length estimation using models.
+* Added VGGT auto frame selection.
+* Added image coordinate calibration file export. Users can download ROIs and TWs in pixel format under the Parameters tab by clicking `Export image-mode JSON`.
+* Added text boxes for additional attributes when clicking `Full export` under the Results tab.
+
+* Docker Compose default tags:
+
+  * `nvcr.io/nvidia/vss-core/vss-auto-calibration:3.2.0`
+  * `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:3.2.0`
+</Tab>
+<Tab title="RT-CV-3D">
+* **New microservice** — RT-CV-3D is a new Perception microservice
+  that couples the RT-DETR 2D detector with the Multi-View 3D
+  Tracking (MV3DT) framework to produce fused 3D Bird's Eye View
+  (BEV) outputs across cameras with overlapping fields of view. It
+  ships as two container images, `vss-rt-cv` (Perception) and
+  `vss-rt-cv-mv3dt-bev-fusion` (BEV Fusion). See
+  [Object Detection and Tracking ](/object-detection-tracking).
+* **Shared RTVI-CV REST API surface** — built on the same RTVI-CV
+  codebase as the RT-CV microservice, the Perception microservice
+  exposes the same core REST API for stream management (dynamic
+  add / remove / query of streams), health-check probes
+  (liveness / readiness / startup), and metrics and telemetry
+  monitoring.
+* **Docker Compose deployment** — RT-CV-3D is released with a
+  Docker Compose deployment and its source code, deployed through
+  the [Warehouse Blueprint MV3DT profile ](/warehouse-docs/MV3DT-profile).
+* **Agent Skills added** — new VSS Agent Skills let a coding agent
+  deploy and operate the RT-CV-3D perception and tracking stack
+  end to end, and generate the camera calibration it needs. See the
+  [Agent Skills walkthrough](/warehouse-docs/MV3DT-profile#agent-skills-walkthrough).
+
+* [RT-DETR](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse?version=deployable_rn50_v1.0.2):
+  Real-Time Detection Transformer object detection model optimized
+  for warehouse environments.
+* [BodyPose3DNet](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/bodypose3dnet?version=deployable_accuracy_onnx_1.0):
+  Pose-estimation model used by MV3DT.
+
+* Standalone launch of the RT-CV-3D microservice is not yet
+  supported. Deploy RT-CV-3D through the Warehouse Blueprint MV3DT
+  profile or the [Agent Skills](/warehouse-docs/MV3DT-profile#agent-skills-walkthrough).
+  Standalone launch will be supported in a future release.
+* A Helm chart is not yet available. Helm support will be added in
+  a future release.
+
+* Perception Docker Compose x86 default:
+  `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0`.
+* Perception Docker Compose DGX Spark/SBSA image:
+  `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0-sbsa`.
+* BEV Fusion Docker Compose default:
+  `nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:3.2.0`.
+</Tab>
+</Tabs>
+
+### Known Issues and Limitations
+
+- The OpenClaw chat UI can display a duplicate assistant response for a single user query. The duplicate is a rendering issue only; the underlying agent processes the query once and the tool invocations and results are unaffected. Refresh the chat or ignore the duplicated bubble.
+- The OpenClaw UI can stop rendering agent responses after running for some time and appear stale, for example while periodic VSS deployment status polling continues in the background. Workaround: refresh the UI to see the latest responses.
+- Docker Engine 29.5.0 and later can fail to pull some NGC-hosted image tags after the image layers download, with an `error from registry: Incorrect Repository Format` message. Use a supported Docker Engine version earlier than 29.5.0. If you must use Docker Engine 29.5.0 or later, add or merge the following daemon-side override in `/etc/docker/daemon.json` and restart Docker:
+
+  ```json
+  {
+    "features": {
+      "containerd-snapshotter": false
+    }
+  }
+  ```
+
+  This disables the containerd snapshotter image store path for the Docker daemon and uses the legacy Docker graphdriver image store. Preserve any existing daemon settings, such as the required `exec-opts` cgroup driver configuration.
+- Agent with audio-enabled configuration for Nemotron 3 Nano Omni model is known to encounter multiple retry issues with videos that are missing audio or non-compatible audio streams.
+- After deploying with the Brev Launchable, Brev can occasionally report `services unhealthy` even though Jupyter Notebook, VSS deployment, and VSS skills continue to function. This appears to be an intermittent Brev status issue and is harmless for VSS operations.
+- Phoenix must be accessed through HAProxy on port 7777 (`https://7777-<id>.brevlab.com/phoenix`), not directly on port 6006. Phoenix is configured for reverse-proxy access with `PHOENIX_HOST_ROOT_PATH=/phoenix`; HAProxy strips that prefix before forwarding, while direct access on 6006 leaves paths such as `/phoenix/graphql` unchanged and returns `405 Method Not Allowed`, which breaks the UI. Port 6006 does not need a Brev secure link for Phoenix.
+- (Search profile, Brev 2-GPU environments): When using local VLM, the Search critic is automatically disabled with a warning to avoid invalid local VLM GPU assignment. As a result, critic-based verification is unavailable unless you use a remote VLM or a host with more than 2 GPUs.
+
+  ```text
+  ```
+
+    [WARN] Brev environment has 2 GPU(s). Disabling Search critic to avoid starting the local VLM on GPU 2.
+
+## VSS 3.1.0
+
+These are the VSS 3.1.0 Release Notes. This is an early access release including a refactored architecture and new features. There are some features in an alpha state and should not be used in production.
+
+### Key Features and Enhancements
+
+- Updated the Search Agent Workflow to introduce attribute search, multi-embedding fusion search, and a critic agent to review search results.
+- Updated the Real-Time Computer Vision (RT-CV) microservice to support embedding generation for detected objects. This release supports two embedding models: RADIO-CLIP and SigLIP2.
+- Updated Brev Launchable deployment to support the 3.X architecture and deploy all of the agent workflows.
+- Added support for AGX Thor and DGX Spark with hybrid deployment (remote LLM) of the Base and Alerts profiles.
+- Added additional deployment options for undefined hardware profiles.
+
+## VSS 3.0.0
+
+These are the VSS 3.0.0 Release Notes. This is an early access release including a refactored architecture and new features. There are some features in an alpha state and should not be used in production.
+
+### Key Features and Enhancements
+
+- Updated the out-of-the-box-experience which includes launching a minimal vision agent and allowing developers to add on agent workflows using a combination of microservices. Agent workflows available in this release are:
+
+  - **Report generation and Q&A**: The agent can generate templated reports and answer questions using the VLM. This is part of the base agent profile in Quickstart.
+  - **Video summarization**: The agent can generate long video summaries with time-stamped highlights.
+  - **Alert verification**: Augment existing CV pipelines with VLMs to verify events and extract additional insights.
+  - **Real-Time VLM alerts**: Generate tail-end alerts using VLM.
+  - **Search**: Open vocabulary search for actions and events. This is an alpha feature.
+
+- Introduced 2 industry-specific, large scale, blueprint examples for smart cities and warehouses.
+- **Modularized the VSS architecture**, introducing new microservices and APIs.
+- Introduced a top-level agent, capable of planning and executing vision-based workflows leveraging the new microservices.
+- Introduced **Real-Time Video Intelligence (RTVI) microservices** for accelerated feature extraction from stored and streamed video. Three microservices are included in this release:
+
+  - **Real-Time VLM (RT-VLM)**: Generates captions and alerts for live streams using Vision Language Models.
+  - **Real-Time Embedding (RT-Embedding)**: Generates embeddings for live streams and video files.
+  - **Real-Time Computer Vision (RT-CV)**: Detects and tracks objects in live streams and video files.
+
+- Refactored video summarization workflow into the Video Summarization microservice.
+- Introduced Video IO and Storage (VIOS) microservices, to manage video (stored and streamed), recording, and playback.
+- Introduced Behavior Analytics microservice, to setup heuristics for event creation based on computer vision metadata.
+- Introduced calibration microservices, to calibrate the camera position and orientation for 3D and multi-view applications.
+- Integrated a new API Gateway / MCP (Model Context Protocol) server to route requests to the appropriate microservices.

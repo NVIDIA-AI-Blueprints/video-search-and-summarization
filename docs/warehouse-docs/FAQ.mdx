@@ -1,0 +1,493 @@
+---
+title: "FAQ"
+description: ""
+position: 5
+---
+This section provides categorized frequently asked questions.
+
+## Blueprint & Agent Deployment
+
+### How do I resolve a failure when deploying the blueprints and agents?
+
+We recommend the following steps to resolve deployment failures -
+
+    * Make sure a previous deployment isn't already running using `docker ps`. If a previous deployment exists, then stop the deployment and run the app again.
+    * A failure can happen if the previous deployment was not stopped and a re-deployment was performed.
+    * Make sure the correct values are set in `.env` file in the foundational directory.
+    * Make sure the system have proper access to the downloaded `vss-warehouse-app-data` folder. You can give all permission to it by `$ sudo chmod -R 777 path/to/vss-warehouse-app-data`.
+    * We recommend you remove the elastic search data from previous runs before a fresh redeployment: `$ sudo rm -r path/to/vss-warehouse-app-data/data_log/elastic/nodes`
+    * Check the component logs using `docker logs mdx-<component>` to find the issue. We recommend starting with the DeepStream and the Kafka components.
+    * A port being occupied is a common cause for deployment failure.
+
+### Why does mdx-elasticsearch-init fail during deployment (race condition with Elasticsearch)?
+
+**Observation:** When deploying the blueprint with `docker compose up`, the `mdx-elasticsearch-init` container starts and tries to connect to Elasticsearch before it is fully ready. The init container uses all retry attempts (default 10) and exits with code 1, while Elasticsearch becomes healthy soon after.
+
+Example log output from `mdx-elasticsearch-init` container:
+
+```text
+Attempting to connect to the Elasticsearch server for ILM policy creation.
+Unable to connect to ES. Trying to reconnect - (attempt 1/20)
+...
+Unable to connect to ES. Trying to reconnect - (attempt 20/20)
+Max attempts to connect to ES reached.
+Exiting Script.
+```
+
+Container status after failure:
+
+```text
+mdx-elasticsearch-init Exited (1)
+mdx-elastic Up (healthy).
+```
+
+This can also be caused by network issues on the host. Try increasing the number of connection retries by setting `ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS` in your `.env` file. Then redeploy.
+
+### Why does Kibana show request timeouts or ELK services fail startup health checks?
+
+If Kibana shows `Request timeout: "Request timed out"`, inspect the relevant service logs before changing Kibana settings.
+
+A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can appear as `Unable to retrieve search results` with `Request timeout: "Request timed out"`. Check Elasticsearch allocation and disk watermarks before tuning Kibana timeouts. See the Elasticsearch disk watermark FAQ below.
+
+If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, that is a separate Docker health check timeout. Check the service logs first; if the service is only starting slowly, increase the affected service's `healthcheck.retries` value in `video-search-and-summarization/deploy/docker/services/infra/compose.yml` (or `deploy/docker/services/infra/compose.yml` from the deployment repository root) and redeploy.
+
+### Why does Elasticsearch stop accepting writes or mark indices read-only when disk usage is high?
+
+Elasticsearch uses disk watermarks to protect the ELK stack from running out of disk space. One common symptom is Kibana Discover failing with `Unable to retrieve search results` and `Request timeout: "Request timed out"`. The default watermarks are:
+
+* **Low watermark (default `85%` disk used):** Elasticsearch avoids allocating new shards to the node.
+* **High watermark (default `90%` disk used):** Elasticsearch starts relocating shards away from the node when possible.
+* **Flood stage (default `95%` disk used):** Elasticsearch sets affected indices to `read_only_allow_delete` so writes stop before the disk fills completely.
+
+Check disk allocation and the active watermark settings:
+
+```bash
+curl --location "http://<ip>:9200/_cat/allocation?v"
+curl --location "http://<ip>:9200/_cluster/settings?include_defaults=true&filter_path=**.disk.watermark*"
+```
+
+If flood stage is reached, fix the disk pressure first. Common options are:
+
+* Remove unnecessary local data or logs from the Elasticsearch host.
+* Remove unnecessary containers which are not being used.
+* Add disk capacity or add Elasticsearch capacity so shards have somewhere safe to move.
+
+After disk usage drops below the high watermark, Elasticsearch normally removes the block automatically. If an index remains read-only after disk pressure is fixed, clear it manually:
+
+```bash
+curl --location --request PUT "http://<ip>:9200/*/_settings?expand_wildcards=all" \
+  --header "Content-Type: application/json" \
+  --data "{\"index.blocks.read_only_allow_delete\": null}"
+```
+
+### Why am I not seeing data on the Kibana/2D Blueprint UI?
+
+We recommend the following steps to resolve the issue -
+
+    * If you are using nvstreamer, verify that the video is present in the mount or that the files were uploaded correctly.
+    * Check if the VST is able to play all the streams. Alternatively, you could also check if the streams are playable using ffplay, VLC or testRTSPClient.
+    * Check the logs of DeepStream to ensure the FPS is showing up correctly for the input streams.
+    * Inspect Kibana to see if the data is being sent. If it's not, check the Logstash logs for any errors. If no errors are found, write a Kafka consumer script to verify if raw data is being sent by DeepStream.
+    * If the UI is loading partially, ensure that you have added all the pre-requisite files, such as the calibration file, images, and image metadata json file. Ensure that the image's name matches with the value present in image metadata json file.
+    * Finally, make sure that the sensor IDs listed in the calibration file matches with the ones mentioned in DeepStream configuration. Also ensure that the sensorIDs of the streams that get added directly via VST matches with the ones mentioned in calibration file.
+
+### My videos produce incorrect timestamps for messages or are processed over an extended duration
+
+* For DeepStream to properly work with NVStreamer the input videos need to be encoded to not contain any b frames. To check if the b-frames are present in a video, use either of the following commands:
+
+```bash
+mediainfo <media_file> | grep bframes
+ffprobe <media_file> -show_frames | grep -E 'pict_type=B'
+```
+
+* You can encode your videos to this format by running
+
+```bash
+ffmpeg -i input_video.mp4 -vcodec libx264 -crf 25 -x264opts "bframes=0:keyint=30" encoded_output_video.mp4
+```
+
+Update the value of the `keyint` with the fps of your video.
+
+<Note>
+The videos can be encoded while uploading via NVStreamer UI.
+</Note>
+
+### I get the message "unauthorized: authentication required" when downloading containers from NGC
+
+Generate NGC API Key from NGC: https://org.ngc.nvidia.com/setup and then `docker login nvcr.io -u '$oauthtoken' -p <NGC_API_KEY>`
+
+### Troubleshooting NVStreamer/VST Videos in Docker-Compose
+
+    * Verify that the NVStreamer/VST is serving the videos by opening the RTSP streams in either `vlc` or `ffplay`. If using VLC click on “Media” and “Open Network Stream” and enter the following RTSP URL - `rtsp://<video url>`. Stream RTSP URL can be grabbed from NVStreamer/VST UI.
+    * If NVStreamer/VST is not streaming the videos make sure the port 8554(NVStreamer)/8555(VST) is not blocked by a fire-wall.
+
+### When I run reference application in playback mode could I loop through the playback data more than once?
+
+Currently the playback module will loop through the provided playback data once then stop. You can either restart the mdx-behavior-analytics-playback-2d or mdx-behavior-analytics-playback-3d container by `docker restart mdx-behavior-analytics-playback-2d` or `docker restart mdx-behavior-analytics-playback-3d` to replay the data one more time,
+or you can config vss-behavior-analytics-playback-2d or vss-behavior-analytics-playback-3d module to loop through playback data more than once before deployment.
+
+Specifically, using warehouse blueprint 3D app as example, add the following in `deployments/warehouse/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-kafka-config.json` under "app" section to loop through the data 10 times:
+
+```json
+{ "name": "playbackLoop", "value": "10" }
+```
+
+### What if I don't want to expose Kafka service when deploying it on different CSPs using docker compose?
+
+Go inside **deployments/foundational/** and update the Kafka paramater **KAFKA_ADVERTISED_LISTENERS** in the `mdx-foundational.yml` file. The value of the parameter will change from `PLAINTEXT://$HOST_IP:9092` to `PLAINTEXT://localhost:9092`. This way, we will not be exposing kafka's port (9092) to the external world for security purposes.
+
+### What are effective tripwire counts?
+
+A person may loiter along the tripwire and this will result in multiple `IN` & `OUT` events based on the tripwire definition which can be `x` number of detections before and after the tripwire.
+The web-API returns two counts: `effective count` and `actual count`. The UI displays the effective count which takes care of the loitering condition.
+See [metrics-tripwire-counts](/video-analytics-api-server#metrics-tripwire-counts) in the [Video Analytics API ](/video-analytics-api-server) documentation for more information.
+
+### Why is the deepstream showing low FPS for certain sensors?
+
+This issue may originate with the input sensors itself. Go to `RTSP Stream QOS` section in `Debug` tab of VST UI to check if the sensors are streaming with correct FPS. FPS details can be checked by enabling the `Stream QOS stats` and then selecting the particular sensor.
+
+If the input sensors do not have any issues, then it could be caused due to overutilization of GPU.
+
+For docker compose environment, current utilization of the GPU can be checked using `nvidia-smi` in CLI.
+
+If you are consistently observing low FPS, try reducing the number of streams assigned to each GPU.
+
+### Why does vss-rtvi-cv crash with NvBufSurfTransform error -2 when adding streams on IGX Thor Mini?
+
+On IGX Thor Mini, `vss-rtvi-cv` can log the following error: `NvVicCompose Failed NvBufSurfTransform failed with error -2 while converting buffer`. After the restart, `vss-rtvi-cv` may remain idle with `Active sources : 0` while the SDR controller exhausts retries to add streams.
+
+Check the kernel logs for VIC power-up failures:
+
+```bash
+sudo dmesg | grep -i vic
+```
+
+If the logs show `tegra-vic` job submission failures because the VIC engine could not be powered up, the board may have a VIC issue. As a workaround (WAR), set `scaling-compute-hw: 1` in `industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-pgie-config.yml` and redeploy the blueprint.
+
+This change forces the PGIE scaling operation to run on the GPU, which may lower FPS.
+
+### Why are streams not getting added to RTVI CV?
+
+This issue can be caused due to exhausted retry attempts to add the cameras because RTVI containers took more time for engine build and application startup.
+The parameter `WDM_ADD_REMOVE_RETRY_ATTEMPTS` can be updated to increase the number of retries in the path `deployments/warehouse/warehouse-<mode>-app/sdrc/configs/config.yml.tmpl` under `docker-workload-rtvi-cv` parameters.
+
+## VST
+
+This section provides answers to some of the frequently asked questions on using VST application:
+
+### I bought a new camera, plugged it in, used default password but cannot access video
+
+  Some cameras require that username/password is modified prior to the first use as a part of a third-party system (like - for example - VST). In such situations, you will need to connect to the web page hosted by the camera itself. Attach your camera to the network bypassing VST host machine. Take note of its IP address, and launch a web page hosted by the camera (usually https://192.168.1.xxx). The web page will prompt you to alter the default username/password combination. Use your preferred settings.
+
+### I configured NVStreamer and VST but I don't see any streams in VST
+
+  Please check if the videos are uploaded to NVStreamer, and also check if the volume mounted in NVStreamer is correct and has the videos. Also check if the RTSP URLs or NVStreamer endpoint is configured correctly in VST.
+
+### I started Video Wall with n streams, but I see less than n streams in the Video Wall
+
+  Please check if the streams are showing `No Error` in the VST UI Dashboard.
+
+### My camera was always streaming OK before. After I plugged it to the VST host through a switch (or directly) the VST web UI tells me it found my camera, but cannot stream from it.
+
+  The most common reason for VST reporting inability to stream is a mismatch between camera's credentials, and default credentials stored by VST. For example - if you used the camera in the past with your preferred username/password credentials - you will need to input those credentials again through VST's web UI. To do so - open the web UI, navigate to Device Management - Set Credentials, and update VST accordingly.
+
+### When I try to play live video stream I see a constantly rotating white circle
+
+  We suggest Chrome on Windows, macOS or Linux platforms. We are aware of potential video streaming issues when using alternative browsers like Firefox or Safari.
+
+### When I try to play recorded video stream I don't see any video
+
+  Please check if recording is enabled for the camera.
+
+### I purchased a camera that is not on the list of tested ONVIF-S devices
+
+  All ONVIF-S compliant devices should work with this VST release. However, we noticed that not all cameras claiming ONVIF-S compatibility are fully compliant. If you have already exhausted your debugging options, contact us with the model and manufacturer of the camera you would like added to the compatibility list.
+
+### I see 0 FPS after restarting the perception container
+
+  If perception is restarted, you may observe 0 FPS. SDR adds streams to perception only once, during application startup. To restore FPS and stream processing, restart the entire blueprint instead of restarting only the perception container. Follow the [Quickstart](/warehouse-docs/Quickstart-Guide#deploy-the-blueprint) to redeploy the blueprint.
+
+## Handling Time Drift in ONVIF Cameras
+
+This section provides answers to frequently asked questions on handling time drift issues in ONVIF cameras:
+
+### Why does time drift occur in ONVIF cameras?
+
+Time drift typically arises due to the following reasons:
+
+- The camera's internal clock lacks high precision.
+- Irregular or absent synchronization with a Network Time Protocol (NTP) server.
+- Network latency or instability.
+- Power outages or firmware-related issues.
+
+### How does time drift affect downstream systems like VIOS, Perception, and Analytics?
+
+When these systems rely on frame timestamps provided by the camera, time drift can lead to:
+
+- Incorrect timestamps on recorded video.
+- Challenges correlating frames across multiple cameras.
+- Difficulties during incident investigation or forensic analysis.
+
+### What is the recommended solution?
+
+We recommend a dual-pronged approach to mitigate time drift:
+
+1. **Disable Sensor NTP Time in VIOS:**
+
+   - By default, the configuration parameter `use_sensor_ntp_time` is set to `true`. In this mode, VIOS uses the SenderReport and RTP-timestamp provided by the camera and forwards the same timestamp to downstream services such as Perception.
+   - However, if time drift is observed between the camera clock and the system clock, set `use_sensor_ntp_time` to `false`:
+
+   ```json
+   {
+       "data": {
+           "use_sensor_ntp_time": false
+       }
+   }
+   ```
+
+   - When this option is disabled, VIOS ignores the SenderReport and RTP-timestamp from the camera and assigns its own system timestamp when forwarding frames to downstream services like Perception. This ensures consistent and reliable timestamps based on the system clock, helping mitigate issues caused by camera time drift.
+
+2. **Enable NTP Synchronization on the Camera:**
+
+   - Configure each ONVIF camera to synchronize with a reliable NTP server (e.g., `pool.ntp.org` or a local enterprise NTP server).
+   - Set synchronization to occur at regular intervals (e.g., every 1 hour) to minimize drift.
+   - Ensure the camera supports NTP settings either via its web interface or ONVIF Device Management API.
+
+### How do I configure NTP on an ONVIF camera?
+
+Most ONVIF cameras allow NTP setup through:
+
+- **Web Interface**: Typically under *Admin Settings > Time Settings > NTP Configuration*
+- **ONVIF Device Management API**: For programmatic configuration via VMS or automation tools
+
+Ensure the following:
+
+- The NTP server address is reachable by the camera.
+- Time zone and Daylight Saving Time (DST) settings are correct.
+
+### Is NTP synchronization alone sufficient?
+
+No. While NTP synchronization helps reduce time drift, it might not be precise or frequent enough for time-sensitive applications.
+Disabling `use_sensor_ntp_time` remains the preferred and more reliable approach for maintaining accurate timing.
+
+### What if the camera does not support NTP or cannot sync correctly?
+
+If a camera lacks proper NTP support or experiences syncing issues:
+
+- Set `use_sensor_ntp_time` to `false` so that VIOS applies the system timestamp to each frame when received.
+- If feasible, replace the camera with one that fully supports NTP and ONVIF time configuration.
+
+### What if the cameras are already well-synchronized and show no drift?
+
+In such cases, developers can choose to enable a specific VIOS configuration:
+
+```json
+"use_sensor_ntp_time": true
+```
+
+This setting instructs VIOS to propagate the original timestamp from the camera to downstream services like Perception, which then uses it to assign time to each frame.
+
+## Model Update
+
+### I finetuned my own Sparse4D model via the Nvidia TAO Toolkit. How do I replace the existing model in the perception microservice with my own?
+
+Refer to the [3D-multi-camera-detection-and-tracking-Sparse4D](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) page for more details.
+
+### How do modify the Sparse4D model to detect/track a different set of classes?
+
+Model Finetuning via TAO Toolkit will be required to modify the model to detect & track a different set of classes.
+Refer to the [Sparse4D model page ](/models/sparse4d) for more details.
+
+**Install Fabric Manager**
+
+  For H100 SXM HBM3 to run local LLM, Fabric Manager is required.
+
+1. Download the Fabric Manager from https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
+2. Install the Fabric Manager using the following command:
+
+    ```bash
+    sudo dpkg -i nvidia-fabricmanager_580.105.08-1_amd64.deb
+    ```
+
+3. Start the Fabric Manager using the following command:
+
+    ```bash
+    sudo systemctl enable nvidia-fabricmanager
+    sudo systemctl start nvidia-fabricmanager
+    ```
+
+4. Verify the Fabric Manager is running using the following command:
+
+    ```bash
+    sudo systemctl status nvidia-fabricmanager
+    ```
+
+5. Verify the Fabric Manager version using the following command:
+
+    ```bash
+    nv-fabricmanager -v
+    ```
+
+## SSH Access
+
+Here are the key assumptions and requirements for setting up passwordless SSH access:
+
+1. **SSH Key Pair Requirements**:
+
+   - A public/private key pair must be generated on the client machine
+   - The public key must be added to the `~/.ssh/authorized_keys` file on the target server
+   - The private key must be kept secure on the client machine
+
+2. **File Permissions**:
+
+   - `~/.ssh` directory should have 700 permissions (drwx------)
+   - `~/.ssh/authorized_keys` should have 600 permissions (-rw-------)
+   - Private key files should have 600 permissions (-rw-------)
+
+3. **SSH Configuration**:
+
+   - SSH daemon must be running on the target server
+   - SSH configuration should allow public key authentication
+   - Default port is 22 (can be changed in `/etc/ssh/sshd_config`)
+
+4. **Common Issues to Check**:
+
+   - SELinux/AppArmor restrictions
+   - Firewall rules blocking SSH
+   - SSH daemon configuration (`/etc/ssh/sshd_config`)
+   - User home directory permissions
+
+5. **Basic Setup Steps**:
+
+```bash
+# On client machine
+ssh-keygen -t rsa -b 4096
+ssh-copy-id user@remote-server
+
+# Or manually copy public key
+cat ~/.ssh/id_rsa.pub | ssh user@remote-server "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+6. **Testing**:
+
+```bash
+ssh -v user@remote-server
+#The `-v` flag provides verbose output to help diagnose any issues.
+```
+
+7. **Security Considerations**:
+
+   - Use strong key types (RSA 4096, Ed25519)
+   - Consider using a passphrase for the private key
+   - Regularly rotate keys
+   - Use `ssh-agent` for key management
+   - Consider restricting key usage with `command=` or `from=` options in `authorized_keys`
+
+8. **Troubleshooting**:
+
+   - Check SSH daemon logs: `/var/log/auth.log` or `journalctl -u sshd`
+   - Verify key permissions
+   - Test with verbose logging
+   - Check SELinux/AppArmor logs if applicable
+
+These are the fundamental assumptions and requirements for setting up passwordless SSH access.
+
+## How to get an NVIDIA NGC API key
+
+1. **Create an NGC Account**
+
+- Sign up at [ngc.nvidia.com](https://ngc.nvidia.com) if you don't already have an account
+- Complete the registration process
+
+2. **Generate Your API Key**
+
+- Log in to your NGC account
+- Navigate to **"Setup"** under your account name in the top right corner
+
+3. **API Key Types Available**
+
+  **Personal API Key** (Recommended)
+
+  - Tied to your user lifecycle within the NGC organization
+  - Configurable permissions and services access
+  - Configurable time-to-live (1 hour to "never expires")
+  - Multiple keys can be created and managed
+
+  **Legacy API Key**
+
+  - Original NGC API key type
+  - Only one key at a time (generating new key revokes previous)
+  - **Not supported** by the Cosmos3 Reasoner NIM (1.7.0+). Use a Personal API Key for local VLM deployments.
+
+4. **Using Your NGC API Key**
+
+```bash
+ngc config set
+```
+
+Enter your API key when prompted.
+
+  **With Docker:**
+
+```bash
+docker login nvcr.io
+Username: $oauthtoken
+Password: <Your_API_Key>
+```
+
+**Important:** For Docker login, always use `$oauthtoken` exactly as the username - this is a special authentication token for all users.
+
+`NGC API Key Setup` https://org.ngc.nvidia.com/setup/api-key
+
+## IGX Thor
+
+### nvidia-cdi-refresh.service does not start on boot
+
+**Symptom**: After ISO installation, NVIDIA containers fail to run.
+
+   `docker: Error response from daemon: CDI device injection failed: unresolvable CDI devices nvidia.com/gpu=1`
+
+This can occur because `nvidia-cdi-refresh.service` did not start correctly on boot.
+
+**Fix**: Enable and start the service:
+
+```bash
+sudo systemctl enable --now nvidia-cdi-refresh.service
+```
+
+## One-Click Deployment
+
+### How do I resolve a failure when deploying the one-click deployment?
+
+We recommend the following steps to resolve deployment failures -
+
+    * In case of one click Baremetal Docker, Make sure a previous deployment isn't already running using `docker ps`. If a previous deployment exists, then perform a cleanup using the following commands and run the one click deployment again.
+
+      ```bash
+      sudo docker stop $(sudo docker ps -a -q)
+      sudo docker rm $(sudo docker ps -a -q)
+      sudo docker rmi $(sudo docker images -q)
+      sudo docker ps -a
+      sudo docker images
+      sudo docker volume prune
+      sudo docker system prune --all --volumes
+      ```
+
+    * A failure can happen if the previous deployment was not stopped and a redeployment was performed.
+    * A port being occupied is a common cause for deployment failure.
+    * Make sure the correct values are sourced from the `secrets.sh` file. Check the value by echo the variable. For example,
+
+      ```bash
+      echo $BM_SSH_USER
+      echo $BM_SSH_HOST
+      echo $profile etc..
+      ```
+
+    * Make sure the SSH private key file is present in the local machine and the public key file is present in the target machine.
+    * Make sure ssh private key has 400 permissions.
+    * Always have a new extract of a one-click tar file when deploying 2d or 3d
+    * A failure can happen if profile value is not set correctly in the `secrets.sh` file or value of profile is set to 2D Vision AI Profiles in case of 3d deployment or vice versa.
+    * In case of one click AWS Docker, make sure the right aws access key and secret key are set in the `secrets.sh` file.
+    * Make sure the right region and AZ are set in `config-surf-aws-2d.yml` and `config-surf-aws-3d.yml` files and has reserved capacity for the instance type `g6e.48xlarge`.
+    * Make sure the right CIDR block is set for variable `AWS_ACCESS_CIDRS` in the `secrets.sh` file to get the access to the newly deployed instance.
+    * A log file gets generated in the `logs` directory. Check the logs of the deployment to find the issue.

@@ -22,9 +22,49 @@ x-nvstreamer-base: &nvstreamer-base  # Base configuration
       condition: always
 
 services:
+  # Separate compose project from stream-processing, so depends_on cannot order
+  # the two. Both run an init against the SAME pinned volume; flock inside the
+  # script serialises them and the loser finds the cache already warm.
+  nvstreamer-apt-cache-init:
+    image: ${NVSTREAMER_IMAGE}
+    container_name: nvstreamer-apt-cache-init
+    user: "0:0"
+    network_mode: host
+    profiles: ["nvstreamer-1", "nvstreamer-2", "nvstreamer-3", "nvstreamer-4", "nvstreamer-5"]
+    environment:
+      # Inject the enable switch the entrypoint checks below; without it the
+      # variable is unset inside the init container, the check always takes the
+      # else branch, and the shared cache is never populated (each consumer then
+      # downloads packages on its own).
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_POPULATE=true
+      - VST_APT_CACHE_DIR=/opt/apt-cache
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
+    # Best-effort: the `|| echo` keeps the init exit 0 even if the populate
+    # fails, so a transient apt error never blocks the consumers that depend on
+    # it -- they fall back to a normal download (the install script bypasses the
+    # cache on failure). The cache is an optimization, not a hard dependency.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+          /home/vst/vst_release/tools/user_additional_install.sh \
+            || echo 'cache populate failed (best-effort); consumers will download'
+        else
+          echo 'additional packages disabled; nothing to cache'
+        fi
+    volumes:
+      - vios_apt_cache:/opt/apt-cache
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    restart: "no"
+
   nvstreamer-1:
     <<: *nvstreamer-base
     container_name: nvstreamer-1
+    depends_on:
+      nvstreamer-apt-cache-init:
+        condition: service_completed_successfully
     profiles: ["nvstreamer-1"]
     entrypoint:
       - /bin/bash
@@ -37,11 +77,13 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - ADAPTOR=streamer
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_1}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_1}
     volumes:
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
@@ -52,6 +94,9 @@ services:
   nvstreamer-2:
     <<: *nvstreamer-base
     container_name: nvstreamer-2
+    depends_on:
+      nvstreamer-apt-cache-init:
+        condition: service_completed_successfully
     profiles: ["nvstreamer-2"]
     entrypoint:
       - /bin/bash
@@ -64,11 +109,13 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - ADAPTOR=streamer
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_2}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_2}
     volumes:
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
@@ -79,6 +126,9 @@ services:
   nvstreamer-3:
     <<: *nvstreamer-base
     container_name: nvstreamer-3
+    depends_on:
+      nvstreamer-apt-cache-init:
+        condition: service_completed_successfully
     profiles: ["nvstreamer-3"]
     entrypoint:
       - /bin/bash
@@ -91,11 +141,13 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - ADAPTOR=streamer
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_3}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_3}
     volumes:
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
@@ -106,6 +158,9 @@ services:
   nvstreamer-4:
     <<: *nvstreamer-base
     container_name: nvstreamer-4
+    depends_on:
+      nvstreamer-apt-cache-init:
+        condition: service_completed_successfully
     profiles: ["nvstreamer-4"]
     entrypoint:
       - /bin/bash
@@ -118,11 +173,13 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - ADAPTOR=streamer
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_4}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_4}
     volumes:
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
@@ -133,6 +190,9 @@ services:
   nvstreamer-5:
     <<: *nvstreamer-base
     container_name: nvstreamer-5
+    depends_on:
+      nvstreamer-apt-cache-init:
+        condition: service_completed_successfully
     profiles: ["nvstreamer-5"]
     entrypoint:
       - /bin/bash
@@ -145,14 +205,20 @@ services:
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - ADAPTOR=streamer
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_5}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_5}
     volumes:
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${NVSTREAMER_VIDEO_5}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-5:/home/vst/vst_release/vst_data
       - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+
+volumes:
+  vios_apt_cache:
+    name: vios_apt_cache

@@ -40,6 +40,8 @@ nims:
   gpuType: H100
   nemotron:
     enabled: false
+  nemotron35:
+    enabled: false
   nemotron3:
     enabled: true
     modelPrecision: "fp8"

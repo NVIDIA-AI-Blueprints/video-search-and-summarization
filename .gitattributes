@@ -1,2 +1,9 @@
 *.mp4 filter=lfs diff=lfs merge=lfs -text
 *.gem filter=lfs diff=lfs merge=lfs -text
+# rt-cv vendored prebuilt shared objects (perception app + Triton GDINO plugins).
+# Build inputs, fetched in CI via the inventory's lfs_include for vss-rt-cv.
+services/rtvi/rt-cv/**/*.so filter=lfs diff=lfs merge=lfs -text
+services/rtvi/rt-embed/docker/binaries/** filter=lfs diff=lfs merge=lfs -text
+services/rtvi/rt-embed/docker/binaries/.gitattributes -filter -diff -merge text
+services/rtvi/rt-vlm/artifacts/**/*.so filter=lfs diff=lfs merge=lfs -text
+services/rtvi/rt-vlm/docker/base/binaries/**/*.so filter=lfs diff=lfs merge=lfs -text

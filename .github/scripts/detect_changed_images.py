@@ -264,8 +264,17 @@ def content_tag_missing(
     return probe(reference) is not True
 
 
+def _format_build_args(build_args: dict | None) -> str:
+    """Render inventory build_args as newline KEY=VALUE for build-push-action.
+
+    Empty string when an image declares no build_args, which build-push-action
+    treats as "no args" -- so existing images are unaffected.
+    """
+    return "\n".join(f"{key}={value}" for key, value in (build_args or {}).items())
+
+
 def matrix_entry(entry: dict) -> dict:
-    return {
+    matrix = {
         "name": entry["name"],
         "repository": entry.get("repository", entry["name"]),
         "tag_suffix": entry.get("tag_suffix", ""),
@@ -274,7 +283,9 @@ def matrix_entry(entry: dict) -> dict:
         "lfs_include": entry.get("lfs_include", ""),
         "platforms": ",".join(entry["platforms"]),
         "source_path": entry["source_path"],
+        "build_args": _format_build_args(entry.get("build_args")),
     }
+    return matrix
 
 
 def to_matrix(entries: list[dict]) -> dict:

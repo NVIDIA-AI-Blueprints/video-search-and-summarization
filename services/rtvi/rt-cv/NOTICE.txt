@@ -1,0 +1,17 @@
+NOTICE
+
+This software includes the following third-party components:
+
+1. BERT Base Uncased Model
+   - Source: https://huggingface.co/bert-base-uncased
+   - Copyright: Google Research
+   - License: Apache License 2.0
+   - Paper: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding"
+   - Authors: Jacob Devlin, Ming-Wei Chang, Kenton Lee, Kristina Toutanova
+
+2. Hugging Face Transformers Library
+   - Source: https://github.com/huggingface/transformers
+   - Copyright: Hugging Face Inc.
+   - License: Apache License 2.0
+
+For complete license texts, see THIRD_PARTY_LICENSES.txt

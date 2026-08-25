@@ -9,12 +9,15 @@ from datetime import datetime
 from ..models import UnifiedMemoryRecord
 from ..store import JobFilters
 from ..store import MemoryQuery
+from ..store import make_storage_id
+from ..store import storage_id_for
 
 
 def _sensor_match(record: UnifiedMemoryRecord, sensor_id: str | None) -> bool:
     if not sensor_id:
         return True
-    return any(sensor.id == sensor_id for sensor in record.input.sensors)
+    sensors = (record.input.sensors if record.input is not None else None) or []
+    return any(sensor.id == sensor_id for sensor in sensors)
 
 
 def _time_in_range(value: datetime, since: datetime | None, until: datetime | None) -> bool:
@@ -24,8 +27,46 @@ def _time_in_range(value: datetime, since: datetime | None, until: datetime | No
     return not (until is not None and value > until)
 
 
+def _window_overlaps(
+    record: UnifiedMemoryRecord,
+    since: datetime | None,
+    until: datetime | None,
+) -> bool:
+    """True when ``input.window`` overlaps ``[since, until]`` (inclusive bounds)."""
+    if since is None and until is None:
+        return True
+    if record.input is None or record.input.window is None:
+        return False
+    start = record.input.window.start.timestamp
+    end = record.input.window.end.timestamp if record.input.window.end is not None else start
+    if until is not None and start > until:
+        return False
+    return not (since is not None and end < since)
+
+
+def _sort_key(record: UnifiedMemoryRecord) -> datetime:
+    return record.job.updated_at or record.job.created_at
+
+
+def _text_haystacks(record: UnifiedMemoryRecord) -> list[str]:
+    haystacks: list[str] = []
+    if record.input is not None and record.input.query:
+        haystacks.append(record.input.query)
+    if record.output is not None and record.output.answer:
+        haystacks.append(record.output.answer)
+    return haystacks
+
+
 def _matches_query(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
     if query.job_id is not None and record.job.job_id != query.job_id:
+        return False
+    if query.parents_only and record.job.is_child:
+        return False
+    if not query.include_children and record.job.is_child:
+        return False
+    if query.record_type is not None and (not record.job.is_child or record.job.record_type != query.record_type):
+        return False
+    if query.record_id is not None and (not record.job.is_child or record.job.record_id != query.record_id):
         return False
     if query.group is not None and record.job.group != query.group:
         return False
@@ -33,17 +74,15 @@ def _matches_query(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
         return False
     if not _sensor_match(record, query.sensor_id):
         return False
-    # ``MemoryQuery.__post_init__`` normalizes since/until to datetime | None.
     assert query.since is None or isinstance(query.since, datetime)
     assert query.until is None or isinstance(query.until, datetime)
-    if not _time_in_range(record.job.created_at, query.since, query.until):
+    if query.time_field == "window":
+        if not _window_overlaps(record, query.since, query.until):
+            return False
+    elif not _time_in_range(record.job.created_at, query.since, query.until):
         return False
     if query.text:
-        haystacks: list[str] = []
-        if record.input.query:
-            haystacks.append(record.input.query)
-        if record.output.answer:
-            haystacks.append(record.output.answer)
+        haystacks = _text_haystacks(record)
         needle = query.text.casefold()
         if not any(needle in item.casefold() for item in haystacks):
             return False
@@ -51,6 +90,8 @@ def _matches_query(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
 
 
 def _matches_filters(record: UnifiedMemoryRecord, filters: JobFilters) -> bool:
+    if record.job.is_child:
+        return False
     if filters.group is not None and record.job.group != filters.group:
         return False
     if filters.status is not None and record.job.status != filters.status:
@@ -70,26 +111,35 @@ class InMemoryStore:
         self.upsert_ids: list[str] = []
 
     def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
-        existing = self._records.get(record.job.job_id)
+        key = storage_id_for(record)
+        existing = self._records.get(key)
         if existing is not None:
-            # Preserve immutable created_at across lifecycle writes.
+            # Preserve immutable created_at across lifecycle writes of the same identity.
             job = record.job.model_copy(update={"created_at": existing.job.created_at})
             record = record.model_copy(update={"job": job})
-        self._records[record.job.job_id] = record
-        self.upsert_ids.append(record.job.job_id)
+        self._records[key] = record
+        self.upsert_ids.append(key)
         return record
 
     def get(self, job_id: str) -> UnifiedMemoryRecord | None:
-        return self._records.get(job_id)
+        return self._records.get(make_storage_id(job_id=job_id))
+
+    def get_record(
+        self,
+        job_id: str,
+        record_type: str,
+        record_id: str,
+    ) -> UnifiedMemoryRecord | None:
+        return self._records.get(make_storage_id(job_id=job_id, record_type=record_type, record_id=record_id))
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         matched = [record for record in self._records.values() if _matches_query(record, query)]
-        matched.sort(key=lambda item: item.job.updated_at, reverse=True)
+        matched.sort(key=_sort_key, reverse=True)
         return matched[: max(query.limit, 0)]
 
     def list_jobs(self, filters: JobFilters) -> list[UnifiedMemoryRecord]:
         matched = [record for record in self._records.values() if _matches_filters(record, filters)]
-        matched.sort(key=lambda item: item.job.updated_at, reverse=True)
+        matched.sort(key=_sort_key, reverse=True)
         return matched[: max(filters.limit, 0)]
 
     def clear(self) -> None:

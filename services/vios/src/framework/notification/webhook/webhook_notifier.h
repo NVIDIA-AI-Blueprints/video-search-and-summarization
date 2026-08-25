@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -39,7 +40,19 @@
  * matching event is posted to all receivers in that array through
  * AsyncHttpClient. A receiver may narrow further with a camera_type list;
  * it then only gets events whose event.camera_type is listed. An item's "id"
- * is copied into the delivered body under "webhook_id".
+ * is copied into the delivered body under "webhook_id". A receiver may carry
+ * a user_defined_metadata object; its members are merged verbatim into the
+ * delivered body's event.metadata (created when absent), overwriting
+ * same-named event-generated keys.
+ *
+ * A receiver may instead configure a custom "body" JSON template, rendered per
+ * delivery against the raw notification and sent as the complete request body:
+ * no webhook_id tagging and no user_defined_metadata merge. A placeholder is a
+ * string whose whole value is "{{path.to.value}}", replaced type-preservingly
+ * by the value at that dotted path, or by "" when the path is absent. Braces
+ * are reserved: any other use of "{{" or "}}" in a template string or property
+ * name fails validation at load and skips that receiver alone, as does nesting
+ * deeper than 32 levels.
  *
  * deliverMessage() only enqueues HTTP work and returns true immediately: the
  * event-level 5 s retry loop in INotificationInterface is deliberately opted
@@ -89,6 +102,13 @@ private:
         std::vector<int> m_retryOnStatus;  // empty retries any non-2xx status
         // Camera types this receiver accepts; empty receives every matched event.
         std::vector<std::string> m_cameraTypes;
+        // Operator-supplied key/value pairs merged into event.metadata of the
+        // delivered body; null when the receiver defines none. Ignored when a
+        // custom body template is configured.
+        Json::Value m_userDefinedMetadata;
+        // Validated at load, rendered per delivery as the complete request
+        // body; nullopt sends the default tagged notification body.
+        std::optional<Json::Value> m_bodyTemplate;
     };
 
     struct WebhookConfig

@@ -497,14 +497,19 @@ Json::Value loadStorageConfig(const string& storage_config_file_path)
     return config;
 }
 
-Json::Value loadNotificationConfig(const string& notification_config_file_path)
+Json::Value loadNotificationConfig(const string& notification_config_file_path, string* parseError)
 {
     Json::Value config;
     Json::Reader reader;
     std::ifstream file(notification_config_file_path.c_str());
     if(file.good())
     {
-        reader.parse(file, config, true);
+        // A syntax error truncates the config: jsoncpp keeps only what it built
+        // before it, so hand the reason back for a caller outside static init.
+        if(!reader.parse(file, config, true) && parseError != nullptr)
+        {
+            *parseError = reader.getFormattedErrorMessages();
+        }
     }
     return config;
 }

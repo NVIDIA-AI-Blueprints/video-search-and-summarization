@@ -18,8 +18,8 @@ video**, re-run the HITL from scratch.
 Post the message as follows (literal template — fill the `{video_name}`
 and `{duration}` placeholders):
 
-> I'm about to send **{video_name}** ({duration}s) to the video summarization service. I need three
-> parameters first:
+> Before submitting **{video_name}** ({duration}s) to the video summarization service, please provide three
+> parameters:
 >
 > 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
 >    `"traffic monitoring"`
@@ -63,77 +63,44 @@ canonical defaults rather than guessing.
 
 **Request:**
 
-Resolve endpoints first (`SKILL.md` / `end-to-end-example.md`). On Docker,
-discover the live schema and model from the LVS host port. On Kubernetes, skip
-LVS `/openapi.json` / `/models` (not on Ingress) — use Exact RT-VLM
-`/v1/models` (or `VLM_NAME`) and the checked-in summarize contract.
+The collected values become flags on `vss summarize run` (`SKILL.md` Stage 4,
+`end-to-end-example.md`). The CLI issues the request, so no payload is built
+here and no model is discovered: `vss configure` recorded both.
+
+| HITL value | flag |
+|---|---|
+| scenario | `--scenario "<scenario>"` |
+| each event | `--event "<event>"`, repeated |
+| each object of interest | `--object-of-interest "<object>"`, repeated |
 
 ```bash
-LVS_REQUEST=/tmp/vss-summarize-video-request.json
-LVS_RESPONSE=/tmp/vss-summarize-video-response.json
-# After endpoint resolution: K8s forces LVS_BACKEND_URL=${VSS_PUBLIC_URL};
-# Docker keeps ${LVS_BACKEND_URL:-http://localhost:38111}.
-LVS_BASE=${LVS_BACKEND_URL:-http://localhost:38111}
-
-# --- Model discovery (gated) ---
-if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
-  # Stock LVS Ingress does not publish /openapi.json or /models.
-  LVS_MODEL=$(curl -fsS "${VLM:-$LVS_BASE}/v1/models" | jq -er --arg preferred "${VLM_NAME:-}" '
-    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
-    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
-      elif ($ids | length) == 1 then $ids[0]
-      else empty end
-  ') || { echo "Set VLM_NAME to an advertised RT-VLM model id"; return 1 2>/dev/null || exit 1; }
-else
-  LVS_OPENAPI=/tmp/vss-lvs-openapi.json
-  curl -fsS "$LVS_BASE/openapi.json" > "$LVS_OPENAPI"
-  jq -e '.paths["/v1/summarize"].post.requestBody.content["application/json"].schema' \
-    "$LVS_OPENAPI" >/dev/null
-  LVS_MODEL=$(curl -fsS "$LVS_BASE/models" | jq -er --arg preferred "${VLM_NAME:-}" '
-    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
-    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
-      elif ($ids | length) == 1 then $ids[0]
-      else empty end
-  ') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
-fi
-
-jq -n \
-  --arg url "<fresh_vios_clip_url_from_stage_2>" \
-  --arg model "$LVS_MODEL" \
-  --arg scenario "<scenario>" \
-  --argjson events '["<event1>", "<event2>"]' \
-  '{
-    url: $url,
-    model: $model,
-    scenario: $scenario,
-    events: $events,
-    chunk_duration: 10,
-    seed: 1
-  }' > "$LVS_REQUEST"
-
-# Execute exactly once; retain the complete response for parsing or diagnosis.
-LVS_HTTP_CODE=$(curl -sS --max-time 300 -o "$LVS_RESPONSE" -w '%{http_code}' \
-  -X POST "${LVS_BASE}/v1/summarize" \
-  -H "Content-Type: application/json" \
-  --data-binary "@$LVS_REQUEST")
+SUMMARIZE_OUT=/tmp/vss-summarize-video-run.json
+"${VSS[@]}" summarize run \
+  --url "<fresh_vios_clip_url_from_stage_2>" \
+  --video-id "<resolved VIOS sensor id>" \
+  --scenario "<scenario>" \
+  --event "<event1>" --event "<event2>" \
+  --creation-time "<media start, ISO-8601 UTC>" \
+  --chunk-duration 10 --seed 1 > "$SUMMARIZE_OUT"
 ```
 
-Do not repeat this POST when `$LVS_HTTP_CODE` is non-2xx or the body is empty.
-Inspect `$LVS_RESPONSE` and service logs instead.
+Execute exactly once. Do not repeat the run when it exits nonzero or the summary
+is empty; read the saved stdout, the stderr diagnostic, and service logs
+instead.
 
-Omit `objects_of_interest` if the user did not provide any. Include it as a
-JSON array otherwise. Also omit the frame sampling fields in the standard
-workflow so RT-VLM uses the model-specific deployment default. The deprecated
-`num_frames_per_chunk` field must not be used.
+Omit `--object-of-interest` when the user provided none. Also omit frame
+sampling flags in the standard workflow so RT-VLM uses the model-specific
+deployment default; the deprecated `--num-frames-per-chunk` must not be used.
 
-**Response shape:** OpenAI-style envelope. `choices[0].message.content` is a
-**JSON string** — parse it to get the actual summary and event list.
+**Response shape:** the CLI nests LVS's OpenAI-style envelope under `summary`,
+where `choices[0].message.content` is a **JSON string** — parse it to get the
+actual summary and event list.
 
 ```bash
 jq '{
-  usage: (.usage // {}),
-  result: (.choices[0].message.content | fromjson | {video_summary, events})
-}' "$LVS_RESPONSE"
+  usage: (.summary.usage // {}),
+  result: (.summary.choices[0].message.content | fromjson | {video_summary, events})
+}' "$SUMMARIZE_OUT"
 ```
 
 When both result fields are empty, report whether
