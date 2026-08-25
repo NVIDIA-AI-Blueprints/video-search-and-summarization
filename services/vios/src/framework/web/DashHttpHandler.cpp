@@ -1035,7 +1035,14 @@ bool waitForMediaSegment(const std::filesystem::path& path)
     // partial fMP4: Chrome discards that append, and the next fragment becomes
     // a permanent SourceBuffer gap.  Wait for structurally complete media
     // instead of guessing from a 50 ms file-size pause.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    // Hold the connection only long enough to cover a segment that is a moment
+    // from being finished.  Waiting seconds instead is what turns one early
+    // request into a stalled viewer: a browser allows a handful of connections
+    // per origin, and a page that is also polling the manifest and other APIs
+    // runs out of them while requests sit here, so every later request queues
+    // behind a wait that had nothing to do with it.  A client that is told the
+    // segment is not there yet simply asks again.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
     while (std::chrono::steady_clock::now() < deadline)
     {
         if (hasCompleteMediaFragment(path))
