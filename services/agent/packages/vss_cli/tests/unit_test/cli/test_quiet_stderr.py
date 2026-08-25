@@ -10,16 +10,44 @@ ignore the channel that matters.
 
 from __future__ import annotations
 
+import importlib.util
+import os
+import pathlib
 import subprocess
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import types
+
+#: `sitecustomize` is an ambient module name -- Python imports whichever copy is
+#: first on sys.path at startup, which may be the distro's own or a stale one
+#: installed into the venv from an older build. Both the subprocess runs and the
+#: unit checks below therefore pin the source file rather than trusting the
+#: import to find ours; otherwise this file tests whatever happens to be
+#: installed, and fails on CI for reasons that have nothing to do with the code.
+_SOURCE_DIR = pathlib.Path(__file__).resolve().parents[4] / "vss_core" / "src"
+_SOURCE = _SOURCE_DIR / "sitecustomize.py"
+
+
+def _load_sitecustomize() -> types.ModuleType:
+    spec = importlib.util.spec_from_file_location("vss_sitecustomize_under_test", _SOURCE)
+    assert spec and spec.loader, f"cannot load {_SOURCE}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
+    # Put the source dir first so the interpreter's startup import of
+    # `sitecustomize` resolves to the file under test.
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(_SOURCE_DIR), os.environ.get("PYTHONPATH", "")])}
     return subprocess.run(
         [sys.executable, "-c", "from vss_cli import main; main()", *args],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
 
 
@@ -40,10 +68,9 @@ def test_help_is_also_quiet() -> None:
 
 def test_sitecustomize_does_not_announce_a_missing_optional_pointer(caplog) -> None:
     """The pointer file is optional; its absence is the ordinary case."""
-    import importlib
     import logging
 
-    sitecustomize = importlib.import_module("sitecustomize")
+    sitecustomize = _load_sitecustomize()
 
     with caplog.at_level(logging.INFO, logger="sitecustomize"):
         sitecustomize._auto_load_env_files()
@@ -92,10 +119,9 @@ def test_configure_check_reports_which_groups_the_deployment_can_serve() -> None
 
 def test_stderr_stays_quiet_when_an_env_file_is_present(tmp_path, monkeypatch) -> None:
     """The configured case is the common one; it was still printing two INFO lines."""
-    import importlib
     import logging
 
-    sitecustomize = importlib.import_module("sitecustomize")
+    sitecustomize = _load_sitecustomize()
     env = tmp_path / "real.env"
     env.write_text("EXAMPLE=1\n")
     pointer = tmp_path / ".env_file"
