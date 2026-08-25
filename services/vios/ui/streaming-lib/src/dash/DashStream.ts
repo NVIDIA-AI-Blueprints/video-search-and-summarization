@@ -108,13 +108,49 @@ export class DashStream {
         // and the player never reaches it, so it runs permanently fast, drains
         // the buffer against a source producing at exactly real time, and stalls
         // once per segment.  This sits comfortably above the floor instead.
+        // Temporary diagnostic.  Append ?dashStock=1 to the page URL to run the
+        // player the way a stock dash.js example does - its own autoplay, its
+        // own recovery, none of our tuning - so the two can be compared on the
+        // same screen against the same stream.  To be removed once the
+        // difference between them is understood.
+        let stockPlayer = false;
+        try {
+            stockPlayer = new URLSearchParams(window.location.search).get('dashStock') === '1';
+        } catch {
+            stockPlayer = false;
+        }
+        if (stockPlayer) {
+            // eslint-disable-next-line no-console
+            console.warn('[dash] stock player mode: our tuning and recovery are disabled');
+        }
         const isReplay = Boolean(config.startTime);
-        const liveDelay = config.liveDelaySeconds ?? (isReplay ? 8 : 5);
+        // A composed wall costs about a segment to make, because it is decoded,
+        // drawn, composited and re-encoded rather than passed through.  Asking
+        // for a segment the packager has not finished writing holds the request
+        // until it has - measured at around a second, against two milliseconds
+        // for one already on disk - so a viewer sitting close to the edge pays
+        // that on every segment, never accumulates a buffer, and stays close to
+        // the edge.  Sitting further back means every request is for something
+        // already written.
+        const isComposite = Boolean(config.composite);
+        const liveDelay = config.liveDelaySeconds ?? (isReplay ? 8 : (isComposite ? 10 : 5));
         // Keys follow the dash.js 5.x layout that package.json pins.  dash.js
         // silently rejects unknown keys with a console warning instead of
         // failing, so a key from the pre-5 flat layout would leave the default
         // in force and the tuning below would quietly do nothing.
-        player.updateSettings({
+        if (stockPlayer) {
+            player.updateSettings({
+                streaming: {
+                    delay: { liveDelay },
+                    buffer: {
+                        initialBufferLevel: config.initialBufferSeconds ?? 4,
+                        bufferTimeDefault: 12,
+                    },
+                },
+            });
+        }
+        if (!stockPlayer) {
+            player.updateSettings({
             streaming: {
                 delay: {
                     // How far behind the live edge playback sits.  This is the
@@ -163,7 +199,15 @@ export class DashStream {
                 liveCatchup: {
                     enabled: true,
                     maxDrift: 10,
-                    playbackRate: { min: -0.02, max: 0.02 },
+                    // Slower than real time is always safe: it lets latency
+                    // grow and the buffer refill.  Faster is not, against a
+                    // source that produces at exactly real time - two percent
+                    // above drains a one second buffer in under a minute, and
+                    // once it is empty the player stalls, falls further behind,
+                    // and speeds up again.  Measured on a video wall: the
+                    // element sat at 1.02 while an otherwise identical player
+                    // beside it, at 1.00, held its buffer and never stalled.
+                    playbackRate: { min: -0.02, max: 0 },
                 },
                 // A starved live player abandons the position it was playing
                 // and resumes fetching at the live edge, which leaves a hole
@@ -193,7 +237,8 @@ export class DashStream {
                     MPD: 1000,
                 },
             },
-        });
+            });
+        }
         // A stall on the viewer's network is invisible from the server: the
         // request log shows the fetch being abandoned but not why the player
         // gave up on it.  Report the player's own account of each interruption,
@@ -318,15 +363,21 @@ export class DashStream {
             const message = event.error?.message ?? event.event?.message ?? 'DASH playback error';
             config.onError?.(message);
         });
+        // Debugging aid: a stalled player can only be explained from its own
+        // metrics, which are otherwise unreachable from outside this class.
+        (window as unknown as { __dashPlayer?: unknown }).__dashPlayer = player;
+        (window as unknown as { __dashjs?: unknown }).__dashjs = dashjs;
         this.videoElement = config.videoElement;
-        this.startStrandWatchdog(config.videoElement, trace);
+        if (!stockPlayer) {
+            this.startStrandWatchdog(config.videoElement, trace);
+        }
         // The current DASH pipeline does not package audio.  Chrome blocks an
         // asynchronous unmuted autoplay after the MPD preroll (and again after
         // a replay seek), leaving a decoded first frame visible with the media
         // element paused forever.  Mark audio-less sessions muted before
         // dash.js attaches its MediaSource so autoplay is permitted.  Keep
         // future audio-bearing sessions unmodified.
-        if (!result.audioAvailable) {
+        if (!result.audioAvailable && !stockPlayer) {
             config.videoElement.muted = true;
             config.videoElement.defaultMuted = true;
             // dash.js can append the first MediaSource buffer after the
@@ -418,6 +469,10 @@ export class DashStream {
                 player.on(bufferLevelUpdated, this.autoplayListener);
             }
         }
+        if (stockPlayer && !result.audioAvailable) {
+            config.videoElement.muted = true;
+            config.videoElement.defaultMuted = true;
+        }
         config.videoElement.playsInline = true;
         this.firstFrameListener = () => {
             if (!this.firstFrameReported) {
@@ -430,9 +485,16 @@ export class DashStream {
         // frozen waiting for the rest of the live cushion.  `playing` is the
         // moment the user can actually see continuous playback.
         config.videoElement.addEventListener('playing', this.firstFrameListener, { once: true });
-        // Manual muted autoplay above deliberately waits for the initial
-        // buffer; passing true would make dash.js play after its first append.
-        player.initialize(config.videoElement, manifestUrl, false);
+        // Let dash.js start playback.  Starting it by hand meant playback began
+        // on whatever had been appended by then - about a second - and the
+        // player never recovered from that: catch-up nudges the rate above one
+        // against a source producing at exactly real time, the thin buffer
+        // drains to nothing, and the seek dash.js issues to recover can never
+        // complete because a seeking player does not fetch.  Left to itself it
+        // holds three to four seconds and does not stall.  The element is muted
+        // for audio-less sessions above, so autoplay is permitted; the listener
+        // below stays as a fallback for when Chrome refuses anyway.
+        player.initialize(config.videoElement, manifestUrl, true);
     }
 
     // Gap jumping is dash.js' own recovery and it handles the ordinary case.
@@ -505,7 +567,30 @@ export class DashStream {
             // Still a comfortable amount of media under the playhead means the
             // stall is not a stranding; moving would discard buffer the player
             // is entitled to use.
-            if (nextStart < 0 || (runEnd >= 0 && runEnd - video.currentTime > 0.5)) {
+            if (runEnd >= 0 && runEnd - video.currentTime > 0.5) {
+                return;
+            }
+            if (nextStart < 0) {
+                // Nothing buffered anywhere and the playhead is not moving.
+                // A seek that cannot complete looks exactly like this, and it
+                // is self sustaining: the player will not fetch while it is
+                // seeking, so the data the seek is waiting for never arrives.
+                // Put the playhead back inside the window that is being
+                // published, which gives the player somewhere to fetch for.
+                if (!video.seeking || video.buffered.length > 0) {
+                    return;
+                }
+                const live = this.liveEdgeTarget();
+                if (live === null) {
+                    return;
+                }
+                trace('STRAND_RECOVERED_EMPTY', {
+                    from: Number(video.currentTime.toFixed(3)),
+                    to: Number(live.toFixed(3)),
+                });
+                stalledTicks = 0;
+                lastTime = live;
+                video.currentTime = live;
                 return;
             }
             const target = nextStart + 0.05;
@@ -518,6 +603,22 @@ export class DashStream {
             lastTime = target;
             video.currentTime = target;
         }, 500);
+    }
+
+    // Where the player believes live currently is, less the delay it targets.
+    private liveEdgeTarget(): number | null {
+        const player = this.player as unknown as {
+            getDashMetrics?: () => { getCurrentDVRInfo?: (t: string) => {
+                range?: { start?: number; end?: number } } | null };
+            getTargetLiveDelay?: () => number;
+        } | null;
+        const range = player?.getDashMetrics?.()?.getCurrentDVRInfo?.('video')?.range;
+        if (!range || typeof range.end !== 'number' || typeof range.start !== 'number') {
+            return null;
+        }
+        const delay = player?.getTargetLiveDelay?.() ?? 5;
+        const target = range.end - delay;
+        return target > range.start ? target : range.start;
     }
 
     private stopStrandWatchdog(): void {
