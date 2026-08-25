@@ -520,7 +520,29 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
 
     GstClockTime pts = 0;
     GstClockTime duration = GST_CLOCK_TIME_NONE;
-    if (timeline.synthesize)
+    if (m_config.useArrivalTimestamps)
+    {
+        // A live wall is composed in real time, so when a frame arrives is what
+        // it is worth.  Counting frames instead would let anything lost on the
+        // way from the compositor slow the published timeline, and a live edge
+        // that runs slower than the clock falls behind without ever recovering.
+        const auto now = std::chrono::steady_clock::now();
+        if (!timeline.arrivalOriginValid)
+        {
+            timeline.arrivalOrigin = now;
+            timeline.arrivalOriginValid = true;
+        }
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now - timeline.arrivalOrigin).count();
+        pts = static_cast<GstClockTime>(elapsed < 0 ? 0 : elapsed);
+        // Never let two frames share a timestamp or go backwards: the muxer
+        // rejects the stream on the first buffer it cannot place.
+        if (timeline.lastOutValid && pts <= timeline.lastOut)
+        {
+            pts = timeline.lastOut + 1;
+        }
+    }
+    else if (timeline.synthesize)
     {
         const double frameRate = m_config.sourceFrameRate > 0.0 ? m_config.sourceFrameRate : 30.0;
         const auto frameDuration = static_cast<GstClockTime>(GST_SECOND / frameRate);
