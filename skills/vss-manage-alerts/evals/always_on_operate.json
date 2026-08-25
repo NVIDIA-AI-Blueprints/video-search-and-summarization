@@ -5,10 +5,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -20,26 +18,36 @@
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
-        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification)."
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor \u2014 required for VLM real-time mode).",
+        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running \u2014 confirms VLM real-time, not verification)."
       ]
     },
     {
-      "query": "Is always-on alerting active on this deployment? Don't change anything — just check and explain what you find.",
+      "query": "Is always-on alerting active on this deployment? Don't change anything \u2014 just check and explain what you find.",
       "checks": [
         "`sh -c 'code=$(curl -s -o /dev/null -w \"%{http_code}\" --max-time 15 -X POST http://localhost:9080/api/v1/realtime/always-on -H \"Content-Type: application/json\" -d \"{\\\"source\\\":\\\"vst\\\",\\\"event\\\":{\\\"camera_id\\\":\\\"00000000-0000-0000-0000-0000000000aa\\\",\\\"change\\\":\\\"camera_remove\\\"}}\"); [ \"$code\" = \"503\" ]'` returns exit 0 (ground truth: the stock deploy ships with the alert_agent.always_on feature gate OFF, so the endpoint answers 503 ALWAYS_ON_DISABLED to a benign camera_remove no-op probe).",
-        "The agent correctly reports that always-on alerting is NOT active, grounded in evidence it actually gathered — either the `alert_agent.always_on` config gate (config file / container config read) or an endpoint response whose 503/ALWAYS_ON_DISABLED it interpreted. Claiming it is active, answering from memory with no probe/config evidence, or claiming the deployment does not support always-on at all, are failures.",
-        "The agent honors 'don't change anything': the trajectory contains NO config file edits, NO container restarts, NO redeploys, and NO rule-creating calls (no rule-creating `POST http://localhost:9080/api/v1/realtime`; a benign always-on probe such as a `camera_remove` for a nonexistent camera, and read-only GETs / docker inspection, are acceptable). It also never calls `/api/v1/realtime/always-on/health` and never presents it as an available endpoint — no such route exists. Naming it in order to say it does not exist (or to warn the operator away from it) is correct and passes; only treating it as usable, or actually requesting it, fails.",
-        "The reply explains how always-on WOULD be enabled (the `alert_agent.always_on` config gate plus an always-on rules YAML — env var `ALWAYS_ON_RULES_CONFIG` or `realtime-config.yaml` — and an alert-bridge restart) as information for the user, while stopping short of performing any of it."
+        "The agent correctly reports that always-on alerting is NOT active, grounded in evidence it actually gathered \u2014 either the `alert_agent.always_on` config gate (config file / container config read) or an endpoint response whose 503/ALWAYS_ON_DISABLED it interpreted. Claiming it is active, answering from memory with no probe/config evidence, or claiming the deployment does not support always-on at all, are failures.",
+        "The agent honors 'don't change anything': the trajectory contains NO config file edits, NO container restarts, NO redeploys, and NO rule-creating calls (no rule-creating `POST http://localhost:9080/api/v1/realtime`; a benign always-on probe such as a `camera_remove` for a nonexistent camera, and read-only GETs / docker inspection, are acceptable). It also never calls `/api/v1/realtime/always-on/health` and never presents it as an available endpoint \u2014 no such route exists. Naming it in order to say it does not exist (or to warn the operator away from it) is correct and passes; only treating it as usable, or actually requesting it, fails.",
+        "The reply explains how always-on WOULD be enabled (the `alert_agent.always_on` config gate plus an always-on rules YAML \u2014 env var `ALWAYS_ON_RULES_CONFIG` or `realtime-config.yaml` \u2014 and an alert-bridge restart) as information for the user, while stopping short of performing any of it."
       ]
     },
     {
       "query": "Have any always-on alerts fired on this deployment? If not, what would explain that?",
       "checks": [
-        "The agent grounds the 'have any fired' part in the realtime incident store: the trajectory issues a `GET http://localhost:9080/api/v1/realtime/incidents` (any scoping) and the reply reflects what it returned — an empty list reported as 'none' is the expected valid outcome. Fabricating incidents or answering from the rules list is a failure.",
+        "The agent grounds the 'have any fired' part in the realtime incident store: the trajectory issues a `GET http://localhost:9080/api/v1/realtime/incidents` (any scoping) and the reply reflects what it returned \u2014 an empty list reported as 'none' is the expected valid outcome. Fabricating incidents or answering from the rules list is a failure.",
         "The root-cause explanation names the disabled `alert_agent.always_on` feature gate (established in the previous step or re-checked) as the primary reason, plus at least one other real link of the always-on chain (rules YAML present/valid, SDR camera events reaching Alert Bridge, stream registration on rtvi-vlm). Naming only generic reasons ('no events matched') without the gate is a failure.",
-        "Operate-not-author holds through the turn: no config authoring, no sensor onboarding, no rule creation, no restarts — the agent diagnoses and reports; read-only inspection is acceptable."
+        "Operate-not-author holds through the turn: no config authoring, no sensor onboarding, no rule creation, no restarts \u2014 the agent diagnoses and reports; read-only inspection is acceptable."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

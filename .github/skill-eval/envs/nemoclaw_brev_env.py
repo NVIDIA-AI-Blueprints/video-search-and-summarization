@@ -62,7 +62,11 @@ def _forwarded_nemoclaw_env() -> str:
     if run_id.isdigit():
         defaults["NEMOCLAW_DASHBOARD_PORT"] = str(20000 + int(run_id) % 40000)
     platform = os.environ.get("EVAL_PLATFORM", "")
-    if platform in {"L40S", "RTXPRO6000BW"}:
+    if os.environ.get("HARDWARE_PROFILE"):
+        defaults["HARDWARE_PROFILE"] = os.environ["HARDWARE_PROFILE"]
+    elif platform in {"A16", "A40", "L40S", "RTXPRO6000BW", "H100"}:
+        # Exact identity only. plan_matrix blocks a replacement cohort when
+        # its checked-in profile is absent; no nearest-SKU substitution.
         defaults["HARDWARE_PROFILE"] = platform
     elif platform == "ANY":
         defaults["HARDWARE_PROFILE"] = "RTXPRO6000BW"

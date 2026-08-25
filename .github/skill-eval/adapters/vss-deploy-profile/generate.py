@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -92,6 +93,22 @@ PLATFORMS: dict[str, dict] = {
         "gpu_type": "RTX PRO 6000",
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
+    },
+    "A16": {
+        "short_name": "a16",
+        "gpu_type": "NVIDIA A16",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 16,
+        "brev_search": "A16",
+        "min_root_disk_gb": 220,
+    },
+    "A40": {
+        "short_name": "a40",
+        "gpu_type": "NVIDIA A40",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 48,
+        "brev_search": "A40",
+        "min_root_disk_gb": 220,
     },
     "DGX-SPARK": {
         "short_name": "spark",
@@ -323,10 +340,14 @@ def generate_solve_script(profile: str, platform: str) -> str:
 
     is_warehouse = (env_profile == "warehouse")
 
+    # Hardware profiles are exact identities; the planner blocks
+    # replacement cohorts until their checked-in profile exists.
+    nim_profile = os.environ.get("HARDWARE_PROFILE") or platform
+
     if is_warehouse:
         env_file_line = 'ENV_FILE=$REPO/deploy/docker/industry-profiles/warehouse-operations/.env'
         overrides: dict[str, str] = {
-            "HARDWARE_PROFILE": platform,
+            "HARDWARE_PROFILE": nim_profile,
             "VSS_APPS_DIR": "$REPO/deploy/docker",
             "VSS_DATA_DIR": "$REPO/data",
             "HOST_IP": "$(hostname -I | awk '{print $1}')",
@@ -334,7 +355,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
     else:
         env_file_line = 'ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env'
         overrides = {
-            "HARDWARE_PROFILE": platform,
+            "HARDWARE_PROFILE": nim_profile,
             "VSS_APPS_DIR": "$REPO/deployments",
             "VSS_DATA_DIR": "$REPO/data",
             "HOST_IP": "$(hostname -I | awk '{print $1}')",
@@ -454,6 +475,7 @@ def generate_task(
     # download, remote-model env vars) reach the agent verbatim, rather than
     # being collapsed into the generic "Deploy the <profile> profile" fallback.
     spec_query: str | None = None
+    expected_services: list[str] = []
     if skill_dir is not None:
         spec_path = skill_dir / "evals" / f"{profile}.json"
         if not spec_path.exists():
@@ -463,6 +485,12 @@ def generate_task(
         if spec_path.exists():
             try:
                 raw = json.loads(spec_path.read_text())
+                declared_services = raw.get("expected_services") or []
+                if not isinstance(declared_services, list) or any(
+                    not isinstance(name, str) for name in declared_services
+                ):
+                    raise ValueError("expected_services must be a string list")
+                expected_services = declared_services
                 expects = raw.get("expects") or []
                 if expects and isinstance(expects[0].get("query"), str):
                     import re as _re
@@ -499,6 +527,7 @@ def generate_task(
         # _ensure_prerequisite_deployed pre-deploy hook is gone. The
         # `platform` key below is purely informational.
         f'platform = "{platform}"',
+        f"expected_services = {json.dumps(expected_services)}",
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:

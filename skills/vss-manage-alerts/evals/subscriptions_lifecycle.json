@@ -6,10 +6,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -17,7 +15,7 @@
   "description": "End-to-end lifecycle test for references/alert-subscriptions.md: create a rule with a natural-language phrasing, list rules to verify it exists, then stop the rule (with the two-step confirmation protocol).",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have a camera to target, onboard one sensor into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) as a sensor named `warehouse_sample`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL — do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload — `sensorUrl` (the returned URL) and `name` (`warehouse_sample`); without the `name` key VST silently names the sensor `SENSOR`). Confirm the sensor appears in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the system is fully ready: poll until BOTH the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `warehouse_sample` is listed — wait and retry for a few minutes if a service is still starting.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have a camera to target, onboard one sensor into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) as a sensor named `warehouse_sample`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL \u2014 do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload \u2014 `sensorUrl` (the returned URL) and `name` (`warehouse_sample`); without the `name` key VST silently names the sensor `SENSOR`). Confirm the sensor appears in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the system is fully ready: poll until BOTH the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `warehouse_sample` is listed \u2014 wait and retry for a few minutes if a service is still starting.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
@@ -30,12 +28,12 @@
       "query": "Watch warehouse_sample for anyone without a safety vest",
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime` with a payload containing `live_stream_url` (RTSP from warehouse_sample) and `prompt` (referencing safety vest or PPE).",
-        "Tool-call ordering: in the trajectory the agent resolved the sensor through VIOS (`GET http://localhost:30888/vst/api/v1/sensor/list`, then the per-sensor streams endpoint) BEFORE issuing the create `POST /api/v1/realtime`, so `sensor_id` and `live_stream_url` in the POST payload are sourced from the VIOS lookup rather than fabricated. (Transient failed attempts or retries while resolving the stream URL are acceptable — this asserts resolve-before-create ordering, not an exact call count.)",
+        "Tool-call ordering: in the trajectory the agent resolved the sensor through VIOS (`GET http://localhost:30888/vst/api/v1/sensor/list`, then the per-sensor streams endpoint) BEFORE issuing the create `POST /api/v1/realtime`, so `sensor_id` and `live_stream_url` in the POST payload are sourced from the VIOS lookup rather than fabricated. (Transient failed attempts or retries while resolving the stream URL are acceptable \u2014 this asserts resolve-before-create ordering, not an exact call count.)",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (the created rule carries a real rtsp:// live_stream_url resolved from VIOS for warehouse_sample - host/port may be rewritten to the deployment's external IP, so match the rtsp scheme rather than a fixed port; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.chunk_duration == 30 and ((.system_prompt // \"\") | length > 0) and ((.id // \"\") | test(\"[0-9a-fA-F-]{36}\")))] | length >= 1'` returns exit 0 (a stored rule for warehouse_sample exists with the canonical payload defaults \u2014 chunk_duration 30, non-empty system_prompt \u2014 and a UUID id; deterministic end-state probe).",
         "The agent confirms the rule was created and reports the rule ID and sensor name to the user.",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.alert_type | test(\"ppe|vest\";\"i\"))] | length >= 1'` returns exit 0 (the stored rule's alert_type is a PPE/vest-related tag derived from this request's condition; deterministic end-state probe).",
-        "The create call's response captured in the trajectory satisfies the Alert Bridge create contract (references/alert-subscriptions.md Step 5): the `POST` to the Alert Bridge `/api/v1/realtime` endpoint returned HTTP 2xx (201 Created) with a JSON body containing `\"status\": \"success\"`, a confirmation `\"message\"`, and an `\"id\"` that is a UUID (36-char hex with dashes). Validate this on the POST response in the trajectory itself — the agent must have received this success envelope, not an error body, and not inferred success only from a later GET."
+        "The create call's response captured in the trajectory satisfies the Alert Bridge create contract (references/alert-subscriptions.md Step 5): the `POST` to the Alert Bridge `/api/v1/realtime` endpoint returned HTTP 2xx (201 Created) with a JSON body containing `\"status\": \"success\"`, a confirmation `\"message\"`, and an `\"id\"` that is a UUID (36-char hex with dashes). Validate this on the POST response in the trajectory itself \u2014 the agent must have received this success envelope, not an error body, and not inferred success only from a later GET."
       ]
     },
     {
@@ -44,7 +42,7 @@
         "The trajectory calls Alert Bridge `GET /api/v1/realtime` to fetch the rule list.",
         "The agent's response includes at least one rule matching the warehouse_sample sensor and PPE-related tag (created in the previous step).",
         "The agent renders a human-readable table or list \u2014 not raw JSON.",
-        "The rule is presented with the human-readable sensor name `warehouse_sample` — taken from the rule record's `sensor_name` or resolved via VIOS, either mechanism is fine — and the user never sees raw RTSP / `live_stream_url` values in the reply."
+        "The rule is presented with the human-readable sensor name `warehouse_sample` \u2014 taken from the rule record's `sensor_name` or resolved via VIOS, either mechanism is fine \u2014 and the user never sees raw RTSP / `live_stream_url` values in the reply."
       ]
     },
     {
@@ -56,5 +54,15 @@
         "The agent does NOT immediately call `DELETE /api/v1/realtime/<id>` \u2014 deletion only happens after the user replies (which never arrives in this non-interactive trial, so no DELETE should occur)."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

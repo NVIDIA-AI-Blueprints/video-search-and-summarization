@@ -73,7 +73,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `RTVI_EMBED_NUM_GPUS` | Sets `NUM_GPUS` inside the container. | (unset) | No |
 | `RTVI_EMBED_NUM_VLM_PROCS` | Sets `NUM_VLM_PROCS` inside the container. | (unset) | No |
 | `VLM_BATCH_SIZE` | Inference batch size. | (unset) | No |
-| `MODEL_PATH` | Model source URI used at first boot. | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
+| `MODEL_PATH` | Revision-pinned model source used at first boot. | `hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3` | No |
 | `MODEL_IMPLEMENTATION_PATH` | In-container path to the model implementation. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `MODEL_REPOSITORY_SCRIPT_PATH` | Script that builds the Triton model repository. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py` | No |
 | `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, RT-Embed uses the remote CE1 backend. | (empty) | No |
@@ -177,7 +177,7 @@ services:
     ports:
       - "${RTVI_EMBED_PORT?}:8000"
     environment:
-      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
+      MODEL_PATH: "${MODEL_PATH:-hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3}"
       NGC_API_KEY: "${NGC_API_KEY:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"

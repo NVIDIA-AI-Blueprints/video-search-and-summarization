@@ -5,13 +5,8 @@
   "profile": "in-2",
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
-        "gpu_count": 2,
-        "modes": [
-          "harbor",
-          "runtime",
-          "shared"
-        ]
+      "A40": {
+        "gpu_count": 2
       }
     }
   },
@@ -25,7 +20,7 @@
         "The exact set therefore excludes `rtvi-embed`, `rtvi-vlm`, `vss-search-analytics-2d-fusion`, `vss-video-analytics-api-fusion`, `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, and LLM NIM keys.",
         "`perception-2d-fusion` is used as the RT-CV key; `perception-2d` and `perception-alerts` are not substituted.",
         "`COMPOSE_PROFILES` contains no `in-2`, aggregate, `bp_developer_*`, or other invented profile key.",
-        "The delta contains required build-local path/host values and only customized environment values that differ from the Search Foundation, such as `HARDWARE_PROFILE=RTXPRO6000BW`, RT-CV model/device settings, source count, paths, and reachable host values, and it introduces no critique env flag (e.g. `ENABLE_CRITIC`); unchanged Search defaults are not copied, and no copied Search `.env` or `overrides.env` file is used as the delta artifact.",
+        "The delta contains required build-local path/host values and only environment values that actually differ from the Search Foundation (for example `HARDWARE_PROFILE=RTXPRO6000BW` and any genuinely changed reachable-host/path value); it does not copy unchanged model, device, source-count, `STREAM_TYPE`, or topic defaults and introduces no critique env flag (e.g. `ENABLE_CRITIC`). In normalized `resolved.yml`, the inherited Search model, device, source-count, source, and Kafka settings remain present and unchanged, proving inheritance without forcing those defaults into `override.env`; no copied Search `.env` or `overrides.env` is used as the delta artifact.",
         "`_builds/in-2/compose.yml` includes `../../deploy/docker/compose.yml`, and `_builds/in-2/patches/` is absent because all selected services exist and no service definition changes are requested.",
         "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and no copied Foundation `.env`, copied root Compose project, patched tree, manifest, allow-list, or generated skill bundle.",
         "Resolution uses `containers.env`, Search `.env`, Search `overrides.env`, and `_builds/in-2/override.env`, in that order, with the build `compose.yml`; normalized `resolved.yml` validates directly, required peers resolve, excluded services do not resolve, no selected profile token is unknown, no service retains a `profiles:` gate, no real unescaped `${...}` Compose interpolation remains unresolved, escaped `$${...}` container-shell variables are not counted as unresolved interpolation, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and `validate_resolved_yml.py` accepts all checked-in bind sources without requiring generated runtime placeholders to be pre-created.",
@@ -52,5 +47,15 @@
         "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted, and the final response reports the Foundation, effective delta, changed knobs, readiness, playback, Kafka, and Elasticsearch evidence."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

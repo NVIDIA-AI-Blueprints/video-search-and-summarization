@@ -43,7 +43,7 @@ from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
 
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
-from .ngc_model_downloader import download_model, download_model_git
+from .ngc_model_downloader import download_model, download_model_git, download_model_hf
 from .process_base import ProcessBase, _move_cuda_frames_to_cpu, _safe_cuda_empty_cache
 
 # Built-in model class paths
@@ -1524,6 +1524,8 @@ class VlmPipeline:
             if model_path_[1]:
                 raise model_path_[1] from None
             args.model_path = model_path_[0]
+        if args.model_path and args.model_path.startswith("hf:"):
+            args.model_path = download_model_hf(args.model_path[3:], NGC_MODEL_CACHE)
         if args.model_path and args.model_path.startswith("git:"):
             args.model_path = download_model_git(args.model_path[4:], NGC_MODEL_CACHE)
         if args.model_path and args.model_repository_script_path:

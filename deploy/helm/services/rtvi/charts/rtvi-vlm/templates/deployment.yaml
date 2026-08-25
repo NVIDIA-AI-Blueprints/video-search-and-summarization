@@ -126,6 +126,12 @@ spec:
             - name: REDIS_PASSWORD
               value: {{ .Values.redisPassword | quote }}
             {{- end }}
+            - name: HF_ENDPOINT
+              value: {{ .Values.hfEndpoint | default "" | quote }}
+            - name: HF_HUB_DISABLE_XET
+              value: "1"
+            - name: HF_HUB_ENABLE_HF_TRANSFER
+              value: "0"
             {{- if .Values.useSharedNim }}
             {{- /* vss-rtvi-vlm.nims.enabled mirrors root nims.enabled in values files; --set nims.enabled=false does NOT update it. Use remote VIA_VLM when vss-rtvi-vlm.nims.enabled is false OR global.vlmBaseUrl is set (vss-agent-style: explicit remote URL wins). */}}
             {{- $nims := .Values.nims | default dict }}

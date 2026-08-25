@@ -490,10 +490,21 @@ The canonical harbor command is in § Harbor invocation.
 
 | Platform | Fleet prefix in `brev ls` | Notes |
 |---|---|---|
+| `a16` | Direct OpenShell GHA cohort (`openshell-a16-active`) | 8 VMs × 1 NVIDIA A16 16 GB. Only explicitly A16-supported, one-GPU workloads at or below 16 GB/GPU; codec capability is available. |
+| `a40` | Direct OpenShell GHA cohort (`openshell-a40-active`) | 4 VMs × 1 A40 plus 2 VMs × 2 A40, 48 GB/GPU. `gpus-1` and `gpus-2` are distinct demands; two cards are not one 96 GB address space. |
+| `h200` | Direct OpenShell GHA cohort (`openshell-h200-active`) | 8 VMs × 1 H200 141 GB. Labels `gpu-h200` + `openshell-h200-active` only — never `gpu-rtxpro6000bw`. No NVENC. |
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
+
+For the direct OpenShell path, each spec's required `openshell` object is the
+authoritative placement contract: GPU count, minimum VRAM **per GPU**, codec
+need, multi-GPU support, Blackwell need, and supported exact hardware
+profiles. `plan_matrix.py` emits exactly one smallest compatible cohort. Missing
+or stale metadata, an absent exact `hw-A16*.env` / `hw-A40*.env` / `hw-H200*.env` profile, or no
+compatible cohort produces a visible `BLOCKED_NO_COMPATIBLE_COHORT` leg. Never
+substitute another SKU's profile or add two cards' VRAM together.
 
 Pool naming is operator-managed; the actual fleet is the union of managed
 instances from `brev ls --json` and connected registered nodes from
@@ -929,14 +940,15 @@ the PR-driven path.
 - **Mandatory final marker.** Your last printed line MUST start with
   either `DONE:` or `BLOCKED:`. A `DONE:` marker MUST report a positive
   complete count as `DONE: N/N specs passed; ...`. The Python wrapper fails
-  malformed markers with exit code 4 and completed partial/zero-pass outcomes
-  with exit code 5. Neither a missing verdict nor a reported eval failure can
-  produce a green check.
+  malformed markers with exit code 4, completed partial/zero-pass outcomes
+  with exit code 5, and a well-formed `BLOCKED:` with exit code 7 so the
+  GitHub Actions job is red (capacity, missing docker/uvx, or adapter
+  reruns must not look like success).
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
     - `DONE: 0/1 specs passed; timeout` (valid syntax, failing exit code 5)
-    - `BLOCKED: anthropic rate limit after 3 retries`
-    - `BLOCKED: lock timeout on vss-eval-l40s`
+    - `BLOCKED: anthropic rate limit after 3 retries` (exit 7)
+    - `BLOCKED: lock timeout on vss-eval-l40s` (exit 7)
   If you ran trials, you MUST also have posted the per-spec result before
   printing `DONE:` — via `gh pr comment $PR_NUMBER` on a PR run, or, on a
   manual sweep (`PR_NUMBER` empty), appended to `$GITHUB_STEP_SUMMARY`

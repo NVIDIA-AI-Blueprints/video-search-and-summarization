@@ -6,51 +6,59 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
   "deploy_mode": "real-time",
-  "description": "Routing coverage not exercised by the other real-time specs: a bare 'stop monitoring' resolving to a Workflow D stop (read-only, never auto-delete), Workflow E (Slack → alert-notify :9090, never the Alert Bridge), and the non-alert negative boundary (video summarization is outside the alerts skill). The negative-summarization leg runs LAST because agent scope-recognition there is the least deterministic — so a miss cannot skip the two core routing legs.",
+  "description": "Routing coverage not exercised by the other real-time specs: a bare 'stop monitoring' resolving to a Workflow D stop (read-only, never auto-delete), Workflow E (Slack \u2192 alert-notify :9090, never the Alert Bridge), and the non-alert negative boundary (video summarization is outside the alerts skill). The negative-summarization leg runs LAST because agent scope-recognition there is the least deterministic \u2014 so a miss cannot skip the two core routing legs.",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have a camera to target, onboard one sensor into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) as a sensor named `warehouse_sample`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL — do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload — `sensorUrl` (the returned URL) and `name` (`warehouse_sample`); without the `name` key VST silently names the sensor `SENSOR`). Confirm the sensor appears in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the system is fully ready: poll until BOTH the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `warehouse_sample` is listed — wait and retry for a few minutes if a service is still starting.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have a camera to target, onboard one sensor into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) as a sensor named `warehouse_sample`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL \u2014 do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload \u2014 `sensorUrl` (the returned URL) and `name` (`warehouse_sample`); without the `name` key VST silently names the sensor `SENSOR`). Confirm the sensor appears in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the system is fully ready: poll until BOTH the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `warehouse_sample` is listed \u2014 wait and retry for a few minutes if a service is still starting.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
-        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification).",
-        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:31000/vst/api/v1/sensor/list 2>/dev/null | grep -qi warehouse && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (the bundled warehouse sample video was uploaded to NVStreamer :31000 — establishes the identity of the VIDEO; polls to absorb upload delay).",
-        "`sh -c 'i=1; while [ \"$i\" -le 36 ]; do curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams 2>/dev/null | grep -q \"rtsp://\" && exit 0; L=$(curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list 2>/dev/null); echo \"$L\" | grep -q 31554 && exit 0; echo \"$L\" | grep -qiE \"\\\"state\\\"[^,}]*online\" && exit 0; for id in $(echo \"$L\" | jq -r \".[].sensorId\" 2>/dev/null); do curl -sf --max-time 10 \"http://localhost:30888/vst/api/v1/sensor/$id/streams\" 2>/dev/null | grep -q \"rtsp://\" && exit 0; done; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (the onboarded source is LIVE in VIOS — evidenced by a non-empty `rtsp://` stream URL on the aggregate `GET /vst/api/v1/sensor/streams`, the sensor list, or a per-sensor streams endpoint, OR by a sensor in `state: online` (VST only reports online when it is pulling the source successfully; some builds lag exposing the `url` field even for live streams). NVStreamer is the only video source on this bare eval host, so combined with the NVStreamer-upload check above this confirms the uploaded warehouse sample is what got onboarded, regardless of display name or host/port rewriting. Nothing live after ~3 min (no rtsp URL anywhere AND no online sensor) means the registered source never became streamable — a genuine onboarding failure, not tolerated. A name deviation alone must not fail this leg)."
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor \u2014 required for VLM real-time mode).",
+        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running \u2014 confirms VLM real-time, not verification).",
+        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:31000/vst/api/v1/sensor/list 2>/dev/null | grep -qi warehouse && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (the bundled warehouse sample video was uploaded to NVStreamer :31000 \u2014 establishes the identity of the VIDEO; polls to absorb upload delay).",
+        "`sh -c 'i=1; while [ \"$i\" -le 36 ]; do curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams 2>/dev/null | grep -q \"rtsp://\" && exit 0; L=$(curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list 2>/dev/null); echo \"$L\" | grep -q 31554 && exit 0; echo \"$L\" | grep -qiE \"\\\"state\\\"[^,}]*online\" && exit 0; for id in $(echo \"$L\" | jq -r \".[].sensorId\" 2>/dev/null); do curl -sf --max-time 10 \"http://localhost:30888/vst/api/v1/sensor/$id/streams\" 2>/dev/null | grep -q \"rtsp://\" && exit 0; done; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (the onboarded source is LIVE in VIOS \u2014 evidenced by a non-empty `rtsp://` stream URL on the aggregate `GET /vst/api/v1/sensor/streams`, the sensor list, or a per-sensor streams endpoint, OR by a sensor in `state: online` (VST only reports online when it is pulling the source successfully; some builds lag exposing the `url` field even for live streams). NVStreamer is the only video source on this bare eval host, so combined with the NVStreamer-upload check above this confirms the uploaded warehouse sample is what got onboarded, regardless of display name or host/port rewriting. Nothing live after ~3 min (no rtsp URL anywhere AND no online sensor) means the registered source never became streamable \u2014 a genuine onboarding failure, not tolerated. A name deviation alone must not fail this leg)."
       ]
     },
     {
       "query": "Stop monitoring on warehouse_sample.",
       "checks": [
-        "A bare 'stop monitoring on <sensor>' is a Workflow D stop: the trajectory fetches active rules via Alert Bridge `GET http://localhost:9080/api/v1/realtime` to look for a rule on warehouse_sample — it does NOT use the VSS Agent `POST /generate`.",
-        "The agent does NOT delete anything: no `DELETE http://localhost:9080/api/v1/realtime/<id>` appears in the trajectory. If a matching rule exists it first asks a yes/no confirmation (never auto-deleting — no interactive 'yes' arrives in this trial); if no rule is running on warehouse_sample it reports that there is nothing active to stop."
+        "A bare 'stop monitoring on <sensor>' is a Workflow D stop: the trajectory fetches active rules via Alert Bridge `GET http://localhost:9080/api/v1/realtime` to look for a rule on warehouse_sample \u2014 it does NOT use the VSS Agent `POST /generate`.",
+        "The agent does NOT delete anything: no `DELETE http://localhost:9080/api/v1/realtime/<id>` appears in the trajectory. If a matching rule exists it first asks a yes/no confirmation (never auto-deleting \u2014 no interactive 'yes' arrives in this trial); if no rule is running on warehouse_sample it reports that there is nothing active to stop."
       ]
     },
     {
       "query": "Check if the alert Slack webhook is running.",
       "checks": [
-        "The trajectory routes this Slack/webhook status request to Workflow E (the alert-notify relay): it probes the alert-notify service on port 9090 — e.g. `GET http://localhost:9090/webhook/alert-notify/status` or `GET http://localhost:9090/webhook/alert-notify/health` — to determine whether the webhook server is running.",
-        "The agent does NOT perform the Slack operation through the Alert Bridge: no `POST` or `DELETE` to any `:9080/api/v1/realtime` endpoint for this request, and the webhook-status answer is determined by the alert-notify probe on `:9090` — not inferred from Alert Bridge data. Slack/webhook operations belong to alert-notify (:9090), never to vss-alert-bridge's realtime API. Incidental read-only `GET`s (e.g. `:9080/health` or an incidents peek for context) are acceptable — the guarded failure is mutating alert state or answering the Slack status from the rule/incident API instead of the :9090 probe.",
-        "Because no alert-notify webhook server was started in this trial, the agent's final reply states that the alert Slack webhook is not running (the probe to :9090 is refused) and offers to start it — it does not fabricate a 'running' or 'healthy' status.",
-        "The agent does NOT ask the user for Slack credentials (bot token or channel ID) merely to CHECK status — per references/alert-notify.md, credentials are required only to start or test the webhook, not to report that it is down."
+        "The trajectory routes this Slack/webhook status request to Workflow E (the alert-notify relay): it probes the alert-notify service on port 9090 \u2014 e.g. `GET http://localhost:9090/webhook/alert-notify/status` or `GET http://localhost:9090/webhook/alert-notify/health` \u2014 to determine whether the webhook server is running.",
+        "The agent does NOT perform the Slack operation through the Alert Bridge: no `POST` or `DELETE` to any `:9080/api/v1/realtime` endpoint for this request, and the webhook-status answer is determined by the alert-notify probe on `:9090` \u2014 not inferred from Alert Bridge data. Slack/webhook operations belong to alert-notify (:9090), never to vss-alert-bridge's realtime API. Incidental read-only `GET`s (e.g. `:9080/health` or an incidents peek for context) are acceptable \u2014 the guarded failure is mutating alert state or answering the Slack status from the rule/incident API instead of the :9090 probe.",
+        "Because no alert-notify webhook server was started in this trial, the agent's final reply states that the alert Slack webhook is not running (the probe to :9090 is refused) and offers to start it \u2014 it does not fabricate a 'running' or 'healthy' status.",
+        "The agent does NOT ask the user for Slack credentials (bot token or channel ID) merely to CHECK status \u2014 per references/alert-notify.md, credentials are required only to start or test the webhook, not to report that it is down."
       ]
     },
     {
       "query": "Summarize the last hour of warehouse_sample video and create a highlight reel.",
       "checks": [
-        "The agent ultimately recognizes this is a video-summarization / highlight-reel request outside the alerts skill's scope (the skill manifest states it is 'Not for non-alert analytics') and routes it to a summarization / reporting path (e.g. hands off to vss-generate-video-report) rather than concluding it as an alert task. A brief read-only context check before pivoting is acceptable — what matters is the end-state: it does not resolve the request by creating or reporting alerts.",
-        "The agent does NOT mutate alert state or wire up notifications for this request: no `POST` or `DELETE` to the Alert Bridge `http://localhost:9080/api/v1/realtime` endpoints (no rule created or deleted), and no call to the alert-notify webhook service on `http://localhost:9090`. A single read-only `GET` (e.g. an incidents lookup for context) is tolerable — the guarded failure is creating/deleting a rule or configuring notifications for what is a video-summarization request.",
-        "The trajectory does NOT create a realtime alert rule (`POST /api/v1/realtime`) and does NOT set up alert notifications for this summarization request. The guarded failure is mis-handling the request as alert management — creating a rule or configuring notifications — not a harmless read-only lookup.",
-        "The agent's final reply recognizes this is a video-summarization / highlights request (out of the alerts skill's scope, pointing to a summarization or reporting workflow) rather than presenting it as an alert-management action (creating alerts or listing rules) — and does not fabricate alert results."
+        "The agent ultimately recognizes this is a video-summarization / highlight-reel request outside the alerts skill's scope (the skill manifest states it is 'Not for non-alert analytics') and routes it to a summarization / reporting path (e.g. hands off to vss-generate-video-report) rather than concluding it as an alert task. A brief read-only context check before pivoting is acceptable \u2014 what matters is the end-state: it does not resolve the request by creating or reporting alerts.",
+        "The agent does NOT mutate alert state or wire up notifications for this request: no `POST` or `DELETE` to the Alert Bridge `http://localhost:9080/api/v1/realtime` endpoints (no rule created or deleted), and no call to the alert-notify webhook service on `http://localhost:9090`. A single read-only `GET` (e.g. an incidents lookup for context) is tolerable \u2014 the guarded failure is creating/deleting a rule or configuring notifications for what is a video-summarization request.",
+        "The trajectory does NOT create a realtime alert rule (`POST /api/v1/realtime`) and does NOT set up alert notifications for this summarization request. The guarded failure is mis-handling the request as alert management \u2014 creating a rule or configuring notifications \u2014 not a harmless read-only lookup.",
+        "The agent's final reply recognizes this is a video-summarization / highlights request (out of the alerts skill's scope, pointing to a summarization or reporting workflow) rather than presenting it as an alert-management action (creating alerts or listing rules) \u2014 and does not fabricate alert results."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

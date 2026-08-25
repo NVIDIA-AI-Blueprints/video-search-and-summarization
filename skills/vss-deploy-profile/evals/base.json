@@ -6,6 +6,9 @@
     "platforms": {
       "RTXPRO6000BW": {
         "gpu_count": 1
+      },
+      "H200": {
+        "gpu_count": 1
       }
     }
   },
@@ -22,5 +25,16 @@
         "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW",
+      "H200"
+    ]
+  }
 }

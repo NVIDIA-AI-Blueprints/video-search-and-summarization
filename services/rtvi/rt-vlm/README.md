@@ -220,7 +220,7 @@ Common service variables and chart values are listed in [Docker Compose and Helm
 
 ## Supported Models
 
-RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remote OpenAI-compatible endpoints. Use `MODEL_PATH=git:<Hugging Face URL>` for Hugging Face checkpoints, `MODEL_PATH=ngc:<org>/<team>/<model>:<version>` for NGC model artifacts, or `VLM_MODEL_TO_USE=openai-compat` with `VIA_VLM_ENDPOINT` for a remote endpoint.
+RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remote OpenAI-compatible endpoints. Use `MODEL_PATH=hf:<owner>/<repo>@<immutable-commit>` with `huggingface_hub==0.36.2` for Hugging Face checkpoints, `MODEL_PATH=ngc:<org>/<team>/<model>:<version>` for NGC model artifacts, or `VLM_MODEL_TO_USE=openai-compat` with `VIA_VLM_ENDPOINT` for a remote endpoint. Hugging Face Git URLs are rejected because they bypass `HF_ENDPOINT`.
 
 ### Cosmos Reason2 Family
 
@@ -242,15 +242,15 @@ RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remo
 | Model or checkpoint | Example selector |
 |---------------------|------------------|
 | [Nemotron-3-Nano-Omni-30B-A3B-Reasoning](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning) | `VLM_MODEL_TO_USE=vllm-compatible`, `VLM_TRUST_REMOTE_CODE=true`, `VLM_MODEL_SUPPORTS_AUDIO=true` for audio |
-| [Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8`, `VLM_TRUST_REMOTE_CODE=true`, `VLM_MODEL_SUPPORTS_AUDIO=true` for audio |
+| [Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=hf:nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8@<source-approved-immutable-commit>`, `VLM_TRUST_REMOTE_CODE=true`, `VLM_MODEL_SUPPORTS_AUDIO=true` for audio |
 
 ### Qwen Family
 
 | Model or checkpoint | Example selector |
 |---------------------|------------------|
-| [Qwen3-VL-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=git:https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct` |
-| [Qwen3-Omni-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=git:https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct` |
-| [Qwen3.5-27B](https://huggingface.co/Qwen/Qwen3.5-27B) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=git:https://huggingface.co/Qwen/Qwen3.5-27B` |
+| [Qwen3-VL-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=hf:Qwen/Qwen3-VL-30B-A3B-Instruct@<source-approved-immutable-commit>` |
+| [Qwen3-Omni-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=hf:Qwen/Qwen3-Omni-30B-A3B-Instruct@<source-approved-immutable-commit>` |
+| [Qwen3.5-27B](https://huggingface.co/Qwen/Qwen3.5-27B) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=hf:Qwen/Qwen3.5-27B@<source-approved-immutable-commit>` |
 
 ### Cosmos Reason1
 
@@ -1255,7 +1255,7 @@ INSTALL_PROPRIETARY_CODECS=true          # only needed for proprietary audio cod
 For standalone Helm, set `modelPath` and update the matching entries in the chart `env` list:
 
 ```yaml
-modelPath: "git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"
+modelPath: "hf:nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning@<source-approved-immutable-commit>"
 env:
   - name: VLM_MODEL_TO_USE
     value: "vllm-compatible"

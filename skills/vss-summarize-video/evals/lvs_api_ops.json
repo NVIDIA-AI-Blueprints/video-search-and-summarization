@@ -5,7 +5,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "A40": {
         "gpu_count": 1
       }
     }
@@ -42,5 +42,15 @@
         "The final response identifies REST port 38111, readiness endpoint `/v1/ready`, and the `bp_developer_lvs_2d` compose profile or the `vss-lvs` / `lvs-server` service signal."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": true,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

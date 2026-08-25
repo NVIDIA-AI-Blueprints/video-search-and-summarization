@@ -34,7 +34,7 @@ services:
       - rtvi-triton-model-repo:/tmp/triton_model_repo
 
     environment:
-      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
+      MODEL_PATH: "${MODEL_PATH:-hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3}"
       MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
       MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
       REMOTE_EMBED_ENDPOINT: "${REMOTE_EMBED_ENDPOINT:-}"
@@ -46,7 +46,13 @@ services:
       COSMOS_EMBED1_TRT_EXTRA_ARGS: "${COSMOS_EMBED1_TRT_EXTRA_ARGS:-}"
       NGC_API_KEY: ${NGC_API_KEY:-}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
-      HF_TOKEN: ${HF_TOKEN:-}
+      HF_TOKEN:
+      HUGGING_FACE_HUB_TOKEN:
+      HUGGINGFACE_TOKEN:
+      HF_TOKEN_PATH:
+      HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
       NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
       VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
       VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-custom}"

@@ -21,5 +21,15 @@
         "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (real-time mode does NOT run the CV perception pipeline)"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }

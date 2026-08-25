@@ -8,6 +8,13 @@
 > auto-build local images, so this is an operator/pre-deploy step. The DS-SOP service (capability
 > `sop-detection`) consumes the resulting image.
 
+The direct-run preflight pins the Docker image ID initially resolved by the
+exact local tag `ds-sop:1.0.0`, rejects a changed ID before deployment, and
+requires `resolved.yml` to wire that tag as image-only. This local-only image
+has no registry or source digest pinned in the eval metadata, so the observed
+image ID still does **not** prove source provenance. Retain the standalone
+smoke test and pinned-source build evidence below as the provenance check.
+
 ## Build & Standalone-Test the DS-SOP Image (`ds-sop:1.0.0`)
 
 The build-vision-agent SOP profile (microservice **DS-SOP**, capability `sop-detection`)

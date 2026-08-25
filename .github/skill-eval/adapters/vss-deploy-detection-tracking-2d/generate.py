@@ -45,6 +45,22 @@ PLATFORMS: dict[str, dict] = {
         "brev_search": "RTX PRO",
         "gpu_count": 2,
     },
+    "A16": {
+        "short_name": "a16",
+        "gpu_type": "NVIDIA A16",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 16,
+        "brev_search": "A16",
+        "min_root_disk_gb": 220,
+    },
+    "A40": {
+        "short_name": "a40",
+        "gpu_type": "NVIDIA A40",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 48,
+        "brev_search": "A40",
+        "min_root_disk_gb": 220,
+    },
     "DGX-SPARK": {"short_name": "spark", "gpu_type": "GB10", "min_vram_per_gpu": 96, "brev_search": "GB10", "gpu_count": 1},
     "IGX-THOR": {"short_name": "thor", "gpu_type": "Thor", "min_vram_per_gpu": 64, "brev_search": "Thor", "gpu_count": 1},
 }
@@ -54,6 +70,11 @@ DEFAULT_MODE = "standalone"
 DEFAULT_SPEC = "deploy-evals.json"
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
+REMOVE_VERIFIER = (
+    Path(__file__).resolve().parents[2]
+    / "verifiers"
+    / "detection_tracking_2d_remove.py"
+)
 
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
@@ -160,6 +181,17 @@ def generate_test_script(step: int, spec_name: str) -> str:
     #
     # `set -e` plus removing the trailing `exit 0` ensures the judge's
     # actual exit code propagates. See Greptile P1 on this adapter.
+    if step == 5:
+        return (
+            "#!/bin/bash\n"
+            "# Step 5 has two explicit valid branches: reachable service requires\n"
+            "# list-before-remove; positively proven unavailability requires no\n"
+            "# remove and an honest report. Its verifier is deterministic so the\n"
+            "# same trajectory cannot receive different ordering verdicts.\n"
+            "set -euo pipefail\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            'python3 "$TEST_DIR/detection_tracking_2d_remove.py"\n'
+        )
     return (
         "#!/bin/bash\n"
         f"# vss-deploy-detection-tracking-2d verifier (step {step}): delegates to the\n"
@@ -301,6 +333,11 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        if idx == 5 and REMOVE_VERIFIER.exists():
+            shutil.copy(
+                REMOVE_VERIFIER,
+                tests_dir / "detection_tracking_2d_remove.py",
+            )
         (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         solution_dir = step_dir / "solution"

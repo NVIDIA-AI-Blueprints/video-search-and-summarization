@@ -10,10 +10,13 @@
 from __future__ import annotations
 
 import argparse
+import html
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
+from urllib.parse import unquote
 
 import yaml
 
@@ -39,6 +42,15 @@ FILE_TARGET_SUFFIXES = {
 GENERATED_BIND_NAMES = {".wdm-env"}
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
+
+
+def contains_sentinel(value: str, sentinel: str) -> bool:
+    """Recognize common escaped placeholders without returning raw values."""
+    normalized = value
+    for _ in range(2):
+        normalized = html.unescape(unquote(normalized))
+    normalized = re.sub(r"\\(?=[<>])", "", normalized)
+    return sentinel.casefold() in normalized.casefold()
 
 
 def walk_strings(value: Any, location: str = "$") -> Iterator[tuple[str, str]]:
@@ -126,10 +138,38 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
     return errors
 
 
+def required_local_image_errors(
+    document: dict[str, Any],
+    required_images: set[str],
+) -> list[str]:
+    errors: list[str] = []
+    services = document.get("services") or {}
+    if not isinstance(services, dict):
+        return [
+            "a required local image is absent from services"
+            for _ in required_images
+        ]
+    for required_image in required_images:
+        matching = [
+            service
+            for service in services.values()
+            if (
+                isinstance(service, dict)
+                and service.get("image") == required_image
+            )
+        ]
+        if not matching:
+            errors.append("a required local image is absent from services")
+        elif any("build" in service for service in matching):
+            errors.append("a required local image service is buildable")
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
     extra_required: set[str] | None = None,
+    required_local_images: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     services = document.get("services")
@@ -139,7 +179,7 @@ def validate_document(
 
     for location, value in walk_strings(document):
         for sentinel in SENTINELS:
-            if sentinel in value:
+            if contains_sentinel(value, sentinel):
                 errors.append(f"{location} contains placeholder {sentinel!r}")
         if UNRESOLVED_INTERPOLATION.search(value):
             errors.append(f"{location} contains unresolved Compose interpolation")
@@ -166,6 +206,12 @@ def validate_document(
             )
 
     errors.extend(secret_errors(document, extra_required or set()))
+    errors.extend(
+        required_local_image_errors(
+            document,
+            required_local_images or set(),
+        )
+    )
 
     return errors
 
@@ -180,6 +226,13 @@ def parse_args() -> argparse.Namespace:
         default=[],
         metavar="KEY",
         help="env key that must resolve to a non-empty literal (repeatable)",
+    )
+    parser.add_argument(
+        "--required-local-image",
+        action="append",
+        default=[],
+        metavar="IMAGE",
+        help="exact local image tag that must be wired and non-buildable",
     )
     return parser.parse_args()
 
@@ -200,7 +253,10 @@ def main() -> None:
         raise SystemExit(1)
 
     errors = validate_document(
-        document, args.repo_root, set(args.required_secret)
+        document,
+        args.repo_root,
+        set(args.required_secret),
+        set(args.required_local_image),
     )
     if errors:
         print(

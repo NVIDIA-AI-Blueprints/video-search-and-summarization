@@ -5,13 +5,8 @@
   "profile": "in-3",
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
-        "gpu_count": 2,
-        "modes": [
-          "harbor",
-          "runtime",
-          "shared"
-        ]
+      "A40": {
+        "gpu_count": 2
       }
     }
   },
@@ -35,12 +30,13 @@
       ]
     },
     {
-      "query": "Deploy the validated `_builds/in-3/resolved.yml`, wait for selected services to become ready, and leave the deployment running for runtime validation. Treat the generated deployment as immutable during and after deployment: do not edit files under `deploy/docker/`, do not regenerate the build, and do not patch service configs while diagnosing readiness.",
+      "query": "Deploy the validated `_builds/in-3/resolved.yml`, wait for selected services to become ready, and leave the deployment running for runtime validation. Treat the generated deployment as immutable during and after deployment: do not edit files under `deploy/docker/`, do not regenerate the build, and do not patch service configs while diagnosing readiness. If any selected service is exited, restarting, or unhealthy, archive bounded sanitized evidence before any recreation or retry: effective Compose, `docker inspect`, recent logs, Docker events, and PID-to-container mapping for the selected services, with particular attention to RT-CV exit 100 and NvStreamer exit 1. Do not infer a low-level cause from those exit codes alone.",
       "checks": [
         "Deployment uses the validated `_builds/in-3/resolved.yml` as the only Compose file and starts it with `docker compose ... up -d`; harmless deployment options such as `-p <project>` or `--build` are allowed, but it must not re-read Foundation env files, supply `--profile`, use an invented Compose profile, or deploy a copied Compose project.",
         "All selected long-running containers are present and not exited, restarting, or dead; all selected one-shot containers exit 0; and excluded services are not running. A Docker `unhealthy` label alone is not a failure when the explicit service readiness probes in this step pass.",
         "`curl -sf http://localhost:${RTVI_CV_HOST_PORT:-9000}/ready` returns HTTP 200, and RT-Embed readiness responds successfully.",
-        "Elasticsearch cluster health, Kafka broker/topic readiness, VIOS APIs, and the NvStreamer API become reachable; `curl -sf http://localhost:${NVSTREAMER_HTTP_HOST_PORT:-31000}/api/v1/sensor/version` returns JSON whose `type` is `streamer`."
+        "Elasticsearch cluster health, Kafka broker/topic readiness, VIOS APIs, and the NvStreamer API become reachable; `curl -sf http://localhost:${NVSTREAMER_HTTP_HOST_PORT:-31000}/api/v1/sensor/version` returns JSON whose `type` is `streamer`.",
+        "On a failed readiness path, durable result artifacts contain bounded sanitized effective Compose plus selected-service inspect, recent logs, Docker events, and PID-to-container mapping captured before recreation/retry; RT-CV exit 100 and NvStreamer exit 1 are reported as observed evidence, not guessed root causes."
       ]
     },
     {
@@ -54,5 +50,15 @@
         "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted, and the final response reports the Foundation, delta, changed knobs, readiness, playback, Kafka offsets, and Elasticsearch evidence."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

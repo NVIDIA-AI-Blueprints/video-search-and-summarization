@@ -363,7 +363,7 @@ rtvi:
     redisHost: ''
     redisPort: '6379'
     modelImplementationPath: /opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1
-    modelPath: git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection
+    modelPath: hf:nvidia/Cosmos-Embed1-448p-anomaly-detection@3b1455ed97c7b1d5419c0c3129b7199ca4cd9382
     modelRepositoryScriptPath: /opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py
     logLevel: INFO
     enableOtelMonitoring: false

@@ -142,7 +142,10 @@ class RunsOnLabels(unittest.TestCase):
         )
 
     def test_every_known_platform_has_a_label(self):
-        for platform in ("H100", "L40S", "RTXPRO6000BW", "DGX-SPARK", "IGX-THOR"):
+        for platform in (
+            "A16", "A40", "H100", "H200", "L40S", "RTXPRO6000BW",
+            "DGX-SPARK", "IGX-THOR",
+        ):
             labels = plan_matrix.runs_on_labels(platform, {"gpu_count": 1})
             self.assertEqual(len(labels), 4, platform)
             self.assertTrue(labels[2].startswith("gpu-"), platform)
@@ -193,6 +196,65 @@ class RealSpecCorpus(unittest.TestCase):
                     self.assertTrue(
                         any(x.startswith("gpus-") for x in labels), f"{rel} {platform}"
                     )
+
+    def test_active_routing_has_replacement_labels_and_capacity(self):
+        workflow = (
+            plan_matrix.REPO_ROOT / ".github/workflows/skills-eval.yml"
+        ).read_text()
+        planner = (
+            plan_matrix.REPO_ROOT / ".github/skill-eval/plan_matrix.py"
+        ).read_text()
+        self.assertIn("openshell-a16-active", planner)
+        self.assertIn("openshell-a40-active", planner)
+        self.assertIn("openshell-h200-active", planner)
+        self.assertIn("gpu-h200", planner)
+        self.assertNotIn("gpu-rtxpro6000bw", plan_matrix.OPENSHELL_H200_LABELS)
+        self.assertNotIn(
+            "openshell-rtxpro6000-active", plan_matrix.OPENSHELL_H200_LABELS
+        )
+        self.assertIn("max-parallel: 26", workflow)
+
+    def test_openshell_matrix_routes_each_demand_once(self):
+        os.environ["OPENSHELL_GPU_FLEET"] = "1"
+        try:
+            include = plan_matrix.build_matrix(plan_matrix.list_skill_file_paths())
+        finally:
+            os.environ.pop("OPENSHELL_GPU_FLEET", None)
+
+        self.assertEqual(len(include), len(self.specs))
+        self.assertEqual(
+            len({leg["spec_path"] for leg in include}),
+            len(include),
+            "one demand-appropriate leg per spec",
+        )
+        counts = {
+            cohort: sum(leg["cohort"] == cohort for leg in include)
+            for cohort in {leg["cohort"] for leg in include}
+        }
+        self.assertEqual(
+            counts,
+            {
+                "a16-1g": 19,
+                "a40-1g": 12,
+                "a40-2g": 5,
+                "h200-1g": 2,
+                "rtxpro6000-2g": 12,
+            },
+        )
+        for leg in include:
+            self.assertEqual(leg["kind"], "eval")
+            if leg["cohort"].startswith("a16"):
+                self.assertIn("openshell-a16-active", leg["runs_on"])
+            elif leg["cohort"].startswith("a40"):
+                self.assertIn("openshell-a40-active", leg["runs_on"])
+            elif leg["cohort"] == "h200-1g":
+                self.assertIn("openshell-h200-active", leg["runs_on"])
+                self.assertIn("gpu-h200", leg["runs_on"])
+                self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
+                self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
+            else:
+                self.assertEqual(leg["cohort"], "rtxpro6000-2g")
+                self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
 
 
 class BuildMatrix(unittest.TestCase):
@@ -486,6 +548,296 @@ class EmitSlugSafety(unittest.TestCase):
         finally:
             if orig is not None:
                 os.environ["GITHUB_OUTPUT"] = orig
+
+
+class OpenshellGpuFleet(unittest.TestCase):
+    """OPENSHELL_GPU_FLEET routes work by GPU demand."""
+
+    def setUp(self):
+        self._orig_specs = plan_matrix.specs_for_skill
+        self._orig_adapter = plan_matrix.adapter_exists
+        self._orig_platforms = plan_matrix.spec_platform_config
+        self._orig_isfile = plan_matrix.Path.is_file
+        plan_matrix.specs_for_skill = lambda s: FAKE_SPECS.get(s, [])
+        plan_matrix.adapter_exists = lambda s: s in SKILLS_WITH_ADAPTERS
+        plan_matrix.spec_platform_config = lambda p: {"L40S": {"gpu_count": 1}}
+        plan_matrix.Path.is_file = lambda self: True  # type: ignore
+        os.environ["OPENSHELL_GPU_FLEET"] = "1"
+
+    def tearDown(self):
+        plan_matrix.specs_for_skill = self._orig_specs
+        plan_matrix.adapter_exists = self._orig_adapter
+        plan_matrix.spec_platform_config = self._orig_platforms
+        plan_matrix.Path.is_file = self._orig_isfile
+        os.environ.pop("OPENSHELL_GPU_FLEET", None)
+
+    @staticmethod
+    def _requirements(
+        *,
+        gpu_count=1,
+        min_vram=16,
+        codec=False,
+        multi_gpu=False,
+        blackwell=False,
+        profiles=("A16",),
+    ):
+        return {
+            "gpu_count": gpu_count,
+            "min_vram_gb_per_gpu": min_vram,
+            "requires_video_codec": codec,
+            "multi_gpu_capable": multi_gpu,
+            "requires_blackwell": blackwell,
+            "supported_hardware_profiles": list(profiles),
+        }
+
+    def test_a16_and_a40_labels_are_cohort_specific(self):
+        a16 = plan_matrix.runs_on_labels("A16", {"gpu_count": 1})
+        self.assertIn("openshell-a16-active", a16)
+        self.assertIn("gpu-nvidia-a16", a16)
+        self.assertIn("gpus-1", a16)
+        self.assertEqual(
+            plan_matrix.runs_on_labels("A16", {"gpu_count": 2}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+
+        a40_1g = plan_matrix.runs_on_labels("A40", {"gpu_count": 1})
+        a40_2g = plan_matrix.runs_on_labels("A40", {"gpu_count": 2})
+        self.assertIn("openshell-a40-active", a40_1g)
+        self.assertIn("gpu-nvidia-a40", a40_2g)
+        self.assertIn("gpus-1", a40_1g)
+        self.assertIn("gpus-2", a40_2g)
+
+        h200 = plan_matrix.runs_on_labels("H200", {"gpu_count": 1})
+        self.assertIn("openshell-h200-active", h200)
+        self.assertIn("gpu-h200", h200)
+        self.assertIn("gpu-nvidia-h200", h200)
+        self.assertIn("gpus-1", h200)
+        self.assertNotIn("gpu-rtxpro6000bw", h200)
+        self.assertEqual(
+            plan_matrix.runs_on_labels("H200", {"gpu_count": 2}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+
+    def test_capacity_accounting_matches_replacement_topology(self):
+        self.assertEqual(
+            {cohort.name: cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS},
+            {
+                "a16-1g": 8,
+                "a40-1g": 4,
+                "a40-2g": 2,
+                "h200-1g": 8,
+                "rtxpro6000-2g": 4,
+            },
+        )
+        self.assertEqual(
+            sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
+            26,
+        )
+
+    def test_capability_and_per_gpu_vram_boundaries(self):
+        original = plan_matrix.hardware_profile_files
+        plan_matrix.hardware_profile_files = lambda _profile: [Path("profile")]
+        try:
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(codec=True)
+            )
+            self.assertIsNone(error)
+            self.assertEqual(cohort.name, "a16-1g")
+
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    min_vram=48, profiles=("A40",)
+                )
+            )
+            self.assertIsNone(error)
+            self.assertEqual(cohort.name, "a40-1g")
+
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    gpu_count=2,
+                    min_vram=48,
+                    multi_gpu=True,
+                    profiles=("A40",),
+                )
+            )
+            self.assertIsNone(error)
+            self.assertEqual(cohort.name, "a40-2g")
+
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    min_vram=49, profiles=("A40",)
+                )
+            )
+            self.assertIsNone(cohort)
+            self.assertIn("no compatible", error)
+        finally:
+            plan_matrix.hardware_profile_files = original
+
+    def test_two_a40_gpus_do_not_create_aggregate_96gb(self):
+        original = plan_matrix.hardware_profile_files
+        plan_matrix.hardware_profile_files = lambda _profile: [Path("profile")]
+        try:
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    gpu_count=2,
+                    min_vram=80,
+                    multi_gpu=True,
+                    profiles=("A40",),
+                )
+            )
+        finally:
+            plan_matrix.hardware_profile_files = original
+        self.assertIsNone(cohort)
+        self.assertIn("no compatible", error)
+
+    def test_large_and_blackwell_work_stays_on_rtx(self):
+        cohort, error = plan_matrix.select_openshell_cohort(
+            self._requirements(
+                min_vram=96,
+                blackwell=True,
+                profiles=("RTXPRO6000BW",),
+            )
+        )
+        self.assertIsNone(error)
+        self.assertEqual(cohort.name, "rtxpro6000-2g")
+
+    def test_absent_exact_profile_fails_closed(self):
+        original = plan_matrix.hardware_profile_files
+        plan_matrix.hardware_profile_files = lambda _profile: []
+        try:
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    min_vram=48, profiles=("A40",)
+                )
+            )
+        finally:
+            plan_matrix.hardware_profile_files = original
+        self.assertIsNone(cohort)
+        self.assertIn("exact hardware profile prerequisite missing: A40", error)
+
+    def test_all_current_specs_have_complete_fresh_metadata(self):
+        for spec in sorted(
+            p for p in (plan_matrix.REPO_ROOT / "skills").glob("*/eval*/*.json")
+            if p.name not in plan_matrix.EXCLUDED_SPEC_NAMES
+        ):
+            relative = spec.relative_to(plan_matrix.REPO_ROOT).as_posix()
+            requirements, error = plan_matrix.openshell_requirements(relative)
+            self.assertIsNone(error, relative)
+            self.assertIsNotNone(requirements, relative)
+
+    def test_future_matrix_uses_one_leg_per_spec_across_all_cohorts(self):
+        original = plan_matrix.hardware_profile_files
+        current_specs = plan_matrix.specs_for_skill
+        current_adapter = plan_matrix.adapter_exists
+        current_platforms = plan_matrix.spec_platform_config
+        plan_matrix.hardware_profile_files = lambda profile: [Path(profile)]
+        plan_matrix.specs_for_skill = self._orig_specs
+        plan_matrix.adapter_exists = self._orig_adapter
+        plan_matrix.spec_platform_config = self._orig_platforms
+        try:
+            legs = plan_matrix.build_matrix(plan_matrix.list_skill_file_paths())
+        finally:
+            plan_matrix.hardware_profile_files = original
+            plan_matrix.specs_for_skill = current_specs
+            plan_matrix.adapter_exists = current_adapter
+            plan_matrix.spec_platform_config = current_platforms
+        self.assertEqual(len(legs), 50)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 50)
+        counts = {
+            cohort: sum(leg["cohort"] == cohort for leg in legs)
+            for cohort in {leg["cohort"] for leg in legs}
+        }
+        self.assertEqual(
+            counts,
+            {
+                "a16-1g": 19,
+                "a40-1g": 12,
+                "a40-2g": 5,
+                "h200-1g": 2,
+                "rtxpro6000-2g": 12,
+            },
+        )
+
+    def test_codec_light_spec_explicitly_allows_a16(self):
+        requirements, error = plan_matrix.openshell_requirements(
+            "skills/vss-manage-video-io-storage/evals/vios_ops.json"
+        )
+        self.assertIsNone(error)
+        self.assertTrue(requirements["requires_video_codec"])
+        self.assertLessEqual(requirements["min_vram_gb_per_gpu"], 16)
+        self.assertEqual(requirements["supported_hardware_profiles"], ["A16"])
+
+    def test_over_48gb_falls_back_to_explicitly_supported_rtx(self):
+        original = plan_matrix.hardware_profile_files
+        plan_matrix.hardware_profile_files = lambda profile: [Path(profile)]
+        try:
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    min_vram=49,
+                    profiles=("A40", "RTXPRO6000BW"),
+                )
+            )
+        finally:
+            plan_matrix.hardware_profile_files = original
+        self.assertIsNone(error)
+        self.assertEqual(cohort.name, "rtxpro6000-2g")
+
+    def test_hardware_profile_identity_is_never_substituted(self):
+        for profile in ("A16", "A40", "H200", "RTXPRO6000BW"):
+            self.assertEqual(plan_matrix.hardware_profile_for(profile), profile)
+
+    def test_harness_only_diff_emits_h200_smoke_leg(self):
+        inc = plan_matrix.build_matrix([".github/workflows/skills-eval.yml"])
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["skill"], "vss-deploy-profile")
+        self.assertEqual(inc[0]["spec_stem"], "base")
+        self.assertEqual(inc[0]["platform"], "H200")
+        self.assertEqual(inc[0]["cohort"], "h200-1g")
+        self.assertIn("openshell-h200-active", inc[0]["runs_on"])
+        self.assertNotIn("gpu-rtxpro6000bw", inc[0]["runs_on"])
+        self.assertEqual(inc[0]["kind"], "eval")
+
+    def test_missing_metadata_is_visible_and_not_replaced_by_smoke(self):
+        original = plan_matrix.openshell_requirements
+        plan_matrix.openshell_requirements = lambda _path: (
+            None,
+            "missing openshell capability metadata",
+        )
+        try:
+            inc = plan_matrix.build_matrix(
+                ["skills/vss-search-archive/evals/search.json"]
+            )
+        finally:
+            plan_matrix.openshell_requirements = original
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["kind"], "not_run_infra_acquisition")
+        self.assertEqual(inc[0]["skill"], "vss-search-archive")
+        self.assertIn("missing openshell capability metadata", inc[0]["skip_reason"])
+
+    def test_openshell_pr_keeps_changed_file_scope(self):
+        changed = ["skills/vss-search-archive/SKILL.md"]
+        seen: list[list[str]] = []
+        orig_changed = plan_matrix.list_changed_files
+        orig_all = plan_matrix.list_skill_file_paths
+        orig_build = plan_matrix.build_matrix
+        orig_emit = plan_matrix.emit
+        orig_daily = os.environ.pop("DAILY_RUN", None)
+        plan_matrix.list_changed_files = lambda: changed
+        plan_matrix.list_skill_file_paths = lambda: self.fail(
+            "PR route must not enumerate unrelated skills"
+        )
+        plan_matrix.build_matrix = lambda files: seen.append(files) or []
+        plan_matrix.emit = lambda include: None
+        try:
+            self.assertEqual(plan_matrix.main(), 0)
+        finally:
+            plan_matrix.list_changed_files = orig_changed
+            plan_matrix.list_skill_file_paths = orig_all
+            plan_matrix.build_matrix = orig_build
+            plan_matrix.emit = orig_emit
+            if orig_daily is not None:
+                os.environ["DAILY_RUN"] = orig_daily
+        self.assertEqual(seen, [changed])
 
 
 if __name__ == "__main__":

@@ -5,10 +5,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -20,22 +18,22 @@
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
-        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification)."
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor \u2014 required for VLM real-time mode).",
+        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running \u2014 confirms VLM real-time, not verification)."
       ]
     },
     {
       "query": "What alerts have been triggered today?",
       "checks": [
-        "The trajectory queries incidents via a `GET` to the Alert Bridge incidents endpoint `/api/v1/realtime/incidents` (direct — NOT `POST /generate`); 'triggered today' means past incidents, routing to Workflow C.",
-        "The agent's final reply is an incident summary — what has happened / been triggered today (Workflow C) — not a listing of subscription rules. It must not answer this 'what happened' question by presenting the active-rules inventory.",
-        "`curl -sf --max-time 15 'http://localhost:9080/api/v1/realtime/incidents?limit=5'` returns HTTP 200 with a JSON body matching the Alert MS `IncidentListResponse` contract — top-level `status`, an `incidents` array, integer `count` and `total`, and a `timestamp`. Deterministic contract probe of the Alert Bridge incidents endpoint (the direct-API source Workflow C incident queries read from); an empty `incidents` array is valid."
+        "The trajectory queries incidents via a `GET` to the Alert Bridge incidents endpoint `/api/v1/realtime/incidents` (direct \u2014 NOT `POST /generate`); 'triggered today' means past incidents, routing to Workflow C.",
+        "The agent's final reply is an incident summary \u2014 what has happened / been triggered today (Workflow C) \u2014 not a listing of subscription rules. It must not answer this 'what happened' question by presenting the active-rules inventory.",
+        "`curl -sf --max-time 15 'http://localhost:9080/api/v1/realtime/incidents?limit=5'` returns HTTP 200 with a JSON body matching the Alert MS `IncidentListResponse` contract \u2014 top-level `status`, an `incidents` array, integer `count` and `total`, and a `timestamp`. Deterministic contract probe of the Alert Bridge incidents endpoint (the direct-API source Workflow C incident queries read from); an empty `incidents` array is valid."
       ]
     },
     {
       "query": "What alert rules are currently active?",
       "checks": [
-        "The trajectory calls the bare Alert Bridge rules-list endpoint `GET /api/v1/realtime` (no `/incidents` suffix) — 'rules' + 'currently active' means subscription inventory, routing to Workflow D.",
+        "The trajectory calls the bare Alert Bridge rules-list endpoint `GET /api/v1/realtime` (no `/incidents` suffix) \u2014 'rules' + 'currently active' means subscription inventory, routing to Workflow D.",
         "The agent's final reply lists active alert rules (subscription inventory from Workflow D), not triggered incidents or an incident summary.",
         "The agent renders a human-readable summary of active rules (not raw JSON)."
       ]
@@ -43,9 +41,19 @@
     {
       "query": "Any alerts so far today?",
       "checks": [
-        "The trajectory queries incidents via a `GET` to the Alert Bridge incidents endpoint `/api/v1/realtime/incidents` (direct — NOT `POST /generate`); a casual incident query routes to Workflow C, not D's list-rules.",
-        "The agent's final reply is an incident summary — what alerts/incidents have occurred today (Workflow C) — not a listing of subscription rules. It must not answer this incident question by presenting the active-rules inventory."
+        "The trajectory queries incidents via a `GET` to the Alert Bridge incidents endpoint `/api/v1/realtime/incidents` (direct \u2014 NOT `POST /generate`); a casual incident query routes to Workflow C, not D's list-rules.",
+        "The agent's final reply is an incident summary \u2014 what alerts/incidents have occurred today (Workflow C) \u2014 not a listing of subscription rules. It must not answer this incident question by presenting the active-rules inventory."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

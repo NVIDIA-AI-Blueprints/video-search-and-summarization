@@ -15,29 +15,53 @@
 
 services:
   nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
-    # Fetch toolcall parser from Hugging Face (public repo, no HF_TOKEN required).
-    image: docker.io/alpine/curl:8.21.0
+    # Fetch the parser through the pinned Hub client and immutable source revision.
+    image: nvcr.io/nvidia/vllm:26.07-py3
     container_name: nvidia-nemotron-nano-9b-v2-fp8-toolcall-init
     profiles:
     - llm_local_nvidia-nemotron-nano-9b-v2-fp8
     - llm_local_shared_nvidia-nemotron-nano-9b-v2-fp8
     volumes:
       - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/out
+      - ${VSS_APPS_DIR}/scripts/download_hf_file.py:/opt/vss/scripts/download_hf_file.py:ro
+    tmpfs:
+      - /tmp/huggingface
+    environment:
+      HF_TOKEN:
+      HUGGING_FACE_HUB_TOKEN:
+      HUGGINGFACE_TOKEN:
+      HF_TOKEN_PATH:
+      HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HOME: /tmp/huggingface
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     command:
-      - sh
-      - -c
-      - "curl -fSL -o /out/nemotron_toolcall_parser_no_streaming.py https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-9B-v2/resolve/main/nemotron_toolcall_parser_no_streaming.py"
+      - python3
+      - /opt/vss/scripts/download_hf_file.py
+      - --repo-id
+      - nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      - --revision
+      - 6533e8de2c68e4536bf7c411d7a3ce5734111476
+      - --filename
+      - nemotron_toolcall_parser_no_streaming.py
+      - --local-dir
+      - /out
     restart: "no"
 
   nvidia-nemotron-nano-9b-v2-fp8:
     # Nemotron-Nano-V2 and tool-parser (nemotron_toolcall_parser_no_streaming.py) require vLLM 25.12+; 25.10 does not support Nemotron.
     image: nvcr.io/nvidia/vllm:26.07-py3
+    entrypoint:
+      - python3
+      - /opt/vss/scripts/exec_with_hf_hub.py
     command:
       - python3
       - -m
       - vllm.entrypoints.openai.api_server
       - --model
       - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+      - --revision
+      - 8bc5eece2eb5514c4bca7f2ec655b91eb554f4c0
       - --trust-remote-code
       - --tensor-parallel-size
       - "1"
@@ -66,11 +90,22 @@ services:
           - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      HF_TOKEN:
+      HUGGING_FACE_HUB_TOKEN:
+      HUGGINGFACE_TOKEN:
+      HF_TOKEN_PATH:
+      HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HOME: /tmp/huggingface
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}.env
     volumes:
       - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
       - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro
+      - ${VSS_APPS_DIR}/scripts/exec_with_hf_hub.py:/opt/vss/scripts/exec_with_hf_hub.py:ro
+    tmpfs:
+      - /tmp/huggingface
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:
@@ -95,12 +130,17 @@ services:
   nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
     # Nemotron-Nano-V2 and tool-parser require vLLM 25.12+ (see rel-25-12 release notes).
     image: nvcr.io/nvidia/vllm:26.07-py3
+    entrypoint:
+      - python3
+      - /opt/vss/scripts/exec_with_hf_hub.py
     command:
       - python3
       - -m
       - vllm.entrypoints.openai.api_server
       - --model
       - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+      - --revision
+      - 8bc5eece2eb5514c4bca7f2ec655b91eb554f4c0
       - --trust-remote-code
       - --tensor-parallel-size
       - "1"
@@ -129,11 +169,22 @@ services:
           - vss-llm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      HF_TOKEN:
+      HUGGING_FACE_HUB_TOKEN:
+      HUGGINGFACE_TOKEN:
+      HF_TOKEN_PATH:
+      HF_ENDPOINT: "${HF_ENDPOINT:-}"
+      HF_HOME: /tmp/huggingface
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}-shared.env
     volumes:
       - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
       - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro
+      - ${VSS_APPS_DIR}/scripts/exec_with_hf_hub.py:/opt/vss/scripts/exec_with_hf_hub.py:ro
+    tmpfs:
+      - /tmp/huggingface
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:

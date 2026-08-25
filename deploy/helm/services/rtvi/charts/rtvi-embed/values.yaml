@@ -69,7 +69,7 @@ waitForKafka:
 redisHost: ""
 redisPort: "6379"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
-modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+modelPath: "hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3"
 modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
 remoteEmbedEndpoint: ""
 remoteEmbedEndpointModelName: "nvidia/cosmos-embed1"
@@ -133,6 +133,8 @@ readinessProbe:
 ngcApiKey: ""
 nvidiaApiKey: ""
 hfToken: ""
+# Optional Hub-compatible origin. Empty uses the official Hub selected by the client.
+hfEndpoint: ""
 # Optional: pull HF token from an existing Kubernetes secret instead of plain value.
 # If set, HF_TOKEN uses secretKeyRef and hfToken is ignored.
 hfTokenSecret:

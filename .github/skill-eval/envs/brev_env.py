@@ -17,6 +17,8 @@ Task.toml [metadata] fields consumed:
     min_root_disk_gb      — root-disk floor enforced post-resolve
     min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
+    expected_services     — optional Compose service-name preflight allowlist
+    required_local_images — optional immutable images required before the agent
 """
 
 from __future__ import annotations
@@ -28,7 +30,9 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shlex
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -54,6 +58,120 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 # retrying a transient stall on a fresh connection recovers it. Tunable.
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
+
+
+def _local_gpu_instance() -> str:
+    """Runner-pinned local instance name, empty on coordinator hosts."""
+    return os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+
+
+def _is_local_gpu_instance(instance: str | None) -> bool:
+    local = _local_gpu_instance()
+    return bool(local and instance and local.lower() == instance.lower())
+
+
+# Corp remote LLM/VLM endpoints are optional on coordinator Brev boxes.
+# OpenShell guests cannot reach 10.86.6.50, and forwarding these keys
+# makes /vss-deploy-profile write LLM_MODE=remote / VLM_MODE=remote so
+# local NIMs never start and VRAM stays empty.
+_REMOTE_PLACEMENT_KEYS = (
+    "LLM_REMOTE_URL",
+    "LLM_REMOTE_MODEL",
+    "VLM_REMOTE_URL",
+    "VLM_REMOTE_MODEL",
+)
+_MAX_DIRECT_EXPECTED_SERVICES = 64
+_MAX_DIRECT_REQUIRED_IMAGES = 32
+_SAFE_DIRECT_IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$")
+
+
+def _direct_agent_hook_documents(
+    expected_services: object,
+    required_local_images: object,
+    required_local_image_ids: object | None = None,
+) -> tuple[str, str]:
+    """Return Claude settings + safe config for the direct-run progress hook."""
+    if not isinstance(expected_services, list):
+        expected_services = []
+    safe_services = [
+        name for name in expected_services
+        if isinstance(name, str)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", name)
+    ]
+    if len(safe_services) != len(expected_services):
+        raise ValueError("expected_services contains an unsafe service name")
+    if len(safe_services) > _MAX_DIRECT_EXPECTED_SERVICES:
+        raise ValueError("expected_services exceeds direct watchdog service limit")
+    if not isinstance(required_local_images, list):
+        required_local_images = []
+    safe_images = [
+        name for name in required_local_images
+        if isinstance(name, str) and _SAFE_DIRECT_IMAGE_RE.fullmatch(name)
+    ]
+    if len(safe_images) != len(required_local_images):
+        raise ValueError("required_local_images contains an unsafe image name")
+    if len(safe_images) > _MAX_DIRECT_REQUIRED_IMAGES:
+        raise ValueError(
+            "required_local_images exceeds direct watchdog image limit"
+        )
+    if required_local_image_ids is None:
+        required_local_image_ids = {}
+    if not isinstance(required_local_image_ids, dict):
+        raise ValueError("required_local_image_ids must be a mapping")
+    safe_image_ids = {
+        image: image_id
+        for image, image_id in required_local_image_ids.items()
+        if (
+            image in safe_images
+            and isinstance(image_id, str)
+            and re.fullmatch(r"[a-f0-9]{64}", image_id)
+        )
+    }
+    if len(safe_image_ids) != len(required_local_image_ids):
+        raise ValueError("required_local_image_ids contains an unsafe entry")
+    hook = (
+        "python3 $HOME/video-search-and-summarization/"
+        ".github/skill-eval/direct_agent_progress.py hook"
+    )
+    settings = {
+        "hooks": {
+            "PreToolUse": [{
+                "matcher": "Bash|Read|Edit|Write|Glob|Grep",
+                "hooks": [{"type": "command", "command": f"{hook} pre"}],
+            }],
+            "PostToolUse": [{
+                "matcher": "Bash|Read|Edit|Write|Glob|Grep",
+                "hooks": [{"type": "command", "command": f"{hook} post"}],
+            }],
+        },
+    }
+    config = {
+        "schema": 1,
+        "expected_services": safe_services,
+        "required_local_images": safe_images,
+        "required_local_image_ids": safe_image_ids,
+    }
+    return (
+        json.dumps(settings, sort_keys=True, separators=(",", ":")),
+        json.dumps(config, sort_keys=True, separators=(",", ":")),
+    )
+
+
+def _eval_env_forward_keys() -> tuple[str, ...]:
+    keys = (
+        "NGC_CLI_API_KEY",
+        "NVIDIA_API_KEY",
+        "HF_TOKEN",
+        *_REMOTE_PLACEMENT_KEYS,
+        "WAREHOUSE_APP_DATA_NGC",
+        "WAREHOUSE_APP_DATA_DIR",
+        "PR_HEAD_SHA",
+        "PR_REPO",
+        "GITHUB_RUN_ID",
+    )
+    if _local_gpu_instance():
+        return tuple(key for key in keys if key not in _REMOTE_PLACEMENT_KEYS)
+    return keys
 
 # Keep every file-transfer API bounded below run_leg.py's recovery headroom.
 # Remote work gets 600 seconds. The public 630-second wall-clock bound also
@@ -137,7 +255,7 @@ class BrevEnvironment(BaseEnvironment):
         return False
 
     def _validate_definition(self) -> None:
-        if not _which("brev"):
+        if not _local_gpu_instance() and not _which("brev"):
             raise RuntimeError(
                 "brev CLI not found. Install from https://docs.brev.dev/"
             )
@@ -180,6 +298,17 @@ class BrevEnvironment(BaseEnvironment):
         }
 
         self._instance_name = self._resolve_instance_name()
+        local_instance = _local_gpu_instance()
+        if local_instance:
+            if (
+                self._instance_name
+                and not _is_local_gpu_instance(self._instance_name)
+            ):
+                raise RuntimeError(
+                    "BREV_INSTANCE does not match "
+                    "SKILL_EVAL_LOCAL_GPU_INSTANCE on this runner"
+                )
+            self._instance_name = local_instance
 
         if self._instance_name:
             # Mode 1: validate existing instance's GPU fits task requirements
@@ -190,6 +319,10 @@ class BrevEnvironment(BaseEnvironment):
                 raise RuntimeError(
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
+                )
+            if _is_local_gpu_instance(self._instance_name):
+                await _check_local_gpu_requirements(
+                    self._instance_name, requirements
                 )
             await _check_instance_matches(instance, requirements)
         else:
@@ -336,10 +469,17 @@ class BrevEnvironment(BaseEnvironment):
                 or claude_task_cleanup_result.stdout
                 or ""
             )[-500:]
-            raise RuntimeError(
-                f"claude task scratch cleanup failed on {self._instance_name}: "
-                f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
-            )
+            if os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip():
+                print(
+                    "claude task scratch cleanup failed on local GPU runner; "
+                    f"continuing so uvx/docker scratch is not blocked: {tail}",
+                    flush=True,
+                )
+            else:
+                raise RuntimeError(
+                    f"claude task scratch cleanup failed on {self._instance_name}: "
+                    f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
+                )
 
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
@@ -368,25 +508,7 @@ class BrevEnvironment(BaseEnvironment):
             # and its bridge-networked RT-VLM container can reach.
             ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
-        for key in (
-            "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
-            "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
-            "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
-            # Pin the eval's deploy step to the PR's actual head SHA on
-            # the actual source repo — the pre-deploy script reads these
-            # and resets $REPO to that SHA. Without them, the adapter's
-            # baked-in branch wins and warm-pool boxes drift from PR
-            # reality (NVBug 6154461 / PR #377 finding: spec asserted
-            # the renamed release/3.2.0 container names while the eval
-            # deployed feat/skills's old names).
-            "PR_HEAD_SHA", "PR_REPO",
-            # Identifies this CI run inside the trial environment for
-            # logs and any future per-run scratch dirs the agent may
-            # create. No longer load-bearing now that the harness
-            # doesn't pre-deploy profiles or maintain an active-deploy
-            # marker.
-            "GITHUB_RUN_ID",
-        ):
+        for key in _eval_env_forward_keys():
             val = os.environ.get(key)
             if val:
                 forwarded.append((key, val))
@@ -519,6 +641,9 @@ class BrevEnvironment(BaseEnvironment):
             await self._sync_repo_to_pr_head()
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
+        if local_instance:
+            await self._install_direct_agent_progress_hooks(meta)
+
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible
         # for invoking `/vss-deploy-profile` (or the appropriate
@@ -529,6 +654,62 @@ class BrevEnvironment(BaseEnvironment):
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _install_direct_agent_progress_hooks(self, metadata: dict) -> None:
+        """Install closed-schema Claude hooks on direct OpenShell runners."""
+        assert self._instance_name
+        required_images = metadata.get("required_local_images", [])
+        # Validate metadata before using any value in a subprocess argument.
+        _direct_agent_hook_documents(
+            metadata.get("expected_services", []),
+            required_images,
+        )
+        missing_images = []
+        required_image_ids = {}
+        for image in required_images:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    image,
+                    "--format",
+                    "{{.Id}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            image_id = result.stdout.strip().removeprefix("sha256:")
+            if result.returncode != 0 or not re.fullmatch(
+                r"[a-f0-9]{64}", image_id
+            ):
+                missing_images.append(image)
+            else:
+                required_image_ids[image] = image_id
+        if missing_images:
+            raise RuntimeError(
+                f"{len(missing_images)} required local image(s) missing"
+            )
+        settings, config = _direct_agent_hook_documents(
+            metadata.get("expected_services", []),
+            required_images,
+            required_image_ids,
+        )
+        agent_logs = Path("/logs/agent")
+        sessions = agent_logs / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        for stale_name in (
+            "direct-progress.jsonl",
+            "direct-progress-state.json",
+        ):
+            (agent_logs / stale_name).unlink(missing_ok=True)
+        (sessions / "settings.json").write_text(settings, encoding="utf-8")
+        (agent_logs / "direct-progress-config.json").write_text(
+            config, encoding="utf-8"
+        )
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
@@ -1202,8 +1383,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             # Make sure user-installed binaries (claude, uv, etc.) are on PATH
             # even though `brev exec` spawns a non-interactive non-login shell.
             'export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH";',
-            "source ~/.profile 2>/dev/null;",
         ]
+        if not _is_local_gpu_instance(self._instance_name):
+            parts.append("source ~/.profile 2>/dev/null;")
         # Ensure /logs/verifier is writable before the verifier exec —
         # Harbor's verifier phase redirects test-stdout.txt there, and the
         # directory can become root-owned between start() and verifier exec
@@ -1459,16 +1641,20 @@ def _claude_task_scratch_cleanup_command() -> str:
     `/tmp/claude-1002/-home-shadeform/<session>/tasks/<id>.output`. Removing
     the old `tasks/` dirs prevents completed background-command notifications
     from being replayed into the next Harbor trial.
+
+    Never touch uv/harbor caches, `$HOME/.local`, `/usr/local`, or a BASE
+    that is not exactly `/tmp/claude-<uid>`.
     """
     return (
         "UID_NUM=$(id -u); "
         'BASE="/tmp/claude-${UID_NUM}"; '
+        'case "$BASE" in '
+        '  /tmp/claude-[0-9]*) ;; '
+        '  *) echo "[claude-task-scratch] refusing to clean $BASE"; exit 0 ;; '
+        "esac; "
         'if [ -d "$BASE" ]; then '
         '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
-        # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must
-        # reach claude_task_cleanup_result.stderr so the RuntimeError tail isn't
-        # empty (the BEFORE/AFTER count-finds keep theirs — that noise is benign).
-        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || exit 1; '
+        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || true; '
         '  AFTER=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
         '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
         'else '
@@ -1750,6 +1936,41 @@ async def _run_scp(
     )
 
 
+async def _run_local_exec(
+    command: str,
+    timeout: int = BREV_EXEC_TIMEOUT,
+) -> ExecResult:
+    """Execute a Harbor environment command on this GPU runner."""
+    proc = await asyncio.create_subprocess_exec(
+        "bash",
+        "-c",
+        command,
+        cwd=str(Path.home()),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=b""),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        _kill_proc_group(proc)
+        stdout, stderr = await proc.communicate()
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="Command timed out",
+            return_code=124,
+        )
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
 async def _run_brev_exec(
     instance: str,
     command: str,
@@ -1764,6 +1985,8 @@ async def _run_brev_exec(
     a single command string.  Stdin is piped with empty input so the
     brev CLI doesn't enter interactive mode.
     """
+    if _is_local_gpu_instance(instance):
+        return await _run_local_exec(command, timeout)
     if await _is_registered_node(instance):
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
@@ -1840,6 +2063,25 @@ async def _run_brev_copy_once(
     For registered external nodes, transparently falls back to ``scp``
     using the ssh alias (same host:path convention, just with lowercase
     name)."""
+    local_instance = _local_gpu_instance()
+    if local_instance:
+        local_prefix = f"{local_instance}:"
+        src_is_runner = src.lower().startswith(local_prefix.lower())
+        dst_is_runner = dst.lower().startswith(local_prefix.lower())
+        if src_is_runner or dst_is_runner:
+            source = Path(src[len(local_prefix):] if src_is_runner else src)
+            target = Path(dst[len(local_prefix):] if dst_is_runner else dst)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                await asyncio.to_thread(shutil.copy2, source, target)
+            except OSError as exc:
+                return ExecResult(
+                    stdout=None,
+                    stderr=str(exc),
+                    return_code=1,
+                )
+            return ExecResult(stdout="", stderr=None, return_code=0)
+
     # Detect registered-node endpoint on either side: "<name>:<path>"
     for endpoint in (src, dst):
         if ":" not in endpoint:
@@ -2002,6 +2244,17 @@ async def _find_brev_instance(name: str) -> dict | None:
     Retries a few times — `brev ls` sometimes hits transient RPC
     deadline-exceeded errors and returns empty stdout.
     """
+    if _is_local_gpu_instance(name):
+        return {
+            "name": _local_gpu_instance(),
+            "type": "local-gpu-runner",
+            "gpu": "",
+            "instance_type": "local-gpu-runner",
+            "status": "RUNNING",
+            "_registered": True,
+            "_local_gpu_runner": True,
+        }
+
     for attempt in range(4):
         result = await _run_brev("ls", "--json", timeout=30)
         raw = result.stdout or ""
@@ -2070,6 +2323,23 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
     """SSH in and count GPUs via nvidia-smi. Raises only if the box has
     FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
+    identity = await _run_brev_exec(
+        instance_name,
+        "nvidia-smi -L",
+        timeout=30,
+    )
+    if identity.return_code == 0 and (identity.stdout or "").strip():
+        logger.info(
+            "Instance '%s' GPU identity (nvidia-smi -L):\n%s",
+            instance_name,
+            identity.stdout.strip(),
+        )
+    else:
+        logger.warning(
+            "nvidia-smi -L identity probe failed on '%s': %s",
+            instance_name,
+            (identity.stderr or identity.stdout or "")[-300:],
+        )
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
@@ -2106,6 +2376,85 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
     logger.info(
         "Instance '%s' live gpu_count: %d (satisfies required >= %d)",
         instance_name, actual, required_count,
+    )
+
+
+async def _check_local_gpu_requirements(instance_name: str, req: dict) -> None:
+    """Fail closed on the physical hardware of a direct GPU runner."""
+    required_count = int(req.get("gpu_count", 1) or 0)
+    if required_count == 0:
+        return
+
+    identity = await _run_local_exec("nvidia-smi -L", timeout=30)
+    if identity.return_code != 0 or not (identity.stdout or "").strip():
+        raise RuntimeError(
+            f"Local GPU runner '{instance_name}' failed nvidia-smi -L: "
+            f"{(identity.stderr or identity.stdout or '')[-300:]}"
+        )
+    logger.info(
+        "Local GPU runner '%s' identity (nvidia-smi -L):\n%s",
+        instance_name,
+        identity.stdout.strip(),
+    )
+
+    result = await _run_local_exec(
+        "nvidia-smi --query-gpu=name,memory.total "
+        "--format=csv,noheader,nounits",
+        timeout=30,
+    )
+    if result.return_code != 0 or not (result.stdout or "").strip():
+        raise RuntimeError(
+            f"Local GPU runner '{instance_name}' failed nvidia-smi: "
+            f"{(result.stderr or result.stdout or '')[-300:]}"
+        )
+
+    gpus: list[tuple[str, int]] = []
+    for line in result.stdout.splitlines():
+        name, separator, memory = line.rpartition(",")
+        if not separator:
+            continue
+        try:
+            memory_mib = int(memory.strip())
+        except ValueError:
+            continue
+        gpus.append((name.strip(), memory_mib))
+
+    required_type = (req.get("gpu_type") or "").upper()
+
+    def matches_type(name: str) -> bool:
+        if not required_type:
+            return True
+        want_tokens = set(required_type.replace("-", " ").split())
+        have_tokens = set(name.upper().replace("-", " ").split())
+        return want_tokens.issubset(have_tokens) or required_type in name.upper()
+
+    matching = [gpu for gpu in gpus if matches_type(gpu[0])]
+    if len(matching) < required_count:
+        names = ", ".join(name for name, _ in gpus) or "none"
+        raise RuntimeError(
+            f"Local GPU runner '{instance_name}' has {len(matching)} matching "
+            f"GPU(s), task requires {required_count} of {required_type or 'any'}; "
+            f"detected: {names}"
+        )
+
+    min_vram_gb = int(req.get("min_vram_gb_per_gpu", 0) or 0)
+    if min_vram_gb:
+        too_small = [
+            f"{name} ({memory_mib} MiB)"
+            for name, memory_mib in matching[:required_count]
+            if memory_mib < min_vram_gb * 1000
+        ]
+        if too_small:
+            raise RuntimeError(
+                f"Local GPU runner '{instance_name}' does not provide "
+                f"{min_vram_gb} GB per GPU: {', '.join(too_small)}"
+            )
+
+    logger.info(
+        "Local GPU runner '%s' satisfies gpu_type=%r, gpu_count>=%d",
+        instance_name,
+        required_type,
+        required_count,
     )
 
 

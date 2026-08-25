@@ -6,10 +6,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -17,22 +15,22 @@
   "description": "Alert verification as a first-class workflow (Workflow B): on a verification (CV) deploy with the ladder sample onboarded, the agent must (a) explain the RT-CV -> Behavior Analytics -> Alert Bridge -> VLM verification chain and all verdict values correctly without mutating anything, and (b) answer a 'what verdicts were recorded' ask from the mdx-vlm-alerts-* store via the interim Elasticsearch probe (the store has NO REST query endpoint), reporting grounded results or a grounded 'none yet'. Does NOT assert verdict contents (CV detection latency and pluggable/freestyle parser deploys make them non-deterministic).",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in verification (CV) mode (i.e. `/vss-deploy-profile -p alerts -m verification`) using remote LLM and remote VLM endpoints. Then onboard the ladder sample so the CV pipeline has PPE content to detect: obtain the `sample-warehouse-ladder.mp4` NGC sample video (one of the bundled sample videos — if it is not already in NVStreamer's streamer_videos, fetch it via the vss-manage-video-io-storage sample-data bootstrap), upload it through NVStreamer (port 31000) as a sensor named `sample-warehouse-ladder`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL — do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload — `sensorUrl` (the returned URL) and `name` (`sample-warehouse-ladder`); without the `name` key VST silently names the sensor `SENSOR`). In CV mode, registering the sensor in VIOS is the entire onboarding step — the CV pipeline auto-picks up the stream; do not look for a separate 'create alert' API. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `sample-warehouse-ladder` is listed — wait and retry for a few minutes if a service is still starting.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in verification (CV) mode (i.e. `/vss-deploy-profile -p alerts -m verification`) using remote LLM and remote VLM endpoints. Then onboard the ladder sample so the CV pipeline has PPE content to detect: obtain the `sample-warehouse-ladder.mp4` NGC sample video (one of the bundled sample videos \u2014 if it is not already in NVStreamer's streamer_videos, fetch it via the vss-manage-video-io-storage sample-data bootstrap), upload it through NVStreamer (port 31000) as a sensor named `sample-warehouse-ladder`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL \u2014 do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload \u2014 `sensorUrl` (the returned URL) and `name` (`sample-warehouse-ladder`); without the `name` key VST silently names the sensor `SENSOR`). In CV mode, registering the sensor in VIOS is the entire onboarding step \u2014 the CV pipeline auto-picks up the stream; do not look for a separate 'create alert' API. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `sample-warehouse-ladder` is listed \u2014 wait and retry for a few minutes if a service is still starting.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV perception / Grounding DINO — required and present in verification (CV) mode).",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (Behavior Analytics is the CV-only mode signal — its presence confirms the deployment is verification (CV), not VLM real-time).",
-        "`sh -c 'i=1; while [ \"$i\" -le 18 ]; do curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list 2>/dev/null | grep -qi sample-warehouse-ladder && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (sample-warehouse-ladder onboarded into VIOS; in CV mode this VIOS registration is the whole Workflow A onboarding — the CV pipeline auto-attaches; polls up to ~1.5 min to absorb fetch/upload/registration delay).",
-        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:9080/api/v1/verification/config 2>/dev/null | grep -qi ladder && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 returns HTTP 200 with a JSON list of alert-type verifier configs, including a ladder/PPE-related `alert_type` (the CV VLM-verifier prompt config that Workflow B / references/verification.md customizes) — confirms the CV verifier-config path is populated and queryable in verification mode. Polls up to ~1 minute, like the sibling readiness checks in this file: the verifier config is populated after the profile comes up, so a single unretried request races it."
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV perception / Grounding DINO \u2014 required and present in verification (CV) mode).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (Behavior Analytics is the CV-only mode signal \u2014 its presence confirms the deployment is verification (CV), not VLM real-time).",
+        "`sh -c 'i=1; while [ \"$i\" -le 18 ]; do curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list 2>/dev/null | grep -qi sample-warehouse-ladder && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (sample-warehouse-ladder onboarded into VIOS; in CV mode this VIOS registration is the whole Workflow A onboarding \u2014 the CV pipeline auto-attaches; polls up to ~1.5 min to absorb fetch/upload/registration delay).",
+        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:9080/api/v1/verification/config 2>/dev/null | grep -qi ladder && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 returns HTTP 200 with a JSON list of alert-type verifier configs, including a ladder/PPE-related `alert_type` (the CV VLM-verifier prompt config that Workflow B / references/verification.md customizes) \u2014 confirms the CV verifier-config path is populated and queryable in verification mode. Polls up to ~1 minute, like the sibling readiness checks in this file: the verifier config is populated after the profile comes up, so a single unretried request races it."
       ]
     },
     {
-      "query": "How does alert verification work in this deployment — what happens between a camera stream and a verified alert, and what do the different verdict values mean?",
+      "query": "How does alert verification work in this deployment \u2014 what happens between a camera stream and a verified alert, and what do the different verdict values mean?",
       "checks": [
-        "The agent's explanation covers the CV verification chain in order: RT-CV / Grounding DINO perception (vss-rtvi-cv) produces detections, Behavior Analytics (vss-behavior-analytics) turns them into candidate alerts, Alert Bridge invokes the VLM verifier with per-alert_type prompts, and the verified result lands in Elasticsearch (the `mdx-vlm-alerts-*` alert store). Component naming may vary slightly but the four stages and their order must be correct — an answer that describes the VLM real-time rule path (realtime subscriptions / rtvi-vlm triggers) as the verification chain is a failure.",
-        "The reply explains the verdict values with correct meanings: `confirmed` (VLM says the alert is real), `rejected` (false positive), `verification-failed` (VLM/API error — verification could not complete), and at least one of `not-confirmed` (VLM answer could not be parsed into confirmed/rejected) or the empty-verdict pluggable-parser case. Wrong meanings (e.g. calling `rejected` an error state, or `verification-failed` a false positive) are a failure.",
-        "This is an explain-only ask: the trajectory performs NO mutations — no POST/PUT/DELETE against `http://localhost:9080/api/v1/realtime*` or `/api/v1/verification/config*`, no `POST /generate`, and no redeploy/teardown attempt. Read-only peeks (GET on config, docker ps, ES searches) are acceptable."
+        "The agent's explanation covers the CV verification chain in order: RT-CV / Grounding DINO perception (vss-rtvi-cv) produces detections, Behavior Analytics (vss-behavior-analytics) turns them into candidate alerts, Alert Bridge invokes the VLM verifier with per-alert_type prompts, and the verified result lands in Elasticsearch (the `mdx-vlm-alerts-*` alert store). Component naming may vary slightly but the four stages and their order must be correct \u2014 an answer that describes the VLM real-time rule path (realtime subscriptions / rtvi-vlm triggers) as the verification chain is a failure.",
+        "The reply explains the verdict values with correct meanings: `confirmed` (VLM says the alert is real), `rejected` (false positive), `verification-failed` (VLM/API error \u2014 verification could not complete), and at least one of `not-confirmed` (VLM answer could not be parsed into confirmed/rejected) or the empty-verdict pluggable-parser case. Wrong meanings (e.g. calling `rejected` an error state, or `verification-failed` a false positive) are a failure.",
+        "This is an explain-only ask: the trajectory performs NO mutations \u2014 no POST/PUT/DELETE against `http://localhost:9080/api/v1/realtime*` or `/api/v1/verification/config*`, no `POST /generate`, and no redeploy/teardown attempt. Read-only peeks (GET on config, docker ps, ES searches) are acceptable."
       ]
     },
     {
@@ -40,8 +38,18 @@
       "checks": [
         "The agent sources its ANSWER from the CV verification store: the trajectory queries Elasticsearch `mdx-vlm-alerts-*` (e.g. `http://localhost:9200/mdx-vlm-alerts-*/_search`, any query-body variant) and the final reply reflects what that search returned. Answering the verdict question from the realtime rules list (`GET /api/v1/realtime`), from `/incidents` alone, or from memory/fabrication is a failure; an incidental read-only peek at those endpoints is tolerable.",
         "`curl -sf --max-time 15 'http://localhost:9200/mdx-vlm-alerts-*/_search?size=5'` returns HTTP 200 with a well-formed Elasticsearch search response (deterministic data-plane probe; zero hits and populated hits are both valid states).",
-        "The final reply is grounded in the search result it actually received: if documents exist it reports their verdict values (and may cite `verificationResponseCode`/`reasoning` from the `info` block — camelCase or snake_case accepted); if the search returned zero hits it clearly states that no verification results have been recorded yet (optionally explaining CV detection latency) and STOPS — it does not fabricate verdicts, does not present subscription rules or incident-store results as verdicts, and does not claim the store is unreachable when the probe succeeded."
+        "The final reply is grounded in the search result it actually received: if documents exist it reports their verdict values (and may cite `verificationResponseCode`/`reasoning` from the `info` block \u2014 camelCase or snake_case accepted); if the search returned zero hits it clearly states that no verification results have been recorded yet (optionally explaining CV detection latency) and STOPS \u2014 it does not fabricate verdicts, does not present subscription rules or incident-store results as verdicts, and does not claim the store is unreachable when the probe succeeded."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

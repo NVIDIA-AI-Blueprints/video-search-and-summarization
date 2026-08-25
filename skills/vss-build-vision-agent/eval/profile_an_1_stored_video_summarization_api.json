@@ -28,5 +28,15 @@
         "No upstream Compose or config file under `{{repo_root}}/deploy/docker/` is modified by generation (`git diff --quiet HEAD -- deploy/docker/` returns exit 0)."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }
