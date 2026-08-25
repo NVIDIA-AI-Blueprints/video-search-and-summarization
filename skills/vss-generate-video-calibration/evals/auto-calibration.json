@@ -4,10 +4,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
-        "gpu_count": 1
-      },
-      "H200": {
+      "A40": {
         "gpu_count": 1
       }
     }
@@ -64,5 +61,15 @@
         "The plan preserves the ordered RTSP stream list, captures clips before ingesting them, uploads/verifies alignment and layout assets, verifies project_state == READY, starts calibration, polls until COMPLETED, and preserves AMC error output on failure."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

@@ -4,8 +4,8 @@
   ],
   "resources": {
     "platforms": {
-      "ANY": {
-        "gpu_count": 0
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -26,5 +26,15 @@
         "`curl -sf --max-time 15 http://localhost:8081/livez` returns exit 0 (API is live on the default port)"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": true,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

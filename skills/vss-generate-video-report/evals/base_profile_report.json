@@ -6,21 +6,18 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
-        "gpu_count": 1
-      },
-      "H200": {
+      "A40": {
         "gpu_count": 1
       }
     }
   },
   "expects": [
     {
-      "query": "Deploy the necessary prerequisites for report generation on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** Need a **locally deployed** CR3 VLM NIM (nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner on localhost:30082 or RT-VLM on localhost:8018; VLM_MODE=local or local_shared — do NOT use remote VLM) and the full VIOS stack reachable at http://localhost:30888/vst/api/v1 so `/vss-generate-video-report` can upload clips and call the VLM.",
+      "query": "Deploy the necessary prerequisites for report generation on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** Need a **locally deployed** CR3 VLM NIM (nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner on localhost:30082 or RT-VLM on localhost:8018; VLM_MODE=local or local_shared \u2014 do NOT use remote VLM) and the full VIOS stack reachable at http://localhost:30888/vst/api/v1 so `/vss-generate-video-report` can upload clips and call the VLM.",
       "checks": [
         "A local CR3 VLM is ready: `curl -sf --max-time 10` to either http://localhost:30082/v1/models or http://localhost:8018/v1/models returns HTTP 200 with at least one `.data[].id` containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check",
         "`curl -sf --max-time 10` against http://localhost:30888/vst/api/v1/sensor/version (or an equivalent VST health/version endpoint) succeeds",
-        "The VIOS stack is up — containers for VST ingress, sensor, stream processing, and postgres are running (exact container names may vary)"
+        "The VIOS stack is up \u2014 containers for VST ingress, sensor, stream processing, and postgres are running (exact container names may vary)"
       ]
     },
     {
@@ -35,14 +32,14 @@
       "query": "Verify the VSS stack is ready for the **vss-generate-video-report** skill. Confirm VST is reachable with at least one stream registered, the local CR3 VLM is ready, and a short clip can be materialized for warehouse_safety_0001 (a VIOS sensor / uploaded video, not an alert or incident).",
       "checks": [
         "VST reports at least one registered stream",
-        "Mode A clip readiness only: warehouse_safety_0001 is a VIOS sensor/uploaded video, NOT an alert or incident — do not require alert/incident lookup. Pass if the run resolved that sensor AND obtained a non-empty playable clip by ANY of: (a) `vss vios clip --sensor <name>` returning a non-empty `media_url` (the route this skill uses; the command resolves the sensor, reads the recorded range and warms the render in one call); (b) GET /vst/api/v1/storage/file/<streamId>/url with a non-empty JSON videoUrl; (c) GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=... returning HTTP 200 with a non-empty body; (d) HTTP 200 GET of a non-empty MP4 from a VST path such as /vst/storage/temp_files/*.mp4. Do NOT fail solely because the literal field name videoUrl is absent from the trajectory",
-        "A local CR3 VLM is ready on localhost:30082 (NIM) or localhost:8018 (RT-VLM) — whichever the deployment serves, `/v1/models` returns HTTP 200 with an id containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check"
+        "Mode A clip readiness only: warehouse_safety_0001 is a VIOS sensor/uploaded video, NOT an alert or incident \u2014 do not require alert/incident lookup. Pass if the run resolved that sensor AND obtained a non-empty playable clip by ANY of: (a) `vss vios clip --sensor <name>` returning a non-empty `media_url` (the route this skill uses; the command resolves the sensor, reads the recorded range and warms the render in one call); (b) GET /vst/api/v1/storage/file/<streamId>/url with a non-empty JSON videoUrl; (c) GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=... returning HTTP 200 with a non-empty body; (d) HTTP 200 GET of a non-empty MP4 from a VST path such as /vst/storage/temp_files/*.mp4. Do NOT fail solely because the literal field name videoUrl is absent from the trajectory",
+        "A local CR3 VLM is ready on localhost:30082 (NIM) or localhost:8018 (RT-VLM) \u2014 whichever the deployment serves, `/v1/models` returns HTTP 200 with an id containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check"
       ]
     },
     {
       "query": "Give me a report for warehouse_safety_0001.",
       "checks": [
-        "Mode A clip source only (warehouse_safety_0001 is a sensor/video, not an alert): the run used a VST clip for that sensor — GET /storage/file/<streamId>/url, binary GET /storage/file/<streamId>, or an HTTP MP4 from /vst/storage/temp_files/ — rather than posting to http://localhost:8000/generate. Do not require the literal JSON field name videoUrl",
+        "Mode A clip source only (warehouse_safety_0001 is a sensor/video, not an alert): the run used a VST clip for that sensor \u2014 GET /storage/file/<streamId>/url, binary GET /storage/file/<streamId>, or an HTTP MP4 from /vst/storage/temp_files/ \u2014 rather than posting to http://localhost:8000/generate. Do not require the literal JSON field name videoUrl",
         "The run called a local CR3 VLM `/v1/chat/completions` endpoint (localhost:30082 or localhost:8018) with a cosmos3-nano-reasoner or cosmos3-super-reasoner model and received HTTP 2xx",
         "The run generated a user-facing video analysis report for warehouse_safety_0001",
         "The report content is grounded in the warehouse_safety_0001 clip: it describes a warehouse/industrial scene with at least one person/worker, and mentions concrete details related to a ladder and shelving units."
@@ -61,7 +58,7 @@
       "checks": [
         "Elasticsearch is reachable on localhost:9200",
         "The run inserted an incident document into mdx-vlm-incidents (not only mdx-incidents), including a confirmed verdict",
-        "video_analytics__get_incidents (or equivalent VA-MCP lookup) returned the inserted incident — success was not claimed from the Elasticsearch insert alone",
+        "video_analytics__get_incidents (or equivalent VA-MCP lookup) returned the inserted incident \u2014 success was not claimed from the Elasticsearch insert alone",
         "The run did NOT redeploy the alerts profile for this step"
       ]
     },
@@ -72,5 +69,15 @@
         "If no incidents were found, the agent says so clearly and does not fabricate a report"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

@@ -5,7 +5,7 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
+      "A40": {
         "gpu_count": 1
       }
     }
@@ -24,7 +24,7 @@
     {
       "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading.",
       "checks": [
-        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload — for example `vss vios list --type video`, the agent tools, or equivalent REST such as curl /vst/api/v1/sensor/list — not an unconditional upload.",
+        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload \u2014 for example `vss vios list --type video`, the agent tools, or equivalent REST such as curl /vst/api/v1/sensor/list \u2014 not an unconditional upload.",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
       ]
@@ -47,7 +47,7 @@
       ]
     },
     {
-      "query": "At what timestamp did the worker climb up the ladder in warehouse_safety_0001? Answer from the clip recorded on that VIOS sensor — not from a local copy of the file and not from any pre-extracted frames left on this host.",
+      "query": "At what timestamp did the worker climb up the ladder in warehouse_safety_0001? Answer from the clip recorded on that VIOS sensor \u2014 not from a local copy of the file and not from any pre-extracted frames left on this host.",
       "checks": [
         "The run obtained the clip URL through `vss vios clip --sensor <name>` and used its `media_url`. The command resolves the sensor by name, reads the recorded range and mints the URL in one call, so the mandatory startTime/endTime cannot be dropped or invented. A hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check: its bounds are mandatory and the only source for them is a separate /storage/timelines read, which is the step this skill exists to remove.",
         "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint with a video_url block referencing that clip URL and the user's question as a text block; HTTP 2xx.",
@@ -55,5 +55,15 @@
         "The final assistant reply answers the question in plain text or light markdown and includes a timestamp, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

@@ -6,10 +6,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -17,7 +15,7 @@
   "description": "Phrasing diversity test for alert rule creation (references/alert-subscriptions.md). Each entry uses a different sentence structure to request 'create a realtime alert rule'. Checks verify correct extraction of sensor_name, prompt (verbatim), and alert_type (snake_case tag), plus correct payload structure.",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have cameras to target, onboard two sensors into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) twice \u2014 once as a sensor named `warehouse_sample` and once as a sensor named `Camera_02` \u2014 then register each in VIOS (port 30888) using the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for each served URL — do NOT hand-construct a host:port URL, and include BOTH keys in each `/sensor/add` payload — `sensorUrl` (the returned URL) and `name` (`warehouse_sample` / `Camera_02` respectively); without the `name` key VST silently names the sensor `SENSOR`). Confirm both sensors appear in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the system is fully ready: poll until BOTH the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and BOTH `warehouse_sample` and `Camera_02` are listed \u2014 wait and retry for a few minutes if a service is still starting.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have cameras to target, onboard two sensors into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) twice \u2014 once as a sensor named `warehouse_sample` and once as a sensor named `Camera_02` \u2014 then register each in VIOS (port 30888) using the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for each served URL \u2014 do NOT hand-construct a host:port URL, and include BOTH keys in each `/sensor/add` payload \u2014 `sensorUrl` (the returned URL) and `name` (`warehouse_sample` / `Camera_02` respectively); without the `name` key VST silently names the sensor `SENSOR`). Confirm both sensors appear in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the system is fully ready: poll until BOTH the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and BOTH `warehouse_sample` and `Camera_02` are listed \u2014 wait and retry for a few minutes if a service is still starting.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
@@ -70,9 +68,19 @@
         "The response contains at least 2 rules (from the previous create entries).",
         "The listed rules span BOTH sensors (`warehouse_sample` and `Camera_02`) \u2014 confirming that sensor extraction was correct across the two phrasings.",
         "The two rules created in this run are present with condition-specific snake_case `alert_type` tags \u2014 a `warehouse_sample` rule whose tag relates to fallen boxes (e.g. `fallen_boxes` / `box_drop`) and a `Camera_02` rule whose tag relates to smoke (e.g. `smoke_detection`) \u2014 i.e. tags derived from the detection condition, not generic (`alert`) or sensor-derived. (Leftover/pre-existing rules from other runs may also appear on the shared backend; this check concerns the rules this run created, not global uniqueness across all listed rules.)",
-        "The agent's output presents each rule with a human-readable sensor name (taken from the rule record's `sensor_name` or resolved via VIOS — either mechanism is fine) and does not dump raw RTSP / `live_stream_url` values.",
+        "The agent's output presents each rule with a human-readable sensor name (taken from the rule record's `sensor_name` or resolved via VIOS \u2014 either mechanism is fine) and does not dump raw RTSP / `live_stream_url` values.",
         "The agent renders a readable table or list \u2014 not raw JSON."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

@@ -4,8 +4,8 @@
   ],
   "resources": {
     "platforms": {
-      "ANY": {
-        "gpu_count": 0
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -19,5 +19,15 @@
         "`docker inspect behavior-analytics-vss-behavior-analytics-base-1 --format '{{.HostConfig.RestartPolicy.Name}}' | grep -qx always` returns exit 0 (restart policy preserved from the compose file)"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

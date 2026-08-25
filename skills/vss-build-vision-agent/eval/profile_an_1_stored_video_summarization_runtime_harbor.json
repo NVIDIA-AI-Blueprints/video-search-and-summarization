@@ -8,12 +8,7 @@
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
-        "gpu_count": 2,
-        "modes": [
-          "harbor",
-          "runtime",
-          "shared"
-        ]
+        "gpu_count": 2
       }
     }
   },
@@ -52,5 +47,15 @@
         "No upstream compose or config file under `{{repo_root}}/deploy/docker/` was modified by runtime validation; no file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }

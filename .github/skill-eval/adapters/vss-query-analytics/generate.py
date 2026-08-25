@@ -67,7 +67,22 @@ PLATFORMS: dict[str, dict] = {
     "H100":         {"short_name": "h100",         "gpu_type": "H100",         "min_vram_per_gpu": 80, "brev_search": "H100"},
     "L40S":         {"short_name": "l40s",         "gpu_type": "L40S",         "min_vram_per_gpu": 48, "brev_search": "L40S"},
     "RTXPRO6000BW": {"short_name": "rtxpro6000bw", "gpu_type": "RTX PRO 6000", "min_vram_per_gpu": 96, "brev_search": "RTX PRO"},
-    "H200": {"short_name": "h200", "gpu_type": "H200", "min_vram_per_gpu": 141, "brev_search": "H200"},
+    "A16": {
+        "short_name": "a16",
+        "gpu_type": "NVIDIA A16",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 16,
+        "brev_search": "A16",
+        "min_root_disk_gb": 220,
+    },
+    "A40": {
+        "short_name": "a40",
+        "gpu_type": "NVIDIA A40",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 48,
+        "brev_search": "A40",
+        "min_root_disk_gb": 220,
+    },
     "DGX-SPARK":    {"short_name": "spark",        "gpu_type": "GB10",         "min_vram_per_gpu": 96, "brev_search": "GB10"},
     "IGX-THOR":     {"short_name": "thor",         "gpu_type": "Thor",         "min_vram_per_gpu": 64, "brev_search": "Thor"},
 }

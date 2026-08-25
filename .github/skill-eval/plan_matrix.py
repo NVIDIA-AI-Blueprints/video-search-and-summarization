@@ -47,6 +47,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 # .github/skill-eval/plan_matrix.py -> parents[2] = repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -141,14 +142,9 @@ EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
 # processes, which are not the machines the trials run on.
 BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 
-# Dedicated 10.86.16.223 OpenShell RTX PRO 6000 cohort. GitHub still
-# attaches `self-hosted` to the runner; workflows must not route on that
-# label alone. `openshell-rtxpro6000-active` is the activation label:
-# register without it (or keep the listener down) until a one-VM canary
-# passes. Set OPENSHELL_GPU_FLEET=1 to route one-GPU work to
-# OPENSHELL_H200_LABELS (10.86.14.74, 8×1), two-GPU work to these
-# RTXPRO6000BW labels, and skip every other GPU SKU. Do not put RTX labels
-# on H200 boxes.
+# OpenShell cohorts. GitHub still attaches `self-hosted` to each runner;
+# workflows must also require the cohort's dedicated active label. Register
+# replacements without that label (or keep listeners down) until canaries pass.
 #
 # Post-job destroy/recreate is host-side: the OpenShell VM orchestrator
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
@@ -160,16 +156,25 @@ OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "gpu-rtxpro6000bw",
     "openshell-rtxpro6000-active",
 )
-# 10.86.14.74 OpenShell H200 NVL cohort (8 VMs × 1 GPU). Separate active
-# label (do not put RTX labels on H200 boxes). 1-GPU OpenShell work is
-# scheduled on 74 (not also on 223).
-# 2-GPU specs stay on 223 (gpus-2); never advertise gpus-2 on this packing.
-OPENSHELL_H200_LABELS: tuple[str, ...] = (
+OPENSHELL_A16_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     "openshell",
-    "h200",
-    "gpu-h200",
-    "openshell-h200-active",
+    "a16",
+    "gpu-a16",
+    "gpu-nvidia-a16",
+    "vram-16gb",
+    "video-codec",
+    "openshell-a16-active",
+)
+OPENSHELL_A40_LABELS: tuple[str, ...] = (
+    "vss-skill-eval-gpu",
+    "openshell",
+    "a40",
+    "gpu-a40",
+    "gpu-nvidia-a40",
+    "vram-48gb",
+    "video-codec",
+    "openshell-a40-active",
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
@@ -181,11 +186,49 @@ PLATFORM_LABELS: dict[str, str | None] = {
     "H100": "gpu-h100",
     "L40S": "gpu-l40s",
     "RTXPRO6000BW": "gpu-rtxpro6000bw",
-    "H200": "gpu-h200",
+    "A16": "gpu-a16",
+    "A40": "gpu-a40",
     "DGX-SPARK": "gpu-dgx-spark",
     "IGX-THOR": "gpu-igx-thor",
     "ANY": None,
 }
+
+
+class OpenShellCohort(NamedTuple):
+    name: str
+    platform: str
+    hardware_profile: str
+    gpu_count: int
+    vram_gb_per_gpu: int
+    capacity: int
+    labels: tuple[str, ...]
+    video_codec: bool = True
+    blackwell: bool = False
+
+
+# Order is the placement preference: use the smallest explicitly-supported
+# cohort that satisfies every per-GPU capability. Capacity is runner capacity,
+# not GPU count: 8 A16 VMs, 2 one-GPU A40 VMs, 3 two-GPU A40 VMs, and 4
+# two-GPU RTX PRO 6000 VMs.
+OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
+    OpenShellCohort(
+        "a16-1g", "A16", "A16", 1, 16, 8,
+        (*OPENSHELL_A16_LABELS, "gpus-1"),
+    ),
+    OpenShellCohort(
+        "a40-1g", "A40", "A40", 1, 48, 2,
+        (*OPENSHELL_A40_LABELS, "gpus-1"),
+    ),
+    OpenShellCohort(
+        "a40-2g", "A40", "A40", 2, 48, 3,
+        (*OPENSHELL_A40_LABELS, "gpus-2"),
+    ),
+    OpenShellCohort(
+        "rtxpro6000-2g", "RTXPRO6000BW", "RTXPRO6000BW", 2, 96, 4,
+        (*OPENSHELL_RTXPRO6000_LABELS, "gpus-2"),
+        blackwell=True,
+    ),
+)
 
 # run_leg.pool_candidates reads `int(metadata.get("gpu_count", 1) or 0)`:
 # an ABSENT declaration means one GPU, while an explicit 0/null means
@@ -214,12 +257,9 @@ def _platform_label(platform: str) -> str | None:
 def hardware_profile_for(platform: str) -> str:
     """NIM `hw-<SKU>.env` name for a matrix platform.
 
-    H200 boxes have no `hw-H200.env`. Use the H100 sizing / SKU (operator
-    ruling). Runner routing stays on H200 labels; only the compose profile
-    is remapped. 2-GPU Blackwell work never reaches this path.
+    Hardware profiles are identities, not nearest-neighbour substitutions.
+    Availability is checked separately before a replacement cohort is emitted.
     """
-    if platform == "H200":
-        return "H100"
     return platform
 
 
@@ -252,22 +292,18 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
     """
     count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
     if os.environ.get("OPENSHELL_GPU_FLEET"):
-        # RTXPRO6000BW — including gpu_count: 0 routing/calibration-chain —
-        # must land on the OpenShell cohort. Never ubuntu-24.04: that runner
-        # has no ~/.eval_env and no GPU, so the job fails env-load instead of
-        # running or skipping honestly.
         if platform == "RTXPRO6000BW":
             labels = list(OPENSHELL_RTXPRO6000_LABELS)
-            labels.append(f"gpus-{count}" if count > 0 else "gpus-1")
+            labels.append("gpus-2" if count >= 2 else "gpus-1")
             return labels
-        if platform == "H200":
-            # 74 is packed 8×1. A gpus-2 demand would queue forever on
-            # runners that only carry gpus-1. 2-GPU work stays on 223.
-            if count >= 2:
+        if platform == "A16":
+            if count != 1:
                 return list(SKIP_RUNNER)
-            labels = list(OPENSHELL_H200_LABELS)
-            labels.append("gpus-1")
-            return labels
+            return [*OPENSHELL_A16_LABELS, "gpus-1"]
+        if platform == "A40":
+            if count not in (1, 2):
+                return list(SKIP_RUNNER)
+            return [*OPENSHELL_A40_LABELS, f"gpus-{count}"]
         return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
     if count <= 0:
@@ -398,18 +434,118 @@ def spec_platform_config(spec_path: str) -> dict[str, dict]:
     }
 
 
-def spec_requires_video_codec(spec_path: str) -> bool:
-    """Whether a spec requires hardware video codec capability.
+def openshell_requirements(spec_path: str) -> tuple[dict | None, str | None]:
+    """Return validated per-spec OpenShell requirements or a blocker.
 
-    H200/H100 are valid one-GPU destinations for compute-only profiles, but
-    they do not provide the NVDEC/NVENC path required by LVS media processing.
-    Keep this as explicit spec data instead of growing SKU-specific stem lists.
+    Every field is mandatory so a new or stale spec cannot inherit a guessed
+    placement. VRAM is per GPU; it is never multiplied into an aggregate
+    address space. Two-GPU demand additionally requires an explicit
+    ``multi_gpu_capable`` declaration.
     """
     try:
         data = json.loads((REPO_ROOT / spec_path).read_text())
-    except (OSError, ValueError):
-        return False
-    return isinstance(data, dict) and data.get("requires_video_codec") is True
+    except (OSError, ValueError) as exc:
+        return None, f"unreadable spec metadata: {exc}"
+    if not isinstance(data, dict):
+        return None, "spec root is not an object"
+    req = data.get("openshell")
+    if not isinstance(req, dict):
+        return None, "missing openshell capability metadata"
+    required = {
+        "gpu_count",
+        "min_vram_gb_per_gpu",
+        "requires_video_codec",
+        "multi_gpu_capable",
+        "requires_blackwell",
+        "supported_hardware_profiles",
+    }
+    missing = sorted(required - set(req))
+    if missing:
+        return None, "stale openshell metadata; missing " + ", ".join(missing)
+    gpu_count = req.get("gpu_count")
+    min_vram = req.get("min_vram_gb_per_gpu")
+    profiles = req.get("supported_hardware_profiles")
+    if isinstance(gpu_count, bool) or gpu_count not in (1, 2):
+        return None, "openshell.gpu_count must be 1 or 2"
+    if isinstance(min_vram, bool) or not isinstance(min_vram, int) or min_vram <= 0:
+        return None, "openshell.min_vram_gb_per_gpu must be a positive integer"
+    for key in ("requires_video_codec", "multi_gpu_capable", "requires_blackwell"):
+        if not isinstance(req.get(key), bool):
+            return None, f"openshell.{key} must be boolean"
+    if gpu_count == 2 and req["multi_gpu_capable"] is not True:
+        return None, "two-GPU demand requires multi_gpu_capable=true"
+    if not isinstance(profiles, list) or not profiles or not all(
+        isinstance(value, str) and value for value in profiles
+    ):
+        return None, "openshell.supported_hardware_profiles must be non-empty strings"
+    known = {cohort.hardware_profile for cohort in OPENSHELL_COHORTS}
+    unknown = sorted(set(profiles) - known)
+    if unknown:
+        return None, "unsupported hardware profile metadata: " + ", ".join(unknown)
+    platforms = (data.get("resources") or {}).get("platforms")
+    if not isinstance(platforms, dict) or set(platforms) != set(profiles):
+        return None, (
+            "stale resources.platforms; keys must exactly match "
+            "openshell.supported_hardware_profiles"
+        )
+    for profile in profiles:
+        config = platforms.get(profile)
+        if not isinstance(config, dict) or _gpu_count(config) != gpu_count:
+            return None, (
+                f"stale resources.platforms.{profile}.gpu_count; "
+                f"expected {gpu_count}"
+            )
+    return req, None
+
+
+def hardware_profile_files(profile: str) -> list[Path]:
+    """Exact checked-in NIM profile files; similarly-sized SKUs do not count."""
+    root = REPO_ROOT / "deploy" / "docker" / "services" / "nim"
+    return sorted(
+        path
+        for path in root.glob(f"*/hw-{profile}*.env")
+        if path.is_file() and path.stat().st_size > 0
+    )
+
+
+def select_openshell_cohort(
+    requirements: dict,
+) -> tuple[OpenShellCohort | None, str | None]:
+    """Pick one demand-appropriate cohort, or explain why none is safe."""
+    supported = set(requirements["supported_hardware_profiles"])
+    profile_missing: list[str] = []
+    for cohort in OPENSHELL_COHORTS:
+        if cohort.hardware_profile not in supported:
+            continue
+        demand = requirements["gpu_count"]
+        # A two-GPU VM may run a one-GPU large/Blackwell workload, but two
+        # 48 GB GPUs never satisfy a >48 GB-per-GPU requirement.
+        if demand > cohort.gpu_count:
+            continue
+        if requirements["min_vram_gb_per_gpu"] > cohort.vram_gb_per_gpu:
+            continue
+        if requirements["requires_video_codec"] and not cohort.video_codec:
+            continue
+        if requirements["requires_blackwell"] and not cohort.blackwell:
+            continue
+        if demand == 2 and not requirements["multi_gpu_capable"]:
+            continue
+        if not hardware_profile_files(cohort.hardware_profile):
+            profile_missing.append(cohort.hardware_profile)
+            continue
+        return cohort, None
+    if profile_missing:
+        profiles = ", ".join(sorted(set(profile_missing)))
+        return None, (
+            f"exact hardware profile prerequisite missing: {profiles}; "
+            "no profile substitution is permitted"
+        )
+    return None, "no compatible OpenShell cohort for declared capabilities"
+
+
+def spec_requires_video_codec(spec_path: str) -> bool:
+    requirements, _ = openshell_requirements(spec_path)
+    return bool(requirements and requirements["requires_video_codec"])
 
 
 def spec_platforms(spec_path: str) -> list[str]:
@@ -476,6 +612,22 @@ def build_matrix(changed: list[str]) -> list[dict]:
         by_skill.setdefault(meta["skill"], []).append(meta)
 
     include: list[dict] = []
+
+    def append_blocked(meta: dict, reason: str) -> None:
+        include.append({
+            "skill": meta["skill"],
+            "spec_path": meta["spec_path"],
+            "spec_stem": meta["spec_stem"],
+            "platform": "",
+            "hardware_profile": "",
+            "cohort": "blocked",
+            "kind": "not_run_infra_acquisition",
+            "skip_reason": f"BLOCKED_NO_COMPATIBLE_COHORT: {reason}",
+            "slug": f"{meta['skill']}__{meta['spec_stem']}__blocked",
+            "name": f"{meta['skill']} · {meta['spec_stem']} · BLOCKED",
+            "runs_on": list(SKIP_RUNNER),
+        })
+
     for skill in sorted(by_skill):
         if not adapter_exists(skill):
             # One leg commits the single adapter for the whole skill.
@@ -499,38 +651,43 @@ def build_matrix(changed: list[str]) -> list[dict]:
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
             platform_config = spec_platform_config(meta["spec_path"])
-            requires_video_codec = spec_requires_video_codec(meta["spec_path"])
-            platforms = sorted(platform_config) or [""]
             if os.environ.get("OPENSHELL_GPU_FLEET"):
-                platforms = [p for p in platforms if p in ("RTXPRO6000BW", "H200")]
-            emitted_h200 = False
-            rtx_one_gpu = False
+                requirements, metadata_error = openshell_requirements(
+                    meta["spec_path"]
+                )
+                if metadata_error or requirements is None:
+                    append_blocked(meta, metadata_error or "invalid metadata")
+                    continue
+                cohort, cohort_error = select_openshell_cohort(requirements)
+                if cohort_error or cohort is None:
+                    append_blocked(meta, cohort_error or "no compatible cohort")
+                    continue
+                include.append({
+                    "skill": skill,
+                    "spec_path": meta["spec_path"],
+                    "spec_stem": meta["spec_stem"],
+                    "eval_dir": meta["eval_dir"],
+                    "platform": cohort.platform,
+                    "hardware_profile": cohort.hardware_profile,
+                    "cohort": cohort.name,
+                    "kind": "eval",
+                    "slug": (
+                        f"{skill}__{meta['spec_stem']}__{cohort.name}"
+                    ),
+                    "name": (
+                        f"{skill} · {meta['spec_stem']} · {cohort.name}"
+                    ),
+                    "runs_on": list(cohort.labels),
+                    "gpu_count": requirements["gpu_count"],
+                    "min_vram_gb_per_gpu": (
+                        requirements["min_vram_gb_per_gpu"]
+                    ),
+                })
+                continue
+
+            platforms = sorted(platform_config) or [""]
             for platform in platforms:
                 plat_cfg = platform_config.get(platform)
-                if (
-                    os.environ.get("OPENSHELL_GPU_FLEET")
-                    and platform == "H200"
-                    and (
-                        _gpu_count(plat_cfg or {}) >= 2
-                        or requires_video_codec
-                    )
-                ):
-                    # Do not emit unsupported H200 legs. Two-GPU specs run on
-                    # RTX 223 when declared; codec-dependent one-GPU specs stay
-                    # on RTX because H200/H100 have no NVDEC/NVENC.
-                    continue
-                if (
-                    os.environ.get("OPENSHELL_GPU_FLEET")
-                    and platform == "RTXPRO6000BW"
-                    and _gpu_count(plat_cfg or {}) < 2
-                    and not requires_video_codec
-                ):
-                    # 1-GPU (and gpu_count:0 → gpus-1) is H200 instead of
-                    # Blackwell — do not also emit an RTX leg (doubles hours).
-                    rtx_one_gpu = True
-                    continue
-                if platform == "H200":
-                    emitted_h200 = True
                 plat_tag = platform or "no-platform"
                 labels = runs_on_labels(platform, plat_cfg)
                 include.append({
@@ -545,26 +702,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
                     "runs_on": labels,
                 })
-            if (
-                os.environ.get("OPENSHELL_GPU_FLEET")
-                and rtx_one_gpu
-                and not emitted_h200
-            ):
-                include.append({
-                    "skill": skill,
-                    "spec_path": meta["spec_path"],
-                    "spec_stem": meta["spec_stem"],
-                    "eval_dir": meta["eval_dir"],
-                    "platform": "H200",
-                    "hardware_profile": hardware_profile_for("H200"),
-                    "kind": "eval",
-                    "slug": f"{skill}__{meta['spec_stem']}__H200",
-                    "name": f"{skill} · {meta['spec_stem']} · H200",
-                    "runs_on": [*OPENSHELL_H200_LABELS, "gpus-1"],
-                })
-    if os.environ.get("OPENSHELL_GPU_FLEET") and not any(
-        leg.get("kind") == "eval" for leg in include
-    ):
+    if os.environ.get("OPENSHELL_GPU_FLEET") and not include:
         # Harness-only diffs (no skills/ files) still need a GPU canary.
         # If the input named a skill and every RTXPRO6000BW leg was
         # filtered out, do not substitute vss-deploy-profile/base — that
@@ -596,19 +734,43 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "runs_on": list(SKIP_RUNNER),
                 })
         else:
-            include.append({
+            smoke_meta = {
                 "skill": "vss-deploy-profile",
                 "spec_path": SMOKE_SPEC,
                 "spec_stem": "base",
                 "eval_dir": "evals",
-                "platform": "H200",
-                "hardware_profile": hardware_profile_for("H200"),
-                "kind": "eval",
-                "skip_reason": "",
-                "slug": "vss-deploy-profile__base__H200",
-                "name": "vss-deploy-profile · base · H200",
-                "runs_on": [*OPENSHELL_H200_LABELS, "gpus-1"],
-            })
+            }
+            requirements, metadata_error = openshell_requirements(SMOKE_SPEC)
+            if metadata_error or requirements is None:
+                append_blocked(smoke_meta, metadata_error or "invalid metadata")
+            else:
+                cohort, cohort_error = select_openshell_cohort(requirements)
+                if cohort_error or cohort is None:
+                    append_blocked(
+                        smoke_meta, cohort_error or "no compatible cohort"
+                    )
+                else:
+                    include.append({
+                        **smoke_meta,
+                        "platform": cohort.platform,
+                        "hardware_profile": cohort.hardware_profile,
+                        "cohort": cohort.name,
+                        "kind": "eval",
+                        "skip_reason": "",
+                        "slug": (
+                            "vss-deploy-profile__base__"
+                            f"{cohort.name}"
+                        ),
+                        "name": (
+                            "vss-deploy-profile · base · "
+                            f"{cohort.name}"
+                        ),
+                        "runs_on": list(cohort.labels),
+                        "gpu_count": requirements["gpu_count"],
+                        "min_vram_gb_per_gpu": (
+                            requirements["min_vram_gb_per_gpu"]
+                        ),
+                    })
     return include
 
 

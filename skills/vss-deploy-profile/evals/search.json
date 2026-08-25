@@ -13,7 +13,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "A40": {
         "gpu_count": 2
       }
     }
@@ -35,5 +35,15 @@
         "A failed readiness path retains bounded sanitized effective Compose, selected-service inspect/OOM state, recent logs, Docker events, and PID-to-container mapping in result artifacts before cleanup"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

@@ -94,7 +94,22 @@ PLATFORMS: dict[str, dict] = {
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
     },
-    "H200": {"short_name": "h200", "gpu_type": "H200", "min_vram_per_gpu": 141, "brev_search": "H200"},
+    "A16": {
+        "short_name": "a16",
+        "gpu_type": "NVIDIA A16",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 16,
+        "brev_search": "A16",
+        "min_root_disk_gb": 220,
+    },
+    "A40": {
+        "short_name": "a40",
+        "gpu_type": "NVIDIA A40",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 48,
+        "brev_search": "A40",
+        "min_root_disk_gb": 220,
+    },
     "DGX-SPARK": {
         "short_name": "spark",
         "gpu_type": "GB10",
@@ -325,10 +340,9 @@ def generate_solve_script(profile: str, platform: str) -> str:
 
     is_warehouse = (env_profile == "warehouse")
 
-    # H200 boxes: use H100 NIM sizing (hw-H100.env). No hw-H200.env ships.
-    nim_profile = os.environ.get("HARDWARE_PROFILE") or (
-        "H100" if platform == "H200" else platform
-    )
+    # Hardware profiles are exact identities; the planner blocks
+    # replacement cohorts until their checked-in profile exists.
+    nim_profile = os.environ.get("HARDWARE_PROFILE") or platform
 
     if is_warehouse:
         env_file_line = 'ENV_FILE=$REPO/deploy/docker/industry-profiles/warehouse-operations/.env'

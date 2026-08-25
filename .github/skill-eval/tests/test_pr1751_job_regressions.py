@@ -161,9 +161,10 @@ def test_origin_selector_canonicalizes_once_and_preserves_selected_host(
     assert json.loads(preserved.stdout)["origin"] == "http://localhost:7777"
 
 
-def test_codec_dependent_lvs_is_explicitly_rtx_only() -> None:
+def test_codec_dependent_large_lvs_is_explicitly_rtx_only() -> None:
     spec = _json("skills/vss-summarize-video/evals/lvs_profile_summarize.json")
-    assert spec["requires_video_codec"] is True
+    assert spec["openshell"]["requires_video_codec"] is True
+    assert spec["openshell"]["min_vram_gb_per_gpu"] == 96
     assert spec["resources"]["platforms"] == {"RTXPRO6000BW": {"gpu_count": 1}}
     setup = "\n".join([spec["expects"][0]["query"], *spec["expects"][0]["checks"]])
     assert "vss-vios-streamprocessing" in setup
@@ -171,22 +172,25 @@ def test_codec_dependent_lvs_is_explicitly_rtx_only() -> None:
     assert "bounded VIOS upload/timeline probe" in setup
 
 
-def test_openshell_matrix_keeps_codec_lvs_on_rtx_without_duplicates() -> None:
+def test_openshell_matrix_routes_a16_a40_and_rtx_without_duplicates() -> None:
     old = os.environ.get("OPENSHELL_GPU_FLEET")
+    original_profiles = plan_matrix.hardware_profile_files
     os.environ["OPENSHELL_GPU_FLEET"] = "1"
+    plan_matrix.hardware_profile_files = lambda _profile: [Path("profile")]
     try:
         lvs = plan_matrix.build_matrix(
             ["skills/vss-summarize-video/evals/lvs_profile_summarize.json"]
         )
         compatible = plan_matrix.build_matrix(
-            ["skills/vss-deploy-profile/evals/base.json"]
+            ["skills/vss-manage-video-io-storage/evals/vios_ops.json"]
         )
         two_gpu = plan_matrix.build_matrix(
             [
-                "skills/vss-build-vision-agent/eval/profile_combined_alerts_search_harbor.json"
+                "skills/vss-build-vision-agent/eval/profile_in_2_rt_cv_person_detection_harbor.json"
             ]
         )
     finally:
+        plan_matrix.hardware_profile_files = original_profiles
         if old is None:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
         else:
@@ -194,27 +198,33 @@ def test_openshell_matrix_keeps_codec_lvs_on_rtx_without_duplicates() -> None:
 
     assert len(lvs) == 1
     assert lvs[0]["platform"] == "RTXPRO6000BW"
-    assert "gpus-1" in lvs[0]["runs_on"]
+    assert lvs[0]["cohort"] == "rtxpro6000-2g"
+    assert "gpus-2" in lvs[0]["runs_on"]
     assert len({leg["slug"] for leg in lvs}) == len(lvs)
 
     assert len(compatible) == 1
-    assert compatible[0]["platform"] == "H200"
+    assert compatible[0]["platform"] == "A16"
+    assert compatible[0]["cohort"] == "a16-1g"
     assert "gpus-1" in compatible[0]["runs_on"]
 
     assert len(two_gpu) == 1
-    assert two_gpu[0]["platform"] == "RTXPRO6000BW"
+    assert two_gpu[0]["platform"] == "A40"
+    assert two_gpu[0]["cohort"] == "a40-2g"
     assert "gpus-2" in two_gpu[0]["runs_on"]
 
 
 def test_ineligible_changed_skill_is_a_failing_not_run_leg() -> None:
     old = os.environ.get("OPENSHELL_GPU_FLEET")
     os.environ["OPENSHELL_GPU_FLEET"] = "1"
-    original = plan_matrix.spec_platform_config
+    original = plan_matrix.openshell_requirements
     try:
-        plan_matrix.spec_platform_config = lambda _path: {"L40S": {"gpu_count": 1}}
+        plan_matrix.openshell_requirements = lambda _path: (
+            None,
+            "missing openshell capability metadata",
+        )
         legs = plan_matrix.build_matrix(["skills/vss-search-archive/evals/search.json"])
     finally:
-        plan_matrix.spec_platform_config = original
+        plan_matrix.openshell_requirements = original
         if old is None:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
         else:
@@ -222,7 +232,7 @@ def test_ineligible_changed_skill_is_a_failing_not_run_leg() -> None:
 
     assert len(legs) == 1
     assert legs[0]["kind"] == "not_run_infra_acquisition"
-    assert legs[0]["skip_reason"].startswith("NOT_RUN_INFRA_ACQUISITION:")
+    assert legs[0]["skip_reason"].startswith("BLOCKED_NO_COMPATIBLE_COHORT:")
 
 
 def test_sop_prerequisites_are_machine_readable_and_fail_fast(

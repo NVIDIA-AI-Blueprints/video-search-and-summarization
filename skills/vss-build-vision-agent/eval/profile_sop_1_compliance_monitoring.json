@@ -33,7 +33,9 @@
   "judge_max_turns": 90,
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": { "gpu_count": 1 }
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
     }
   },
   "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. EXTERNAL PREREQUISITE GATE (provisioned host): before Harbor starts, the exact local tag `ds-sop:1.0.0` must exist and resolve to an immutable image ID; `SOP_MODEL_DIR`, `SOP_CONFIG_PATH`, and `SOP_TEST_VIDEO_PATH` must name existing absolute model/config/video paths; and any prerequisite Docker build must have used the pinned `network: host` contract required on hardened `bridge=none` workers. Missing inputs are `BLOCKED`, not a reason to source-build the ~50 GB image during eval. The image is LOCAL-BUILD-ONLY (no registry to pull; built + smoke-tested per `references/services/sop/build-ds-sop.md`); SOP models use pinned NGC `nv-metropolis-dev/vss-industrial/sop-data:1.0` and the test video uses pinned NGC `nvidia/tao/sop-server-fan-installation-data:1.0-260213`, never mutable `latest`. This single eval composes, validates, deploys, and runtime-verifies the SOP compliance-monitoring delta off the `alerts` (2d_vlm) Foundation -- `alerts` is the only current developer profile that ships `vss-va-mcp` (the report layer mounts the get_sop_* patch onto it) and it also owns Elasticsearch, Kafka, Redis, VIOS, and a VLM-perception slot. The get_sop_* patch is downloaded at build time from NVIDIA's public sop-monitoring-blueprints repo (pin 0dd472f) and staged BUILD-LOCAL under `_builds/sop-1/` -- nothing is vendored or written under `deploy/docker/`. Flow: DS-SOP step detection -> Kafka -> ELK, plus the skill-driven SOP compliance report (vss-va-mcp + the adapted get_sop_* patch, rendered by vss-generate-video-report Mode C) -- no RT-VLM, no runtime VSS agent/UI, no LLM-NIM report path. Use `_builds/sop-1/` only as a filesystem label; `deploy/docker/` remains authoritative and unmodified.",
@@ -56,5 +58,15 @@
         "vss-generate-video-report Mode C yields a correct SOP compliance report for that sensor/range: markdown titled exactly '# SOP Compliance Report' following the `references/report-templates/sop-compliance-report.md` structure (message count, compliance status, missing / mis-ordered step tables, actions observed), populated with data that MATCHES the report_summary / sop_violations / actions_observed from the get_sop_report call verified above (real values, none fabricated, no placeholder tokens left), and produced with no report service, VSS agent, web UI, POST /generate, or LLM NIM / NVIDIA_API_KEY. Graded on the report ARTIFACT: rendering inline or to the template file both count, and invoking `/vss-generate-video-report` (Mode C) as a Skill tool vs faithfully following Mode C inline both count -- invoking the skill is the expected path (see sop.md) but is not required for the grade."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": true,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }

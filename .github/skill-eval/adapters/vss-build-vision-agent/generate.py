@@ -74,12 +74,20 @@ PLATFORMS: dict[str, dict] = {
         "brev_search":      "RTX PRO",
         "min_root_disk_gb": 220,
     },
-    "H200": {
-        "short_name":       "h200",
-        "gpu_type":         "H200",
-        "gpu_count":        1,
-        "min_vram_per_gpu": 141,
-        "brev_search":      "H200",
+    "A16": {
+        "short_name": "a16",
+        "gpu_type": "NVIDIA A16",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 16,
+        "brev_search": "A16",
+        "min_root_disk_gb": 220,
+    },
+    "A40": {
+        "short_name": "a40",
+        "gpu_type": "NVIDIA A40",
+        "gpu_count": 1,
+        "min_vram_per_gpu": 48,
+        "brev_search": "A40",
         "min_root_disk_gb": 220,
     },
     # Secondary — keep common names usable from CLI if needed

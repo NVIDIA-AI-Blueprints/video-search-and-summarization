@@ -79,10 +79,11 @@ env:
   # run_leg.py, and Harbor's isolated uvx environment. Do not fall back to the
   # self-hosted runner's system python3 (currently 3.10).
   SKILL_EVAL_PYTHON_VERSION: "3.12"
-  # Route two-GPU work onto 10.86.16.223 RTX PRO 6000 OpenShell runners
-  # and one-GPU work onto 10.86.14.74 H200 (8×1), using the H100 NIM
-  # profile there. Skip other GPU SKUs for this PR path. Unset on develop
-  # to restore coordinator labels. These VMs are registered from
+  # Capability-route one leg per spec across 8× A16 1-GPU runners,
+  # 2× A40 1-GPU runners, 3× A40 2-GPU runners, and 4× RTX PRO 6000
+  # 2-GPU runners. Exact A16/A40 hardware profiles and explicit per-spec
+  # metadata are prerequisites; missing compatibility emits a visible
+  # BLOCKED leg. Skip other GPU SKUs for this path. These VMs are registered from
   # the GitLab fleet repo (brev-openshell-gpu-runners); they are GitHub
   # Actions runners, not GitLab CI runners. After each job the host-side
   # OpenShell VM orchestrator recreates that one VM and restores its listener.
@@ -170,10 +171,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow 24 matrix legs so queued RTX cells do not hold every slot
-      # while 8 H200 + 4 RTX runners sit idle. Unavailable runner slots
-      # still queue in Actions; run_leg.py caps one leg per GPU box.
-      max-parallel: 24
+      # Total runner capacity is 17. Cohort-specific active + GPU-count labels
+      # cap each pool independently (8 A16-1g, 2 A40-1g, 3 A40-2g, 4 RTX-2g),
+      # so one cohort cannot consume another cohort's runners.
+      max-parallel: 17
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
@@ -222,7 +223,8 @@ jobs:
       - name: Assert OpenShell GPU runtime
         if: >-
           startsWith(runner.name, 'vss-skill-eval-gpu-rtxpro6000-') ||
-          startsWith(runner.name, 'vss-skill-eval-gpu-h200-')
+          startsWith(runner.name, 'vss-skill-eval-gpu-a16-') ||
+          startsWith(runner.name, 'vss-skill-eval-gpu-a40-')
         run: |
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
           # Harbor/GHA call `uvx --python` and `uvx --version`. A symlink
@@ -286,7 +288,8 @@ jobs:
           printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
           if [[ "${RUNNER_NAME:-}" == vss-skill-eval-gpu-rtxpro6000-* || \
-                "${RUNNER_NAME:-}" == vss-skill-eval-gpu-h200-* ]]; then
+                "${RUNNER_NAME:-}" == vss-skill-eval-gpu-a16-* || \
+                "${RUNNER_NAME:-}" == vss-skill-eval-gpu-a40-* ]]; then
             printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
             if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
               printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
@@ -403,8 +406,8 @@ jobs:
           export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
-          # NIM compose `hw-${HARDWARE_PROFILE}.env`. H200 runners use the
-          # H100 SKU — there is no hw-H200.env.
+          # NIM compose `hw-${HARDWARE_PROFILE}.env`. The planner uses exact
+          # identities and blocks absent A16/A40 profiles; no SKU substitution.
           export HARDWARE_PROFILE="${{ matrix.hardware_profile }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)

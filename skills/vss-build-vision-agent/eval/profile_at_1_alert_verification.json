@@ -31,5 +31,15 @@
         "The final response identifies `alerts` as the Foundation, reports the effective service delta and changed environment knobs, and includes evidence for the alert-verification round trip."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }

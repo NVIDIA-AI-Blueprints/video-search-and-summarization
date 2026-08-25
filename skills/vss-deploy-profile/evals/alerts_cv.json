@@ -16,7 +16,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "A40": {
         "gpu_count": 2
       }
     }
@@ -35,5 +35,15 @@
         "The local RT-VLM/vLLM model service remains running and healthy across at least two bounded readiness probes before dependent services are accepted; an exit/restart/unhealthy/OOM path fails immediately and retains bounded sanitized inspect, logs, events, and PID-to-container evidence instead of waiting for the trial ceiling"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

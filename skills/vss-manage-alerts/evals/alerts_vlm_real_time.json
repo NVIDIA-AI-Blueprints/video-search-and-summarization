@@ -6,7 +6,7 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
+      "A40": {
         "gpu_count": 1
       }
     }
@@ -57,5 +57,15 @@
         "Sensor scoping, when used, passes the sensor NAME: if the trajectory filters the incident query with `?sensor_id=...`, the value is the sensor name as stored in the incident documents' `sensorId` field (e.g. `warehouse_sample`) \u2014 NOT a VIOS UUID. The endpoint term-matches that field, so a UUID silently returns `count: 0`, which is indistinguishable from an empty store. A UUID-scoped query against `/api/v1/realtime/incidents` is wrong when it stands in for the name query: reporting 'none found' with no name-scoped query behind it is a failure. The follow-up is not optional: when the name query comes back zero, the trajectory must also show a query scoped to the sensor's VIOS UUID before any 'none found' is reported, because a zero under one identity is not yet an answer. That sequence \u2014 name first, UUID only after it returned zero \u2014 is the skill's documented alternate-identity check and passes. The follow-up may only be missing if the trajectory shows VIOS could not be reached to resolve the UUID. The number reported has to be the one that was found: if the name query came back zero and the UUID query did not, the reply reports the UUID result and names that identity \u2014 a reply that still says zero fails. Crediting either identity is only free when both came back zero. None of this applies to rule creation, where the payload's `sensor_id` must be the VIOS UUID \u2014 step 2 checks that separately. The count reported must also be scoped to warehouse_sample: either the request filtered server-side by name, or the agent fetched the unfiltered list and counted only the documents whose `sensorId` is that sensor \u2014 the latter only counts as correct when the response was complete (`count` equals `total`), since a truncated page yields a partial figure indistinguishable from a full one. Answering a sensor-specific question with a bare global `count`/`total` over every sensor in the store is a failure. The seeded fixture makes this gradable on the NUMBER, not the wording: at least one incident carries `sensorId: warehouse_sample` and at least one other carries a different sensorId, so a correct name-scoped query returns the warehouse_sample `total` (>= 1), a `?sensor=`/undeclared-param or unscoped query returns the strictly-LARGER store-wide total (it includes the decoy), and a VIOS-UUID-scoped query returns 0. The reported number MUST equal the name-scoped total and MUST be strictly less than the store-wide total \u2014 reporting the global total, or a UUID-scoped 0, fails on the number."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 48,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

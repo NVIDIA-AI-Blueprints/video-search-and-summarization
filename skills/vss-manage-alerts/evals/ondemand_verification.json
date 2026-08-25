@@ -5,10 +5,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -16,20 +14,20 @@
   "description": "On-demand verification as a first-class workflow (Workflow F): on a verification (CV) deploy (no sensor onboarding needed - the verifier config ships populated), the agent must (a) submit a one-shot verification of a supplied clip URL via POST /api/v1/verification/ondemand with a category resolved from GET /verification/config (never /verify, never /generate, never a realtime rule - the no-conflict AC), reporting the real 202 correlationId, and (b) check the async result where it actually lands - a minimal {category,info} submission is incident-kind, so the document surfaces via GET /api/v1/realtime/incidents (mdx-vlm-incidents-*); mdx-vlm-alerts-* only receives submissions carrying notification_type:'alert'. Verdict CONTENT is never asserted (stock deploy runs use_verdict:false freestyle; an unreachable-from-VLM URL degrades to the error path which still publishes a document - both outcomes are tolerated).",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in verification (CV) mode (i.e. `/vss-deploy-profile -p alerts -m verification`) using remote LLM and remote VLM endpoints. No sensor onboarding is needed for this scenario. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) responds successfully and the Alert Bridge verifier config is queryable (`curl -sf http://localhost:9080/api/v1/verification/config`) — wait and retry for a few minutes if a service is still starting.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in verification (CV) mode (i.e. `/vss-deploy-profile -p alerts -m verification`) using remote LLM and remote VLM endpoints. No sensor onboarding is needed for this scenario. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) responds successfully and the Alert Bridge verifier config is queryable (`curl -sf http://localhost:9080/api/v1/verification/config`) \u2014 wait and retry for a few minutes if a service is still starting.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV perception / Grounding DINO — required and present in verification (CV) mode).",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (Behavior Analytics is the CV-only mode signal — its presence confirms the deployment is verification (CV), not VLM real-time).",
-        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:9080/api/v1/verification/config 2>/dev/null | grep -q alert_type && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Alert Bridge verifier config populated and queryable — the category source Workflow F resolves against)."
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV perception / Grounding DINO \u2014 required and present in verification (CV) mode).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (Behavior Analytics is the CV-only mode signal \u2014 its presence confirms the deployment is verification (CV), not VLM real-time).",
+        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:9080/api/v1/verification/config 2>/dev/null | grep -q alert_type && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Alert Bridge verifier config populated and queryable \u2014 the category source Workflow F resolves against)."
       ]
     },
     {
       "query": "Run an on-demand verification of this clip for a ladder-safety violation and report the request id you get back: https://media.githubusercontent.com/media/NVIDIA-AI-Blueprints/video-search-and-summarization/main/services/alert/warmup/test.mp4",
       "checks": [
-        "The agent submits the one-shot verification through the on-demand endpoint: the trajectory issues a `POST http://localhost:9080/api/v1/verification/ondemand` whose body carries a `category` plus `info.media_urls` containing the supplied URL and `info.media_type` set to `video`. Submitting via a nonexistent `/api/v1/verification/verify`, via the VSS Agent `POST /generate`, or by mutating `/api/v1/realtime*` (creating/deleting realtime rules for a one-shot clip ask) are failures — read-only GETs anywhere are acceptable.",
+        "The agent submits the one-shot verification through the on-demand endpoint: the trajectory issues a `POST http://localhost:9080/api/v1/verification/ondemand` whose body carries a `category` plus `info.media_urls` containing the supplied URL and `info.media_type` set to `video`. Submitting via a nonexistent `/api/v1/verification/verify`, via the VSS Agent `POST /generate`, or by mutating `/api/v1/realtime*` (creating/deleting realtime rules for a one-shot clip ask) are failures \u2014 read-only GETs anywhere are acceptable.",
         "The `category` used in the successful POST was resolved from the deployed verifier config: it equals (case-insensitively) an `alert_type` present in a `GET http://localhost:9080/api/v1/verification/config` response the agent actually fetched in this step (a ladder/PPE-related config ships with the profile). Inventing a category not present in the config (e.g. a made-up 'ladder_safety') and reporting its 400 as success is a failure; recovering from an initial 400 unknown_category by then resolving the real config IS acceptable if the final submit succeeded.",
-        "The final reply reports the request id from the actual 202 response: it quotes the `correlationId` value the API returned (server default shape `ondemand-<uuid>`, or the agent's own supplied `id`), and does NOT claim the clip was verified/confirmed/rejected — 202 means accepted for background processing, and no verdict exists at submit time.",
+        "The final reply reports the request id from the actual 202 response: it quotes the `correlationId` value the API returned (server default shape `ondemand-<uuid>`, or the agent's own supplied `id`), and does NOT claim the clip was verified/confirmed/rejected \u2014 202 means accepted for background processing, and no verdict exists at submit time.",
         "`sh -c 'body=$(curl -s --max-time 15 -X POST http://localhost:9080/api/v1/verification/ondemand -H \"Content-Type: application/json\" -d \"{\\\"category\\\":\\\"__eval_unknown__\\\",\\\"info\\\":{\\\"media_urls\\\":[\\\"http://example.com/x.mp4\\\"],\\\"media_type\\\":\\\"video\\\"}}\"); echo \"$body\" | grep -q unknown_category'` returns exit 0 (deterministic contract probe: an unknown category is rejected with error=unknown_category, without polluting the result store)."
       ]
     },
@@ -41,5 +39,15 @@
         "The reply names the verification fields to inspect - a verification response code (`verificationResponseCode`, camelCase or snake_case) with 200 = VLM success and 4xx/5xx = error path, and the VLM output (`reasoning`/`vlm_response`), noting that `verdict` may be absent/empty on this deploy (freestyle `use_verdict:false`) or `verification-failed` on the error path - and is grounded in what its query actually returned: if a document landed it reports the real field values; if not, it says the result has not landed yet and suggests re-polling. Fabricating a document, a verdict, or claiming 'verified successfully' with no document, are failures."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

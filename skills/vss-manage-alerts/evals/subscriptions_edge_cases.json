@@ -6,10 +6,8 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "remote-all"
-        ]
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
@@ -17,12 +15,12 @@
   "description": "Workflow D error/edge branches from references/alert-subscriptions.md that the happy-path specs do not cover: create against a non-existent sensor (report + do not fabricate a rule), and stop with no matching rule (offer to list + do not DELETE). Both are deterministic and translated to plain language.",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have a camera to target, onboard one sensor into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) as a sensor named `warehouse_sample`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL — do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload — `sensorUrl` (the returned URL) and `name` (`warehouse_sample`); without the `name` key VST silently names the sensor `SENSOR`). Confirm the sensor appears in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `warehouse_sample` is listed — wait and retry for a few minutes if a service is still starting.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Then, so later steps have a camera to target, onboard one sensor into VIOS using the vss-manage-video-io-storage skill: upload the bundled warehouse sample video through NVStreamer (port 31000) as a sensor named `warehouse_sample`, then register in VIOS (port 30888) the RTSP URL exactly as NVStreamer's streams API returns it (query NVStreamer for the served URL \u2014 do NOT hand-construct a host:port URL, and include BOTH keys in the `/sensor/add` payload \u2014 `sensorUrl` (the returned URL) and `name` (`warehouse_sample`); without the `name` key VST silently names the sensor `SENSOR`). Confirm the sensor appears in `GET /sensor/list` with an RTSP stream before finishing. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) and VIOS (`curl -sf http://localhost:30888/vst/api/v1/sensor/list`) respond successfully and `warehouse_sample` is listed \u2014 wait and retry for a few minutes if a service is still starting.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
-        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor \u2014 required for VLM real-time mode).",
+        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running \u2014 confirms VLM real-time, not verification).",
         "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list 2>/dev/null | grep -q warehouse_sample && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (warehouse_sample onboarded into VIOS; polls up to ~2 min to absorb upload/registration delay)."
       ]
     },
@@ -30,17 +28,27 @@
       "query": "Watch loading_dock_7 for forklift collisions.",
       "checks": [
         "The agent lists VIOS sensors and finds none matching `loading_dock_7`. The route is `vss vios list` (which reads the origin `vss configure` recorded); a direct `GET /vst/api/v1/sensor/list` is also acceptable. What matters is that the agent checked VIOS and concluded the sensor is absent, not which client it used.",
-        "Because the sensor does not exist, the trajectory does NOT call Alert Bridge `POST http://localhost:9080/api/v1/realtime` with a fabricated `sensor_id` / `live_stream_url` — the agent does not invent a rule for an unknown sensor.",
-        "The agent's final reply states that `loading_dock_7` was not found and lists the available sensor(s) (e.g. `warehouse_sample`) or asks the user to clarify — in plain language, not a raw HTTP error."
+        "Because the sensor does not exist, the trajectory does NOT call Alert Bridge `POST http://localhost:9080/api/v1/realtime` with a fabricated `sensor_id` / `live_stream_url` \u2014 the agent does not invent a rule for an unknown sensor.",
+        "The agent's final reply states that `loading_dock_7` was not found and lists the available sensor(s) (e.g. `warehouse_sample`) or asks the user to clarify \u2014 in plain language, not a raw HTTP error."
       ]
     },
     {
       "query": "Stop the fire alert on warehouse_sample.",
       "checks": [
         "The agent treats this as a Workflow D stop: it fetches active rules from Alert Bridge (`GET http://localhost:9080/api/v1/realtime`) and filters for a fire-related rule on warehouse_sample.",
-        "No matching rule exists, so the agent reports that no matching rule was found for that alert type on warehouse_sample and offers to list what is currently running — it does not fabricate a rule or claim to have stopped one.",
-        "The trajectory does NOT issue any `DELETE http://localhost:9080/api/v1/realtime/<id>` — there is nothing to delete and no rule is removed."
+        "No matching rule exists, so the agent reports that no matching rule was found for that alert type on warehouse_sample and offers to list what is currently running \u2014 it does not fabricate a rule or claim to have stopped one.",
+        "The trajectory does NOT issue any `DELETE http://localhost:9080/api/v1/realtime/<id>` \u2014 there is nothing to delete and no rule is removed."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

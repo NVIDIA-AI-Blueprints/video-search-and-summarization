@@ -21,7 +21,7 @@ The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill
 - **[Brev CLI](https://docs.nvidia.com/brev/latest/cli/cli-overview)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
 - **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo.
 - **Python 3.12** — the workflows pin this runtime for the coordinator, adapters, `run_leg.py`, and Harbor. Each matrix leg installs Claude Agent SDK 0.2.128 in its own virtual environment so parallel jobs never mutate a shared interpreter.
-- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file. OpenShell RTX PRO 6000 runners instead source `$HOME/.eval_env` and set `SKILL_EVAL_LOCAL_GPU_INSTANCE` so Harbor runs on the same VM (no Brev hop).
+- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file. Direct OpenShell A16, A40, and RTX PRO 6000 runners instead source `$HOME/.eval_env` and set `SKILL_EVAL_LOCAL_GPU_INSTANCE` so Harbor runs on the same VM (no Brev hop).
 
 ### OSRB / third-party CI harness
 
@@ -33,6 +33,8 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 
 | Platform | Pool member(s) | Instance type |
 |---|---|---|
+| `a16` | 8 direct OpenShell runners with `openshell-a16-active`, `gpu-nvidia-a16`, `gpus-1` | NVIDIA A16 16 GB |
+| `a40` | 2 direct `gpus-1` and 3 direct `gpus-2` OpenShell runners with `openshell-a40-active` | NVIDIA A40 48 GB/GPU |
 | `l40s` | `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2` | `massedcompute_L40S` / `massedcompute_L40Sx2` |
 | `h100` | `vss-eval-h100` (when needed) | launchpad `dmz.h100x2.pcie` preferred |
 | `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and capability-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or approved RTX 4090 |
@@ -106,14 +108,15 @@ Each generated task contains:
 
 Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` (singular) specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
 
-The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. This keeps PR authors in control of which `(platform, mode)` combos actually run.
+The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. OpenShell specs also carry an `openshell` capability object. The planner validates the two declarations agree and emits one cohort, not one leg per compatible GPU family.
 
 Schema:
 
 | Key | Type | Description |
 |---|---|---|
 | `skills` | `string[]` | Skill names this spec exercises (usually just one). |
-| `resources.platforms` | `object` | `{<platform>: {"modes": [...]}}` — the Cartesian matrix the adapter fans out. E.g. `{"L40S": {"modes": ["remote-all"]}}` produces exactly one dataset. Platforms: `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`. **Required** — the agent files a `missing_platforms_declaration` blocker comment and skips any spec without it. |
+| `resources.platforms` | `object` | `{<platform>: {"gpu_count": N}}` — the exact adapter hardware profile. Platforms include `A16`, `A40`, `H100`, `L40S`, `RTXPRO6000BW`, and `DGX-SPARK`. **Required**. |
+| `openshell` | `object` | Required direct-fleet contract: `gpu_count`, `min_vram_gb_per_gpu`, `requires_video_codec`, `multi_gpu_capable`, `requires_blackwell`, and `supported_hardware_profiles`. Missing/stale metadata or a missing exact checked-in profile fails closed as `BLOCKED_NO_COMPATIBLE_COHORT`; VRAM is never aggregated across GPUs. |
 | `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. There is no separate `env` field: every prerequisite (deployed profile, required env vars, ports, sample-data ingest, platform notes) goes **inside the relevant `expects[].query`** — usually the first/setup query, often a `/vss-deploy-profile …` deploy step. |
 | `expects[].query` | `string` | What the agent is asked to do at this step, in plain English — including any prerequisites/environment the step needs. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl` / `docker` / `grep` commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
@@ -141,7 +144,15 @@ An empty or absent `profile` means the dict key *is* the deploy profile (the `ba
 ```json
 {
   "skills": ["vss-manage-video-io-storage"],
-  "resources": {"platforms": {"L40S": {"gpu_count": 1}}},
+  "resources": {"platforms": {"A16": {"gpu_count": 1}}},
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": true,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": ["A16"]
+  },
   "expects": [
     {
       "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.\n\n**Environment & prerequisites:** No VSS profile is pre-deployed. Probe http://localhost:30888/vst/api/v1/sensor/version first; if it fails, stand VIOS up standalone via this skill's bundled references/deploy-vios-service.md runbook (pre-authorized via SKILL.md § Pre-authorized autonomous mode). Required env vars: NGC_CLI_API_KEY, HOST_IP, VSS_DATA_DIR, VSS_APPS_DIR, plus the Brev secure-link env vars.",
@@ -159,7 +170,7 @@ Source: [`skills/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/
 
 What the agent derives from this spec:
 - `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
-- `resources.platforms` is `{L40S: {gpu_count: 1}}` → one dataset, one platform. No fan-out.
+- `resources.platforms` and `openshell` agree on A16, one GPU, 16 GB/GPU, and codec support → one dataset and one capability-routed leg. The planner blocks until an exact checked-in A16 profile exists.
 - `expects[]` has 13 entries → 13 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
 - `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.
 
@@ -174,7 +185,7 @@ set -a && source /home/ubuntu/eval-coordinator/.env && set +a
 python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
   --output-dir /tmp/skill-eval/datasets/vss-manage-video-io-storage \
   --skill-dir skills/vss-manage-video-io-storage \
-  --platform L40S
+  --platform A16
 
 # 2. Make sure you have a Brev instance for the target platform
 #    (or let the skills-eval agent select one).
@@ -184,7 +195,7 @@ python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
 #    NEVER point a manual run at a box a CI run currently holds — it will
 #    `docker rm -f` that run's deployment mid-trial. Use run_leg.py so the
 #    same per-box lock contract applies to manual runs.
-INSTANCE_NAME=vss-eval-l40s
+INSTANCE_NAME=vss-skill-eval-gpu-a16-canary
 
 # 3. Run one trial. run_leg.py discovers single-step vs multi-step task
 #    layouts, holds /tmp/brev/$INSTANCE_NAME.lock, and invokes Harbor.
@@ -196,7 +207,7 @@ python3 .github/skill-eval/run_leg.py \
   --results-root /tmp/skill-eval/results/manual-$(date +%Y%m%d-%H%M%S) \
   --scratch /tmp/skill-eval/manual \
   --spec-stem vios_ops \
-  --platform L40S
+  --platform A16
 ```
 
 `CLAUDE_CODE_DISABLE_THINKING=1` is required when routing through the NVIDIA Anthropic proxy — claude-code ≥ 2.1.x otherwise emits a `context_management` field the proxy rejects with HTTP 400.
