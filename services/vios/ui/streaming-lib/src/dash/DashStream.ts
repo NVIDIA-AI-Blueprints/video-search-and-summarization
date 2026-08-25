@@ -521,6 +521,9 @@ export class DashStream {
                                 trace: (what: string, detail: unknown) => void): void {
         this.stopStrandWatchdog();
         const STALL_TICKS = 4;      // ~2s at the 500ms period below
+        // Longer, because a playhead that has media under it is usually just
+        // rebuffering and deserves a chance to recover on its own.
+        const STUCK_DECODER_TICKS = 8;   // ~4s
         let lastTime = -1;
         let stalledTicks = 0;
         this.strandTimer = setInterval(() => {
@@ -579,6 +582,28 @@ export class DashStream {
             // stall is not a stranding; moving would discard buffer the player
             // is entitled to use.
             if (runEnd >= 0 && runEnd - video.currentTime > 0.5) {
+                // Media under the playhead usually means the stall is about
+                // throughput and moving would only discard buffer.  Not always:
+                // a decoder can wedge on the frame it is holding while data
+                // keeps arriving behind it, and that looks identical from here
+                // except that it never resolves.  Observed holding a playhead
+                // still for eighty eight seconds with fifty nine seconds
+                // buffered ahead of it.  Give the ordinary case time to sort
+                // itself out, then nudge the playhead just past where it is
+                // stuck, which is enough to make the decoder pick up again.
+                if (stalledTicks >= STUCK_DECODER_TICKS) {
+                    const nudge = video.currentTime + 0.1;
+                    if (nudge < runEnd) {
+                        trace('STUCK_DECODER_NUDGED', {
+                            at: Number(video.currentTime.toFixed(3)),
+                            bufferedAhead: Number((runEnd - video.currentTime).toFixed(2)),
+                            stalledFor: stalledTicks / 2,
+                        });
+                        stalledTicks = 0;
+                        lastTime = nudge;
+                        video.currentTime = nudge;
+                    }
+                }
                 return;
             }
             if (nextStart < 0) {
