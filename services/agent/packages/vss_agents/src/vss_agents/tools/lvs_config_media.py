@@ -19,6 +19,7 @@ from collections.abc import AsyncGenerator
 from enum import StrEnum
 import json
 import logging
+import re
 from typing import Any
 from typing import Literal
 
@@ -46,6 +47,24 @@ logger = logging.getLogger(__name__)
 
 GENERATE_CAPTIONS_ENDPOINT = "/v1/generate_captions"
 CAPTION_GENERATION_STARTED_MESSAGE = "Caption generation started. Please try again later."
+LVS_CONFIG_MEDIA_TOOL_NAME = "lvs_config_media"
+LVS_CONFIG_MEDIA_BLOCKED_MESSAGE = (
+    "lvs_config_media was not executed. Caption generation starts only after the user "
+    'explicitly replies with "start captioning <stream_name>" (or "set up stream" / '
+    '"configure stream"). Surface any not_configured caption prompt and stop; do not '
+    "open HITL on this turn."
+)
+# Phrases that count as an explicit user request to start LVS caption generation.
+_CAPTION_GENERATION_REQUEST_RE = re.compile(
+    r"(?i)\b(?:start\s+captioning|set\s+up\s+stream|configure\s+stream)\b",
+)
+
+
+def user_requested_caption_generation(user_text: str | None) -> bool:
+    """Return True when the current user turn explicitly asks to start captions."""
+    if not user_text or not user_text.strip():
+        return False
+    return _CAPTION_GENERATION_REQUEST_RE.search(user_text) is not None
 
 
 class LVSMediaStatus(StrEnum):

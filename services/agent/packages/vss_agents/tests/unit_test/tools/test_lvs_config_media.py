@@ -27,6 +27,7 @@ from vss_agents.tools.lvs_config_media import LVSConfigMediaInput
 from vss_agents.tools.lvs_config_media import LVSConfigMediaOutput
 from vss_agents.tools.lvs_config_media import LVSMediaStatus
 from vss_agents.tools.lvs_config_media import lvs_config_media
+from vss_agents.tools.lvs_config_media import user_requested_caption_generation
 from vss_agents.tools.lvs_media_state import clear_configured_media_state
 from vss_agents.tools.lvs_media_state import configured_media
 
@@ -74,6 +75,36 @@ class TestLVSConfigMediaModels:
         )
 
         assert output.summary == "Caption generation started. Please try again later."
+
+
+class TestUserRequestedCaptionGeneration:
+    """Explicit user phrasing required before lvs_config_media may run."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "start captioning the stream sample_warehouse",
+            "Start captioning sample_warehouse",
+            "please set up stream CAM_1",
+            "configure stream warehouse_cam",
+        ],
+    )
+    def test_explicit_caption_requests_are_detected(self, text):
+        assert user_requested_caption_generation(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            None,
+            "",
+            "   ",
+            "Summarize the stream sample_warehouse from 45 seconds until now",
+            "Do you want me to start generating captions for the stream?",
+            "There are no captions stored for stream 'sample_warehouse'.",
+        ],
+    )
+    def test_summarize_and_empty_turns_are_not_caption_requests(self, text):
+        assert user_requested_caption_generation(text) is False
 
 
 class TestLVSConfigMediaInner:
