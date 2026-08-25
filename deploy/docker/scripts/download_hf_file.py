@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import os
 from importlib.metadata import PackageNotFoundError, version
-from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -19,7 +18,6 @@ HF_AUTH_ENV_VARS = (
     "HUGGINGFACE_TOKEN",
     "HF_TOKEN_PATH",
 )
-HF_HTTP_APPROVAL_ENV = "HF_HUB_APPROVED_HTTP_ORIGINS"
 
 
 def _hf_token_from_environment() -> str | None:
@@ -27,38 +25,6 @@ def _hf_token_from_environment() -> str | None:
         if token := os.environ.get(name):
             return token
     return None
-
-
-def _has_hf_auth_configuration() -> bool:
-    if any(os.environ.get(name) for name in HF_AUTH_ENV_VARS):
-        return True
-    hf_home = Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface")
-    return any((hf_home / name).is_file() for name in ("token", "stored_tokens"))
-
-
-def _http_endpoint_is_approved(endpoint: str) -> bool:
-    for candidate in os.environ.get(HF_HTTP_APPROVAL_ENV, "").split(","):
-        candidate = candidate.strip().rstrip("/")
-        if not candidate:
-            continue
-        parsed = urlsplit(candidate)
-        try:
-            address = ip_address(parsed.hostname)
-        except ValueError:
-            continue
-        if (
-            parsed.scheme == "http"
-            and parsed.netloc
-            and not parsed.username
-            and not parsed.password
-            and parsed.path in {"", "/"}
-            and not parsed.query
-            and not parsed.fragment
-            and (address.is_private or address.is_loopback or address.is_link_local)
-            and candidate == endpoint
-        ):
-            return True
-    return False
 
 
 def main() -> int:
@@ -88,8 +54,10 @@ def main() -> int:
     endpoint = os.environ.get("HF_ENDPOINT") or None
     if endpoint:
         parsed = urlsplit(endpoint)
+        if parsed.scheme == "http":
+            parser.error("HF_ENDPOINT must use HTTPS")
         if (
-            parsed.scheme not in {"http", "https"}
+            parsed.scheme != "https"
             or not parsed.netloc
             or parsed.username
             or parsed.password
@@ -98,19 +66,9 @@ def main() -> int:
             or parsed.fragment
         ):
             parser.error(
-                "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
+                "HF_ENDPOINT must be an HTTPS origin without credentials or query data"
             )
         endpoint = endpoint.rstrip("/")
-        if parsed.scheme == "http":
-            if not _http_endpoint_is_approved(endpoint):
-                parser.error(
-                    "HTTP HF_ENDPOINT requires an explicitly approved host-cache origin"
-                )
-            if _has_hf_auth_configuration():
-                parser.error(
-                    "Hugging Face authentication is not permitted with HTTP HF_ENDPOINT"
-                )
-            os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
         os.environ["HF_ENDPOINT"] = endpoint
     else:
         # An empty Compose expansion overrides huggingface_hub's official
@@ -134,11 +92,7 @@ def main() -> int:
         revision=args.revision,
         filename=args.filename,
         endpoint=endpoint,
-        token=(
-            False
-            if endpoint and endpoint.startswith("http://")
-            else _hf_token_from_environment()
-        ),
+        token=_hf_token_from_environment(),
         cache_dir=os.environ["HF_HOME"],
         local_dir=local_dir,
     )
