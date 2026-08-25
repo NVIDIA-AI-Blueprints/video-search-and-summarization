@@ -28,3 +28,11 @@ scrape_configs:
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
+
+  # OTel-sourced alert metrics. The alert service's own alert_bridge_* series
+  # are scraped from the service; these are the additive OTel ones, which reach
+  # Prometheus through the collector because an in-process OTel reader cannot
+  # register into the multiprocess registry :9081 serves.
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']

@@ -241,6 +241,22 @@ alert_agent:
     # additional Prometheus series per histogram — only enable for deployments
     # with a bounded sensor fleet and a known series budget (~10k per target).
     per_sensor_labels: false
+
+  # OpenTelemetry tracing. The ENABLE_OTEL_MONITORING env var is the on/off
+  # switch; this block is the tuning, mirroring how metrics.per_sensor_labels
+  # above pairs with PROMETHEUS_METRICS_ENABLED.
+  tracing:
+    # Fraction of traces sampled, 0.0-1.0, applied with ParentBased so a sampled
+    # caller keeps its whole trace. Deliberately not 1.0: this service is
+    # specified for high event rates, and a profile shipping always-on sampling
+    # leaves an operator no headroom to reduce under load.
+    sampling_ratio: 0.1
+    # When false, prompt text, VLM responses and video URLs never reach a span.
+    # Alert data may contain PII, so turning this on is a decision about one
+    # specific environment - which is why it has no env-var shortcut.
+    include_content: false
+    # Applies only when include_content is true.
+    max_content_chars: 512
   # Pipeline execution mode: sync | thread_bridge | event_loop.
   # An invalid value fails startup. Also accepted at async_io.pipeline_mode.
   # event_loop runs one coroutine per message on a persistent event loop with

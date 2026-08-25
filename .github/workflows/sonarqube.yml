@@ -309,6 +309,36 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
 
+      # Second run, tracing switched on. The feature's whole risk profile is what
+      # changes when it is enabled, and the coverage run above leaves it off - so
+      # a defect that only appears with it on is invisible to CI. One did: a
+      # context-manager guard rewrote the caller's exception on every unsampled
+      # event, which made the VLM retry handler unreachable and published the
+      # wrong response code, while the suite stayed green for three review rounds.
+      #
+      # sampling_ratio 0.0 rather than the shipped 0.1 because the unsampled path
+      # is the one that carries the risk, and 0.0 makes every event take it.
+      # No coverage flags: this is a correctness gate, and the numbers Sonar
+      # reads come from the run above.
+      - name: Run Alert MS tests with tracing enabled
+        if: matrix.name == 'alert'
+        working-directory: services/alert
+        env:
+          ENABLE_OTEL_MONITORING: "true"
+          OTEL_TRACES_EXPORTER: "none"
+          # Metrics too: the meter provider is built by hand, so it reads this
+          # rather than the SDK auto-configuration. Without it a CI runner with
+          # no collector retries OTLP and blocks at exit.
+          OTEL_METRICS_EXPORTER: "none"
+        run: |
+          cat > /tmp/tracing-on.yaml <<'EOF'
+          alert_agent:
+            tracing:
+              sampling_ratio: 0.0
+              include_content: false
+          EOF
+          CONFIG_PATH=/tmp/tracing-on.yaml .venv/bin/pytest test/unit -q
+
       - name: Generate Behavior Analytics coverage
         if: matrix.name == 'behavior-analytics'
         working-directory: services/analytics/behavior-analytics

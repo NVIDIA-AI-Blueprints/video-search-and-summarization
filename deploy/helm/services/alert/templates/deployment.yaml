@@ -114,6 +114,19 @@ spec:
               value: {{ .Values.rtviVlmModelToUse | default $vlmNameStr | quote }}
             - name: ALWAYS_ON_RULES_CONFIG
               value: "/app/configs/realtime-config.yml"
+            {{- /* OpenTelemetry tracing. Off unless tracing.enabled is set, so a
+                   chart that says nothing renders exactly what it renders today.
+                   Without these the tracing block in configs/config.yml is
+                   unreachable tuning: the config knobs exist but nothing can
+                   switch the feature on. */}}
+            - name: ENABLE_OTEL_MONITORING
+              value: {{ (.Values.tracing).enabled | default false | quote }}
+            {{- if (.Values.tracing).enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ (.Values.tracing).otlpEndpoint | default (index ($g) "otelExporterOtlpEndpoint") | default "http://otel-collector:4318" | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ (.Values.tracing).serviceName | default "vss-alert-ms" | quote }}
+            {{- end }}
           volumeMounts:
             - name: runtime-config
               mountPath: /app/runtime

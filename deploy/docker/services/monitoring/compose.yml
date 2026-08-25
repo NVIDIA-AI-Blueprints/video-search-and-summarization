@@ -25,6 +25,51 @@ services:
       - "${DCGM_EXPORTER_HOST_PORT:-9400}:9400"
     restart: always
 
+  # OpenTelemetry collector and trace backend for the alert path.
+  #
+  # Both are opt-in via their own compose profiles and are absent from every
+  # shipped profile list, matching ENABLE_OTEL_MONITORING defaulting to false:
+  # a deployment that has not asked for tracing runs exactly the containers it
+  # runs today.
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.137.0
+    container_name: otel-collector
+    profiles: ["otel-collector"]
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - $VSS_APPS_DIR/services/monitoring/config/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "${OTEL_COLLECTOR_GRPC_HOST_PORT:-4317}:4317"   # OTLP gRPC receiver
+      - "${OTEL_COLLECTOR_HTTP_HOST_PORT:-4318}:4318"   # OTLP HTTP receiver
+      - "${OTEL_COLLECTOR_METRICS_HOST_PORT:-8889}:8889"  # Prometheus scrape target
+    depends_on:
+      jaeger:
+        condition: service_healthy
+        required: false
+    restart: unless-stopped
+
+  jaeger:
+    image: docker.io/jaegertracing/all-in-one:1.76.0
+    container_name: jaeger
+    profiles: ["jaeger"]
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=error
+    ports:
+      - "${JAEGER_UI_HOST_PORT:-16686}:16686"  # Jaeger UI
+      # Jaeger's own OTLP receivers are remapped on the host side: the
+      # collector already holds 4317/4318 there, and services send to the
+      # collector rather than straight here.
+      - "${JAEGER_OTLP_GRPC_HOST_PORT:-4319}:4317"
+      - "${JAEGER_OTLP_HTTP_HOST_PORT:-4320}:4318"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   prometheus:
     image: quay.io/prometheus/prometheus:v3.13.1
     container_name: prometheus

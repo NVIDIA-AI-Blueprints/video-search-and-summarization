@@ -17,6 +17,18 @@
 enabled: false
 global: {}
 
+# OpenTelemetry tracing. Off by default; the tuning (sampling ratio, content
+# gate) lives in configs/config.yml under alert_agent.tracing, and this is the
+# switch that makes it reachable. Without an otel-collector in the cluster the
+# endpoint below has nothing behind it — the compose profile ships one, the
+# Helm tree does not yet.
+tracing:
+  enabled: false
+  # Falls back to global.otelExporterOtlpEndpoint, then to the in-cluster
+  # default that every other VSS chart already names.
+  otlpEndpoint: ""
+  serviceName: "vss-alert-ms"
+
 image:
   repository: ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms
   tag: develop-latest

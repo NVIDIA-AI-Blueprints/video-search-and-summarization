@@ -54,6 +54,20 @@ services:
       ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
+      # OpenTelemetry tracing. Off unless explicitly enabled, so a
+      # deployment that sets nothing behaves exactly as it does today - the
+      # service never opens a connection to the endpoint below.
+      #
+      # The remaining OTEL_* variables are read by the SDK's own
+      # auto-configuration and are deliberately not enumerated here; naming
+      # them would freeze a subset of a standard that the SDK already handles.
+      # Two are exceptions the service overrides on its own: request-header
+      # capture is unset because arbitrary headers must not reach spans, and
+      # OTEL_SEMCONV_STABILITY_OPT_IN is pinned so the caller user-agent
+      # attribute keeps a stable name.
+      ENABLE_OTEL_MONITORING: ${ENABLE_OTEL_MONITORING:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${ALERT_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_SERVICE_NAME: ${ALERT_OTEL_SERVICE_NAME:-vss-alert-ms}
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro

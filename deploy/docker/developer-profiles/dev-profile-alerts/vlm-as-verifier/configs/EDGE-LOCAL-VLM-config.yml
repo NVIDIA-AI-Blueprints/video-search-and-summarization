@@ -187,6 +187,20 @@ alert_agent:
 
   # Always-on VLM alert rules
   always_on: false
+  # OpenTelemetry tracing. ENABLE_OTEL_MONITORING is the on/off switch; this
+  # block is the tuning, the same way metrics pairs with PROMETHEUS_METRICS_ENABLED.
+  tracing:
+    # Fraction of traces sampled, 0.0-1.0, applied with ParentBased so a sampled
+    # caller keeps its whole trace. Not 1.0: this service is specified for high
+    # event rates, and a profile shipping always-on sampling leaves an operator
+    # no headroom to reduce under load.
+    sampling_ratio: 0.1
+    # When false, prompt text, VLM responses and video URLs never reach a span.
+    # Alert data may contain PII, so enabling this is a decision about one
+    # specific environment - which is why it has no env-var shortcut.
+    include_content: false
+    # Applies only when include_content is true; the suffix counts against it.
+    max_content_chars: 512
 
 # RTVI VLM Configuration - Real-time VLM alert management
 rtvi_vlm:
