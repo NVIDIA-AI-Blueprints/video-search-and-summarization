@@ -29,7 +29,7 @@ The following diagram illustrates a conceptual architecture of the base vision a
 
 ## What's being deployed
 
-- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`), which handles query routing, reasoning, and report generation.
+- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
 - **VSS Agent UI:** Web UI with chat, video upload, and different views
 - **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
 - **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
@@ -595,7 +595,7 @@ as documented in [Development Profile GPU Requirements](/prerequisites#developme
 8. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
-The base defaults are the `nvidia/nvidia-nemotron-nano-9b-v2` LLM NIM (port
+The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM (port
 `30081`) and the `nvidia/cosmos3-nano-reasoner` VLM NIM (port `30082`). To use
 a different model or a remote endpoint, name it in the prompt and the agent
 sets `LLM_MODE` / `VLM_MODE` accordingly.

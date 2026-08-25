@@ -3,7 +3,7 @@ title: "Edge Deployment"
 description: ""
 position: 2
 ---
-This guide covers deploying the base vision agent with **NVIDIA Nemotron 3 Nano 4B** or **NVIDIA Nemotron Nano 9B v2** as the
+This guide covers deploying the base vision agent with **NVIDIA Nemotron 3 Nano 4B** or **NVIDIA Nemotron Nano 9B v2 FP8** as the
 LLM on edge platforms (DGX Spark, IGX Thor, AGX Thor).
 
 For small models like **NVIDIA Nemotron 3 Nano 4B**, a dedicated configuration file (`config_edge.yml`) is provided.
@@ -13,7 +13,7 @@ version optimized for smaller models.
 <Note>
 The edge configuration does not encourage clarifying questions from the agent prompt. Hence, in ambiguous situations,
 the agent with `config_edge.yml` may tend to not request more context from the user.
-If this behavior is not desired, use a larger model like **NVIDIA Nemotron Nano 9B v2** which will ask clarifying questions
+If this behavior is not desired, use a larger model like **NVIDIA Nemotron Nano 9B v2 FP8** which will ask clarifying questions
 when the user's request does not contain enough context.
 </Note>
 
@@ -71,17 +71,17 @@ For more details on VSS configurations and how to get API tokens, refer to:
    models fit in GPU memory.
 
 <Note>
-If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B** model.
+If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B v2 FP8** model.
 This larger model should also be able to handle more complex user queries and situations.
-In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
+In this case, you can skip running the vLLM container entirely, as the blueprint deploys both the LLM and the VLM itself. On edge hardware profiles the deploy script already selects `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, so `--llm` is optional:
 
-``bash
+```bash
 # Free up GPU for a full blueprint deployment
 # docker stop nemotron-edge && docker rm nemotron-edge
 
 deploy/docker/scripts/dev-profile.sh up -p base \
---hardware-profile DGX-SPARK \
---llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 \
+    --hardware-profile DGX-SPARK
+```
 
 This uses the standard `config.yml` (no `config_edge.yml` override needed) since
 the 9B model handles complex and ambiguous queries better.
@@ -128,18 +128,17 @@ must be tuned to coexist.
    ```
 
 <Note>
-If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B** model.
+If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B v2 FP8** model.
 This larger model should also be able to handle more complex user queries and situations.
-In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
+In this case, you can skip running the vLLM container entirely, as the blueprint deploys both the LLM and the VLM itself. On edge hardware profiles the deploy script already selects `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, so `--llm` is optional:
 
-``bash
+```bash
 # Free up GPU for a full blueprint deployment
 # docker stop nemotron-edge && docker rm nemotron-edge
 
 deploy/docker/scripts/dev-profile.sh up -p base \
---hardware-profile AGX-THOR \
-
-# --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+    --hardware-profile AGX-THOR
+```
 
 This uses the standard `config.yml` (no `config_edge.yml` override needed) since
 the 9B model handles complex and ambiguous queries better.

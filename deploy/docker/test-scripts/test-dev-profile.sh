@@ -697,8 +697,8 @@ run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
 run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "base" \
-  -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
-  "LLM_NAME" "nvidia/nemotron-3-nano" "LLM_NAME_SLUG" "nemotron-3-nano" \
+  -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8" "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" \
   "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi"
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
@@ -1580,8 +1580,8 @@ for _profile in base alerts; do
 done
 
 run_dry_run_up_and_check_generated_env "generated.env LLM slugs and names" "base" \
- -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
-  "LLM_NAME_SLUG" "nemotron-3-nano" "LLM_NAME" "nvidia/nemotron-3-nano"
+ -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
 
 run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM integrated checkpoint" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
@@ -1668,7 +1668,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 run_dry_run_up_and_check_generated_env "g
   -i 127.0.0.1 --use-remote-llm --llm my-llm --vlm nvidia/cosmos-reason1-7b --vlm-device-id 1 -d -- \
   "LLM_MODE" "remote" "VLM_MODE" "local"
 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_MODE local when VLM remote (llm_device_id not compared to vlm)" "base" \
-  -i 127.0.0.1 --use-remote-vlm --vlm my-vlm --llm nvidia/nemotron-3-nano --llm-device-id 1 -d -- \
+  -i 127.0.0.1 --use-remote-vlm --vlm my-vlm --llm nvidia/nemotron-3.5-lightning-30b-a3b --llm-device-id 1 -d -- \
   "LLM_MODE" "local" "VLM_MODE" "remote"
 
 run_dry_run_up_and_check_generated_env "generated.env EXTERNAL_IP from -e" "base" \
@@ -1802,9 +1802,9 @@ run_dry_run_up_and_check_generated_env "generated.env relative --llm-env-file fr
 rm -f "${_rel_under_repo}"
 rmdir "${REPO_ROOT}/tests" 2>/dev/null || true
 
-run_dry_run_up_and_check_generated_env "generated.env other LLM model openai/gpt-oss-20b" "base" \
- -i 127.0.0.1 --llm openai/gpt-oss-20b -d -- \
-  "LLM_NAME_SLUG" "gpt-oss-20b" "LLM_NAME" "openai/gpt-oss-20b"
+run_dry_run_up_and_check_generated_env "generated.env other LLM model nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8" "base" \
+ -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
 
 run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos-reason1 maps to RT-VLM path+basename" "base" \
  -i 127.0.0.1 --vlm nvidia/cosmos-reason1-7b -d -- \

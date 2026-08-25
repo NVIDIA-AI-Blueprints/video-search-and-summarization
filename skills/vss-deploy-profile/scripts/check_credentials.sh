@@ -57,7 +57,7 @@ else
   echo "NVIDIA_API_KEY: not set — skip (required only for remote NIM)"
 fi
 
-# HF — edge only (gated Edge 4B)
+# HF — only for the standalone small-model vLLM alternative (gated Edge 4B)
 if [[ -n "${HF_TOKEN:-}" ]]; then
   status=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${HF_TOKEN}" \
@@ -66,5 +66,5 @@ if [[ -n "${HF_TOKEN:-}" ]]; then
     && echo "HF_TOKEN ok" \
     || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
 else
-  echo "HF_TOKEN: not set — skip (required only on edge with Edge 4B)"
+  echo "HF_TOKEN: not set — skip (the in-tree edge LLM does not need it; required only for the standalone Edge 4B alternative)"
 fi

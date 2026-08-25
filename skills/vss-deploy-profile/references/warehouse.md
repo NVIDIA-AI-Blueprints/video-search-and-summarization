@@ -127,7 +127,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 | Container | Port | When |
 |---|---|---|
-| LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) → container `8000` | `LLM_MODE=local`. The `COMPOSE_PROFILES_WH_2D` list ends in the token `llm_${LLM_MODE}_${LLM_NAME_SLUG}`, so `LLM_MODE=remote`/`none` simply selects a profile no local NIM carries |
+| LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nemotron-3.5-lightning-30b-a3b`) | `LLM_PORT` (default `30081`) → container `8000` | `LLM_MODE=local`. The `COMPOSE_PROFILES_WH_2D` list ends in the token `llm_${LLM_MODE}_${LLM_NAME_SLUG}`, so `LLM_MODE=remote`/`none` simply selects a profile no local NIM carries |
 | `vss-rtvi-vlm` (real-time VLM) | `RTVI_VLM_PORT` (default `8018`) → container `8000` | Always deployed for `BP_PROFILE=bp_wh` — `rtvi-vlm` is included directly in `COMPOSE_PROFILES_WH_2D` |
 | `vss-alert-bridge` (compose service `alert-bridge`) | `ALERT_BRIDGE_HOST_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
@@ -150,11 +150,11 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local` |
 
 `LLM_MODE` accepts `local`, `remote`, or `none`. Only `MODE=2d` + `BP_PROFILE=bp_wh` uses anything other than `none`:
-- `local` — LLM NIM on its own GPU (`LLM_DEVICE_ID`). Requires a sizing file at `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env`; a missing one fails compose with an unhelpful "no such file". Sizing files exist only for a subset of profiles per model — `nvidia-nemotron-nano-9b-v2` ships `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW`, `hw-OTHER`.
+- `local` — LLM NIM on its own GPU (`LLM_DEVICE_ID`). Requires a sizing file at `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env`; a missing one fails compose with an unhelpful "no such file". Sizing files exist only for a subset of profiles per model — `nemotron-3.5-lightning-30b-a3b` ships `hw-GB300`, `hw-H100`, `hw-L40S`, `hw-RTXPRO4500BW`, `hw-RTXPRO6000BW`, `hw-OTHER`.
 - `remote` — point at an external OpenAI-compatible endpoint (no LLM NIM deployed). Set `LLM_BASE_URL` to the endpoint **root, without a trailing `/v1`** (e.g. `https://integrate.api.nvidia.com`) — `vss-agent/configs/config.yml` appends `/v1` itself, so including it yields a broken `/v1/v1`. Also set `LLM_MODEL_TYPE` (`nim` or `openai`), `LLM_NAME` to a model id the endpoint actually advertises, `NVIDIA_API_KEY` / `OPENAI_API_KEY`, and `LLM_NAME_SLUG=none` so no local NIM profile matches.
 - `none` — no LLM, when `BP_PROFILE` is `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`
 
-`overrides.env` ships `LLM_MODE=local` with `LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2`. Supported local models and their slugs: `nvidia/nvidia-nemotron-nano-9b-v2` → `nvidia-nemotron-nano-9b-v2`, `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` → `nvidia-nemotron-nano-9b-v2-fp8`, `nvidia/nemotron-3-nano` → `nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5` → `llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b` → `gpt-oss-20b`.
+`overrides.env` ships `LLM_MODE=local` with `LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b`. Supported local models and their slugs: `nvidia/nemotron-3.5-lightning-30b-a3b` → `nemotron-3.5-lightning-30b-a3b`, and `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` → `nvidia-nemotron-nano-9b-v2-fp8` (the edge build — it ships only `hw-DGX-SPARK`, `hw-AGX-THOR`, `hw-IGX-THOR` and `hw-OTHER`, and `bp_wh` disallows the edge profiles, so on warehouse hardware it needs `HARDWARE_PROFILE=OTHER`).
 
 RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT_VLM_DEVICE_ID` for `BP_PROFILE=bp_wh`. Keep `VLM_MODE=none` in `generated.env` because warehouse uses RTVI VLM instead of the standalone VLM NIM path.
 
@@ -593,7 +593,7 @@ Three ways `HARDWARE_PROFILE` hard-fails a deploy:
 
 1. `BP_PROFILE=bp_wh` with `IGX-THOR` or `DGX-SPARK` — explicitly disallowed by the configurator.
 2. `HARDWARE_PROFILE=DGX-SPARK` without an `sbsa`-tagged `VSS_RT_CV_TAG` — enforced in all three modes.
-3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nvidia-nemotron-nano-9b-v2` ships only `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=L4` (or `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`) fails with that model. Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
+3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nemotron-3.5-lightning-30b-a3b` ships only `hw-GB300`, `hw-H100`, `hw-L40S`, `hw-RTXPRO4500BW`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=DGX-SPARK`, `IGX-THOR` or `AGX-THOR` fails with that model - on those three the deploy script selects `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` instead, which does ship their sizing. (`L4`, `RTXA6000`, `RTXA6000ADA` and `RTXPRO6000BW-SE` are not accepted `--hardware-profile` values at all; the script rejects them.) Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
 
 **Required driver versions:** see the canonical per-platform pins in [`prerequisites.md` § 1 GPU Detection](prerequisites.md#1-gpu-detection) and [§ Canonical version matrix](prerequisites.md#canonical-version-matrix) — that table also covers Ubuntu 22.04 and AGX-THOR, which the warehouse profile does not restrict. On x86 Ubuntu 24.04 the pin is **`580.105.08`**.
 
@@ -1020,8 +1020,8 @@ LLM_DEVICE_ID='2'                   # bp_wh + LLM_MODE=local
 # --- LLM (bp_wh only; set LLM_MODE=none for bp_wh_kafka / bp_wh_redis / bp_wh_auto_calib) ---
 # RTVI VLM has no mode — it is always deployed locally for bp_wh.
 LLM_MODE=local                      # local | remote | none
-LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
-LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2   # set to `none` for LLM_MODE=remote/none
+LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
+LLM_NAME_SLUG=nemotron-3.5-lightning-30b-a3b   # set to `none` for LLM_MODE=remote/none
 LLM_BASE_URL=http://vss-llm-nim:8000       # local default; set the external endpoint for LLM_MODE=remote
 LLM_MODEL_TYPE=nim                         # nim | openai (remote endpoints)
 
@@ -1176,7 +1176,7 @@ cd <repo>/deploy/docker
   || cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
 # Now run the resolve-env prelude (Lifecycle: Resolve env).
 # COMPOSE_PROFILES then holds the resolved service list, e.g.:
-#   turnserver-init,turnserver,redis,...,vss-agent,rtvi-vlm,vss-ui,...,llm_local_nvidia-nemotron-nano-9b-v2
+#   turnserver-init,turnserver,redis,...,vss-agent,rtvi-vlm,vss-ui,...,llm_local_nemotron-3.5-lightning-30b-a3b
 echo "$COMPOSE_PROFILES"
 ```
 

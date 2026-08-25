@@ -59,7 +59,7 @@ This prevents a deploy from passing when the local LLM NIM is down.
 
 > **`VLM_NAME` must be the basename of `RTVI_VLM_MODEL_PATH` — NOT the friendly NIM name.** RT-VLM advertises this exact string in `/v1/models`, and the LVS service / agent calls the model by that id. Setting `VLM_NAME=nvidia/cosmos3-nano-reasoner` (the friendly NIM name) reproduces the same class of `400 BadParameters: No such model` failure. **Always set `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` for the default integrated path.** Same caveat as `alerts.md`.
 
-Local LVS deployments default to `nvidia/nemotron-3.5-lightning-30b-a3b`. LLM alternates are the same as base — `nvidia/nvidia-nemotron-nano-9b-v2`, `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` (DGX Spark only; see `edge.md`), `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
+Local LVS deployments default to `nvidia/nemotron-3.5-lightning-30b-a3b`. The one alternate is the same as base — `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, the edge build (see `edge.md`); of the hardware profiles LVS accepts it ships a sizing file only for `OTHER`, so it needs `HARDWARE_PROFILE=OTHER`.
 
 VLM alternates: see [VLM serving paths](#vlm-serving-paths) below.
 
@@ -172,11 +172,11 @@ The sizing flow is identical to base: pick the fraction with the formula in [`ba
 
 ## LVS-specific write location for the worked example
 
-Run the math from [`base.md` § Worked example](base.md#worked-example--nemotron-nano-9b--cosmos-reason2-8b-on-h100-80-gb-shared) — the fractions are identical. The only LVS-specific bit is **where** the VLM fraction is written:
+Run the math from [`base.md` § Worked example](base.md#worked-example--9-b-fp16-llm--cosmos3-reasoner-nano-bf16-on-h100-80-gb-shared) — the fractions are identical. The only LVS-specific bit is **where** the VLM fraction is written:
 
 ```bash
 # LLM — same file as base
-# deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/hw-H100-shared.env
+# deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env
 NIM_KVCACHE_PERCENT=0.449
 
 # VLM — RT-VLM, in the LVS profile env
@@ -194,7 +194,7 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 
 - **`VLM_NAME` must equal RT-VLM's `/v1/models` basename.** This is the single most important field for LVS to function. For the default integrated Cosmos3 Nano BF16: `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final`. Using the friendly NIM name `nvidia/cosmos3-nano-reasoner` causes vss-lvs to return `400 BadParameters: No such model …` and summarization fails. Transformation rule for NGC NIM paths: `ngc:nim/<org>/<model>:<tag>` → `nim_<org>_<model>_<tag>`. For HF git paths or any custom MODEL_PATH, verify by `curl http://${HOST_IP}:8018/v1/models | jq` after RT-VLM boots and copy the `id` field.
 - **L40S (48 GB) cannot host the LLM + RT-VLM shared.** 23.4 + 20.8 = 44.2 GB > 40.8 GB usable. Use a 2-GPU L40S host (LLM on device 0, RT-VLM on device 1) or escalate to the user about a remote VLM (Path B).
-- **RT-VLM AND LVS image tags must match the CPU platform.** x86 and Jetson Thor platforms, including AGX/IGX Thor, use the non-sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.08.2` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) and `LVS_TAG=3.3.0-rc2` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2`). SBSA server-ARM platforms, including DGX Spark and Grace, use the sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.08.2-sbsa` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2-sbsa`) and `LVS_TAG=3.3.0-rc2-sbsa` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2-sbsa`). LLM-side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
+- **RT-VLM AND LVS image tags must match the CPU platform.** x86 and Jetson Thor platforms, including AGX/IGX Thor, use the non-sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.08.2` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) and `LVS_TAG=3.3.0-rc2` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2`). SBSA server-ARM platforms, including DGX Spark and Grace, use the sbsa tags: `RTVI_VLM_IMAGE_TAG=3.3.0-26.08.2-sbsa` (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2-sbsa`) and `LVS_TAG=3.3.0-rc2-sbsa` (`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-rc2-sbsa`). LLM-side, follow `edge.md`: all three edge platforms run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service.
 - **Don't co-deploy a standalone Cosmos NIM with RT-VLM.** Standalone `vlm_local_*_cosmos3-reasoner` or any other `vlm_local_*_<slug>` profile must NOT be active for LVS. Verify by checking that `resolved.yml` doesn't have the default standalone `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu` services, or any other standalone VLM NIM service, alongside `rtvi-vlm`.
 - **`VLM_MODE=remote` ⇒ `RTVI_VLM_MODEL_PATH=none`.** Forgetting this leaves RT-VLM trying to load weights AND proxy at the same time → startup hang or OOM.
 - **Remote openai-compat frame sampling defaults to five fixed frames per chunk in Docker.** The Docker deployment writes `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=5` for remote LVS unless that environment variable has an explicit value. Override the deployment default for endpoints with a different image prompt limit. Leave the Docker variable empty for integrated/local models unless their documented capability requires an override. LVS summarize requests should omit request-level frame sampling fields so they cannot override the deployment policy.

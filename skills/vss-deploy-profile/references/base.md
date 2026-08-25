@@ -19,7 +19,7 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 | VIOS Postgres | `vss-vios-postgres` | — | VIOS metadata store |
 | VIOS Sensor MS | `vss-vios-sensor` | — | VIOS sensor management |
 | VIOS Stream Processing | `vss-vios-streamprocessing` | — | VIOS stream processing |
-| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Nemotron LLM for reasoning. Activated by `llm_<mode>_<slug>` COMPOSE_PROFILES; container name = `${LLM_NAME_SLUG}` (e.g. `nvidia-nemotron-nano-9b-v2-fp8`, `nemotron-3-nano`, `gpt-oss-20b`, `llama-3.3-nemotron-super-49b-v1.5`). |
+| LLM NIM (default) | `nemotron-3.5-lightning-30b-a3b` | 30081 | Nemotron LLM for reasoning. Activated by `llm_<mode>_<slug>` COMPOSE_PROFILES; container name = `${LLM_NAME_SLUG}` (the only other in-tree LLM is `nvidia-nemotron-nano-9b-v2-fp8`, the edge build). |
 | VLM NIM (default) | `nvidia-cosmos3-reasoner` | 30082 | Cosmos Reason VLM for vision. Activated by `vlm_<mode>_<slug>`; container name = `${VLM_NAME_SLUG}` (e.g. `cosmos3-reasoner`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`). |
 | Redis | `redis` | 6379 | Cache |
 | Phoenix | `phoenix` | 6006 | Observability / telemetry |
@@ -28,7 +28,7 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 
 | Role | Model | Slug | Type |
 |---|---|---|---|
-| LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | nim |
+| LLM | `nvidia/nemotron-3.5-lightning-30b-a3b` | `nemotron-3.5-lightning-30b-a3b` | nim |
 | VLM | `nvidia/cosmos3-nano-reasoner` | `cosmos3-reasoner` | nim |
 
 The base `.env` defaults both sides to shared local deployment:
@@ -36,13 +36,13 @@ The base `.env` defaults both sides to shared local deployment:
 `LLM_DEVICE_ID=0` and `VLM_DEVICE_ID=0`. `dev-profile.sh` writes the same
 mode when LLM/VLM device IDs match and no remote flags are selected.
 
-**Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/nemotron-3.5-lightning-30b-a3b`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
+**Alternate LLM:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` — the edge build (DGX Spark / AGX Thor / IGX Thor); see [`edge.md`](edge.md). Those two are the only local LLMs in the tree; `LLM_MODE=remote` still accepts any model id a remote endpoint serves.
 
 **Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `nvidia/cosmos-reason2-8b`, `Qwen/Qwen3-VL-8B-Instruct`
 
 ## Sizing — GPU memory per model
 
-Sizing for `base` is per-model. The default pair is `cosmos3-nano-reasoner` (VLM) + `nvidia-nemotron-nano-9b-v2` (LLM); the user can swap either by editing `LLM_NAME` / `LLM_NAME_SLUG` / `VLM_NAME` / `VLM_NAME_SLUG` in `dev-profile-base/generated.env` (the skill's per-deploy working copy; see ``SKILL.md`` (see `../SKILL.md`) Step 1c). The compose system auto-resolves to the right service via the computed `COMPOSE_PROFILES` (`llm_<mode>_<slug>` and `vlm_<mode>_<slug>`).
+Sizing for `base` is per-model. The default pair is `cosmos3-nano-reasoner` (VLM) + `nemotron-3.5-lightning-30b-a3b` (LLM); the user can swap either by editing `LLM_NAME` / `LLM_NAME_SLUG` / `VLM_NAME` / `VLM_NAME_SLUG` in `dev-profile-base/generated.env` (the skill's per-deploy working copy; see ``SKILL.md`` (see `../SKILL.md`) Step 1c). The compose system auto-resolves to the right service via the computed `COMPOSE_PROFILES` (`llm_<mode>_<slug>` and `vlm_<mode>_<slug>`).
 
 The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use this with the [Sizing math](#sizing-math) section to decide whether a (LLM, VLM, GPU) combo fits. 
 
@@ -50,13 +50,8 @@ The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use
 
 | Model | Type | Compose file | Params | Precision | Est. VRAM (weights × 1.3) |
 |---|---|---|---|---|---|
-| `nvidia/nvidia-nemotron-nano-9b-v2` (default) | NIM (`nvcr.io/nim/...:1`) | `nim/nvidia-nemotron-nano-9b-v2/compose.yml` | 9 B | FP16 | **23.4 GB** |
-| `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` | NIM (`nvcr.io/nim/...:1.0.0-variant`, DGX Spark only) | not in tree - see `edge.md` | 9 B | NVFP4 | ~5.9 GB |
-| `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | DLFW vLLM (`nvcr.io/nvidia/vllm:26.07-py3`) | `nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml` | 9 B | FP8 | **11.7 GB** |
-| `nvidia/nemotron-3-nano` | NIM | `nim/nemotron-3-nano/compose.yml` | ~3 B | FP16 | ~7.8 GB |
-| `nvidia/llama-3.3-nemotron-super-49b-v1.5` | NIM | `nim/llama-3.3-nemotron-super-49b-v1.5/compose.yml` | 49 B | FP16 | **127 GB** (needs tp≥2 to fit on H100/L40S) |
-| `openai/gpt-oss-20b` | NIM | `nim/gpt-oss-20b/compose.yml` | 20 B | FP16 | **52 GB** |
-| `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` | DLFW vLLM (standalone, edge only) | not in tree — see `edge.md` | 4 B | FP8 | **5.2 GB** |
+| `nvidia/nemotron-3.5-lightning-30b-a3b` (default) | NIM (`nvcr.io/nim/...:2.0.9-variant`) | `nim/nemotron-3.5-lightning-30b-a3b/compose.yml` | 30 B total / 3 B active | BF16 or INT4 (the NIM picks a profile per GPU) | **~78 GB** at BF16 by the formula; the container's own BF16 profile asks for ≥ 66 GB/GPU, and the INT4 profile pinned for L40S serves in **~45 GB** |
+| `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (edge) | DLFW vLLM (`nvcr.io/nvidia/vllm:26.07-py3`) | `nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml` | 9 B | FP8 | **11.7 GB** |
 
 ### VLMs (compose files under `deploy/docker/services/nim/`)
 
@@ -107,7 +102,7 @@ fraction       = (this_num_params / total_num_params) × 0.85
 The GPU-mem fraction knob is a fraction (0.0–1.0) of **total GPU VRAM** the NIM container is allowed to consume (weights + KV cache + activations all included). For vLLM containers, the same fraction is `--gpu-memory-utilization`.
 
 > **Which env var is effective depends on the NIM's serving stack** (verified against container source, 2026-07):
-> - **LLM NIM** (`nim_llm_sdk`: nemotron / llama / gpt-oss) — `NIM_KVCACHE_PERCENT=<v>` *and* `NIM_GPU_MEM_FRACTION=<v>` (set both; version-dependent).
+> - **LLM NIM** (`nim_llm_sdk`: `nemotron-3.5-lightning-30b-a3b`) — `NIM_KVCACHE_PERCENT=<v>` *and* `NIM_GPU_MEM_FRACTION=<v>` (set both; version-dependent).
 > - **VLM NIM, current gen** (`nim_inference_sdk`: `cosmos3-reasoner`) — `NIM_GPU_MEMORY_UTILIZATION=<v>` **only** (container default 0.90; an explicit value also overrides the NIM's built-in per-GPU auto-tuning). The container ignores `NIM_KVCACHE_PERCENT`.
 > - **VLM NIM, `cosmos-reason2-*`** — the container is the same `nim_inference_sdk` stack and reads `NIM_GPU_MEMORY_UTILIZATION`, but the in-tree CR2 deploy files are intentionally left on the legacy keys. For Docker you can set `NIM_GPU_MEMORY_UTILIZATION` in the CR2 `hw-*.env` (`env_file` passes every key through); for Helm the `cosmos-reason2-8b` chart's `envConfigMapKeys` does **not** include it, so the value will not reach the container.
 > - **VLM NIM, legacy** (`nim_llm_sdk`: `cosmos-reason1-7b`) — `NIM_KVCACHE_PERCENT=<v>` (maps to vLLM `gpu_memory_utilization` internally).
@@ -125,7 +120,7 @@ The GPU-mem fraction knob is a fraction (0.0–1.0) of **total GPU VRAM** the NI
 
 Read this as: at `NIM_KVCACHE_PERCENT=0.7` on an H100, the NIM is allowed 56 GB total. A 9B FP16 model uses ~23 GB of that for weights, leaving ~33 GB for KV cache — enough for long contexts at moderate concurrency.
 
-### Worked example — Nemotron Nano 9B + Cosmos3 Reasoner Nano BF16 on H100 80 GB shared
+### Worked example — 9 B FP16 LLM + Cosmos3 Reasoner Nano BF16 on H100 80 GB shared
 
 ```text
 H100 max safe shared budget = 0.85 × 80 GB = 68 GB
@@ -137,7 +132,7 @@ shared check: 32 + 32 = 64 GB ≤ 68 GB ✓ fits
 reserved     = 1 - (0.40 + 0.40) = 0.20  (framework/CUDA buffer)
 ```
 
-The in-tree default shared env files set both sides to `0.4` for H100 and RTX PRO 6000 Blackwell. Use the model-specific NIM profile files as the source of truth for Cosmos3 Reasoner instead of reusing the old Cosmos Reason2 8B FP16 parameter math.
+The in-tree Cosmos3 Reasoner shared env files set the VLM side to `0.4` for H100 and RTX PRO 6000 Blackwell; the default LLM (`nemotron-3.5-lightning-30b-a3b`) sets `0.5` on the same hardware. Use the model-specific NIM profile files as the source of truth for Cosmos3 Reasoner instead of reusing the old Cosmos Reason2 8B FP16 parameter math.
 
 ## Choosing dedicated vs shared
 
@@ -156,7 +151,7 @@ Two — and only two — triggers should put either side into `remote` mode.
 
 ### Trigger 1 — User supplied an endpoint
 
-The user's prompt names an LLM and/or VLM endpoint URL (e.g. *"deploy with remote LLM at `http://launchpad:11571` serving `nvidia/nvidia-nemotron-nano-9b-v2`"*) or asks for `remote-all`. Action:
+The user's prompt names an LLM and/or VLM endpoint URL (e.g. *"deploy with remote LLM at `http://launchpad:11571` serving `nvidia/nemotron-3.5-lightning-30b-a3b`"*) or asks for `remote-all`. Action:
 
 - Set `LLM_MODE=remote` (and/or `VLM_MODE=remote`) in `dev-profile-base/generated.env`.
 - Set `LLM_BASE_URL` (no trailing `/v1`), `LLM_NAME`, and `NVIDIA_API_KEY` if the endpoint requires auth.
@@ -171,7 +166,7 @@ The sizing math says the user's chosen LLM/VLM (or pair) doesn't fit on the avai
 >
 > Options:
 > 1. **Switch to a remote LLM (or VLM)** — give me the endpoint URL and the model name served there. NVIDIA's public API is `https://integrate.api.nvidia.com` if you have an `NVIDIA_API_KEY`.
-> 2. **Switch to a lower-precision build** of the same model (e.g. `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` instead of FP16).
+> 2. **Switch to a lower-precision build** of the same model (e.g. `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` instead of a BF16/FP16 build of the same weights).
 > 3. **Use `remote-all`** — both LLM and VLM at remote endpoints; no local GPU used.
 
 Wait for the user to pick. **Don't silently substitute a different local model** — the user chose the original for a reason (eval consistency, behavior parity, license, etc.).
@@ -179,9 +174,8 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 ### Hard rules
 
 - **L40S (48 GB) shared mode is tight.** Use the sizing math for the selected LLM/VLM pair. If the pair exceeds 40.8 GB usable, use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
-- **DGX Spark shared mode must use the DGX Spark Nano 9B NIM path in `edge.md`.** Run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and set `LLM_MODE=remote`, `LLM_BASE_URL=http://localhost:30081`, and `LLM_NAME_SLUG=none`. The image is not wired into compose yet. Do not use the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image on DGX Spark.
-- **AGX/IGX Thor shared mode: Edge 4B is the LLM; the VLM still runs via RT-VLM.** The Edge 4B fallback in `edge.md` (standalone vLLM + `HF_TOKEN`) is the **LLM** path — this skill has no verified Thor-supported Nano 9B NIM, so keep it unless the user supplies a verified remote LLM endpoint. The **VLM** on base+Thor is *not* a standalone NIM: `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`).
-- **Llama 3.3 49B FP16 doesn't fit on a single 80 GB GPU.** 49 × 16 / 8 × 1.3 = 127 GB > 68 GB usable. Either run dedicated with tensor parallelism (`tp=2` on two H100s → 63.7 GB/GPU) or use H200 (141 GB) / B200 (192 GB) — or escalate per Trigger 2.
+- **Edge hardware (DGX Spark / AGX Thor / IGX Thor) uses the Nano 9B v2 FP8 build.** The default `nemotron-3.5-lightning-30b-a3b` ships no `hw-DGX-SPARK` / `hw-AGX-THOR` / `hw-IGX-THOR` env files, so `dev-profile.sh` selects `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (`LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2-fp8`) on those hardware profiles when no `--llm` is given and the LLM is not remote. It is a compose-managed service, so `LLM_MODE` stays `local_shared` / `local` — see [`edge.md`](edge.md).
+- **AGX/IGX Thor: the VLM runs via RT-VLM, not a standalone NIM.** `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`). The LLM side is the same Nano 9B v2 FP8 compose service as DGX Spark.
 - **`HARDWARE_PROFILE` is just an env-file label, not a sizing oracle.** It selects the path `nim/<slug>/hw-<HARDWARE_PROFILE>(-shared).env` — that's all. Pre-tuned env files exist for known platforms as a convenience, but missing != unsupported. Compute the right `NIM_KVCACHE_PERCENT` (or `--gpu-memory-utilization`) from the [Sizing math](#sizing-math) and write it into a fresh `hw-<HARDWARE_PROFILE>(-shared).env` (or set `HARDWARE_PROFILE=OTHER` and edit `hw-OTHER(-shared).env`). The agent's correctness check is the **resolved compose**: does it include the right LLM/VLM service for the chosen `LLM_NAME_SLUG` / `VLM_NAME_SLUG`, and does that service's env carry the computed sizing values? If yes, the deploy will work regardless of which `HARDWARE_PROFILE` label is used.
 - **Remote side — no local GPU needed.** When `LLM_MODE=remote` or `VLM_MODE=remote`, the matching local NIM/vLLM service is skipped entirely. Sizing math doesn't apply for the remote side.
 
@@ -211,7 +205,7 @@ The skill never invokes `dev-profile.sh`. Swapping a model is a `generated.env` 
 
 In-tree slugs are the directory names under `deploy/docker/services/nim/`:
 
-- **LLMs:** `nvidia-nemotron-nano-9b-v2`, `nvidia-nemotron-nano-9b-v2-fp8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`
+- **LLMs:** `nemotron-3.5-lightning-30b-a3b`, `nvidia-nemotron-nano-9b-v2-fp8`
 - **VLMs:** `cosmos3-reasoner`, `cosmos-reason2-8b`, `cosmos-reason1-7b`, `qwen3-vl-8b-instruct`
 
 If yes → set the four env vars in `deploy/docker/developer-profiles/dev-profile-base/generated.env`:
@@ -300,7 +294,7 @@ services:
 
 Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-base/generated.env` to set `LLM_NAME` / `LLM_NAME_SLUG`. Use the [Tuning workflow](#tuning-workflow) to dial in `--gpu-memory-utilization`.
 
-> **Edge note.** On DGX Spark / Thor, follow `edge.md` instead. DGX Spark currently runs the DGX Spark Nano 9B NIM as a standalone local service on port `30081`; Thor still uses the Edge 4B standalone vLLM fallback. In both cases the agent treats the local standalone LLM as `LLM_MODE=remote` because the LLM service is outside the compose stack.
+> **Edge note.** On DGX Spark / Thor, follow [`edge.md`](edge.md) instead. All three edge hardware profiles run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` service — the same DLFW shape shown above — so the LLM stays inside the compose stack and `LLM_MODE` stays local.
 
 ### Picking `--gpu-memory-utilization` quickly
 
@@ -308,16 +302,16 @@ For shared mode, compute it via the formula. As sanity-check defaults / in-tree 
 
 | Co-residency | LLM `--gpu-memory-utilization` | VLM GPU-mem fraction (effective knob per the [stack table](#nim_kvcache_percent--gb-on-common-gpus)) | Source |
 |---|---|---|---|
-| Nano 9B v2 + Cosmos3 Reasoner Nano BF16 (shared) | 0.40 | 0.40 | Cosmos3 `*-shared.env` |
-| DGX Spark Nano 9B NIM + Cosmos3 Reasoner Nano BF16 on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
-| Edge 4B + RT-VLM on Thor | 0.25 | RT-VLM default 0.35 | `edge.md` Thor fallback |
-| Qwen3-VL 8B + Nano 9B (shared) | 0.40 | 0.40 | Qwen3 `*-shared.env` |
+| Nemotron 3.5 Lightning + Cosmos3 Reasoner Nano BF16 (shared) | 0.50 | 0.40 | Lightning + Cosmos3 `*-shared.env` |
+| Nano 9B v2 FP8 + RT-VLM on DGX Spark | 0.40 | RT-VLM 0.40 | `edge.md` |
+| Nano 9B v2 FP8 + RT-VLM on Thor | 0.40 | RT-VLM 0.35 | `edge.md` |
+| Qwen3-VL 8B + Nemotron 3.5 Lightning (shared) | 0.50 | 0.40 | Lightning `*-shared.env`, Qwen3 compose command |
 
 Rules of thumb when adding a new model:
 
 - **FP8 / INT8 weights:** start at 0.40 shared, 0.85 dedicated.
 - **BF16 / FP16 weights:** start at 0.40–0.50 shared (only if the pair fits per the formula), 0.85 dedicated.
-- **Edge unified memory (DGX Spark / Thor):** cap aggressively. Start with `0.40` for the DGX Spark Nano 9B NIM recipe and `0.25` for the Thor Edge 4B vLLM fallback; lower by `0.05` if startup or first inference reports memory pressure.
+- **Edge unified memory (DGX Spark / Thor):** cap aggressively. The in-tree Nano 9B v2 FP8 shared service starts at `0.40`; lower by `0.05` if startup or first inference reports memory pressure.
 - **OOM at startup** → lower by 0.05. **OOM mid-inference** → also lower `NIM_MAX_MODEL_LEN` / `--max-model-len` and `NIM_MAX_NUM_SEQS`.
 
 If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endpoints) — no local sizing required.
@@ -413,8 +407,8 @@ overwrite the template default — re-run the `sed` with the correct value.
 
 ```json
 {
-  "LLM_NAME": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-  "LLM_NAME_SLUG": "llama-3.3-nemotron-super-49b-v1.5"
+  "LLM_NAME": "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8",
+  "LLM_NAME_SLUG": "nvidia-nemotron-nano-9b-v2-fp8"
 }
 ```
 
@@ -483,7 +477,7 @@ Common failure modes and what they mean for base:
 | `POST /api/v1/videos` HTTP 500 | Agent not finished starting — poll `/health` longer |
 | VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vss-vios-ingress` |
 | VST returns empty `sensor/streams` but VST container is healthy | Check Postgres health/logs with `docker logs vss-vios-postgres`. Current compose uses the named volume `vios_pg_data` for PGDATA, not a `$VSS_DATA_DIR` Postgres bind mount. See [`data-directory.md`](data-directory.md) before removing any volume. |
-| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2` / `nvidia-cosmos3-reasoner` |
+| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nemotron-3.5-lightning-30b-a3b` / `nvidia-cosmos3-reasoner` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |
 

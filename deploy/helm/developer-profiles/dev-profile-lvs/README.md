@@ -32,7 +32,7 @@ Switch to **external-service mode** only when the model endpoints already run ou
 
 ## Performance profile (`values-perf.yaml`, opt-in)
 
-`values-perf.yaml` runs the LVS profile with its highest-performance model configuration for dedicated-GPU deployments: the `nemotron-3-nano` (30B) LLM with reasoning disabled and the integrated Cosmos VLM quantized to the precision that matches the GPU (FP8 or NVFP4). Apply it explicitly on top of the base values:
+`values-perf.yaml` runs the LVS profile with its highest-performance model configuration for dedicated-GPU deployments: the `nemotron-35-lightning-30b-a3b` (30B) LLM with reasoning disabled and the integrated Cosmos VLM quantized to the precision that matches the GPU (FP8 or NVFP4). Apply it explicitly on top of the base values:
 
 ```bash
 helm upgrade --install vss . -f values-lvs.yaml -f values-perf.yaml -n vss --create-namespace
@@ -42,10 +42,10 @@ The overlay switches the LVS profile to:
 
 | Component | With `values-perf.yaml` |
 |-----------|--------------------------|
-| LLM | **`nemotron-3-nano`** (30B), reasoning disabled (`NIM_PASSTHROUGH_ARGS=--default-chat-template-kwargs {"enable_thinking":false}`); auto-sizes its own KV/concurrency per GPU. The NIMCache pins one profile — `nims.nemotron3.modelPrecision`, TP = the requested GPU count — so only that profile is cached, not every precision variant. |
+| LLM | **`nemotron-35-lightning-30b-a3b`** (30B), reasoning disabled (`NIM_PASSTHROUGH_ARGS=--default-chat-template-kwargs {"enable_thinking":false}`); auto-sizes its own KV/concurrency per GPU. The NIMCache pins one profile — `nims.nemotron35.modelPrecision`, TP = the requested GPU count — so only that profile is cached, not every precision variant. |
 | VLM | integrated Cosmos Reason3 Nano, precision selected by `nims.gpuType`: **FP8** on `H100`/`L40S`, **NVFP4** on `RTXPRO6000BW` |
 
-The overlay defaults to `nims.gpuType: H100` with **FP8** for both the LLM (`nims.nemotron3.modelPrecision`) and VLM. For **Blackwell (`RTXPRO6000BW`)**, override the platform, the LLM precision, and the VLM precision strings to **NVFP4** — the render-time guard (`templates/validate-vlm-precision.yaml`) fails `helm template`/`install` if any of them disagree with `nims.gpuType`:
+The overlay defaults to `nims.gpuType: H100` with **FP8** for both the LLM (`nims.nemotron35.modelPrecision`) and VLM. For **Blackwell (`RTXPRO6000BW`)**, override the platform, the LLM precision, and the VLM precision strings to **NVFP4** — the render-time guard (`templates/validate-vlm-precision.yaml`) fails `helm template`/`install` if any of them disagree with `nims.gpuType`:
 
 ```yaml
 # values-perf-blackwell.yaml — apply after values-perf.yaml
@@ -388,7 +388,7 @@ Run the port-forwards in separate terminals:
 ```bash
 kubectl port-forward -n <NAMESPACE> svc/vss-summarization 38111:38111
 kubectl port-forward -n <NAMESPACE> svc/vss-rtvi-vlm 8018:8000
-kubectl port-forward -n <NAMESPACE> svc/nemotron-3.5-lightning-30b-a3b 30081:8000
+kubectl port-forward -n <NAMESPACE> svc/nemotron-35-lightning-30b-a3b 30081:8000
 ```
 
 Then validate:

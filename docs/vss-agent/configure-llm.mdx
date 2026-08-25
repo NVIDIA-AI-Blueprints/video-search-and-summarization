@@ -11,18 +11,16 @@ For **remote** LLMs, as long as the API is [OpenAI compatible](https://platform.
 
 When deploying with a local LLM, the agent workflow uses a default NIM endpoint. You can customize it as follows:
 
-- **Default model:** `nvidia/nvidia-nemotron-nano-9b-v2` (configured as a local NIM endpoint).
+- **Default model:** `nvidia/nemotron-3.5-lightning-30b-a3b` (configured as a local NIM endpoint).
 
 - **Custom NIM env file:** At deploy time, pass `--llm-env-file` with the path (absolute or relative to the current directory) to an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
 
 - **Different local model:** Pass `--llm` with one of the supported model names:
 
-  - `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`
-  - `nvidia/nemotron-3-nano`
-  - `nvidia/llama-3.3-nemotron-super-49b-v1.5`
-  - `openai/gpt-oss-20b`
+  - `nvidia/nemotron-3.5-lightning-30b-a3b` (default)
+  - `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (edge only: DGX-SPARK, AGX-THOR, IGX-THOR)
 
-- **Verified models:** Only the default `nvidia/nvidia-nemotron-nano-9b-v2` is verified for local deployment. For other models, ensure GPU memory meets requirements and refer to [LLM NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html).
+- **Supported models:** `nvidia/nemotron-3.5-lightning-30b-a3b` ships sizing for the H100, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW and OTHER hardware profiles; `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` ships sizing for the DGX-SPARK, AGX-THOR and IGX-THOR edge profiles, where the deploy script selects it automatically. Serve any other model through a remote endpoint; ensure GPU memory meets requirements and refer to [LLM NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html).
 
 - **GPU assignment:** Use `--llm-device-id` to pin the local LLM to a specific GPU (e.g. when sharing with a local VLM). See the quickstart deploy tab-set for examples.
 

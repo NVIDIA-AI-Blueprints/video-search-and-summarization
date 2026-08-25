@@ -33,7 +33,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | Behavior analytics | `vss-behavior-analytics` | — | Rule-based alerts from RT-CV metadata | **2d_cv only** |
 | RT-VLM | `vss-rtvi-vlm` | 8018 | VLM runner (Cosmos Reason3 Nano BF16 by default) | both |
 | Alert-bridge | `vss-alert-bridge` | 9080 | Realtime alerting API; drives `POST/DELETE /api/v1/realtime` on the agent | both |
-| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. | both |
+| LLM NIM (default) | `nemotron-3.5-lightning-30b-a3b` | 30081 | Same options as `base` (Nemotron 3.5 Lightning default). Container name = `${LLM_NAME_SLUG}`. | both |
 | nvstreamer-alerts | `vss-vios-nvstreamer` | 31000 | Plays back dataset video to simulate live cameras | both |
 | VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest | both |
 | VSS Agent | `vss-agent` | 8000 | Orchestrates alert verification and incident reports | both |
@@ -47,11 +47,11 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 
 | Role | Model | `VLM_NAME` / slug | Served by |
 |---|---|---|---|
-| LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
+| LLM | `nvidia/nemotron-3.5-lightning-30b-a3b` | `nemotron-3.5-lightning-30b-a3b` | NIM (port 30081) |
 | VLM | Cosmos Reason3 Nano BF16 (integrated) | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** / slug **`none`** | RT-VLM (port 8018), `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | Perception (2d_cv only) | Grounding DINO | (`DS_MODEL_FAMILY=rtdetr-gdino`, `MODEL_NAME_2D=GDINO`) | RT-CV (DeepStream) |
 
-LLM alternates: same as `base` — `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
+LLM alternate: same as `base` — `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, the edge build (DGX Spark / AGX Thor / IGX Thor). Those two are the only local LLMs in the tree.
 
 VLM alternates: see [VLM serving paths](#vlm-serving-paths) below.
 
@@ -192,7 +192,7 @@ On RTX 4500 the LLM is remote, so there is no local `NIM_KVCACHE_PERCENT` to set
 ### Hard rules
 
 - **L40S can't run `local_shared`.** dev-profile.sh rejects sharing the L40S device ID, so RT-VLM and the LLM can't co-locate — use `local` (RT-VLM on its own GPU @ 0.8) with the LLM remote or on another GPU.
-- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason3 Nano BF16 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos3-reasoner` NIM service; the alerts compose graph routes through RT-VLM only, and the generated/runtime env already pairs `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and `RT_VLM_DEVICE_ID=0` (unified memory) are also part of the Thor shape. For the LLM side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
+- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason3 Nano BF16 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos3-reasoner` NIM service; the alerts compose graph routes through RT-VLM only, and the generated/runtime env already pairs `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and `RT_VLM_DEVICE_ID=0` (unified memory) are also part of the Thor shape. For the LLM side, follow `edge.md`: all three edge platforms run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service.
 - **Don't co-deploy a standalone Cosmos NIM with alerts.** `COMPOSE_PROFILES` for alerts has no `vlm_*_<slug>` segment by design. Verify by checking `resolved.yml` doesn't have `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu` services alongside `rtvi-vlm`.
 - **`VLM_NAME` mismatch ⇒ HTTP 400.** dev-profile.sh sets `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` for the default Cosmos3 Nano BF16 path. If you change `RTVI_VLM_MODEL_PATH` you must update `VLM_NAME` to match the new model basename — otherwise alert-bridge / agent get "No such model" from `/v1/models`.
 - **`VLM_NAME_SLUG=none` is required.** The alerts compose graph has no `vlm_local_*_<slug>` profiles. Setting a real slug doesn't bring up a VLM service — it just makes the COMPOSE_PROFILES reference dead.
