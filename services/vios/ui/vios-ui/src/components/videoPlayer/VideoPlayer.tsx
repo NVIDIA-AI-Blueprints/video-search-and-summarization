@@ -463,7 +463,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 rtptransport: 'udp',
                 timeout: 60,
                 quality: quality,
-                framerate: 15,
+                // Fifteen is a WebRTC era choice and DASH cannot use it: asking
+                // the composite pipeline for half the source rate loses half the
+                // frames somewhere in the encode path, and because the muxer
+                // stamps a nominal duration per frame rather than measuring
+                // arrival, the loss shows up as a timeline advancing at half
+                // real time.  The live edge then runs away from the viewer and
+                // the picture stutters and falls behind without ever recovering.
+                // Measured: 0.5 segments a second at fifteen, 1.05 at the source
+                // rate, with the same one second segments in both.
+                ...(deliveryProtocol === 'dash' ? {} : { framerate: 15 }),
                 overlay: overlaySettings || {
                     bbox: { showAll: false, objectId: [], classType: [] },
                     tripwire: { showAll: false, id: [] },

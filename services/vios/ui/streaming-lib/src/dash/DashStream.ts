@@ -197,7 +197,14 @@ export class DashStream {
                 // the threshold dash.js seeks to the edge rather than crawling
                 // back, which is what rescues a stranded playhead.
                 liveCatchup: {
-                    enabled: true,
+                    // Off.  With it on the player changed its rate about twice a
+                    // second - sixty three times in thirty five seconds - and sat
+                    // in lockstep with the packager, taking exactly one segment a
+                    // second and consuming it in one second, never getting ahead
+                    // even with eighteen seconds of fetchable media between the
+                    // playhead and the live edge.  The stranded playhead watchdog
+                    // now covers the freeze this was originally kept on to avoid.
+                    enabled: false,
                     maxDrift: 10,
                     // Slower than real time is always safe: it lets latency
                     // grow and the buffer refill.  Faster is not, against a
@@ -365,7 +372,11 @@ export class DashStream {
         });
         // Debugging aid: a stalled player can only be explained from its own
         // metrics, which are otherwise unreachable from outside this class.
-        (window as unknown as { __dashPlayer?: unknown }).__dashPlayer = player;
+        const w = window as unknown as { __dashPlayer?: unknown; __dashAttach?: number; __dashPlayers?: unknown[] };
+        w.__dashAttach = (w.__dashAttach ?? 0) + 1;
+        w.__dashPlayers = w.__dashPlayers ?? [];
+        w.__dashPlayers.push(player);
+        w.__dashPlayer = player;
         (window as unknown as { __dashjs?: unknown }).__dashjs = dashjs;
         this.videoElement = config.videoElement;
         if (!stockPlayer) {
