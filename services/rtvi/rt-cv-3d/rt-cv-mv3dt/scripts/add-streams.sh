@@ -68,11 +68,13 @@ LIST=0
 REMOVE_ALL=0
 ASSUME_YES=0
 
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# Print the commented Usage/Options block, skipping the SPDX licence header.
+usage() { sed -n '/^# Usage:/,/^set -euo pipefail/p' "$0" | sed '$d; s/^#\{0,1\} \{0,1\}//'; exit "${1:-0}"; }
 
 while (($#)); do
   case "$1" in
-    --file)           mapfile -t -O "${#STREAMS[@]}" STREAMS < <(grep -vE '^\s*(#|$)' "$2"); shift 2 ;;
+    --file)           mapfile -t -O "${#STREAMS[@]}" STREAMS \
+                        < <(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$2" | grep -vE '^(#|$)'); shift 2 ;;
     --remove)         MODE=remove; shift ;;
     --remove-all)     MODE=remove; REMOVE_ALL=1; shift ;;
     -y|--yes)         ASSUME_YES=1; shift ;;
