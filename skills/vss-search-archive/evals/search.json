@@ -62,7 +62,7 @@
         "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run fusion` command from the validated checkout, relying on the deployment recorded by `vss configure`; it passed no endpoint, index, or model flags and did not use `--search-mode`, `--decomposed-json`, `--deployment`, `--base-url`, a container/pod shell, or `/api/v1/search`",
         "The command preserved the ladder-climbing action in `--query` and the `white jacket` attribute in `--attribute`, and selected the `fusion` sub-action rather than passing a mode flag",
         "The command passed the resolved sensor ID with `--video-source`, selected the upload partition with `--source-type video_file`, bounded results with `--top-k 3`, and returned a non-empty `data` array with timestamped hits",
-        "The result summary preserved every hit's source, timestamps, score, media URL, and exact CLI `verification.result`. Each media URL matched the origin recorded by `vss configure` — the origin the host CLI stamps into every hit — and a bounded GET, if needed, could report media unavailability without invalidating an otherwise successful retrieval result",
+        "The result summary preserved every hit's source, timestamps, score, media URL, and exact CLI `verification.result`. Each media URL matched the origin recorded by `vss configure` \u2014 the origin the host CLI stamps into every hit \u2014 and a bounded GET, if needed, could report media unavailability without invalidating an otherwise successful retrieval result",
         "Every returned hit contained a `verification` object whose result was exactly `confirmed`, `rejected`, or `unverified`; the agent did not infer a verdict from score or screenshot availability and did not inspect screenshot pixels",
         "Only if every hit in the nonempty displayed result set remained `unverified`, the report asked whether those results should be verified; if any hit was confirmed or rejected it offered no delegated verification, and it did not deploy, redeploy, or ingest during this step"
       ]
@@ -102,11 +102,31 @@
       "scenario": "kubernetes-ingress-contract",
       "query": "Explain the exact host-side commands you would use to list registered sources and search the Kubernetes search profile exposed at `VSS_PUBLIC_URL=https://vss-search.example.com`. Search only the resolved `warehouse_sample` source for forklifts with the embed path and top-k 3. This is a contract check: show the commands but do not execute them or deploy anything.",
       "checks": [
-        "The answer trims the trailing slash, runs `vss configure --base-url https://vss-search.example.com`, and lists sources with `vss vios list` — which reads that recorded origin and takes no endpoint of its own. A hand-built `/vst/api/v1/sensor/list` URL does not satisfy this: the CLI owns source listing now.",
-        "The answer runs `vss configure --base-url https://vss-search.example.com` once, resolves `warehouse_sample` to its sensor ID from the listed source object, then runs `vss search run embed` with `--query`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3` — the same commands it would use for Compose",
+        "The answer trims the trailing slash, runs `vss configure --base-url https://vss-search.example.com`, and lists sources with `vss vios list` \u2014 which reads that recorded origin and takes no endpoint of its own. A hand-built `/vst/api/v1/sensor/list` URL does not satisfy this: the CLI owns source listing now.",
+        "The answer runs `vss configure --base-url https://vss-search.example.com` once, resolves `warehouse_sample` to its sensor ID from the listed source object, then runs `vss search run embed` with `--query`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3` \u2014 the same commands it would use for Compose",
         "The answer passes no endpoint, index, or model flags and does not use `--base-url` on the search command, `--deployment`, `--profile`, or `--search-mode`",
         "The answer does not use kubectl, port-forward, Kubernetes Service DNS, a NodePort, localhost, direct `:8000`, direct `:9200`, or direct `:30888`",
         "The answer explains that routes the Ingress does not expose are recorded as absent and that a search path needing one exits 4, rather than proposing to expose or forward them"
+      ]
+    },
+    {
+      "scenario": "in-product-agent-action-query",
+      "query": "Verify the in-product agent search path using this checkout's own agent build. From the repo root compute TAG=\"tree-$(git rev-parse HEAD:services/agent)\" and poll ghcr.io/nvidia-ai-blueprints/vss/vss-agent:$TAG for availability with one bounded deadline of up to 15 minutes (the sibling image workflow publishes it on the same push); if it never appears, print diagnostics and fail rather than falling back to another tag. Then recreate ONLY the vss-agent container of the prepared search deployment with VSS_AGENT_VERSION=$TAG (docker compose up -d --force-recreate --no-deps vss-agent with the deployment's own env files), wait for it to report healthy, and send POST /generate through the configured origin's agent route with input_message \"Find up to 3 instances of a worker placing orange traffic cones in the video warehouse_sample. Report each match with its time range.\" The fixtures are already ingested. Report the agent's reply faithfully.",
+      "checks": [
+        "The agent container was recreated with the checkout's content-addressed image tag (tree-<sha> of services/agent) using --no-deps, no other service was recreated, and the trajectory polled for the tag with one bounded deadline instead of substituting develop-latest or another tag",
+        "The query was sent to the agent's /generate endpoint through the configured origin, not to the host `vss search run` CLI",
+        "The agent's reply contained a Search API result JSON block with a non-empty `data` array of timestamped hits for `warehouse_sample`",
+        "Server-side, the search agent's query decomposition kept the action phrase in the refined query rather than copying it into `attributes`, and did not invent a timestamp filter the user never asked for (visible in the vss-agent log line `Query decomposed:`)"
+      ]
+    },
+    {
+      "scenario": "in-product-agent-absent-object-probe",
+      "query": "With the vss-agent container still running the checkout's own content-addressed image from the previous scenario, send POST /generate through the configured origin's agent route with input_message \"Find up to 3 instances of a neon-pink monster truck in the video warehouse_sample. Report each match with its time range.\" No such object appears in the fixture. Report the agent's reply faithfully, then restore the agent by recreating only vss-agent without the tag override.",
+      "checks": [
+        "The query was sent to the agent's /generate endpoint while the agent ran the checkout's content-addressed image; no redeploy or ingestion occurred before the query",
+        "The agent's reply did not assert the monster truck was found or present: any returned segments were framed as unverified or similarity-based candidate matches, not as sightings, unless a critic verdict was `confirmed`",
+        "The reply did not treat similarity scores or nearest-neighbor candidates as proof of visual presence, and zero candidates were not claimed as proof of absence",
+        "After the probe, the agent was restored by recreating only the vss-agent service without the version override"
       ]
     }
   ]
