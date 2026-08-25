@@ -17,7 +17,6 @@ services:
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
-    network_mode: "host"
     environment:
       ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
       discovery.type: single-node
@@ -27,6 +26,8 @@ services:
       - mdx-elastic-logs:/tmp/elastic/logs:rw
     container_name: mdx-elastic
     restart: always
+    ports:
+      - "9200:9200"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
       interval: 10s
@@ -38,17 +39,15 @@ services:
     build:
       context: $INFRA_DIR
       dockerfile: Dockerfiles/elastic-init.Dockerfile
-    network_mode: "host"
     container_name: mdx-elasticsearch-init
     environment:
-      ELASTICSEARCH_URL: "http://localhost:9200"
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
     command: bash -c "bash /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh && bash /opt/mdx/init-scripts/elasticsearch-template-creation.sh"
     depends_on:
       - elasticsearch
 
   kafka:
-    image: confluentinc/cp-kafka:8.2.0
-    network_mode: "host"
+    image: confluentinc/cp-kafka:8.3.0
     volumes:
       - mdx-kafka:/tmp/kafka-data
       - $INFRA_DIR/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
@@ -57,10 +56,10 @@ services:
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_NODE_ID: 1
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:9093'
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://$HOST_IP:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://$HOST_IP:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -74,20 +73,27 @@ services:
       KAFKA_LOG_DIRS: '/tmp/kafka-data'
     container_name: mdx-kafka
     entrypoint: ["/bin/sh", "/usr/local/bin/kafka-entrypoint.sh"]
+    ports:
+      - "9092:9092"
     healthcheck:
-      test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
       interval: 15s
       timeout: 15s
       retries: 10
       start_period: 60s
 
   kafka-topic-init-container:
-    image: confluentinc/cp-kafka:8.2.0
+    build:
+      context: $INFRA_DIR
+      dockerfile: Dockerfiles/kafka-health-check.Dockerfile
+      target: kafka-base
+    image: mdx-kafka-topic-init
     container_name: mdx-kafka-topics
-    network_mode: "host"
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/infra/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
+      - $INFRA_DIR/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
     environment:
+      BOOTSTRAP_HOST: "kafka"
+      KAFKA_PORT: "29092"
       DEFAULT_PARTITIONS: "8"
       DEFAULT_RETENTION_MS: "14400000"
       DEFAULT_SEGMENT_MS: "3600000"
@@ -120,7 +126,6 @@ services:
     profiles: ["redis"]
     restart: always
     command: redis-server /config/redis.conf
-    network_mode: host
     container_name: mdx-redis
     volumes:
       - $INFRA_DIR/redis/configs/redis.conf:/config/redis.conf
@@ -135,21 +140,19 @@ services:
       - logstash
       - redis
     environment:
-      REDIS_HOST: localhost
+      REDIS_HOST: redis
       REDIS_PORT: 6379
-      KAFKA_BROKERS: localhost:9092
+      KAFKA_BROKERS: kafka:29092
       KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
       STARTUP_DELAY: 50
     container_name: mdx-bridge
     restart: always
-    network_mode: "host"
     profiles: ["redis"]
 
   emqx:
     image: emqx:latest
     profiles: ["mqtt"]
     restart: always
-    network_mode: host
     container_name: mdx-mqtt-emqx
     volumes:
       - mdx-emqx-data:/opt/emqx/data
@@ -161,28 +164,50 @@ services:
       dockerfile: Dockerfiles/Dockerfile.mqttbridge
     profiles: ["mqtt"]
     restart: always
-    network_mode: "host"
     container_name: mdx-mqtt-bridge
     depends_on:
       - logstash
     environment:
-      MQTT_HOST: localhost
+      MQTT_HOST: emqx
       MQTT_PORT: 1883
-      KAFKA_BROKERS: localhost:9092
+      KAFKA_BROKERS: kafka:29092
       KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
+
+  broker-health-check:
+    build:
+      context: $INFRA_DIR
+      dockerfile: Dockerfiles/kafka-health-check.Dockerfile
+    image: mdx-broker-health-check
+    container_name: mdx-broker-health-check
+    restart: "no"
+    environment:
+      MAX_RETRIES: 60
+      RETRY_INTERVAL: 2
+      BOOTSTRAP_HOST: "kafka"
+      KAFKA_PORT: "29092"
+      KAFKA_TOPICS: '[{"name": "mdx-raw"},
+        {"name": "mdx-bev"},
+        {"name": "mdx-behavior"},
+        {"name": "mdx-frames"},
+        {"name": "mdx-events"},
+        {"name": "mdx-incidents"}]'
+    depends_on:
+      kafka-topic-init-container:
+        condition: service_completed_successfully
 
   kibana:
     image: docker.elastic.co/kibana/kibana:9.3.3
-    network_mode: "host"
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+      - $INFRA_DIR/elk/kibana/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
     container_name: mdx-kibana
     restart: always
+    ports:
+      - "5601:5601"
     depends_on:
       elasticsearch:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5601/api/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:5601/kibana/api/status"]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -190,7 +215,6 @@ services:
 
   logstash:
     image: docker.elastic.co/logstash/logstash:9.3.3
-    network_mode: "host"
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs
       - $INFRA_DIR/elk/logstash/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
@@ -202,7 +226,7 @@ services:
     container_name: mdx-logstash
     restart: always
     depends_on:
-      kafka-topic-init-container:
+      broker-health-check:
         condition: service_completed_successfully
       elasticsearch-init-container:
         condition: service_completed_successfully

@@ -58,10 +58,10 @@ else
     PLAYBACK_MODE=""
 fi
 
-# Docker Compose uses host networking for this integration stack. Kafka clients
-# first connect to the bootstrap server, then follow the broker's advertised
-# listener from metadata. Advertising the Docker bridge/container IP breaks the
-# in-container healthcheck and topic initialization in CI, so advertise loopback.
+# The stack runs on the Compose bridge network. Kafka advertises two listeners:
+# INTERNAL (kafka:29092) for in-network clients, and EXTERNAL (HOST_IP:9092) for
+# the host-side harness reaching the published port. HOST_IP therefore only ever
+# names the host, never a container.
 HOST_IP="localhost"
 
 # Create/populate the .env file based on profiles
