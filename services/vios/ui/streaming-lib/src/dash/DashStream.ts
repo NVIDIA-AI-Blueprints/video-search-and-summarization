@@ -61,6 +61,7 @@ export class DashStream {
     private autoplayAttempted = false;
     private pageHideListener: (() => void) | null = null;
     private strandTimer: ReturnType<typeof setInterval> | null = null;
+    private autoplayFallbackTimer: ReturnType<typeof setTimeout> | null = null;
     // Remembered so the session is released through the same API that created it.
     private replay = false;
     private config: DashStreamConfig | null = null;
@@ -354,9 +355,36 @@ export class DashStream {
                     ? buffered.end(buffered.length - 1) - config.videoElement.currentTime
                     : 0;
                 if (bufferedAhead < autoplayBufferSeconds) {
+                    // The cushion is worth waiting for, but not forever.  A
+                    // player that is paused stops filling well short of it -
+                    // measured stopping at two seconds against a four second
+                    // target - so waiting for the full amount before starting
+                    // means each side waits for the other and the picture never
+                    // moves.  Once the element says it has enough to play,
+                    // give the buffer a moment longer to grow and then start
+                    // regardless.
+                    if (config.videoElement.readyState >= 3 && this.autoplayFallbackTimer === null) {
+                        this.autoplayFallbackTimer = setTimeout(() => {
+                            this.autoplayFallbackTimer = null;
+                            if (this.autoplayAttempted || !config.videoElement.paused) {
+                                return;
+                            }
+                            this.autoplayAttempted = true;
+                            this.removeAutoplayListener();
+                            trace('AUTOPLAY_WITHOUT_FULL_BUFFER', {
+                                bufferedAhead: Number(bufferedAhead.toFixed(2)),
+                                wanted: autoplayBufferSeconds,
+                            });
+                            void config.videoElement.play().catch(() => {
+                                // eslint-disable-next-line no-console
+                                console.warn('[dash] muted autoplay was rejected; use the player controls to resume');
+                            });
+                        }, 2500);
+                    }
                     return;
                 }
                 this.autoplayAttempted = true;
+                this.clearAutoplayFallback();
                 this.removeAutoplayListener();
                 void config.videoElement.play().catch(error => {
                     // eslint-disable-next-line no-console
@@ -483,6 +511,7 @@ export class DashStream {
 
     private releasePlayer(): void {
         this.stopStrandWatchdog();
+        this.clearAutoplayFallback();
         // Unsubscribe before resetting the dash.js instance so the listener is
         // not retained by a replacement replay player.
         this.removeAutoplayListener();
@@ -497,6 +526,13 @@ export class DashStream {
         this.firstFrameListener = null;
         this.firstFrameReported = false;
         this.autoplayAttempted = false;
+    }
+
+    private clearAutoplayFallback(): void {
+        if (this.autoplayFallbackTimer !== null) {
+            clearTimeout(this.autoplayFallbackTimer);
+            this.autoplayFallbackTimer = null;
+        }
     }
 
     private removeAutoplayListener(): void {
