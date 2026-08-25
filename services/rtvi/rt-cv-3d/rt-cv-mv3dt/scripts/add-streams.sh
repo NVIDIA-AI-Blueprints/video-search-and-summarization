@@ -251,7 +251,12 @@ if registered < required:
 PY
 }
 
-lookup_stream_url() {  # $1=camera_id; prints URL when stream-info includes one.
+# True when camera_id is currently registered. That is all the removal needs:
+# the REST API identifies a stream by camera_id and accepts an empty
+# camera_url (nvbugs/6557680).
+#
+# Returns 0 registered, 1 not registered, 2 API unreachable.
+stream_is_registered() {  # $1=camera_id
   local cam="$1"
   if [[ -z "$STREAM_INFO_JSON" ]]; then
     if ! STREAM_INFO_JSON="$(curl -fsS --max-time 5 --connect-timeout 3 \
@@ -261,21 +266,12 @@ lookup_stream_url() {  # $1=camera_id; prints URL when stream-info includes one.
   fi
   printf '%s' "$STREAM_INFO_JSON" | python3 -c '
 import json, sys
-
-camera_id = sys.argv[1]
-d = json.load(sys.stdin)
-info = d.get("stream-info", {})
-streams = info.get("stream-info", [])
-for stream in streams:
-    if str(stream.get("camera_id", "")) != camera_id:
-        continue
-    for key in ("camera_url", "url", "rtsp_url", "uri"):
-        value = stream.get(key)
-        if isinstance(value, str):
-            print(value)
-            break
-    sys.exit(0)
-sys.exit(1)
+try:
+    streams = json.load(sys.stdin)["stream-info"]["stream-info"]
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(str(s.get("camera_id", "")) == sys.argv[1] for s in streams
+                  if isinstance(s, dict)) else 1)
 ' "$cam"
 }
 
@@ -555,9 +551,9 @@ if [[ "$MODE" == remove ]]; then
         echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=rtsp://... or camera_id)" >&2
         rc=2; continue
       fi
-      lu=0; url="$(lookup_stream_url "$cam")" || lu=$?
+      lu=0; stream_is_registered "$cam" || lu=$?
       if (( lu == 2 )); then
-        echo "   ✗ cannot reach the perception REST API at ${BASE} to look up [${cam}]" >&2
+        echo "   ✗ cannot reach the perception REST API at ${BASE} to check [${cam}]" >&2
         echo "     Check whether it is alive:  docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
         rc=2; continue
       fi
