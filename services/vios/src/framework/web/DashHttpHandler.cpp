@@ -161,6 +161,33 @@ uint64_t fragmentDurationTicks(const std::string& body)
     return static_cast<uint64_t>(readBigEndianUint32(body, offset)) * sampleCount;
 }
 
+/* A player that is handed a 404 for a media segment will stall, so the event
+ * matters even in a quiet build.  It also retries the same segment, and every
+ * viewer of a broken session reports it at once, so the line is rate limited to
+ * one a second across all sessions.  The suppressed count keeps the true volume
+ * visible without the flood. */
+void logMissingSegment(const std::string& token, const std::filesystem::path& file)
+{
+    static std::mutex mutex;
+    static std::chrono::steady_clock::time_point last{};
+    static bool lastValid = false;
+    static uint64_t suppressed = 0;
+
+    std::lock_guard<std::mutex> guard(mutex);
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    if (lastValid && (now - last) < std::chrono::seconds(1))
+    {
+        ++suppressed;
+        return;
+    }
+    const uint64_t hidden = suppressed;
+    suppressed = 0;
+    last = now;
+    lastValid = true;
+    LOG(warning) << "DASH segment not available for " << token << ": " << file.filename().string()
+                 << (hidden > 0 ? " (" + std::to_string(hidden) + " more suppressed)" : "") << endl;
+}
+
 uint64_t readFragmentDuration(const std::filesystem::path& file)
 {
     std::ifstream input(file, std::ios::binary);
@@ -1000,8 +1027,10 @@ bool sendManifest(struct mg_connection* connection, const DashAssetResult& asset
         return false;
     }
     normalizeLiveManifest(manifest, asset.path.parent_path(), asset.replay);
-    // Temporary DASH_DIAG instrumentation.  An MPD is normally fetched every
-    // second, so remove this once the live-buffer investigation is complete.
+#ifdef VST_DASH_DIAG
+    // Per-request manifest trace.  An MPD is fetched about once a second per
+    // viewer, so this is far too loud to leave on; build with -DVST_DASH_DIAG
+    // when investigating live-edge or buffering behaviour.
     const size_t mpdBegin = manifest.find("<MPD");
     const size_t mpdEnd = mpdBegin == std::string::npos ? std::string::npos : manifest.find('>', mpdBegin);
     const std::string mpdTag = mpdEnd == std::string::npos
@@ -1014,6 +1043,7 @@ bool sendManifest(struct mg_connection* connection, const DashAssetResult& asset
                << " suggestedPresentationDelay=" << attributeValue(mpdTag, "suggestedPresentationDelay")
                << " timeShiftBufferDepth=" << attributeValue(mpdTag, "timeShiftBufferDepth")
                << " bytes=" << manifest.size();
+#endif
     mg_printf(connection,
               "HTTP/1.1 200 OK\r\n"
               "Content-Type: application/dash+xml\r\n"
@@ -1108,6 +1138,10 @@ bool DashHttpHandler::handleGet(CivetServer* /*server*/, struct mg_connection* c
     const bool isManifest = asset.mimeType == "application/dash+xml";
     if (!isManifest && !waitForMediaSegment(asset.path))
     {
+        // A player that asks for a segment the packager has not written is
+        // about to stall, so this is worth a line even in a quiet build.  It is
+        // rate limited because a stalled player retries the same segment.
+        logMissingSegment(token, asset.path);
         sendText(connection, 404, "Not Found", "DASH asset not found");
         return true;
     }
@@ -1121,10 +1155,11 @@ bool DashHttpHandler::handleGet(CivetServer* /*server*/, struct mg_connection* c
     {
         sendText(connection, 404, "Not Found", "DASH asset not found");
     }
+#ifdef VST_DASH_DIAG
     else if (!isManifest)
     {
-        // Temporary DASH_DIAG instrumentation.  A fragment is logged only
-        // after it has been completely written to the HTTP response.
+        // Per-fragment trace, logged only after the fragment has been written
+        // to the response.  One line per segment per viewer; see VST_DASH_DIAG.
         std::error_code ec;
         const uintmax_t size = std::filesystem::file_size(asset.path, ec);
         LOG(info) << "DASH_DIAG segment token=" << token
@@ -1133,5 +1168,6 @@ bool DashHttpHandler::handleGet(CivetServer* /*server*/, struct mg_connection* c
                    << " durationTicks=" << (initOnly ? 0 : readFragmentDuration(asset.path))
                    << " bytes=" << (ec ? 0 : size);
     }
+#endif
     return true;
 }

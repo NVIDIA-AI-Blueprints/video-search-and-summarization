@@ -332,14 +332,43 @@ bool DashPackagerConsumer::start()
         return false;
     }
     m_state.store(DashPackagerState::Running);
+    m_startedAt = std::chrono::steady_clock::now();
     LOG(info) << "DASH packager started for " << m_config.streamToken
               << ", manifest=" << m_manifestPath << ", audio="
               << (m_config.enableAac ? "aac" : "none") << endl;
     return true;
 }
 
+void DashPackagerConsumer::reportDroppedFrame(const char* kind)
+{
+    // Backpressure drops every frame it touches, so an unthrottled line here is
+    // thirty a second per stream.  Report the first and then every three
+    // hundredth, carrying the running total.
+    const uint64_t dropped = m_droppedFrames.fetch_add(1) + 1;
+    if (dropped == 1 || (dropped % 300) == 0)
+    {
+        LOG(warning) << "DASH " << kind << " frame dropped for " << m_config.streamToken
+                     << " (" << dropped << " dropped so far)" << endl;
+    }
+}
+
 void DashPackagerConsumer::stop()
 {
+    // One line that says what the session actually did.  Without it the only
+    // record of a degraded session is the rate limited warnings it emitted
+    // while running, which say nothing about the totals.
+    if (m_state.load() != DashPackagerState::Stopped)
+    {
+        const int64_t liveMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_startedAt).count();
+        LOG(info) << "DASH packager stopping for " << m_config.streamToken
+                  << ": ran " << liveMs << " ms, frames=" << m_videoTimeline.framesPushed
+                  << ", gaps closed=" << m_videoTimeline.jumps
+                  << ", carried=" << (m_videoTimeline.carried / GST_MSECOND) << " ms"
+                  << ", late arrivals=" << m_videoTimeline.lateArrivals
+                  << ", dropped=" << m_droppedFrames.load() << endl;
+    }
+
     // End of stream has to travel the length of the pipeline before the sink
     // finishes the fragment it is writing.  Tearing down the moment it is sent
     // gives it no chance to arrive, and the fragment is left open for the life
@@ -582,10 +611,16 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
                 timeline.carried += skipped;
                 ++timeline.jumps;
                 pts = expected;
-                LOG(warning) << "DASH timeline gap closed for " << m_config.streamToken
-                             << ": source skipped " << (skipped / GST_MSECOND)
-                             << " ms, total carried " << (timeline.carried / GST_MSECOND)
-                             << " ms across " << timeline.jumps << " gaps" << endl;
+                // A source that keeps skipping produces a gap per frame, so
+                // report the first and then only every fiftieth; the running
+                // totals on each line carry the ones in between.
+                if (timeline.jumps == 1 || (timeline.jumps % 50) == 0)
+                {
+                    LOG(warning) << "DASH timeline gap closed for " << m_config.streamToken
+                                 << ": source skipped " << (skipped / GST_MSECOND)
+                                 << " ms, total carried " << (timeline.carried / GST_MSECOND)
+                                 << " ms across " << timeline.jumps << " gaps" << endl;
+                }
             }
         }
         timeline.lastOut = pts;
@@ -613,16 +648,31 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
             if (gapMs >= 250)
             {
                 ++timeline.lateArrivals;
-                LOG(warning) << "DASH frame arrived late for " << m_config.streamToken
-                             << ": " << gapMs << " ms since the previous frame ("
-                             << timeline.lateArrivals << " late so far)" << endl;
+                // A chronically slow source makes every frame late, so report
+                // the first and then every hundredth.
+                if (timeline.lateArrivals == 1 || (timeline.lateArrivals % 100) == 0)
+                {
+                    LOG(warning) << "DASH frame arrived late for " << m_config.streamToken
+                                 << ": " << gapMs << " ms since the previous frame ("
+                                 << timeline.lateArrivals << " late so far)" << endl;
+                }
             }
         }
         timeline.lastArrival = now;
         timeline.lastArrivalValid = true;
     }
 
-    if (++timeline.framesSinceReport >= 300)
+    ++timeline.framesPushed;
+
+    if (!m_firstFrameLogged.exchange(true))
+    {
+        const int64_t readyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_startedAt).count();
+        LOG(info) << "DASH first frame accepted for " << m_config.streamToken
+                  << " after " << readyMs << " ms" << endl;
+    }
+
+    if (++timeline.framesSinceReport >= 900)
     {
         timeline.framesSinceReport = 0;
         LOG(info) << "DASH timeline for " << m_config.streamToken << ": pts="
@@ -742,7 +792,7 @@ void DashPackagerConsumer::onFrame(FrameParams& params)
         : pushFrame(m_videoAppsrc, data, size, toGstTime(params), m_videoTimeline);
     if (!pushed && !isAudio)
     {
-        LOG(warning) << "DASH video frame dropped for " << m_config.streamToken << endl;
+        reportDroppedFrame("video");
     }
 }
 
@@ -805,7 +855,7 @@ void DashPackagerConsumer::onFrame(std::shared_ptr<RawFrameParams> frameData)
     const bool pushed = pushFrame(m_videoAppsrc, data, size, rawPts, m_videoTimeline);
     if (!pushed)
     {
-        LOG(warning) << "DASH replay frame dropped for " << m_config.streamToken << endl;
+        reportDroppedFrame("replay");
     }
 }
 
