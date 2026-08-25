@@ -43,6 +43,7 @@ from ..models.search import SearchResult
 
 if TYPE_CHECKING:
     from ..models.embed_search import EmbedSearchOutput
+    from ..models.tag_search import TagSearchOutput
 
 logger = logging.getLogger(__name__)
 
@@ -397,3 +398,115 @@ def embed_output_to_search_results(embed_output: EmbedSearchOutput) -> list[Sear
             )
         )
     return results
+
+
+def tag_output_to_search_results(tag_output: TagSearchOutput) -> list[SearchResult]:
+    """Map lexical tag hits into the common SearchResult shape."""
+    return [
+        SearchResult(
+            video_name=item.video_name,
+            description=item.description,
+            start_time=item.start_time,
+            end_time=item.end_time,
+            sensor_id=item.sensor_id,
+            screenshot_url=item.screenshot_url,
+            similarity=item.lexical_score,
+        )
+        for item in tag_output.results
+        if item.video_name
+    ]
+
+
+def _results_overlap(left: SearchResult, right: SearchResult) -> bool:
+    if left.sensor_id != right.sensor_id:
+        return False
+    try:
+        left_start = iso8601_to_datetime(left.start_time)
+        left_end = iso8601_to_datetime(left.end_time)
+        right_start = iso8601_to_datetime(right.start_time)
+        right_end = iso8601_to_datetime(right.end_time)
+    except (TypeError, ValueError):
+        return (
+            left.video_name == right.video_name
+            and left.start_time == right.start_time
+            and left.end_time == right.end_time
+        )
+    return left_start <= right_end and left_end >= right_start
+
+
+def weighted_rrf_union(
+    provider_results: dict[str, list[SearchResult]],
+    *,
+    weights: dict[str, float],
+    rrf_k: int,
+) -> list[SearchResult]:
+    """Fuse the union of provider candidates with weighted reciprocal ranks.
+
+    Candidates align by sensor and overlapping interval. A candidate absent
+    from a provider contributes zero, so tag-only, embed-only, and
+    attribute-only results all remain eligible.
+    """
+    representatives: list[SearchResult] = []
+    scores: list[float] = []
+    contributing_providers: list[set[str]] = []
+    for provider, results in provider_results.items():
+        weight = weights.get(provider, 0.0)
+        if weight <= 0:
+            continue
+        ranked = sorted(results, key=lambda result: result.similarity, reverse=True)
+        for rank, result in enumerate(ranked, start=1):
+            candidate_index = next(
+                (
+                    index
+                    for index, existing in enumerate(representatives)
+                    if provider not in contributing_providers[index] and _results_overlap(existing, result)
+                ),
+                None,
+            )
+            contribution = weight / (rrf_k + rank)
+            if candidate_index is None:
+                representatives.append(result)
+                scores.append(contribution)
+                contributing_providers.append({provider})
+                continue
+
+            existing = representatives[candidate_index]
+            seen_ids = set(existing.object_ids)
+            object_ids = list(existing.object_ids)
+            for object_id in result.object_ids:
+                if object_id not in seen_ids:
+                    object_ids.append(object_id)
+                    seen_ids.add(object_id)
+            representatives[candidate_index] = existing.model_copy(
+                update={
+                    "description": existing.description or result.description,
+                    "screenshot_url": existing.screenshot_url or result.screenshot_url,
+                    "object_ids": object_ids,
+                }
+            )
+            scores[candidate_index] += contribution
+            contributing_providers[candidate_index].add(provider)
+
+    fused = [
+        representative.model_copy(update={"similarity": score})
+        for representative, score in zip(representatives, scores, strict=True)
+    ]
+    fused.sort(key=lambda result: result.similarity, reverse=True)
+    return fused
+
+
+def fuse_ranked_union(
+    provider_results: dict[str, list[SearchResult]],
+    *,
+    method: str,
+    weights: dict[str, float],
+    rrf_k: int,
+) -> list[SearchResult]:
+    """Dispatch candidate-union fusion using the configured rank method."""
+    if method == "weighted_rrf":
+        effective_weights = weights
+    elif method == "rrf":
+        effective_weights = dict.fromkeys(provider_results, 1.0)
+    else:
+        raise InvalidInputError(f"Unknown union fusion_method: {method!r}. Must be 'weighted_rrf' or 'rrf'")
+    return weighted_rrf_union(provider_results, weights=effective_weights, rrf_k=rrf_k)

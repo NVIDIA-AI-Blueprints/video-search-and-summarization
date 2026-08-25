@@ -46,9 +46,11 @@ from ..models.attribute_search import AttributeSearchInput
 from ..models.embed_search import EmbedSearchInput
 from ..models.search import SearchInput
 from ..models.search import SearchOutput
+from ..models.tag_search import TagSearchInput
 from . import _search_helpers
 from .attribute_search import AttributeSearch
 from .embed_search import EmbedSearch
+from .tag_search import TagSearch
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -179,6 +181,26 @@ def _wrap_attribute(primitive: AttributeSearch | _AttributeSearchUnavailable) ->
     return _PrimitiveAdapter(primitive, _coerce_attribute_payload, unwrap_output=lambda out: out.results)
 
 
+def _coerce_tag_payload(payload: Any) -> TagSearchInput:
+    if isinstance(payload, TagSearchInput):
+        return payload
+    if isinstance(payload, dict):
+        try:
+            return TagSearchInput(**payload)
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid tag-search input: {exc}") from exc
+    if hasattr(payload, "model_dump"):
+        try:
+            return TagSearchInput.model_validate(payload.model_dump())
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid tag-search input: {exc}") from exc
+    raise TypeError(f"cannot coerce {type(payload).__name__} to TagSearchInput")
+
+
+def _wrap_tag(primitive: TagSearch) -> _PrimitiveAdapter:
+    return _PrimitiveAdapter(primitive, _coerce_tag_payload)
+
+
 def _attribute_leg(rt: SearchRuntime) -> AttributeSearch | _AttributeSearchUnavailable:
     """The attribute leg, or a stand-in when the runtime has no RT-CV endpoint."""
     if not (rt.rtvi_cv_endpoint or "").strip():
@@ -203,10 +225,12 @@ class Search:
         attribute: AttributeSearch | _AttributeSearchUnavailable,
         behavior_es: ElasticIndex,
         behavior_index: str,
+        tag: TagSearch | None = None,
         behavior_index_wildcard: str = "mdx-behavior-*",
-        fusion_method: FusionMethod = "rrf",
+        fusion_method: FusionMethod = "weighted_rrf",
         w_attribute: float = 0.55,
         w_embed: float = 0.35,
+        w_tag: float = 0.45,
         rrf_k: int = 60,
         rrf_w: float = 0.5,
         top_percent_filter: float | None = None,
@@ -218,19 +242,23 @@ class Search:
         vst_external_url: str = "",
         owns_embed: bool = False,
         owns_attribute: bool = False,
+        owns_tag: bool = False,
         owns_behavior_es: bool = False,
     ) -> None:
         self._embed = embed
         self._attribute = attribute
+        self._tag = tag
         self._behavior_es = behavior_es
         self._owns_embed = owns_embed
         self._owns_attribute = owns_attribute
+        self._owns_tag = owns_tag
         self._owns_behavior_es = owns_behavior_es
 
         # Pre-build the adapters once; they're stateless wrappers around
         # immutable primitive references, so reusing them across calls is safe.
         self._embed_adapter = _wrap_embed(embed)
         self._attr_adapter = _wrap_attribute(attribute)
+        self._tag_adapter = _wrap_tag(tag) if tag is not None else None
 
         # Pre-build the duck-typed config that execute_core_search reads by
         # attribute. All fields are determined at construction; no per-call
@@ -243,6 +271,7 @@ class Search:
             fusion_method=fusion_method,
             w_attribute=w_attribute,
             w_embed=w_embed,
+            w_tag=w_tag,
             rrf_k=rrf_k,
             rrf_w=rrf_w,
             top_percent_filter=top_percent_filter,
@@ -261,6 +290,7 @@ class Search:
             embed_search=self._embed_adapter,
             config=self._config,
             attribute_search_fn=self._attr_adapter,
+            tag_search=self._tag_adapter,
             behavior_es=self._behavior_es,
         )
 
@@ -275,6 +305,7 @@ class Search:
                 embed_search=self._embed_adapter,
                 config=self._config,
                 attribute_search_fn=self._attr_adapter,
+                tag_search=self._tag_adapter,
                 behavior_es=self._behavior_es,
             )
             async with aclosing(core_updates):
@@ -306,6 +337,7 @@ class Search:
         *,
         embed: EmbedSearch | None = None,
         attribute: AttributeSearch | None = None,
+        tag: TagSearch | None = None,
         behavior_es: ElasticIndex | None = None,
     ) -> Search:
         """Construct from SearchRuntime.
@@ -318,18 +350,21 @@ class Search:
 
         owns_embed = embed is None
         owns_attribute = attribute is None
+        owns_tag = tag is None
         owns_behavior_es = behavior_es is None
         behavior_es_obj = behavior_es if behavior_es is not None else ElasticClient.from_runtime_behavior(rt)
 
         return cls(
             embed=embed if embed is not None else EmbedSearch.from_runtime(rt),
             attribute=attribute if attribute is not None else _attribute_leg(rt),
+            tag=tag if tag is not None else TagSearch.from_runtime(rt),
             behavior_es=behavior_es_obj,
             behavior_index=rt.behavior_index,
             behavior_index_wildcard=rt.behavior_index_wildcard,
             fusion_method=rt.fusion_method,
             w_attribute=rt.w_attribute,
             w_embed=rt.w_embed,
+            w_tag=rt.w_tag,
             rrf_k=rt.rrf_k,
             rrf_w=rt.rrf_w,
             top_percent_filter=rt.top_percent_filter,
@@ -340,6 +375,7 @@ class Search:
             vst_external_url=rt.require("vst_external_url"),
             owns_embed=owns_embed,
             owns_attribute=owns_attribute,
+            owns_tag=owns_tag,
             owns_behavior_es=owns_behavior_es,
         )
 
@@ -349,6 +385,8 @@ class Search:
             coros.append(self._embed.aclose())
         if self._owns_attribute:
             coros.append(self._attribute.aclose())
+        if self._owns_tag and self._tag is not None:
+            coros.append(self._tag.aclose())
         if self._owns_behavior_es:
             coros.append(self._behavior_es.aclose())
         if coros:

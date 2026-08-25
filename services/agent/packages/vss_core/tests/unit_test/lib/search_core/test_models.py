@@ -75,14 +75,20 @@ def test_search_input_top_k_within_bounds_accepted():
 
 
 def test_search_mode_requires_matching_explicit_inputs() -> None:
-    with pytest.raises(InvalidInputError, match="requires at least one attribute"):
-        _valid_search_input(search_mode="fusion").validate_semantics()
+    # Phase-1 fusion always combines tag + embedding retrieval; sources and attributes are optional.
+    _valid_search_input(search_mode="fusion", video_sources=["cam1"]).validate_semantics()
+    _valid_search_input(search_mode="fusion").validate_semantics()
+    _valid_search_input(search_mode="tag").validate_semantics()
+    with pytest.raises(InvalidInputError, match="video_sources"):
+        _valid_search_input(search_mode="tag", video_sources=[""]).validate_semantics()
     with pytest.raises(InvalidInputError, match="attributes require"):
         _valid_search_input(attributes=["red"]).validate_semantics()
     with pytest.raises(InvalidInputError, match="object_ids require"):
         _valid_search_input(object_ids=[42]).validate_semantics()
     with pytest.raises(InvalidInputError, match="does not accept attributes"):
         _valid_search_input(search_mode="object", object_ids=[42], attributes=["red"]).validate_semantics()
+    with pytest.raises(InvalidInputError, match="attributes require"):
+        _valid_search_input(search_mode="tag", video_sources=["cam1"], attributes=["red"]).validate_semantics()
 
 
 @pytest.mark.parametrize("bad_top_k", [0, 5000])

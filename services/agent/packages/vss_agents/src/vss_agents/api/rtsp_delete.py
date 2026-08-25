@@ -41,6 +41,7 @@ from vss_agents.api.rtsp_ingest import cleanup_rtvi_vlm_stream
 from vss_agents.api.rtsp_ingest import cleanup_vst_sensor
 from vss_agents.api.rtsp_ingest import cleanup_vst_storage
 from vss_agents.api.rtsp_ingest import get_stream_info_by_name
+from vss_agents.api.vlm_tagging import stop_live_tagging
 from vss_agents.utils.sanitize import scrub_log
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,15 @@ def create_rtsp_delete_router(config: ServiceConfig) -> APIRouter:
                 success, msg = await cleanup_rtvi_vlm_stream(client, config, stream_id)
                 results.append(success)
                 logger.info(f"Delete from RTVI-VLM: {'OK' if success else msg}")
+
+        if config.vlm_tagging_url:
+            try:
+                await stop_live_tagging(sensor_id=stream_id, vlm_base_url=config.vlm_tagging_url)
+                results.append(True)
+                logger.info("Stop VLM tagging: OK")
+            except Exception as exc:
+                results.append(False)
+                logger.warning("Stop VLM tagging failed: %s", exc)
 
         success, msg = await cleanup_vst_sensor(config, stream_id)
         results.append(success)

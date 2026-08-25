@@ -155,7 +155,10 @@ class _MockSearchServices:
             # itself, so the mock has to answer it.
             self._send_json(
                 handler,
-                [{"index": "mdx-embed-filtered-2025-01-01"}, {"index": "mdx-behavior-2025-01-01"}],
+                [
+                    {"index": "mdx-embed-filtered-2025-01-01"},
+                    {"index": "mdx-behavior-2025-01-01"},
+                ],
             )
             return
         if method == "POST" and path.endswith("/_search"):
@@ -458,6 +461,8 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
         "person in a white jacket climbing a ladder",
         "--attribute",
         "white jacket",
+        "--video-source",
+        "warehouse_clip",
         "--top-k",
         "1",
         # search_mode is the sub-action now

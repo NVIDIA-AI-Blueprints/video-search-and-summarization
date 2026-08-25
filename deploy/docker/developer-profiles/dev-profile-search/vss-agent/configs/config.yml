@@ -28,6 +28,9 @@ general:
       rtvi_embed_model: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       rtvi_embed_chunk_duration: 5
       rtvi_cv_base_url: ${RTVI_CV_ENDPOINT}
+      vlm_tagging_base_url: ${RTVI_VLM_BASE_URL}
+      vlm_tagging_model: ${VLM_NAME}
+      vlm_tagging_chunk_duration: 5
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
       # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
@@ -71,6 +74,7 @@ functions:
     _type: search
     embed_search_tool: embed_search
     attribute_search_tool: attribute_search  # Optional: enable object-level search
+    tag_search_tool: tag_search
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true  # Internal config: enable fusion reranking with attribute search
     critic_agent: critic_agent  # Optional: enables VLM verification
@@ -80,11 +84,14 @@ functions:
     vst_external_url: ${VST_EXTERNAL_URL}  # For browser-facing screenshot URLs in search results
     embed_confidence_threshold: 0.1  # Minimum embed score threshold. fallback to attribute-only search if low
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    fusion_method: weighted_rrf
+    w_tag: 0.45
 
   search_agent:
     _type: search_agent
     embed_search_tool: embed_search
     attribute_search_tool: attribute_search
+    tag_search_tool: tag_search
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
@@ -94,6 +101,8 @@ functions:
     search_max_iterations: 1
     default_max_results: 10
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    fusion_method: weighted_rrf
+    w_tag: 0.45
 
   vst_video_clip:
     _type: vst.video_clip
@@ -108,6 +117,14 @@ functions:
     cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
     es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
     es_index: ${ELASTIC_SEARCH_INDEX}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    default_max_results: 100
+
+  tag_search:
+    _type: tag_search
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    tag_index: default_*
     vst_external_url: ${VST_EXTERNAL_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
     default_max_results: 100

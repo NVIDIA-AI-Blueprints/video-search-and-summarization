@@ -28,6 +28,7 @@ class TestKnobValidation:
             ("top_percent_filter", 1.0),
             ("fusion_method", "unknown"),
             ("embed_confidence_threshold", 2.0),
+            ("w_tag", -0.1),
         ],
     )
     def test_invalid_knob_is_rejected(self, field: str, value: object) -> None:
@@ -37,6 +38,10 @@ class TestKnobValidation:
     def test_valid_knobs_construct(self) -> None:
         rt = SearchRuntime.from_kwargs(fusion_method="rrf", rrf_k=60, default_max_results=10)
         assert rt.rrf_k == 60
+
+    def test_at_least_one_fusion_weight_must_be_positive(self) -> None:
+        with pytest.raises(ConfigurationError, match="at least one"):
+            SearchRuntime.from_kwargs(w_tag=0.0, w_embed=0.0, w_attribute=0.0)
 
 
 class TestRequire:
