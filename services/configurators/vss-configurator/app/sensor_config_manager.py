@@ -278,7 +278,7 @@ def fetch_sensor_data_from_msb(delay=60, timeout=5) -> Optional[List[Dict]]:
             time.sleep(delay) 
             continue
 
-def add_sensor(sensor_info: Sensor, delay=30):
+def add_sensor(sensor_info: Sensor, delay=30, timeout=15):
     logger.debug(f"Adding sensor: {sensor_info.name} to VMS endpoint: {CONFIG['VST_CAMERA_ADD_ENDPOINT']}")
     headers = {"Content-Type": "application/json"}
     sensor_data = {
@@ -294,13 +294,27 @@ def add_sensor(sensor_info: Sensor, delay=30):
     while True:
         try:
             logger.debug(f"Sending POST request to add sensor: {sensor_data['name']}")
-            response = requests.post(CONFIG['VST_CAMERA_ADD_ENDPOINT'], json=sensor_data, headers=headers, timeout=5)
+            response = requests.post(CONFIG['VST_CAMERA_ADD_ENDPOINT'], json=sensor_data, headers=headers, timeout=timeout)
             if response and response.status_code == 200:
                 logger.info(f"Successfully added sensor: {sensor_data['name']}")
                 logger.debug(f"VMS response: {response.text}")
                 return
+            # A duplicate add (e.g. a request VST finished after we timed out on it)
+            # means the sensor is already registered, so treat it as success.
+            error_message = ""
+            if response is not None:
+                try:
+                    error_message = response.json().get("error_message", "")
+                except ValueError:
+                    error_message = response.text or ""
+            error_message_lower = error_message.lower()
+            already_exists = "already" in error_message_lower and "exist" in error_message_lower
+            if response is not None and already_exists:
+                logger.info(f"Sensor {sensor_data['name']} already registered with VMS: {error_message}")
+                return
             logger.warning(f"Error adding sensor {sensor_data['name']}. Received status code {response.status_code} from VMS. Retrying in {delay} seconds...")
             logger.debug(f"VMS error response: {response.text if response else 'No response'}")
+            time.sleep(delay)
         except Exception as e:
             logger.warning(
                 f"VST sensor add API unreachable Retrying in {delay} seconds..."
