@@ -84,6 +84,13 @@ case ",$COMPOSE_PROFILES," in
   *,nvstreamer-lvs,*) required+=(videos/dev-profile-lvs) ;;
 esac
 
+# Warehouse perception writes its detector ONNX into models/ at ds-start phase 0.
+case ",$COMPOSE_PROFILES," in
+  *,perception-2d,*|*,perception-3d,*)
+    required+=(models)
+    ;;
+esac
+
 broken_links=()
 while IFS= read -r -d '' candidate; do
   [ -e "$candidate" ] || broken_links+=("$candidate")
@@ -150,3 +157,37 @@ docker volume ls -q \
 
 Do not recursively `chown` the data root and do not delete unrelated Docker
 volumes.
+
+
+## Warehouse app data — check, never create
+
+A `warehouse` build additionally needs **populated** `videos/` and `playback/`
+directories under `${VSS_DATA_DIR}`. These are read-only inputs — `mkdir` cannot
+substitute for missing content, and an empty `videos/` turns a clear "no app
+data" failure into a zero-streams symptom. Treat them as a **presence check**,
+not part of the `required=()` list above.
+
+When `COMPOSE_PROFILES` contains an `nvstreamer-2d` or `nvstreamer-3d` key,
+verify before deploying:
+
+```bash
+DATASET="$(sed -n 's/^SAMPLE_VIDEO_DATASET=//p' "$BUILD_DIR/override.env" | tr -d '"')"
+ls "$VSS_DATA_DIR/videos/$DATASET" >/dev/null 2>&1 \
+  || echo "MISSING: \$VSS_DATA_DIR/videos/$DATASET — pick an app-data source below" >&2
+```
+
+Ask the user which app-data source they want, and only run the NGC download when
+they explicitly choose it:
+
+| Source | `VSS_DATA_DIR` |
+|---|---|
+| Repo `data/` | `<repo>/data` |
+| Custom local path | user-provided |
+| NGC `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026` | `<extract>/vss-warehouse-app-data` — the **inner** directory, the one holding `videos/`, `playback/`, `models/`, `data_log/` |
+
+Calibration is **not** part of `$VSS_DATA_DIR`. Each shipped sample dataset
+carries a checked-in `calibration.json` under
+`warehouse-<mode>-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/`, which
+Compose bind-mounts directly from the repo — so no calibration run and no
+staging is required for the sample datasets. Only a custom dataset needs one;
+`scripts/validate_warehouse_env.py` fails the build when that file is missing.

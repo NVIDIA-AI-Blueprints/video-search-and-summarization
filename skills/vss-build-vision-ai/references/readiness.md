@@ -45,6 +45,12 @@ jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
 fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
 
+> **Warehouse needs a data-plane check, not just Gate 0.** Every container can
+> report `Up` while zero streams are processed, and Gate 0 cannot see it. Run the
+> liveness checks in [`profiles/warehouse.md`](profiles/warehouse.md) before
+> declaring a warehouse deploy done. Note that `node-exporter` and `cadvisor` set
+> no `container_name` and appear as `<project>-node-exporter-1` / `-cadvisor-1`.
+
 ## Step 2 — probe the profile's documented readiness endpoints
 
 Container state alone isn't enough — the processes inside may still be

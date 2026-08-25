@@ -7,12 +7,22 @@
 | Elasticsearch storage and initialization | `elasticsearch`, `elasticsearch-init-container` |
 | Kafka broker and topics | `kafka`, `kafka-topic-init-container` |
 | Redis | `redis` |
-| Kibana and profile dashboards | `kibana`, `kibana-init-container-alerts`, `kibana-init-container-lvs`, `kibana-init-container-search` |
+| Kibana and profile dashboards | `kibana`, `kibana-init-container-alerts`, `kibana-init-container-lvs`, `kibana-init-container-search`, `kibana-init-container-<mode>` *(warehouse)* |
+| Warehouse analytics API and calibration import | `vss-video-analytics-api-<mode>`, `import-calibration-output-container-<mode>` |
 | Log ingestion and broker readiness | `logstash`, `broker-health-check` |
 
 ## Required peers
 
 - Use `elasticsearch-init-container` with `elasticsearch`.
+- On `warehouse`, ELK is present in `bp_wh` and in every **extended** Kafka/Redis
+  list, and absent from every `…_MINIMAL` list. Removing it from a `3d` build
+  also removes the `mdx-bev-YYYY-MM-DD` indices Logstash writes, so BEV output
+  becomes unverifiable and VST bounding-box overlays stop rendering — both
+  require Elasticsearch.
+- `redis` is required by **every** warehouse variant regardless of broker choice:
+  it backs `sdr-controller` state, not just CV messaging. It is a required peer of
+  the SDR controller ([`vios.md`](vios.md)), so do not prune it when selecting
+  Kafka.
 - Use `kafka-topic-init-container` and `broker-health-check` with Kafka-backed
   capability owners.
 - `logstash` is the **sole** bridge from Kafka topics to Elasticsearch. No other

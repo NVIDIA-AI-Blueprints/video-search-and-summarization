@@ -1,0 +1,39 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "wh-1",
+  "runtime_deploy": false,
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2,
+        "modes": [
+          "harbor",
+          "shared"
+        ]
+      }
+    }
+  },
+  "env": "A host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This generation-focused eval composes a warehouse 3D (Sparse4D) deployment from the `warehouse` industry Foundation at `deploy/docker/industry-profiles/warehouse-operations/`, which is NOT a developer profile: its env layers are `containers.env` + the warehouse `.env` + the warehouse `overrides.env` + the build's `override.env`, and its `compose.yml` must include the shared TURN overlay `services/infra/compose-no-turn-tcp-relay.yml` alongside the root compose file. The Foundation sets no `COMPOSE_PROFILES` directly; it defines `COMPOSE_PROFILES_WH_*` lists and the build selects one by variant. Evaluator context: the expected baseline is `COMPOSE_PROFILES_WH_KAFKA_3D` expanded unchanged. `MODE=3d` is incompatible with `BP_PROFILE=bp_wh`, so no agent, UI, RTVI VLM, or LLM NIM is expected; `VLM_MODE` and `VLM_NAME_SLUG` must both be `none`. `bp-configurator-3d` loads its env through `env_file:` rather than Compose interpolation, so the build must render a `configurator.env` and point `BP_CONFIGURATOR_ENV_FILE` at it, or the `<HOST_IP>` sentinel is baked into the container that renders every stream config. Requires `docker compose` new enough to resolve nested `${A:-${B}/x}` defaults through `extends:` \u2014 v2.29.0 fails on the shared nvstreamer graph. The build label `wh-1` is directory metadata only and must never become a Compose profile.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-agent` to build under `_builds/wh-1/`: \"Deploy warehouse depth-aware 3D perception across 4 calibrated cameras with behavior analytics, Kafka metadata, and Elasticsearch indexing. No agent or chat UI.\" Target `{{platform}}`, validate the resolved Compose configuration, do not deploy, and do not create, modify, or delete anything under `deploy/docker/`.",
+      "checks": [
+        "`{{repo_root}}/_builds/wh-1/override.env` exists and declares `FOUNDATION=warehouse` and `FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_KAFKA_3D`.",
+        "The effective `COMPOSE_PROFILES` is the expanded literal list, not a `${COMPOSE_PROFILES_WH_KAFKA_3D}` reference, and contains `perception-3d`, `ds-configurator-3d`, `vss-behavior-analytics-3d`, `bp-configurator-3d`, `nvstreamer-3d`, `kafka` and `elasticsearch`.",
+        "The warehouse infrastructure floor is intact: `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-bp-wait-bp-configurator`, `turnserver-init`, `turnserver` and `redis` are all present, including `redis` despite `STREAM_TYPE=kafka`.",
+        "`FOUNDATION_VARIANT` is one of the nine service lists this skill supports.",
+        "`_builds/wh-1/compose.yml` includes both `../../deploy/docker/compose.yml` and `../../deploy/docker/services/infra/compose-no-turn-tcp-relay.yml` in one ordered `path` list.",
+        "`override.env` sets `MODE=3d`, `BP_PROFILE=bp_wh_kafka`, `STREAM_TYPE=kafka`, `SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic`, `NUM_STREAMS=4`, and both `VLM_MODE=none` and `VLM_NAME_SLUG=none`.",
+        "`override.env` materializes the full transitive dependent-value closure: `SDR_CONTROLLER_CONFIG_PATH` and `NVSTREAMER_3D_CONFIG_DIR` both resolve through `warehouse-3d-app`, and `TURN_PUBLIC_HOST` carries a concrete host value rather than inheriting the `<HOST_IP>` sentinel through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`.",
+        "`_builds/wh-1/configurator.env` exists, contains no `<HOST_IP>` or `/path/to/` sentinel, and `override.env` sets `BP_CONFIGURATOR_ENV_FILE` to that path.",
+        "No agent tier is present: `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix`, `alert-bridge` and `rtvi-vlm` are all absent, and no `llm_*` token appears in `COMPOSE_PROFILES`.",
+        "`resolved.yml` was generated with the four ordered env layers rooted at `deploy/docker/industry-profiles/warehouse-operations/`, not at any `developer-profiles/dev-profile-*` directory.",
+        "After normalization, `resolved.yml` carries no `profiles:` gates and resolves a non-empty service list including `vios-apt-cache-init`, which is ungated and expected even though it appears in no `COMPOSE_PROFILES_WH_*` list.",
+        "`scripts/validate_resolved_yml.py` and `scripts/validate_warehouse_env.py` both exit 0 against the build.",
+        "Nothing under `{{repo_root}}/deploy/docker/` was created, modified, or deleted; in particular no in-tree `generated.env` was written."
+      ]
+    }
+  ]
+}
