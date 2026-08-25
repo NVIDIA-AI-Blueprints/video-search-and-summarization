@@ -102,10 +102,17 @@ class DecoderPool
             if (it != m_decoderPool.end() && it->second)
             {
                 dec = it->second;
-                /* Only hand back a decoder that can actually deliver frames. A
-                 * failed or stopped decoder would silently drop every frame for
-                 * the joining viewer. */
-                if (dec->isCreated() == false || dec->getError())
+                /* Only hand back a decoder that can actually deliver frames.
+                 *
+                 * isStopped() matters as much as the other two here. When the last
+                 * viewer detaches, removeConsumer() flags the decoder as stopped,
+                 * and nothing clears that flag except building a pipeline. A viewer
+                 * that arrived between that detach and the pool releasing the
+                 * decoder would otherwise be handed one that looks healthy and
+                 * never delivers a frame. Rebuilding is safe because a stopped
+                 * decoder has no viewers left: anyone who acquired it after it was
+                 * stopped would have rebuilt it here first. */
+                if (dec->isCreated() == false || dec->getError() || dec->isStopped())
                 {
                     LOG(warning) << "Pooled decoder for " << secureUrlForLogging(url) << " is not usable, rebuilding it" << endl;
                     /* Apply this caller's options before rebuilding, so the new

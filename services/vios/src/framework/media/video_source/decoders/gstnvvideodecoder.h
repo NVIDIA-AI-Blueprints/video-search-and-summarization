@@ -126,6 +126,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::string getstate(const std::string& peerid);
         bool isPlaying();
         bool getError() { return m_error; }
+        /* True once this decoder has been told to stop delivering frames. The
+         * flag is only cleared by building a pipeline, so a stopped decoder that
+         * is still in the pool would silently drop every frame for a viewer that
+         * attached to it. DecoderPool checks this before handing one out. */
+        [[nodiscard]] bool isStopped() const { return m_stop; }
         void setResolution(int width, int height) override;
         void setDecoderStride(int stride_y, int stride_u, int stride_v) override;
 
