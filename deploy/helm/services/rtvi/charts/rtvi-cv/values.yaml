@@ -42,7 +42,7 @@ scripts:
 image:
   repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv
   tag: "develop-latest"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 replicas: 1
 statefulSetName: "vss-rtvi-cv"
@@ -168,7 +168,7 @@ standaloneWarehouse:
       image:
         repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion
         tag: develop-latest
-        pullPolicy: IfNotPresent
+        pullPolicy: Always
       rawTopic: mdx-raw
       fusedTopic: mdx-bev
       sensorTimeoutMs: "100"
@@ -191,7 +191,7 @@ standaloneWarehouse:
         image:
           repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init
           tag: develop-latest
-          pullPolicy: IfNotPresent
+          pullPolicy: Always
 
 modelsPvc:
   create: false

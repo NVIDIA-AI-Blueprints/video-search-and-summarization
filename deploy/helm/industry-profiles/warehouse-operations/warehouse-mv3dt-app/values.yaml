@@ -388,7 +388,7 @@ rtvi:
     # pinned in profile values. Override globally with
     # global.container_prefix / global.container_tag instead.
     image:
-      pullPolicy: IfNotPresent
+      pullPolicy: Always
     httpPort: 9000
     streamType: kafka
     deepstreamEnableSensorIdExtraction: "0"
@@ -425,14 +425,14 @@ rtvi:
               # repository/tag intentionally unset: inherit the managed GHCR
               # channel from the rtvi-cv subchart so Helm and Compose ship the
               # same image. Override with global.container_prefix/container_tag.
-              pullPolicy: IfNotPresent
+              pullPolicy: Always
         fusion:
           enabled: true
           image:
             # repository/tag intentionally unset: inherit the managed GHCR
             # channel from the rtvi-cv subchart so Helm and Compose ship the
             # same image. Override with global.container_prefix/container_tag.
-            pullPolicy: IfNotPresent
+            pullPolicy: Always
           rawTopic: mdx-raw
           fusedTopic: mdx-bev
           sensorTimeoutMs: "100"

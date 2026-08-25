@@ -256,7 +256,7 @@ rtvi:
     # -sbsa tag suffix, so it needs a tag override only:
     #   tag: develop-latest-sbsa
     image:
-      pullPolicy: IfNotPresent
+      pullPolicy: Always
     httpPort: 9000
     streamType: kafka
     env:

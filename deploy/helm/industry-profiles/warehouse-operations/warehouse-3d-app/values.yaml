@@ -394,7 +394,7 @@ rtvi:
     # pinned in profile values. Override globally with
     # global.container_prefix / global.container_tag instead.
     image:
-      pullPolicy: IfNotPresent
+      pullPolicy: Always
     httpPort: 9000
     streamType: kafka
     downloadNgcAppData: true

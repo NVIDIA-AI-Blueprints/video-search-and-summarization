@@ -41,7 +41,7 @@ spec:
       containers:
         - name: mv3dt-fusion
           image: {{ include "vss-rtvi-cv.fusionImage" . }}
-          imagePullPolicy: {{ $fusion.image.pullPolicy | default "IfNotPresent" }}
+          imagePullPolicy: {{ $fusion.image.pullPolicy | default "Always" }}
           env:
             - name: BROKER_TYPE
               value: {{ $sw.streamType | default "kafka" | quote }}
