@@ -188,11 +188,11 @@ frontend fe_http
 
     # Unified memory persists a job as PUT /<index>/_doc/<job_id>, which the
     # read-only method rule answers 405. Scoped to the unified-memory index
-    # itself -- `vss-memory`, plus a suffixed variant such as `vss-memory-dev`
-    # for a --memory-index override -- rather than to the `vss-` prefix, so the
-    # exception does not widen on its own if other indices are renamed into that
-    # prefix later (FR-30). Every other index stays read-only whatever it is
-    # called, which is what the earlier `vss-*` pattern rested on assuming.
+    # itself -- `vss-memory`, plus a statically configured suffixed variant such
+    # as `vss-memory-dev` -- rather than to the `vss-` prefix, so the exception
+    # does not widen on its own if other indices are renamed into that prefix
+    # later (FR-30). Every other index stays read-only whatever it is called,
+    # which is what the earlier `vss-*` pattern rested on assuming.
     #
     # Two denies rather than `http-request allow`: allow also skips the
     # backend's replace-path rules, so the request would reach Elasticsearch
