@@ -348,8 +348,10 @@ class SelectImagesTest(unittest.TestCase):
                 "platform": "linux/arm64",
                 "arch": "arm64",
                 "runner": "ubuntu-24.04-arm",
+                "runs_on": ["ubuntu-24.04-arm"],
                 "runner_arch": "ARM64",
                 "kernel_arch": "aarch64",
+                "emulated": "false",
             },
             matrices["native_platform_matrix"]["include"],
         )
@@ -394,6 +396,20 @@ class SelectImagesTest(unittest.TestCase):
             '"${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${platform##*/}"',
             workflow,
         )
+        self.assertIn("runs-on: ${{ matrix.runs_on }}", workflow)
+        self.assertIn("matrix.emulated == 'true'", workflow)
+
+    def test_sbsa_canary_workflow_does_not_share_production_labels(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        canary = (
+            repo_root / ".github/workflows/sbsa-builder-canary.yml"
+        ).read_text()
+        self.assertIn("vss-sbsa-builder-canary", canary)
+        self.assertNotIn("vss-sbsa-builder-active", canary)
+        self.assertNotIn("vss-docker-builder", canary)
+        self.assertIn("workflow_dispatch", canary)
+        self.assertNotIn("\n  push:", canary)
+        self.assertNotIn("schedule:", canary)
 
     def test_matrix_shape(self):
         inventory = INVENTORY
@@ -556,6 +572,88 @@ class SelectImagesTest(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "no native runner configured"):
             dci.split_build_matrices(entries)
+
+    def test_sbsa_self_hosted_routing_stays_off_by_default(self):
+        self.assertEqual(dci.SBSA_SELF_HOSTED_IMAGES, frozenset())
+        matrices = dci.split_build_matrices(
+            [
+                {
+                    "name": "vss-rt-vlm-sbsa",
+                    "repository": "vss-rt-vlm",
+                    "tag_suffix": "-sbsa",
+                    "native_platform_build": True,
+                    "context": "services/rtvi/rt-vlm",
+                    "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+                    "platforms": ["linux/arm64"],
+                    "source_path": "services/rtvi/rt-vlm",
+                    "build_args": {"ARM_PLATFORM": "sbsa"},
+                }
+            ]
+        )
+        cell = matrices["native_platform_matrix"]["include"][0]
+        self.assertEqual(cell["runner"], "ubuntu-24.04-arm")
+        self.assertEqual(cell["runs_on"], ["ubuntu-24.04-arm"])
+        self.assertEqual(cell["emulated"], "false")
+        self.assertEqual(cell["kernel_arch"], "aarch64")
+
+    def test_sbsa_can_route_one_image_without_moving_siblings(self):
+        original = dci.SBSA_SELF_HOSTED_IMAGES
+        dci.SBSA_SELF_HOSTED_IMAGES = frozenset({"vss-rt-vlm-sbsa"})
+        try:
+            matrices = dci.split_build_matrices(
+                [
+                    {
+                        "name": "vss-rt-vlm-sbsa",
+                        "repository": "vss-rt-vlm",
+                        "tag_suffix": "-sbsa",
+                        "native_platform_build": True,
+                        "context": "services/rtvi/rt-vlm",
+                        "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+                        "platforms": ["linux/arm64"],
+                        "source_path": "services/rtvi/rt-vlm",
+                        "build_args": {"ARM_PLATFORM": "sbsa"},
+                    },
+                    {
+                        "name": "vss-rt-embed-sbsa",
+                        "repository": "vss-rt-embed",
+                        "tag_suffix": "-sbsa",
+                        "native_platform_build": True,
+                        "context": "services/rtvi/rt-embed",
+                        "dockerfile": "services/rtvi/rt-embed/docker/Dockerfile",
+                        "platforms": ["linux/arm64"],
+                        "source_path": "services/rtvi/rt-embed",
+                    },
+                    {
+                        "name": "vss-rt-vlm",
+                        "native_platform_build": True,
+                        "context": "services/rtvi/rt-vlm",
+                        "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+                        "platforms": ["linux/arm64"],
+                        "source_path": "services/rtvi/rt-vlm",
+                    },
+                ]
+            )
+            by_name = {
+                item["name"]: item
+                for item in matrices["native_platform_matrix"]["include"]
+            }
+            moved = by_name["vss-rt-vlm-sbsa"]
+            self.assertEqual(list(moved["runs_on"]), list(dci.SBSA_SELF_HOSTED_RUNS_ON))
+            self.assertIn(dci.SBSA_BUILDER_COHORT_LABEL, moved["runs_on"])
+            self.assertIn(dci.SBSA_BUILDER_ACTIVE_LABEL, moved["runs_on"])
+            self.assertNotIn(dci.SBSA_BUILDER_CANARY_LABEL, moved["runs_on"])
+            self.assertEqual(moved["emulated"], "true")
+            self.assertEqual(moved["kernel_arch"], "x86_64")
+            # Other SBSA images and non-SBSA arm64 stay on GitHub-hosted ARM.
+            self.assertEqual(
+                by_name["vss-rt-embed-sbsa"]["runs_on"], ["ubuntu-24.04-arm"]
+            )
+            self.assertEqual(by_name["vss-rt-embed-sbsa"]["emulated"], "false")
+            self.assertEqual(
+                by_name["vss-rt-vlm"]["runs_on"], ["ubuntu-24.04-arm"]
+            )
+        finally:
+            dci.SBSA_SELF_HOSTED_IMAGES = original
 
 
 class PathsChangedUnderTest(unittest.TestCase):

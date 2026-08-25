@@ -70,12 +70,71 @@ KERNEL_ARCH_BY_PLATFORM = {
     "linux/arm64": "aarch64",
 }
 
+# Dedicated SBSA builder cohort. These labels must not overlap the existing
+# horde-docker-0[1-4] amd64 canary pool (vss-docker-builder-*). Register new
+# runners with the cohort label only. Add the canary or active label later;
+# GitHub will not send production jobs until the workflow asks for `active`
+# and SBSA_SELF_HOSTED_IMAGES names that image.
+SBSA_BUILDER_COHORT_LABEL = "vss-sbsa-builder"
+SBSA_BUILDER_CANARY_LABEL = "vss-sbsa-builder-canary"
+SBSA_BUILDER_ACTIVE_LABEL = "vss-sbsa-builder-active"
+SBSA_SELF_HOSTED_RUNS_ON: tuple[str, ...] = (
+    "self-hosted",
+    "Linux",
+    "X64",
+    SBSA_BUILDER_COHORT_LABEL,
+    SBSA_BUILDER_ACTIVE_LABEL,
+)
+# Empty: every SBSA native cell stays on ubuntu-24.04-arm. Add one image
+# name at a time after the Windows/WSL runner canary passes.
+SBSA_SELF_HOSTED_IMAGES: frozenset[str] = frozenset()
+
 
 def is_native_platform_build(entry: dict) -> bool:
     return (
         entry["name"] in NATIVE_PLATFORM_IMAGE_NAMES
         or entry.get("native_platform_build") is True
     )
+
+
+def is_sbsa_image(entry: dict) -> bool:
+    suffix = str(entry.get("tag_suffix") or "")
+    return suffix == "-sbsa" or str(entry.get("name") or "").endswith("-sbsa")
+
+
+def native_platform_runner(entry: dict, platform: str) -> dict:
+    """Pick the GitHub runner and architecture checks for one native cell."""
+    try:
+        runner = RUNNER_BY_PLATFORM[platform]
+        runner_arch = RUNNER_ARCH_BY_PLATFORM[platform]
+        kernel_arch = KERNEL_ARCH_BY_PLATFORM[platform]
+    except KeyError as exc:
+        raise ValueError(
+            f"{entry['name']}: no native runner configured for {platform}"
+        ) from exc
+
+    emulated = False
+    runs_on: list[str] = [runner]
+    if (
+        platform == "linux/arm64"
+        and is_sbsa_image(entry)
+        and entry["name"] in SBSA_SELF_HOSTED_IMAGES
+    ):
+        # x86_64 self-hosted builder runs linux/arm64 through QEMU. The
+        # kernel/runner arch checks must match the host, not the image.
+        runs_on = list(SBSA_SELF_HOSTED_RUNS_ON)
+        runner = "self-hosted"
+        runner_arch = "X64"
+        kernel_arch = "x86_64"
+        emulated = True
+
+    return {
+        "runner": runner,
+        "runs_on": runs_on,
+        "runner_arch": runner_arch,
+        "kernel_arch": kernel_arch,
+        "emulated": "true" if emulated else "false",
+    }
 
 
 def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -300,20 +359,12 @@ def split_build_matrices(entries: list[dict]) -> dict[str, dict]:
     for entry in native:
         base = matrix_entry(entry)
         for platform in entry["platforms"]:
-            try:
-                runner = RUNNER_BY_PLATFORM[platform]
-            except KeyError as exc:
-                raise ValueError(
-                    f"{entry['name']}: no native runner configured for {platform}"
-                ) from exc
             native_platforms.append(
                 {
                     **base,
                     "platform": platform,
                     "arch": platform.rsplit("/", 1)[-1],
-                    "runner": runner,
-                    "runner_arch": RUNNER_ARCH_BY_PLATFORM[platform],
-                    "kernel_arch": KERNEL_ARCH_BY_PLATFORM[platform],
+                    **native_platform_runner(entry, platform),
                 }
             )
     return {

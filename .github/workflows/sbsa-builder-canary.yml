@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Manual preflight for the new SBSA builder cohort. It does not run on push
+# or schedule, so current GHCR and amd64 horde-docker CIs are unchanged.
+# Register horde-sbsa-NN with vss-sbsa-builder only; add
+# vss-sbsa-builder-canary on one runner before dispatching this workflow.
+
+name: SBSA builder canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbsa-builder-canary
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  preflight:
+    name: Preflight emulated SBSA builder
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - vss-sbsa-builder
+      - vss-sbsa-builder-canary
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Verify host can emulate linux/arm64
+        run: |
+          set -euo pipefail
+          uname -a
+          test "$(uname -m)" = x86_64
+          test "$RUNNER_ARCH" = X64
+          test -e /proc/sys/fs/binfmt_misc/qemu-aarch64
+          docker info
+          docker buildx version
+          df -hP /

@@ -303,7 +303,7 @@ jobs:
     name: Build ${{ matrix.name }} (${{ matrix.arch }}, native)
     needs: changes
     if: fromJSON(needs.changes.outputs.native-count) > 0
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -314,11 +314,21 @@ jobs:
           persist-credentials: false
 
       - name: Verify native runner architecture
+        if: matrix.emulated != 'true'
         run: |
           uname -a
           echo "RUNNER_ARCH=$RUNNER_ARCH"
           test "$(uname -m)" = "${{ matrix.kernel_arch }}"
           test "$RUNNER_ARCH" = "${{ matrix.runner_arch }}"
+
+      - name: Verify emulated SBSA builder host
+        if: matrix.emulated == 'true'
+        run: |
+          uname -a
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          test "$(uname -m)" = "${{ matrix.kernel_arch }}"
+          test "$RUNNER_ARCH" = "${{ matrix.runner_arch }}"
+          test -e /proc/sys/fs/binfmt_misc/qemu-aarch64
 
       - name: Fetch required LFS build assets
         if: matrix.lfs_include != ''
@@ -397,6 +407,7 @@ jobs:
         # its content store so the native build has sufficient working space.
       - name: Reclaim disk space for native image build
         if: >-
+          runner.environment == 'github-hosted' &&
           steps.candidate-preflight.outputs.skip != 'true' &&
           steps.reuse.outputs.reuse != 'true' &&
           steps.platform-preflight.outputs.skip != 'true'
@@ -406,6 +417,14 @@ jobs:
           sudo docker system prune --all --force --volumes
           df -h /
           docker system df
+
+      - name: Set up QEMU (emulated arm64 on x86_64)
+        if: >-
+          matrix.emulated == 'true' &&
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392  # v3.6.0
 
       - name: Set up Buildx
         if: >-
@@ -442,7 +461,11 @@ jobs:
           steps.platform-preflight.outputs.skip != 'true'
         run: |
           docker buildx prune --all --force || true
-          sudo docker system prune --all --force --volumes || true
+          if [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ]; then
+            sudo docker system prune --all --force --volumes || true
+          else
+            docker system prune --all --force --volumes || true
+          fi
           df -h /
 
       - name: Verify platform staging labels
