@@ -80,7 +80,7 @@ env:
   # self-hosted runner's system python3 (currently 3.10).
   SKILL_EVAL_PYTHON_VERSION: "3.12"
   # Capability-route one leg per spec across 8× A16 1-GPU runners,
-  # 2× A40 1-GPU runners, 3× A40 2-GPU runners, and 4× RTX PRO 6000
+  # 4× A40 1-GPU runners, 2× A40 2-GPU runners, and 4× RTX PRO 6000
   # 2-GPU runners. Exact A16/A40 hardware profiles and explicit per-spec
   # metadata are prerequisites; missing compatibility emits a visible
   # BLOCKED leg. Skip other GPU SKUs for this path. These VMs are registered from
@@ -171,10 +171,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Total runner capacity is 17. Cohort-specific active + GPU-count labels
-      # cap each pool independently (8 A16-1g, 2 A40-1g, 3 A40-2g, 4 RTX-2g),
+      # Total runner capacity is 18. Cohort-specific active + GPU-count labels
+      # cap each pool independently (8 A16-1g, 4 A40-1g, 2 A40-2g, 4 RTX-2g),
       # so one cohort cannot consume another cohort's runners.
-      max-parallel: 17
+      max-parallel: 18
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling

@@ -206,7 +206,7 @@ class RealSpecCorpus(unittest.TestCase):
         ).read_text()
         self.assertIn("openshell-a16-active", planner)
         self.assertIn("openshell-a40-active", planner)
-        self.assertIn("max-parallel: 17", workflow)
+        self.assertIn("max-parallel: 18", workflow)
         retired_model = "H" + "200"
         active_files = [
             plan_matrix.REPO_ROOT / ".github/skill-eval/plan_matrix.py",
@@ -229,20 +229,28 @@ class RealSpecCorpus(unittest.TestCase):
             len(include),
             "one demand-appropriate leg per spec",
         )
+        counts = {
+            cohort: sum(leg["cohort"] == cohort for leg in include)
+            for cohort in {leg["cohort"] for leg in include}
+        }
+        self.assertEqual(
+            counts,
+            {
+                "a16-1g": 19,
+                "a40-1g": 12,
+                "a40-2g": 5,
+                "rtxpro6000-2g": 14,
+            },
+        )
         for leg in include:
-            self.assertIn(
-                leg["kind"], {"eval", "not_run_infra_acquisition"}
-            )
-            if leg["kind"] == "eval":
-                self.assertEqual(leg["cohort"], "rtxpro6000-2g")
-                self.assertIn(
-                    "openshell-rtxpro6000-active", leg["runs_on"]
-                )
+            self.assertEqual(leg["kind"], "eval")
+            if leg["cohort"].startswith("a16"):
+                self.assertIn("openshell-a16-active", leg["runs_on"])
+            elif leg["cohort"].startswith("a40"):
+                self.assertIn("openshell-a40-active", leg["runs_on"])
             else:
-                self.assertIn(
-                    "exact hardware profile prerequisite missing",
-                    leg["skip_reason"],
-                )
+                self.assertEqual(leg["cohort"], "rtxpro6000-2g")
+                self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
 
 
 class BuildMatrix(unittest.TestCase):
@@ -600,14 +608,14 @@ class OpenshellGpuFleet(unittest.TestCase):
             {cohort.name: cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS},
             {
                 "a16-1g": 8,
-                "a40-1g": 2,
-                "a40-2g": 3,
+                "a40-1g": 4,
+                "a40-2g": 2,
                 "rtxpro6000-2g": 4,
             },
         )
         self.assertEqual(
             sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
-            17,
+            18,
         )
 
     def test_capability_and_per_gpu_vram_boundaries(self):

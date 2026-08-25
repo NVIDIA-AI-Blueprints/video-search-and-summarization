@@ -34,7 +34,7 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 | Platform | Pool member(s) | Instance type |
 |---|---|---|
 | `a16` | 8 direct OpenShell runners with `openshell-a16-active`, `gpu-nvidia-a16`, `gpus-1` | NVIDIA A16 16 GB |
-| `a40` | 2 direct `gpus-1` and 3 direct `gpus-2` OpenShell runners with `openshell-a40-active` | NVIDIA A40 48 GB/GPU |
+| `a40` | 4 direct `gpus-1` and 2 direct `gpus-2` OpenShell runners with `openshell-a40-active` | NVIDIA A40 48 GB/GPU |
 | `l40s` | `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2` | `massedcompute_L40S` / `massedcompute_L40Sx2` |
 | `h100` | `vss-eval-h100` (when needed) | launchpad `dmz.h100x2.pcie` preferred |
 | `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and capability-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or approved RTX 4090 |

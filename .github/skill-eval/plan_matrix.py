@@ -208,7 +208,7 @@ class OpenShellCohort(NamedTuple):
 
 # Order is the placement preference: use the smallest explicitly-supported
 # cohort that satisfies every per-GPU capability. Capacity is runner capacity,
-# not GPU count: 8 A16 VMs, 2 one-GPU A40 VMs, 3 two-GPU A40 VMs, and 4
+# not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, and 4
 # two-GPU RTX PRO 6000 VMs.
 OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
@@ -216,11 +216,11 @@ OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
         (*OPENSHELL_A16_LABELS, "gpus-1"),
     ),
     OpenShellCohort(
-        "a40-1g", "A40", "A40", 1, 48, 2,
+        "a40-1g", "A40", "A40", 1, 48, 4,
         (*OPENSHELL_A40_LABELS, "gpus-1"),
     ),
     OpenShellCohort(
-        "a40-2g", "A40", "A40", 2, 48, 3,
+        "a40-2g", "A40", "A40", 2, 48, 2,
         (*OPENSHELL_A40_LABELS, "gpus-2"),
     ),
     OpenShellCohort(

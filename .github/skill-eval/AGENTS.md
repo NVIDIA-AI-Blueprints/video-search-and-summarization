@@ -491,7 +491,7 @@ The canonical harbor command is in § Harbor invocation.
 | Platform | Fleet prefix in `brev ls` | Notes |
 |---|---|---|
 | `a16` | Direct OpenShell GHA cohort (`openshell-a16-active`) | 8 VMs × 1 NVIDIA A16 16 GB. Only explicitly A16-supported, one-GPU workloads at or below 16 GB/GPU; codec capability is available. |
-| `a40` | Direct OpenShell GHA cohort (`openshell-a40-active`) | 2 VMs × 1 A40 plus 3 VMs × 2 A40, 48 GB/GPU. `gpus-1` and `gpus-2` are distinct demands; two cards are not one 96 GB address space. |
+| `a40` | Direct OpenShell GHA cohort (`openshell-a40-active`) | 4 VMs × 1 A40 plus 2 VMs × 2 A40, 48 GB/GPU. `gpus-1` and `gpus-2` are distinct demands; two cards are not one 96 GB address space. |
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
