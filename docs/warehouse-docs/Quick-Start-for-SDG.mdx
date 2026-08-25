@@ -1,0 +1,51 @@
+---
+title: "Quick Start for SDG"
+description: ""
+position: 1
+---
+For a quick start with SDG, we are providing a sample scene asset that includes NavMesh, semantic labels, and camera placement. With this setup, getting started with SDG should be straightforward by following these two steps (**first load asset in Isaac Sim takes longer time**):
+
+<Tip>
+Basic hardware requirements:
+
+   - Use RTX-Enabled GPUs for SDG
+   - 48GB GPU memory for 6 cameras
+   - 128GB RAM
+   - 1Ti SSD storage for output data
+</Tip>
+
+1. Download the `warehouse_20×20` USD file by the command:
+
+```
+$ ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-usd-files:3.2.0"
+```
+
+2. Start SDG with UI or script:
+
+   - Refer to [Actor Simulation and Synthetic Data Generation](https://docs.isaacsim.omniverse.nvidia.com/latest/action_and_event_data_generation/tutorial_replicator_agent.html) in the Isaac Sim documentations for both UI and script workflows.
+
+<Note>
+The configuration file format differs between Isaac Sim 5.1 and 6.0. Please refer to the documentation for your Isaac Sim version to ensure correct configuration, the example configuration file is as follows:
+
+- [Isaac Sim 5.1 Configuration File](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/action_and_event_data_generation/tutorial_replicator_agent.html#configuration-file)
+- [Isaac Sim 6.0 Configuration File](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/action_and_event_data_generation/tutorial_replicator_agent.html#configuration-file)
+</Note>
+
+<Note>
+- Set scene asset path to the warehouse_20x20 USD file.
+- Enable the following necessary fields under IRABasicWriter.
+
+``yaml
+IRABasicWriter:
+output_dir: [Path to the output directory]
+object_info_bounding_box_3d: true
+object_info_bounding_box_2d_tight: true
+object_info_bounding_box_2d_loose: true
+semantic_filter_predicate: class:character|flatbox|multidepthbox|whitecorrugatedbox|printersbox|basket|woodencrate|cardbox|officepaperbox|cubebox|longbox|blockpallet|wooddrumpallet|rackablepallet|exportpallet|pallet|rack|barel|bottle|nova_carter|iw_hub|forklift|GR1_T2|Agility_Digit|crate|cart;id:*
+image_output_format: jpg
+rgb: true
+camera_params: true
+
+</Note>
+
+   - For scene customization (Adding cameras, relabeling, NavMesh), refer to the [Scene Customization](/warehouse-docs/Scene-Customization) section.

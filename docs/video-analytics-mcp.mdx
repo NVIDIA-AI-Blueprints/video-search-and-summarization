@@ -1,0 +1,43 @@
+---
+title: "Video Analytics MCP"
+description: ""
+position: 2
+---
+The Video Analytics MCP (Model Context Protocol) Server provides AI agents with access to video analytics data through the MCP protocol.
+It enables natural language querying of incidents, sensor information, and metrics stored in Elasticsearch.
+
+## Overview
+
+The VA-MCP Server is built on [NVIDIA Agent Toolkit (NAT)](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html) and exposes video analytics capabilities as MCP tools that can be consumed by AI agents.
+
+**Key Features:**
+
+* Query incidents by sensor, place, time range, and VLM verdict
+* Semantic place search using sentence-transformer embeddings
+* Field-of-view occupancy histograms and object counts
+* Statistical analysis (average speeds, incident counts)
+* Optional: Filter results by active sensors using VST sensor list tool
+
+**Available Tools:**
+
+| Tool | Description |
+| --- | --- |
+| `get_incident` | Retrieve a specific incident by ID |
+| `get_incidents` | Query incidents with filtering by sensor, place, time range |
+| `get_sensor_ids` | Get list of available sensor IDs |
+| `get_places` | Get hierarchical map of places |
+| `get_fov_histogram` | Get field-of-view occupancy over time |
+| `get_average_speeds` | Get average speed metrics by direction |
+| `analyze` | Perform statistical analysis on video data |
+
+**Quick Start:**
+
+```bash
+# Start the MCP server
+nat mcp serve --config_file <path/to/config_file>
+
+# List available tools
+nat mcp client tool list --url http://localhost:9901/mcp
+```
+
+For complete documentation including configuration, parameters, and usage examples, see [Video-Analytics-MCP Server](/vss-agent/Video-Analytics-MCP-Server).

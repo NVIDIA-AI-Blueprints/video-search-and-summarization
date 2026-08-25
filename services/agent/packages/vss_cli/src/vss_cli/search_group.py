@@ -305,8 +305,8 @@ async def _critic_from(
         return None, None
 
     from vss_core.critic import CriticAgent
+    from vss_core.vios import VSTClient
     from vss_core.vlm import OpenAIVLMAnalyzer
-    from vss_core.vst import VSTClient
 
     vst = VSTClient(
         internal_url=deployment.base_url,

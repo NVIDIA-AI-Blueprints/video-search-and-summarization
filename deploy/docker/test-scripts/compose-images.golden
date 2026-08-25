@@ -28,7 +28,6 @@ deploy/docker/services/infra/haproxy/compose.yml docker.io/library/haproxy:3.4.2
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
-deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
 deploy/docker/services/infra/sdrc/docker-compose.yaml redis:8.10.0-alpine
 deploy/docker/services/monitoring/compose.yml docker.io/grafana/grafana:13.1.1-ubuntu
@@ -50,6 +49,9 @@ deploy/docker/services/nim/llama-3.3-nemotron-super-49b-v1.5/compose.yml nvcr.io
 deploy/docker/services/nim/nemotron-3-nano/compose.yml alpine:3.24.1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml alpine:3.24.1
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml docker.io/alpine/curl:8.21.0
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
@@ -63,7 +65,7 @@ deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
 deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest
-deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
+deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 deploy/docker/services/ui/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
 deploy/docker/services/video-summarization/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest
 deploy/docker/services/vios/foundational/docker-compose.yaml ${POSTGRES_IMAGE}

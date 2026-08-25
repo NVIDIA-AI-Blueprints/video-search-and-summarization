@@ -1,0 +1,129 @@
+[project]
+dependencies = [
+    "fastapi==0.121.3",
+    "sentencepiece==0.2.0",
+    "pillow==12.2.0",
+    "tabulate==0.9.0",
+    "cupy-cuda12x==13.3.0",
+    "cuda-python==13.2.0",
+    "ngcsdk==3.64.2",
+    # ngcsdk imports pkg_resources, which was removed in setuptools 81.
+    "setuptools<81",
+    "sse-starlette==2.1.0",
+    "sseclient-py==1.8.0",
+    "prometheus-client~=0.20.0",
+    "schema>=0.7.7,<0.8.0",
+    "einops==0.8.0",
+    "nvtx==0.2.11",
+    "deepspeed==0.15.1",
+    "starlette==0.50.0",
+    "matplotlib==3.9.4",
+    "onnx==1.21.0",
+    "langchain-openai==0.3.29",
+    "python-multipart==0.0.27",
+    "pymediainfo==6.1.0",
+    "hydra-core==1.3.2",
+    "s2wrapper @ https://github.com/bfshi/scaling_on_scales/archive/60da2afe5121533947c1dff2d57d9c583516a157.zip",
+    "opentelemetry-exporter-otlp-proto-http>=1.28.2",
+    "opentelemetry-api>=1.28.2",
+    "opentelemetry-sdk>=1.28.2",
+    "opentelemetry-instrumentation~=0.47b0",
+    "opentelemetry-instrumentation-fastapi>=0.49b2",
+    "opentelemetry-instrumentation-requests~=0.47b0",
+    "protobuf==6.33.6",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.28.2",
+    "mkl==2021.1.1; platform_machine == 'x86_64'",
+    "networkx==3.5",
+    "sympy==1.14.0",
+    "transformers==4.57.5",
+    "xgrammar==0.1.32",
+    "compressed-tensors==0.13.0",
+    "apache-tvm-ffi==0.1.7",
+    "nvidia-cudnn-frontend==1.18.0",
+    "nvidia-cutlass-dsl-libs-base==4.4.2",
+    "quack-kernels==0.3.6",
+    "torch-c-dlpack-ext==0.1.5",
+    "cuda-tile==1.2.0",
+    "numba==0.64.0",
+    "llvmlite==0.46.0",
+    "grpcio==1.78.0",
+    "grpcio-reflection==1.78.0",
+    "mistral-common==1.10.0",
+    "mcp==1.26.0",
+    "numpy==2.1.0",
+    "kafka-python==2.2.15",
+    "nvidia-cutlass-dsl==4.4.2",
+    "ray[default]==2.54.0",
+    "urllib3==2.7.0",
+    "onnxscript==0.5.7",
+    "redis==7.1.0",
+    "langchain-core==0.3.81",
+    "aiohttp==3.13.3",
+    "fonttools==4.61.1",
+    "nvidia-nvshmem-cu13",
+    "librosa==0.11.0",
+    "cryptography>=46.0.5",
+    "pyasn1==0.6.3",
+    "cbor2==5.9.0",
+    "tornado==6.5.5",
+    "annoy==1.17.3",
+    "pytest==8.1.1",
+    "nvidia-ml-py==13.610.43"
+]
+requires-python = "==3.12.*"
+
+
+[tool.pdm]
+distribution = false
+include-system-site-packages = true
+ignore_packages = ["torch", "torchvision", "tensorrt", "triton"]
+
+[project.optional-dependencies]
+amd64 = [
+]
+arm64 = [
+]
+
+[[tool.pdm.source]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+verify_ssl = true
+
+[[tool.pdm.source]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+verify_ssl = true
+
+[[tool.pdm.source]]
+name = "pypi-standard"
+url = "https://pypi.org/simple/"
+verify_ssl = true
+
+[[tool.pdm.source]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+verify_ssl = true
+include_packages = ["tensorrt*", "cudf-*", "cuml-*"]
+
+[tool.pdm.resolution]
+excludes = ["torch", "torchvision", "ffmpeg", "intel-openmp", "flash_attn", "tensorrt", "triton"]
+
+[tool.pdm.resolution.overrides]
+langchain-core = "==0.3.81"
+langchain = "==0.3.27"
+langchain-nvidia-ai-endpoints = "==0.3.14"
+langchain-openai = "==0.3.29"
+langchain_milvus = "==0.2.1"
+langchain-huggingface = "==0.3.1"
+langchain-experimental = "==0.3.4"
+langchain-community = "==0.3.27"
+protobuf = "==6.33.6"
+xgrammar = "==0.1.32"
+transformers = "==4.57.5"
+grpcio = "==1.78.0"
+grpcio-reflection = "==1.78.0"
+opencv-python-headless = "==4.13.0.92"
+mistral-common = "==1.10.0"
+mcp = "==1.26.0"
+numpy = "==2.1.0"
+

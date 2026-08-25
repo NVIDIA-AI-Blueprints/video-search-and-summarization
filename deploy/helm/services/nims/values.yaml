@@ -17,6 +17,7 @@
 #
 # USAGE – select GPU at install time with a single flag:
 #   helm install nims ./nims --set gpuType=H100
+#   helm install nims ./nims --set gpuType=GB300
 #   helm install nims ./nims --set gpuType=L40S
 #   helm install nims ./nims --set gpuType=RTXPRO6000BW
 #
@@ -37,13 +38,13 @@ global:
 # ---------------------------------------------------------------------------
 # GPU selection
 # Sets which entry in gpuProfiles is used when rendering the nim-env ConfigMaps.
-# Valid values: H100 | L40S | RTXPRO6000BW | OTHER
+# Valid values: H100 | GB300 | L40S | RTXPRO4500BW | RTXPRO6000BW | OTHER
 # ---------------------------------------------------------------------------
 gpuType: "H100"
 
 # ---------------------------------------------------------------------------
 # GPU profile lookup table
-# Each entry contains env vars keyed by NIM alias (nemotron / cosmos).
+# Each entry contains env vars keyed by NIM alias.
 # Only non-empty values end up in the rendered ConfigMap.
 # ---------------------------------------------------------------------------
 gpuProfiles:
@@ -58,6 +59,30 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
     nemotron3:
       NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
+    cosmos:
+      NIM_KVCACHE_PERCENT: "0.7"
+      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+    cosmos3:
+      NIM_GPU_MEMORY_UTILIZATION: "0.9"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+      NIM_DELETE_LAST_FRAMES: "1"
+
+  # GB300 uses the same conservative full-GPU NIM budget as H100.
+  GB300:
+    nemotron:
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+      NIM_KVCACHE_PERCENT: "0.8"
+      NIM_GPU_MEM_FRACTION: "0.8"
+      NIM_LOW_MEMORY_MODE: "1"
+      NIM_MAX_MODEL_LEN: "128000"
+      NIM_MAX_NUM_SEQS: "4"
+    nemotron3:
+      NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
@@ -77,6 +102,8 @@ gpuProfiles:
       NIM_LOW_MEMORY_MODE: "1"
     nemotron3:
       NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
     cosmos:
       NIM_KVCACHE_PERCENT: "0.8"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.8"
@@ -91,6 +118,14 @@ gpuProfiles:
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
+  RTXPRO4500BW:
+    nemotron: {}
+    nemotron3: {}
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
+    cosmos: {}
+    cosmos3: {}
+
   # Matches live nim-env ConfigMaps when gpuType=RTXPRO6000BW (e.g. vss-summarization namespace).
   RTXPRO6000BW:
     nemotron:
@@ -102,6 +137,8 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
     nemotron3:
       NIM_PASSTHROUGH_ARGS: '--default-chat-template-kwargs {\"enable_thinking\":false}'
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
@@ -111,13 +148,13 @@ gpuProfiles:
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
-  # Generic fallback for GPUs outside the validated list. Mirrors the Docker
-  # hw-OTHER.env profiles exactly: no GPU tuning at all — the NIM applies its own
-  # defaults, since we have no validated numbers for unknown GPUs. The rendered
-  # ConfigMaps are intentionally empty.
+  # Generic fallback for GPUs outside the validated list. Model-specific parser
+  # arguments are retained, but no GPU memory tuning is imposed.
   OTHER:
     nemotron: {}
     nemotron3: {}
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
     cosmos: {}
     cosmos3: {}
 
@@ -185,6 +222,45 @@ nemotron3:
     pvc:
       storageClass: ""
       size: "50Gi"
+
+  metrics:
+    enabled: false
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  nodeSelector: {}
+
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# ---------------------------------------------------------------------------
+# Nemotron 3.5 Lightning 30B-A3B – LLM NIM (alias: nemotron35)
+# ---------------------------------------------------------------------------
+nemotron35:
+  enabled: false
+  fullnameOverride: ""
+
+  image:
+    repository: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b
+    tag: "2.0.9-variant"
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    limits:
+      nvidia.com/gpu: "1"
+    requests:
+      nvidia.com/gpu: "1"
+
+  storage:
+    pvc:
+      storageClass: ""
+      size: "100Gi"
 
   metrics:
     enabled: false

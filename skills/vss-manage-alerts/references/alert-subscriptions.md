@@ -80,9 +80,17 @@ VST_API_BASE="${VST}/vst/api/v1"
 **3. Do NOT route through the VSS Agent `/generate` endpoint under any circumstance. Workflow D MUST call Alert Bridge directly at `$AB/api/v1/realtime`. If Alert Bridge is unreachable, abort and report the connectivity error — do not fall back to `/generate`.
 
 **4. Payload must include `sensor_id` as the UUID from VIOS:**
-- Call `GET $VST_API_BASE/sensor/list`
-- Match by name, extract the `sensorId` field (UUID).
-- Put that UUID in the Alert Bridge payload's `sensor_id` field — not the name.
+- Run `vss vios list --type stream` and read the row whose `name` matches. (CLI bootstrap
+  and exit codes: `AGENTS.md` at the repo root.)
+- Take its `sensor_id`. Read it from that listing — never build it from the name: an
+  auto-discovered source's `sensorId` can carry a `_N` suffix, and an uploaded one is a
+  fresh UUID.
+- Put that id in the Alert Bridge payload's `sensor_id` field — not the name.
+- **Scope: the rule-creation payload only.** RT-VLM keys its stream registration on the VIOS
+  UUID, so create/replay needs it. The `sensor_id` **query parameter** on
+  `GET /api/v1/realtime/incidents` (Workflow C) is a different identity: it is an exact-match
+  filter on the `sensorId` field the incident documents carry, and that field holds the sensor
+  **name**. Passing a UUID there silently returns zero incidents.
 
 **Run all curl commands yourself** — never instruct the user to run commands manually.
 
@@ -359,7 +367,7 @@ Example: *"Stop the PPE alert on warehouse-dock-1."*
 - `sensor_name` -> `warehouse-dock-1`
 - `alert_type` -> `ppe_vest_violation` (or partial: `ppe`)
 
-**Both fields are required.** If either is missing, ask the user to clarify. Do NOT guess or reuse values from conversation context.
+**Both fields are required for a sensor + alert-type request** (e.g. "stop the PPE alert on warehouse-dock-1"). If either is missing, ask the user to clarify — do NOT guess or reuse values from conversation context. **Exception:** an exact `Stop rule <id>` request resolves by that rule ID directly (no sensor/alert_type needed); it still gets the same yes/no confirmation before any `DELETE`.
 
 **Fetch rules and filter:**
 

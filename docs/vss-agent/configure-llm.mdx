@@ -1,0 +1,233 @@
+---
+title: "Configure the LLM"
+description: ""
+position: 1
+---
+This page describes how to configure the LLM for the VSS agent workflow—both **local** (NIM on the same machine as the agent) and **remote** (LLM served elsewhere). You can run the LLM and VLM locally or remotely, in any combination that suits your setup.
+
+For **remote** LLMs, as long as the API is [OpenAI compatible](https://platform.openai.com/docs/api-reference/chat), you can point the agent to it for reasoning and coordinating tool calls during report generation, video understanding, video summarization, and more. Remote endpoints can enable rapid startup when they are already up and running.
+
+## Local LLM customization
+
+When deploying with a local LLM, the agent workflow uses a default NIM endpoint. You can customize it as follows:
+
+- **Default model:** `nvidia/nvidia-nemotron-nano-9b-v2` (configured as a local NIM endpoint).
+
+- **Custom NIM env file:** At deploy time, pass `--llm-env-file` with the path (absolute or relative to the current directory) to an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
+
+- **Different local model:** Pass `--llm` with one of the supported model names:
+
+  - `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`
+  - `nvidia/nemotron-3-nano`
+  - `nvidia/llama-3.3-nemotron-super-49b-v1.5`
+  - `openai/gpt-oss-20b`
+
+- **Verified models:** Only the default `nvidia/nvidia-nemotron-nano-9b-v2` is verified for local deployment. For other models, ensure GPU memory meets requirements and refer to [LLM NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html).
+
+- **GPU assignment:** Use `--llm-device-id` to pin the local LLM to a specific GPU (e.g. when sharing with a local VLM). See the quickstart deploy tab-set for examples.
+
+## Setup assumptions for remote LLMs
+
+Before you start, make sure you followed the [prerequisites](/prerequisites) section.
+It is also recommended to review the different parameters described in the [quickstart](/quickstart) guide.
+
+1. Register an account at [NVIDIA NGC](https://org.ngc.nvidia.com/setup). Get an NGC API key.
+
+2. Similarly login to [NVIDIA NIM API catalog](https://build.nvidia.com/). Get a NIM CATALOG API key.
+
+3. Ensure you are logged in to the NGC registry for docker to pull container images:
+
+   ```bash
+   docker login nvcr.io
+   Username: $oauthtoken
+   Password: <PASTE_NGC_API_KEY_HERE>
+   ```
+
+4. Ensure you have `NGC_CLI_API_KEY` set in your environment for the agent workflow to pull NIM containers:
+
+   ```bash
+   export NGC_CLI_API_KEY=<PASTE_NGC_API_KEY_HERE>
+   ```
+
+## Managed remote LLMs
+
+### Using NIM containers (hosted on build.nvidia.com)
+
+1. Choose a particular NIM LLM from the [NVIDIA NIM API catalog](https://build.nvidia.com/).
+
+2. Deploy the agent workflow and point it to the cloud-managed remote NIM for the LLM:
+
+   ```bash
+   ```
+
+    export LLM_ENDPOINT_URL='https://integrate.api.nvidia.com'
+    export NVIDIA_API_KEY=`<PASTE_NIM_CATALOG_API_KEY_HERE>`
+
+    deploy/docker/scripts/dev-profile.sh up -p base \
+        --use-remote-llm \
+        --llm 'nvidia/llama-3.3-nemotron-super-49b-v1.5' \
+        --vlm-device-id 0
+
+Examples of hosted NIM containers:
+
+- [nvidia/nemotron-3-nano-30b-a3b](https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b)
+- [openai/gpt-oss-120b](https://build.nvidia.com/openai/gpt-oss-120b)
+- [z-ai/glm5](https://build.nvidia.com/z-ai/glm5)
+
+For instance, to configure both the LLM and VLM in remote mode, you can use a combined command like the following:
+
+```bash
+export LLM_ENDPOINT_URL='https://integrate.api.nvidia.com'
+export VLM_ENDPOINT_URL='https://integrate.api.nvidia.com'
+export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+
+deploy/docker/scripts/dev-profile.sh up -p base \
+    --use-remote-llm \
+    --llm 'nvidia/llama-3.3-nemotron-super-49b-v1.5' \
+    --use-remote-vlm \
+    --vlm 'nvidia/cosmos3-nano-reasoner'
+```
+
+You can adapt these instructions and combinations as shown in the following sections.
+
+### Using frontier OpenAI models
+
+1. Register an account at the [OpenAI API platform](https://platform.openai.com/). Get an API key.
+
+2. Choose a compatible model from the list in `curl https://api.openai.com/v1/models -H "Authorization: Bearer <PASTE_API_KEY_HERE>"`.
+
+3. Deploy the agent workflow and point it to the chosen model name:
+
+   ```bash
+   export LLM_ENDPOINT_URL=https://api.openai.com
+   export OPENAI_API_KEY=<PASTE_API_KEY_HERE>
+   export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+   
+   deploy/docker/scripts/dev-profile.sh up -p base \
+       --use-remote-llm \
+       --llm-model-type openai \
+       --llm gpt-5.2 \
+       --vlm-device-id 0
+   ```
+
+Examples of compatible openAI models:
+
+- [gpt-5.2](https://developers.openai.com/api/docs/models/gpt-5.2)
+- [gpt-4.1](https://developers.openai.com/api/docs/models/gpt-4.1)
+
+## Self-hosted remote LLMs
+
+### Using downloadable NIM Containers
+
+1. Check [GPU requirements](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html) to ensure the machine that will host the LLM NIM container is supported.
+
+2. Set `NGC_API_KEY` in your environment to be passed to the containers so they can pull model weights:
+
+   ```bash
+   export NGC_API_KEY=<PASTE_NGC_API_KEY_HERE>
+   ```
+
+3. On the compatible remote machine within your own infrastructure, start the LLM NIM container and ensure it is reachable by the VSS agent workflow machine:
+
+   ```bash
+   export LOCAL_NIM_CACHE=~/.cache/nim
+   mkdir -p "$LOCAL_NIM_CACHE"
+   chmod -R 777 "$LOCAL_NIM_CACHE"
+   docker run -it --rm \
+       --gpus 'device=0' \
+       --shm-size=16gb \
+       -e NGC_API_KEY \
+       -v "$LOCAL_NIM_CACHE:/opt/nim/.cache" \
+       -p 30081:8000 \
+       nvcr.io/nim/nvidia/nemotron-3-nano:latest
+   ```
+
+<Note>
+In case you want to run several models (LLMs, VLMs) on the same machine, make sure to assign different GPUs using --gpus 'device=1' flag.
+You may assign multiple GPUs using --gpus 'device=1,2,3' etc.
+</Note>
+
+<Note>
+You may encounter errors if the remote machine does not support this model.
+For instance, you might see errors like `torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.19 GiB. GPU 0 has a total capacity of 44.42 GiB of which 654.31 MiB is free`.
+This error indicates that your GPU does not have sufficient VRAM to run the selected model. To resolve these kinds of errors, you can choose a smaller model, adjust the command with parameter arguments inspired from hardware profiles, or leverage multiple GPUs.
+</Note>
+
+   ```bash
+   # Example: leveraging multiple GPUs by setting --gpus and tensor parallelism (NIM_TENSOR_PARALLEL_SIZE)
+   export LOCAL_NIM_CACHE=~/.cache/nim
+   mkdir -p "$LOCAL_NIM_CACHE"
+   chmod -R 777 "$LOCAL_NIM_CACHE"
+   docker run -it --rm \
+       --gpus '"device=3,4"' \
+       --shm-size=16gb \
+       -e NGC_API_KEY \
+       -e NIM_TENSOR_PARALLEL_SIZE=2 \
+       -v "$LOCAL_NIM_CACHE:/opt/nim/.cache" \
+       -p 30081:8000 \
+       nvcr.io/nim/nvidia/nemotron-3-nano:latest
+   ```
+
+4. Start the VSS agent workflow and point it to the remote LLM NIM container:
+
+   ```bash
+   export LLM_ENDPOINT_URL=http://<remote-host>:30081
+   export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+   
+   deploy/docker/scripts/dev-profile.sh up -p base \
+       --use-remote-llm \
+       --vlm-device-id 0
+   ```
+
+Examples of downloadable NIM containers:
+
+- [nvcr.io/nim/nvidia/nemotron-3-nano:latest](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/nemotron-3-nano?version=latest)
+- [nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:latest](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/llama-3.3-nemotron-super-49b-v1.5?version=latest)
+- [nvcr.io/nim/openai/gpt-oss-20b:latest](https://catalog.ngc.nvidia.com/orgs/nim/teams/openai/containers/gpt-oss-20b?version=latest)
+
+### Using vLLM Container
+
+You can deploy an opensource LLM from Hugging Face or any other source using the NVIDIA vLLM container.
+Check the [NVIDIA vLLM container documentation](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/vllm?version=26.01-py3) for an introduction to vLLM and the vLLM container.
+
+1. Check [GPU requirements](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html) to ensure the machine that will host the LLM is supported.
+
+2. On the compatible remote machine within your own infrastructure, start the NVIDIA vLLM container with a Hugging Face model and ensure it is reachable by the VSS agent workflow machine:
+
+   ```bash
+   docker run --gpus 'device=0' -it --rm -p 30081:8000 nvcr.io/nvidia/vllm:26.01-py3 \
+       python3 -m vllm.entrypoints.openai.api_server \
+       --model OpenAI/gpt-oss-20b \
+       --trust-remote-code \
+       --tensor-parallel-size 1 \
+       --gpu-memory-utilization 0.85 \
+       --port 8000
+   ```
+
+<Note>
+In case you want to run several models (LLMs, VLMs) on the same machine, make sure to assign different GPUs using --gpus 'device=1' flag.
+You may assign multiple GPUs using --gpus 'device=1,2,3' etc.
+</Note>
+
+<Note>
+If you see errors such as `ValueError: To serve at least one request with the models's max seq len (262144)`, you may need to use the `--max-model-len` flag to limit the maximum context window (input + output tokens per request) to allow the model to fit on smaller GPUs.
+While some models support up to 256K tokens, VSS agent requests typically use under 10K-20K tokens. Setting a lower value (e.g. 65536) reduces GPU memory reserved for KV cache.
+</Note>
+
+3. Start the VSS agent workflow and point it to the remote vLLM model:
+
+   ```bash
+   export LLM_ENDPOINT_URL=http://<remote-host>:30081
+   export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+   
+   deploy/docker/scripts/dev-profile.sh up -p base \
+       --use-remote-llm \
+       --vlm-device-id 0
+   ```
+
+Examples of Hugging Face LLMs to use:
+
+- [OpenAI/gpt-oss-20b](https://huggingface.co/OpenAI/gpt-oss-20b)
+- [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B)
+
+See the [vLLM documentation](https://docs.vllm.ai/en/v0.5.3.post1/models/supported_models.html) for a list of supported VLMs and LLMs.

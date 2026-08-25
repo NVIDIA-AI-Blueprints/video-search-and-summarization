@@ -1,0 +1,150 @@
+---
+title: "Release Notes"
+description: ""
+position: 2
+---
+## Version 3.2.1
+
+### Features
+
+- Models - Core AI models:
+
+  - [CR ](/warehouse-docs/CR) - Updated Cosmos3 Nano Reasoner (NIM) as the default VLM for Warehouse Blueprint.
+
+### Improvements
+
+- VSS Configurator: Fixed an issue with live RTSP stream configuration.
+
+## Version 3.2.0
+
+Initial GitHub release of the VSS Warehouse Blueprint.
+
+### Features
+
+- New profiles introduced:
+
+  - MV3DT profile.
+  - Auto Calibration profile.
+
+- Launchable and Skills:
+
+  - Warehouse deploy launchable notebook.
+  - Warehouse deploy and debug skills.
+  - Behavior Analytics standalone deploy skill.
+  - Video Analytics API standalone deploy skill.
+
+- Microservices:
+
+  - RTVI-VLM always-on alerts enabling Load Quality, PPE, Spillover, and Pathway / Unexpected Obstructions.
+  - Replacement of local VLM with RTVI-VLM.
+  - Auto Calibration:
+
+    - Support for 3D profile deployment.
+    - Support for image coordinates.
+    - Support for RTSP as input.
+
+  - Behavior Analytics: Added support for dynamic configuration changes.
+  - Added dynamic configuration support in Video Analytics API to store and audit configuration changes of Behavior Analytics.
+
+  - Spatial AI Data Utils:
+
+    - Enable region and group assignment to global ROIs and tripwires.
+    - Add evaluation tools for 3D IoU-based tracking evaluation.
+    - Implement data validation and evaluation for 3D inference data.
+    - Add visualization tools.
+
+  - VSS Configurator:
+
+    - Support toggling between Kafka and Redis configurations.
+    - Support editing JSON configuration files.
+
+  - SDR: Auto re-addition of streams on Docker restart for perception services.
+
+### Improvements
+
+- Docker Compose: Refactored to improve modularity of microservices.
+
+- Microservices:
+
+  - Video Analytics API: Retry mechanism for Kafka broker, Elasticsearch, and related services.
+  - Behavior Analytics: Retry mechanism for Kafka broker, Elasticsearch, Redis, MQTT, and related services.
+  - Spatial AI Data Utils: Improved camera grouping algorithms.
+  - VSS Configurator:
+
+    - Added backup and cleanup support for `calibration.json`.
+    - Ensured the calibration file schema is followed after VSS Configurator operations.
+
+  - Alerting service:
+
+    - VLM verification supports JSON output from VLM.
+    - Improved VLM verification accuracy for Near Miss Violation by tuning prompts.
+
+  - VIOS:
+
+    - Added top-view image visualization support on Thor and Spark platforms.
+    - Improved visualization of 3D bounding boxes by using individual camera timestamps when present.
+
+- Models - Core AI models for perception and analytics:
+
+  - [RT-DETR - 2D Warehouse Model v1.0.2 ](/models/rt-detr) - Model for 2D Single-Camera Object Detection.
+  - [Sparse4D - 3D Warehouse Model v2.2 ](/models/sparse4d) - Model for 3D Multi-Camera Object Detection and Tracking.
+
+## Version 3.1.0
+
+### Features
+
+- Introduced Minimal profile to deploy the minimal set of microservices to run on a machine with smaller resource footprint
+
+### Improvements
+
+- Microservices
+
+  - Perception:
+    - Perception microservice uses DeepStream SDK v9.0 to perform object detection and tracking.
+    - Performance improvement for IGX Thor.
+  - Behavior Analytics: Enhanced support for image coordinates based analytics.
+  - Agents: Improved the multi-turn conversation capabilities.
+
+- Models - Core AI models for perception and analytics
+  - [RT-DETR - 2D Warehouse Model v1.0.1 ](/models/rt-detr) - Model for 2D Single-Camera Object Detection.
+  - [Sparse4D - 3D Warehouse Model v2.1 ](/models/sparse4d) - Model for 3D Multi-Camera Object Detection and Tracking.
+
+### Fixed Issues
+
+- Video IO & Storage (VIOS): Fixed issues with storage service.
+- VSS Configurator: Fixed issues with live RTSP stream configuration.
+
+## Version 3.0.0
+
+Initial release of the VSS Warehouse Blueprint.
+
+### Features
+
+- [Warehouse Blueprint Profiles ](/warehouse-docs/blueprint-profiles) - Layered architecture profiles combining microservices, blueprints, and AI agents for 2D and 3D applications
+
+  - [2D Vision AI Profile ](/warehouse-docs/2D-profile) - 2D single-camera detection (using RTDETR model), tracking, and analytics
+  - [2D Vision AI with Agents Profile ](/warehouse-docs/2D-profile-with-agents) - 2D single-camera detection (using RTDETR model), tracking, analytics, and VSS agent integration
+  - [3D Vision AI Profile ](/warehouse-docs/3D-profile) - 3D multi-camera detection (using Sparse4D model), tracking, and analytics
+
+- Microservices - Core components including video I/O and storage, behavior analytics, RESTful APIs, operations UI, AI agents and Auto Calibration.
+
+  - [Video IO & Storage (VIOS) ](/vss-vios) – Microservice for ingesting camera streams (RTSP, WebRTC), managing video recording, playback, and persistent storage
+  - [Behavior Analytics ](/behavior-analytics) – Real-time detection and analysis of warehouse events including object tracking, zone monitoring, and behavior pattern recognition
+  - [Video Analytics APIs ](/video-analytics-api-server) – RESTful APIs providing programmatic access to analytics data, event streams, and video workflow management
+  - **Reference Video Analytics UI** – Web-based dashboard for real-time monitoring, incident review, camera management, and analytics visualization
+  - [VSS Agent ](/warehouse-docs/agents) – Natural language interface powered by Nemotron Nano 9B v2 enabling conversational queries about incidents and automated report generation
+
+- Models - Core AI models for perception and analytics
+
+  - [RT-DETR - 2D Warehouse Model v1.0 ](/models/rt-detr) - Model for 2D Single-Camera Object Detection.
+  - [Sparse4D - 3D Warehouse Model v2.0 ](/models/sparse4d) - Model for 3D Multi-Camera Object Detection and Tracking.
+  - [CR ](/warehouse-docs/CR) - Reasoning Vision Language Model (VLM) enabling multi-step reasoning across visual and textual inputs.
+
+## Known Limitations
+
+See [Known Limitations ](/warehouse-docs/Known-Limitations) for current constraints and workarounds.
+
+## Related Topics
+
+- [Troubleshooting Guide ](/warehouse-docs/Troubleshooting-Guide)
+- [Blueprint Profiles ](/warehouse-docs/blueprint-profiles)

@@ -1,0 +1,37 @@
+---
+title: "Kafka"
+description: ""
+position: 1
+---
+Kafka is a distributed message broker that allows applications to publish and subscribe to topics.
+It plays a pivotal role in Warehouse Blueprint applications by distributing data to various microservices for advanced analytics. These microservices, in turn, generate new messages and feed them back to Kafka for downstream use.
+In scenarios where users require custom real-time analytics, they have the option to either consume data from Kafka or produce data to Kafka through their microservices.
+
+Additional information regarding Kafka can be found in the [Quickstart Guide](https://kafka.apache.org/quickstart).
+
+**Kafka topics** used by various microservices are as follows:
+
+| Name | Data Format | Class Name | Description |
+| --- | --- | --- | --- |
+| `mdx-raw` | Protobuf | `nv.Frame` | The topic where the Perception microservice sends frame metadata. |
+| `mdx-bev` | Protobuf | `nv.Frame` | The topic where the Perception microservice sends Bird's Eye View (BEV) based frame data. |
+| `mdx-behavior` | Protobuf | `nv.Behavior` | The topic used by the analytics pipeline to send behavior data. Refer to [Behavior Processing](/behavior-analytics#behavior-processing) for details. |
+| `mdx-behavior-plus` | Protobuf | `nv.Behavior` | Used by the analytics pipeline to send enhanced behavior data, like assigning cluster details to behaviors. |
+| `mdx-alerts` | Protobuf | `nv.Behavior` | For all anomaly data sent by the analytics pipeline. |
+| `mdx-events` | Protobuf | `nv.Behavior` | Used for sending various events such as IN/OUT tripwire events and ENTRY/EXIT ROI events. |
+| `mdx-frames` | Protobuf | `nv.Frame` | This topic is for enriched frame metadata, which may include additional metrics and analytics, such as FOV and ROI occupancy. |
+| `mdx-mtmc` | JSON | N/A | Used by the Multi-Camera Tracking (MTMC Analytics) microservice for sending MTMC-related data. |
+| `mdx-rtls` | Protobuf | `nv.Frame` | Used by the Real Time Location System (RTLS) microservice for sending RTLS-related data. |
+| `mdx-amr` | JSON | N/A | Used to send location and events data of Autonomous Mobile Robots (AMRs). |
+| `mdx-space-utilization` | Protobuf | `nv.SpaceUtilization` | Used for sending space utilization analytics data. |
+| `mdx-notification` | JSON | N/A | For sending various notifications such as calibration updates, configuration changes, and sensor management. |
+| `mdx-vlm-alerts` | Protobuf | `nv.Behavior` | Used for sending Vision Language Model (VLM) verified alerts. |
+| `mdx-incidents` | Protobuf | `nv.Incident` | Used for sending incident data from the analytics pipeline. |
+| `mdx-vlm-incidents` | Protobuf | `nv.Incident` | Used for sending Vision Language Model (VLM) verified incident data. |
+| `mdx-embed` | Protobuf | `nv.VisionLLM` | Used for sending embedding data for vector similarity searches. |
+| `mdx-vlm-captions` | Protobuf | `nv.VisionLLM` | Used by the RTVI-VLM microservice to publish per-chunk raw captioning events from live streams and file summarization. Consumed by Logstash, which writes the events into Elasticsearch for downstream summarization. |
+| `mdx-structured-events-summary` | Protobuf | `nv.VisionLLM` | Used by the Video Summarization microservice to publish structured event batches and aggregated narrative summaries after CA-RAG aggregation completes. Consumed by Logstash alongside `mdx-vlm-captions`. |
+
+<Note>
+* You can use the [confluent-kafka](https://pypi.org/project/confluent-kafka/) Python library to produce and consume messages. See its page for more details and sample code.
+</Note>

@@ -279,6 +279,23 @@ count_es_docs() {
     local es_host="$1"
     local today=$(date -u +%Y-%m-%d)
     local index="mdx-vlm-incidents-$today"
+
+    # A real Elasticsearch first: it serves _count and, being near-real-time,
+    # needs the refresh or the last second of writes is missing. The simulator
+    # answers neither, so a run against it falls through to its own /_all.
+    curl -sf -X POST "$es_host/$index/_refresh" >/dev/null 2>&1
+    local counted=$(curl -sf "$es_host/$index/_count" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    print(int(json.load(sys.stdin)['count']))
+except Exception:
+    pass
+" 2>/dev/null)
+    if [ -n "$counted" ]; then
+        echo "$counted"
+        return
+    fi
+
     local response=$(curl -sf "$es_host/$index/_all" 2>/dev/null || echo "")
     if [ -n "$response" ]; then
         echo "$response" | python3 -c "

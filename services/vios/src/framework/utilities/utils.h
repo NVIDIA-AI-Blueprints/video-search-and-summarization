@@ -97,7 +97,11 @@ int getPrefixLength(const string& netmask);
 string getNetmaskFromPrefixLen(const int& prefixLength);
 Json::Value loadVmsConfig();
 Json::Value loadStorageConfig(const string& storage_config_file_path);
-Json::Value loadNotificationConfig(const string& notification_config_file_path);
+// parseError, when non-null, receives jsoncpp's message if the file is invalid.
+// It cannot be logged here: this runs during VmsConfigManager static init, where
+// LOG() would re-enter that same static.
+Json::Value loadNotificationConfig(const string& notification_config_file_path,
+                                   string* parseError = nullptr);
 Json::Value scanCameraBackList();
 Json::Value  getAdaptorInfo();
 string getMediaAdaptorLibPath();
