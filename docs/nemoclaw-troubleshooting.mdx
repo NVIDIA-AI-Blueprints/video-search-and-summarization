@@ -1,0 +1,188 @@
+---
+title: "Troubleshooting"
+description: ""
+position: 4
+---
+Recovery steps for common NemoClaw / OpenClaw / VSS orchestrator issues. Commands assume the default sandbox name `demo` from [nemoclaw-deploy-vss-and-skills](/nemoclaw-deploy-vss-and-skills); substitute your sandbox name wherever `<sandbox>` appears.
+
+## Cursor or IDE Kernel Uses Node.js 20
+
+**Symptom**: Section 3.1 of `deploy_nemoclaw.ipynb` fails during the NemoClaw installer with a Node.js version error.
+
+**Cause**: NemoClaw's installer needs Node.js `>= 22.16`. Cursor and some other IDEs can put their bundled Node.js 20 ahead of `nvm` on the Jupyter kernel's `PATH`.
+
+**Solution**: Fix the Node.js version manually in a host terminal, then restart the Jupyter kernel and re-run the failed Section 3.1 cell:
+
+```bash
+# Install nvm + Node 22 (skip the curl line if nvm is already installed)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
+nvm install 22 && nvm alias default 22
+
+# Prepend Node 22 ahead of Cursor's bundled Node 20, then launch Cursor from THIS shell
+export PATH="$NVM_DIR/versions/node/$(nvm version 22)/bin:$PATH"
+node -v   # must print v22.x
+```
+
+Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kernel inherit the correct `PATH`. Alternatively, leave Cursor as-is and run this NemoClaw step from a plain terminal instead of the IDE kernel.
+
+## Agent UI Not Reachable
+
+**Symptom**: The Agent UI link from `deploy_nemoclaw.ipynb` Section 3.7 fails to load, hangs, or times out.
+
+**Cause**: The OpenShell dashboard forward on `18789` stopped, was never created, or points at the wrong sandbox.
+
+**Solution**:
+
+1. Check the local health endpoint:
+
+   ```bash
+   curl -fsS http://127.0.0.1:18789/health
+   ```
+
+2. List active forwards:
+
+   ```bash
+   openshell forward list
+   ```
+
+   Look for `<sandbox>` on port `18789` with status `running`.
+
+3. Restart the forward:
+
+   ```bash
+   openshell forward stop 18789 <sandbox>
+   openshell forward start --background 18789 <sandbox>
+   ```
+
+4. If you are not on the Brev instance directly, keep an SSH tunnel open from your laptop:
+
+   ```bash
+   ssh -L 18789:127.0.0.1:18789 <user>@<nemoclaw-host>
+   ```
+
+## MCP Tools Not Visible or Not Reachable
+
+**Symptom**: The agent cannot list `vss_orchestrator__*` tools, tool calls time out, or the Section 5 Agent UI verification cannot reach the MCP server.
+
+**Solution**: Run the following checks on the VSS host that runs the orchestrator MCP server:
+
+1. Re-run `deploy_vss_orchestrator.ipynb` Section 4. It stops any previously recorded `VSS_ORCHESTRATOR_MCP_PID`, starts the MCP server on `9988`, and polls health.
+
+2. Check the MCP log:
+
+   ```bash
+   tail -n 100 ~/video-search-and-summarization/.orchestrator-artifacts/vss_orchestrator_mcp.log
+   ```
+
+3. From `services/agent/` on the VSS host, call the health tool directly:
+
+   ```bash
+   uv run nat mcp client tool call vss_orchestrator__profiles \
+     --url http://127.0.0.1:9988/mcp \
+     --transport streamable-http
+   ```
+
+4. If the server fails before health, verify `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` paths are valid and writable, especially `mdx_data_dir` and `output_dir`.
+
+5. If NemoClaw and VSS run on separate hosts, verify that the MCP URL registered in the sandbox uses a hostname or IP address that the NemoClaw host can reach. `0.0.0.0` is a server bind address, and `127.0.0.1` reaches only the local host.
+
+## Agent Model or Provider Misconfigured
+
+**Symptom**: Chat fails, `what model are you using?` reports the wrong model, or Section 3.1 of `deploy_nemoclaw.ipynb` errors during `nemoclaw onboard`.
+
+**Solution**:
+
+* If the UI opens but chat fails, re-check the provider setup and active policy.
+* If you reproduce the failure from a terminal, use `nemoclaw sandbox exec <sandbox> -- <command>` rather than `docker exec` so the command runs through the documented NemoClaw path with workspace plugins and gateway routing.
+* For build.nvidia.com, clear `NEMOCLAW_ENDPOINT_URL` and set `NVIDIA_API_KEY`. `NEMOCLAW_MODEL` can be blank to use `nvidia/nemotron-3-super-120b-a12b`.
+* For a custom provider, set all three values: `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, and `COMPATIBLE_API_KEY`.
+* For a local provider, bind the server to `0.0.0.0` or another non-loopback host address. From inside the sandbox, use `host.openshell.internal` rather than host `127.0.0.1`.
+* Re-run the selected Section 1.2 provider cell, then Section 1.3 and Section 3 of `deploy_nemoclaw.ipynb`.
+
+If the sandbox still keeps stale provider state, destroy and recreate it:
+
+```bash
+nemoclaw <sandbox> destroy
+nemoclaw gc
+```
+
+Then re-run Section 3 of `deploy_nemoclaw.ipynb`.
+
+## VSS Skills Missing
+
+**Symptom**: `list your available skills` does not show VSS skills, the Skills tab is empty, or Section 3.8 reports no non-bundled skills.
+
+**Solution**:
+
+The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or another agent harness, run the equivalent checks for that harness.
+
+1. Run `deploy_nemoclaw.ipynb` Section 3.8 to inspect `openclaw plugins doctor` and `openclaw skills list --json`.
+
+2. Check skills from the host:
+
+   ```bash
+   openshell sandbox exec -n <sandbox> -- sh -lc 'openclaw skills list --json'
+   ```
+
+3. Confirm the VSS checkout includes the `skills/` directory and the workspace bootstrap docs for the selected agent harness, such as `.openclaw/workspace` or `.hermes/workspace`.
+
+4. Re-run Section 3.3 and 3.4 of `deploy_nemoclaw.ipynb` to reinstall the `skills/<name>/` directories and re-upload the workspace docs into the sandbox.
+
+## NGC or Model Artifact Downloads Fail
+
+**Symptom**: `docker_up` fails during `ensure_model_artifacts`, NGC CLI commands fail, or `docker login nvcr.io` fails.
+
+**Solution**:
+
+* Verify `NGC_CLI_API_KEY` is set in `deploy_vss_orchestrator.ipynb` Section 1.1.
+* Re-run Section 3.1 and 3.2 of `deploy_vss_orchestrator.ipynb` on the host to configure `~/.ngc/config` and `docker login nvcr.io`.
+* Check that `mdx_data_dir` in `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` is writable. Model artifacts are extracted under `<mdx_data_dir>/models`.
+
+## Compose Operation Stuck or Retried
+
+**Symptom**: A deployment appears stuck, repeated deploy prompts fail with "operation already running", or teardown is needed after a failed `docker_up`.
+
+**Solution**:
+
+* Poll status with the `docker_status` tool using the `docker_compose_ops_id` returned by `docker_up` or `docker_down`.
+* Ask the agent to fetch logs with `docker_logs` for the failing container.
+* To stop a running deployment, ask the agent to tear it down. `docker_down` can preempt a running `docker_up` for the same `docker_compose_id`.
+* Use `deep_clean=true` on `docker_down` only when you intentionally want to delete the configured `mdx_data_dir` after a successful teardown.
+
+## Sandbox or Gateway in a Bad State
+
+**Symptom**: `nemoclaw` or `openshell` commands hang or error out, the agent stops responding, the OpenShell gateway container is missing or unhealthy, or VSS skills fail to load after repeated reinstall attempts.
+
+**Solution**: Destroy the sandbox, garbage-collect leftover state, then recreate it from the notebook.
+
+```bash
+nemoclaw <sandbox> destroy
+nemoclaw gc
+```
+
+Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox, reapplies the VSS policy, reinstalls the VSS skills, re-uploads the workspace docs, and re-registers the `vss_orchestrator` MCP. Run Section 3.7 to generate a fresh Agent UI link.
+
+## Clean Reinstall
+
+**Symptom**: Destroying the sandbox and restarting the forward does not restore a working environment.
+
+**Solution**: Completely uninstall NemoClaw and OpenClaw, then reinstall from the notebook.
+
+1. Run the bundled NemoClaw uninstaller from the source checkout created by the installer:
+
+   ```bash
+   bash ~/.nemoclaw/source/uninstall.sh
+   ```
+
+   The uninstaller removes:
+
+   * All OpenShell sandboxes and the NemoClaw gateway/providers.
+   * NemoClaw helper services.
+   * NemoClaw / OpenShell / OpenClaw Docker images created during onboarding.
+   * `~/.nemoclaw` and `~/.config/{openshell,nemoclaw}` state.
+   * The global `nemoclaw` npm install/link and the `openshell` binary.
+
+   Docker, Node.js, npm, and Ollama are preserved.
+
+2. Reinstall by re-running Section 3 of `deploy_nemoclaw.ipynb`. Section 3 fetches the pinned `NEMOCLAW_INSTALL_REF`, recreates the sandbox, reapplies the VSS policy, and reinstalls the VSS skills and workspace docs.

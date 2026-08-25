@@ -246,11 +246,16 @@ rtvi:
     # `search` mounts ds-main-config / ds-ppl-analytics from dev-profile-search vss-rtvi-cv-configmap (not the default `alerts` StatefulSet).
     profileMode: search
     replicas: 1
+    # image: inherited from the rtvi-cv subchart's managed GHCR channel.
+    # Pinning it here would override that default and silently keep this
+    # profile on NGC, like the other managed images which are not pinned in
+    # profile values.
+    #
+    # DGX-SPARK (SBSA) is a separate build -- different base image, same
+    # linux/arm64 platform -- but it shares the GHCR repository under an
+    # -sbsa tag suffix, so it needs a tag override only:
+    #   tag: develop-latest-sbsa
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      # For multi-arch: 3.3.0-26.07.2
-      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
-      tag: 3.3.0-26.07.2
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
@@ -334,9 +339,14 @@ rtvi:
   vss-rtvi-embed:
     enabled: true
     replicas: 1
+    # Shared managed-image channel. Global container_prefix/container_tag values
+    # select a promoted image without changing this profile.
+    # SBSA/DGX-Spark shares the GHCR repository but needs its separate build
+    # tag: set image.tag to develop-latest-sbsa unless global.container_tag is
+    # already selecting that tag for the complete managed-image channel.
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-      tag: "3.3.0-26.08.1"
+      repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
+      tag: develop-latest
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -450,13 +460,9 @@ rtvi:
         value: "kafka"
       - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
         value: "true"
-      - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
-        value: "true"
-      - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
-        value: "1024"
-      - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
-        value: "false"
       # Optional EVS++ session controls.
+      - name: VIA_EVS_DECISION_LAG
+        value: ""
       - name: VIA_EVS_SESSION
         value: ""
       - name: VLLM_EVS_SIMILARITY_THRESHOLD
@@ -466,6 +472,26 @@ rtvi:
       - name: VIA_EVS_TOKEN_BUDGET
         value: ""
       - name: VIA_EVS_MAX_SESSIONS
+        value: ""
+      - name: VIA_EVS_MIN_CLIPS
+        value: ""
+      - name: VIA_EVS_EVENT_ONLY
+        value: ""
+      - name: VIA_EVS_EMA_MEMORY_S
+        value: ""
+      - name: VIA_EVS_SPIKE_STD_K
+        value: ""
+      - name: VIA_EVS_SETTLING_STD_K
+        value: ""
+      - name: VIA_EVS_STD_FLOOR_RATIO
+        value: ""
+      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
+        value: ""
+      - name: VIA_EVS_STREAMING_PREFILL
+        value: ""
+      - name: VIA_PD_SERVER_URL
+        value: ""
+      - name: VIA_PD_SERVER_TIMEOUT_S
         value: ""
       - name: VLLM_USE_AOT_COMPILE
         value: "0"
@@ -686,7 +712,7 @@ agent:
       limits:
         memory: 8Gi
         cpu: '2'
-    # vss-agent: full explicit container env for Search (Option B). URLs use Helm `tpl` against this chart's values + global.
+    # vss-agent: full explicit container env for Search (Option A, local NIMs). URLs use Helm `tpl` against this chart's values + global.
     env:
       - name: VSS_AGENT_CONFIG_FILE
         value: '{{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}'

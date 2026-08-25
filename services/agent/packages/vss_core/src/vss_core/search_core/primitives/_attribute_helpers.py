@@ -44,12 +44,12 @@ from vss_core._foundation.time import datetime_to_iso8601
 from vss_core._foundation.time import iso8601_instants_match
 from vss_core._foundation.time import iso8601_to_datetime
 from vss_core._foundation.time import safe_iso8601_to_datetime
-from vss_core.vst import VSTError
-from vss_core.vst import build_screenshot_url
-from vss_core.vst import get_stream_id
-from vss_core.vst import get_timeline
-from vss_core.vst import get_timelines_map
-from vss_core.vst import map_timestamp_to_timeline
+from vss_core.vios import VSTError
+from vss_core.vios import build_screenshot_url
+from vss_core.vios import get_stream_id
+from vss_core.vios import get_timeline
+from vss_core.vios import get_timelines_map
+from vss_core.vios import map_timestamp_to_timeline
 
 from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter

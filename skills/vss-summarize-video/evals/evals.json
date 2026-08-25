@@ -9,5 +9,17 @@
       "Does not route to report generation or live RTSP captioning skills.",
       "Does not print plaintext API tokens or other secrets."
     ]
+  },
+  {
+    "id": "summarize-video-negative-archive-search",
+    "question": "Search my archived recordings from last week for any clip showing a forklift near the loading dock.",
+    "expected_skill": null,
+    "ground_truth": "This is an archive search over previously recorded/indexed video, not a recorded-video HITL summarization request. The agent does not use vss-summarize-video and routes to vss-search-archive instead.",
+    "expected_behavior": [
+      "Does not load vss-summarize-video for an archive search request.",
+      "Does not probe LVS readiness, prepare a VIOS clip, or issue a `vss summarize run`.",
+      "Identifies that the request belongs to vss-search-archive.",
+      "Does not fabricate a single video/time window to force-fit the request into the recorded-video workflow."
+    ]
   }
 ]

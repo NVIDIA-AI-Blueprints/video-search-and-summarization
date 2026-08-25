@@ -29,7 +29,7 @@
     {
       "query": "Watch loading_dock_7 for forklift collisions.",
       "checks": [
-        "The agent resolves the sensor name against VIOS/VST (`GET http://localhost:30888/vst/api/v1/sensor/list`) and finds no sensor matching `loading_dock_7`.",
+        "The agent lists VIOS sensors and finds none matching `loading_dock_7`. The route is `vss vios list` (which reads the origin `vss configure` recorded); a direct `GET /vst/api/v1/sensor/list` is also acceptable. What matters is that the agent checked VIOS and concluded the sensor is absent, not which client it used.",
         "Because the sensor does not exist, the trajectory does NOT call Alert Bridge `POST http://localhost:9080/api/v1/realtime` with a fabricated `sensor_id` / `live_stream_url` — the agent does not invent a rule for an unknown sensor.",
         "The agent's final reply states that `loading_dock_7` was not found and lists the available sensor(s) (e.g. `warehouse_sample`) or asks the user to clarify — in plain language, not a raw HTTP error."
       ]

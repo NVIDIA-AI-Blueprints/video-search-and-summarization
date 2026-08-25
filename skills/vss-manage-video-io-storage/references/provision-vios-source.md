@@ -3,7 +3,7 @@
 Registering a source brings **no** perception with it: a bare VIOS add stores or
 publishes the media, but nothing detects, embeds, or captions it until the
 source is fanned into the consumers a build deployed. A stock full-stack profile
-does this through the agent (`video_ingest` / `rtsp_ingest`, one transaction). When
+does this through the agent in one transaction. When
 **no agent tier is present** — e.g. a `vss-build-vision-agent` headless
 `_builds/<name>` deployment — the operator or a runtime eval must do it by
 **direct REST**. This file is that recipe: register one source, then fan it out to
@@ -32,8 +32,8 @@ esac
 
 Defer full-stack provisioning to the agent-mediated path for the build's
 capability — search ingestion to `vss-search-archive` (`/api/v1/videos` +
-`/complete`), alert rules to `vss-manage-alerts`, or the agent's
-`video_ingest` / `rtsp_ingest` routes. The probe is a coarse public-route
+`/complete`), alert rules to `vss-manage-alerts`, or the agent's ingest
+routes. The probe is a coarse public-route
 capability check, not internal discovery.
 
 ## One mechanism, off one VIOS sensor
@@ -92,8 +92,8 @@ each endpoint by the vantage that uses it:
   live proxy handed to the consumers — are host-reachable `$HOST_IP` URLs produced
   by those services: **read** them, don't build them. VIOS assigns the RTSP port
   from its pool (`30554–30564`) at registration, so only VIOS knows the exact value
-  (Step 1). The upload equivalent is the VIOS `/storage/file/<streamId>` URL —
-  likewise consumer-reachable via `vst-ingress` / `$HOST_IP:<vst-ingress-port>`,
+(Step 1). The upload equivalent is the uploaded stream's VIOS clip URL —
+likewise consumer-reachable via `vst-ingress` / `$HOST_IP:<vst-ingress-port>`,
   **not** loopback.
 
 ## Step 1 — register the source, then resolve its consumer URL
@@ -110,15 +110,18 @@ PUT http://localhost:<vios-port>/vst/api/v1/storage/file/<filename>?timestamp=20
 ```
 
 `timestamp` anchors the storage timeline (see the date rule). A bare upload stores
-bytes only — no detections or embeddings. The URL-taking consumers (RT-Embed, RT-VLM) take
-the VIOS `/storage/file/<streamId>` **HTTP** URL (read the timeline first per the date rule;
-params in `integrate-vios-service.md`): both accept `http`/`https`/`file` but gate `file://`
-behind `FILE_URL_ALLOWED_DIRS` (unset by default), so the HTTP URL is the reliable path.
-RT-VLM takes that URL directly (Step 2) — no pre-upload — or registers it via `/v1/files`.
-**RT-CV is different:** its `camera_url` takes `file://` resolved *inside the RT-CV container*
-or `rtsp://`, not a VIOS HTTP URL — so drive it from the RTSP/live origin, or from a `file://`
-path only when the build mounts the stored bytes into the RT-CV container. There is no live
-proxy on this path.
+bytes only — no detections or embeddings. All three consumers (RT-CV, RT-Embed,
+RT-VLM) take the timeline-resolved VIOS clip URL: `GET /vst/api/v1/storage/<streamId>/timelines` for
+`{startTime, endTime}`, then the self-contained
+`/vst/api/v1/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4&disableAudio=true` **HTTP** URL
+(binary-direct — the same clip the `/url` envelope wraps, minus its upstream
+double-`http://` bug; see `integrate-vios-service.md`). RT-Embed and RT-VLM accept
+`http`/`https`/`file` but gate `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by
+default); RT-CV's `camera_url` accepts `http(s)://`, `rtsp://`, and `file://`, but a
+`file://` resolves *inside the RT-CV container*, where the stored bytes are not mounted.
+So the VIOS **HTTP** URL is the reliable path for every consumer — RT-CV consumes it as
+`camera_url` (Step 2); RT-VLM takes it directly — no pre-upload — or registers it via
+`/v1/files`. There is no live proxy on this path.
 
 **Live (RTSP).** Register the RTSP URL — an external camera as-is, or a local file
 served as synthetic RTSP by NvStreamer (stage it into
@@ -134,7 +137,7 @@ POST http://localhost:<vios-port>/vst/api/v1/sensor/add
 
 Then resolve the **live proxy** the consumers must target, and treat this read as a
 **readiness gate**. VST re-publishes the stream under a stable, VIOS-managed,
-`sensorId`-keyed RTSP handle (e.g. `rtsp://$HOST_IP:30554/live/<sensorId>`),
+`sensorId`-keyed RTSP handle (e.g. `rtsp://<vios-host>:<pool-port>/live/<sensorId>`),
 published asynchronously. Search and alerts builds run VIOS in **SDRC mode**, where
 the republish is gated on the SDRC Envoy, so the per-sensor
 `GET /sensor/<sensorId>/streams` → `.url` can stay empty well past the brief
@@ -168,7 +171,7 @@ POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-
 #     (read usage.total_chunks_processed). id = the Step-1 sensorId (see the shared-id
 #     rule). creation_time REQUIRED (see upload-date rule). No stream:true, no /v1/streams/add.
 #   Live (RTSP): register, then fire-and-verify — do NOT hold the SSE open —
-POST http://localhost:<rt-embed-port>/v1/streams/add                 # register the live proxy (header x-stream-id: <sensorId>)
+POST http://localhost:<rt-embed-port>/v1/streams/add                 # register the live proxy (header x-stream-id: <sensorId>; body {"streams":[{"id":"<sensorId>","liveStreamUrl":"<vios-url>"}]} — carry the id here so streams/add keys on the sensorId instead of minting its own UUID)
 POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-stream-id: <sensorId>; body {"id":"<sensorId>","model":"<resolved>","stream":true,"chunk_duration":<n>}
 #     open, confirm HTTP 200, then CLOSE. The server keeps embedding and publishing
 #     to Kafka after you disconnect (closing the SSE does not stop it, and Kafka
@@ -192,8 +195,8 @@ them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
 
 ## The shared-id rule
 
-Every consumer must key on the **one VST `sensorId` returned at Step 1** — exactly as
-the agent's `video_ingest`/`rtsp_ingest` do (VOD and RTSP alike). Thread that `sensorId`
+Every consumer must key on the **one VST `sensorId` returned at Step 1**, VOD and RTSP
+alike. Thread that `sensorId`
 verbatim as RT-CV `camera_id`, RT-Embed `id`, and the `x-stream-id` header on **both**
 calls (`x-stream-id` pins the stream to a worker under an SDR-fronted RTVI deployment).
 Set RT-CV `camera_name` to the canonical **source name** (distinct from the id): embed
@@ -204,8 +207,7 @@ or sensor-scoped query can reach.
 
 ## The upload-date rule
 
-`creation_time`/`timestamp` is **upload-only**; upload mirrors the agent's
-`video_ingest`, RTSP mirrors `rtsp_ingest`:
+`creation_time`/`timestamp` is **upload-only**:
 - VIOS anchors an untimed upload at `2025-01-01T00:00:00.000Z`; pin
   `timestamp=2025-01-01T00:00:00.000Z` to state that anchor;
 - pass that anchor as `creation_time` on **every** upload consumer — RT-CV

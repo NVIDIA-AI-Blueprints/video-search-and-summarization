@@ -5,7 +5,7 @@
 0-4 shipped with the original search CLI and are frozen -- a harness already
 branches on them. 5-7 are additive, and each exists because a harness needs to
 react differently: 5 means disambiguate, 6 means answer at the level you got,
-7 means resume by job id.
+7 means decide whether to spend the work again.
 """
 
 from __future__ import annotations
@@ -31,5 +31,7 @@ class Exit(IntEnum):
     #: which (e.g. ``persisted: false``). Retry only the failed stage -- never
     #: the whole job, or the work is done twice.
     PARTIAL = 6
-    #: Timeout. The marker carries a resumable job_id; resume via status/get.
+    #: Timeout. The marker carries the job_id of a record written ``timeout``,
+    #: so the job can be identified with status/get -- not rejoined. The work
+    #: itself is gone; only the caller can decide to spend it again.
     TIMEOUT = 7

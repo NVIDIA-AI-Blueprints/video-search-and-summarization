@@ -115,15 +115,31 @@ fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   # Step 2 probes the public /v1 route before adopting it as VLM_ENDPOINT.
 else
   DEPLOYMENT_KIND="docker"
-  VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 fi
 ```
+
+No VIOS URL is built here. `vss configure` records the deployment once and every
+`vss vios` call reads it, so the sensor path never needs a host, a port or
+`/vst/api/v1`. Run it now — a `vss vios` call without it exits 4:
+
+```bash
+# The CLI lives in the VSS checkout; --extra cli is what installs it.
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+[ -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" ] || {
+  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT" >&2; exit 1; }
+# An array, not a string: an unquoted string does not word-split in every shell.
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+
+# Once per deployment. On Docker the origin is the single ingress on :7777.
+VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+"${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"
+```
+
+Bootstrap detail, exit codes and the rules that go with them are in
+[AGENTS.md](../../AGENTS.md).
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
 `docker inspect` / `docker ps` to find the VLM. When `VSS_PUBLIC_URL` is set,
@@ -133,11 +149,15 @@ host-port discovery below when `VLM_ENDPOINT` is still unset.
 Probe what's actually available — only the VLM endpoint is mandatory:
 
 ```bash
+# Each block is its own shell; define what it uses.
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 # REQUIRED: VLM endpoint reachable? (caller-provided, public /v1, or auto-discovered — see Step 2)
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
 
-# OPTIONAL: VST/VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
-curl -sf --max-time 5 "${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}/sensor/version" >/dev/null && echo "VST OK"
+# OPTIONAL: VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
+# Reports which command groups the deployment can serve; `vios available` is the
+# line that matters here.
+"${VSS[@]}" configure check
 ```
 
 **If no VLM endpoint is reachable**, ask the user to provide one (host:port + model id), or — only
@@ -160,29 +180,44 @@ When using VST/VIOS, **you MUST list VST sensors before resolving a clip URL.** 
 even when the user names the sensor explicitly, even when the user asserts the video is already
 uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
 
-1. List sensors:
+> **Running the CLI.** Bootstrap, `vss configure`, exit codes and the sensor-resolution
+> rules live in [AGENTS.md](../../AGENTS.md) at the repo root — read it once rather than per skill. In short:
+> run `vss` from the VSS checkout, `vss configure --base-url "${VSS_PUBLIC_URL}"` once per
+> deployment, and no command afterwards takes a host or port.
+
+1. List sensors (capture first — a bare pipe into `jq` would hide a failed
+   `vss` behind `jq`'s exit code and read as "no sensors"):
    ```bash
-   curl -sf --max-time 5 "${VST_API_BASE}/sensor/list" | jq '.[].name'
+   # Each block is its own shell; define what it uses.
+   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+   set -o pipefail
+   SENSORS=$("${VSS[@]}" vios list --type video) || { echo "vss vios list failed" >&2; exit 1; }
+   printf '%s' "${SENSORS}" | jq -r '.sensors[].name'
    ```
 
 2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,
    e.g. `warehouse_safety_0001`).
 
-3. **If a matching sensor is present** → proceed to Step 1.
+   A row may carry an `error` field — VIOS listed the sensor but could not describe it (no
+   streams, or no id). It is still listed on purpose: the name **exists**, so treating it as
+   absent and uploading would create a duplicate and a 409.
+
+3. **If a matching sensor is present** → proceed to Step 1. If its row carries an `error`,
+   report that rather than uploading over it; the clip resolution in Step 1 will fail with a
+   specific reason.
 
 4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new
    sensor appears:
    ```bash
-   # filename: must not contain whitespace
-   # timestamp: ISO 8601 UTC — default 2025-01-01T00:00:00.000Z if user did not specify
-   curl -s -X PUT "${VST_API_BASE}/storage/file/<filename>?timestamp=<timestamp>" \
-     -H "Content-Type: application/octet-stream" \
-     -H "Content-Length: <file_size_in_bytes>" \
-     --upload-file /path/to/<filename> | jq .
+   # Each block is its own shell; define what it uses.
+   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+   # The filename becomes the sensor name, so it must have no whitespace; the CLI
+   # rejects a non-conforming name before spending the upload on it.
+   "${VSS[@]}" vios add /path/to/<filename>
    ```
-   See `/vss-manage-video-io-storage` for full upload semantics (v1 vs v2, conflict handling,
-   delete flow). In interactive runs, confirm with the user before uploading. **Never** issue an
-   unconditional PUT without first running the sensor-list check above.
+   See `/vss-manage-video-io-storage` for the REST-level upload semantics (v1 vs v2, conflict
+   handling, delete flow). In interactive runs, confirm with the user before uploading. **Never**
+   upload without first running the sensor-list check above.
 
 ---
 
@@ -210,49 +245,50 @@ Then go straight to Step 2 — **skip the Sensor check**.
 ### Path B — resolve from VST/VIOS (optional)
 
 > **Hard rule — a question that names a sensor is Path B, and the clip URL MUST come from VST.**
-> When the question references a VST sensor/`streamId` (e.g. `warehouse_safety_0001`), obtain the
-> clip via the `/url` GET below and bind its `videoUrl` to `VIDEO_URL` — **even if a local copy of
-> the same video exists**. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
-> Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `videoUrl`.
+> When the question references a VIOS sensor (e.g. `warehouse_safety_0001`), obtain the clip with
+> `vss vios clip --sensor <name>` and bind its `media_url` to `VIDEO_URL` — **even if a local copy
+> of the same video exists**. Never hand-build a `/storage/file/<streamId>/url` call: its
+> startTime/endTime are mandatory and the only source for them is a separate `/storage/timelines`
+> read, which is the step this skill exists to remove. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
+> Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `media_url`.
 > Applies even to temporal questions ("at what timestamp…").
+>
+> **A follow-up that names no video stays on the sensor already in play.** "At what timestamp did
+> the worker climb the ladder?" asked after a question about `warehouse_safety_0001` is another
+> Path B question about *that* sensor — re-resolve its clip URL. Never switch to a different video
+> because its filename echoes the question ("ladder", "safety"): a matching name is not the subject,
+> a sample file lying on disk is no substitute for the sensor's clip, and serving one over your own
+> HTTP server does not make it one. Only a file or URL the user gives you **in the request** (Path A)
+> outranks the sensor.
 
-When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage`: confirm the
-named `<sensor-id>` exists (the *Sensor check* above — required on this path), then run the block
-below **verbatim**. It reads the recorded range from `/timelines` and passes it to `/url` in one
-go, so the two required parameters cannot be dropped or invented: a bare `/url` returns an **empty
-body**, and a window that is not in the recording returns `VMSNoDataError`.
+When the clip lives on a named sensor: confirm the named `<sensor-id>` exists (the *Sensor check*
+above — required on this path), then run the block below **verbatim**. The clip URL comes from
+`vss vios clip`, not from a REST call — `/storage/file/<streamId>/url` takes mandatory
+startTime/endTime whose only source is a separate `/storage/timelines` read, which is exactly the
+step this migration removes. `vss vios clip` resolves the sensor by name, reads the recorded range, and
+mints the clip URL in one call, so the two required parameters cannot be dropped or invented: a
+bare `/url` returns an **empty body**, and a window that is not in the recording returns
+`VMSNoDataError`. It also normalises the URL VIOS returns (a doubled scheme, a bare `/storage`
+path, or a `localhost` host the VLM's container cannot reach) and warms the lazy render, all of
+which this skill used to do by hand.
 
 ```bash
-SENSOR_NAME='<the sensor id / filename stem the question named>'
-_VST="${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}"
-# Resolve the streamId every time — a later question is a fresh run with no STREAM_ID in hand, and
-# sensor/list carries sensorId + name but NOT streamId, so read it from the sensor's streams.
-if [ -z "${STREAM_ID:-}" ]; then
-  _SID="$(curl -sf "${_VST}/sensor/list" | jq -r --arg n "$SENSOR_NAME" 'map(select(.name==$n))[0].sensorId // empty' 2>/dev/null)"
-  [ -n "$_SID" ] || { echo "no sensor named '${SENSOR_NAME}' — upload it first (Sensor check), do NOT answer from a local copy"; exit 1; }
-  STREAM_ID="$(curl -sf "${_VST}/sensor/${_SID}/streams" | jq -r '(if type=="array" then (map(select(.isMain)) + .)[0].streamId else .streamId end) // empty' 2>/dev/null)"
-  [ -n "$STREAM_ID" ] || { echo "sensor '${SENSOR_NAME}' has no stream, do NOT answer from a local copy"; exit 1; }
-fi
-for _ in $(seq 1 15); do          # timelines populate asynchronously after an upload
-  TL="$(curl -sf "${_VST}/storage/${STREAM_ID}/timelines" || echo '')"
-  [ "$(printf '%s' "${TL:-[]}" | jq -r 'if type=="array" then length else 0 end' 2>/dev/null)" -gt 0 ] && break
-  sleep 2
-done
-# Take BOTH ends from one segment: /url rejects a window that spans a gap (VMSInternalError).
-START="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].startTime // empty' 2>/dev/null)"
-END="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].endTime // empty' 2>/dev/null)"
-[ -n "$START" ] && [ -n "$END" ] || { echo "no VST timeline for ${STREAM_ID} — do NOT guess a window and do NOT answer from a local copy"; exit 1; }
-VIDEO_URL="$(curl -sf "${_VST}/storage/file/${STREAM_ID}/url?startTime=${START}&endTime=${END}&container=mp4&disableAudio=true" | jq -r '.videoUrl // empty')"
-[ -n "$VIDEO_URL" ] || { echo "empty videoUrl — do NOT fall back to base64/local file on Path B"; exit 1; }
-# VIOS /url may hand back a doubled scheme, a bare /storage path, or a localhost host that does not
-# reach VST from inside the VLM's container. Reduce to a path and restore the VIOS route — the same
-# compat mapping /vss-generate-video-report applies, so this holds on Kubernetes and Docker alike.
-CLIP_PATH="${VIDEO_URL#*://}"; CLIP_PATH="${CLIP_PATH#*://}"
-case "$CLIP_PATH" in /*) ;; *) CLIP_PATH="/${CLIP_PATH#*/}" ;; esac
-VIDEO_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}${CLIP_PATH#/vst}"
-for _ in 1 2 3; do curl -sf -o /dev/null --max-time 60 "$VIDEO_URL" && break || sleep 3; done  # warm the lazy render (GET; HEAD 404s)
+# Each block is its own shell; define what it uses.
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+SENSOR_NAME='<the sensor name / filename stem the question named>'
+
+# One call: name → sensorId → main streamId → recorded range → normalised, warmed clip URL.
+# Endpoints come from the deployment `vss configure` recorded; this command takes none.
+CLIP=$("${VSS[@]}" vios clip --sensor "${SENSOR_NAME}") || {
+  echo "vss vios clip failed for '${SENSOR_NAME}' — do NOT answer from a local copy" >&2; exit 1; }
+
+VIDEO_URL=$(printf '%s' "${CLIP}" | jq -er '.media_url')
+CLIP_START=$(printf '%s' "${CLIP}" | jq -r '.start_time')
+CLIP_END=$(printf '%s' "${CLIP}" | jq -r '.end_time')
+# The window it actually served, which may be the segment boundary rather than what was asked for.
+CLIP_SECONDS=$(( $(date -u -d "${CLIP_END}" +%s) - $(date -u -d "${CLIP_START}" +%s) ))
+[ "${CLIP_SECONDS}" -gt 0 ] || CLIP_SECONDS=15
 VST_SOURCED=1                     # marks this run as Path B
-CLIP_SECONDS="${CLIP_SECONDS:-15}"   # endTime − startTime; default 15
 ```
 
 Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
@@ -264,6 +300,12 @@ base64). A user-supplied `VIDEO_FILE` (Path A) is always inlined — there is no
 ---
 
 ## Step 2 — Resolve the VLM endpoint and model
+
+**One endpoint, one attempt.** Resolve the VLM endpoint once and send the request once. A `401`
+or `403` is an answer — the endpoint needs credentials you were not given — not a reason to try
+another host, port or auth header. Retry only to repair malformed structured output, and only
+once. Hunting for a combination that returns 200 turns one failed call into several and buries
+the actual problem, which is that the endpoint is gated.
 
 If the caller already provides a VLM endpoint, use it directly — this skill only requires a
 reachable OpenAI-compatible `chat/completions` endpoint:
@@ -445,10 +487,11 @@ base64 **string** to 10M characters, which — since base64 adds ~33% — means 
 **~7.5 MB** (a 10 MB MP4 base64-encodes to ~13.3M chars and is rejected). Set
 `UPLOAD_FORMAT` to force either one.
 
-> **VST-sourced (Path B) ⇒ `video_url`.** Use the VST `videoUrl` (in `VIDEO_URL`) as a `video_url`
-> block — an in-cluster VLM (incl. base NIM Cosmos) can fetch the `localhost:30888` URL. Never
+> **Sensor-sourced (Path B) ⇒ `video_url`.** Use the `media_url` from `vss vios clip` (in
+> `VIDEO_URL`) as a `video_url` block — the CLI has already normalised it onto the configured
+> origin, so an in-cluster VLM (incl. base NIM Cosmos) can fetch it as given. Never
 > inline a stray local copy as `file_base64`; do that only for a genuinely remote VLM, and only by
-> downloading *that* `videoUrl`. Applies to temporal questions too. (Enforced by the guard below.)
+> downloading *that* `media_url`. Applies to temporal questions too. (Enforced by the guard below.)
 
 On a NIM Cosmos **video block** — *both* the `video_url` path and the `file_base64` data-URI
 path — also send `mm_processor_kwargs` / `media_io_kwargs` to match the agent's frame-sampling and
@@ -460,8 +503,8 @@ up, else use the documented defaults.
 > **Which backend is this?** Any model id containing `cosmos` reached as a **direct/base NIM**
 > endpoint is NIM Cosmos and needs these fields. An `nim_nvidia_…_bf16` / `_hf`-style id (e.g.
 > `nim_nvidia_cosmos3-nano-reasoner_bf16-final`) does **not** make it RT-VLM: RT-VLM is decided by
-> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM genuinely
-> does not need them — it preprocesses server-side.
+> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM takes its
+> own sampling fields instead of these two — see immediately below.
 >
 > **Run the `curl` below verbatim rather than hand-writing your own**, and answer a second or
 > follow-up question by re-running the same block with a new `USER_QUESTION` / `UPLOAD_FORMAT`.
@@ -473,6 +516,14 @@ up, else use the documented defaults.
 > "mm_processor_kwargs": {"videos_kwargs": {"min_pixels": 3136, "max_pixels": 8388608}}  // other cosmos (reason1, reason3/cosmos3)
 > "media_io_kwargs": {"video": {"num_frames": <NUM_FRAMES>}}                             // both shapes
 > ```
+
+On **RT-VLM** the fields differ but are just as **required**. Its `ChatCompletionRequest` defaults
+`num_frames_per_second_or_fixed_frames_chunk` to **0** (with `use_fps_for_chunking: false`, i.e. a
+fixed count) and `vlm_input_width` / `vlm_input_height` to **0**, so a bare request samples the clip
+at zero frames and answers from its opening frame — a clip that starts on a black frame comes back
+as *"the frame is completely black"* however long the video is, and trimming past the black frame
+only hides it. Send what the profile's own agent config sends to RT-VLM
+(`rtvi_vlm.model_kwargs.extra_body`): 20 fixed frames per chunk at 1280×720.
 
 ```bash
 USER_QUESTION='<the user's question, verbatim>'
@@ -493,29 +544,45 @@ Your reasoning.
 Write your final answer immediately after the </think> tag."
 fi
 
-# Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly).
-[ -z "${VLM_BACKEND:-}" ] && {
-  # Prefix-agnostic (matches the *cosmos* family used by the MM_KWARGS block below), so a
-  # self-hosted NIM advertising a bare id (e.g. cosmos-reason2-8b, no nvidia/ prefix) still
-  # resolves to nim_cosmos and gets the required frame-sampling kwargs.
+# Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly). The
+# endpoint decides, never the model name: RT-VLM serves cosmos-named ids
+# (nim_nvidia_cosmos-reason2-8b_hf-…), so matching *cosmos* first labels RT-VLM as NIM Cosmos and
+# drops the sampling fields it needs — the exact defect this ordering exists to prevent.
+if [ -z "${VLM_BACKEND:-}" ]; then
+  # The RT-VLM port, when the agent resolved the endpoint itself instead of running Step 2.
+  case "${VLM_ENDPOINT:-}" in
+    *":${RTVI_VLM_PORT:-8018}"|*":${RTVI_VLM_PORT:-8018}/"*) VLM_BACKEND="rtvlm" ;;
+  esac
+fi
+# Otherwise ask the server: RT-VLM reports an audio_support flag on /v1/models, a NIM does not.
+# Use /v1/models, not /openapi.json — that spec is ~110 kB and slow to build on a cold container.
+if [ -z "${VLM_BACKEND:-}" ] && curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | grep -q '"audio_support"'; then
+  VLM_BACKEND="rtvlm"
+fi
+# Last resort, the model id: a *cosmos* NIM (even a bare cosmos-reason2-8b) needs the Cosmos kwargs.
+if [ -z "${VLM_BACKEND:-}" ]; then
   case "${VLM_MODEL:-}" in
     *cosmos*) VLM_BACKEND="nim_cosmos" ;;
     *)        VLM_BACKEND="rtvlm" ;;
   esac
-}
-
-# Path B guard: a VST-sourced clip is ALWAYS the VST videoUrl, never a stray local copy.
-# If this run came from VST (VST_SOURCED=1) but VIDEO_URL is empty, the VST /url GET was skipped —
-# stop and fetch it (Step 1 Path B) instead of inlining a local file as base64.
-if [ "${VST_SOURCED:-0}" = "1" ] && [ -z "${VIDEO_URL:-}" ]; then
-  echo "VST-sourced clip but VIDEO_URL is empty — you skipped the VST /url GET (Path B). Fetch the clip URL first, do not inline a local copy."; exit 1
 fi
-# On Path B, ignore any stray local file: the VST videoUrl is the source of truth.
+
+# Path B guard: a sensor-sourced clip is ALWAYS the media_url from `vss vios clip`,
+# never a stray local copy. If this run came from a sensor (VST_SOURCED=1) but
+# VIDEO_URL is empty, Step 1 Path B was skipped — run it instead of inlining a
+# local file as base64.
+if [ "${VST_SOURCED:-0}" = "1" ] && [ -z "${VIDEO_URL:-}" ]; then
+  echo "Sensor-sourced clip but VIDEO_URL is empty — run \`vss vios clip --sensor <name>\` (Step 1 Path B) and use its media_url; do not inline a local copy."; exit 1
+fi
+# On Path B, ignore any stray local file: the minted media_url is the source of truth.
 [ "${VST_SOURCED:-0}" = "1" ] && VIDEO_FILE=""
 
 # Pick the format from the input you have (override by setting UPLOAD_FORMAT):
 #   a URL        -> video_url   (the VLM fetches it)
 #   a local file -> file_base64 (inline the MP4 as a data: URI; the VLM ingests the video)
+# Both send the VIDEO. Never extract frames with ffmpeg and send them as images:
+# these VLMs do their own frame sampling, a handful of stills answers a temporal
+# question wrongly, and the frame-sampling kwargs below then apply to nothing.
 if [ -z "${UPLOAD_FORMAT:-}" ]; then
   if [ -n "${VIDEO_URL:-}" ]; then
     UPLOAD_FORMAT="video_url"
@@ -560,8 +627,8 @@ esac
 
 # Cosmos NIM frame-sampling + visual-token budget. REQUIRED on both video-block paths
 # (`video_url` AND `file_base64` data-URI): without `media_io_kwargs.num_frames` the NIM
-# under-samples the inline MP4 and can hallucinate (verified on cosmos-reason2-8b). Not needed
-# for RT-VLM (preprocesses server-side).
+# under-samples the inline MP4 and can hallucinate (verified on cosmos-reason2-8b). RT-VLM uses
+# its own sampling fields instead (built below).
 if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] || [ "$UPLOAD_FORMAT" = "file_base64" ]; }; then
   case "$VLM_MODEL" in
     *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
@@ -573,8 +640,24 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] |
   esac
 fi
 
+# RT-VLM frame sampling. REQUIRED: RT-VLM defaults num_frames_per_second_or_fixed_frames_chunk and
+# vlm_input_width/height to 0, so a bare request samples zero frames and answers from the clip's
+# opening frame (a black first frame then reads as "completely black"). Values match
+# rtvi_vlm.model_kwargs.extra_body in the profile agent config; override via env if yours differs.
+RTVI_SAMPLING=""
+if [ "${VLM_BACKEND}" = "rtvlm" ]; then
+  # Keep these numeric/boolean so a malformed env value cannot inject JSON into the body. -1 is
+  # RT-VLM's documented "every decoded frame in the chunk"; anything else non-numeric is ignored.
+  _nf="${RTVI_NUM_FRAMES:-20}";    case "$_nf" in -1) : ;; ''|*[!0-9]*) _nf=20 ;; esac
+  _w="${RTVI_INPUT_WIDTH:-1280}";  case "$_w"  in ''|*[!0-9]*) _w=1280 ;; esac
+  _h="${RTVI_INPUT_HEIGHT:-720}";  case "$_h"  in ''|*[!0-9]*) _h=720 ;; esac
+  case "${RTVI_USE_FPS:-false}" in true) _fps=true ;; *) _fps=false ;; esac
+  RTVI_SAMPLING=", \"num_frames_per_second_or_fixed_frames_chunk\": ${_nf}, \"use_fps_for_chunking\": ${_fps}, \"vlm_input_width\": ${_w}, \"vlm_input_height\": ${_h}"
+fi
+
 # Send THIS body for both formats. Do not write a separate minimal video_url curl — hand-built
-# video_url requests keep dropping ${MM_KWARGS}, which under-samples the clip on NIM Cosmos.
+# requests keep dropping ${MM_KWARGS} / ${RTVI_SAMPLING}, which under-samples the clip: on NIM
+# Cosmos it degrades the answer, and on RT-VLM it collapses to the first frame.
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
@@ -590,7 +673,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
     }
   ],
   "max_tokens": 1024,
-  "temperature": 0.0${MM_KWARGS}
+  "temperature": 0.0${MM_KWARGS}${RTVI_SAMPLING}
 }
 EOF
 ```
@@ -642,8 +725,9 @@ Return only the VLM's answer text to the user.
 
 ## Cross-Reference
 
-- **`/vss-manage-video-io-storage`** — *optional* (Step 1, Path B): sensor list, timelines, and
-  the clip URL when sourcing the video from VST/VIOS. Not needed when the user supplies the video.
+- **`/vss-manage-video-io-storage`** — *optional* (Step 1, Path B): REST-level upload semantics
+  (v1 vs v2, conflict handling). Sensor listing and the clip URL come from `vss vios` — see
+  [AGENTS.md](../../AGENTS.md). Not needed when the user supplies the video.
 - **`/vss-deploy-dense-captioning`** — *optional* (Step 2): stand up a standalone **RT-VLM**
   endpoint on a local GPU when no VLM is reachable, then point this skill at it
   (`http://${HOST_IP}:${RTVI_VLM_PORT:-8018}/v1`, model resolved from `/v1/models`).

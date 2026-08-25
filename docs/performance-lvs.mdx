@@ -1,0 +1,162 @@
+---
+title: "Video Summarization Performance"
+description: ""
+position: 2
+---
+
+## Overview
+
+The Video Summarization microservice processes uploaded video files through
+[RTVI-VLM ](/real-time-vlm) for per-chunk vision inference and a summarization LLM (CA-RAG) for
+event aggregation. The tables below report mean end-to-end (E2E) latency for file summarization
+and maximum concurrent request capacity (burst) across video lengths. Use these numbers to size
+GPU count and topology for batch summarization workloads on H100, RTX Pro 6000 SE, and L40S
+platforms.
+
+## Test Configuration
+
+| Parameter | Value |
+| --- | --- |
+| VSS release | 3.2 |
+| VLM | Cosmos3 Nano Reasoner |
+| Model precision | FP8 |
+| Summarization LLM | Nemotron 3 Nano (default Video Summarization stack) |
+| Chunk duration | 10 seconds |
+| Frames per chunk | 20 |
+| Vision input tokens | 9k |
+| Output max tokens | 100 |
+| Test scenario | Warehouse safety monitoring |
+| Test videos | 1, 10, 30, 60, 120, and 720 minute MP4 |
+| GPU topologies | `1` (1 GPU), `2x2` (2 VLM + 2 LLM), `4x4` (4 VLM + 4 LLM) |
+| Platforms tested | H100, RTX Pro 6000 SE, L40S |
+
+## E2E Latency
+
+<Tabs>
+<Tab title="H100">
+**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 5.16 | 20.1 | 52.9 | 64.7 | 119 |
+
+720-minute E2E Avg: **615 s**
+
+**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 5.70 | 23.3 | 59.7 | 128 | 205 |
+
+720-minute E2E Avg: **1151 s**
+
+**Topology `1`** (1 GPU — VLM and LLM colocated)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 12.1 | 50.7 | 117 | 265 | 438 |
+
+</Tab>
+<Tab title="RTX Pro 6000 SE">
+**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 6.50 | 25.9 | 51.6 | 95.2 | 187 |
+
+720-minute E2E Avg: **935 s**
+
+**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 7.05 | 33.0 | 91.6 | 184 | 334 |
+
+720-minute E2E Avg: **1805 s**
+
+**Topology `1`** (1 GPU — VLM and LLM colocated)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 17.6 | 71.7 | 170 | 318 | 623 |
+
+</Tab>
+<Tab title="L40S">
+**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 8.99 | 39.1 | 91.4 | 164 | 330 |
+
+720-minute E2E Avg: **1890 s**
+
+**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+
+| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- |
+| E2E Avg (s) | 12.2 | 65.8 | 168 | 340 | 609 |
+
+720-minute E2E Avg: **3957 s**
+</Tab>
+</Tabs>
+
+## Maximum Concurrency
+
+Maximum concurrent summarize requests at each target mean E2E latency. Test videos are 1, 5, and
+10 minute MP4.
+
+<Tabs>
+<Tab title="H100">
+**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+
+| Video length | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Max concurrency | 73 | 114 | 125 |
+
+**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+
+| Video length | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Max concurrency | 42 | 65 | 72 |
+
+</Tab>
+<Tab title="RTX Pro 6000 SE">
+**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+
+| Video length | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Max concurrency | 41 | 71 | 79 |
+
+**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+
+| Video length | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Max concurrency | 22 | 38 | 41 |
+
+</Tab>
+<Tab title="L40S">
+**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+
+| Video length | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Max concurrency | 15 | 36 | 41 |
+
+**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+
+| Video length | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Max concurrency | 8 | 17 | 20 |
+
+</Tab>
+</Tabs>
+
+<Note>
+All measurements use CR2-8B FP8 with Nemotron 3 Nano, 20 frames per 10-second chunk, 9k vision
+tokens, and `max_tokens=100`.
+</Note>

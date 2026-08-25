@@ -1,0 +1,5 @@
+Parameter,Type,Description
+_type,string,Must be ``multi_report_agent``
+multi_incident_tool,string,Tool for formatting multiple incidents
+max_incidents,int,Maximum number of incidents to process
+

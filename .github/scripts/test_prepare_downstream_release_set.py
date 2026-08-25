@@ -23,46 +23,6 @@ from prepare_downstream_release_set import (  # noqa: E402
 )
 
 
-class GhcrBuildEntriesTest(unittest.TestCase):
-    def test_requires_new_ghcr_build(self):
-        self.assertTrue(
-            module.has_ghcr_build_entries(
-                {
-                    "images": [
-                        {
-                            "strategy": "build",
-                            "image": "ghcr.io/nvidia/vss-agent",
-                        }
-                    ]
-                }
-            )
-        )
-        self.assertFalse(
-            module.has_ghcr_build_entries(
-                {
-                    "images": [
-                        {
-                            "strategy": "reuse-pinned",
-                            "image": "ghcr.io/nvidia/vss-agent",
-                        }
-                    ]
-                }
-            )
-        )
-        self.assertFalse(
-            module.has_ghcr_build_entries(
-                {
-                    "images": [
-                        {
-                            "strategy": "build",
-                            "image": "nvcr.io/nvidia/vss-agent",
-                        }
-                    ]
-                }
-            )
-        )
-
-
 class PrMergeBaseShaTest(unittest.TestCase):
     def test_uses_compare_merge_base_not_target_tip(self):
         target = "b" * 40
@@ -93,34 +53,25 @@ class PrMergeBaseShaTest(unittest.TestCase):
 
 
 class DownstreamVariablesTest(unittest.TestCase):
-    def test_derives_candidate_tag_from_release_set_source(self):
+    def test_derives_candidate_tag_from_ref_and_sha(self):
         commit = "a" * 40
         for ref, expected in (
             ("develop", "develop-" + "a" * 12),
             ("pull-request/1396", "pr-1396-" + "a" * 12),
         ):
             with self.subTest(ref=ref):
-                self.assertEqual(
-                    candidate_container_tag(
-                        {"source": {"commit": commit, "ref": ref}}
-                    ),
-                    expected,
-                )
+                self.assertEqual(candidate_container_tag(ref, commit), expected)
 
     def test_rejects_ref_without_shared_candidate_set(self):
         with self.assertRaisesRegex(ValueError, "does not publish"):
-            candidate_container_tag(
-                {"source": {"commit": "a" * 40, "ref": "release/3.2"}}
-            )
+            candidate_container_tag("release/3.2", "a" * 40)
 
-    def test_encodes_exact_release_set_for_acceptance(self):
-        release_set = {
-            "schema_version": 1,
-            "release_set_id": "sha256:" + "1" * 64,
-            "source": {"commit": "a" * 40, "ref": "pull-request/1396"},
-            "images": [{"name": "vss-agent"}],
-        }
-        variables = downstream_variables(release_set)
+    def test_rejects_short_sha(self):
+        with self.assertRaisesRegex(ValueError, "40-hex"):
+            candidate_container_tag("develop", "abc123")
+
+    def test_emits_only_what_downstream_reads(self):
+        variables = downstream_variables("pull-request/1396", "a" * 40)
         self.assertEqual(variables["BUILD_TYPE"], "ghcr-acceptance")
         self.assertEqual(
             variables["VSS_CONTAINER_TAG"], "pr-1396-" + "a" * 12
@@ -129,58 +80,6 @@ class DownstreamVariablesTest(unittest.TestCase):
         # consumer for it. Assert its absence so a reintroduction is caught.
         self.assertNotIn("VSS_RELEASE_SET_ID", variables)
         self.assertNotIn("VSS_RELEASE_SET_B64", variables)
-
-    def test_main_with_release_set_file_performs_no_network(self):
-        sha = "a" * 40
-        release_set = {
-            "source": {"commit": sha, "ref": "pull-request/1396"},
-            "release_set_id": "sha256:" + "1" * 64,
-            "images": [],
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            release_path = Path(tmp) / "release-set.json"
-            release_output_path = Path(tmp) / "handoff/release-set.json"
-            env_path = Path(tmp) / "github.env"
-            output_path = Path(tmp) / "github.output"
-            release_path.write_text(json.dumps(release_set))
-            argv = [
-                "prepare_downstream_release_set.py",
-                "--sha",
-                sha,
-                "--release-set",
-                str(release_path),
-                "--release-set-output",
-                str(release_output_path),
-            ]
-            with mock.patch("sys.argv", argv), mock.patch.dict(
-                os.environ,
-                {
-                    "GITHUB_ENV": str(env_path),
-                    "GITHUB_OUTPUT": str(output_path),
-                },
-                clear=True,
-            ), mock.patch.object(
-                module, "validate_release_set", return_value=[]
-            ), mock.patch.object(
-                # Pin the gate: its real inputs depend on git state, which
-                # differs between a local worktree and a CI checkout.
-                module, "downstream_relevant", return_value=(False, "pinned")
-            ), mock.patch.object(module, "download_release_set") as download:
-                self.assertEqual(module.main(), 0)
-                download.assert_not_called()
-            self.assertIn("DOWNSTREAM_EXTRA_VARIABLES_JSON", env_path.read_text())
-            self.assertIn(
-                '"VSS_CONTAINER_TAG":"pr-1396-' + "a" * 12 + '"',
-                env_path.read_text(),
-            )
-            self.assertEqual(
-                output_path.read_text(),
-                "has_ghcr_build_entries=false\n"
-                "run_downstream=false\n",
-            )
-            self.assertEqual(json.loads(release_output_path.read_text()), release_set)
-
-
 
 INVENTORY = {
     "images": [

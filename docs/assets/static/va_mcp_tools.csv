@@ -1,0 +1,9 @@
+Tool,Description
+get_incident,Retrieve a specific incident by incident ID
+get_incidents,"Query incidents with filtering by sensor, place, time range, and VLM verdict"
+get_sensor_ids,"Get list of available sensor IDs, optionally filtered by place"
+get_places,Get hierarchical map of all available places (city → intersections)
+get_fov_histogram,"Get field-of-view occupancy histogram showing object counts over time"
+get_average_speeds,Get average speed metrics grouped by direction
+analyze,"Perform statistical analysis: max_min_incidents, average_speed, avg_num_people, avg_num_vehicles"
+

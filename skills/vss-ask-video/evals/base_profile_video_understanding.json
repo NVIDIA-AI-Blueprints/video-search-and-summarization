@@ -24,7 +24,7 @@
     {
       "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading.",
       "checks": [
-        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload\u2014for example listing sensors/streams via the agent tools (or equivalent REST such as curl /vst/api/v1/sensor/list)\u2014not unconditional PUT-only behavior.",
+        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload — for example `vss vios list --type video`, the agent tools, or equivalent REST such as curl /vst/api/v1/sensor/list — not an unconditional upload.",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
       ]
@@ -40,16 +40,16 @@
     {
       "query": "Is the worker in warehouse_safety_0001 wearing PPE?",
       "checks": [
-        "The run performed at least one successful GET to a VST clip-URL endpoint of the form http://localhost:30888/vst/api/v1/storage/file/<streamId>/url with startTime and endTime query params and returned a JSON body containing videoUrl (the clip is sourced through /vss-manage-video-io-storage).",
+        "The run obtained the clip URL through `vss vios clip --sensor <name>` and used its `media_url`. The command resolves the sensor by name, reads the recorded range and mints the URL in one call, so the mandatory startTime/endTime cannot be dropped or invented. A hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check: its bounds are mandatory and the only source for them is a separate /storage/timelines read, which is the step this skill exists to remove.",
         "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint (either ${VLM_BASE_URL}/v1 for NIM Cosmos or ${RTVI_VLM_BASE_URL}/v1 for RT-VLM Cosmos), with Content-Type application/json, a JSON body containing the resolved model id and a messages array whose first user content list contains both a text block with the user's question and a video_url block referencing the clip URL from the prior step; HTTP 2xx.",
         "The run did NOT POST to http://localhost:8000/generate.",
         "The final assistant reply answers in plain text or light markdown whether the worker is wearing PPE according to the user question, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
       ]
     },
     {
-      "query": "At what timestamp did the worker climb up the ladder?",
+      "query": "At what timestamp did the worker climb up the ladder in warehouse_safety_0001? Answer from the clip recorded on that VIOS sensor — not from a local copy of the file and not from any pre-extracted frames left on this host.",
       "checks": [
-        "The run performed at least one successful GET to a VST clip-URL endpoint of the form http://localhost:30888/vst/api/v1/storage/file/<streamId>/url with startTime and endTime query params and returned a JSON body containing videoUrl.",
+        "The run obtained the clip URL through `vss vios clip --sensor <name>` and used its `media_url`. The command resolves the sensor by name, reads the recorded range and mints the URL in one call, so the mandatory startTime/endTime cannot be dropped or invented. A hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check: its bounds are mandatory and the only source for them is a separate /storage/timelines read, which is the step this skill exists to remove.",
         "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint with a video_url block referencing that clip URL and the user's question as a text block; HTTP 2xx.",
         "The run did NOT POST to http://localhost:8000/generate.",
         "The final assistant reply answers the question in plain text or light markdown and includes a timestamp, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."

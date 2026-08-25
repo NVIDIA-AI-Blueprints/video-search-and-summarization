@@ -25,11 +25,23 @@ scripts:
   existingConfigMap: ""
   data: {}
 
+# Managed GHCR channel, shared with the Docker compose coordinate
+# (VSS_RT_CV_IMAGE / VSS_RT_CV_TAG in deploy/docker/containers.env). Override
+# both together via global.container_prefix / global.container_tag.
+#
+# SBSA cannot ride this multiarch manifest (different base image, same
+# linux/arm64 platform) so it is a separate build -- but it shares this GHCR
+# repository under an -sbsa tag suffix. DGX-SPARK deploys therefore override
+# only the tag, leaving `repository` on the managed channel:
+#   tag: "develop-latest-sbsa"
+#
+# Keep `repository:` on the line directly after `image:`. The release-channel
+# policy check (.github/scripts/test_helm_release_channel_policy.py) matches
+# that pair with a regex, and a comment between them makes it silently read the
+# next image block in this file instead.
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-  # For multi-arch: 3.3.0-26.07.2
-  # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
-  tag: "3.3.0-26.07.2"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 
 replicas: 1

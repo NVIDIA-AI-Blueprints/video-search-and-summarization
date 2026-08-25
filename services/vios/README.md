@@ -195,3 +195,12 @@ docker pull --platform linux/amd64 <image>:<tag>
 # Arm hosts (Grace / Jetson)
 docker pull --platform linux/arm64 <image>:<tag>
 ```
+
+## Git LFS
+
+Some files under `services/vios/` are stored with [Git LFS](https://git-lfs.com/); see `.gitattributes` for paths such as `LICENSE.3rdparty`, prebuilt `*.so` and `*.a` files, bundled UI `*.js` files, and `*.tar.gz` source archives. Install Git LFS before cloning or building so these resolve to real files instead of pointer stubs.
+
+When adding an LFS-tracked file:
+
+1. Ensure `services/vios/.gitattributes` covers its path or pattern.
+2. If CI source-artifact consumers need the real content, add its path to the `git lfs pull --include=` list in `.github/workflows/ci.yml` (the **Fetch required LFS source notices** step). Other `services/vios/**` LFS objects intentionally remain pointer stubs in the source artifact.

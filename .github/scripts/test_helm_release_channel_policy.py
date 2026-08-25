@@ -29,6 +29,21 @@ HELM_VALUES = {
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/values.yaml",
     ],
+    "vss-rt-cv": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
+    "vss-vios-sensor": [
+        "deploy/helm/services/vios/charts/vios-sensor/values.yaml",
+    ],
+    "vss-vios-streamprocessing": [
+        "deploy/helm/services/vios/charts/vios-streamprocessing/values.yaml",
+    ],
+    "vss-vios-nvstreamer": [
+        "deploy/helm/services/vios/charts/vios-nvstreamer/values.yaml",
+    ],
+    "vss-vios-ingress": [
+        "deploy/helm/services/vios/charts/vios-ingress/values.yaml",
+    ],
     "sdr-mw-l": ["deploy/helm/services/infra/charts/sdrc/values.yaml"],
     "vss-configurator": [
         "deploy/helm/services/bp-configurator/values.yaml",
@@ -44,6 +59,14 @@ HELM_VALUES = {
     ],
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/values.yaml",
+        "deploy/helm/services/rtvi/charts/rtvi-embed/overrides_rtvi_embed.yaml",
+        "deploy/helm/developer-profiles/dev-profile-search/values.yaml",
+    ],
+    "vss-rt-vlm": [
+        "deploy/helm/services/rtvi/charts/rtvi-vlm/values.yaml",
     ],
 }
 HELM_HELPERS = {
@@ -62,6 +85,24 @@ HELM_HELPERS = {
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/templates/_helpers.tpl",
     ],
+    # The chart is named rtvi-cv and its helpers are "vss-rtvi-cv.*", but the
+    # managed image is vss-rt-cv -- so the printf target below is the image
+    # name, not the helper prefix.
+    "vss-rt-cv": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "vss-vios-sensor": [
+        "deploy/helm/services/vios/charts/vios-sensor/templates/_helpers.tpl",
+    ],
+    "vss-vios-streamprocessing": [
+        "deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl",
+    ],
+    "vss-vios-nvstreamer": [
+        "deploy/helm/services/vios/charts/vios-nvstreamer/templates/_helpers.tpl",
+    ],
+    "vss-vios-ingress": [
+        "deploy/helm/services/vios/charts/vios-ingress/templates/_helpers.tpl",
+    ],
     "sdr-mw-l": ["deploy/helm/services/infra/charts/sdrc/templates/_helpers.tpl"],
     "vss-configurator": [
         "deploy/helm/services/bp-configurator/templates/_helpers.tpl",
@@ -75,6 +116,12 @@ HELM_HELPERS = {
     ],
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "vss-rt-embed": [
+        "deploy/helm/services/rtvi/charts/rtvi-embed/templates/_helpers.tpl",
+    ],
+    "vss-rt-vlm": [
+        "deploy/helm/services/rtvi/charts/rtvi-vlm/templates/_helpers.tpl",
     ],
 }
 COMPOSE_FILES = {
@@ -91,6 +138,13 @@ COMPOSE_FILES = {
     "vss-rt-config-adaptor": [
         "deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml",
     ],
+    "vss-rt-vlm": [
+        "deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml",
+    ],
+}
+COMPOSE_TAG_VARIABLES = {
+    "vss-rt-vlm": "VSS_RT_VLM_TAG",
+    "vss-video-summarization": "VSS_VIDEO_SUMMARIZATION_TAG",
 }
 
 
@@ -116,12 +170,37 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         inventory = json.loads(
             (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
         )
+        # Tagged variants (tag_suffix, e.g. -sbsa) share their base image's GHCR
+        # repository and are selected by overriding the tag on that same Helm
+        # image block, so they have no image block of their own for this policy
+        # to cover. Listing one here could not pass either: the check below
+        # asserts repository == "<root>/<name>", and a variant's repository is
+        # deliberately the base name. They are excluded here by the same signal
+        # release_set.py already uses for Compose references: a variant carries
+        # no ``compose_image_names`` of its own.
         managed = {
             image["name"]
             for image in inventory["images"]
-            if image.get("ghcr_build") is True
+            if image.get("ghcr_build") is True and image.get("compose_image_names")
         }
         self.assertEqual(managed, set(HELM_VALUES))
+
+    def test_tagged_variants_share_a_managed_repository_without_defaults(self):
+        inventory = json.loads(
+            (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
+        )
+        variants = [
+            image
+            for image in inventory["images"]
+            if image.get("ghcr_build") is True and image.get("tag_suffix")
+        ]
+        self.assertTrue(variants)
+        for variant in variants:
+            self.assertEqual(variant.get("compose_image_names"), [])
+            self.assertEqual(variant.get("tag_variables"), [])
+            repository = variant.get("repository")
+            self.assertTrue(repository)
+            self.assertIn(repository, HELM_VALUES)
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():
@@ -152,7 +231,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
                 text = (REPO_ROOT / relative_path).read_text()
                 self.assertIn(GHCR_ROOT, text)
                 self.assertIn(f"/{name}", text)
-                self.assertIn("VSS_CONTAINER_TAG", text)
+                self.assertIn(COMPOSE_TAG_VARIABLES.get(name, "VSS_CONTAINER_TAG"), text)
                 self.assertIn("develop-latest", text)
 
     def test_helm_sync_prompt_enforces_shared_channel(self):

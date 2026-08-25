@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.3.2"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -103,8 +103,8 @@ fi
 ```
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
-`docker exec` / `docker inspect` to discover VIOS, the VLM, or VA-MCP. Mode A
-uses `${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B uses `${VA_MCP_URL}`.
+host-side container discovery for VIOS, the VLM, or VA-MCP. Mode A uses
+`${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B uses `${VA_MCP_URL}`.
 
 ### Mode-by-mode checklist (required)
 
@@ -149,8 +149,8 @@ If VLM/deployment choice is unclear and no default selection has been made, ask 
 1. **Provide an endpoint** — user supplies `VLM_ENDPOINT` and model id.
 2. **Use the public Ingress VLM** — when `VSS_PUBLIC_URL` is set, probe
    `${VSS_PUBLIC_URL%/}/v1/models` (base Helm RT-VLM route). Do **not** use `/vlm/v1`.
-3. **Suggest options based on auto-discover** — on Docker, inspect running `vss-agent`
-   env and probe default local ports.
+3. **Suggest options based on auto-discover** — on Docker, probe the standard
+   local VLM ports. For shared VLM-selection guidance, follow `/vss-ask-video`.
 4. **Deploy a local VLM** — hand off to `/vss-deploy-profile` (with user confirmation) and then continue.
 
 Auto-discover hints:
@@ -161,19 +161,10 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/v1/models" | jq -r '.data[].id'
 fi
 
-# Docker only — from running vss-agent env (when present). Prefer docker inspect
-# if the image is distroless (no sh/printenv).
+# Docker only — probe common local endpoints without inspecting any container.
 if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-agent sh -lc '
-  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-    v="$(printenv "$k")"
-    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-  done
-  ' 2>/dev/null || true
-
-  # Probe common local endpoints
-  curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # base RT-VLM default
-  curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'    # alerts RT-VLM default
+  curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # local NIM / base default
+  curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'    # RT-VLM / alerts default
 fi
 ```
 
@@ -311,10 +302,22 @@ Hand off to `/vss-manage-video-io-storage` to:
 3. Request a clip URL:
 
    ```bash
-   curl -s "${VST_API_BASE}/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
+   # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
+   # Omit the window to take the whole recorded segment; the response echoes what it resolved.
+   # CLI bootstrap and exit codes: AGENTS.md at the repo root
+   VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+   VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+   VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"   # once per deployment
+
+   # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
+   # so a failed command with empty stdout reads as an empty answer.
+   CLIP=$("${VSS[@]}" vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
+     echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
+   VIDEO_URL=$(printf '%s' "${CLIP}" | jq -r .media_url)
    ```
 
-Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
+The block sets `VIDEO_URL` (used by the VLM in Step 3). Also set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
 
 Remote VLM reachability guard (required):
 - If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).
@@ -358,11 +361,11 @@ Do not continue direct VLM Mode A on videos that are 120 seconds or longer.
 
 The deploy may serve the VLM through either of two stacks. Both expose an OpenAI-compatible `chat/completions` API — pick whichever is live:
 
-| Backend | Env vars | Typical host endpoint | Picked when |
+| Backend | Discovery input | Typical host endpoint | Picked when |
 |---|---|---|---|
 | **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` | Kubernetes / Helm base when `VSS_PUBLIC_URL` is set (preferred) |
-| **NIM Cosmos** | `VLM_BASE_URL`, `VLM_NAME`, `VLM_MODE`, `VLM_MODEL_TYPE` | `${VLM_BASE_URL}/v1` (no trailing `/v1` on the env var; the agent appends it) | Docker: `VLM_MODEL_TYPE != rtvi` **and** `VLM_MODE` ∈ {`local`, `local_shared`, `remote`} **and** `VLM_BASE_URL` is non-empty |
-| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE`, `VLM_MODEL_TYPE` | `${RTVI_VLM_BASE_URL}/v1` — if unset, derive from `${HOST_IP}` (`http://${HOST_IP}:8018/v1` for alerts, `http://${HOST_IP}:30082/v1` for base) | Docker: `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
+| **NIM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:30082/v1` | Docker: port 30082 responds with at least one model |
+| **RT-VLM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:8018/v1` | Docker: port 8018 responds with at least one model |
 
 If the user already supplied a `VLM_ENDPOINT` + model id, use those directly.
 
@@ -376,48 +379,42 @@ if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
 fi
 ```
 
-Otherwise, on **Docker only**, read the live values off a running `vss-agent`
-container (when present) and do not guess:
-
-```bash
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-agent sh -lc '
-  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-    v="$(printenv "$k")"
-    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-  done
-  ' 2>/dev/null || true
-fi
-```
-
-Do not require `RTVI_VLM_ENDPOINT` from `vss-agent` env; several profiles do not inject it.
-
-Selection rule (Docker host discovery when `VLM_ENDPOINT` is still unset):
+Otherwise, on **Docker only**, probe the standard host endpoints directly,
+following the same endpoint-selection contract as `/vss-ask-video`.
 
 ```bash
 if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
-    VLM_BACKEND="rtvlm"
-    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
-    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:8018/v1"   # alerts default
-    VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
-  elif [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
-    VLM_BACKEND="nim_cosmos"
-    VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
-    VLM_MODEL="${VLM_NAME}"
-  else
-    VLM_BACKEND="rtvlm"
-    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
-    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default
-    VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
-  fi
+  for _candidate in \
+    "nim_cosmos|http://${HOST_IP}:30082/v1" \
+    "rtvlm|http://${HOST_IP}:8018/v1"; do
+    _backend="${_candidate%%|*}"
+    _endpoint="${_candidate#*|}"
+    if _models="$(curl -sf --max-time 5 "${_endpoint}/models")" &&
+       _model="$(printf '%s' "${_models}" | jq -er '.data[0].id')"; then
+      VLM_BACKEND="${_backend}"
+      VLM_ENDPOINT="${_endpoint}"
+      VLM_MODEL="${VLM_MODEL:-$_model}"
+      break
+    fi
+  done
 fi
+
+[ -n "${VLM_ENDPOINT:-}" ] || {
+  echo "ERROR: no VLM found on ${HOST_IP}:30082 or ${HOST_IP}:8018; provide VLM_ENDPOINT and VLM_MODEL" >&2
+  exit 1
+}
 ```
 
 Probe `/v1/models` before sending a chat request to confirm the chosen endpoint is alive and the model is loaded:
 
 ```bash
-curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | jq -r '.data[].id'
+_models="$(curl -sf --max-time 5 "${VLM_ENDPOINT}/models")" || {
+  echo "ERROR: VLM endpoint is not reachable: ${VLM_ENDPOINT}" >&2
+  exit 1
+}
+printf '%s' "${_models}" | jq -er '.data[].id'
+[ -n "${VLM_MODEL:-}" ] ||
+  VLM_MODEL="$(printf '%s' "${_models}" | jq -er '.data[0].id')"
 ```
 
 If `VLM_MODEL` is empty, adopt the first id the endpoint advertises. If the probe fails or the listed ids don't include `${VLM_MODEL}`, either:
@@ -430,9 +427,9 @@ Never silently pick an unknown model.
 
 Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
 
-The frame sampling and visual-token (pixel) budget must mirror the **live** `video_understanding` settings for the active profile when `vss-agent` is running. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
-
-When `vss-agent` is absent (Mode A2 / profile-agnostic), fall back to base-profile defaults (`max_fps=2`, `max_frames=30`, `min_pixels=3136`, `max_pixels=8388608`) or explicit `VIDEO_UNDERSTANDING_*` env overrides — do not hard-fail.
+Use explicit `VIDEO_UNDERSTANDING_*` overrides when supplied; otherwise use
+the base-profile defaults (`max_fps=2`, `max_frames=30`, `min_pixels=3136`,
+`max_pixels=8388608`).
 
 ```bash
 # Default prompt — load from the skill tree (do NOT use a cwd-relative path).
@@ -476,9 +473,9 @@ Your reasoning.
 Write your final answer immediately after the </think> tag."
 fi
 
-# If Step 3 is run standalone, derive missing backend from current env/model.
+# If Step 3 is run standalone, derive a missing backend from endpoint/model.
 [ -z "${VLM_BACKEND:-}" ] && {
-  if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
+  if [[ "${VLM_ENDPOINT:-}" == *":8018/"* ]]; then
     VLM_BACKEND="rtvlm"
   elif [[ "${VLM_MODEL:-}" == nvidia/cosmos* ]]; then
     VLM_BACKEND="nim_cosmos"
@@ -487,34 +484,8 @@ fi
   fi
 }
 
-# Multimodal settings — prefer live vss-agent config; fall back when container absent (Mode A2).
-CFG_JSON=""
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx vss-agent; then
-  CFG_JSON=$(
-    docker exec vss-agent python3 -c '
-import json, os, yaml
-p = os.getenv("VSS_AGENT_CONFIG_FILE")
-if not p:
-    raise SystemExit("VSS_AGENT_CONFIG_FILE is not set in vss-agent")
-if not os.path.isabs(p):
-    p = os.path.join("/vss-agent", p.lstrip("./"))
-with open(p, encoding="utf-8") as f:
-    cfg = yaml.safe_load(f) or {}
-vu = (cfg.get("functions", {}) or {}).get("video_understanding", {}) or {}
-print(json.dumps({
-    "max_fps": int(vu.get("max_fps", 2)),
-    "max_frames": int(vu.get("max_frames", 30)),
-    "min_pixels": int(vu.get("min_pixels", 3136)),
-    "max_pixels": int(vu.get("max_pixels", 8388608)),
-}))
-' 2>/dev/null
-  ) || true
-fi
-
-if [ -z "${CFG_JSON}" ]; then
-  echo "WARN: vss-agent unavailable; using base-profile video_understanding defaults (override with VIDEO_UNDERSTANDING_MAX_FPS, VIDEO_UNDERSTANDING_MAX_FRAMES, VIDEO_UNDERSTANDING_MIN_PIXELS, VIDEO_UNDERSTANDING_MAX_PIXELS)" >&2
-  CFG_JSON='{"max_fps":2,"max_frames":30,"min_pixels":3136,"max_pixels":8388608}'
-fi
+# Multimodal settings — explicit overrides or base-profile defaults.
+CFG_JSON='{"max_fps":2,"max_frames":30,"min_pixels":3136,"max_pixels":8388608}'
 
 printf '%s' "${CFG_JSON}" | jq -e . >/dev/null || { echo "Invalid video_understanding config JSON"; exit 1; }
 MAX_FPS="$(printf '%s' "${CFG_JSON}" | jq -r '.max_fps')"

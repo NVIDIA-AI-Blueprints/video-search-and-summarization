@@ -42,10 +42,12 @@ import click
 from pydantic import ValidationError
 
 from . import config as config_mod
+from . import memory as memory_mod
 from . import params as params_mod
 from .exits import Exit
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from collections.abc import Sequence
 
     from pydantic import BaseModel
@@ -83,8 +85,9 @@ class Context:
     deployment: config_mod.Deployment | None = None
     pretty: bool | None = None
     log_level: str = "WARNING"
-    #: Memory tier, once it exists. Until then ``status``/``get``/``list``
-    #: have nothing to read and say so plainly (exit 4).
+    #: Memory tier (:class:`vss_cli.memory.Memory`). None until something asks
+    #: for it: :meth:`CommandGroup.memory` opens it on first use, so only the
+    #: commands that read or write memory pay for the connection.
     memory: Any = None
     #: Why the deployment failed to load, when it did. Carried so a verb can
     #: report the specific cause instead of a generic "nothing configured".
@@ -120,6 +123,18 @@ class InvalidInput(click.ClickException):
         return f"[vss] invalid input: {self.message}"
 
 
+def requires_note(requires: frozenset[str]) -> str:
+    """The services a command calls, as a line for its help text.
+
+    Static, so it costs no probe and is true on any machine. Without it the
+    only way to learn a command needs Elasticsearch is to run it and read the
+    exit-4 -- fine as a diagnosis, poor as documentation.
+    """
+    if not requires:
+        return ""
+    return f"\n\nRequires: {', '.join(sorted(requires))} (see `vss configure show`)."
+
+
 def _exit_for(exc: Exception) -> Exit | None:
     """Map a library error to an exit code, or None to let it propagate.
 
@@ -130,10 +145,19 @@ def _exit_for(exc: Exception) -> Exit | None:
     """
     by_name = {
         "InvalidInputError": Exit.INVALID_INPUT,
+        "VIOSInvalidInputError": Exit.INVALID_INPUT,
+        "VIOSNotFoundError": Exit.NOT_FOUND,
+        "VIOSTimeoutError": Exit.TIMEOUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
+        "MemoryNotFoundError": Exit.NOT_FOUND,
         "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,
         "ConfigurationError": Exit.CONFIGURATION,
         "NoFinalResultError": Exit.PARTIAL,
+        # The store translates connection and transport trouble, but a status
+        # rejection -- a read-only ingress answering 405, a 403, a 5xx -- comes
+        # back as the client's own ApiError, which is not a TransportError.
+        # `memory.write_failures()` says the same thing for the write path.
+        "ApiError": Exit.BACKEND_UNREACHABLE,
     }
     for klass in type(exc).__mro__:
         code = by_name.get(klass.__name__)
@@ -151,48 +175,52 @@ def _format_validation(exc: ValidationError) -> str:
     return "; ".join(parts)
 
 
-def _require_services(action: Action, ctx: Context) -> None:
-    """Fail before dispatch when the deployment lacks a service the action calls.
+def require_services(name: str, requires: frozenset[str], ctx: Context) -> None:
+    """Fail before dispatch when the deployment lacks a service the command calls.
 
     Checked here rather than inside each group so the diagnostic is uniform,
-    and checked per action so a deployment missing one optional service still
+    and checked per command so a deployment missing one optional service still
     serves the paths that never touch it.
+
+    Takes ``name``/``requires`` rather than an :class:`Action` so a surface
+    without the job grammar -- ``vss vios``, which is a click.Group of plain
+    commands -- reports a missing backend with the same wording as a group
+    that does.
     """
-    if not action.requires:
+    if not requires:
         return
     if ctx.deployment is None:
         if ctx.config_error:
-            raise config_mod.ConfigError(f"`{action.name}` needs a deployment: {ctx.config_error}")
+            raise config_mod.ConfigError(f"`{name}` needs a deployment: {ctx.config_error}")
         raise config_mod.ConfigError(
-            f"no deployment configured, and `{action.name}` needs "
-            f"{', '.join(sorted(action.requires))}. Run `vss configure --base-url <origin>` first."
+            f"no deployment configured, and `{name}` needs "
+            f"{', '.join(sorted(requires))}. Run `vss configure --base-url <origin>` first."
         )
-    missing = sorted(name for name in action.requires if not ctx.deployment.has(name))
+    missing = sorted(service for service in requires if not ctx.deployment.has(service))
     if missing:
         known = ", ".join(sorted(ctx.deployment.services)) or "(none)"
         raise config_mod.ConfigError(
-            f"`{action.name}` needs {', '.join(missing)}, which the deployment at "
+            f"`{name}` needs {', '.join(missing)}, which the deployment at "
             f"{ctx.deployment.base_url} does not expose; it has: {known}. "
             f"Re-run `vss configure --base-url {ctx.deployment.base_url}` if the deployment changed."
         )
 
 
-class MemoryUnavailable(click.ClickException):
-    """Raised by the inherited read verbs until the memory tier lands.
+def guarded(call: Callable[[], Result]) -> Result:
+    """Run a verb, turning a typed library failure into its exit code.
 
-    Deliberately explicit. ``status``/``get``/``list`` are memory reads by
-    definition (§6.2), and ``vss_core`` ships no memory module yet, so they
-    cannot work. Failing with a named cause beats three verbs that appear to
-    work and silently return nothing.
+    A typed failure is a diagnosis, not a crash. Without this a missing index
+    -- the ordinary "nothing ingested yet" case -- exits 1 with an
+    Elasticsearch traceback, which no harness can branch on.
     """
-
-    exit_code = int(Exit.CONFIGURATION)
-
-    def __init__(self, verb: str) -> None:
-        super().__init__(
-            f"`{verb}` reads the unified memory index, which this build does not ship yet "
-            f"(vss_core has no memory module). Only `run` is available on this deployment."
-        )
+    try:
+        return call()
+    except Exception as exc:
+        code = _exit_for(exc)
+        if code is None:
+            raise
+        click.echo(f"vss: {exc}", err=True)
+        raise SystemExit(int(code)) from exc
 
 
 class CommandGroup(ABC):
@@ -210,6 +238,15 @@ class CommandGroup(ABC):
     #: becomes the MCP tool input, and an instance becomes ``job.request``.
     #: Ignored when :attr:`actions` is non-empty.
     Input: ClassVar[type[BaseModel] | None] = None
+
+    #: Services ``run`` calls, for a group that declares :attr:`Input` rather
+    #: than :attr:`actions`. Such a group has one path, so there is nothing to
+    #: declare per action -- and without this the synthesized action carries no
+    #: requirements, leaving the only single-path groups without the uniform
+    #: missing-backend diagnostic every ``actions``-declaring group gets.
+    #: Ignored when :attr:`actions` is non-empty, where each action states its
+    #: own.
+    requires: ClassVar[frozenset[str]] = frozenset()
 
     #: Sub-actions of ``run``. When set, ``run`` becomes a group and each
     #: action contributes one command with its own input model.
@@ -244,20 +281,28 @@ class CommandGroup(ABC):
 
     # -- framework-provided reads (§6.2) --------------------------------
 
-    def status(self, job_id: str, ctx: Context) -> Result:
+    @final
+    def memory(self, ctx: Context) -> Any:
+        """The memory tier these verbs read, opened on first use.
+
+        Resolved here rather than in :func:`context_from` so a command that
+        never touches memory -- ``run --no-persist``, ``configure`` -- does not
+        pay for the Elasticsearch import. An injected :attr:`Context.memory`
+        wins, which is what lets tests run the read verbs against a store in
+        the same process.
+        """
         if ctx.memory is None:
-            raise MemoryUnavailable("status")
-        return Result(body=ctx.memory.status(self.name, job_id))
+            ctx.memory = memory_mod.build(ctx.deployment, index=ctx.extra.get("memory_index"))
+        return ctx.memory
+
+    def status(self, job_id: str, ctx: Context) -> Result:
+        return Result(body=self.memory(ctx).status(self.name, job_id), job_id=job_id)
 
     def get(self, job_id: str, ctx: Context) -> Result:
-        if ctx.memory is None:
-            raise MemoryUnavailable("get")
-        return Result(body=ctx.memory.get(self.name, job_id))
+        return Result(body=self.memory(ctx).get(self.name, job_id), job_id=job_id)
 
     def list(self, filters: dict[str, Any], ctx: Context) -> Result:
-        if ctx.memory is None:
-            raise MemoryUnavailable("list")
-        return Result(body=ctx.memory.query(self.name, filters))
+        return Result(body=self.memory(ctx).query(self.name, filters))
 
     # -- CLI construction ------------------------------------------------
 
@@ -281,7 +326,9 @@ class CommandGroup(ABC):
             return group
         if self.Input is None:
             raise TypeError(f"{type(self).__name__} must declare Input or actions")
-        return self._action_command(Action(name="run", summary=f"Run a {self.name} job.", Input=self.Input))
+        return self._action_command(
+            Action(name="run", summary=f"Run a {self.name} job.", Input=self.Input, requires=self.requires)
+        )
 
     def _action_command(self, action: Action) -> click.Command:
         owner = self
@@ -290,7 +337,7 @@ class CommandGroup(ABC):
         extra_names = {p.name for p in owner.extra_params if p.name}
 
         def callback(**values: Any) -> None:
-            ctx = _context_from(values)
+            ctx = context_from(values)
             ctx.extra = {k: v for k, v in values.items() if k in extra_names and v is not None and v != ()}
             payload = params_mod.collect(model, values)
             try:
@@ -300,26 +347,19 @@ class CommandGroup(ABC):
                 # report it as exit 2 with the offending fields named, rather
                 # than letting a pydantic traceback out as a generic exit 1.
                 raise InvalidInput(_format_validation(exc)) from exc
-            _require_services(action, ctx)
-            try:
-                result = owner.run(action.name if owner.actions else "", inputs, ctx)
-            except ValidationError as exc:
-                # A group's input model is a CLI-shaped subset of whatever the
-                # library accepts, so the library can still reject a value that
-                # passed here (a timestamp typed as a string, say). That is
-                # equally the caller's error and gets the same exit 2.
-                raise InvalidInput(_format_validation(exc)) from exc
-            except Exception as exc:
-                # A typed library failure is a diagnosis, not a crash. Without
-                # this a missing index -- the ordinary "nothing ingested yet"
-                # case -- exits 1 with an Elasticsearch traceback, which no
-                # harness can branch on.
-                code = _exit_for(exc)
-                if code is None:
-                    raise
-                click.echo(f"vss: {exc}", err=True)
-                raise SystemExit(int(code)) from exc
-            _emit(result, ctx)
+            require_services(action.name, action.requires, ctx)
+
+            def dispatch() -> Result:
+                try:
+                    return owner.run(action.name if owner.actions else "", inputs, ctx)
+                except ValidationError as exc:
+                    # A group's input model is a CLI-shaped subset of whatever
+                    # the library accepts, so the library can still reject a
+                    # value that passed here (a timestamp typed as a string,
+                    # say). That is equally the caller's error, same exit 2.
+                    raise InvalidInput(_format_validation(exc)) from exc
+
+            emit(guarded(dispatch), ctx)
 
         return click.Command(
             name=action.name,
@@ -333,39 +373,64 @@ class CommandGroup(ABC):
             # The input model's docstring is the long help. Keeping the two
             # together means the description of what a path does lives beside
             # the fields it accepts, rather than drifting from them.
-            help=inspect.cleandoc(model.__doc__ or action.summary),
+            help=inspect.cleandoc(model.__doc__ or action.summary) + requires_note(action.requires),
         )
 
     def _handle_command(self, verb: str, fn: Any) -> click.Command:
         owner = self
 
         def callback(**values: Any) -> None:
-            ctx = _context_from(values)
-            _emit(fn(values["job_id"], ctx), ctx)
+            ctx = _memory_context(values)
+            emit(guarded(lambda: fn(values["job_id"], ctx)), ctx)
 
         return click.Command(
             name=verb,
-            params=[click.Option(["--job-id"], required=True), *params_mod.shared_options()],
+            params=[
+                click.Option(["--job-id"], required=True),
+                memory_mod.index_option(),
+                *params_mod.shared_options(),
+            ],
             callback=callback,
             short_help=f"{verb.capitalize()} a {owner.name} job by id.",
         )
 
     def _list_command(self) -> click.Command:
         owner = self
+
+        def _instant(_ctx: click.Context, _param: click.Parameter, value: str | None) -> str | None:
+            """Reject a malformed ``--since`` while it is still the caller's error.
+
+            Left alone it reaches the store's time helpers as a ``ValueError``,
+            which ``_exit_for`` does not map, so an ordinary typo exits 1 with a
+            traceback rather than 2 with a sentence. Validated with the same
+            function that will parse it, so the two cannot disagree.
+            """
+            if value is None:
+                return None
+            from vss_core._foundation.time import iso8601_to_datetime
+
+            try:
+                iso8601_to_datetime(value)
+            except ValueError as error:
+                raise click.BadParameter(f"{value!r} is not an ISO-8601 instant, e.g. 2026-08-13T20:00:00Z") from error
+            return value
+
         filters = (
-            click.Option(["--since"], help="Only jobs after this time (ISO-8601 or duration)."),
+            # Durations ("1h") read well but were never implemented; the help
+            # promised them and the parser rejected them.
+            click.Option(["--since"], callback=_instant, help="Only jobs at or after this ISO-8601 instant."),
             click.Option(["--sensor-id"], help="Restrict to one sensor."),
             click.Option(["--status"], help="Restrict to one job status."),
         )
 
         def callback(**values: Any) -> None:
-            ctx = _context_from(values)
+            ctx = _memory_context(values)
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
-            _emit(owner.list(selected, ctx), ctx)
+            emit(guarded(lambda: owner.list(selected, ctx)), ctx)
 
         return click.Command(
             name="list",
-            params=[*filters, *params_mod.shared_options()],
+            params=[*filters, memory_mod.index_option(), *params_mod.shared_options()],
             callback=callback,
             short_help=f"List recent {owner.name} jobs, including in-flight.",
         )
@@ -374,11 +439,11 @@ class CommandGroup(ABC):
 # -- helpers ------------------------------------------------------------
 
 
-def _context_from(values: dict[str, Any]) -> Context:
+def context_from(values: dict[str, Any]) -> Context:
     """Assemble a Context from the shared flags, resolving the deployment.
 
     The recorded deployment is the only source of endpoints. When none is
-    recorded ``deployment`` is None, and :func:`_require_services` turns that
+    recorded ``deployment`` is None, and :func:`require_services` turns that
     into exit 4 naming the command that fixes it.
     """
     deployment: config_mod.Deployment | None
@@ -399,7 +464,15 @@ def _context_from(values: dict[str, Any]) -> Context:
     )
 
 
-def _emit(result: Result, ctx: Context) -> None:
+def _memory_context(values: dict[str, Any]) -> Context:
+    """A Context for the read verbs, carrying the index they read from."""
+    ctx = context_from(values)
+    if values.get("memory_index"):
+        ctx.extra["memory_index"] = values["memory_index"]
+    return ctx
+
+
+def emit(result: Result, ctx: Context) -> None:
     """Render a Result and carry its exit code out through Click."""
     import json
 

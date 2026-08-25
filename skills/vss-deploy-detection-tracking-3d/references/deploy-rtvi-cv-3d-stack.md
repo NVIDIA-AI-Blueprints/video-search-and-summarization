@@ -36,7 +36,7 @@ Compose source: `docker/compose.yml` under `RTCV3D_APP`. Image values come from 
 
 | Service | Container | Image expression | Role |
 |---|---|---|---|
-| `perception` | `vss-rtvi-cv-mv3dt` | `${PERCEPTION_IMAGE}:${PERCEPTION_TAG}` | RT-DETR plus MV3DT perception; publishes `mdx-raw`. |
+| `perception` | `vss-rtvi-cv-mv3dt` | `${VSS_RT_CV_IMAGE}:${VSS_RT_CV_TAG}` | RT-DETR plus MV3DT perception; publishes `mdx-raw`. |
 | `bev-fusion` | `vss-rtvi-cv-bev-fusion` | `${BEV_FUSION_IMAGE}:${BEV_FUSION_TAG}` | Fuses `mdx-raw` measurements and publishes `mdx-bev`. |
 | `mosquitto` | `vss-mosquitto-mv3dt` | `${MOSQUITTO_IMAGE}` | Bundled MQTT broker for `/trck/*`, profile `mosquitto`. |
 | `kafka` | `kafka` | `${KAFKA_IMAGE}` | Bundled Kafka broker for `mdx-raw` and `mdx-bev`, profile `kafka`. |
@@ -49,7 +49,7 @@ cd "${RTCV3D_APP}/docker"
 docker compose config --images | sort -u
 ```
 
-Use platform-specific image tags only when they are already supplied by the checked-out compose package/`docker/.env` or explicitly provided by the user. Do not set, derive, or recommend a specific `PERCEPTION_TAG` or `BEV_FUSION_TAG` in this skill.
+Use platform-specific image tags only when they are already supplied by the checked-out compose package/`docker/.env` or explicitly provided by the user. Do not set, derive, or recommend a specific `VSS_RT_CV_TAG` or `BEV_FUSION_TAG` in this skill.
 
 ## Prerequisites
 
@@ -605,7 +605,7 @@ bev_recorder_alive || exit 1
 start_perception || exit 1
 ```
 
-For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder/visualizer running through EOS in the same long-lived shell/session and use `references/verify-and-view.md` to detect premature exit. For live display file runs, tell the user that `DeepStreamTest5App` is the camera grid and `Bird-Eye View of Multi-View 3D Tracking` is the separate BEV window; after EOS, have them press `q` in the BEV window or safely stop only the tracked current-run PID.
+For RTSP, start the BEV recorder/visualizer before the direct REST stream registration step; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder/visualizer running through EOS in the same long-lived shell/session and use `references/verify-and-view.md` to detect premature exit. For live display file runs, tell the user that `DeepStreamTest5App` is the camera grid and `Bird-Eye View of Multi-View 3D Tracking` is the separate BEV window; after EOS, have them press `q` in the BEV window or safely stop only the tracked current-run PID.
 
 Do not use `deploy/docker/compose.yml`, `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, warehouse `overrides.env`, or warehouse app-data deployment profiles in this skill.
 
@@ -634,7 +634,7 @@ If BEV recording/viewing is enabled, run the `Two-Phase Launch For BEV` recorder
 start_perception || exit 1
 ```
 
-For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because streams are registered only after `ds-ready: YES`:
+For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because stream registration happens only after REST `/api/v1/ready` reports `ds-ready=YES`:
 
 ```bash
 cd "${RTCV3D_APP}" || exit 1
@@ -647,4 +647,4 @@ else
 fi
 ```
 
-For stream redeploy with saved/live BEV prestart, start the BEV recorder/visualizer first with the two-phase BEV block, then register streams with `scripts/add-streams.sh` only after `ds-ready: YES`.
+For stream redeploy with saved/live BEV prestart, start the BEV recorder/visualizer first with the two-phase BEV block, then register streams with the direct REST registration block in `references/configure-cameras.md`; it waits on REST readiness before registering.

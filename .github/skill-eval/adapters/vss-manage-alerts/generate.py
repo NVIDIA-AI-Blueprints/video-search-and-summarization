@@ -58,13 +58,12 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires. This pre-authorization covers "
-    "deployment and setup ONLY. It does NOT waive a user-facing safety "
-    "confirmation that a skill's own protocol requires before a destructive "
-    "action (for example, the two-step stop/delete protocol for an alert "
-    "rule): for those, still follow the skill — ask the yes/no confirmation "
-    "question and do NOT perform the destructive call, since no interactive "
-    "user will answer here."
+    "setup action the trial requires. This pre-authorization covers deployment "
+    "and setup ONLY. It does not extend to a destructive call — no interactive "
+    "user exists to consent to one — so where the skill gates an action behind a "
+    "user confirmation, or requires a real operator-supplied credential, follow "
+    "the skill up to that gate and stop: ask, and do not perform the gated action "
+    "(no user will answer here)."
 )
 
 # ---------------------------------------------------------------------------
@@ -287,11 +286,12 @@ def generate_platform_mode(
             instruction_lines.append("")
         instruction_lines.append(
             "Run autonomously without prompting for confirmation, EXCEPT where the "
-            "skill's own protocol requires an explicit user confirmation before a "
-            "destructive action (e.g. the two-step stop/delete protocol for an alert "
-            "rule). In that case, follow the skill: ask the yes/no confirmation "
-            "question, state the rule ID and sensor, and stop without deleting "
-            "(there is no interactive user to answer 'yes')."
+            "skill gates an action behind a user confirmation (e.g. before a "
+            "destructive call) or requires a real operator-supplied credential — "
+            "no interactive user exists to consent here, so follow the skill up to "
+            "the confirmation it requires, then stop without performing the gated "
+            "action. (Setup/deploy actions the trial pre-authorizes are not gated "
+            "this way — do those autonomously.)"
         )
         instruction_lines.append("")
         (step_dir / "instruction.md").write_text("\n".join(instruction_lines) + "\n")

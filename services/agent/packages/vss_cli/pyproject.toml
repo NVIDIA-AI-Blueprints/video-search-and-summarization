@@ -41,11 +41,15 @@ vss = "vss_cli:main"
 [project.entry-points."vss.commands"]
 configure = "vss_cli.configure:CONFIGURE"
 search = "vss_cli.search_group:SEARCH"
+summarize = "vss_cli.summarize_group:SUMMARIZE"
+vios = "vss_cli.vios_group:VIOS"
 
 # Values here are read as raw strings for `vss --help` and are never imported.
 [project.entry-points."vss.command_summaries"]
 configure = "Resolve and record a VSS deployment"
 search = "Search indexed video"
+summarize = "Summarize video and persist to memory"
+vios = "Sensors, timelines, clips and snapshots (no jobs)"
 
 [tool.uv.sources]
 nvidia-vss-core = { workspace = true }

@@ -32,6 +32,9 @@ include:
   - path: nemotron-3-nano/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nim.env
+  - path: nemotron-3.5-lightning-30b-a3b/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: nvidia-nemotron-nano-9b-v2/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nim.env

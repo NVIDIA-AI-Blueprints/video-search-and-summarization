@@ -1,0 +1,164 @@
+---
+title: "Blueprint Deep Dive"
+description: ""
+---
+## Introduction
+
+The Public Safety Blueprint is an application of the VSS framework to address video analytics for physical security and access control use cases at scale. It is designed to monitor secure access points and generate valuable real-time insights to aid security operations. The blueprint consumes video input from multiple security cameras, detects people and analyzes this metadata to produce alerts and reports that can be critical to physical security management. The list of functionality supported includes:
+
+* Live camera views from security cameras
+
+* Alerts:
+
+   * FOV count violations – triggers when the number of people in a field of view exceeds a threshold
+
+* Alert verification using Vision Language Models (VLMs) to reduce false positives
+
+* Alert reports generated using agents
+
+* Natural language based user interface driven by agents to query the system
+
+## Microservice Based Architecture
+
+The Public Safety Blueprint uses the canonical VSS architecture based on microservices integrated using a message bus in combination with agents to facilitate user requests and interaction. The high-level architecture is shown in the figure below.
+
+![Public Safety Blueprint Architecture](/assets/images/public-safety/architecture.png)
+
+At a high level, the blueprint architecture can be divided into a realtime streaming component and an agentic component. The realtime streaming component is responsible for ingesting camera feeds and processing them through a combination of computer vision, streaming analytics and vision language models (VLMs) based techniques. The agentic component is responsible for interpreting and executing user requests exposed through a UI.
+
+The microservices are deployed as containers using Docker Compose.
+
+In line with the overall VSS design, the Public Safety Blueprint provides a granular, flexible and scalable architecture through which various adaptations for bespoke physical security use cases can be achieved through choice of relevant microservices, appropriate configuration, prompt tuning, model fine tuning and replacement.
+
+The various microservices used are now reviewed along with the salient configuration details appropriate for the blueprint.
+
+## Realtime Video Intelligence (CV)
+
+The RTVI microservice takes streaming video inputs, performs inference and tracking, and sends metadata to the Behavior Analytics microservice using the nvschema-defined schema. It features the *metropolis-perception-app*, a DeepStream pipeline that leverages the built-in deepstream-test5 app in the DeepStream SDK.
+
+### Model Used
+
+The RTVI microservice uses RT-DETR for object detection in the Public Safety Blueprint:
+
+* [RT-DETR](https://docs.nvidia.com/tao/tao-toolkit/6.25.11/text/cv_finetuning/pytorch/object_detection/rt_detr.html) is a vision transformer based model. Further fine-tuning of the model can be performed using the recipe linked above.
+
+Refer to steps under [Deploy the Blueprint](/publicsafety-docs/Quickstart-Guide#deploy-the-blueprint) for details on how to configure various parameters such as precision and frequency of running detection.
+
+### Tracking
+
+Tracking enables frame-to-frame association of detected objects. The Public Safety Blueprint uses by default the NvDCF Accuracy 2D multi-object tracker provided with DeepStream. The [DeepStream tracker documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvtracker.html) describes configuration parameters to tune tracker settings, such as for setting tradeoffs between accuracy and performance.
+
+## Behavior Analytics
+
+The Behavior Analytics microservice provides spatio-temporal analysis of object movement using metadata output from the RTVI microservice. Output of the microservice includes alerts generated based on micro-batch processing of streaming metadata received over Kafka.
+
+Generated types of alerts include:
+
+* FOV count violations (when number of persons exceeds threshold)
+* Tailgating incidents
+
+These are accessible over APIs (polling) or Kafka.
+
+## Alert Verification
+
+Alerts generated through behavior analytics are verified through VLMs based on their ability to identify anomalies of interest by analyzing a collection of frames from the video based on an alert-specific prompt.
+
+The Public Safety Blueprint uses **Cosmos3 Nano Reasoner** for alert verification. The Alerts Microservice analyzes the stream of incidents and verifies them using the fine-tuned VLM. It outputs the validated events directly to Elasticsearch under the index `mdx-vlm-incidents`. The Alerts Microservice interfaces with the VST APIs to retrieve videos for verification.
+
+Configuration of the microservice for the Public Safety Blueprint includes:
+
+* **Per-alert prompt**: Alert verification prompts are defined for tailgating detection using template prompting support in the alert verification microservice. Modify these prompts as needed for specific verification requirements.
+
+* **VLM invocation parameters**: FPS at which frames need to be selected for verification, or alternatively the number of frames used for alert verification, and resolution at which VLM inference is performed. These are set by default based on the VLM fine-tuned checkpoint included in the release.
+
+* **Segment duration**: Configured to ensure longer timeframes capture the full context of tailgating activity, avoiding incidents being chunked into short, separated videos which lose context when sent to VLM for verification.
+
+* **Worker configuration**: Multiple workers are configured to improve parallelism on incident processing.
+
+## Video IO & Storage Microservice
+
+The Video IO & Storage (VIOS) microservice available as part of VSS enables camera discovery, video ingestion, streaming, storage and replay. The Public Safety Blueprint uses VIOS for interfacing with security cameras at scale, thereby providing a dependable, standardized mechanism by which downstream microservices can consume the camera streams.
+
+Configuration options for the Public Safety Blueprint include:
+
+* In `vst/public-safety/vst/configs/vst_config.json` you can modify the `always_recording` value under `data` to enable/disable default recording state for all streams added. By default, this is enabled and will record all streams added.
+
+* In `vst/public-safety/vst/configs/vst_storage.json` you can modify the `total_video_storage_size_MB` value to adjust maximum space video recordings will take up.
+
+* In `vst/public-safety/vst/configs/rtsp_streams.json` you can enable/disable automatically adding streams from NVStreamer.
+
+**Milestone Integration**
+
+The Public Safety Blueprint supports integration with Milestone VMS through a VST adapter, with both livestreams and recordings available for downstream processing. Timeline format is unified for both VST and Milestone streams.
+
+## Agents
+
+The Public Safety Blueprint incorporates an agentic AI system that provides natural language interaction capabilities for querying unauthorized entry and tailgating incidents, generating reports, and retrieving visual information from security cameras.
+
+### Agent Capabilities and Features
+
+The Agent provides the following key capabilities:
+
+**Supported Query Types**
+
+The agent supports natural language queries for public safety incident management and sensor operations:
+
+* **Sensor Discovery**: "What sensors are available?"
+* **Incident Listing**: "List last 5 incidents for `<sensor>`" or "Retrieve all incidents in the last 24 hours"
+* **Detailed Reports**: "Generate a report for incident `<id>`" or "Report for last incident at `<sensor>`"
+* **Live Snapshots**: "Take a snapshot of sensor `<sensor>`"
+* **Multi-Step Operations**: "1. List last 5 incidents for `<sensor>`; 2. Generate report for the second one"
+* **Pagination**: "Show the next 20 incidents"
+* **FOV Counts**: "How many people are in the `<sensor>`?"
+
+The agent automatically handles temporal expressions (e.g., "last 5 minutes", "past 24 hours") and maintains context for follow-up queries.
+
+**Core Features**
+
+* **Natural Language Understanding**: Interprets queries without structured syntax, intelligently routes to appropriate sub-agents, handles temporal expressions, maintains conversation context for follow-ups
+
+* **Incident Reporting**: Generates both multi-incident summaries and detailed single-incident reports with video analysis, including incident details, location information, security facilities, and people involved
+
+* **Video Analytics Integration**: Retrieves incident data via MCP service, leverages Vision Language Models (VLMs) to analyze security incidents and determine whether tailgating occurred
+
+* **Video Storage Integration**: Interfaces with VST MCP service for video/image URLs with configurable retry logic
+
+* **Observability**: Distributed tracing via Phoenix endpoint, project-based telemetry, and health check endpoints
+
+### Agent Configuration and Environment Variables
+
+The agent is configured through a YAML file that defines the general settings, function groups, individual functions, LLMs, and workflow behavior. The configuration file is organized into several key sections:
+
+* **General**: Frontend settings (FastAPI), object stores, telemetry, and health endpoints
+* **Function Groups**: MCP client connections to Video Analytics and Video Storage microservices
+* **Functions**: Individual tool definitions for video understanding, report generation, chart creation, sensor operations, and sub-agents
+* **LLMs**: Configuration for primary reasoning LLM and VLM
+* **Workflow**: Top-level agent orchestration with routing logic, retry settings, and iteration limits
+
+**Models Used**
+
+* **Primary LLM**: NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`) - Used for natural language understanding, query routing, and orchestrating sub-agents
+
+* **Vision Language Model (VLM)**: NVIDIA Cosmos3 Nano Reasoner (`nvidia/cosmos3-nano-reasoner`) - Used for video understanding and analyzing security incidents from video segments
+
+The configuration file can be found in `deployments/public-safety/vss-agent/configs/config.yml`.
+
+The configuration relies on several environment variables that must be set during deployment. For the complete explanation of the agent configuration YAML file and environment variables, please refer to the [Quickstart-Guide](/publicsafety-docs/Quickstart-Guide).
+
+### Customization and Extension
+
+The agent configuration is designed to be flexible and extensible. Key customization areas include:
+
+* **Prompt Customization**: Modify workflow system prompts to change query routing logic, add new patterns, or adjust response formatting
+
+* **VLM Prompt Engineering**: Tune video analysis prompts for different security scenarios, focusing on:
+
+   * Describing incidents in detail including why they happened, contributing factors, outcomes and responses
+   * Describing the location including security facilities such as gates, badge scanners, etc.
+   * Describing all people involved including their appearance and whether they presented proof of authorization
+
+* **Model Selection**: Swap LLMs and VLMs via environment variables to use different base models or adjust model parameters
+
+* **Tool Addition**: Extend agent capabilities by adding new MCP clients, custom data processing functions, or external API integrations
+
+For comprehensive customization guidance, refer to the [Agents](/publicsafety-docs/Agents) documentation.

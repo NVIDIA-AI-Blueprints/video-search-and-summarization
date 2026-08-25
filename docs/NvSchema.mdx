@@ -1,0 +1,570 @@
+---
+title: "NvSchema"
+description: ""
+position: 4
+---
+NvSchema can be defined in the following two formats.
+
+Only one may be used for a given deployment (default: Protobuf).
+
+## Introduction
+
+This document specifies requirements for metadata description for interoperability across multiple NVIDIA SDKs and libraries including the Metropolis platform. Various existing standards have been studied in the
+process of coming up with these requirements. The references section lists the industry standards and the academic research used. There are several standards for describing video metadata. Examples include MPEG-7, LSCOM, ViPER, ONVIF, VERL, ViSOR, CVML, HumanML, VERSA etc., Of the various existing standards MPEG-7 is by far the most comprehensive
+but also the most onerous from an implementation perspective. ONVIF on the other hand is widely adopted by the camera community and is the most widespread for some camera metadata but weak on scene description metadata. There have been several studies that attempt to define a minimal essential MPEG-7 profile for video surveillance. Unfortunately,
+there is no consensus and no single standard that has succeeded for all aspects of metadata description. It is also futile to attempt to create or expect a universal standard for the semantics of video metadata.
+Efforts to standardize this for the web (the semantic web) have not seen much success after years of work. Some of the challenges for the Semantic Web include vastness, vagueness, uncertainty, and inconsistency. Trying to define a standard ontology for describing video will not succeed in universal adoption and effectiveness for the very same reasons. Natural language will replace most of the structured and controlled means of describing semantics in future in any case and that
+the way this schema is defined should leave that option open for future use.
+
+This document will therefore define requirements for the schema as well as a controlled vocabulary that favor extensibility with a minimal core of necessity. It will try to combine valuable features from more than one standard described above but not adhere in entirety to any single existing standard. It will also extend the richness of the existing standards. The metadata description standard requirements in this document covers the following aspects of the needed standard:
+
+-  A Schema to formally define the elements in a structured format
+
+-  A language to encode the schema. JSON for the schema and OWL for
+   upper ontology should be used.
+
+-  A Taxonomy inclusive of Controlled Vocabularies to represent the
+   semantics.
+
+-  The attributes of Things listed in the taxonomy.
+
+-  The relationships between Things listed in the taxonomy.
+
+## Ingredients of a Video Metadata Description Standard
+
+When a video is captured and analyzed, the metadata generated must describe the following independent characteristics:
+
+1. Metadata about the “sensor" (i.e. one or more cameras that captured the video)
+2. Metadata about the “Things" seen (and heard) in the video
+3. Metadata about the “analytical engine" that is analyzing the videos and generating scene analysis metadata
+
+While expressing the metadata the following primitive data types will be
+used.
+
+| Data Type | Description |
+| --- | --- |
+| Boolean | A Boolean value: either “true" or “false". |
+| Integer | An integer |
+| Float | A ﬂoating point number |
+| lvalue | An enumeration type. In the conﬁg part the list of allowed values must be deﬁned |
+| Long | Long integer |
+| String | A string value. Strings must be xml-escaped |
+| Timestamp | RFC3339 UTC timestamp  e.g. 2006-01-02T15:04:05.999Z |
+| Array | An array of any of the above types of data |
+
+### Metadata about the sensor
+
+This document proposes the use of the ONVIF standard for describing the metadata about the sensor which in this case is the camera. Given the widespread use and adoption of ONVIF in the camera community for this
+purpose it is reasonable to adopt it for the description of camera specific communications and metadata.
+
+| Item | Description |
+| --- | --- |
+| SensorID | Unique camera id in a system of multiple cameras. **This is a mandatory attribute.** |
+| SensorLocation | Latitude, Longitude, Altitude of the sensor. **This is a mandatory attribute.** |
+| SensorCoordinates | Cartesian Coordinates (X, Y, Z) |
+| SensorType | Indicates the type of sensor. For example camera, puck, etc. |
+| SensorOrientation | Pan Tilt Zoom values (PTZ) |
+| SensorDescription | Free Text description (e.g. “Camera facing parking lot A") |
+| SensorSampingRate | For example 30 frames per second |
+
+*Table 2: Sensor Metadata*
+
+<Note>
+Additional camera parameters like lens distortion, focal length, etc., for camera calibration can also be added to the Sensor Metadata. Similarly, environmental attributes such as temperature, relative humidity etc., can also be added. Attributes should follow the ONVIF standard specified in ONVIF-Core-Specification-v1612.pdf for those that are defined by the ONVIF core specification. SensorCoordinates denote the Cartesian coordinates, with respect to some Euclidian plane. Such information yield to faster and simpler computation in spatio-temporal analysis than utilizing geo-coordinates (which are uses computations on an ellipsoid surface).
+</Note>
+
+### Metadata about the “Things" seen (and heard) in the video
+
+This section focuses on the requirements for metadata about the “Things"
+in the scene that are observed through audio and visual signals. The
+purpose of describing a video is to answer one or more of the questions
+of the following kind: Who? What? When? Where? How? To do so, a taxonomy
+is needed. This taxonomy is comprised of three parts. A list of “Things"
+and their “attributes". A list of “relationship types". An actual
+instantiation of “Things, their “attributes" and “relationship types" to
+define the schema to be used for the semantic description of the scene.
+The schema should be equally applicable to labeling a video as well as
+for developing models for the class labels and then performing inference
+using those models during runtime processing.
+
+Things can be of one of the following three types:
+
+1. Places: Describing the Place and its attributes where the scene is
+   taking place. A Place is immobile. E.g. *Airport*, *Indoor*,
+   *Outdoor*, etc.
+
+2. Objects: Describing the objects that are observed in the scene along
+   with their appearance and behavior attributes. Objects can be
+   immobile or mobile. E.g. *Vehicle*, *Person*, *Face*, *Backpack*,
+   etc.
+
+3. Events: Describing the occurrence of various events over a period of
+   time. Events are complex and they occur as a consequence of change of
+   state of one or more object and the interaction of one or more object
+   with the environment or Place. E.g. *Person Entering Room*, *Car
+   Accident,* etc.
+
+Attributes:
+
+There are two sets of attributes to be defined for all Things.
+
+1. A set of attributes that will be common to all Things.
+
+2. An additional set of optional attributes that are unique to each
+   Thing.
+
+**Common Attributes**
+
+The following attributes are common for all Things.
+
+| Item | Description |
+| --- | --- |
+| ID | Unique id for every object, place or event detected in the scene. **This is a mandatory attribute.** This is not globally unique but can be made so by combining it with other metadata such as sensor id and time. Rollover should be handled by application logic. |
+| Appearance – Shape  BBox  COG  Polygon | Bounding box, CenterofGravity and the polygon coordinates indicating appearance location of object within frame. An arbitrary polygon can be optionally added to the appearance shape descriptor. For Places the default shape is the entire image |
+| Appearance – Color | Color of the object as defined. Use the ONVIF schema for the color space specification. |
+| Confidence | A floating-point number in the closed interval [0,1] indicating the probability of detection of said object by the analytical engine. |
+| Individual or Composite | This attribute allows us to specify if the Thing is an individual Thing or is composed of multiple other Things and is therefore a composite Thing. Default assumption will be that the Thing is an individual Thing unless noted otherwise. |
+
+*Table 3: Common Attributes of Things*
+
+**Time**: Time is mandatory metadata. Time comes in two varieties –
+instant and interval. We will use t to indicate an instant and T to
+indicate an interval with start and end time
+
+| Item | Description |
+| --- | --- |
+| Timestamp | RFC3339 UTC timestamp  e.g. 2006-01-02T15:04:05.999Z  **This is a mandatory attribute.** |
+| Frame (optional) | Frame number within the video sequence |
+
+*Table 4: Defining Time*
+
+An instant should always be expressed as a timestamp. An interval will
+be defined by a pair of timestamps or frame numbers and will define as
+closed range. E.g. (t1,t2) indicates a range of interval T beginning at
+time instant t1 and ending at time instant t2, inclusive of t1 and t2.
+
+**Optional Attributes**:
+
+The following appearance attributes are optional:
+
+| Item | Description |
+| --- | --- |
+| AppearanceFeatureName | Name of the numerical feature being used for describing the appearance |
+| AppearanceFeatureType | Define the data type of this appearance feature. For example integer, float, string etc. |
+| AppearanceFeatureVector | A vector of AppearanceFeatureType to represent any kind of image descriptors like SIFT features, texture, fiducials for face recognition, etc. |
+
+*Table 5: Optional Attributes of Appearance*
+
+**Location**: Location is mandatory metadata. Location has two aspects.
+Relative location is camera-centric. Absolute location is world-centric.
+
+Absolute Location
+
+| Item | Description |
+| --- | --- |
+| AbsoluteLocation | Latitude, Longitude and Altitude of the center of gravity of the Thing being observed. **This is a mandatory attribute.** |
+| Coordinates | Cartesian Coordinates (X, Y, Z). Similar to “sensor", coordinates helps faster computations. |
+| Coordinates Bounding box (p1, p2) | Defined by a pair of points p1 and p2 indicating the top left and bottom right Cartesian coordinates |
+
+*Table 6: Location Attributes*
+
+Relative Location allows for within frame localization of the Thing
+being described. All the items listed in the table below are not
+mandatory but having at least one representation of location (either
+absolute or relative) is mandatory. If location is being described in
+the relative frame of description, one of the items in Table 6 must be
+associated with each Thing as relative location attribute.
+
+| Item | Description |
+| --- | --- |
+| Point p | A pixel p in the image defined by an x,y coordinate system. Recommended to use ONVIF standard for coordinate system of a point pixel in a camera centric view |
+| Bounding box (p1,p2) | Defined by a pair of points p1 and p2 indicating the top left and bottom right coordinates of a rectangular bounding box. |
+| Mask | An arbitrary collection of points that define an arbitrarily shaped mask within an image. The advantage is that it can allow for describing any shape precisely. The disadvantage is that it can be large in size and expensive to encode. |
+| Center of gravity | x and y coordinate of the center of gravity. |
+| Distance (p1, p2) | Euclidean distance between points p1 and p2 |
+| Translation and Scale | Follow the ONVIF schema definition of a translation vector T and a scale vector V to move the coordinate system if needed |
+
+*Table 7: Attributes about relative position within image/video*
+
+### Movement Attributes
+
+In many applications including video surveillance, mobile objects are of
+greater interest than stationary objects. Movement of objects can be
+described by a set of primitive events that can happen to them. A Mobile
+Object has a velocity and a direction. The primitive events are:
+
+| Item | Description |
+| --- | --- |
+| Direction | Represented by a float to denote the angle indicating directionality. The angle should be between 0 to 360 degrees. This is the angle with respect to the horizontal line in the Cartesian coordinates |
+| Orientation | Indicates the orientation of the object. Represented as a float and denotes the angle made with horizontal line. For example, this indicates which direction the front of the car is facing |
+| Speedpixel | Represented by a float. In conjunction with direction of motion, it provides information on the velocity of the moving object. Speed in pixels/second |
+| Speed | Real-world speed in miles per hour |
+
+*Table 8: Movement Attributes*
+
+### Defining Things and their Thing-specific Attributes
+
+The table below lists the class labels for Things and unique attributes
+of the class labels. The list also includes a few events whose
+attributes are described later in the document. The name of the Thing
+can be provided as a fully qualified name in JSON schema. For example, a
+garage (parking lot) within a building can have a fully qualified type
+as “building/garage".
+
+Indentation indicates hierarchy of things.
+
+| Type | Hierarchy Level 1 | Hierarchy Level 2 | Attributes |
+| --- | --- | --- | --- |
+|  |  |  | ID, Individual/Composite, Time, Location (Relative, Absolute), Appearance (Color Shape), Behavior, Freetextstring, AppearanceFeatureName, AppearanceFeatureVector |
+| Place |  |  | Outdoor/Indoor, Bright/Dark |
+|  | Building |  |  |
+|  |  | Airport |  |
+|  |  | Station |  |
+|  |  | Mall |  |
+|  |  | School |  |
+|  |  | Garage |  |
+|  |  | Hospital |  |
+|  |  | Store |  |
+|  |  | House |  |
+|  |  | Hangar |  |
+|  |  | Tower |  |
+|  | Road |  |  |
+|  |  | Walkway |  |
+|  |  | Trail |  |
+|  |  | Railwaytrack |  |
+|  |  | Runway |  |
+|  |  | Biketrack |  |
+|  |  | Pavement |  |
+|  | Sky |  |  |
+|  | Forest |  |  |
+|  | Greenery |  |  |
+|  | Beach |  |  |
+|  | Bodyofwater |  |  |
+|  | Mountain |  |  |
+| Object |  |  |  |
+|  | Vehicle |  | Make, Model, Type, LicensePlate, LicensePlateState, FeatureVector=VehicleSignatureFeatureVector |
+|  |  | Car | Taxi |
+|  |  | Truck |  |
+|  |  | Bus | Large/Small/Minibus |
+|  |  | Pickuptruck |  |
+|  |  | Firetruck |  |
+|  |  | Van |  |
+|  |  | Ambulance |  |
+|  |  | Train |  |
+|  |  | Helicopter |  |
+|  |  | Airplane |  |
+|  |  | Tram |  |
+|  |  | Bicycle |  |
+|  |  | Motorbicycle |  |
+|  | Person |  | Gender, Age, Hair, Glasses, Apparel, Bag, Cap, AppearanceFeatureVector=PersonSignatureFeatureVector |
+|  |  | Cyclist |  |
+|  |  | Driver |  |
+|  |  | Lawenforcement official |  |
+|  | Face |  | Gender, Age, Hair, Glasses, Cap, Facialhair, Name, Eyecolor, Emotion, FeatureVector=FiducialFeatures |
+|  | Group |  | Numberofpersons |
+|  | Bag |  |  |
+|  | Animal |  |  |
+|  | Glasses |  | Dark/Transparent |
+|  | Cap |  |  |
+|  | Apparel |  | Formal, Casual, Suit, Ethnic |
+|  | Umbrella |  |  |
+|  | Trafficsignal |  |  |
+|  | Signpost |  |  |
+|  | Lightpole |  |  |
+|  | Tree |  |  |
+|  | Pipeline |  |  |
+|  | Stairwell |  |  |
+|  | Elevator |  |  |
+|  | Bridge |  |  |
+|  | Busstop |  |  |
+|  | Escalator |  |  |
+|  | Door |  | Open/Closed |
+| Event |  |  |  |
+|  | Action |  | Active/Idle, Slow/Fast |
+|  |  | Moving |  |
+|  |  | Walking |  |
+|  |  | Running |  |
+|  |  | Smiling |  |
+|  |  | Driving |  |
+|  |  | Speaking |  |
+|  |  | Touching |  |
+|  |  | Holding |  |
+|  |  | Picking |  |
+|  |  | Releasing |  |
+|  |  | Starting |  |
+|  |  | Stopping |  |
+|  |  | Flying |  |
+|  |  | Swimming |  |
+|  |  | Loitering |  |
+|  |  | Entering |  |
+|  |  | Throwing |  |
+|  |  | Screaming |  |
+|  |  | Exiting |  |
+|  | Brawl |  |  |
+|  | Crash |  |  |
+|  | Glassbreaking |  |  |
+|  | Fire |  |  |
+|  | Explosion |  |  |
+|  | Gunshot |  |  |
+|  | Sportsevent |  |  |
+| None of the above |  |  |  |
+
+*Table 9: A Taxonomy of Things*
+
+### Defining Relationships between Things and Attributes
+
+Four types of relationships need to be supported:
+
+1. Subsumption: When a Thing subsumes another Thing. For example a “Car"
+   IS-A “Vehicle"
+
+2. Composition: When a Thing is part of another Thing. For example a
+   Vehicle HAS-A Licenseplate. All attributes of a Thing are also to be
+   supported through this “HAS-A" relationship.
+
+3. Spatial relationship: Needed to define how objects, Places and events
+   spatial relation is to be described. For example Vehicle 1 is to the
+   “right-of" Vehicle 2.
+
+4. Temporal relationship: Needed to define all kinds of events that
+   occur due to change of state of Places and objects over time. For
+   example, the event of loitering can be defined as repeated entry and
+   exit of a person within a zone within a certain amount of time.
+
+We will allow applications to define ontology to describe the scene
+using the following components:
+
+### Subsumption (IS-A)
+
+The IS-A relationship will allow for class subsumption. Here are a few
+examples of the use of this relationship in defining Things:
+
+| Thing | IS-A |
+| --- | --- |
+| Airport | Building |
+| Station | Building |
+| Building | Place |
+| Car | Vehicle |
+| Pavement | Road |
+
+*Table 10: Subsumption Relationship Examples*
+
+### Composition (HAS-A)
+
+The HAS-A relationship allows for an object to be composed of several
+other objects and for an object to have attributes. All mandatory and
+Thing-specific attributes can be defined using a HAS-A relationship. All
+attributes defined in Column 3 of *Table 11* are in fact to be defined
+using the HAS-A relationship.
+
+| Thing | ThingType | HAS-A |
+| --- | --- | --- |
+| Person | Object | Gender, Age, Hair, Glasses, Apparel, Bag, Cap, Emotion, Expression |
+
+*Table 11: Composition Relationship Example*
+
+### Temporal Relationships.
+
+There are two types of temporal relationships. One is between an instant
+and an interval. The other is between two distinct time intervals. This
+definition is based on Allen’s temporal relationships.
+
+Relationship between time instant t and time interval T.
+
+| Relationship | Description |
+| --- | --- |
+| Begins (t,T) | Time instant t is the beginning of time interval T |
+| Inside(t,T) | Time instant t is within the time interval T |
+| Ends(t,T) | Time instant t is the ending of time interval T |
+| Outside(t,T) | Time instant t is outside time interval T |
+
+*Table 12: Temporal Relationships between instant and interval*
+
+Relationship between time interval T1 and time interval T2.
+
+| Relationship | Description |
+| --- | --- |
+| Before(T1,T2) | Time interval T1 happens entirely before time interval T2 |
+| Meets(T1,T2) | Time interval T1 ends when time interval T2 begins so they meet at the common time instant |
+| Overlaps(T1,T2) | Time interval T1 and time interval T2 share more than one time instants. |
+| Begins(T1,T2) | Time intervals T1 and T2 start together but do not end together. |
+| Contains(T1,T2) | Time interval T1 is a subset of time interval T2 |
+| Ends(T1,T2) | Time intervals T1 and T2 start at different instants but end together |
+
+*Table 13: Temporal Relationships between multiple intervals*
+
+There are two possible relations between events and times: Some events
+happen instantaneously. Some events happen in a time intervals. The
+corresponding video granularity is Frame (Instant) and Segment
+(Interval). UTC Timecode is the expected way to define timestamp.
+
+### Spatial Relationships
+
+A common requirement is to be able to describe the spatial relationship
+between objects and Places. The following primitives can be a starting
+point and further refinement can be decided in terms of granularity of
+relative position. Assume two objects A and B.
+
+| Relationship | Description |
+| --- | --- |
+| Above(A,B) | Y coordinate of COG(A) is above Y coordinate of COG(B) |
+| Below(A,B) | Y coordinate of COG(A) is above Y coordinate of COG(B) |
+| Leftof(A,B) | X coordinate of COG(A) is to the left of X coordinate of COG(B) |
+| Rightof(A,B) | X coordinate of COG(A) is to the right of X coordinate of COG(B) |
+| Inside(A,B) | A is entirely contained inside B |
+| Outside (A,B) | A and B do not overlap |
+
+*Table 14: Spatial relationships between Things*
+
+Merging and Separation of Objects in a Scene:
+
+We will follow the ONVIF notion of `objecttree` for merge and separation
+of objects in a scene described in Section 5 below but require an
+`objecttree` to have its own unique ID instead of hijacking the id of one
+of its objects merged. To avoid confusion with ONVIF namespace this will
+be done as follows.
+
+Imagine Thing 1 and Thing 2 need to be now combined in a new container
+(`objecttree` in ONVIF.)
+
+For any container that needs to contain multiple Things, define a new
+Thing class.
+
+ ```text
+ ```
+
+   Thing Object,
+
+   Object.ID=3
+
+   Object.Thingtype=Composite
+
+   Object.Join (1,3) # Thing 3 now includes Thing 1
+
+   Object.Join (2,3) # Thing 3 now includes Thing 2
+
+If Thing 2 now has to leave the container:
+
+```text
+Object.Leave(2,3) # Thing 2 has now left Thing 3 the container
+```
+
+### Object movement relationships for pairs of objects
+
+Two Objects can be in a “distance-from" relation. It may also be useful
+to have a notion of one object being “near" another object. This is
+generally a functional notion—near enough for some purpose. In a
+particular domain, it may be possible to define this precisely in terms
+of distance. When at least one of those Objects is a mobile object, this
+relation can change. Assume objects A and B. This gives rise to the
+following primitive events:
+
+| Item | Description |
+| --- | --- |
+| MoveToward(A,B) | A moves and changes the distance from B to a smaller value |
+| MoveAwayFrom(A,B) | A moves and changes the distance from B to a larger value |
+
+*Table 15: Object movement relationships for pairs of objects*
+
+Additional movement relationships are described in the *Table 16* below
+and are also listed in *Table 18*.
+
+| Item | Description |
+| --- | --- |
+| Enter(A, B) | A changes from outside B to inside B. |
+| Exit(A, B) | A changes from inside B to outside B |
+
+*Table 16: Additional Movement Relationships*
+
+The following events are of interest to the video surveillance
+community: the event of objects being picked up, left behind or carried.
+
+| Item | Description |
+| --- | --- |
+| Pick-Up(A,B) | There is a change from A not holding B to A holding B |
+| Put-Down(A,B) | There is a change from A holding B to A not holding B |
+| Carry(A,B) | Sequence(Pick-Up(A,B), AND(Hold(A,B), Move(A,C,D)), Put-Down(A,B)) |
+
+*Table 17: Events of objects picked up or left behind of particular
+interest in surveillance*
+
+The hierarchy below summarizes all the relationships.
+
+| Relationships |  |  | Description |
+| --- | --- | --- | --- |
+| Interthing |  |  |  |
+|  | IS-A |  |  |
+|  | HAS-A |  |  |
+|  | Join |  |  |
+|  | Leave |  |  |
+| Spatial |  |  |  |
+|  | Point |  |  |
+|  | Polyline |  |  |
+|  | Polygon |  |  |
+|  | Boundingbox |  |  |
+|  | Mask |  |  |
+|  | Center of gravity |  |  |
+|  | Distance |  |  |
+|  | Translation |  |  |
+|  | Above |  |  |
+|  | Below |  |  |
+|  | Leftof |  |  |
+|  | Rightof |  |  |
+|  | Inside |  |  |
+|  | Outside |  |  |
+|  | Overlap |  |  |
+|  | Scale |  |  |
+|  | Absolute Location |  | latitude, longitude, altitude |
+|  | Coordinates |  | X,Y,Z |
+|  | Coordinates Bounding box |  |  |
+| Movement |  |  |  |
+|  | Direction |  | Degrees |
+|  | Orientation |  | Degrees |
+|  | Speed |  | pixels/second |
+|  | Absolute speed |  | Miles/hour |
+|  | Movetoward |  |  |
+|  | Moveawayfrom |  |  |
+|  | Enter |  |  |
+|  | Exit |  |  |
+| Temporal |  |  |  |
+|  | Instant |  |  |
+|  |  | Frame |  |
+|  |  | Before |  |
+|  |  | Together |  |
+|  | Interval |  |  |
+|  |  | Segment |  |
+|  |  | Begins |  |
+|  |  | Ends |  |
+|  |  | Contains |  |
+|  |  | Inside |  |
+|  |  | Outside |  |
+|  |  | Before |  |
+|  |  | After |  |
+|  |  | Meets |  |
+|  |  | Overlaps |  |
+
+*Table 18: Hierarchy of relationships*
+
+To simplify representation the following convention should be followed.
+When defining an event that involves more than one Thing, that event
+should be created as a new Thing entity as described above.
+
+However, if an action is to be described and the action involves an
+elemental Thing only, then it need not be defined with a new Thing ID
+and should be defined as an attribute of the Thing using a Has-A
+relationship.
+
+All Has-A relationships will be symbolically denoted by the “." Notation.
+
+### Metadata about the analytical engine
+
+The following items need to be specific, Sd in terms of the metadata about the analytical engine.
+
+| Item | Description |
+| --- | --- |
+| EngineID | Unique ID for each analytical engine module used in the system |
+| EngineDescription | Free text description of the analysis performed by the engine. E.g. Face Recognition, License Plate Recognition, etc. |
+| EngineSource | Name of the entity (individual/company) providing this analytical engine |
+| EngineVersion | Version number of the analytical engine |
+
+*Table 19: Metadata about the analytical engine*
