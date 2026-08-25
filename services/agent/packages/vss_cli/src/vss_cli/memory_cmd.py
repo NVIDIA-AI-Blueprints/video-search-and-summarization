@@ -187,7 +187,6 @@ def query_records(
 @click.option("--end-time")
 @click.option("--anchor-event-id")
 @click.option("--direction", type=click.Choice(("before", "after", "around")), default="around", show_default=True)
-@click.option("--window", help="Reserved duration window; currently unsupported.")
 @click.option("--match")
 @click.option("--limit", type=click.IntRange(1), default=50, show_default=True)
 @_output_options
@@ -197,7 +196,6 @@ def events(
     end_time: str | None,
     anchor_event_id: str | None,
     direction: str,
-    window: str | None,
     match: str | None,
     limit: int,
     pretty: bool,
@@ -210,7 +208,6 @@ def events(
             end_time=end_time,
             anchor_event_id=anchor_event_id,
             direction=direction,
-            window=window,
             match=match,
             limit=limit,
         )

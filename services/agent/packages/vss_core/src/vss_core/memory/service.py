@@ -332,7 +332,6 @@ class MemoryService:
         end_time: str | None = None,
         anchor_event_id: str | None = None,
         direction: str | None = None,
-        window: str | None = None,
         match: str | None = None,
         limit: int = 50,
         record_types: tuple[str, ...] = ("event", "incident", "search_hit"),
@@ -342,9 +341,6 @@ class MemoryService:
         Does **not** scan nested ``output.ext.events|incidents|results``.
         Temporal filtering uses child ``input.window`` (event time).
         """
-        if window is not None:
-            raise ValueError("events(window=...) is not implemented yet (SDD §2.1); omit the duration bound")
-
         collected: list[dict[str, Any]] = []
         for record_type in record_types:
             query = MemoryQuery(

@@ -89,6 +89,12 @@ def test_memory_verbs_do_not_expose_static_index_selection() -> None:
         assert "--memory-index" not in result.output
 
 
+def test_events_does_not_advertise_undefined_duration_window() -> None:
+    result = _invoke("events", "--help")
+    assert result.exit_code == 0, result.output
+    assert "--window" not in result.output
+
+
 def test_upsert_get_parent_and_child_round_trip() -> None:
     parent = _parent()
     child = _event()
@@ -140,8 +146,6 @@ def test_invalid_inputs_exit_two() -> None:
     assert _invoke("query", "--group", "media").exit_code == int(Exit.INVALID_INPUT)
     mismatch = _invoke("get", "--job-id", "summary-01", "--record-type", "event")
     assert mismatch.exit_code == int(Exit.INVALID_INPUT)
-    unsupported = _invoke("events", "--asset-id", "camera-1", "--window", "1h")
-    assert unsupported.exit_code == int(Exit.INVALID_INPUT)
 
 
 def test_unknown_handles_exit_five() -> None:
