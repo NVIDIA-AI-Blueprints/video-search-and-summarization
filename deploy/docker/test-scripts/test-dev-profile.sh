@@ -455,12 +455,16 @@ chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_negative_test "DGX-SPARK only valid for base, alerts or search (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
-run_negative_test "IGX-THOR only valid for base, alerts or search (not lvs)" 1 up -p lvs -i 127.0.0.1 -H IGX-THOR
+run_negative_test "IGX-THOR only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H IGX-THOR
 run_negative_test "AGX-THOR only valid for base, alerts or search (not lvs)" 1 up -p lvs -i 127.0.0.1 -H AGX-THOR
+# Search is enabled on DGX-SPARK and AGX-THOR only; IGX-THOR still rejects it.
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+  run_negative_test "IGX-THOR rejects search (not a supported search edge board)" 1 \
+  up -p search -i 127.0.0.1 -H IGX-THOR --use-remote-llm --llm x --use-remote-vlm --vlm y -d
 
 # --- Search on single-GPU edge hardware ---
 # The VLM is always remote; the LLM defaults to remote but may be kept on the board.
-for _edge_hw in DGX-SPARK IGX-THOR AGX-THOR; do
+for _edge_hw in DGX-SPARK AGX-THOR; do
   LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
     run_dry_run_test "${_edge_hw} allows search with remote LLM and remote VLM" \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --use-remote-vlm --vlm y -d
@@ -473,8 +477,8 @@ for _edge_hw in DGX-SPARK IGX-THOR AGX-THOR; do
     run_negative_test "${_edge_hw} search rejects a local VLM" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --vlm nvidia/cosmos3-reasoner-fp8 -d
 done
-# The FP8 Nemotron is the one LLM shipping hw-<board>-shared.env for all three boards.
-for _edge_hw in DGX-SPARK IGX-THOR AGX-THOR; do
+# The FP8 Nemotron is the one LLM shipping hw-<board>-shared.env for these boards.
+for _edge_hw in DGX-SPARK AGX-THOR; do
   VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
     run_dry_run_test "${_edge_hw} allows search with a local FP8 LLM and a remote VLM" \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 --use-remote-vlm --vlm y -d
@@ -1589,7 +1593,7 @@ done
 
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
-# DGX-SPARK (and IGX-THOR) are only valid for base, alerts and search
+# DGX-SPARK is valid for base, alerts and search (IGX-THOR: base and alerts only)
 for _profile in base alerts search; do
   run_spark_test_for_profile "${_profile}"
 done

@@ -65,6 +65,12 @@ options_provided=()
 
 # Edge hardware profiles (e.g. DGX-SPARK, IGX-THOR, AGX-THOR): device ID options not accepted
 edge_hardware_profiles=('DGX-SPARK' 'IGX-THOR' 'AGX-THOR')
+# Edge boards the search profile is enabled and validated on. A subset of
+# edge_hardware_profiles: search brings up RT-CV, RT-Embed and streamprocessing
+# on the board's single GPU, and only these two have been brought up that way.
+# IGX-THOR is deliberately excluded and still rejects -p search.
+search_edge_hardware_profiles=('DGX-SPARK' 'AGX-THOR')
+
 # Returns the first GPU's product name from nvidia-smi (display name), or empty string if nvidia-smi fails or no GPU.
 function get_nvidia_smi_gpu_name() {
   local _name
@@ -517,6 +523,9 @@ function usage() {
   echo "                                     - AGX-THOR"
   echo "                                     - OTHER"
   echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
+  echo "                                   • profile search additionally supported on DGX-SPARK and AGX-THOR (not IGX-THOR):"
+  echo "                                     VLM must be remote (--use-remote-vlm); LLM defaults to remote, pass"
+  echo "                                     --llm <model> to host it on the board's single GPU"
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: --llm-device-id, --vlm-device-id not accepted"
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
@@ -837,11 +846,17 @@ function process_args() {
         fi
       fi
 
-      # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base, alerts and search; device ID options not accepted
+      # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base and alerts,
+      # plus search on the search_edge_hardware_profiles subset; device ID options not accepted
       if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
-        if [[ "${profile}" != "base" ]] && [[ "${profile}" != "alerts" ]] && [[ "${profile}" != "search" ]]; then
-          echo "[ERROR] Hardware profile '${hardware_profile}' is only valid for profile base, alerts or search, not '${profile}'"
-          ((_all_good++))
+        if [[ "${profile}" != "base" ]] && [[ "${profile}" != "alerts" ]]; then
+          if [[ "${profile}" != "search" ]]; then
+            echo "[ERROR] Hardware profile '${hardware_profile}' is only valid for profile base or alerts (or search on ${search_edge_hardware_profiles[*]}), not '${profile}'"
+            ((_all_good++))
+          elif ! contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}"; then
+            echo "[ERROR] Profile search is not supported on hardware profile '${hardware_profile}'. Supported edge boards: ${search_edge_hardware_profiles[*]}"
+            ((_all_good++))
+          fi
         fi
         if contains_element "llm-device-id" "${options_provided[@]}"; then
           echo "[ERROR] --llm-device-id is not accepted for hardware profile '${hardware_profile}'"
@@ -859,7 +874,7 @@ function process_args() {
       # RT-CV and RT-Embed all need it, so the VLM always runs on a remote
       # endpoint. The LLM defaults to remote as well, but passing --llm without
       # --use-remote-llm keeps it on the board's GPU instead.
-      if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}" && [[ "${profile}" == "search" ]]; then
+      if contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}" && [[ "${profile}" == "search" ]]; then
         local _edge_llm_local=0
         if contains_element "llm" "${options_provided[@]}" && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
           _edge_llm_local=1
@@ -1612,7 +1627,7 @@ function state_up() {
   # the container would otherwise hold for media preprocessing. That means routing
   # the agent at a direct profile (nim/openai rather than rtvi), switching its
   # media framing to inline base64, and dropping rtvi-vlm from the deployment.
-  if [[ "${profile}" == "search" ]] && contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
+  if [[ "${profile}" == "search" ]] && contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}"; then
     # Only an explicit --vlm-model-type counts here: vlm_model_type is otherwise
     # pre-filled from the profile env files, where search sets it to rtvi.
     if contains_element "vlm-model-type" "${options_provided[@]}" && [[ -n "${vlm_model_type}" ]]; then
