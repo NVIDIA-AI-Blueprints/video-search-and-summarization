@@ -12,6 +12,19 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 SUPPORTED_HF_HUB_VERSION = "0.36.2"
+HF_TOKEN_ENV_VARS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
+
+
+def _hf_token_from_environment() -> str | None:
+    """Return the Hub token using huggingface_hub's environment precedence."""
+    return next(
+        (
+            token
+            for variable in HF_TOKEN_ENV_VARS
+            if (token := os.environ.get(variable, "").strip())
+        ),
+        None,
+    )
 
 
 def main() -> int:
@@ -38,6 +51,7 @@ def main() -> int:
             f"expected {SUPPORTED_HF_HUB_VERSION}"
         )
 
+    token = _hf_token_from_environment()
     endpoint = os.environ.get("HF_ENDPOINT") or None
     if endpoint:
         parsed = urlsplit(endpoint)
@@ -52,6 +66,10 @@ def main() -> int:
         ):
             parser.error(
                 "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
+            )
+        if parsed.scheme == "http" and token:
+            parser.error(
+                "HF_ENDPOINT must use HTTPS when a Hugging Face token is configured"
             )
         endpoint = endpoint.rstrip("/")
         os.environ["HF_ENDPOINT"] = endpoint
@@ -77,7 +95,8 @@ def main() -> int:
         revision=args.revision,
         filename=args.filename,
         endpoint=endpoint,
-        token=os.environ.get("HF_TOKEN") or None,
+        # Never allow cached/implicit credentials on a plaintext public cache.
+        token=token if not endpoint or endpoint.startswith("https://") else False,
         cache_dir=os.environ["HF_HOME"],
         local_dir=local_dir,
     )

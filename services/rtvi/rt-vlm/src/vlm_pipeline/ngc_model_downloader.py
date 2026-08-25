@@ -28,11 +28,24 @@ import requests.exceptions
 from common.logger import logger
 
 SUPPORTED_HF_HUB_VERSION = "0.36.2"
+HF_TOKEN_ENV_VARS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
 HF_MODEL_SPEC = re.compile(
     r"^(?P<repo>[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)"
     r"@(?P<revision>[0-9a-f]{40,64})$"
 )
 HF_REVISION_MARKER = ".hf-revision"
+
+
+def _hf_token_from_environment() -> str | None:
+    """Return the Hub token using huggingface_hub's environment precedence."""
+    return next(
+        (
+            token
+            for variable in HF_TOKEN_ENV_VARS
+            if (token := os.environ.get(variable, "").strip())
+        ),
+        None,
+    )
 
 
 def _validate_hf_endpoint(endpoint: str | None) -> str | None:
@@ -51,6 +64,10 @@ def _validate_hf_endpoint(endpoint: str | None) -> str | None:
     ):
         raise ValueError(
             "HF_ENDPOINT must be an HTTP(S) origin without credentials or query data"
+        )
+    if parsed.scheme == "http" and _hf_token_from_environment():
+        raise ValueError(
+            "HF_ENDPOINT must use HTTPS when a Hugging Face token is configured"
         )
     return endpoint.rstrip("/")
 
@@ -107,6 +124,7 @@ def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
         return model_dir
 
     endpoint = _validate_hf_endpoint(os.environ.get("HF_ENDPOINT"))
+    token = _hf_token_from_environment()
     if endpoint:
         os.environ["HF_ENDPOINT"] = endpoint
     else:
@@ -139,7 +157,11 @@ def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
                 repo_id=repo_id,
                 revision=revision,
                 endpoint=endpoint,
-                token=os.environ.get("HF_TOKEN") or None,
+                # Explicitly disable cached/implicit credentials for the
+                # intentionally supported plaintext public-cache mode.
+                token=token
+                if not endpoint or endpoint.startswith("https://")
+                else False,
                 cache_dir=hf_home,
                 local_dir=staging_dir,
             )
