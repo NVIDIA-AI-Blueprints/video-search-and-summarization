@@ -29,6 +29,8 @@
 #   ./scripts/add-streams.sh --remove Camera_01                   # remove one stream
 #   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # also accepted
 #   ./scripts/add-streams.sh --remove --file streams.txt          # remove every listed stream
+#   ./scripts/add-streams.sh --remove-all                         # remove every registered stream
+#   ./scripts/add-streams.sh --remove-all --yes                   # same, no confirmation prompt
 #   ./scripts/add-streams.sh --list                      # show current stream-info
 #
 # Options / env:
@@ -36,6 +38,7 @@
 #   --delay S          seconds between adds      (default: 1)
 #   --no-url-check     skip the pre-add RTSP reachability check
 #   --no-sei-check     skip the VST SEI frame-ID prerequisite check
+#   -y, --yes          answer yes to the --remove-all confirmation
 #   --activation-timeout S  wait for added streams to produce frames (default: 60;
 #                      0 disables). A stream the server accepts but never decodes
 #                      is reported as inactive.
@@ -62,6 +65,8 @@ VST_HTTP_PORT="${VST_HTTP_PORT:-30000}"
 STREAMS=()
 MODE=add
 LIST=0
+REMOVE_ALL=0
+ASSUME_YES=0
 
 usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -69,6 +74,8 @@ while (($#)); do
   case "$1" in
     --file)           mapfile -t -O "${#STREAMS[@]}" STREAMS < <(grep -vE '^\s*(#|$)' "$2"); shift 2 ;;
     --remove)         MODE=remove; shift ;;
+    --remove-all)     MODE=remove; REMOVE_ALL=1; shift ;;
+    -y|--yes)         ASSUME_YES=1; shift ;;
     --list)           LIST=1; shift ;;
     --ds-host)        DS_HOST="$2"; shift 2 ;;
     --ds-port)        DS_PORT="$2"; shift 2 ;;
@@ -479,40 +486,58 @@ if (( LIST )); then
   exit 1
 fi
 
-(( ${#STREAMS[@]} )) || { echo "ERROR: no streams given (NAME=URL args or --file)" >&2; usage 2; }
+(( ${#STREAMS[@]} || REMOVE_ALL )) || { echo "ERROR: no streams given (NAME=URL args, --file, or --remove-all)" >&2; usage 2; }
 
 # ── --remove mode: delete each listed stream (camera_id or NAME=URL) ──────────
 # Paced by --delay, mirroring the add path.
-# True when the requested removals would leave the perception service with no
-# registered streams. On this build the REST API stops answering once no sources
-# remain: the container keeps running but every /api/v1 request times out, and it
-# has to be recreated. Worth saying before it happens rather than after a silent
-# timeout, but not worth refusing -- clearing every stream is a normal request.
-removal_empties_registry() {
+# Camera ids currently registered, one per line. No output means either an empty
+# registry or an unreachable API; callers tell them apart by the exit status.
+registered_camera_ids() {
   local payload
   payload="$(curl -fsS --max-time 5 --connect-timeout 3 \
              "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null)" || return 1
   STREAM_INFO_PAYLOAD="$payload" python3 -c '
 import json, os, sys
-
-wanted = {a.split("=", 1)[0] for a in sys.argv[1:] if a}
 try:
     streams = json.loads(os.environ["STREAM_INFO_PAYLOAD"])["stream-info"]["stream-info"]
 except Exception:
     sys.exit(1)
-registered = {str(s.get("camera_id", "")) for s in streams if isinstance(s, dict)}
-registered.discard("")
-sys.exit(0 if registered and registered <= wanted else 1)
-' "$@"
+for cam in sorted({str(s.get("camera_id", "")) for s in streams if isinstance(s, dict)} - {""}):
+    print(cam)
+'
+}
+
+# Recovery guidance, printed only once the API has actually stopped answering.
+# Removing the last source can wedge the REST server (bug 6631012), but it does
+# not always, so report it after the fact instead of predicting it.
+report_api_lost() {
+  echo >&2
+  echo "   ⚠ the perception REST API stopped responding after the removal." >&2
+  echo "     The container keeps running but /api/v1 requests time out; recreate it" >&2
+  echo "     before adding or listing streams again:" >&2
+  echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
 }
 
 if [[ "$MODE" == remove ]]; then
-  if removal_empties_registry "${STREAMS[@]}"; then
-    echo "   ⚠ this removes every registered stream. With no sources left the perception" >&2
-    echo "     REST API stops responding: the container keeps running but /api/v1 requests" >&2
-    echo "     time out, and it has to be recreated before streams can be added again:" >&2
-    echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
+  if (( REMOVE_ALL )); then
+    if ! mapfile -t STREAMS < <(registered_camera_ids); then
+      echo "ERROR: cannot reach the perception REST API at ${BASE} to list streams." >&2
+      exit 1
+    fi
+    (( ${#STREAMS[@]} )) || { echo "No streams are registered; nothing to remove."; exit 0; }
+    echo "── ${#STREAMS[@]} registered stream(s) will be removed:"
+    printf '     %s\n' "${STREAMS[@]}"
+    if ! (( ASSUME_YES )); then
+      if [[ ! -t 0 ]]; then
+        echo "ERROR: --remove-all needs confirmation but stdin is not a terminal." >&2
+        echo "       Re-run with --yes to confirm non-interactively." >&2
+        exit 1
+      fi
+      read -r -p "   Remove all of them? [y/N] " reply || reply=""
+      [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+    fi
   fi
+
   echo "── Removing ${#STREAMS[@]} stream(s) (delay=${DELAY}s)"
   rc=0; idx=0
   for entry in "${STREAMS[@]}"; do
@@ -544,7 +569,14 @@ if [[ "$MODE" == remove ]]; then
     idx=$((idx + 1))
     (( idx < ${#STREAMS[@]} )) && sleep "$DELAY"
   done
-  echo; show_stream_info
+  echo
+  # On failure show_stream_info prints its own connectivity block, which just
+  # repeats what the removal already said. Keep its success output, replace its
+  # error with the one message that explains the removal context.
+  if ! show_stream_info 2>/dev/null; then
+    report_api_lost
+    (( rc )) || rc=1
+  fi
   exit "$rc"
 fi
 
