@@ -87,6 +87,7 @@ event_bridge:
 prompt:
   prefer_payload_prompt: false
   override_prompts_on_start: true
+  default_system_prompt: "You are a helpful assistant."
 
 alert_type_config_file: "alert_type_config.json"
 

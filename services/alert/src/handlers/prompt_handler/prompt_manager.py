@@ -24,6 +24,7 @@ from .alert_type_config_loader import AlertTypeConfigLoader
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 
 class PromptManager:
     """Manages prompt templates and selection logic based on alert types."""
@@ -47,6 +48,7 @@ class PromptManager:
         prompt_cfg = config.get('prompt', {}) or {}
         self.prefer_payload_prompt = bool(prompt_cfg.get('prefer_payload_prompt', False))
         self.override_prompts_on_start = bool(prompt_cfg.get("override_prompts_on_start", False))
+        self.default_system_prompt = prompt_cfg.get('default_system_prompt', DEFAULT_SYSTEM_PROMPT)
 
         # Share a single alert-config store across the process. The
         # factory returns an in-process store when persistence is
@@ -294,7 +296,36 @@ class PromptManager:
             final_prompt = self._substitute_placeholders(stored_user_prompt, message)
             self.logger.debug(f"Final User Prompt after substitution: {final_prompt}")
 
-        return final_prompt, stored_system_prompt
+        return final_prompt, self._resolve_system_prompt(alert_type, final_prompt, stored_system_prompt)
+
+    def _resolve_system_prompt(
+        self,
+        alert_type: str,
+        user_prompt: Optional[str],
+        stored_system_prompt: Optional[str],
+    ) -> Optional[str]:
+        """Fall back to the service default when the config has no system prompt.
+
+        A config created over the API can legitimately omit ``system_prompt``
+        — it is optional there — and callers of this method hand what they get
+        straight to the VLM, which drops the system role when it is empty. So
+        the default is applied here rather than at seed time, where only
+        ``alert_type_config.json`` would ever benefit from it.
+
+        Only a resolved user prompt gets one. Without it there is no VLM call
+        to give a contract to, and the pipeline reads ``(None, None)`` as "this
+        alert type is not configured" to record the ``no_prompt`` outcome —
+        handing it a system prompt would mask that.
+        """
+        if stored_system_prompt and stored_system_prompt.strip():
+            return stored_system_prompt
+        if not user_prompt or not self.default_system_prompt:
+            return stored_system_prompt
+        self.logger.debug(
+            f"No system prompt configured for alert type '{alert_type}'; "
+            "using the service default"
+        )
+        return self.default_system_prompt
 
     def get_enrichment_prompt_for_message(self, message: Dict[str, Any]) -> Optional[str]:
         """

@@ -30,6 +30,13 @@ round-trip so a template can contain literal JSON braces.
 
 Store reads happen on every call rather than being cached, which is what lets
 a hot-reloaded prompt take effect immediately; the "fresh read" tests pin that.
+
+The system prompt is the other half of the resolved pair, and it is optional
+everywhere it is authored — the create API, the seed file. A config without one
+used to reach the VLM as user prompt plus media and no system message at all,
+so ``get_prompts_for_message`` substitutes a service default; the tests below
+pin both that and the two boundaries it must not cross — a stored prompt always
+wins, and an unconfigured alert type still resolves to ``(None, None)``.
 """
 
 from unittest.mock import MagicMock, mock_open, patch
@@ -37,7 +44,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 
 from handlers.exception_handler.vss_exceptions import VSSException
-from handlers.prompt_handler.prompt_manager import PromptManager
+from handlers.prompt_handler.prompt_manager import DEFAULT_SYSTEM_PROMPT, PromptManager
 
 CONFIG_YAML = "prompt:\n  prefer_payload_prompt: false\n"
 
@@ -118,6 +125,9 @@ class TestConstruction:
         manager = make_manager("{}\n")
         assert manager.prefer_payload_prompt is False
         assert manager.override_prompts_on_start is False
+
+    def test_the_system_prompt_default_is_applied_without_config(self):
+        assert make_manager("{}\n").default_system_prompt == DEFAULT_SYSTEM_PROMPT
 
     def test_empty_config_file_is_tolerated(self):
         assert make_manager("") is not None
@@ -261,6 +271,71 @@ class TestGetPromptsForMessage:
         store.get.return_value = {"prompt": "Check {nope.deep}"}
         with pytest.raises(VSSException, match="Missing placeholder path"):
             manager.get_prompts_for_message(MESSAGE)
+
+
+class TestDefaultSystemPrompt:
+    """Every verification the service runs carries a system prompt.
+
+    ``system_prompt`` is optional on ``POST /api/v1/verification/config``, and
+    the VLM client omits the system role when it is empty — so a config created
+    without one would otherwise be verified against user prompt plus media
+    alone, weaker than the same alert type seeded from the config file.
+    """
+
+    def test_a_config_without_one_gets_the_service_default(self, manager, store):
+        store.get.return_value = {"prompt": "Is anyone on the ladder?"}
+
+        user, system = manager.get_prompts_for_message(MESSAGE)
+
+        assert user == "Is anyone on the ladder?"
+        assert system == DEFAULT_SYSTEM_PROMPT
+
+    @pytest.mark.parametrize("stored", [None, "", "   "])
+    def test_an_unset_or_blank_stored_prompt_is_replaced(self, manager, store, stored):
+        store.get.return_value = {"prompt": "Ask something.", "system_prompt": stored}
+        assert manager.get_prompts_for_message(MESSAGE)[1] == DEFAULT_SYSTEM_PROMPT
+
+    def test_a_stored_prompt_still_wins(self, manager):
+        assert manager.get_prompts_for_message(MESSAGE)[1] == "You are a safety analyst."
+
+    def test_the_default_is_configurable(self, store):
+        manager = make_manager(
+            "prompt:\n  default_system_prompt: You are a warehouse safety auditor.\n",
+            store=store,
+        )
+        store.get.return_value = {"prompt": "Ask something."}
+
+        assert manager.get_prompts_for_message(MESSAGE)[1] == (
+            "You are a warehouse safety auditor."
+        )
+
+    def test_an_empty_configured_default_sends_no_system_prompt(self, store):
+        """The escape hatch for deployments that want the role left unset."""
+        manager = make_manager('prompt:\n  default_system_prompt: ""\n', store=store)
+        store.get.return_value = {"prompt": "Ask something."}
+
+        assert manager.get_prompts_for_message(MESSAGE)[1] is None
+
+    def test_an_unconfigured_alert_type_still_resolves_to_nones(self, manager, store):
+        """The pipeline reads ``(None, None)`` as its ``no_prompt`` outcome.
+
+        Handing back a default here would let an event with no prompt at all
+        through to the VLM instead of being recorded as unconfigured.
+        """
+        store.get.return_value = None
+        assert manager.get_prompts_for_message(MESSAGE) == (None, None)
+
+    def test_a_record_without_a_user_prompt_is_left_alone(self, manager, store):
+        store.get.return_value = {"enrichment_prompt": "Count vehicles."}
+        assert manager.get_prompts_for_message(MESSAGE) == (None, None)
+
+    def test_the_store_read_is_unaffected(self, manager, store):
+        """Only the resolved pair gets a default — the store read stays honest."""
+        store.get.return_value = {"prompt": "Ask something."}
+        assert manager.get_fresh_prompts_for_alert_type("collision") == (
+            None,
+            "Ask something.",
+        )
 
 
 class TestGetEnrichmentPromptForMessage:
