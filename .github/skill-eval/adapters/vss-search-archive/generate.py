@@ -266,9 +266,14 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "    # deployment.\n"
     "    FARGS=(); PIN_OVERRIDES=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"\n"
     "    for f in \"${CF[@]}\"; do\n"
-    '      if [[ -f "$f" ]] && grep -q ":tree-" "$f" 2>/dev/null; then\n'
-    '        echo "verifier cleanup: excluding pin override $f from restore"\n'
-    '        PIN_OVERRIDES+=("$f")\n'
+    "      # Compose labels may record paths relative to the project working\n"
+    "      # dir; resolve them there, not against this verifier's cwd, or a\n"
+    "      # relative override silently survives the exclusion and re-arms the\n"
+    "      # pin when the restore cds into COMPOSE_WD.\n"
+    '      fp="$f"; [[ "$fp" != /* ]] && fp="$COMPOSE_WD/$fp"\n'
+    '      if [[ -f "$fp" ]] && grep -q ":tree-" "$fp" 2>/dev/null; then\n'
+    '        echo "verifier cleanup: excluding pin override $fp from restore"\n'
+    '        PIN_OVERRIDES+=("$fp")\n'
     "        continue\n"
     "      fi\n"
     '      FARGS+=(-f "$f")\n'
@@ -285,6 +290,14 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "    # below performs. Computing it up front lets the post-restore check\n"
     "    # demand the EXACT pre-pin image, not merely any non-candidate image.\n"
     "    EXPECTED_IMAGE=\"$(cd \"$COMPOSE_WD\" && docker compose \"${EARGS[@]}\" \"${FARGS[@]}\" config vss-agent 2>/dev/null | awk '$1==\"image:\"{print $2; exit}')\"\n"
+    "    # If the base coordinates themselves resolve to a candidate, the pin\n"
+    "    # leaked into them (e.g. a tag written into an env-file): a candidate\n"
+    "    # is never an acceptable restore target, so discard the resolution and\n"
+    "    # let the loop below fail loudly instead of ratifying the leak.\n"
+    '    if [[ "$EXPECTED_IMAGE" == *":tree-"* ]]; then\n'
+    '      echo "verifier cleanup: compose-resolved image $EXPECTED_IMAGE is itself a candidate — pin leaked into base coordinates; discarding"\n'
+    '      EXPECTED_IMAGE=""\n'
+    "    fi\n"
     "    # Prefer the pre-pin record the agent wrote before recreating: it is the\n"
     "    # image that was ACTUALLY deployed, not a re-resolution. Trust it only\n"
     "    # when it is plausibly a base image (non-empty, not a candidate tag):\n"
@@ -314,11 +327,15 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     '      if [[ -n "$EXPECTED_IMAGE" ]]; then\n'
     '        [[ "$POST_IMAGE" == "$EXPECTED_IMAGE" ]] && RESTORE_OK=1\n'
     '      elif [[ -n "$POST_IMAGE" && "$POST_IMAGE" != *":tree-"* ]]; then\n'
+    "        # (reached only when EXPECTED_IMAGE is empty; see the guards above)\n"
     "        # Only when the expected image is unresolvable: accept a non-\n"
     "        # candidate image, loudly, rather than fail a correct restore.\n"
     '        echo "verifier cleanup: expected image unresolvable; using non-candidate fallback check"\n'
     "        RESTORE_OK=1\n"
     "      fi\n"
+    "      # Structural invariant: cleanup NEVER reports success while the\n"
+    "      # container is on a candidate image, whatever the branches above said.\n"
+    '      [[ "$POST_IMAGE" == *":tree-"* ]] && RESTORE_OK=0\n'
     '      if [[ "$RESTORE_OK" == "1" ]]; then\n'
     '        echo "verifier cleanup: restored vss-agent to $POST_IMAGE (attempt $RESTORE_ATTEMPT, expected ${EXPECTED_IMAGE:-unresolved})"\n'
     "        # tidy the now-inert pin override files off the shared box\n"
