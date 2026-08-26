@@ -28,7 +28,7 @@ Load this reference when setup, staging, launch, RTSP registration, Kafka flow, 
 
 Symptom: commands mention `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, VST, ELK, Kibana, Logstash, or `deploy/docker/industry-profiles/warehouse-operations`.
 
-Fix: return to `services/rtvi/rt-cv-3d/rt-cv-mv3dt`, use `docker/compose.yml`, and launch with the standalone broker mode selected in `references/deploy-rtvi-cv-3d-stack.md`. Use the warehouse/profile skill only when the user explicitly asked for warehouse MV3DT or a combined warehouse deployment.
+Fix: return to `services/rtvi/rt-cv-3d/rt-cv-mv3dt`, use `docker/compose.yml`, and launch with the standalone broker mode selected in `references/deploy-rtvi-cv-3d-stack.md`. Use `vss-deploy-profile` only when the user explicitly asks to operate the checked-in `mc-tracking` developer profile as shipped.
 
 ## Runtime Image Confusion
 

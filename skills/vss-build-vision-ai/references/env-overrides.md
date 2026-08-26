@@ -11,7 +11,7 @@ Include these non-secret deployment values:
 
 | Variable | Value |
 |---|---|
-| `FOUNDATION` | Exactly one of `base`, `alerts`, `lvs`, or `search` |
+| `FOUNDATION` | Exactly one of `base`, `alerts`, `lvs`, `search`, or `mc-tracking` |
 | `COMPOSE_PROFILES` | Full effective set of canonical service profile keys |
 | `HARDWARE_PROFILE` | Detected or user-selected hardware label |
 | `VSS_APPS_DIR` | Absolute path to `deploy/docker` |

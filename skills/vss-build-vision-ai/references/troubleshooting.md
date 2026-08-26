@@ -9,6 +9,10 @@ the failure class here, continue in the matching file under `profiles/`:
 - `profiles/lvs.md` for long-video summarization and `vss-lvs` / `vss-rtvi-vlm` failures.
 - `profiles/search.md` for Cosmos Embed1, Elasticsearch, and search-profile failures.
 - `profiles/alerts.md` for alerts profile failures.
+- `profiles/mc-tracking.md` for calibration, MCT provisioning, BEV fusion, and
+  Kafka/Redis profile failures; continue to
+  `skills/vss-deploy-profile/references/mc-tracking.md` for detailed runtime
+  recovery procedures.
 
 ## Quick Triage
 

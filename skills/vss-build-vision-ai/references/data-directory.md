@@ -83,6 +83,14 @@ esac
 case ",$COMPOSE_PROFILES," in
   *,nvstreamer-lvs,*) required+=(videos/dev-profile-lvs) ;;
 esac
+case ",$COMPOSE_PROFILES," in
+  *,nvstreamer-mc-tracking,*)
+    required+=(
+      videos/warehouse-4cams-20mx20m-synthetic
+      models/BodyPose3DNet
+    )
+    ;;
+esac
 
 broken_links=()
 while IFS= read -r -d '' candidate; do
@@ -124,7 +132,8 @@ cleanup, or deployment.
 ## RT-CV model contents
 
 This gate creates the model directories (including `models/rtdetr-its` and
-`models/gdino` for `perception-alerts`) and makes them world-writable — the
+`models/gdino` for `perception-alerts`, and `models/BodyPose3DNet` for
+`vss-rtvi-cv-mc-tracking`) and makes them world-writable — the
 RT-CV container runs as a non-matching UID and writes generated TensorRT
 `.engine` files back into this tree, so the directories must stay `a+rwx`. The
 gate does **not** download any model: when the build carries an RT-CV perception

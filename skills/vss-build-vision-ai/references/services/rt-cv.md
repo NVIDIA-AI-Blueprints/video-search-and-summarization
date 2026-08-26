@@ -1,5 +1,9 @@
 # RT-CV Capability Owner
 
+This owner covers the 2D Alerts and Search variants. For calibrated
+multi-camera 3D tracking and BEV fusion, read `rt-cv-3d.md`; do not substitute
+one of these 2D keys for the MCT pipeline.
+
 ## Capabilities and service keys
 
 | Capability | Canonical service profile keys | Foundation | Model family |

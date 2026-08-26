@@ -1,15 +1,16 @@
 ---
 name: vss-deploy-profile
 description: >
-  Use when the user asks to configure, deploy, verify, debug, or tear down an
-  exact checked-in VSS profile (base, alerts, search, lvs, mc-tracking,
-  warehouse, edge), including the mc-tracking profile as shipped. For generic
-  or customized MCT applications, use vss-build-vision-ai. For standalone
-  RTVI-CV-3D/MV3DT with OSD or without VIOS/VST, use
+  Use this skill when a user asks to configure, deploy, verify, debug, or tear
+  down an exact checked-in VSS profile (base, alerts, search, lvs, mc-tracking,
+  warehouse, edge), including requests to deploy the MCT (`mc-tracking`)
+  developer profile as shipped. For generic MCT setup or capability
+  customization, use vss-build-vision-ai. For an explicitly requested
+  standalone RTVI-CV-3D or MV3DT stack, use
   vss-deploy-detection-tracking-3d.
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
@@ -38,8 +39,8 @@ Match the user's request to a profile, then load that profile's reference for si
 
 For MCT, use this skill only when the user explicitly asks for the checked-in
 `mc-tracking` developer profile or its lifecycle. Route generic or customized
-MCT application requests to `vss-build-vision-ai`. Route explicit standalone
-RTVI-CV-3D, OSD/saved-output, or no-VIOS/no-VST requests to
+MCT application requests to `vss-build-vision-ai`. Route only explicitly
+requested standalone RTVI-CV-3D/MV3DT stacks to
 `vss-deploy-detection-tracking-3d`.
 
 | User says | Profile | Reference |
@@ -48,7 +49,7 @@ RTVI-CV-3D, OSD/saved-output, or no-VIOS/no-VST requests to
 | "deploy alerts" / "alert verification" / "real-time alerts" / "deploy for incident report" | `alerts` | [`references/alerts.md`](references/alerts.md) |
 | "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
 | "deploy search" / "video search" | `search` | [`references/search.md`](references/search.md) |
-| "deploy the mc-tracking profile as shipped" / "deploy the mc-tracking developer profile" / "verify/debug/tear down mc-tracking profile" | `mc-tracking` | [`references/mc-tracking.md`](references/mc-tracking.md) |
+| "deploy the MCT dev profile" / "deploy the mc-tracking profile as shipped" / "verify/debug/tear down mc-tracking profile" | `mc-tracking` | [`references/mc-tracking.md`](references/mc-tracking.md) |
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
 

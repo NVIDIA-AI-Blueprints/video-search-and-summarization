@@ -6,6 +6,7 @@
 |---|---|
 | Alerts behavior rules | `vss-behavior-analytics-alerts` |
 | Search analytics | `vss-search-analytics-2d-fusion` |
+| Multi-camera 3D analytics | `vss-behavior-analytics-mc-tracking` |
 
 ## Required peers
 
@@ -15,6 +16,9 @@
   `broker-health-check`.
 - Alerts mode consumes RT-CV events; Search mode consumes the Search perception
   pipeline. Do not activate both variants for a single capability.
+- MCT mode consumes the calibrated RT-CV-3D/BEV output and requires the
+  profile-owned calibration and MCT analytics JSON. Keep it with the
+  `mc-tracking` Foundation; do not substitute a 2D Search or Alerts config.
 - The object-class filter keys in the mounted config
   (`fovCountViolationIncidentObjectType`, `stateManagementFilter`) must match the
   class-label taxonomy the resolved RT-CV detector emits — label set and casing.
@@ -66,6 +70,7 @@ there is a config change outside this env-only contract.
 - `deploy/docker/services/analytics/behavior-analytics/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`
+- `deploy/docker/developer-profiles/dev-profile-mc-tracking/compose.yml`
 - `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
 - `skills/vss-setup-behavior-analytics/references/configuration.md`
 - `skills/vss-setup-behavior-analytics/references/deploy-behavior-analytics-service.md`

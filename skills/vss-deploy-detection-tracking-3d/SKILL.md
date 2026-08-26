@@ -1,14 +1,14 @@
 ---
 name: vss-deploy-detection-tracking-3d
 description: >
-  Use when deploying or operating the standalone RTVI-CV-3D / MV3DT stack for
-  calibrated files or live RTSP, especially explicit standalone/core, OSD,
-  saved grid/BEV output, no-VIOS/no-VST, or sample standalone requests. Covers
-  AMC handoff, camera config, BEV Fusion, brokers, verification, and teardown.
-  Generic MCT setup or custom multi-camera-tracking application requests route
-  to vss-build-vision-ai. Requests to deploy the checked-in "mc-tracking"
-  developer profile as shipped route to vss-deploy-profile; single-camera 2D
-  tracking routes to the 2D tracking or DeepStream skills.
+  Use this skill only when the user explicitly requests the standalone RTVI-CV-3D or
+  MV3DT stack for calibrated files or live RTSP. Covers AMC handoff, the
+  four-camera sample, camera config, BEV Fusion, brokers, OSD or saved outputs,
+  verification, and teardown. Unqualified MCT or multi-camera-tracking setup
+  requests route to vss-build-vision-ai. Explicit requests to operate the
+  checked-in MCT ("mc-tracking") developer profile as shipped route to
+  vss-deploy-profile. Single-camera 2D tracking routes to the 2D tracking or
+  DeepStream skills.
 license: Apache-2.0
 metadata:
   author: NVIDIA
@@ -22,20 +22,20 @@ metadata:
 ## When to Use This Skill
 
 Deploy the standalone RT-CV-3D MV3DT stack from `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
-Use this path when the user explicitly asks for standalone/core MV3DT,
-RTVI-CV-3D, OSD or saved output, or a deployment without VIOS/VST. Route a
-generic or customized MCT application request to `vss-build-vision-ai`.
+Use this path only when the request explicitly names standalone RTVI-CV-3D,
+MV3DT, or the standalone MCT stack. Route every unqualified or customized MCT
+application request to `vss-build-vision-ai`.
 
 **`mc-tracking` developer profile is a separate, third path** — not this
-skill's standalone stack, and not the warehouse industry profile. It's the
-full VIOS-backed compose stack (VST/nvstreamer, `sensor-ms`,
+skill's standalone stack. It's the full VIOS-backed compose stack
+(VST/nvstreamer, `sensor-ms`,
 `streamprocessing-ms`, `bp-configurator`, `sdr-controller`, behavior
 analytics, Kibana/Video-Analytics-API) repackaged as a developer profile at
-`deploy/docker/developer-profiles/dev-profile-mc-tracking/`. Route requests
-for that profile, or for a UI/analytics-dashboard/behavior-analytics view of
-multi-camera tracking, to `vss-deploy-profile` →
+`deploy/docker/developer-profiles/dev-profile-mc-tracking/`. Route an explicit
+request to operate that checked-in profile as shipped to `vss-deploy-profile` →
 [`references/mc-tracking.md`](../vss-deploy-profile/references/mc-tracking.md)
 — this skill's stack has no VST, no bp-configurator, and no analytics UI.
+Route other MCT application requests to `vss-build-vision-ai`.
 
 Do not derive MV3DT services from the warehouse blueprint for this skill. Use
 `vss-deploy-profile` only when the user explicitly asks for warehouse MV3DT,
@@ -51,11 +51,11 @@ Public docs: https://docs.nvidia.com/vss/latest/object-detection-tracking.html.
 
 Example operation prompts:
 
-- "Deploy MV3DT on my calibrated four-camera MP4 dataset and save output."
-- "Deploy MV3DT on the sample dataset."
-- "Enable multi-camera tracking on the 4-cam example dataset."
+- "Deploy standalone MV3DT on my calibrated four-camera MP4 dataset and save output."
+- "Deploy standalone MV3DT on the sample dataset."
+- "Run the standalone RTVI-CV-3D stack on the 4-cam example dataset."
 - "Run RTVI-CV-3D on these RTSP streams after calibration."
-- "Deploy multi-cam tracking; if there is no display, save the videos."
+- "Deploy standalone RTVI-CV-3D; if there is no display, save the videos."
 - "Use an external MQTT broker and external Kafka for this RT-CV-3D deployment."
 - "Verify the standalone RT-CV-3D deployment and show output paths."
 - "Tear down everything for standalone MV3DT."
@@ -129,7 +129,7 @@ Follow these stages for deployment work:
 4. Validate or obtain `calibration.json`. If missing, hand off to `vss-generate-video-calibration` by name and do not duplicate the AMC workflow inline. Explicitly include the AMC platform preflight failure path: stop and request existing/generated calibration artifacts or a supported `x86_64` dGPU/NVENC calibration host. After AMC completes, fetch the AMC MV3DT export ZIP, export `calibration.json`, validate JSON by filtering sensors where `type == "camera"` and requiring at least two non-empty safe unique camera IDs, then stage BEV assets before continuing. For saved output or BEV viewing, resolve `BEV_DATASET_PATH` to a directory containing both `map.png` and `transforms.yml` before launch.
 5. Set required values in `docker/.env`: `MODELS_DIR`, `NUM_CAMS`, `INPUT_MODE`, `VIDEO_DIR` for file input, and optional image/GPU values. For supplied MP4 paths, point `VIDEO_DIR` at the matching source directory or at a generated symlink directory with one `<sensor_id>.mp4` per camera.
 6. Initialize broker mode before config generation or staging. For bundled mode, run the bundled resource preflight in `references/deploy-rtvi-cv-3d-stack.md` now so selected `MQTT_PORT`, `KAFKA_PORT`, and `KAFKA_BOOTSTRAP` are already in `docker/.env`. For external mode, validate broker endpoints and required topics before launch.
-7. Generate `generated/camInfo/` and `generated/pub_sub_info_config.yml` from `calibration.json` with the standalone `scripts/generate-configs.sh`, using the selected MQTT endpoint; do not mount warehouse MV3DT calibration directories.
+7. Generate `generated/camInfo/` and `generated/pub_sub_info_config.yml` from `calibration.json` with the standalone `scripts/generate-configs.sh`, using the selected MQTT endpoint; do not mount developer-profile calibration directories.
 8. Run the concrete display probe from `references/configure-cameras.md` before staging configs; it must test the current `DISPLAY` and discovered X socket candidates such as `:0`/`:1`, export a working `DISPLAY` when found, and print `RTCV3D_DISPLAY_AVAILABLE`. Then choose visualization:
    - If a working display is detected and the user did not ask to save, stage with `OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and use live fused BEV visualization when BEV assets are present.
    - If no display is detected, use saved output as the default fallback: set `SAVE_VIDEO=1` and save fused BEV after `BEV_DATASET_PATH` resolves with both required files.
@@ -159,5 +159,5 @@ Follow these stages for deployment work:
 
 - `vss-generate-video-calibration` owns AMC deployment and calibration from local MP4s or RTSP streams.
 - `vss-manage-video-io-storage` is used only to bring up or verify VIOS when RTSP calibration needs VIOS and it is not already deployed.
-- `vss-build-vision-ai` owns generic MCT setup and capability-driven or customized MCT application requests.
-- `vss-deploy-profile` owns full warehouse blueprint deployments and the `mc-tracking` developer profile.
+- `vss-build-vision-ai` owns unqualified MCT setup and capability-driven or customized MCT application requests.
+- `vss-deploy-profile` owns explicit lifecycle requests for the checked-in `mc-tracking` developer profile.

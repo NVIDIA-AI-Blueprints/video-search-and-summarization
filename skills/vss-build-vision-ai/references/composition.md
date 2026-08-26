@@ -23,9 +23,18 @@ Current Foundations:
 - `alerts`
 - `lvs`
 - `search`
+- `mc-tracking`
 
 Use only developer profiles. Do not route warehouse or industry profiles through
 this workflow.
+
+The true standalone RTVI-CV-3D stack is not a delta of the VIOS-backed
+`mc-tracking` Foundation. Hand off only when the user explicitly requests the
+standalone RTVI-CV-3D/MV3DT stack. Keep generic MCT and multi-camera-tracking
+requests here, using `mc-tracking` for its supported Kafka/Redis, full/minimal,
+playback, or domain-extension variants. If a generic customization conflicts
+with required MCT peers, use the clarification gate instead of silently
+switching deployment paths.
 
 ## Select the foundation
 
@@ -149,7 +158,7 @@ The only writable location is `_builds/<name>/`. Never create or edit files unde
 
 `override.env` contains:
 
-1. `FOUNDATION=<base|alerts|lvs|search>`.
+1. `FOUNDATION=<base|alerts|lvs|search|mc-tracking>`.
 2. The full effective `COMPOSE_PROFILES` after additions and removals.
 3. Every customized environment value and every Foundation value transitively
    derived from it. Do not repeat unrelated Foundation defaults.

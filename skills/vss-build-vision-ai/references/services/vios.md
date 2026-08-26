@@ -6,8 +6,9 @@
 |---|---|
 | Video database and ingest | `centralizedb`, `vst-ingress` |
 | Sensor and stream management | `sensor-ms`, `streamprocessing-ms` |
-| Profile stream sources | `nvstreamer-alerts`, `nvstreamer-lvs`, `nvstreamer-2d-fusion` |
-| SDR controller and config rendering | `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sdr-controller` |
+| Profile stream sources | `nvstreamer-alerts`, `nvstreamer-lvs`, `nvstreamer-2d-fusion`, `nvstreamer-mc-tracking` |
+| MCT sensor and stream management | `sensor-ms-mc-tracking`, `streamprocessing-ms-mc-tracking` |
+| SDR controller and config rendering | `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller` |
 
 ## Required peers
 
@@ -19,6 +20,9 @@
   and, where declared, `broker-health-check`.
 - Add only the profile-specific NvStreamer key; do not activate multiple
   variants for one source.
+- MCT uses its profile-specific NvStreamer, sensor, and stream-processing keys,
+  plus the normal VIOS core and SDRC helper sequence. Do not replace them with
+  generic `sensor-ms` or `streamprocessing-ms` keys.
 
 ## Configuration knobs
 
@@ -44,5 +48,6 @@ re-expand values already read from the Foundation env files.
 - `deploy/docker/services/vios/initiator/docker-compose.yaml`
 - `deploy/docker/services/vios/streamprocessing/docker-compose.yaml`
 - `deploy/docker/services/infra/sdrc/docker-compose.yaml`
+- `deploy/docker/developer-profiles/dev-profile-mc-tracking/compose.yml`
 - `skills/vss-manage-video-io-storage/references/deploy-vios-service.md`
 - `skills/vss-manage-video-io-storage/references/integrate-vios-service.md`
