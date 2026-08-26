@@ -589,24 +589,35 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
 
             # Format results for display
             if result_count > 0:
-                any_confirmed = any(
-                    getattr(getattr(r, "critic_result", None), "result", None) == "confirmed" for r in final_results
-                )
                 # Similarity is retrieval evidence, not proof of visual presence:
                 # nearest-neighbor search returns the closest segments even when the
                 # queried object never appears. Only a confirmed critic verdict
-                # justifies asserting a match.
-                header = (
-                    f"Found {result_count} matching video{'s' if result_count != 1 else ''}"
-                    if any_confirmed
-                    else (
+                # justifies asserting a match, and only for the rows that carry it.
+                n_confirmed = sum(
+                    1
+                    for r in final_results
+                    if getattr(getattr(r, "critic_result", None), "result", None) == "confirmed"
+                )
+                if n_confirmed == result_count:
+                    header = f"Found {result_count} matching video{'s' if result_count != 1 else ''}"
+                elif n_confirmed > 0:
+                    n_other = result_count - n_confirmed
+                    header = (
+                        f"Found {result_count} result{'s' if result_count != 1 else ''}: "
+                        f"{n_confirmed} visually confirmed match{'es' if n_confirmed != 1 else ''}, "
+                        f"{n_other} unconfirmed candidate{'s' if n_other != 1 else ''} "
+                        "(similarity only)\n\n"
+                        "Note: rows without a 'confirmed' critic verdict are similarity "
+                        "candidates, not sightings; see the Critic column per row."
+                    )
+                else:
+                    header = (
                         f"Found {result_count} candidate match{'es' if result_count != 1 else ''} "
                         "(similarity-based retrieval; none visually confirmed)\n\n"
                         "Note: similarity scores indicate resemblance, not confirmed presence. "
                         "Report these as candidates, not as sightings, unless a critic verdict "
                         "is 'confirmed'."
                     )
-                )
                 results_summary_table = _results_summary_table(final_results)
                 summary = header + "\n\n" + results_summary_table
                 search_result_json = json.dumps(search_dict, indent=2)

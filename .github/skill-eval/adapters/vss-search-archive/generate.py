@@ -212,8 +212,10 @@ IN_PRODUCT_AGENT_PREAMBLE = (
     " vss-agent; then PROVE the pin took: docker inspect vss-agent --format '{{.Config.Image}}' must"
     " end with :$TAG, and fail the step if it does not. Wait for the agent health check before"
     " probing. Do not redeploy the profile, do not touch any other service, and do not ingest"
-    " anything. When the step's probes are done and the step asks for restoration, recreate only"
-    " vss-agent again without the image/tag overrides and confirm the image reverted."
+    " anything. Restoration is an unconditional obligation once a recreate has happened: whether"
+    " the step succeeds, fails, or is cut short, if this step will not hand the pinned agent to an"
+    " immediately-following in-product step, recreate vss-agent without the image/tag overrides"
+    " and confirm the image reverted before finishing."
 )
 
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
