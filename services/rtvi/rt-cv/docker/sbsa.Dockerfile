@@ -168,7 +168,39 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked,id=pip-sbsa \
     pip3 install --default-timeout=100 --retries 20 kafka-python psutil transformers==4.57.6 setuptools==78.1.1 numpy==1.26.4; \
     pip3 install --default-timeout=100 --retries 20 open-clip-torch sentencepiece onnx onnxruntime pillow==12.2.0; \
     pip3 install --default-timeout=100 --retries 20 huggingface_hub==0.36.2; \
-    pip3 install --default-timeout=100 --retries 20 --ignore-installed wheel==0.46.2
+    pip3 install --default-timeout=100 --retries 20 --ignore-installed wheel==0.46.2; \
+    # Drop metadata directories Python cannot read. A pinned package that a
+    # later resolve upgrades leaves its old <name>-<ver>.dist-info behind
+    # holding only REQUESTED, with no METADATA. numpy is the live case:
+    # numpy==1.26.4 is pinned above, then ml_dtypes (unpinned, pulled in by
+    # onnx) raised its floor to numpy>=2.0.0 in 0.6.0, so pip upgrades numpy
+    # and orphans the 1.26.4 directory.
+    #
+    # importlib.metadata returns the FIRST match it finds while scanning, so
+    # with two numpy-*.dist-info dirs the result depends on os.listdir order --
+    # a property of the node's filesystem, not of the image. Real one first
+    # gives "2.5.2"; husk first gives None, and transformers'
+    # require_version("numpy>=1.17") then raises
+    #     ValueError: Unable to compare versions for numpy>=1.17 ... found=None
+    # which fails gdino_preprocess and takes ensemble_python_gdino with it.
+    # The same image therefore works on one machine and fails on another.
+    #
+    # A healthy install always has METADATA, so this cannot match one. It is a
+    # no-op on amd64 today (90 dist-info dirs, none orphaned) and removes
+    # exactly numpy-1.26.4.dist-info on arm64 and SBSA.
+    _dp=/usr/local/lib/python3.12/dist-packages; \
+    find "$_dp" -maxdepth 1 -name '*.dist-info' \
+         '!' -exec test -f '{}/METADATA' ';' -print -exec rm -rf '{}' + ; \
+    # find does NOT propagate a failing -exec, so a permission error would let
+    # the husk survive silently and the bug would come back with no signal.
+    # Assert instead: anything still orphaned fails the build, loudly.
+    _left=$(find "$_dp" -maxdepth 1 -name '*.dist-info' \
+                 '!' -exec test -f '{}/METADATA' ';' -print); \
+    if [ -n "$_left" ]; then \
+      echo "ERROR: orphaned dist-info survived removal:" >&2; \
+      echo "$_left" >&2; \
+      exit 1; \
+    fi
 
 # -- offline model assets -------------------------------------------------
 # Bake the bert-base-uncased tokenizer in so the container never reaches the
