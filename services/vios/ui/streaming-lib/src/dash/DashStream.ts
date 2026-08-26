@@ -41,7 +41,18 @@ export interface DashStreamConfig {
     initialBufferSeconds?: number;
     onFirstFrame?: () => void;
     onError?: (message: string) => void;
+    /* Where the session has got to, so a caller can say something truthful
+     * while the picture is still black.  DASH does not connect to anything, so
+     * the WebRTC vocabulary does not describe it: it asks the service to start
+     * packaging, waits for a manifest that only appears once enough media has
+     * been written, then fills a buffer before the first frame moves. */
+    onPhase?: (phase: DashPhase) => void;
 }
+
+/* loading  - the session is starting and the manifest does not exist yet.
+ * buffering - the manifest is being read, or playback has run out of media.
+ * playing  - the picture is moving. */
+export type DashPhase = 'loading' | 'buffering' | 'playing';
 
 interface DashStartResponse {
     viewerId: string;
@@ -56,6 +67,7 @@ export class DashStream {
     private firstFrameReported = false;
     private videoElement: HTMLVideoElement | null = null;
     private firstFrameListener: (() => void) | null = null;
+    private phaseListeners: { waiting: () => void; playing: () => void } | null = null;
     private autoplayListener: (() => void) | null = null;
     private autoplayBufferLevelEvent: string | null = null;
     private autoplayAttempted = false;
@@ -80,6 +92,17 @@ export class DashStream {
      * not say.  A segment is as long as the encoder's keyframe interval, so it
      * is a property of the source rather than a constant, and every buffer
      * below is expressed as a number of segments. */
+    /* Deduplicated: `waiting` and `playing` fire repeatedly and a caller that
+     * re-renders on each one would flicker. */
+    private lastPhase: DashPhase | null = null;
+    private reportPhase(config: DashStreamConfig, phase: DashPhase): void {
+        if (this.lastPhase === phase) {
+            return;
+        }
+        this.lastPhase = phase;
+        config.onPhase?.(phase);
+    }
+
     private static segmentSeconds(manifest: string): number {
         const timescale = /timescale="(\d+)"/.exec(manifest);
         if (!timescale) {
@@ -138,6 +161,9 @@ export class DashStream {
         if (manifest === null || generation !== this.startGeneration) {
             return;
         }
+        // The manifest exists, so the wait is now for media in the element
+        // rather than for the service to produce any.
+        this.reportPhase(config, 'buffering');
         const player = dashjs.MediaPlayer().create();
         this.player = player;
         // The catalogue a fresh session has when the manifest is first served is
@@ -533,7 +559,18 @@ export class DashStream {
                 this.firstFrameReported = true;
                 config.onFirstFrame?.();
             }
+            this.reportPhase(config, 'playing');
         };
+        /* The element runs dry when the cushion is thin, which is exactly the
+         * moment a viewer wants to be told something rather than watch a still
+         * picture.  `waiting` fires on the way into that, `playing` on the way
+         * out, and both repeat for the life of the session. */
+        this.phaseListeners = {
+            waiting: () => this.reportPhase(config, 'buffering'),
+            playing: () => this.reportPhase(config, 'playing'),
+        };
+        config.videoElement.addEventListener('waiting', this.phaseListeners.waiting);
+        config.videoElement.addEventListener('playing', this.phaseListeners.playing);
         // `loadeddata` only means that a single frame was decoded.  Reporting
         // it as the first frame hides the UI loader while the image is still
         // frozen waiting for the rest of the live cushion.  `playing` is the
@@ -724,6 +761,12 @@ export class DashStream {
             this.player.reset();
             this.player = null;
         }
+        if (this.videoElement && this.phaseListeners) {
+            this.videoElement.removeEventListener('waiting', this.phaseListeners.waiting);
+            this.videoElement.removeEventListener('playing', this.phaseListeners.playing);
+        }
+        this.phaseListeners = null;
+        this.lastPhase = null;
         if (this.videoElement && this.firstFrameListener) {
             this.videoElement.removeEventListener('playing', this.firstFrameListener);
         }
@@ -763,6 +806,7 @@ export class DashStream {
     public async start(config: DashStreamConfig): Promise<DashStartResponse> {
         await this.stop(config.endpoint, config.streamId);
         const generation = ++this.startGeneration;
+        this.reportPhase(config, 'loading');
         this.replay = Boolean(config.startTime);
         const startPath = this.replay ? '/vst/api/v1/replay/dash/start' : '/vst/api/v1/live/dash/start';
         const startUrl = new URL(startPath, config.endpoint).toString();

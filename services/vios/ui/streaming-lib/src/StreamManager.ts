@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { DashStream } from './dash/DashStream';
+import { DashStream, DashPhase } from './dash/DashStream';
 import 'webrtc-adapter';
 import NvWebsocket from './websocket/WebSocket';
 import NvWebRTC from './webrtc/WebRTC';
@@ -90,6 +90,9 @@ export interface AppConfig {
     /** Callback functions */
     sendCustomWebsocketMessage?: (msg: string) => boolean;
     firstFrameReceivedCallback?: () => void;
+    /* How far a DASH session has got, for a caller that wants to say something
+     * accurate while the picture is still black.  Never fires for WebRTC. */
+    dashPhaseCallback?: (phase: DashPhase) => void;
     errorCallback?: (error: ErrorType) => void;
     successCallback?: (inboundPeerId: string, mediaSessionId: string) => void;
     closeCallback?: () => void;
@@ -333,6 +336,7 @@ export default class StreamManager {
                 framerate: streamConfig.options?.framerate as number | undefined,
                 videoElement,
                 onFirstFrame: () => this.appConfig.firstFrameReceivedCallback?.(),
+                onPhase: (phase: DashPhase) => this.appConfig.dashPhaseCallback?.(phase),
                 onError: (message: string) => {
                     logger.error(`[STREAM_MANAGER] DASH playback error: ${message}`);
                     this.appConfig.errorCallback?.(ErrorTypes.INBOUND_STREAM_ERROR);

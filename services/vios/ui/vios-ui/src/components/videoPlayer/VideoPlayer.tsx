@@ -45,6 +45,7 @@ import StreamManager, {
     StreamCompositeOptions,
     WebRTCIssue,
     WebRTCNetworkScores,
+    DashPhase,
 } from 'vst-streaming-lib';
 import RangePickerDialog from '../../features/rangePickerDialog/RangePickerDialog';
 import LOG from '../../utils/misc/Logger';
@@ -199,6 +200,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const [isQualityMenuOpen, setIsQualityMenuOpen] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState(true);
     const [connectionPhase, setConnectionPhase] = useState<'initial' | 'connecting' | 'waiting'>('initial');
+    /* DASH reports its own progress.  It does not connect to anything, so the
+     * WebRTC wording does not describe it: it asks the service to start
+     * packaging, waits for a manifest that appears only once enough media has
+     * been written, then fills a buffer before the first frame moves. */
+    const [dashPhase, setDashPhase] = useState<DashPhase | null>(null);
     const [isLoadingTimelines, setIsLoadingTimelines] = useState<boolean>(false);
 
     // Dialog states
@@ -456,6 +462,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             enableLogs: true,
             vstWebsocketEndpoint: wsEndpoint,
             firstFrameReceivedCallback: onFirstFrameReceived,
+            dashPhaseCallback: setDashPhase,
             enableDummyUDPCall: false,
             onPlaybackUpdate: onPlaybackTimeUpdate,
             onStreamStatusUpdate: onStreamStatusUpdate,
@@ -2203,13 +2210,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                                                     playbackStatus === StreamState.NOT_PLAYING
                                                 ) && <CircularProgress size={60} thickness={4} sx={{ color: 'white', mb: 2 }} />}
                                                 <Typography variant='h6' sx={{ color: 'white' }}>
-                                                    {connectionPhase === 'connecting'
-                                                        ? 'WebRTC Connecting...'
-                                                        : startTimeMs.current &&
-                                                            endTimeMs.current &&
-                                                            playbackStatus === StreamState.NOT_PLAYING
-                                                          ? 'Stream Ended'
-                                                          : 'Waiting For Data...'}
+                                                    {startTimeMs.current &&
+                                                    endTimeMs.current &&
+                                                    playbackStatus === StreamState.NOT_PLAYING
+                                                        ? 'Stream Ended'
+                                                        : deliveryProtocol === 'dash'
+                                                          ? dashPhase === 'buffering'
+                                                              ? 'Buffering...'
+                                                              : 'Loading Stream...'
+                                                          : connectionPhase === 'connecting'
+                                                            ? 'WebRTC Connecting...'
+                                                            : 'Waiting For Data...'}
                                                 </Typography>
                                             </Box>
                                         ))}
