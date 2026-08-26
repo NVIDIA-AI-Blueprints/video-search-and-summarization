@@ -1,0 +1,34 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "at-1",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval builds and deploys the alert-verification capability as a delta overlay on the current `alerts` developer profile in `2d_cv` mode. The build label is `at-1`; it is only a directory name and never a Compose profile. Existing profile files under `deploy/docker/` remain authoritative and unmodified.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to build and deploy this capability from `{{repo_root}}`: \"Given a stream, retrieve the relevant clip and verify candidate alerts posted to Kafka. Grounding DINO detections and behavior analytics should be VLM-verified to reduce false positives. Store and publish verified incidents, and make them queryable through the VSS agent with report generation.\" Use `_builds/at-1/` as the filesystem label, target `{{platform}}`, select the current alerts `2d_cv` profile as the single Foundation, validate the delta, deploy it, and leave it running for verifier probes.",
+      "checks": [
+        "`{{repo_root}}/_builds/at-1/override.env` exists and declares `FOUNDATION=alerts`, `MODE=2d_cv`, and the full effective `COMPOSE_PROFILES`.",
+        "Ignoring order, `COMPOSE_PROFILES` equals exactly the current alerts `2d_cv` set plus `rtvi-vlm`: `vss-behavior-analytics-alerts,nvstreamer-alerts,perception-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vss-va-mcp,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG},rtvi-vlm`.",
+        "`COMPOSE_PROFILES` does not contain `at-1`, an aggregate profile, or any invented profile key; every token exists in the current resolved Compose graph.",
+        "`_builds/at-1/compose.yml` includes `../../deploy/docker/compose.yml`, and `_builds/at-1/patches/` is absent because the request changes no service definition and every selected service already exists upstream.",
+        "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and no copied Foundation `.env`, copied root Compose project, patched source tree, manifest, allow-list, or generated skill bundle.",
+        "Resolution uses `containers.env`, the alerts Foundation `.env`, the alerts Foundation `overrides.env`, and `_builds/at-1/override.env` in that order with the build `compose.yml`; it produces a normalized `_builds/at-1/resolved.yml` whose direct `config --quiet`, `config --services`, and `config --images` checks succeed, whose values contain no `/path/to/deploy/docker` or `<HOST_IP>` sentinel, and whose checked-in bind sources exist with the expected file/directory type.",
+        "No file under `{{repo_root}}/deploy/docker/` is modified by the build.",
+        "The deployment is launched directly from `_builds/at-1/resolved.yml` without Foundation env files, profile flags, or a copied Compose project.",
+        "All long-running selected containers are running or healthy, and all selected one-shot initialization containers exit 0.",
+        "`curl -sf http://localhost:${RTVI_CV_HOST_PORT:-9010}/api/v1/ready` returns HTTP 200 with `ready-info.ds-ready=YES`.",
+        "RT-CV and Behavior Analytics publish candidate alerts, `alert-bridge` can retrieve the corresponding VIOS clip, and the verifier records a verdict of `confirmed`, `rejected`, or `unverified` in Elasticsearch and Kafka.",
+        "The VSS Agent, video-analytics MCP, alert API, VIOS playback API, and Elasticsearch health endpoints respond successfully.",
+        "The final response identifies `alerts` as the Foundation, reports the effective service delta and changed environment knobs, and includes evidence for the alert-verification round trip."
+      ]
+    }
+  ]
+}
