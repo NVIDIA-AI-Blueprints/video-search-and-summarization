@@ -62,10 +62,8 @@ logger = logging.getLogger(__name__)
 # report NOT ready rather than admitting traffic to a broken subsystem.
 _startup_ready: bool = False
 _startup_error: str = "startup has not completed"
+_alert_config_init_task: Optional[asyncio.Task[None]] = None
 
-# Four client attempts (10s request timeout each) plus 1+2+4s of backoff stay
-# inside the instance's default 60s startup budget.
-_ALERT_CONFIG_INIT_MAX_ATTEMPTS = 4
 _ALERT_CONFIG_INIT_RETRY_BASE_SECONDS = 1.0
 _ALERT_CONFIG_INIT_RETRY_MAX_SECONDS = 8.0
 _RETRYABLE_ES_STATUS_CODES = frozenset({429, 502, 503, 504})
@@ -113,30 +111,38 @@ def _is_retryable_alert_config_init_error(exc: BaseException) -> bool:
 
 
 async def _initialise_alert_config_service() -> None:
-    """Build and hydrate the alert-config service with bounded ES retries."""
+    """Build and hydrate the alert-config service, retrying transient ES errors."""
     from .api.alert_config_routes import _get_service
 
+    global _startup_ready, _startup_error
     delay = _ALERT_CONFIG_INIT_RETRY_BASE_SECONDS
-    for attempt in range(1, _ALERT_CONFIG_INIT_MAX_ATTEMPTS + 1):
+    attempt = 1
+    while True:
         try:
             _get_service()
+            _startup_ready = True
+            _startup_error = ""
+            logger.info("Alert config service eagerly initialised; service is ready")
             return
         except Exception as exc:
-            retryable = _is_retryable_alert_config_init_error(exc)
-            exhausted = attempt == _ALERT_CONFIG_INIT_MAX_ATTEMPTS
-            if not retryable or exhausted:
-                raise
+            _startup_ready = False
+            _startup_error = f"alert-config store initialisation failed: {exc}"
+            if not _is_retryable_alert_config_init_error(exc):
+                logger.error(
+                    "Alert config store initialisation failed permanently: %s", exc,
+                )
+                return
 
             logger.warning(
                 "Transient Elasticsearch failure initialising the alert-config "
-                "store (attempt %d/%d); retrying in %.1fs: %s",
+                "store (attempt %d); retrying in %.1fs: %s",
                 attempt,
-                _ALERT_CONFIG_INIT_MAX_ATTEMPTS,
                 delay,
                 exc,
             )
             await asyncio.sleep(delay)
             delay = min(delay * 2, _ALERT_CONFIG_INIT_RETRY_MAX_SECONDS)
+            attempt += 1
 
 # Custom exception handler for validation errors
 @app.exception_handler(RequestValidationError)
@@ -211,30 +217,31 @@ async def startup_event():
     # no-op and the endpoint returns 503 ALWAYS_ON_DISABLED.
     validate_always_on_config_at_startup()
 
-    # Eagerly build + hydrate the alert-config store and gate readiness on it.
-    # A newly-created ES index can briefly reject searches while its primary
-    # shard is being allocated, so retry only transient transport/server
-    # failures. Permanent failures and an exhausted retry budget abort startup
-    # rather than leaving a live process permanently latched at NOT ready.
-    global _startup_ready, _startup_error
-    try:
-        await _initialise_alert_config_service()
-        _startup_ready = True
-        _startup_error = ""
-        logger.info("Alert config service eagerly initialised; service is ready")
-    except Exception as e:
-        _startup_ready = False
-        _startup_error = f"alert-config store initialisation failed: {e}"
-        logger.error(
-            "Alert config store initialisation failed at startup; aborting: %s", e,
-        )
-        raise
+    # Start alert-config hydration without delaying the HTTP server. A newly
+    # created ES index can briefly reject searches while its primary shard is
+    # allocated, so the retained task retries only transient failures and
+    # changes readiness to 200 as soon as hydration succeeds.
+    global _startup_ready, _startup_error, _alert_config_init_task
+    _startup_ready = False
+    _startup_error = "alert-config store initialisation is in progress"
+    _alert_config_init_task = asyncio.create_task(
+        _initialise_alert_config_service(),
+        name="alert-config-initialisation",
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Stop background services when FastAPI shuts down."""
+    global _alert_config_init_task
     logger.info("Shutting down FastAPI application")
+    if _alert_config_init_task is not None and not _alert_config_init_task.done():
+        _alert_config_init_task.cancel()
+        try:
+            await _alert_config_init_task
+        except asyncio.CancelledError:
+            pass
+    _alert_config_init_task = None
 
 _NOT_READY = "not_ready"
 

@@ -15,10 +15,12 @@
 
 """Alert-config startup must recover from a newly-created ES index race."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import pytest_asyncio
 
 from persistence.exceptions import PersistenceError
 from web import main
@@ -42,39 +44,61 @@ def wrapped_es_error(status: int) -> PersistenceError:
             return wrapped
 
 
-@pytest.fixture(autouse=True)
-def reset_startup_state():
+@pytest_asyncio.fixture(autouse=True)
+async def reset_startup_state():
     main._startup_ready = False
     main._startup_error = "startup has not completed"
+    main._alert_config_init_task = None
     yield
+    await main.shutdown_event()
     main._startup_ready = False
     main._startup_error = "startup has not completed"
 
 
 @pytest.mark.asyncio
-async def test_transient_503_retries_then_marks_startup_ready():
+async def test_startup_returns_while_transient_503_is_being_retried():
     transient = wrapped_es_error(503)
-    with patch("web.api.alert_config_routes._get_service",
-               side_effect=[transient, transient, object()]) as get_service, \
-         patch.object(main, "validate_always_on_config_at_startup"), \
-         patch.object(main.asyncio, "sleep", new=AsyncMock()) as sleep:
-        await main.startup_event()
+    retry_started = asyncio.Event()
+    allow_retry = asyncio.Event()
 
-    assert get_service.call_count == 3
-    assert [call.args[0] for call in sleep.await_args_list] == [1.0, 2.0]
+    async def controlled_sleep(delay):
+        assert delay == 1.0
+        retry_started.set()
+        await allow_retry.wait()
+
+    with patch("web.api.alert_config_routes._get_service",
+               side_effect=[transient, object()]) as get_service, \
+         patch.object(main, "validate_always_on_config_at_startup"), \
+         patch.object(main.asyncio, "sleep", side_effect=controlled_sleep):
+        await main.startup_event()
+        assert main._alert_config_init_task is not None
+        assert not main._alert_config_init_task.done()
+        assert main._startup_ready is False
+        assert main._startup_error == "alert-config store initialisation is in progress"
+        assert main._startup_failure().status_code == 503
+
+        await retry_started.wait()
+        assert main._startup_ready is False
+        assert "Failed to list documents" in main._startup_error
+
+        allow_retry.set()
+        await main._alert_config_init_task
+
+    assert get_service.call_count == 2
     assert main._startup_ready is True
     assert main._startup_error == ""
+    assert main._startup_failure() is None
 
 
 @pytest.mark.asyncio
-async def test_non_retryable_error_aborts_without_sleeping():
+async def test_non_retryable_error_remains_not_ready_without_retrying():
     permanent = wrapped_es_error(400)
     with patch("web.api.alert_config_routes._get_service",
                side_effect=permanent) as get_service, \
          patch.object(main, "validate_always_on_config_at_startup"), \
          patch.object(main.asyncio, "sleep", new=AsyncMock()) as sleep:
-        with pytest.raises(PersistenceError, match="Failed to list documents"):
-            await main.startup_event()
+        await main.startup_event()
+        await main._alert_config_init_task
 
     get_service.assert_called_once_with()
     sleep.assert_not_awaited()
@@ -83,19 +107,18 @@ async def test_non_retryable_error_aborts_without_sleeping():
 
 
 @pytest.mark.asyncio
-async def test_retry_exhaustion_aborts_instead_of_latching_a_live_503():
+async def test_transient_errors_continue_with_capped_backoff_until_success():
     transient = wrapped_es_error(503)
     with patch("web.api.alert_config_routes._get_service",
-               side_effect=transient) as get_service, \
+               side_effect=[transient] * 5 + [object()]) as get_service, \
          patch.object(main, "validate_always_on_config_at_startup"), \
          patch.object(main.asyncio, "sleep", new=AsyncMock()) as sleep:
-        with pytest.raises(PersistenceError, match="Failed to list documents"):
-            await main.startup_event()
+        await main.startup_event()
+        await main._alert_config_init_task
 
-    assert get_service.call_count == main._ALERT_CONFIG_INIT_MAX_ATTEMPTS
-    assert [call.args[0] for call in sleep.await_args_list] == [1.0, 2.0, 4.0]
-    assert main._startup_ready is False
-    assert "Failed to list documents" in main._startup_error
+    assert get_service.call_count == 6
+    assert [call.args[0] for call in sleep.await_args_list] == [1.0, 2.0, 4.0, 8.0, 8.0]
+    assert main._startup_ready is True
 
 
 @pytest.mark.asyncio
@@ -105,7 +128,30 @@ async def test_connection_error_is_retryable():
          patch.object(main, "validate_always_on_config_at_startup"), \
          patch.object(main.asyncio, "sleep", new=AsyncMock()) as sleep:
         await main.startup_event()
+        await main._alert_config_init_task
 
     assert get_service.call_count == 2
     sleep.assert_awaited_once_with(1.0)
     assert main._startup_ready is True
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_a_pending_retry_task():
+    transient = wrapped_es_error(503)
+    retry_started = asyncio.Event()
+
+    async def blocked_sleep(_delay):
+        retry_started.set()
+        await asyncio.Event().wait()
+
+    with patch("web.api.alert_config_routes._get_service",
+               side_effect=transient), \
+         patch.object(main, "validate_always_on_config_at_startup"), \
+         patch.object(main.asyncio, "sleep", side_effect=blocked_sleep):
+        await main.startup_event()
+        task = main._alert_config_init_task
+        await retry_started.wait()
+        await main.shutdown_event()
+
+    assert task.cancelled()
+    assert main._alert_config_init_task is None
