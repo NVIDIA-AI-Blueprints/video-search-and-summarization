@@ -572,8 +572,8 @@ class TestFoldCycle:
 
 
 class TestReviewRegressions:
-    """Each of these reproduces a defect found in review. They fail on the code
-    as it was before, and are the reason to keep the strict double."""
+    """Each of these pins a defect this code has actually had. They fail against
+    the earlier version, and are why the test double is kept strict."""
 
     def test_stored_document_carries_no_elasticsearch_metadata_field(self, es, folder):
         es.client.raw = [chunk(0, offset_s=0)]
@@ -1873,8 +1873,8 @@ class TestNullBoundsAreRefusedNotLeaked:
             )
 
 class TestLockRegressionsArePinned:
-    """The two behaviours the previous round changed, each with a test, so a
-    refactor cannot undo either silently."""
+    """The two lock behaviours most easily undone by a refactor, each pinned so
+    neither can be reverted silently."""
 
     def test_the_same_owner_string_cannot_take_a_live_lease(self, es):
         """The same-owner bypass was removed because two live processes can

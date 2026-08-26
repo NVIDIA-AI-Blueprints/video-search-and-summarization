@@ -3708,7 +3708,7 @@ if __name__ == "__main__":
             # not watched. A dead endpoint there leaves the pipeline running
             # without one -- the same state the watch exists to prevent above.
             # Closing that means giving the single-process path a supervisor,
-            # which is a larger change than this review round.
+            # which is a larger change than this one.
             # Labelled, or a timeout here is reported against whatever step
             # ran before it -- warmup, or building the pipeline.
             deadline.step("waiting for the pipeline to join its consumer group")
