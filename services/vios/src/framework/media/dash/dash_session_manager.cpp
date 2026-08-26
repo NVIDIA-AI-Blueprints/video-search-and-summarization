@@ -511,11 +511,25 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         // initial fragments.
         session->ownsSource = true;
         session->overlay = overlay;
-        session->source = std::make_shared<CommonVideoSource>(
-            compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
-        session->source->createConsumerPipeline();
-        session->source->setConsumerReady();
-        session->source->startStream();
+        /* As on the replay path: a source that cannot be built must fail this
+         * session, not the process. */
+        try
+        {
+            session->source = std::make_shared<CommonVideoSource>(
+                compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
+            session->source->createConsumerPipeline();
+            session->source->setConsumerReady();
+            session->source->startStream();
+        }
+        catch (const std::exception& error)
+        {
+            LOG(error) << "Could not build the live DASH source for " << streamId
+                       << ": " << error.what() << endl;
+            session->source.reset();
+            session->packager->stop();
+            result.error = std::string("Live DASH could not be started for this stream: ") + error.what();
+            return result;
+        }
 
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -629,6 +643,14 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     {
         uri = "file://" + uri.substr(rtspPrefix.size());
     }
+    else if (!uri.empty() && uri.front() == '/')
+    {
+        /* An uploaded file's recording is already a path on disk rather than an
+         * rtsp url, so it never went through the branch above and was handed to
+         * the pipeline with no scheme at all. The pipeline rejects that, and
+         * the rejection arrives as an exception from the source constructor. */
+        uri = "file://" + uri;
+    }
     uri += "?startTime=" + startTime;
     if (!endTime.empty())
     {
@@ -693,10 +715,26 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
 
     // The packager must be handed to the constructor: CommonVideoSource builds
     // its pipeline there, and the terminal consumer is chosen while it does.
-    session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
-    session->source->createConsumerPipeline();
-    session->source->setConsumerReady();
-    session->source->startStream();
+    /* Building the source can throw: a url the pipeline cannot parse, or a
+     * pipeline it cannot construct. Letting that escape ends the process - one
+     * bad request takes every other viewer down with it - so it is turned into
+     * a failed start for this session alone. */
+    try
+    {
+        session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
+        session->source->createConsumerPipeline();
+        session->source->setConsumerReady();
+        session->source->startStream();
+    }
+    catch (const std::exception& error)
+    {
+        LOG(error) << "Could not build the replay DASH source for " << streamId
+                   << ": " << error.what() << endl;
+        session->source.reset();
+        session->packager->stop();
+        result.error = std::string("Replay DASH could not be started for this stream: ") + error.what();
+        return result;
+    }
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
