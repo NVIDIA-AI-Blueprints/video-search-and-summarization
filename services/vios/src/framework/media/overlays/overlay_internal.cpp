@@ -81,6 +81,7 @@ constexpr int MAX_CLASSES = 15;
 constexpr float DEFAULT_ELLIPSE_SCALE_FACTOR = 1.5f;
 constexpr float DEFAULT_ELLIPSE_HEIGHT_FACTOR = 0.5f;
 constexpr double MAX_PROXIMITY_AREA_FACTOR = 10.0;
+constexpr float MIN_CAMERA_DEPTH = 1e-5f;
 
 Point interpolateCoordinate(int x, int y, int oldWidth, int oldHeight, int newWidth, int newHeight)
 {
@@ -195,6 +196,33 @@ std::vector<Point3D> box3d_to_corners3d(map<string, float, std::less<>> bbox3d)
     return corners;
 }
 
+bool NvLLOverlayInternal::areAllPointsInFrontOfCamera(const vector<Point3D>& points,
+                                                       const CalibrationData& calibrationData)
+{
+    if (calibrationData.proj_w2c_matrix.size() != 16)
+    {
+        LOG(error) << "Invalid world-to-camera projection matrix size" << endl;
+        return false;
+    }
+
+    // The third row of the world-to-camera matrix gives camera-space depth.
+    // Do this before perspective division: using an absolute depth would turn
+    // points behind the camera into apparently drawable image coordinates.
+    for (const auto& point : points)
+    {
+        const float depth = calibrationData.proj_w2c_matrix[8] * point.x +
+                            calibrationData.proj_w2c_matrix[9] * point.y +
+                            calibrationData.proj_w2c_matrix[10] * point.z +
+                            calibrationData.proj_w2c_matrix[11];
+        if (!std::isfinite(depth) || depth <= MIN_CAMERA_DEPTH)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 vector<Point2D> world_to_image_projection(const vector<Point3D>& corners3d,
                                         const NvLLOverlayInternal::CalibrationData& calibration_data,
                                         int src_height,
@@ -282,8 +310,14 @@ vector<Point2D> world_to_image_projection(const vector<Point3D>& corners3d,
         // 3. Normalize points
         for (size_t i = 0; i < num_points; i++)
         {
-            float z = std::max(1e-5f, std::min(1e5f, std::abs(pts_2d.at<float>(i, 2))));
-            if (z < 1e-5f) continue;  // Skip division by zero
+            const float depth = pts_2d.at<float>(i, 2);
+            if (!std::isfinite(depth) || depth <= MIN_CAMERA_DEPTH)
+            {
+                // Perspective projection is undefined at the camera plane and
+                // cannot represent points behind the camera.
+                return {};
+            }
+            const float z = std::min(1e5f, depth);
             float x = pts_2d.at<float>(i, 0) / z;
             float y = pts_2d.at<float>(i, 1) / z;
             image_points.push_back(Point2D(x, y));
@@ -1148,7 +1182,14 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                 std::lock_guard<std::mutex> guard(m_calibrationLock);
                 if (m_calibrationData.find(m_sensorName) != m_calibrationData.end())
                 {
-                    corners2d = world_to_image_projection(corners3d, m_calibrationData[m_sensorName], m_sourceHeight, false);
+                    const CalibrationData& calibrationData = m_calibrationData.at(m_sensorName);
+                    if (!areAllPointsInFrontOfCamera(corners3d, calibrationData))
+                    {
+                        LOG(verbose) << "Skipping 3D bbox behind or intersecting camera plane for sensor: "
+                                     << m_sensorName << ", object: " << object_id << endl;
+                        continue;
+                    }
+                    corners2d = world_to_image_projection(corners3d, calibrationData, m_sourceHeight, false);
                 }
                 else if (m_bboxParams.m_overlay.m_enableGodsEyeView &&
                     m_calibrationData.find("map") != m_calibrationData.end())
