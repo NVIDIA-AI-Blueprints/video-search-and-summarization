@@ -445,5 +445,27 @@ INGRESS_SERVICES.update(
             describe="/lvs/models",
             describes="models",
         ),
+        # The Video Analytics MCP server. Recorded but required by no command
+        # group: nothing in this CLI calls it -- the agent is its client, and
+        # ``search`` reaches Elasticsearch and RT-Embed directly. It is probed
+        # anyway because it is the only gateway mount an operator cannot
+        # otherwise confirm from the host, and "does /va-mcp answer?" is the
+        # first question when the agent's MCP tools are missing. So it shows up
+        # in `configure`'s route list and in `configure check`'s per-route
+        # block, and in no group's requirements, which is the honest answer
+        # rather than attaching it to a group that would then fail for the
+        # wrong reason.
+        #
+        # Probed on /health rather than /mcp: a bare GET on /mcp answers 406
+        # (measured against a live streamable-HTTP server), which is not in
+        # _PRESENT_STATUSES, so probing it would record a routed server as
+        # absent. /health is the same 200 the container healthcheck relies on.
+        # A profile without vss-va-mcp leaves the backend DOWN and the route
+        # answers 503, which is absent -- not present-but-broken.
+        #
+        # No `describe`: listing MCP tools needs an initialized JSON-RPC
+        # session, not a GET, and opening one to write a config file would make
+        # discovery stateful.
+        "va_mcp": ServiceRoute(mount="/va-mcp", probe="/va-mcp/health"),
     }
 )

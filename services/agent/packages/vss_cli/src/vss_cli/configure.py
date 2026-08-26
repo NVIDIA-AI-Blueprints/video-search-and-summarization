@@ -15,6 +15,13 @@ only if the origin answers; a route the deployment does not expose is absent
 from the config rather than present-but-broken, so the failure surfaces at
 configure time with a URL attached instead of much later as a connection
 error inside a search.
+
+The origin is the one **this host** can reach. A deployment behind HAProxy is
+addressed from inside its own network as ``http://vss.local:7777`` and from
+outside as the published port or the platform's TLS URL -- one front door and
+one path contract, two origins. ``vss.local`` is a container-network alias, so
+configuring it here fails every probe with a connection error and reads as a
+broken deployment. See the package README.
 """
 
 from __future__ import annotations
@@ -83,7 +90,15 @@ def _describe(base_url: str, route: config_mod.ServiceRoute, timeout: float) -> 
 
 
 @click.group(name="configure", invoke_without_command=True)
-@click.option("--base-url", help="Deployment origin, e.g. http://10.0.0.1:7777")
+@click.option(
+    "--base-url",
+    help=(
+        "Deployment origin as reachable from THIS host, e.g. http://10.0.0.1:7777, "
+        "or the platform's https:// URL where TLS terminates outside the deployment. "
+        "Not the in-network gateway name (vss.local): that is a container-network "
+        "alias and does not resolve here."
+    ),
+)
 @click.option(
     "--timeout",
     type=click.FloatRange(0.1, 120.0),

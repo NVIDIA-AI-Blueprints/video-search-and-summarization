@@ -64,6 +64,13 @@ which is expected and harmless because no read path consumes it. Do not add the
 route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
 through HAProxy.
 
+`/va-mcp` is the same shape: `vss configure` probes it, but no command group
+requires it — the agent is the MCP server's client, not the CLI. Keep the route
+when the build deploys `vss-va-mcp` (the agent reaches it through this origin as
+`${VSS_GATEWAY_ORIGIN}/va-mcp`, so pruning it breaks the agent's video-analytics
+tools even though the CLI is unaffected); drop it, and accept a `va_mcp absent`
+line, when the build has no MCP server.
+
 - **Curated (patch).** Write the trimmed config to `patches/haproxy.cfg`, beside
   the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the
   config volume, keeping the browse + operate routes above for the build's deployed
