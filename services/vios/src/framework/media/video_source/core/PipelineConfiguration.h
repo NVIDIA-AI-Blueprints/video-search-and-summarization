@@ -51,6 +51,10 @@ public:
         // sink.  The packager itself is supplied separately because it is an
         // object, not an option string.
         bool dashPlayback = false;
+        /* This DASH session decodes and re-encodes rather than passing the
+         * camera's bitstream through, because that bitstream is a codec the
+         * browser cannot play. */
+        bool dashTranscode = false;
     };
 
     struct OverlayConfig {
@@ -79,6 +83,7 @@ public:
     bool isGodsEyeView() const { return m_godsEyeView; }
     bool isHlsPlayback() const { return m_quality.hlsPlayback; }
     bool isDashPlayback() const { return m_quality.dashPlayback; }
+    bool isDashTranscode() const { return m_quality.dashTranscode; }
     bool isPassThrough() const { return m_quality.passThrough; }
     
     const std::map<std::string, std::string, std::less<>>& getOptions() const { return m_options; }

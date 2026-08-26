@@ -307,12 +307,13 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         result.error = "Stream not found";
         return result;
     }
+    /* A browser cannot play HEVC through Media Source Extensions on most
+     * platforms, so passing an H.265 camera through untouched produces a
+     * manifest nothing can decode.  Decode it and encode H.264 instead, which
+     * is the same private pipeline an overlay already uses - the difference is
+     * only that the source asks for it rather than the viewer. */
     const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
-    if (videoCodec != "h264" && videoCodec != "avc")
-    {
-        result.error = "Live DASH v1 requires an H.264 source";
-        return result;
-    }
+    const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
     const std::string mediaUrl = stream->live_proxy_url.empty() ? stream->live_url : stream->live_proxy_url;
     if (mediaUrl.rfind("rtsp://", 0) != 0 && mediaUrl.rfind("rtsps://", 0) != 0)
     {
@@ -389,6 +390,20 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         // What the camera actually runs at, rather than the thirty frames a
         // second the packager would otherwise assume.
         packagerConfig.sourceFrameRate = parseFrameRate(stream->settings.encoderValues.frameRate, 30.0);
+        /* A re-encoded source hands over frames stamped zero, so the timeline
+         * has to be built from the frame index. Saying so up front matters:
+         * discovering it on the second frame means the first was already
+         * published at zero with no duration, and the muxer cannot place what
+         * follows. The camera's rate is known and constant, which is exactly
+         * what this needs. Stamping by arrival would also work, and was tried,
+         * but it writes every hitch in the decode-draw-encode chain into the
+         * media timeline as a real gap - visible as a stutter with an overlay
+         * on. */
+        if (transcodeRequired)
+        {
+            packagerConfig.synthesizeTimestamps = true;
+        }
+
         if (compositeRequested)
         {
             // A wall is composed at a rate we choose rather than one a camera
@@ -427,20 +442,29 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         return result;
     }
 
-    if (overlayRequested || compositeRequested)
+    if (overlayRequested || compositeRequested || transcodeRequired)
     {
         LOG(info) << "Creating private live DASH session streamId=" << streamId
                   << (overlayRequested ? " with overlay" : "")
-                  << (compositeRequested ? " with composite" : "") << endl;
+                  << (compositeRequested ? " with composite" : "")
+                  << (transcodeRequired ? " transcoding " + videoCodec + " to h264" : "") << endl;
         // Drawing on a live stream needs its pixels, so this session owns a
         // pipeline of its own rather than tapping the shared bitstream.
         std::map<std::string, std::string, std::less<>> opts;
         opts["streamId"] = streamId;
         opts["sensorId"] = stream->sensorId;
         opts["peerid"] = session->streamToken;
+        /* This names what arrives, not what leaves: it is what the decoder is
+         * built to parse.  Naming the output codec here would hand an H.265
+         * bitstream to an H.264 decoder.  The encoder downstream produces H.264
+         * regardless, which is what makes the transcode work. */
         opts["codec"] = stream->settings.encoderValues.encoding;
         opts["framerate"] = stream->settings.encoderValues.frameRate;
         opts["dash"] = "dash";
+        if (transcodeRequired)
+        {
+            opts["dash_transcode"] = "true";
+        }
         // Decode for this session alone rather than sharing the camera's pooled
         // decoder.  An overlay session already needs its own draw and encode
         // stages, so sharing only ever bought the decode itself, and it bought it
@@ -914,6 +938,21 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
              * media from before the session existed, waits for it, and starts
              * with a cushion thinner than it was tuned for, which shows up as
              * an occasional stall rather than a faster first frame. */
+            /* Enough to reach where the player will sit, which is the live
+             * delay it is asked to keep - 2.5 segments, floored at the tuned
+             * five seconds - and no longer the availability shift on top of
+             * it, because live no longer applies one.  Every second beyond
+             * this is a second of black screen that buys nothing. */
+            /* Enough to reach where the player will sit and then some.
+             *
+             * A catalogue equal to the live delay is not enough: the player
+             * starts at the newest media rather than the oldest and spends the
+             * first several seconds drifting back to the delay it was asked
+             * for, playing from a cushion that starts near zero. Measured at
+             * 200 ms of latency it began with 0.9 seconds buffered and dipped
+             * to 0.4 before recovering, which is a stutter for the first few
+             * seconds and smooth after. Publishing a window wider than the
+             * delay gives it somewhere to start that is already behind. */
             const double required = published.longestSeconds > 0.0
                 ? std::max(static_cast<double>(kDashPrerollSeconds),
                            published.longestSeconds * 2.5)

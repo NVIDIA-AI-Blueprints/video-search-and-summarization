@@ -481,7 +481,11 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
     // decoder parses it and hands it straight to the packager.  Nothing is
     // decoded, transformed or encoded, which also preserves the recording's
     // GOP so segments fall where the manifest says they do.
-    if (config.isDashPlayback() && !config.getOverlay().enabled && m_decoder && getDashConsumer())
+    // A session that exists to re-encode must not take this path: republishing
+    // the source bitstream is the one thing it was created to avoid, and the
+    // packager is built around H.264 so a foreign codec simply stops here.
+    if (config.isDashPlayback() && !config.getOverlay().enabled && !config.isDashTranscode()
+        && m_decoder && getDashConsumer())
     {
         m_decoder->setConsumer(config.getPeerId(), getDashConsumer());
         m_decoder->setLatencyDropExempt(config.getPeerId());
