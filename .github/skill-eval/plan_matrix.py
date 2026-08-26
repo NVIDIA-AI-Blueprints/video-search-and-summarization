@@ -162,7 +162,9 @@ OPENSHELL_A16_LABELS: tuple[str, ...] = (
     "a16",
     "gpu-a16",
     "gpu-nvidia-a16",
-    "vram-16gb",
+    # Measured usable VRAM is 15356 MiB. run_leg compares nvidia-smi MiB
+    # against min_vram_gb*1000, so 16 GB does not fit; do not advertise 16.
+    "vram-15gb",
     "video-codec",
     "openshell-a16-active",
 )
@@ -222,7 +224,7 @@ class OpenShellCohort(NamedTuple):
 # RTX PRO 6000 labels.
 OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
-        "a16-1g", "A16", "A16", 1, 16, 8,
+        "a16-1g", "A16", "A16", 1, 15, 8,
         (*OPENSHELL_A16_LABELS, "gpus-1"),
     ),
     OpenShellCohort(

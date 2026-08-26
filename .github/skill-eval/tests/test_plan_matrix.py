@@ -234,7 +234,7 @@ class RealSpecCorpus(unittest.TestCase):
         self.assertEqual(
             counts,
             {
-                "a16-1g": 19,
+                "blocked": 19,
                 "a40-1g": 12,
                 "a40-2g": 5,
                 "h200-1g": 2,
@@ -242,6 +242,10 @@ class RealSpecCorpus(unittest.TestCase):
             },
         )
         for leg in include:
+            if leg["cohort"] == "blocked":
+                self.assertEqual(leg["kind"], "not_run_infra_acquisition")
+                self.assertIn("BLOCKED_NO_COMPATIBLE_COHORT", leg["skip_reason"])
+                continue
             self.assertEqual(leg["kind"], "eval")
             if leg["cohort"].startswith("a16"):
                 self.assertIn("openshell-a16-active", leg["runs_on"])
@@ -594,6 +598,8 @@ class OpenshellGpuFleet(unittest.TestCase):
         a16 = plan_matrix.runs_on_labels("A16", {"gpu_count": 1})
         self.assertIn("openshell-a16-active", a16)
         self.assertIn("gpu-nvidia-a16", a16)
+        self.assertIn("vram-15gb", a16)
+        self.assertNotIn("vram-16gb", a16)
         self.assertIn("gpus-1", a16)
         self.assertEqual(
             plan_matrix.runs_on_labels("A16", {"gpu_count": 2}),
@@ -639,10 +645,16 @@ class OpenshellGpuFleet(unittest.TestCase):
         plan_matrix.hardware_profile_files = lambda _profile: [Path("profile")]
         try:
             cohort, error = plan_matrix.select_openshell_cohort(
-                self._requirements(codec=True)
+                self._requirements(min_vram=15, codec=True)
             )
             self.assertIsNone(error)
             self.assertEqual(cohort.name, "a16-1g")
+
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(min_vram=16, codec=True)
+            )
+            self.assertIsNone(cohort)
+            self.assertIn("no compatible", error)
 
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(
@@ -750,7 +762,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(
             counts,
             {
-                "a16-1g": 19,
+                "blocked": 19,
                 "a40-1g": 12,
                 "a40-2g": 5,
                 "h200-1g": 2,
