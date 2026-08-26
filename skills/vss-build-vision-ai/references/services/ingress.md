@@ -42,9 +42,11 @@ Which read paths a deployment can actually serve is discovered at runtime by
 `vss configure`, which probes its registered ingress services — `/api`, `/vst`,
 `/elasticsearch`, `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm`, `/lvs` — and records what
 answered. A route whose backend was pruned ordinarily returns `503`, which it
-records as absent, exactly as a `404` would. The browse-only routes (`/kibana`,
-`/storage`, `/video-analytics-api`, `/alert-bridge`) are not probed at all; they
-are simply left in place for a human. Curate only when the
+records as absent, exactly as a `404` would. The routes it does not probe —
+`/kibana`, `/storage`, `/video-analytics-api`, `/alert-bridge` — are still served;
+they are simply outside what the CLI resolves. `/kibana` is the human browse
+surface; the other three are programmatic endpoints their own callers reach
+directly. Curate only when the
 caller explicitly asks to restrict the origin to a named set of surfaces;
 otherwise a `patches/vss-haproxy-ingress.yml` is an unrequested service-definition
 change.
