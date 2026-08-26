@@ -38,7 +38,7 @@ global:
 # ---------------------------------------------------------------------------
 # GPU selection
 # Sets which entry in gpuProfiles is used when rendering the nim-env ConfigMaps.
-# Valid values: H100 | GB300 | L40S | RTXPRO4500BW | RTXPRO6000BW | OTHER
+# Valid values: H100 | GB300 | L40S | RTXPRO4500BW | RTXPRO6000BW | A16 | A40 | H200 | OTHER
 # ---------------------------------------------------------------------------
 gpuType: "H100"
 
@@ -145,6 +145,82 @@ gpuProfiles:
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+      NIM_DELETE_LAST_FRAMES: "1"
+
+  # A16 (16 GB) — identity-only for LLMs that don't fit; VLM NIMs get low-memory tuning.
+  # Mirrors deploy/docker/services/nim/<nim>/hw-A16.env.
+  A16:
+    nemotron:
+      NIM_KVCACHE_PERCENT: "0.5"
+      NIM_GPU_MEM_FRACTION: "0.5"
+      NIM_MAX_NUM_SEQS: "1"
+      NIM_MAX_MODEL_LEN: "8192"
+      NIM_LOW_MEMORY_MODE: "1"
+    nemotron3:
+      NIM_KVCACHE_PERCENT: "0.5"
+      NIM_GPU_MEM_FRACTION: "0.5"
+      NIM_MAX_NUM_SEQS: "1"
+      NIM_MAX_MODEL_LEN: "8192"
+      NIM_LOW_MEMORY_MODE: "1"
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
+      NIM_KVCACHE_PERCENT: "0.45"
+      NIM_MAX_NUM_SEQS: "1"
+      NIM_MAX_MODEL_LEN: "4096"
+      NIM_LOW_MEMORY_MODE: "1"
+    cosmos:
+      NIM_KVCACHE_PERCENT: "0.5"
+      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.5"
+      NIM_MAX_MODEL_LEN: "8192"
+      NIM_MAX_NUM_SEQS: "1"
+      MAX_JOBS: "1"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+    cosmos3:
+      NIM_GPU_MEMORY_UTILIZATION: "0.5"
+      NIM_MAX_MODEL_LEN: "8192"
+      NIM_MAX_NUM_SEQS: "1"
+      MAX_JOBS: "1"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+      NIM_DELETE_LAST_FRAMES: "1"
+
+  # A40 (48 GB) — mid-range full-GPU budget.
+  # Mirrors deploy/docker/services/nim/<nim>/hw-A40.env.
+  A40:
+    nemotron: {}
+    nemotron3: {}
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
+    cosmos:
+      NIM_KVCACHE_PERCENT: "0.8"
+      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.8"
+      NIM_MAX_MODEL_LEN: "32768"
+      NIM_MAX_NUM_SEQS: "4"
+      MAX_JOBS: "4"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+    cosmos3:
+      NIM_GPU_MEMORY_UTILIZATION: "0.8"
+      NIM_MAX_MODEL_LEN: "32768"
+      NIM_MAX_NUM_SEQS: "4"
+      MAX_JOBS: "4"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+      NIM_DELETE_LAST_FRAMES: "1"
+
+  # H200 (141 GB HBM3e) — full-GPU; VLM_NIM_KVCACHE_PERCENT shell var in docker
+  # maps to a static 0.7 default here (adjust via helm --set if you need a
+  # different fraction).
+  # Mirrors deploy/docker/services/nim/<nim>/hw-H200.env.
+  H200:
+    nemotron: {}
+    nemotron3: {}
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder"
+    cosmos:
+      NIM_KVCACHE_PERCENT: "0.7"
+      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+    cosmos3:
+      NIM_GPU_MEMORY_UTILIZATION: "0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
