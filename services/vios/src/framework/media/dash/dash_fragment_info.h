@@ -27,6 +27,7 @@
  * by the manifest normaliser and the preroll gate so both agree on the answer.
  */
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -203,6 +204,9 @@ struct PublishedMedia
     // interval.  An average is dragged down by the short fragment a source
     // produces when its keyframe cadence is interrupted.
     double longestSeconds = 0.0;
+    // How long ago the newest fragment was written.  A live source keeps
+    // writing; a recording that has been played to its end stops.
+    double secondsSinceNewestWrite = 0.0;
 };
 
 inline PublishedMedia publishedMedia(const std::filesystem::path& directory)
@@ -214,6 +218,8 @@ inline PublishedMedia publishedMedia(const std::filesystem::path& directory)
         return published;
     }
     uint64_t ticks = 0;
+    std::filesystem::file_time_type newest{};
+    bool newestValid = false;
     std::error_code ec;
     for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory, ec))
     {
@@ -227,6 +233,13 @@ inline PublishedMedia publishedMedia(const std::filesystem::path& directory)
             continue;
         }
         ++published.fragments;
+        std::error_code writeEc;
+        const auto written = std::filesystem::last_write_time(entry.path(), writeEc);
+        if (!writeEc && written > newest)
+        {
+            newest = written;
+            newestValid = true;
+        }
         const uint64_t fragmentTicks = readFragmentDuration(entry.path());
         ticks += fragmentTicks;
         const double fragmentSeconds =
@@ -237,6 +250,12 @@ inline PublishedMedia publishedMedia(const std::filesystem::path& directory)
         }
     }
     published.seconds = static_cast<double>(ticks) / static_cast<double>(timescale);
+    if (newestValid)
+    {
+        const auto age = std::filesystem::file_time_type::clock::now() - newest;
+        published.secondsSinceNewestWrite =
+            std::chrono::duration_cast<std::chrono::duration<double>>(age).count();
+    }
     return published;
 }
 

@@ -995,8 +995,26 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
                 ? std::max(static_cast<double>(kDashPrerollSeconds),
                            published.longestSeconds * 2.5)
                 : static_cast<double>(kDashPrerollSeconds);
+            /* A recording can be shorter than the preroll asks for - a twelve
+             * second clip seeked six seconds in has six seconds left, and
+             * waiting for eight of them waits forever, which the viewer sees as
+             * a seek that failed. There is no end-of-stream signal to consult,
+             * but there is a simpler one: a live source keeps writing and a
+             * recording played to its end stops, so media that has not grown
+             * for a few seconds is all there is ever going to be. */
+            constexpr double kSourceIdleSeconds = 3.0;
             const bool enoughMedia = published.seconds >= required;
-            session->prerollComplete = enoughMedia && published.fragments >= kDashPrerollSegments;
+            const bool sourceFinished = published.fragments >= 1
+                                        && published.secondsSinceNewestWrite >= kSourceIdleSeconds;
+            session->prerollComplete =
+                (enoughMedia && published.fragments >= kDashPrerollSegments) || sourceFinished;
+            if (sourceFinished && !enoughMedia)
+            {
+                LOG(info) << "DASH publishing a short recording for " << session->streamToken
+                          << ": " << published.seconds << " s in " << published.fragments
+                          << " fragments, and the source stopped writing "
+                          << published.secondsSinceNewestWrite << " s ago" << endl;
+            }
             result.starting = !session->prerollComplete;
             if (session->prerollComplete)
             {
