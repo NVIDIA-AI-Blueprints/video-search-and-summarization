@@ -89,6 +89,10 @@ For detailed instructions and additional information about this blueprint, pleas
 - API catalog keys:
    - NVIDIA [API catalog](https://build.nvidia.com/) or [NGC](https://org.ngc.nvidia.com/setup/api-keys) ([steps to generate key](https://docs.nvidia.com/ngc/gpu-cloud/ngc-user-guide/index.html#generating-api-key))
 
+### Container Image Availability
+
+> **Development Container Notice:** Images tagged `develop-*` or `nightly-*` are pre-release artifacts intended for development and testing only. They may change without notice and are provided “AS IS.” Official release images are published through NVIDIA NGC. For production deployments, use only a versioned release image from NGC that has completed NVIDIA’s release review.
+
 ## Hardware Requirements
 
 The platform requirement can vary depending on the configuration and deployment topology used for VSS and dependencies like VLM, LLM, etc. For a list of validated GPU topologies and what configuration to use, see the [GPU requirements](https://docs.nvidia.com/vss/latest/prerequisites.html#development-profile-gpu-requirements).
