@@ -69,6 +69,11 @@ maintainers:
 # Use conditions below to enable/disable individual components.
 # =============================================================================
 dependencies:
+  # Shared library chart: the canonical ingress route table. Templates only, no
+  # workloads. See deploy/helm/services/common/README.md.
+  - name: common
+    version: 3.3.0
+    repository: "file://../../services/common"
   # ---------------------------------------------------------------------------
   # Infrastructure (shared with base profile)
   # ---------------------------------------------------------------------------

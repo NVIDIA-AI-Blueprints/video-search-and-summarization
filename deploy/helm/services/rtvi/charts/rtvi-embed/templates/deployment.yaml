@@ -20,12 +20,20 @@ metadata:
   labels:
     {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
     app.kubernetes.io/component: vss-rtvi-embed
-  {{- if .Values.streamAffinity.enabled }}
+  {{- if or .Values.streamAffinity.enabled .Values.ingressTimeoutServer }}
   annotations:
+  {{- if .Values.streamAffinity.enabled }}
     haproxy.org/load-balance: {{ printf "hdr(%s)" .Values.streamAffinity.hashHeader | quote }}
     haproxy.org/hash-type: "consistent"
     haproxy.org/backend-config-snippet: |
       http-request set-header {{ .Values.streamAffinity.hashHeader }} %[uuid()] if !{ req.hdr({{ .Values.streamAffinity.hashHeader }}) -m found }
+  {{- end }}
+  {{- with .Values.ingressTimeoutServer }}
+    # Server-side timeout for this backend. Set here rather than on the Ingress
+    # so a long embedding call does not raise the ceiling for every other route
+    # sharing the origin.
+    haproxy.org/timeout-server: {{ . | quote }}
+  {{- end }}
   {{- end }}
 spec:
   type: {{ .Values.service.type | default "ClusterIP" }}

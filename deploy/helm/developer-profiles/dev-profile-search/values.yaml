@@ -36,10 +36,16 @@ global:
 
   # rtviInternalIngress lives under `global` so the agent sub-chart's env-var
   # templates (rendered via `tpl` in the agent context) can read it — only
-  # `global.*` propagates across sub-charts. When enabled, this drives:
-  # (a) templates/rtvi-internal-ingress.yaml renders the Ingress object;
-  # (b) RTVI_*_BASE_URL / COSMOS_EMBED_ENDPOINT env vars below get rewritten
-  # to go through the controller Service instead of the rtvi ClusterIPs.
+  # `global.*` propagates across sub-charts. It now does one thing: point the
+  # agent's RTVI_*_BASE_URL / COSMOS_EMBED_ENDPOINT at the ingress controller
+  # Service instead of the rtvi ClusterIPs, so RT-CV / RT-Embed calls are
+  # consistent-hashed to one replica per stream.
+  #
+  # It no longer renders an Ingress of its own. /rtvi-cv and /rtvi-embed are
+  # published by templates/vss-ingress.yaml like every other route, on a
+  # host-less rule so an in-cluster caller matches whatever Host it sends; the
+  # affinity annotations live on the rtvi Services themselves
+  # (rtvi.vss-rtvi-cv.streamAffinity, rtvi.vss-rtvi-embed.streamAffinity).
   #
   # PREREQUISITE — the HAProxy Technologies kubernetes-ingress controller
   # must already be installed in the cluster. The IngressClass `haproxy` is
@@ -59,9 +65,9 @@ global:
   # name or namespace.
   rtviInternalIngress:
     enabled: false
-    className: haproxy
-    host: ''
-    hashHeader: x-stream-id
+    # Canonical mounts, from the shared route table. Changing either here
+    # without changing the table would send the agent to a path the ingress
+    # does not publish.
     rtviCvPath: /rtvi-cv
     rtviEmbedPath: /rtvi-embed
     # In-cluster DNS short name of the HAProxy ingress controller Service:
@@ -69,47 +75,50 @@ global:
     # domain (haproxy-kubernetes-ingress.haproxy-controller.svc.cluster.local).
     controllerService: "haproxy-kubernetes-ingress.haproxy-controller"
     controllerPort: 80
-    annotations: {}
-    tls: []
-ingress:
+# Helm-managed Ingress. The routes come from the canonical table in
+# deploy/helm/services/common: every backend is mounted at its own name —
+# /rtvi-vlm, /rtvi-cv, /rtvi-embed, /elasticsearch, /vst, /phoenix — the same
+# paths the Docker edge publishes and `vss configure` records, on every
+# developer profile. A service this profile does not deploy is not mounted.
+#
+# `ingress:` is the former name of this block. Keys still read from it: enabled,
+# className, hosts.*, annotations, tls — each wins over its counterpart below.
+# Its removed cliRoutes.* keys are ignored; Elasticsearch and the RTVI mounts
+# are no longer toggled. Set one block or the other, not both.
+vssIngress:
   enabled: true
-  className: haproxy
+  ingressClassName: haproxy
   annotations: {}
-  # Service port numbers for vss-agent-ui / vss-agent (same pattern as dev-profile-alerts vssIngress).
+  # Backend ports for the canonical route table. Phoenix takes its port from
+  # infra.phoenix.port and VIOS from vios.vss-vios-ingress, so neither is
+  # repeated here.
   vssUiPort: 3000
   vssAgentPort: 8000
+  vaMcpPort: 9901
   videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
+  elasticsearchPort: 9200
+  rtviEmbedPort: 8000
+  rtviCvPort: 9000
+  # RT-VLM's cluster Service port. Not 8018 — that is the Compose
+  # host-published port and has no meaning in Kubernetes.
+  rtviVlmPort: 8000
   hosts:
     main: ''
     streamer: ''
     kibana: ''
     phoenix: ''
   tls: []
-  # Edge routes `vss configure` probes, mirroring the four the Docker edge
-  # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
-  # same paths resolve on Compose and Kubernetes. Each mount carries whatever
-  # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
-  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/... .
-  #
-  # Off by default. Enabling this publishes Elasticsearch on the public origin
-  # with no per-path guard, because an Ingress annotation cannot express one.
-  # The Docker edge is not a read-only baseline either: its deny rules stop
-  # PUT/DELETE, cluster-admin paths and the two-segment mutating operations, but
-  # POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
-  # there. Enable only where a writable Elasticsearch is acceptable, or front it
-  # with your own guard.
-  #
-  # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
-  # enabled -- that Ingress already publishes both paths. /rtvi-vlm is not one
-  # of them, so it follows cliRoutes.enabled alone.
-  cliRoutes:
-    enabled: false
-    elasticsearchPort: 9200
-    rtviEmbedPort: 8000
-    rtviCvPort: 9000
-    # RT-VLM's cluster Service port. Not 8018 -- that is the Compose
-    # host-published port and has no meaning in Kubernetes.
-    rtviVlmPort: 8000
+  # Rendered for continuity with earlier releases, but inert: this controller
+  # reads timeout-client and timeout-tunnel only from its own ConfigMap, never
+  # from an Ingress annotation. Raising them is a cluster-wide controller
+  # setting, outside this chart. Server-side timeouts do work per backend and
+  # are set on the Services that need them (vss-rtvi-cv, vss-rtvi-embed,
+  # vss-rtvi-vlm, vss-agent). Set timeoutServer only to impose an ingress-wide
+  # floor on every backend as well.
+  timeoutClient: "3600s"
+  timeoutTunnel: "3600s"
+  timeoutServer: ""
 
 sharedStorage:
   streamerVideos:
@@ -433,6 +442,9 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
+    # Long generations outlast the controller default; this backend carries its
+    # own server timeout instead of the ingress imposing one on every route.
+    ingressTimeoutServer: "3600s"
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
     sharedNimPort: "8000"
     waitForKafka:
@@ -659,6 +671,10 @@ agent:
   enabled: true
   vss-agent:
     enabled: true
+    # Search / summarization runs outlast the controller default; this backend
+    # carries its own server timeout instead of the ingress imposing one on
+    # every route.
+    ingressTimeoutServer: "3600s"
     # externalHost / useReleaseNamePrefix: inherit chart `global.*` (set at install with `--set global.externalHost=…`).
     global:
       imagePullPolicy: IfNotPresent
@@ -700,9 +716,9 @@ agent:
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
-    # When true: public URL env vars use http://<mainHost> where mainHost matches templates/ingress.yaml (default: vss-search.<global.externalHost|.nip.io). Override hostname here when you set ingress.hosts.main — must stay in sync.
+    # When true: public URL env vars use http://<mainHost> where mainHost matches templates/vss-ingress.yaml (default: vss-search.<global.externalHost|.nip.io). Override hostname here when you set vssIngress.hosts.main — must stay in sync.
     vstPublicBaseUseNipIo: true
-    # Hostname only (no scheme), same semantics as ingress.hosts.main; empty → printf "vss-search.%s.nip.io" $ip with $ip = global.externalHost | default "127.0.0.1" (see templates/ingress.yaml).
+    # Hostname only (no scheme), same semantics as vssIngress.hosts.main; empty → printf "vss-search.%s.nip.io" $ip with $ip = global.externalHost | default "127.0.0.1" (see templates/vss-ingress.yaml).
     vstPublicIngressHost: ''
     serviceAccount:
       create: true

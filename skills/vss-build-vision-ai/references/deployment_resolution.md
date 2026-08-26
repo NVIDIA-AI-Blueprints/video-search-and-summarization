@@ -38,8 +38,8 @@ not additional operate inputs:
 | `VSS_VIOS_URL` | `${VSS_PUBLIC_URL}/vst` |
 | `VST_API_BASE` | `${VSS_VIOS_URL}/api/v1` — all VIOS `curl` targets |
 | `AGENT_URL` | `${VSS_PUBLIC_URL}` for Kubernetes operate skills |
-| `VLM_ENDPOINT` | Profile-dependent mount, always an OpenAI-compatible root ending in `/v1`: `${VSS_PUBLIC_URL}/v1` on base (Prefix) and LVS (Exact `/v1/models` + `/v1/chat/completions`); `${VSS_PUBLIC_URL}/rtvi-vlm/v1` on search, which mounts RT-VLM by service name and serves no bare `/v1`. Probe the candidates rather than assuming the root |
-| `LVS_BACKEND_URL` / `VIDEO_SUMMARIZATION_URL` | `${VSS_PUBLIC_URL}` on Kubernetes (origin only — **no** `/v1` suffix); Docker Compose remains `http://${HOST_IP}:38111` |
+| `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` on every profile — RT-VLM is mounted at its service name, never at the origin root |
+| `LVS_BACKEND_URL` / `VIDEO_SUMMARIZATION_URL` | `${VSS_PUBLIC_URL}/lvs` on Kubernetes (the mount, **no** `/v1` suffix); Docker Compose remains `http://${HOST_IP}:38111` |
 | `VSS_STREAMER_URL` | Separate streamer Ingress host (`streamer.<ip>.nip.io`); **not** under `/vst`; search (and other NvStreamer-bearing) profiles only |
 
 Do not make operate skills invent a Brev or nip.io hostname. The deployment
@@ -59,15 +59,15 @@ VSS_VIOS_URL="${VSS_VIOS_URL:-${VSS_PUBLIC_URL}/vst}"
 VST_API_BASE="${VST_API_BASE:-${VSS_VIOS_URL}/api/v1}"
 ```
 
-A public VSS origin alone does not prove that `/v1` routes to an RT-VLM: the
-search Ingress, for example, sends that path to its UI catch-all and mounts
-RT-VLM at `/rtvi-vlm` instead. So a skill needing direct VLM access probes both
-mounts and adopts the first that answers with a model id — never a single
-candidate, and never an unprobed default:
+RT-VLM is mounted at `/rtvi-vlm` on every profile, so a skill needing direct VLM
+access has one candidate to confirm. Confirm it rather than assuming — a
+deployment that does not run RT-VLM has no such route, and one predating the
+shared route table published it at the origin root instead:
 
 ```bash
 if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  # Most specific first: the search mount, then the base/LVS root.
+  # The canonical mount. The bare root is a fallback for deployments older than
+  # the shared route table; drop it once none are left in the field.
   for _candidate in "${VSS_PUBLIC_URL%/}/rtvi-vlm/v1" "${VSS_PUBLIC_URL%/}/v1"; do
     if _models=$(curl -sf --max-time 5 "${_candidate}/models") \
       && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
@@ -100,7 +100,7 @@ RT-VLM:
 | Agent readiness (K8s) | `GET ${AGENT_URL}/openapi.json` — prefer this over `/health` on Ingress |
 | Agent API / chat | `${AGENT_URL}/api/...`, `/websocket`, `/chat` |
 | VIOS list/inspect/clips | `GET ${VST_API_BASE}/sensor/list`, storage `/url`, replay `/picture` |
-| Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/v1` → `GET …/models`, `POST …/chat/completions` |
+| Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` → `GET …/models`, `POST …/chat/completions` |
 | Phoenix (optional) | `${VSS_PUBLIC_URL}/phoenix` |
 
 Base operate skills for the quickstart walkthrough:
@@ -110,9 +110,9 @@ Base operate skills for the quickstart walkthrough:
 - `vss-generate-video-report` Mode A — same VIOS + VLM path (**not** Agent `/generate`)
 
 Do **not** use `${VSS_PUBLIC_URL}/vlm/v1`. Stock base Helm exposes RT-VLM under
-**`/v1`**; neither base Helm nor Docker HAProxy serves `/vlm`. On Docker Compose,
-the VLM is not published on the public origin — use the host port (`:30082` for
-NIM or `:8018` for RT-VLM).
+**`/rtvi-vlm`**, the same mount as every other profile; neither base Helm nor
+Docker HAProxy serves `/vlm`. On Docker Compose, the VLM is not published on the
+public origin — use the host port (`:30082` for NIM or `:8018` for RT-VLM).
 
 ### Search profile public routes
 
@@ -125,63 +125,64 @@ adds archive search and a separate NvStreamer host:
 | Agent ingest/delete | `${AGENT_URL}/api/v1/...` |
 | Agent readiness (K8s) | `GET ${AGENT_URL}/openapi.json` — `/health` is not on search Ingress |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list` |
-| Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` → `GET …/models`, `POST …/chat/completions` — **not** the bare `/v1` base uses |
-| Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — read-only edge guard |
+| Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` → `GET …/models`, `POST …/chat/completions` |
+| Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — edge guard denies PUT/DELETE, cluster-admin and two-segment mutating paths; POST still reaches ES |
 | RT-Embed / RT-CV (host CLI) | `${VSS_PUBLIC_URL}/rtvi-embed/v1`, `${VSS_PUBLIC_URL}/rtvi-cv/api/v1` |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate host, no `/vst` prefix |
 
-Search mounts every backend by service name rather than at the origin root, so
-these are the same paths `vss configure` records (`vss_cli/config.py:INGRESS_SERVICES`).
-The RT-VLM, Elasticsearch, RT-Embed, and RT-CV mounts are all off by default.
-`ingress.cliRoutes.enabled` publishes RT-VLM and Elasticsearch. RT-Embed and
-RT-CV come from that toggle or from `global.rtviInternalIngress`, whose own
-Ingress claims both paths and makes the main one skip them, so those two can be
-public with CLI routes off. Probe rather than infer: a build exposing none of
-them leaves search, ask, and report Mode A without the backends they call
-directly.
+Every backend is mounted by service name rather than at the origin root, so these
+are the same paths `vss configure` records (`vss_cli/config.py:INGRESS_SERVICES`)
+and the same ones every other profile publishes. A route is present whenever the
+profile deploys that backend — there is no per-route toggle to reason about, and
+`global.rtviInternalIngress` no longer publishes a second Ingress of its own; it
+only routes the agent's own RT-CV / RT-Embed calls through the controller for
+stream affinity.
 
 ### LVS profile public routes
 
 Main host pattern: `vss.<ip>.nip.io` (Helm `dev-profile-lvs`) — same family as
-base, not `vss-search.*`. LVS does **not** mount a Prefix `/v1` the way base
-does. Stock Ingress uses **Exact** paths that split LVS and RT-VLM:
+base, not `vss-search.*`. LVS and RT-VLM each sit under their own mount, so
+neither owns the origin root and both are reached the same way as on any other
+profile:
 
 | Capability | Public endpoint |
 |---|---|
-| LVS readiness | `GET ${VSS_PUBLIC_URL}/v1/ready` → video-summarization |
-| LVS summarize | `POST ${VSS_PUBLIC_URL}/v1/summarize` → video-summarization |
-| RT-VLM models / chat | `GET ${VSS_PUBLIC_URL}/v1/models`, `POST ${VSS_PUBLIC_URL}/v1/chat/completions` |
+| LVS readiness | `GET ${VSS_PUBLIC_URL}/lvs/v1/ready` → video-summarization. `/lvs/v1/live` answers sooner: `/v1/ready` is 503 through model warmup, which reads as an absent route on a deployment that is merely still starting |
+| LVS summarize | `POST ${VSS_PUBLIC_URL}/lvs/v1/summarize` → video-summarization |
+| RT-VLM models / chat | `GET ${VSS_PUBLIC_URL}/rtvi-vlm/v1/models`, `POST ${VSS_PUBLIC_URL}/rtvi-vlm/v1/chat/completions` |
+| Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — same edge guard as every other profile |
 | VIOS list/inspect/clips | `GET ${VST_API_BASE}/sensor/list`, storage `/url`, … |
 | Agent OpenAPI | `GET ${AGENT_URL}/openapi.json` — **Agent**, not LVS |
 
-Derive the LVS client base as the **origin only**:
+Derive the LVS client base as the **mount**, not the origin:
 
 ```bash
-# Kubernetes — append /v1/ready and /v1/summarize yourself.
+# Kubernetes — append /v1/ready and /v1/summarize yourself. The gateway strips
+# /lvs, so the backend sees the paths it serves on :38111.
 # Force the public origin; a leftover Docker LVS_BACKEND_URL must not win.
-LVS_BACKEND_URL="${VSS_PUBLIC_URL%/}"
+LVS_BACKEND_URL="${VSS_PUBLIC_URL%/}/lvs"
 VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
 # Docker Compose (unchanged)
 # LVS_BACKEND_URL=http://${HOST_IP}:38111
 ```
 
-Do **not** set `LVS_BACKEND_URL=${VSS_PUBLIC_URL}/v1` — that yields `/v1/v1/ready`.
-Do **not** probe bare `${VSS_PUBLIC_URL}/v1` as an LVS or VLM health URL on LVS;
-without a Prefix rule it falls through to the UI catch-all.
+Do **not** set `LVS_BACKEND_URL=${VSS_PUBLIC_URL}/lvs/v1` — that yields
+`/lvs/v1/v1/ready`. Do **not** probe bare `${VSS_PUBLIC_URL}/v1`: nothing is
+mounted there, so it falls through to the UI catch-all.
 
-**Not on stock LVS Ingress** (Docker `:38111` only): LVS `/models`, LVS
-`/openapi.json`, `/recommended_config`, `/metrics`, and the `/summarize`
-compatibility alias. Public `/openapi.json` is the Agent document — never treat
-it as the LVS schema. On Kubernetes, discover the summarize model via
-`${VSS_PUBLIC_URL}/v1/models` (RT-VLM Exact) or an explicit `VLM_NAME`, and use
-the skill's checked-in `/v1/summarize` contract when live LVS OpenAPI is not
-reachable.
+Because `/lvs` is a Prefix mount, everything the LVS backend serves is now
+reachable under it — `${VSS_PUBLIC_URL}/lvs/models`, `/lvs/openapi.json`,
+`/lvs/recommended_config`, `/lvs/metrics` — where the previous Exact-path Ingress
+published only readiness and summarize. Public `/openapi.json` (no prefix) is
+still the **Agent** document; never treat it as the LVS schema. Discover the
+summarize model via `${VSS_PUBLIC_URL}/lvs/models`, or `${VSS_PUBLIC_URL}/rtvi-vlm/v1/models`
+for RT-VLM itself, or an explicit `VLM_NAME`.
 
 LVS operate skills for the docs walkthrough:
 
 - `vss-manage-video-io-storage` — VIOS via `${VST_API_BASE}`
-- `vss-summarize-video` — Exact `/v1/ready` + `/v1/summarize` on `${VSS_PUBLIC_URL}`
-- `vss-generate-video-report` Mode A — when LVS `/v1/ready` is 200, delegates to
+- `vss-summarize-video` — `/lvs/v1/ready` + `/lvs/v1/summarize` on `${VSS_PUBLIC_URL}`
+- `vss-generate-video-report` Mode A — when LVS `/lvs/v1/ready` is 200, delegates to
   `vss-summarize-video`; otherwise VLM-direct
 
 Clip URLs passed into `POST /v1/summarize` must stay as VIOS minted them (LVS
@@ -315,23 +316,20 @@ ALERT_BRIDGE_URL="${AGENT_URL}/alert-bridge"
 VA_MCP_URL="${AGENT_URL}/va-mcp"
 ```
 
-The public Agent, VIOS (`/vst`), and — when the chart enables them — RT-VLM,
-LVS Exact `/v1/...`, Alert Bridge (`/alert-bridge`), and VA-MCP (`/va-mcp`)
-routes are the supported operate interfaces. Operate skills do not read
+The public Agent, VIOS (`/vst`), and — when the profile deploys them — RT-VLM
+(`/rtvi-vlm`), LVS (`/lvs`), Alert Bridge (`/alert-bridge`), and VA-MCP
+(`/va-mcp`) routes are the supported operate interfaces. Operate skills do not read
 Deployments, ConfigMaps, Services, Secrets, or Helm values, and do not use
 Service DNS, NodePorts, guessed release names, `kubectl port-forward`, or
 `kubectl`/`docker exec` into pods.
 
-Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, LVS `/models` /
-`/openapi.json` when not published, RT-VLM when it is **not** on Exact
-`/v1/models`, and alerts `alert-notify` `:9090`) remain agent-side or
-Docker-host dependencies. Do not expose or forward them merely to satisfy
-host-side operate checks. On the base profile, RT-VLM at
-`${VSS_PUBLIC_URL}/v1` (Prefix) is a supported public operate path for
-`vss-ask-video` and `vss-generate-video-report` Mode A; on the search profile
-the equivalent path is `${VSS_PUBLIC_URL}/rtvi-vlm/v1`. On the LVS profile,
-Exact `/v1/ready` and `/v1/summarize` are the supported public operate paths for
-`vss-summarize-video`. On the alerts profile, `${VSS_PUBLIC_URL}/alert-bridge`
+Backends the deployment does not run (and `alert-notify` `:9090`, which is never
+published) remain agent-side or Docker-host dependencies. Do not expose or
+forward them merely to satisfy host-side operate checks. Where a backend *is*
+deployed it is on the public origin at its canonical mount, the same on every
+profile: `${VSS_PUBLIC_URL}/rtvi-vlm/v1` is the supported public operate path for
+`vss-ask-video` and `vss-generate-video-report` Mode A, and
+`${VSS_PUBLIC_URL}/lvs/v1/ready` / `/lvs/v1/summarize` for `vss-summarize-video`. On the alerts profile, `${VSS_PUBLIC_URL}/alert-bridge`
 and `${VSS_PUBLIC_URL}/va-mcp` are the supported public operate paths for
 `vss-manage-alerts` and `vss-query-analytics`.
 

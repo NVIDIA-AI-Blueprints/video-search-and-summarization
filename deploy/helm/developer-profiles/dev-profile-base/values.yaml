@@ -145,18 +145,24 @@ vssIngress:
   ingressClassName: haproxy
   # If empty, uses global.externalHost (set in values-base.yaml for external installs).
   host: ""
+  # Backend ports for the canonical route table (deploy/helm/services/common).
+  # Every service is mounted at its own name — /rtvi-vlm, /elasticsearch, … —
+  # which are the paths the Docker edge publishes and `vss configure` records.
+  # A service this profile does not deploy is simply not mounted.
   vssUiPort: 3000
   vssAgentPort: 8000
   # Match vss-vios-ingress service port (30888).
   vstIngressPort: 30888
-  # Optional public OpenAI-compatible VLM endpoint. When enabled, /v1 routes
-  # to RT-VLM (vss-rtvi-vlm). Empty serviceName falls back to
+  vaMcpPort: 9901
+  # RT-VLM is published at /rtvi-vlm, not at the origin root: /rtvi-vlm/v1/models,
+  # /rtvi-vlm/v1/chat/completions. Empty rtviVlmServiceName falls back to
   # agent.vss-agent.rtviVlmServiceName, then vss-rtvi-vlm. Do not use vlmNameSlug
   # here — with vlmNameSlug=none that would resolve to a non-existent Service.
-  vlm:
-    enabled: true
-    serviceName: "vss-rtvi-vlm"
-    servicePort: 8000
+  # `vssIngress.vlm.{enabled,serviceName,servicePort}` is the former name of
+  # these three and still wins where set.
+  rtviVlmServiceName: "vss-rtvi-vlm"
+  rtviVlmPort: 8000
+  elasticsearchPort: 9200
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)
   # only if you also want a separate dedicated Phoenix host rule.

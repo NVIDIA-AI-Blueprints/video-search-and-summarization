@@ -73,6 +73,9 @@ httpPort: 9000
 streamAffinity:
   enabled: true
   hashHeader: x-stream-id
+# Long-running detection requests take minutes; keep this backend well above the
+# controller default when it is published through an ingress.
+ingressTimeoutServer: "3600s"
 
 streamType: "kafka"
 otelSdkDisabled: "true"

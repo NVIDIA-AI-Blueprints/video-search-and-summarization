@@ -59,7 +59,7 @@ Load these files only as directed:
   and `assets/video-summarization.env.example`: use when configuring the
   service environment.
 - [`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md):
-  Kubernetes `VSS_PUBLIC_URL` contract and LVS Exact `/v1` routes.
+  Kubernetes `VSS_PUBLIC_URL` contract and the `/lvs` mount.
 - [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md): load
   when asked about LVS's own container image, GPU/CPU/storage sizing, or
   deployment contract as a peer service (heavier than
@@ -92,7 +92,7 @@ Load these files only as directed:
 ## Prerequisites
 
 - VSS `lvs` profile reachable either on Docker (`$HOST_IP:38111`) or through
-  the public Ingress (`VSS_PUBLIC_URL` with Exact `/v1/ready`).
+  the public Ingress at `${VSS_PUBLIC_URL}/lvs`.
 - `curl` and `jq` on the agent host.
 - Network reachability from the LVS service to the final VIOS clip URL (Docker:
   from `vss-lvs`; Kubernetes: deploy must mint a URL the LVS pod can fetch).
@@ -150,13 +150,14 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
   # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
-  # Origin only — skill appends /v1/ready and /v1/summarize. Never …/v1 here.
-  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
+  # The /lvs mount, not the origin — skill appends /v1/ready and /v1/summarize,
+  # and the gateway strips /lvs before the backend sees them.
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
   VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
-  # Exact /v1/models and /v1/chat/completions → RT-VLM (not Prefix /v1).
-  VLM="${VSS_PUBLIC_URL}"
+  # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
+  VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
@@ -227,8 +228,8 @@ run through the CLI:
 
 - **Docker:** honor `${VLM_NAME}` only if it matches an id from LVS `GET /models`;
   otherwise use the sole advertised LVS id.
-- **Kubernetes:** LVS `/models` is not on Ingress. Prefer `${VLM_NAME}` when set;
-  otherwise take the sole id from Exact `GET ${VLM}/v1/models` (RT-VLM). If
+- **Kubernetes:** prefer `${VLM_NAME}` when set; otherwise take the sole id from
+  `GET ${LVS_BACKEND_URL}/models` (LVS) or `GET ${VLM}/v1/models` (RT-VLM). If
   multiple ids exist and no valid preference selects one, report them and stop.
 
 A non-200 LVS readiness result after warmup is the only unavailability signal.
@@ -409,7 +410,7 @@ re-voice either backend's content.
 | Run exits 7 | Timed out. `vss summarize get --job-id <id>`; do not re-run. |
 | VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
 | K8s `/openapi.json` looks like Agent | Expected — do not use it as LVS schema. |
-| K8s `/models` 404 / HTML | Expected — use Exact `/v1/models` (RT-VLM) or `VLM_NAME`. |
+| K8s `/models` 404 / HTML | Probing the bare origin — use `${LVS_BACKEND_URL}/models` or `${VLM}/v1/models`. |
 
 Use the debugging reference for deeper diagnostics and the deployment
 reference for logs or configuration. The LVS image is a multi-arch manifest, so
@@ -419,9 +420,10 @@ reference for logs or configuration. The LVS image is a multi-arch manifest, so
 
 For direct API questions such as models, readiness, recommended configuration,
 metrics, schemas, or 422 responses, use the API reference instead of the
-recorded-video workflow. On Kubernetes, only Exact `/v1/ready` and
-`/v1/summarize` are public for LVS; other LVS admin routes need Docker
-`:38111` or a chart change. For deployment, restart, teardown, backend
+recorded-video workflow. `/lvs` is a Prefix mount, so everything LVS serves is
+public under it on Kubernetes — `/lvs/v1/ready`, `/lvs/v1/summarize`,
+`/lvs/models`, `/lvs/metrics` — where the previous Exact-path Ingress published
+only readiness and summarize. For deployment, restart, teardown, backend
 selection, or service logs, prefer `vss-deploy-profile` and use the deployment
 reference.
 

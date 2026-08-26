@@ -65,8 +65,11 @@ vssIngress:
   vssAgentPort: 8000
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
   alertBridgePort: 9080
   vaMcpPort: 9901
+  elasticsearchPort: 9200
+  rtviCvPort: 9010
   kibanaPort: 5601
   phoenixPort: 6006
   streamerPort: 31000

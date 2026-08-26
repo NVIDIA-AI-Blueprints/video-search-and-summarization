@@ -1,0 +1,220 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{/*
+  Ingress for dev-profile-search. Routes are the shared canonical table in
+  services/common, so every backend is mounted at its own name -- /rtvi-vlm,
+  /rtvi-cv, /rtvi-embed, /elasticsearch, /vst -- exactly as on the other
+  developer profiles and on the Docker edge. RTSP (NVStreamer) is not routed
+  through this HTTP ingress.
+
+  Host auto-wiring: when a host value is empty, it is constructed from
+  global.externalHost as <prefix>.<IP>.nip.io. If global.externalHost is already
+  vss-search.<IP>.nip.io, that same host is used and <IP> is derived for the
+  kibana/streamer subdomains. Public vss-agent URL env (agent.vss-agent) uses
+  the same default main host; if you set vssIngress.hosts.main, set
+  agent.vss-agent.vstPublicIngressHost to match.
+
+  `ingress:` is the former name of this block. `enabled`, `className`, `hosts.*`,
+  `annotations` and `tls` are still read from it and win over their `vssIngress:`
+  counterparts. Its removed `cliRoutes.*` keys are ignored. Set one or the other,
+  not both.
+*/}}
+{{- $legacy := .Values.ingress | default dict }}
+{{- $vi := merge (deepCopy $legacy) (.Values.vssIngress | default dict) }}
+{{- $enabled := default false $vi.enabled }}
+{{- /* merge treats false as empty, so an explicit legacy `enabled: false` has
+       to be read back on its own rather than merged. */}}
+{{- if hasKey $legacy "enabled" }}
+{{- $enabled = $legacy.enabled }}
+{{- end }}
+{{- if $enabled }}
+{{- $ipRaw := .Values.global.externalHost | default "127.0.0.1" | toString | trim }}
+{{- $ip := $ipRaw }}
+{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}
+{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}
+{{- end }}
+{{- $hosts := $vi.hosts | default dict }}
+{{- $mainHost := $hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
+{{- $streamerHost := $hosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
+{{- $kibanaHost := $hosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
+{{- $phoenixHost := $hosts.phoenix | default "" | trim }}
+{{- $vios := index .Values "vios" | default dict }}
+{{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
+{{- $viosIngressSvc := index $viosIngress "service" | default dict }}
+{{- $nvstreamerVals := index $vios "vss-vios-nvstreamer" | default dict }}
+{{- $agentRoot := index .Values "agent" | default dict }}
+{{- $vssAgent := index $agentRoot "vss-agent" | default (index .Values "vss-agent") | default dict }}
+{{- $vaMcpVals := index $agentRoot "vss-va-mcp" | default dict }}
+{{- $ui := index .Values "vss-agent-ui" | default dict }}
+{{- $infra := .Values.infra | default dict }}
+{{- $fp := index $infra "phoenix" | default dict }}
+{{- $fes := index $infra "elasticsearch" | default dict }}
+{{- $fk := index $infra "kibana" | default dict }}
+{{- $analytics := index .Values "analytics" | default dict }}
+{{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
+{{- $behaviorVals := index $analytics "vss-behavior-analytics" | default dict }}
+{{- $rtvi := index .Values "rtvi" | default dict }}
+{{- $cvVals := index $rtvi "vss-rtvi-cv" | default dict }}
+{{- $embedVals := index $rtvi "vss-rtvi-embed" | default dict }}
+{{- $vlmVals := index $rtvi "vss-rtvi-vlm" | default dict }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- /* Enablement is read with vss.ingress.enabled, not `default true`: sprig
+       treats an explicit `false` as empty and would hand back the default,
+       mounting a route at a Service that was never created. */}}
+{{- $en := "vss.ingress.enabled" }}
+{{- $infraOn := include $en (dict "vals" $infra "default" true) }}
+{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
+{{- $analyticsOn := include $en (dict "vals" $analytics "default" true) }}
+{{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
+{{- $viosOn := include $en (dict "vals" $vios "default" true) }}
+{{- $kibanaOn := and $infraOn (include $en (dict "vals" $fk "default" false)) }}
+{{- $streamerOn := and $viosOn (include $en (dict "vals" $nvstreamerVals "default" false)) }}
+{{- $phoenixOn := and $infraOn (include $en (dict "vals" $fp "default" true)) }}
+{{- /* Which of the canonical routes this profile serves. */}}
+{{- $b := dict }}
+{{- if include $en (dict "vals" $ui "default" true) }}
+{{- $_ := set $b "ui" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent-ui")) "port" ($vi.vssUiPort | default 3000)) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $vssAgent "default" true)) }}
+{{- $_ := set $b "agent" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent")) "port" ($vi.vssAgentPort | default 8000)) }}
+{{- end }}
+{{- if and $viosOn (include $en (dict "vals" $viosIngress "default" true)) }}
+{{- $_ := set $b "vst" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress")) "port" (coalesce $viosIngress.port $viosIngressSvc.port 30888)) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcpVals "default" false)) }}
+{{- $_ := set $b "va-mcp" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-va-mcp")) "port" ($vi.vaMcpPort | default 9901)) }}
+{{- end }}
+{{- if and $analyticsOn (include $en (dict "vals" $videoAnalyticsVals "default" false)) }}
+{{- $_ := set $b "video-analytics-api" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api")) "port" ($vi.videoAnalyticsApiPort | default 8081)) }}
+{{- end }}
+{{- if and $analyticsOn (include $en (dict "vals" $behaviorVals "default" false)) }}
+{{- $_ := set $b "behavior-analytics" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-behavior-analytics")) "port" ($vi.behaviorAnalyticsPort | default 8080)) }}
+{{- end }}
+{{- if and $infraOn (include $en (dict "vals" $fes "default" false)) }}
+{{- $_ := set $b "elasticsearch" (dict "service" (ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx) "port" ($vi.elasticsearchPort | default 9200)) }}
+{{- end }}
+{{- if and $rtviOn (include $en (dict "vals" $vlmVals "default" false)) }}
+{{- $_ := set $b "rtvi-vlm" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-vlm")) "port" ($vi.rtviVlmPort | default 8000)) }}
+{{- end }}
+{{- if and $rtviOn (include $en (dict "vals" $cvVals "default" false)) }}
+{{- $_ := set $b "rtvi-cv" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-cv")) "port" ($vi.rtviCvPort | default 9000)) }}
+{{- end }}
+{{- if and $rtviOn (include $en (dict "vals" $embedVals "default" false)) }}
+{{- $_ := set $b "rtvi-embed" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-embed")) "port" ($vi.rtviEmbedPort | default 8000)) }}
+{{- end }}
+{{- if $phoenixOn }}
+{{- $_ := set $b "phoenix" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "phoenix")) "port" ($fp.port | default 6006)) }}
+{{- end }}
+{{- include "vss.ingress.assertBackends" (dict "backends" $b) }}
+{{- $rii := index $g "rtviInternalIngress" | default dict }}
+{{- $rtviRule := and (include $en (dict "vals" $rii "default" false)) (or (index $b "rtvi-cv") (index $b "rtvi-embed")) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "dev-profile-search.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+  annotations:
+    # Kept for continuity with earlier releases, but inert: the controller reads
+    # timeout-client and timeout-tunnel only from its own ConfigMap, not from an
+    # Ingress annotation (haproxytech/kubernetes-ingress
+    # documentation/annotations.md). Setting them cluster-wide is the only way
+    # to raise them, and that is outside this chart. timeout-server does work at
+    # this scope, and now lives on the Services that need it (vss-rtvi-cv,
+    # vss-rtvi-embed, vss-rtvi-vlm, vss-agent) so a slow embedding call no
+    # longer sets the ceiling for every other route on this origin.
+    haproxy.org/timeout-client: {{ $vi.timeoutClient | default "3600s" | quote }}
+    haproxy.org/timeout-tunnel: {{ $vi.timeoutTunnel | default "3600s" | quote }}
+    {{- with $vi.timeoutServer }}
+    haproxy.org/timeout-server: {{ . | quote }}
+    {{- end }}
+    {{- if include "vss.ingress.hasPathRewrites" (dict "backends" $b) }}
+    haproxy.org/path-rewrite: |
+      {{- include "vss.ingress.pathRewrites" (dict "backends" $b) | nindent 6 }}
+    {{- end }}
+    {{- with $vi.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- $class := coalesce ($legacy.className | default "") $vi.ingressClassName $vi.className }}
+  {{- if $class }}
+  ingressClassName: {{ $class | quote }}
+  {{- end }}
+  {{- with $vi.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    # -- Main host: the canonical route table -------------------------------
+    - host: {{ $mainHost }}
+      http:
+        paths:
+          {{- include "vss.ingress.paths" (dict "backends" $b) | nindent 10 }}
+{{- if $rtviRule }}
+    # -- East-west rule for global.rtviInternalIngress, off unless that is
+    #    enabled. Host-less so it matches whatever Host an in-cluster caller
+    #    sends: the agent reaches RT-CV / RT-Embed through the ingress
+    #    controller Service to get consistent-hash stream affinity, and that
+    #    request carries the controller Service name as its Host, not the
+    #    public one above. Affinity itself is annotated on those two Services.
+    #    A host-less rule answers on every Host that reaches the controller,
+    #    its external listener included -- which is why it is not the default.
+    - http:
+        paths:
+          {{- include "vss.ingress.paths" (dict "backends" $b "only" (list "rtvi-cv" "rtvi-embed")) | nindent 10 }}
+{{- end }}
+    {{- if $streamerOn }}
+    # -- Streamer host: NVStreamer HTTP API ---------------------------------
+    - host: {{ $streamerHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }}
+                port:
+                  number: {{ ($nvstreamerVals.service | default dict).port | default 31000 }}
+    {{- end }}
+    {{- if $kibanaOn }}
+    # -- Kibana host: dashboards --------------------------------------------
+    - host: {{ $kibanaHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kibana") }}
+                port:
+                  number: {{ ($fk.service | default dict).port | default 5601 }}
+    {{- end }}
+{{- if and (index $b "phoenix") (ne $phoenixHost "") }}
+    # -- Phoenix host: tracing UI -------------------------------------------
+    - host: {{ $phoenixHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ (index $b "phoenix").service }}
+                port:
+                  number: {{ (index $b "phoenix").port }}
+{{- end }}
+{{- end }}
