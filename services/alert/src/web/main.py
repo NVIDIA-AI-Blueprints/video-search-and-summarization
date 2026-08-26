@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import os
+import time
+from typing import Optional
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -21,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from metrics import PROMETHEUS_ENABLED
+from utils import fleet_state
 import logging
 from datetime import datetime
 from schemas.api_status import ErrorCode, ResponseStatus
@@ -159,26 +162,137 @@ async def shutdown_event():
     """Stop background services when FastAPI shuts down."""
     logger.info("Shutting down FastAPI application")
 
-# Health / readiness endpoint.
-#
-# Reports readiness: once startup has run, ``/health`` returns 503 while
-# the alert-config store could not be initialised (persistence enabled but ES
-# unreachable, or a non-dev profile with persistence disabled). A readiness
-# probe pointed at this endpoint therefore keeps traffic away from a pod
-# whose mandatory durable-config subsystem is unusable, instead of the pod
-# looking healthy while silently serving a degraded/non-durable store.
-@app.get("/health")
-async def health_check():
-    """Health + readiness check for Alert Bridge."""
-    if not _startup_ready:
+_NOT_READY = "not_ready"
+
+
+def _startup_failure() -> Optional[JSONResponse]:
+    """503 while the alert-config store could not be initialised.
+
+    Persistence enabled but Elasticsearch unreachable, or a non-dev profile
+    with persistence disabled. This process cannot serve its own API in that
+    state, so it is a failure for both endpoints below.
+    """
+    if _startup_ready:
+        return None
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": _NOT_READY,
+            "message": _startup_error or "service is not ready",
+        },
+    )
+
+
+# Both endpoints report startup and the pipeline fleet. ``/ready`` exists only
+# as the conventional name; the aggregate worker assignment state must reach
+# ``/health``, which is what the deployment contract probes.
+async def _health_payload(ready_message: str):
+    failure = _startup_failure()
+    if failure is not None:
+        return failure
+    degraded = _degraded_workers()
+    if degraded:
+        # A rebalance can take every partition from a worker that is still
+        # running. Reporting ok while part of the instance serves nothing
+        # hides exactly the degradation this is for.
         return JSONResponse(
             status_code=503,
-            content={
-                "status": "not_ready",
-                "message": _startup_error or "service is not ready",
-            },
+            content={"status": _NOT_READY, "message": degraded},
         )
-    return {"status": "ok", "message": "Alert Bridge is running"}
+    return {"status": "ok", "message": ready_message}
+
+
+@app.get("/health")
+async def health_check():
+    """Health + readiness for Alert Bridge, including the pipeline fleet."""
+    return await _health_payload("Alert Bridge is running")
+
+
+@app.get("/ready")
+async def readiness_check():
+    """The same answer as ``/health``, under the conventional probe name.
+
+    Additive only. Fleet state stays on ``/health`` because that is the
+    endpoint operators and the deployment contract already point at.
+    """
+    return await _health_payload("Alert Bridge is ready")
+
+
+_DEGRADED_CACHE: dict = {"at": 0.0, "value": None}
+_DEGRADED_TTL_SECONDS = 1.0
+
+
+def _describe_fleet(configured, alive, ready) -> Optional[str]:
+    """The degradation to report, or None when the fleet is whole."""
+    if configured <= 0:
+        return None
+    if alive < configured:
+        # A dead worker keeps its ready signal until the supervisor tears the
+        # instance down, so readiness alone can still look whole for a poll.
+        return f"{int(alive)} of {int(configured)} pipeline processes are alive"
+    if ready < configured:
+        return (f"{int(ready)} of {int(configured)} pipeline processes hold a "
+                f"partition assignment")
+    return None
+
+
+def _degraded_workers() -> Optional[str]:
+    """Describe the fleet when fewer workers are alive or assigned than exist.
+
+    Read from the shared array the parent publishes, which crosses to this
+    process whether or not metrics are exported. The metric shards are the
+    fallback, for a process that was started without the array; an
+    observability switch used to decide whether this endpoint could tell a
+    dead fleet from a whole one, and it should not.
+    """
+    # The shared array first: it is published whether or not metrics are
+    # exported, so an observability switch cannot decide whether this endpoint
+    # can tell a dead fleet from a whole one.
+    published = fleet_state.read()
+    if published is not None:
+        configured, alive, ready = published
+        return _describe_fleet(configured, alive, ready)
+
+    if not os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+        return None
+
+    # Cached: reading these two numbers means mmapping and parsing every
+    # metric shard in the directory, histograms included, and /health is the
+    # most frequently polled endpoint there is. The counts behind it are
+    # refreshed on the supervisor's one-second poll, so a fresher read carries
+    # no more information than this does.
+    now = time.monotonic()
+    if now - _DEGRADED_CACHE["at"] < _DEGRADED_TTL_SECONDS:
+        return _DEGRADED_CACHE["value"]
+
+    try:
+        from prometheus_client import CollectorRegistry, multiprocess
+
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        values = {
+            sample.name: sample.value
+            for metric in registry.collect()
+            for sample in metric.samples
+        }
+        configured = values.get("alert_bridge_pipeline_processes_configured")
+        ready = values.get("alert_bridge_pipeline_processes_ready")
+        alive = values.get("alert_bridge_pipeline_processes_alive")
+        if configured is None or ready is None or configured <= 0:
+            _DEGRADED_CACHE.update(at=now, value=None)
+            return None
+        degraded = _describe_fleet(configured, configured if alive is None else alive, ready)
+        _DEGRADED_CACHE.update(at=now, value=degraded)
+        return degraded
+    except Exception:
+        # Degraded, not silent. The shards are the only channel left once the
+        # array is absent, so one that cannot be read leaves a dead fleet
+        # indistinguishable from a whole one -- and answering ok is the single
+        # thing this endpoint must never do on a guess.
+        unreadable = "pipeline readiness could not be read from the metric shards"
+        _DEGRADED_CACHE.update(at=now, value=unreadable)
+        logger.debug("Could not read pipeline readiness from metrics", exc_info=True)
+        return unreadable
 
 
 # Prometheus metrics endpoint info

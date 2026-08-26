@@ -15,7 +15,7 @@
 The source-of-truth upstream service key is `lvs` in
 `services/video-summarization/docker/deploy/compose.yaml`; the default container
 name is `lvs`. Older developer-profile wrapper composes may expose
-`lvs-server` / `vss-lvs`, but build-vision-agent generated allow-lists must use
+`lvs-server` / `vss-lvs`, but build-vision-ai generated allow-lists must use
 the source-of-truth `lvs` key and compose path.
 
 ## GPU Requirements

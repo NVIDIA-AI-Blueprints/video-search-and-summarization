@@ -38,6 +38,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+import server.rtvi_vlm_server as rtvi_vlm_server
 from api_models.captions import VlmQuery
 from common.chunk_info import ChunkInfo
 from common.service_exception import ServiceException
@@ -113,6 +114,20 @@ class TestChatCompletionFormatting:
 
         assert message.content == "<think>\nparsed reasoning\n</think>"
         assert message.reasoning_description == "parsed reasoning"
+
+
+def test_input_media_verification_timeout_rejects_non_finite_values(monkeypatch):
+    warning = MagicMock()
+    monkeypatch.setattr(rtvi_vlm_server.logger, "warning", warning)
+
+    for raw_timeout in ("nan", "inf", "-inf"):
+        monkeypatch.setenv(rtvi_vlm_server.INPUT_MEDIA_VERIFICATION_TIMEOUT_ENV, raw_timeout)
+        assert (
+            rtvi_vlm_server._input_media_verification_timeout_sec()
+            == rtvi_vlm_server.DEFAULT_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC
+        )
+
+    assert warning.call_count == 3
 
 
 @pytest.fixture
@@ -350,6 +365,36 @@ class TestFileEndpoints:
         }
         response = test_client.post(f"{API_PREFIX}/files", files=files)
         assert response.status_code in [400, 422]
+
+    def test_add_file_media_verification_timeout_fails_fast(
+        self, test_client, rtvi_server, tmp_path, monkeypatch
+    ):
+        video_path = tmp_path / "warehouse_gopro_60m_10fps.mp4"
+        video_path.write_bytes(b"fake video")
+
+        async def never_returns(*args, **kwargs):
+            await asyncio.sleep(60)
+
+        monkeypatch.setattr(rtvi_vlm_server, "_SKIP_INPUT_MEDIA_VERIFICATION", True)
+        monkeypatch.setattr(rtvi_vlm_server.MediaFileInfo, "get_info_async", never_returns)
+        monkeypatch.setenv("VSS_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC", "0.01")
+
+        response = test_client.post(
+            f"{API_PREFIX}/files",
+            files={
+                "filename": (None, str(video_path)),
+                "purpose": (None, "vision"),
+                "media_type": (None, "video"),
+            },
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["code"] == "InvalidFile"
+        assert "Timed out verifying video file warehouse_gopro_60m_10fps.mp4" in body["message"]
+        assert not any(
+            asset.filename == video_path.name for asset in rtvi_server._asset_manager.list_assets()
+        )
 
     def test_get_file_info_not_found(self, test_client):
         """Test getting file info for non-existent file"""
@@ -1281,6 +1326,43 @@ class TestCVStreamEndpoints:
         assert remove_response.status_code == 200
         assert remove_response.json()["asset_id"] == data["asset_id"]
 
+    def test_stream_add_file_auto_inference_uses_non_streaming_output(
+        self, rtvi_server, monkeypatch, tmp_path
+    ):
+        """VIOS file auto-inference must publish completed chunks to the output bus."""
+        camera_id = f"vios-file-auto-{uuid.uuid4()}"
+        file_path = tmp_path / "Camera_01.mp4"
+        file_path.write_bytes(b"not a real mp4")
+        monkeypatch.setenv("FILE_URL_ALLOWED_DIRS", str(tmp_path))
+        process_request = AsyncMock(return_value=("request-id", MagicMock(), []))
+        rtvi_server._process_vlm_request = process_request
+        client = TestClient(rtvi_server._app)
+
+        response = client.put(
+            f"{API_PREFIX}/camera/streaming",
+            json={
+                "alert_type": "camera_status_change",
+                "created_at": "2026-08-19T13:21:00Z",
+                "event": {
+                    "camera_id": camera_id,
+                    "camera_name": "Camera_01",
+                    "camera_url": str(file_path),
+                    "change": "camera_streaming",
+                    "camera_type": "file",
+                    "metadata": {
+                        "file_start_time": "2026-08-19T13:21:00Z",
+                        "prompt": "Describe the video.",
+                    },
+                },
+                "source": "vios",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["inference"] is True
+        query = process_request.await_args.args[0]
+        assert query.stream is False
+
     def test_stream_add_downloads_vios_https_file_sensor(
         self, test_client, rtvi_server, monkeypatch
     ):
@@ -1510,6 +1592,242 @@ class TestCVStreamEndpoints:
 
 class TestNIMCompatibleEndpoints:
     """Test NIM-compatible endpoints"""
+
+    def test_temporary_chat_asset_cleanup_unregisters_and_deduplicates(self, rtvi_server, tmp_path):
+        """Temporary chat assets are removed from handler and AssetManager exactly once."""
+        media_path = tmp_path / "clip.mp4"
+        media_path.write_bytes(b"test-video")
+        asset_id = rtvi_server._asset_manager.add_file(
+            str(media_path),
+            "vision",
+            "video",
+        )
+        asset = rtvi_server._asset_manager.get_asset(asset_id)
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+        rtvi_server._asset_manager.cleanup_asset = MagicMock()
+
+        asyncio.run(rtvi_server._cleanup_temporary_chat_assets([asset_id, asset_id]))
+
+        rtvi_server._stream_handler.remove_video_file.assert_called_once_with(asset)
+        rtvi_server._asset_manager.cleanup_asset.assert_called_once()
+        cleanup_call = rtvi_server._asset_manager.cleanup_asset.call_args
+        assert cleanup_call.args == (asset_id,)
+        assert cleanup_call.kwargs == {"executor": rtvi_server._cleanup_executor}
+
+    def test_stream_close_cleanup_continues_after_cancellation(self, rtvi_server):
+        """Client disconnect cancellation must not cancel temporary asset cleanup."""
+
+        async def run_cleanup_cancel_test():
+            cleanup_started = asyncio.Event()
+            cleanup_can_finish = asyncio.Event()
+            cleaned_asset_ids = []
+
+            async def cleanup_assets(asset_ids):
+                cleanup_started.set()
+                await cleanup_can_finish.wait()
+                cleaned_asset_ids.extend(asset_ids)
+
+            rtvi_server._cleanup_temporary_chat_assets = cleanup_assets
+
+            cleanup_waiter = asyncio.create_task(
+                rtvi_server._cleanup_temporary_chat_assets_after_stream_close(["temp-asset"])
+            )
+            await cleanup_started.wait()
+            cleanup_waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await cleanup_waiter
+
+            cleanup_tasks = list(rtvi_server._temporary_chat_asset_cleanup_tasks)
+            assert len(cleanup_tasks) == 1
+            cleanup_can_finish.set()
+            await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=1)
+            assert cleaned_asset_ids == ["temp-asset"]
+            assert not rtvi_server._temporary_chat_asset_cleanup_tasks
+
+        asyncio.run(run_cleanup_cancel_test())
+
+    def test_chat_completions_file_url_temp_asset_cleanup_on_non_stream_failure(
+        self, test_client, rtvi_server, tmp_path, monkeypatch
+    ):
+        """Internally-created file URL assets are reclaimed when post-enqueue work fails."""
+        monkeypatch.setenv("RTVI_ALLOWED_LOCAL_MEDIA_PATHS", str(tmp_path))
+        media_path = tmp_path / "clip.mp4"
+        media_path.write_bytes(b"test-video")
+        created_asset_ids = []
+
+        async def process_request(vlm_query, video_id_list, log_prefix, is_chat_completion=False):
+            del vlm_query, log_prefix
+            assert is_chat_completion is True
+            created_asset_ids.extend(video_id_list)
+            asset = rtvi_server._asset_manager.get_asset(video_id_list[0])
+            return str(uuid.uuid4()), asset, [asset]
+
+        rtvi_server._process_vlm_request = AsyncMock(side_effect=process_request)
+        rtvi_server._stream_handler.wait_for_request_done = MagicMock(
+            side_effect=RuntimeError("forced wait failure")
+        )
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+        rtvi_server._asset_manager.cleanup_asset = MagicMock()
+
+        response = test_client.post(
+            f"{API_PREFIX}/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe this video."},
+                            {
+                                "type": "video_url",
+                                "video_url": {"url": f"file://{media_path}"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == 500
+        assert len(created_asset_ids) == 1
+        created_asset = rtvi_server._asset_manager.get_asset(created_asset_ids[0])
+        rtvi_server._stream_handler.remove_video_file.assert_called_once_with(created_asset)
+        rtvi_server._asset_manager.cleanup_asset.assert_called_once()
+        cleanup_call = rtvi_server._asset_manager.cleanup_asset.call_args
+        assert cleanup_call.args == (created_asset_ids[0],)
+        assert cleanup_call.kwargs == {"executor": rtvi_server._cleanup_executor}
+
+    def test_chat_completions_file_url_temp_asset_cleanup_on_media_kwargs_error(
+        self, test_client, rtvi_server, tmp_path, monkeypatch
+    ):
+        """Invalid query parameters after temporary asset creation still reclaim the asset."""
+        monkeypatch.setenv("RTVI_ALLOWED_LOCAL_MEDIA_PATHS", str(tmp_path))
+        media_path = tmp_path / "clip.mp4"
+        media_path.write_bytes(b"test-video")
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+        rtvi_server._asset_manager.cleanup_asset = MagicMock()
+
+        response = test_client.post(
+            f"{API_PREFIX}/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe this video."},
+                            {
+                                "type": "video_url",
+                                "video_url": {"url": f"file://{media_path}"},
+                            },
+                        ],
+                    }
+                ],
+                "media_io_kwargs": {"video": {"fps": "bad"}},
+            },
+        )
+
+        assert response.status_code == 400
+        rtvi_server._stream_handler.remove_video_file.assert_called_once()
+        rtvi_server._asset_manager.cleanup_asset.assert_called_once()
+
+    def test_chat_completions_explicit_id_failure_does_not_cleanup_uploaded_asset(
+        self, test_client, rtvi_server, tmp_path
+    ):
+        """Assets supplied through request_body.id remain caller-owned."""
+        media_path = tmp_path / "uploaded.mp4"
+        media_path.write_bytes(b"test-video")
+        asset_id = rtvi_server._asset_manager.add_file(str(media_path), "vision", "video")
+        asset = rtvi_server._asset_manager.get_asset(asset_id)
+
+        async def process_request(vlm_query, video_id_list, log_prefix, is_chat_completion=False):
+            del vlm_query, video_id_list, log_prefix
+            assert is_chat_completion is True
+            return str(uuid.uuid4()), asset, [asset]
+
+        rtvi_server._process_vlm_request = AsyncMock(side_effect=process_request)
+        rtvi_server._stream_handler.wait_for_request_done = MagicMock(
+            side_effect=RuntimeError("forced wait failure")
+        )
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+        rtvi_server._asset_manager.cleanup_asset = MagicMock()
+
+        response = test_client.post(
+            f"{API_PREFIX}/chat/completions",
+            json={
+                "model": "test-model",
+                "id": asset_id,
+                "messages": [{"role": "user", "content": "Describe this video."}],
+            },
+        )
+
+        assert response.status_code == 500
+        rtvi_server._stream_handler.remove_video_file.assert_not_called()
+        rtvi_server._asset_manager.cleanup_asset.assert_not_called()
+        assert rtvi_server._asset_manager.get_asset(asset_id) is asset
+
+    def test_chat_completions_file_url_stream_cleanup_after_done(
+        self, test_client, rtvi_server, tmp_path, monkeypatch
+    ):
+        """Streaming chat URL assets are reclaimed after terminal SSE output."""
+        monkeypatch.setenv("RTVI_ALLOWED_LOCAL_MEDIA_PATHS", str(tmp_path))
+        media_path = tmp_path / "clip.mp4"
+        media_path.write_bytes(b"test-video")
+        request_id = str(uuid.uuid4())
+        created_asset_ids = []
+
+        async def process_request(vlm_query, video_id_list, log_prefix, is_chat_completion=False):
+            del vlm_query, log_prefix
+            assert is_chat_completion is True
+            created_asset_ids.extend(video_id_list)
+            asset = rtvi_server._asset_manager.get_asset(video_id_list[0])
+            req_info = RequestInfo()
+            req_info.request_id = request_id
+            req_info.status = RequestInfo.Status.SUCCESSFUL
+            req_info.queue_time = time.time()
+            req_info.assets = [asset]
+            req_info.is_live = False
+            rtvi_server._stream_handler._request_info_map[request_id] = req_info
+            return request_id, asset, [asset]
+
+        rtvi_server._process_vlm_request = AsyncMock(side_effect=process_request)
+        rtvi_server._stream_handler.get_response = MagicMock(
+            side_effect=lambda *_args, **_kwargs: (
+                rtvi_server._stream_handler._request_info_map[request_id],
+                [],
+            )
+        )
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+        rtvi_server._asset_manager.cleanup_asset = MagicMock()
+
+        with test_client.stream(
+            "POST",
+            f"{API_PREFIX}/chat/completions",
+            json={
+                "model": "test-model",
+                "stream": True,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe this video."},
+                            {
+                                "type": "video_url",
+                                "video_url": {"url": f"file://{media_path}"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        ) as response:
+            body = "".join(response.iter_text())
+
+        assert response.status_code == 200
+        assert "[DONE]" in body
+        assert len(created_asset_ids) == 1
+        created_asset = rtvi_server._asset_manager.get_asset(created_asset_ids[0])
+        rtvi_server._stream_handler.remove_video_file.assert_called_once_with(created_asset)
+        rtvi_server._asset_manager.cleanup_asset.assert_called_once()
 
     def test_chat_completions_text_only_preserves_reasoning_envelope(
         self, test_client, rtvi_server

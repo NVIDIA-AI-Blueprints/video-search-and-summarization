@@ -28,7 +28,6 @@ deploy/docker/services/infra/haproxy/compose.yml docker.io/library/haproxy:3.4.2
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
-deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
 deploy/docker/services/infra/sdrc/docker-compose.yaml redis:8.10.0-alpine
 deploy/docker/services/monitoring/compose.yml docker.io/grafana/grafana:13.1.1-ubuntu

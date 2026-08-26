@@ -45,7 +45,7 @@ The skill evals reject a globally installed one outright.
 The CLI talks to a **running** stack; it does not stand one up. If there is
 nothing to configure against:
 
-[`/vss-build-vision-agent`](skills/vss-build-vision-agent/SKILL.md) takes the
+[`/vss-build-vision-ai`](skills/vss-build-vision-ai/SKILL.md) takes the
 capabilities you name — dense captioning, detection, search, alerting,
 summarization — and composes, configures and deploys a stack for them, stock or
 a custom combination.

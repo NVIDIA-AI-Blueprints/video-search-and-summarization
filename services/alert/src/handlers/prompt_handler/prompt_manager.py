@@ -28,8 +28,14 @@ logger = logging.getLogger(__name__)
 class PromptManager:
     """Manages prompt templates and selection logic based on alert types."""
     
-    def __init__(self, config_file: str = 'config.yaml'):
-        """Initialize prompt manager backed by the alert-config store (ES/in-process)."""
+    def __init__(self, config_file: str = 'config.yaml', seed_prompts: bool = True):
+        """Initialize prompt manager backed by the alert-config store (ES/in-process).
+
+        ``seed_prompts`` gates the startup write. Reading the store is per
+        instance of this class; writing it is not — with several pipeline
+        processes every one of them would seed the same documents and race,
+        so only one is asked to.
+        """
         self.logger = logging.getLogger(self.__class__.__name__)
 
         try:
@@ -63,7 +69,7 @@ class PromptManager:
         self.alert_type_prompts = {}
         self.alert_type_system_prompts = {}
 
-        if self.override_prompts_on_start:
+        if self.override_prompts_on_start and seed_prompts:
             self._seed_prompts_to_store()
         
     def load_prompts(self) -> None:

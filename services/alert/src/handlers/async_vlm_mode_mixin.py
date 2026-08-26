@@ -25,6 +25,15 @@ logger = get_logger(__name__)
 
 
 class AsyncVLMModeMixin:
+    def _use_async_vlm_runtime(self) -> bool:
+        """Whether VLM work should go through the persistent async runtime.
+
+        Only thread_bridge reaches these helpers: sync calls the blocking
+        client directly, and event_loop awaits inside its own pipeline
+        coroutine instead.
+        """
+        return self.async_io_enabled and self.async_vlm_runtime is not None
+
     def _analyze_video_url_with_mode(
         self,
         video_url: str,
@@ -38,7 +47,7 @@ class AsyncVLMModeMixin:
         Dispatch VLM video analysis through sync/async client based on guardrail flag.
         """
         if use_base64:
-            if self.async_io_enabled and self.async_vlm_runtime is not None:
+            if self._use_async_vlm_runtime():
                 return self.async_vlm_runtime.analyze_video_with_base64(
                     video_url,
                     user_prompt,
@@ -54,7 +63,7 @@ class AsyncVLMModeMixin:
                 config_overrides=config_overrides,
             )
 
-        if self.async_io_enabled and self.async_vlm_runtime is not None:
+        if self._use_async_vlm_runtime():
             return self.async_vlm_runtime.analyze_video_url(
                 video_url,
                 user_prompt,
@@ -74,7 +83,7 @@ class AsyncVLMModeMixin:
         """
         Apply retry delay based on sync/async execution mode.
         """
-        if self.async_io_enabled and self.async_vlm_runtime is not None:
+        if self._use_async_vlm_runtime():
             self.async_vlm_runtime.sleep(retry_delay)
             return
         time.sleep(retry_delay)
@@ -90,7 +99,7 @@ class AsyncVLMModeMixin:
         """
         Dispatch enrichment through sync/async processor path based on guardrail flag.
         """
-        if self.async_io_enabled and self.async_vlm_runtime is not None:
+        if self._use_async_vlm_runtime():
             return self.async_vlm_runtime.run_coroutine(
                 self.enrichment_processor.process_async(
                     message=message,

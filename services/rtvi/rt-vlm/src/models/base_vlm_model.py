@@ -39,6 +39,7 @@ class VlmGenerationConfig:
     min_tokens: Optional[int] = None
     mm_processor_kwargs: Optional[dict] = None
     media_io_kwargs: Optional[dict] = None
+    response_format: Optional[dict] = None
     preserve_reasoning_tags: bool = False
 
 

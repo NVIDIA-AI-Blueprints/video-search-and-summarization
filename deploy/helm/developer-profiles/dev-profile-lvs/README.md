@@ -76,6 +76,20 @@ With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-
 
 To run the RTVI-VLM against a shared/remote VLM endpoint instead of the integrated checkpoint, set `rtvi.vss-rtvi-vlm.useSharedNim=true` and configure the target VLM endpoint/model values.
 
+### Optional GPU monitoring
+
+The chart's DCGM exporter is disabled by default because the NVIDIA GPU
+Operator commonly installs one cluster-wide. On clusters without an existing
+exporter, enable the bundled component explicitly:
+
+```bash
+helm upgrade --install <RELEASE NAME> ./dev-profile-lvs \
+  -f dev-profile-lvs/values-lvs.yaml \
+  --set monitoring.enabled=true \
+  --set monitoring.dcgmExporter.enabled=true \
+  -n <NAMESPACE> --create-namespace
+```
+
 ### NIM GPU profile guidance
 
 The chart requests **one GPU per enabled NIM**, but the repo does **not** encode an exact minimum GPU memory size for each profile. Treat the **`nims.gpuType`** values as tuning profiles, not a certified capacity statement. Use only a profile that matches the GPU class you have validated on the cluster.
