@@ -622,18 +622,26 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                         "Note: these rows are refuted evidence, not candidates; do not report "
                         "them as possible sightings."
                     )
-                else:
-                    rejected_note = (
-                        f", of which {n_rejected} rejected by the critic (retrieved but visually refuted)"
-                        if n_rejected
-                        else ""
+                elif n_rejected > 0:
+                    # Zero confirmed, mixed rejected + unverified: only the
+                    # unverified rows are candidates; refuted rows are never
+                    # counted inside a candidate total.
+                    header = (
+                        f"Found {result_count} retrieval result{'s' if result_count != 1 else ''}: "
+                        f"{n_rejected} rejected by the critic (retrieved but visually refuted), "
+                        f"{n_unverified} unverified candidate{'s' if n_unverified != 1 else ''} "
+                        "(similarity only) — no confirmed matches\n\n"
+                        "Note: rejected rows are refuted evidence, not candidates; unverified "
+                        "rows indicate resemblance, not confirmed presence. Report nothing here "
+                        "as a sighting."
                     )
+                else:
                     header = (
                         f"Found {result_count} candidate match{'es' if result_count != 1 else ''} "
-                        f"(similarity-based retrieval; none visually confirmed{rejected_note})\n\n"
+                        "(similarity-based retrieval; none visually confirmed)\n\n"
                         "Note: similarity scores indicate resemblance, not confirmed presence. "
                         "Report these as candidates, not as sightings, unless a critic verdict "
-                        "is 'confirmed'; rejected rows were visually refuted."
+                        "is 'confirmed'."
                     )
                 results_summary_table = _results_summary_table(final_results)
                 summary = header + "\n\n" + results_summary_table
