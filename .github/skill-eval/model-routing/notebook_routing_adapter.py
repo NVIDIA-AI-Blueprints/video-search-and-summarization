@@ -29,7 +29,7 @@ from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-NOTEBOOK_RELATIVE_PATH = Path("deploy/docker/scripts/deploy_model_routing.ipynb")
+NOTEBOOK_RELATIVE_PATH = Path("deploy/docker/scripts/deploy_vss_switchyard.ipynb")
 
 _DEFAULT_UPSTREAM = "https://inference-api.nvidia.com/v1"
 

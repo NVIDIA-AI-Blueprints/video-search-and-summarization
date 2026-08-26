@@ -195,7 +195,7 @@ network_policies:
           - 172.20.0.0/16
       # Model router (Switchyard), when the agent's LLM traffic is routed.
       # Only reachable when the operator runs the router; see
-      # deploy/docker/scripts/deploy_model_routing.ipynb.
+      # deploy/docker/scripts/deploy_vss_switchyard.ipynb.
       - host: host.openshell.internal
         port: 4000
         access: full

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Executes deploy/docker/scripts/deploy_model_routing.ipynb end to end:
+# Executes deploy/docker/scripts/deploy_vss_switchyard.ipynb end to end:
 # builds Switchyard from its pinned source ref, routes live requests across
 # both targets, and validates the undeployed VSS repoint build. CPU-only.
 #
@@ -41,7 +41,7 @@ defaults:
 
 jobs:
   notebook:
-    name: deploy_model_routing.ipynb end to end
+    name: deploy_vss_switchyard.ipynb end to end
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 45
     steps:
@@ -68,7 +68,7 @@ jobs:
           base="$(git merge-base "origin/$base_branch" HEAD)"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
              || git diff --name-only "$base"...HEAD \
-                  | grep -qE '^(deploy/docker/scripts/deploy_model_routing\.ipynb|\.github/skill-eval/model-routing/|\.github/workflows/model-routing-notebook\.yml)'; then
+                  | grep -qE '^(deploy/docker/scripts/deploy_vss_switchyard\.ipynb|\.github/skill-eval/model-routing/|\.github/workflows/model-routing-notebook\.yml)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
