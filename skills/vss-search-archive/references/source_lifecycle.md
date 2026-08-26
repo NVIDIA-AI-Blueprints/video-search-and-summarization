@@ -188,7 +188,7 @@ mapfile -t SENSORS_TO_DELETE < <(
                         .name == "warehouse_sample" or
                         .name == "warehouse-ladder" or
                         .name == "sample-warehouse-ladder") |
-            .sensorId | select(type == "string" and length > 0)'
+            .sensor_id | select(type == "string" and length > 0)'
 )
 for SENSOR_TO_DELETE in "${SENSORS_TO_DELETE[@]}"; do
   test -n "${SENSOR_TO_DELETE}" || exit 1
