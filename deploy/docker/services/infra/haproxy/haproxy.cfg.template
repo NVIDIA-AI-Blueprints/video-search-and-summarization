@@ -366,3 +366,45 @@ frontend fe_http
     use_backend bk_va_mcp_strip if h_main p_va_mcp
 
     use_backend bk_vss_ui if h_main
+
+    # --- Deprecation signal on the aliased-away prefixes (RFC 9745 / RFC 8594) ---
+    #
+    # Response headers only. Status, body, routing and timeouts are untouched, so
+    # a client that works today keeps working identically and simply learns that
+    # the prefix it used is going away. The point is to turn the soak period into
+    # data about who is still calling /vst, /alert-bridge and /lvs.
+    #
+    # Two steps rather than one, and the reason is easy to get wrong: by the time
+    # a response is processed the backend's replace-path has already rewritten the
+    # path, so /alert-bridge/api/v1/alerts is /api/v1/alerts here. Keying an
+    # http-response rule on the path would therefore never match the prefix it
+    # meant to -- and would match a *different* route's prefix instead. So the
+    # decision is captured at request time, when the path is still what the client
+    # sent, into a transaction variable the response rules read.
+    #
+    # These reuse the routing ACLs above rather than restating `path /vst` and
+    # friends, so the signal cannot drift away from what actually routes. HAProxy
+    # warns that an http-request rule placed after a use_backend rule still runs
+    # first; that is exactly the behaviour relied on here.
+    #
+    # Deliberately silent on:
+    #   - /vios, /alerts, /video-summarization -- the successors.
+    #   - /storage and the host:port /vst compat route. Both rewrite into VST's
+    #     namespace, but neither is one of the three prefixes being retired: they
+    #     are shims for media URLs the product already emitted, with no removal
+    #     planned. Announcing a sunset for them would be a promise nobody made.
+    http-request set-var(txn.deprecated_successor) str(/vios) if h_main p_vst
+    http-request set-var(txn.deprecated_successor) str(/alerts) if h_main p_alert_bridge
+    http-request set-var(txn.deprecated_successor) str(/video-summarization) if h_main p_lvs
+
+    acl legacy_prefix var(txn.deprecated_successor) -m found
+    http-response set-header Deprecation "true" if legacy_prefix
+    http-response set-header Link "<%[var(txn.deprecated_successor)]>; rel=\"successor-version\"" if legacy_prefix
+
+    # Sunset carries an HTTP-date (RFC 8594) and 3.4.0 has no release date yet.
+    # Emitting a guess would be worse than saying nothing, because clients
+    # automate against this header, so it appears only once an operator supplies
+    # a real date. Removal is no earlier than 3.4.0; support runs through 3.3.x.
+.if defined(VSS_GATEWAY_LEGACY_SUNSET)
+    http-response set-header Sunset "${VSS_GATEWAY_LEGACY_SUNSET}" if legacy_prefix
+.endif
