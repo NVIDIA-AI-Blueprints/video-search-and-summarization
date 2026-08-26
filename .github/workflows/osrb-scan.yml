@@ -210,11 +210,25 @@ jobs:
           set -uo pipefail
           status=0
           if [[ -n "${UNCOVERED_ROWS}" && "${UNCOVERED_ROWS}" != "0" ]]; then
-            echo "::error title=OSRB scanner coverage gap::${UNCOVERED_ROWS} dependency-bearing file(s) in this PR are not understood by the scanner, so their dependencies were never inventoried. This is a scanner gap, not an OSRB decision: asking for OSRB approval will not clear it. Teach .github/scripts/osrb_scan.py to parse the file (is_dependency_file / the matching parser) or, with a maintainer, record why the file carries no third-party dependency. See UNCOVERED_SOURCE rows in the step summary."
+            {
+              printf '::error title=OSRB scanner coverage gap::'
+              printf '%s dependency-bearing file(s) in this PR are not understood by ' "${UNCOVERED_ROWS}"
+              printf 'the scanner, so their dependencies were never inventoried. This is a '
+              printf 'scanner gap, not an OSRB decision: asking for OSRB approval will not '
+              printf 'clear it. Teach .github/scripts/osrb_scan.py to parse the file '
+              printf '(is_dependency_file / the matching parser) or, with a maintainer, '
+              printf 'record why the file carries no third-party dependency. See '
+              printf 'UNCOVERED_SOURCE rows in the step summary.\n'
+            }
             status=1
           fi
           if [[ -n "${REVIEW_ROWS}" && "${REVIEW_ROWS}" != "0" ]]; then
-            echo "::error title=OSRB review required::${REVIEW_ROWS} package change(s) require OSRB attention. Get approval for the touched paths from @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers; see .github/OSRB_REVIEW.md."
+            {
+              printf '::error title=OSRB review required::'
+              printf '%s package change(s) require OSRB attention. Get approval for the ' "${REVIEW_ROWS}"
+              printf 'touched paths from @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers; see '
+              printf '.github/OSRB_REVIEW.md.\n'
+            }
             status=1
           fi
           exit "${status}"
