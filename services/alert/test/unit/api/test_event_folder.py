@@ -61,6 +61,16 @@ def chunk(idx, sensor="cam-1", category="alert", offset_s=0, span_s=30):
 class FakeIndices:
     def __init__(self, client):
         self._client = client
+        self.aliases = {}
+
+    def update_aliases(self, actions):
+        for action in actions:
+            add = action.get("add")
+            if not add:
+                raise AssertionError(f"alias action not modelled: {action}")
+            self.aliases[add["alias"]] = {
+                "index": add["index"], "filter": add.get("filter"),
+            }
 
     def exists(self, index):
         return index in self._client.indices_set
@@ -1528,7 +1538,11 @@ class TestFreshnessIsPublishedOrTheCycleIsNot:
         es.client.index = real_index
 
         assert result.freshness_unpublished
-        assert folder.last_completed_at is None
+        # The metric is deliberately *not* suppressed: it describes work that
+        # happened, and it is now the only live freshness signal. Gating it on
+        # the bookkeeping write meant one failed document silenced the SLI for
+        # a cycle whose events all landed.
+        assert folder.last_completed_at is not None
         # The work is not disowned along with the announcement of it. Reporting
         # the cycle as aborted would delete the record of writes that are in the
         # index, leaving the counters permanently short against it.
@@ -2263,3 +2277,335 @@ class TestSettlesAtIsTheLifecycleContract:
 def _parse_iso_for_test(value):
     from datetime import datetime
     return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+class TestTheIndexIsTheContract:
+    """The index is what another service reads, and it holds three kinds of
+    document that are not events. Until the retrieval surface was removed, the
+    code that excluded them lived in this service's own read path."""
+
+    def test_a_filtered_consumer_alias_is_published(self, es):
+        store = RealtimeEventStore(es)
+        store.ensure_index()
+
+        published = es.client.indices.aliases
+        assert store.consumer_alias in published, (
+            "consumers were left to query the index directly, which returns "
+            "the fold lock and every identity alias as events"
+        )
+        entry = published[store.consumer_alias]
+        assert entry["index"] == store.index
+        assert entry["filter"] == {
+            "bool": {"must_not": {"exists": {"field": "_docKind"}}}
+        }
+
+    def test_the_alias_filter_excludes_every_bookkeeping_document(self, es, folder):
+        """Checked against real documents, not against the filter's shape.
+
+        An identity alias carries its target's ``end``, so it lands inside
+        whatever time range a consumer asks for — it is not excluded by luck.
+        """
+        es.client.raw = [chunk(1, offset_s=100)]
+        folder.run_once(now=BASE + timedelta(seconds=200))
+        es.client.raw.insert(0, chunk(0, offset_s=60))
+        folder.run_once(now=BASE + timedelta(seconds=220))
+        store = folder._store
+        store.acquire_lock("someone", ttl_seconds=90)
+
+        docs = es.client.docs[store.index]
+        kinds = {v.get("_docKind") for v in docs.values()}
+        assert kinds >= {"alias", "state", "lock"}, f"fixture is missing kinds: {kinds}"
+
+        visible = [v for v in docs.values() if not v.get("_docKind")]
+        assert len(visible) == 1
+        assert visible[0].get("Id", "").startswith("evt-")
+        # And the thing that makes the filter necessary rather than tidy:
+        aliases = [v for v in docs.values() if v.get("_docKind") == "alias"]
+        assert all(a.get("end") for a in aliases), (
+            "an alias with an end falls inside a consumer's range query"
+        )
+
+    def test_the_index_is_created_before_the_alias_is_published(self, es):
+        store = RealtimeEventStore(es)
+        assert store.consumer_alias not in es.client.indices.aliases
+
+        store.ensure_index()
+
+        assert store.index in es.client.indices_set
+        assert store.consumer_alias in es.client.indices.aliases
+
+
+class TestEventsInWindowGuards:
+    """Both of these were the sole cover for still-live folder behaviour and
+    were removed with the endpoint tests. A mutation pass proved it."""
+
+    def _seed(self, store, count):
+        store.ensure_index()
+        store.upsert([
+            {
+                "Id": f"evt-{i}", "sensorId": "cam-1", "category": "alert",
+                "timestamp": iso(BASE), "end": iso(BASE + timedelta(seconds=30)),
+                "createdAt": iso(BASE),
+            }
+            for i in range(count)
+        ])
+
+    def test_a_read_that_hit_the_cap_reports_itself_incomplete(self, es, monkeypatch):
+        """This flag is the only input to the cycle's abort. Reported complete,
+        the folder folds a truncated view of the stored set, mints fresh ids
+        for everything it did not see, and deletes records on that basis."""
+        import realtime.services.event_store as module
+
+        monkeypatch.setattr(module, "_WINDOW_READ_CAP", 2, raising=False)
+        store = RealtimeEventStore(es)
+        self._seed(store, 3)
+
+        _events, complete = store.events_in_window(
+            iso(BASE - timedelta(hours=1)), iso(BASE + timedelta(hours=1)),
+        )
+
+        assert complete is False
+
+    def test_a_read_within_the_cap_reports_itself_complete(self, es, monkeypatch):
+        import realtime.services.event_store as module
+
+        monkeypatch.setattr(module, "_WINDOW_READ_CAP", 3, raising=False)
+        store = RealtimeEventStore(es)
+        self._seed(store, 3)
+
+        events, complete = store.events_in_window(
+            iso(BASE - timedelta(hours=1)), iso(BASE + timedelta(hours=1)),
+        )
+
+        assert complete is True and len(events) == 3
+
+    def test_bookkeeping_documents_never_enter_the_folders_own_read(self, es, folder):
+        """Without the exclusion the lock, the freshness record and every alias
+        are handed to ``_reconcile_ids`` and ``_superseded`` as stored events."""
+        es.client.raw = [chunk(1, offset_s=100)]
+        folder.run_once(now=BASE + timedelta(seconds=200))
+        es.client.raw.insert(0, chunk(0, offset_s=60))
+        folder.run_once(now=BASE + timedelta(seconds=220))
+        store = folder._store
+        store.acquire_lock("someone", ttl_seconds=90)
+
+        events, _ = store.events_in_window(
+            iso(BASE - timedelta(hours=1)), iso(BASE + timedelta(hours=1)),
+        )
+
+        assert all(not e.get("_docKind") for e in events), (
+            f"internal documents reached the fold: "
+            f"{[e.get('_docKind') for e in events if e.get('_docKind')]}"
+        )
+
+
+class TestAliasChainsAreCollapsed:
+    def test_a_reference_that_moved_twice_still_points_at_a_live_event(self, es, folder):
+        """The reference a caller has held longest is the one that breaks first
+        if chains are left for the reader to walk."""
+        es.client.raw = [chunk(2, offset_s=120)]
+        folder.run_once(now=BASE + timedelta(seconds=200))
+        first = next(iter(stored_events(es)))
+
+        es.client.raw.insert(0, chunk(1, offset_s=80))
+        folder.run_once(now=BASE + timedelta(seconds=220))
+
+        es.client.raw.insert(0, chunk(0, offset_s=40))
+        folder.run_once(now=BASE + timedelta(seconds=240))
+
+        docs = es.client.docs[folder._store.index]
+        live = set(stored_events(es))
+        assert len(live) == 1
+        aliases = {v["from"]: v["to"] for v in docs.values() if v.get("_docKind") == "alias"}
+        assert first in aliases, "the oldest reference has no alias at all"
+        assert aliases[first] in live, (
+            f"the oldest reference points at {aliases[first][:20]}…, which no "
+            f"longer exists — the chain was never collapsed"
+        )
+        for origin, target in aliases.items():
+            assert target in live, f"{origin[:16]}… points at a deleted document"
+
+
+class TestTheFolderPassesTheFence:
+    def test_a_supersession_delete_is_refused_when_the_record_moved(self, es, folder):
+        """The store's fencing is tested; the folder's *use* of it was not.
+
+        Passing ``None`` for versions at the call site unfences the highest
+        consequence operation in the feature — deleting a durable record — and
+        nothing failed.
+        """
+        es.client.raw = [chunk(0, offset_s=0), chunk(2, offset_s=120)]
+        folder.run_once(now=BASE + timedelta(seconds=300))
+        store = folder._store
+        stored, _ = store.events_in_window(
+            iso(BASE - timedelta(hours=1)), iso(BASE + timedelta(hours=1)),
+        )
+        assert len(stored) == 2
+
+        captured = {}
+        real_delete = store.delete
+
+        def watch(event_ids, versions=None):
+            captured["versions"] = versions
+            return real_delete(event_ids, versions)
+
+        store.delete = watch
+        es.client.raw.append(chunk(1, offset_s=60))
+        folder.run_once(now=BASE + timedelta(seconds=320))
+
+        assert captured.get("versions"), (
+            "the folder deleted a durable record without passing the version "
+            "it read, so a stalled cycle could destroy a newer one"
+        )
+        for event in stored:
+            key = str(event["Id"])
+            if key in captured["versions"]:
+                assert captured["versions"][key] == (
+                    event["_seq_no"], event["_primary_term"],
+                )
+
+    def test_a_stale_version_stops_the_delete(self, es, folder):
+        es.client.raw = [chunk(0, offset_s=0), chunk(2, offset_s=120)]
+        folder.run_once(now=BASE + timedelta(seconds=300))
+        store = folder._store
+        before = dict(stored_events(es))
+
+        # Someone else rewrites the records between the read and the delete.
+        real_delete = store.delete
+
+        def move_then_delete(event_ids, versions=None):
+            for event_id in event_ids:
+                docs = es.client.docs[store.index]
+                if event_id in docs:
+                    key = (store.index, event_id)
+                    es.client.seq[key] = es.client.seq.get(key, 0) + 5
+            return real_delete(event_ids, versions)
+
+        store.delete = move_then_delete
+        es.client.raw.append(chunk(1, offset_s=60))
+        result = folder.run_once(now=BASE + timedelta(seconds=320))
+
+        assert result.superseded == 0, "a stale delete destroyed a newer record"
+        for event_id in before:
+            assert event_id in es.client.docs[store.index]
+
+
+class TestExclusionsHoldOnTheirOwnTerms:
+    """Each of these guards currently survives its own removal, because the
+    documents it excludes happen to lack the field the range filter needs.
+    Give them that field and the guard is the only thing left — which is the
+    situation any future field addition creates."""
+
+    def test_an_internal_document_with_a_timestamp_is_still_excluded(self, es, folder):
+        store = folder._store
+        store.ensure_index()
+        docs = es.client.docs.setdefault(store.index, {})
+        docs["_alias-evt-x"] = {
+            "_docKind": "alias", "from": "evt-x", "to": "evt-y",
+            # The fields that make it match a window query.
+            "timestamp": iso(BASE), "end": iso(BASE + timedelta(seconds=30)),
+        }
+        docs["_fold_state"] = {
+            "_docKind": "state", "completedAt": 0.0,
+            "timestamp": iso(BASE), "end": iso(BASE + timedelta(seconds=30)),
+        }
+
+        events, _ = store.events_in_window(
+            iso(BASE - timedelta(hours=1)), iso(BASE + timedelta(hours=1)),
+        )
+
+        kinds = [e.get("_docKind") for e in events if e.get("_docKind")]
+        assert not kinds, (
+            f"bookkeeping documents entered the fold once they carried a "
+            f"timestamp: {kinds}"
+        )
+
+    def test_the_window_read_selects_on_overlap_not_on_start_alone(self, es):
+        """An event that began before the window but runs into it is the case
+        the fold exists to keep whole."""
+        store = RealtimeEventStore(es)
+        store.ensure_index()
+        store.upsert([
+            {
+                "Id": "evt-straddling", "sensorId": "cam-1", "category": "alert",
+                "timestamp": iso(BASE - timedelta(seconds=300)),
+                "end": iso(BASE + timedelta(seconds=30)),
+                "createdAt": iso(BASE - timedelta(seconds=300)),
+            },
+            {
+                "Id": "evt-long-gone", "sensorId": "cam-1", "category": "alert",
+                "timestamp": iso(BASE - timedelta(days=2)),
+                "end": iso(BASE - timedelta(days=2)),
+                "createdAt": iso(BASE - timedelta(days=2)),
+            },
+        ])
+
+        events, _ = store.events_in_window(iso(BASE), iso(BASE + timedelta(hours=1)))
+
+        ids = {e["Id"] for e in events}
+        assert "evt-straddling" in ids, "an event overlapping the window was missed"
+        assert "evt-long-gone" not in ids, "the overlap bound is not being applied"
+
+
+class TestSettlesAtUsesTheNewestMember:
+    def test_a_member_timestamp_later_than_the_event_end_still_counts(self, es, folder):
+        """The fetch predicate is on each chunk's ``timestamp``, so a chunk
+        carrying an ``end`` earlier than its own timestamp leaves the event's
+        ``end`` understating how recently it can still be read."""
+        event = {
+            "Id": "evt-1",
+            "timestamp": iso(BASE),
+            "end": iso(BASE + timedelta(seconds=30)),
+            "chunk_meta": [{"id": "c1", "timestamp": iso(BASE + timedelta(seconds=500))}],
+        }
+
+        settles = folder._settles_at(event)
+
+        expected = BASE + timedelta(seconds=500 + folder.rewrite_horizon_seconds)
+        assert settles == iso(expected), (
+            f"settlesAt was computed from the event end, not from its newest "
+            f"member: got {settles}, expected {iso(expected)}"
+        )
+
+
+class TestElasticClientRecovery:
+    """Rewritten by this MR — a module global replacing an lru_cache so that
+    only successes are memoised — and its tests went with the endpoint."""
+
+    def test_a_failed_client_build_is_not_remembered(self, monkeypatch):
+        import web.api.realtime_routes as routes
+
+        monkeypatch.setattr(routes, "_ELASTIC_CLIENT", None)
+        attempts = {"n": 0}
+
+        def unreachable_then_healthy():
+            attempts["n"] += 1
+            return None if attempts["n"] == 1 else "a-client"
+
+        monkeypatch.setattr(routes, "build_elastic_client", unreachable_then_healthy)
+        try:
+            assert routes.get_elastic_client() is None
+            assert routes.get_elastic_client() == "a-client", (
+                "the failure was memoised, so every route depending on this "
+                "client stays at 503 after the cluster recovers"
+            )
+        finally:
+            routes._ELASTIC_CLIENT = None
+
+    def test_a_successful_client_is_reused(self, monkeypatch):
+        import web.api.realtime_routes as routes
+
+        monkeypatch.setattr(routes, "_ELASTIC_CLIENT", None)
+        builds = {"n": 0}
+
+        def count_builds():
+            builds["n"] += 1
+            return "a-client"
+
+        monkeypatch.setattr(routes, "build_elastic_client", count_builds)
+        try:
+            routes.get_elastic_client()
+            routes.get_elastic_client()
+            assert builds["n"] == 1, "a new client per request would leak pools"
+        finally:
+            routes._ELASTIC_CLIENT = None

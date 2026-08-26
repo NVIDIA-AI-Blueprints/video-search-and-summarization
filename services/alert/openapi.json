@@ -18,7 +18,7 @@
                     "realtime"
                 ],
                 "summary": "Create a real-time VLM alert rule",
-                "description": "Start monitoring a live RTSP stream for a single `alert_type`. On success returns the rule's `id`, which you pass as `alert_rule_id` to `GET` / `DELETE /api/v1/realtime/{alert_rule_id}`.\n\n### Stream sharing\nProvide `sensor_id` to share one underlying RTVI stream across multiple rules:\n- If RTVI already has a stream registered with that id, it is reused \u2014 no extra connection to the camera.\n- Otherwise a new stream is opened.\n- The stream is only torn down when the **last** rule using it is deleted.\n\n### How a create is validated\n1. The rule is persisted (if persistence is enabled).\n2. The RTVI stream is opened (or reused).\n3. The service waits briefly for caption generation to start and, for new streams, polls RTVI until the stream is visible.\n4. If the RTSP source cannot be opened, you get a `502` with `rtvi_stream_not_readable` \u2014 no silent late failure.\n\n### When you might get blocked\nWhile `POST /api/v1/realtime/replay` is running, this endpoint returns `503 replay_in_progress`. Retry once the replay finishes.",
+                "description": "Start monitoring a live RTSP stream for a single `alert_type`. On success returns the rule's `id`, which you pass as `alert_rule_id` to `GET` / `DELETE /api/v1/realtime/{alert_rule_id}`.\n\n### Stream sharing\nProvide `sensor_id` to share one underlying RTVI stream across multiple rules:\n- If RTVI already has a stream registered with that id, it is reused — no extra connection to the camera.\n- Otherwise a new stream is opened.\n- The stream is only torn down when the **last** rule using it is deleted.\n\n### How a create is validated\n1. The rule is persisted (if persistence is enabled).\n2. The RTVI stream is opened (or reused).\n3. The service waits briefly for caption generation to start and, for new streams, polls RTVI until the stream is visible.\n4. If the RTSP source cannot be opened, you get a `502` with `rtvi_stream_not_readable` — no silent late failure.\n\n### When you might get blocked\nWhile `POST /api/v1/realtime/replay` is running, this endpoint returns `503 replay_in_progress`. Retry once the replay finishes.",
                 "operationId": "create_realtime_alert_api_v1_realtime_post",
                 "requestBody": {
                     "required": true,
@@ -42,7 +42,7 @@
                         }
                     },
                     "422": {
-                        "description": "Request rejected before reaching RTVI. Common causes:\n- Invalid payload (missing field, bad RTSP URL, etc.)\n- No VLM model resolved \u2014 neither `model` in the request nor `rtvi_vlm.default_model` is set.\n\nReturned with `error: validation_failed`.",
+                        "description": "Request rejected before reaching RTVI. Common causes:\n- Invalid payload (missing field, bad RTSP URL, etc.)\n- No VLM model resolved — neither `model` in the request nor `rtvi_vlm.default_model` is set.\n\nReturned with `error: validation_failed`.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -52,7 +52,7 @@
                         }
                     },
                     "502": {
-                        "description": "An upstream system failed. Check `error` to know which:\n- `rtvi_vlm_unavailable` \u2014 RTVI VLM is unreachable or rejected the request at the HTTP layer.\n- `rtvi_stream_not_readable` \u2014 RTVI accepted the call but the RTSP source could not be opened in time (camera offline, bad URL, codec mismatch, ...).\n- `rtvi_invalid_response` \u2014 RTVI accepted the stream but did not return a stream id; the rule cannot be managed.\n- `elasticsearch_write_failed` \u2014 failed to persist the rule to Elasticsearch.",
+                        "description": "An upstream system failed. Check `error` to know which:\n- `rtvi_vlm_unavailable` — RTVI VLM is unreachable or rejected the request at the HTTP layer.\n- `rtvi_stream_not_readable` — RTVI accepted the call but the RTSP source could not be opened in time (camera offline, bad URL, codec mismatch, ...).\n- `rtvi_invalid_response` — RTVI accepted the stream but did not return a stream id; the rule cannot be managed.\n- `elasticsearch_write_failed` — failed to persist the rule to Elasticsearch.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -185,7 +185,7 @@
                         }
                     },
                     "502": {
-                        "description": "Upstream failure. Possible `error` codes: `elasticsearch_query_failed` (failed to read the rule before delete), `elasticsearch_write_failed` (failed to delete the rule). RTVI teardown failures are logged but do not surface as 502 \u2014 they leave the stream as a tracked orphan.",
+                        "description": "Upstream failure. Possible `error` codes: `elasticsearch_query_failed` (failed to read the rule before delete), `elasticsearch_write_failed` (failed to delete the rule). RTVI teardown failures are logged but do not surface as 502 — they leave the stream as a tracked orphan.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -195,7 +195,7 @@
                         }
                     },
                     "503": {
-                        "description": "Replay in progress \u2014 rule deletion is gated until `POST /api/v1/realtime/replay` finishes (error code `replay_in_progress`).",
+                        "description": "Replay in progress — rule deletion is gated until `POST /api/v1/realtime/replay` finishes (error code `replay_in_progress`).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -510,7 +510,7 @@
                     "realtime"
                 ],
                 "summary": "Start/stop always-on alert rules for an incoming camera event",
-                "description": "Starts or stops always-on alert rules in response to a camera lifecycle event.\n\n**Behavior by `event.change`:**\n\n- `camera_streaming` \u2014 starts one rule per entry in the always-on rules config. Idempotent per `camera_id`: repeats return reason `STREAM_ADD_ALREADY_ACTIVE`.\n- `camera_remove` \u2014 stops every rule previously started for that `camera_id`.\n\nResponses carry a `reason` code (`STREAM_ADD_SUCCESS`, `STREAM_ADD_PARTIAL_SUCCESS`, `STREAM_ADD_ALREADY_ACTIVE`, `STREAM_ADD_FAILED`, or `ALWAYS_ON_DISABLED`) and a `details` array with one entry per rule.",
+                "description": "Starts or stops always-on alert rules in response to a camera lifecycle event.\n\n**Behavior by `event.change`:**\n\n- `camera_streaming` — starts one rule per entry in the always-on rules config. Idempotent per `camera_id`: repeats return reason `STREAM_ADD_ALREADY_ACTIVE`.\n- `camera_remove` — stops every rule previously started for that `camera_id`.\n\nResponses carry a `reason` code (`STREAM_ADD_SUCCESS`, `STREAM_ADD_PARTIAL_SUCCESS`, `STREAM_ADD_ALREADY_ACTIVE`, `STREAM_ADD_FAILED`, or `ALWAYS_ON_DISABLED`) and a `details` array with one entry per rule.",
                 "operationId": "always_on_realtime_api_v1_realtime_always_on_post",
                 "requestBody": {
                     "content": {
@@ -539,7 +539,7 @@
                                             }
                                         ],
                                         "title": "Alert Type",
-                                        "description": "Producer-assigned event type, e.g. 'camera_status_change'. Not to be confused with the always-on rule's `alert_type` in the YAML config \u2014 this one is informational and passes through unused."
+                                        "description": "Producer-assigned event type, e.g. 'camera_status_change'. Not to be confused with the always-on rule's `alert_type` in the YAML config — this one is informational and passes through unused."
                                     },
                                     "created_at": {
                                         "anyOf": [
@@ -886,8 +886,8 @@
                             }
                         }
                     },
-                    "503": {
-                        "description": "Backend storage temporarily unavailable",
+                    "500": {
+                        "description": "Internal server error",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -896,8 +896,8 @@
                             }
                         }
                     },
-                    "500": {
-                        "description": "Internal server error",
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -946,12 +946,12 @@
                             }
                         }
                     },
-                    "503": {
-                        "description": "Backend storage temporarily unavailable",
+                    "422": {
+                        "description": "Validation Error",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ErrorResponse"
+                                    "$ref": "#/components/schemas/HTTPValidationError"
                                 }
                             }
                         }
@@ -966,12 +966,12 @@
                             }
                         }
                     },
-                    "422": {
-                        "description": "Validation Error",
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/ErrorResponse"
                                 }
                             }
                         }
@@ -1019,12 +1019,12 @@
                             }
                         }
                     },
-                    "503": {
-                        "description": "Backend storage temporarily unavailable",
+                    "422": {
+                        "description": "Validation Error",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ErrorResponse"
+                                    "$ref": "#/components/schemas/HTTPValidationError"
                                 }
                             }
                         }
@@ -1039,12 +1039,12 @@
                             }
                         }
                     },
-                    "422": {
-                        "description": "Validation Error",
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/ErrorResponse"
                                 }
                             }
                         }
@@ -1100,12 +1100,12 @@
                             }
                         }
                     },
-                    "503": {
-                        "description": "Backend storage temporarily unavailable",
+                    "422": {
+                        "description": "Validation Error",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ErrorResponse"
+                                    "$ref": "#/components/schemas/HTTPValidationError"
                                 }
                             }
                         }
@@ -1120,12 +1120,12 @@
                             }
                         }
                     },
-                    "422": {
-                        "description": "Validation Error",
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/ErrorResponse"
                                 }
                             }
                         }
@@ -1171,12 +1171,12 @@
                             }
                         }
                     },
-                    "503": {
-                        "description": "Backend storage temporarily unavailable",
+                    "422": {
+                        "description": "Validation Error",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ErrorResponse"
+                                    "$ref": "#/components/schemas/HTTPValidationError"
                                 }
                             }
                         }
@@ -1191,12 +1191,12 @@
                             }
                         }
                     },
-                    "422": {
-                        "description": "Validation Error",
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/ErrorResponse"
                                 }
                             }
                         }
@@ -1396,6 +1396,7 @@
                                         "type": "string"
                                     },
                                     "info": {
+                                        "type": "object",
                                         "additionalProperties": {
                                             "oneOf": [
                                                 {
@@ -1409,7 +1410,6 @@
                                                 }
                                             ]
                                         },
-                                        "type": "object",
                                         "description": "String values by default; arrays/objects (e.g. media_urls) are accepted and JSON-encoded downstream. Non-string scalars are rejected."
                                     },
                                     "event": {
@@ -1474,7 +1474,7 @@
                         }
                     },
                     "422": {
-                        "description": "Invalid JSON body or missing required field(s)",
+                        "description": "Invalid JSON body",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1499,25 +1499,8 @@
         "/health": {
             "get": {
                 "summary": "Health Check",
-                "description": "Health + readiness for Alert Bridge, including the pipeline fleet.",
+                "description": "Health + readiness check for Alert Bridge.",
                 "operationId": "health_check_health_get",
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/ready": {
-            "get": {
-                "summary": "Readiness Check",
-                "description": "The same answer as ``/health``, under the conventional probe name.\n\nAdditive only. Fleet state stays on ``/health`` because that is the\nendpoint operators and the deployment contract already point at.",
-                "operationId": "readiness_check_ready_get",
                 "responses": {
                     "200": {
                         "description": "Successful Response",
@@ -2089,7 +2072,7 @@
                     "count": {
                         "type": "integer",
                         "title": "Count",
-                        "description": "Number of items in `incidents` on this page \u2014 raw documents, or consolidated events when consolidate=true."
+                        "description": "Number of items in `incidents` on this page — raw documents, or consolidated events when consolidate=true."
                     },
                     "total": {
                         "type": "integer",
@@ -2529,21 +2512,21 @@
                     },
                     "chunk_duration": {
                         "type": "integer",
-                        "minimum": 1.0,
+                        "minimum": 1,
                         "title": "Chunk Duration",
                         "description": "Duration (seconds) of each video chunk sent to VLM",
                         "default": 30
                     },
                     "chunk_overlap_duration": {
                         "type": "integer",
-                        "minimum": 0.0,
+                        "minimum": 0,
                         "title": "Chunk Overlap Duration",
                         "description": "Overlap (seconds) between consecutive chunks",
                         "default": 5
                     },
                     "num_frames_per_second_or_fixed_frames_chunk": {
                         "type": "integer",
-                        "minimum": 1.0,
+                        "minimum": 1,
                         "title": "Num Frames Per Second Or Fixed Frames Chunk",
                         "description": "Same as RTVI VLM generate_captions_alerts: FPS when use_fps_for_chunking is true, else fixed frames per chunk",
                         "default": 10
@@ -2556,14 +2539,14 @@
                     },
                     "vlm_input_width": {
                         "type": "integer",
-                        "minimum": 1.0,
+                        "minimum": 1,
                         "title": "Vlm Input Width",
                         "description": "RTVI: VLM input image width",
                         "default": 256
                     },
                     "vlm_input_height": {
                         "type": "integer",
-                        "minimum": 1.0,
+                        "minimum": 1,
                         "title": "Vlm Input Height",
                         "description": "RTVI: VLM input image height",
                         "default": 256
@@ -2616,7 +2599,7 @@
                         "anyOf": [
                             {
                                 "type": "integer",
-                                "minimum": 1.0
+                                "minimum": 1
                             },
                             {
                                 "type": "null"
@@ -2629,7 +2612,7 @@
                         "anyOf": [
                             {
                                 "type": "number",
-                                "minimum": 0.0
+                                "minimum": 0
                             },
                             {
                                 "type": "null"
@@ -2642,8 +2625,8 @@
                         "anyOf": [
                             {
                                 "type": "number",
-                                "maximum": 1.0,
-                                "minimum": 0.0
+                                "maximum": 1,
+                                "minimum": 0
                             },
                             {
                                 "type": "null"
@@ -2656,7 +2639,7 @@
                         "anyOf": [
                             {
                                 "type": "integer",
-                                "minimum": 0.0
+                                "minimum": 0
                             },
                             {
                                 "type": "null"
@@ -3450,7 +3433,7 @@
                 "additionalProperties": false,
                 "type": "object",
                 "title": "VlmParams",
-                "description": "Optional per-alert-type VLM parameter overrides.\n\nAll fields are optional \u2014 only specified fields override the global\n``vlm`` config in config.yaml.  Unspecified fields fall back to global defaults.\n\nUnknown fields (e.g. typos) raise ValidationError at startup so config\nmistakes fail fast instead of being silently ignored."
+                "description": "Optional per-alert-type VLM parameter overrides.\n\nAll fields are optional — only specified fields override the global\n``vlm`` config in config.yaml.  Unspecified fields fall back to global defaults.\n\nUnknown fields (e.g. typos) raise ValidationError at startup so config\nmistakes fail fast instead of being silently ignored."
             }
         }
     }

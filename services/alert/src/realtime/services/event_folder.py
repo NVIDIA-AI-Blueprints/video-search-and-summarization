@@ -41,12 +41,14 @@ re-fold measures under one percent of a cycle at the sizes this is built for,
 so the tolerance is worth more than the saving. Evidence arriving up to
 ``fold_window_seconds`` after its event ended is therefore still merged into it.
 
-*``status`` is derived when the event is read, never stored.* An event is
-immutable once it falls out of the window, because that is the point at which
-no further cycle rewrites it — but that moment arrives while nothing is being
-written, so a status stamped at write time would say ``open`` forever. It is
-computed against the same window on the read path instead, where it cannot go
-stale.
+*Lifecycle travels as an instant, not as a state.* Each document carries
+``settlesAt`` — the moment after which no cycle can reach it — rather than an
+``open``/``closed`` field. A state would be a function of *now*, and an event
+becomes immutable while nothing is writing, so a stored one would say ``open``
+for the record's life with no writer left to correct it. ``settlesAt`` is
+recomputed on every rewrite, so the last value written is already the right
+one, and a consumer in another service needs none of the bounds below to read
+it.
 """
 
 import hashlib
@@ -91,6 +93,7 @@ try:
             FOLD_EVENTS_PERSISTED,
             FOLD_EVENTS_SUPERSEDED,
             FOLD_EVENTS_PURGED,
+            FOLD_ALIASES_WRITTEN,
             FOLD_FRESHNESS_UNPUBLISHED,
             FOLD_CYCLES_ABORTED,
             FOLD_LAST_COMPLETED,
@@ -99,11 +102,13 @@ try:
     else:  # pragma: no cover - metrics disabled
         FOLD_CYCLES_SKIPPED = FOLD_DURATION = FOLD_EVENTS_PURGED = None
         FOLD_EVENTS_PERSISTED = FOLD_EVENTS_SUPERSEDED = FOLD_TRUNCATED = None
-        FOLD_CYCLES_ABORTED = FOLD_LAST_COMPLETED = FOLD_FRESHNESS_UNPUBLISHED = None
+        FOLD_CYCLES_ABORTED = FOLD_LAST_COMPLETED = None
+        FOLD_FRESHNESS_UNPUBLISHED = FOLD_ALIASES_WRITTEN = None
 except Exception:  # pragma: no cover - metrics module absent
     FOLD_CYCLES_SKIPPED = FOLD_DURATION = FOLD_EVENTS_PURGED = None
     FOLD_EVENTS_PERSISTED = FOLD_EVENTS_SUPERSEDED = FOLD_TRUNCATED = None
-    FOLD_CYCLES_ABORTED = FOLD_LAST_COMPLETED = FOLD_FRESHNESS_UNPUBLISHED = None
+    FOLD_CYCLES_ABORTED = FOLD_LAST_COMPLETED = None
+    FOLD_FRESHNESS_UNPUBLISHED = FOLD_ALIASES_WRITTEN = None
 
 
 def _count_abort(reason: str) -> None:
@@ -187,10 +192,11 @@ def validate_persistence_config(
     _validate_consolidation(consolidation)
     _positive("fold_interval_seconds", persistence.get("fold_interval_seconds", 30))
     # Deliberately not optional. A persisted event carries a clone of the
-    # representative chunk's model text, and it is served by an endpoint with
-    # no authorization boundary — so "keep everything for ever" is not a
-    # configuration this feature can offer. Unbounded retention would need the
-    # model text stripped first, which is a different change.
+    # representative chunk's model text, and it reaches the UI through the
+    # Video Analytics API — which, like this service, has no authorization
+    # boundary. So "keep everything for ever" is not a configuration this
+    # feature can offer; unbounded retention would need the model text
+    # stripped first, which is a different change.
     _positive("retention_days", persistence.get("retention_days", 7))
     # Absent and explicitly null are different answers. Every other consumer of
     # this key defaults it to 300, so an absent key must not be the one thing
@@ -212,10 +218,9 @@ def validate_fold_bounds(
     max_inter_alert_gap_seconds: float,
 ) -> float:
     """Check the window can contain the events folded into it; return the lookback."""
-    # Through ``_positive`` rather than bare ``float()``: both callers are
-    # written against a ValueError contract, and a raw TypeError from ``null``
-    # leaks past ``except ValueError`` — silently disabling the folder in the
-    # pipeline process and answering 500 from the read path.
+    # Through ``_positive`` rather than bare ``float()``: the caller is written
+    # against a ValueError contract, and a raw TypeError from ``null`` leaks
+    # past ``except ValueError``, silently disabling the folder.
     # ``_positive`` is what refuses ``null`` here: an unbounded event cannot be
     # contained by any window, so persistence has no reading of it.
     cap = _positive("max_event_duration_seconds", max_event_duration_seconds)
@@ -512,7 +517,7 @@ class RealtimeEventFolder:
         ttl = self._interval * 3
         self._renewed_at = time.monotonic()
         window_start = now - timedelta(seconds=self._window)
-        start_iso, end_iso = _iso(window_start), _iso(now)
+        end_iso = _iso(now)
         # Fetch further back than the window so an event that ends inside it is
         # read whole. Writing an event assembled from part of its evidence would
         # overwrite the complete record with a shorter one.
@@ -669,12 +674,15 @@ class RealtimeEventFolder:
                 if ends.get(new_id)
             ]
             if live:
-                result.aliases += self._store.write_aliases(live)
+                written_aliases = self._store.write_aliases(live)
+                result.aliases += written_aliases
+                if FOLD_ALIASES_WRITTEN is not None and written_aliases:
+                    FOLD_ALIASES_WRITTEN.inc(written_aliases)
 
         # Unconditional: retention is a mandatory bound, not an optional one.
-        # Persisted events clone the representative chunk's model text and are
-        # served without an authorization boundary, so there is no
-        # configuration in which the reaper does not run.
+        # Persisted events clone the representative chunk's model text and
+        # reach the UI through a service with no authorization boundary, so
+        # there is no configuration in which the reaper does not run.
         cutoff = now - timedelta(days=self._retention_days)
         result.purged = self._store.purge_older_than(_iso(cutoff))
         if FOLD_EVENTS_PURGED is not None and result.purged:
@@ -698,20 +706,21 @@ class RealtimeEventFolder:
         # Freshness is a separate question from whether the work was done, and
         # gets its own signal rather than being folded into ``aborted`` — which
         # means "this cycle's output is not trustworthy", and here it is.
-        if self._store.record_fold(completed_at, result.duration, result.events):
-            self._last_completed_at = completed_at
-            # An instant rather than a lag, so a scrape that finds a dead folder
-            # shows the gap growing. A lag gauge set only on completion would
-            # freeze at its last healthy value.
-            if FOLD_LAST_COMPLETED is not None:
-                FOLD_LAST_COMPLETED.set(completed_at)
-        else:
+        # Set before the freshness write, and unconditionally. This gauge is
+        # now the only live freshness signal, and it describes work that
+        # happened — the same argument the counters above are set on. Gating it
+        # on the bookkeeping document meant a transient failure on one write
+        # silenced the SLI for a cycle whose events are all in the index.
+        self._last_completed_at = completed_at
+        if FOLD_LAST_COMPLETED is not None:
+            FOLD_LAST_COMPLETED.set(completed_at)
+        if not self._store.record_fold(completed_at, result.duration, result.events):
             result.freshness_unpublished = True
             if FOLD_FRESHNESS_UNPUBLISHED is not None:
                 FOLD_FRESHNESS_UNPUBLISHED.inc()
-            logger.error(
-                "Fold cycle completed but its freshness could not be published; "
-                "readers will see the previous completion time"
+            logger.warning(
+                "Fold cycle completed but its freshness record could not be "
+                "written; the metric is still accurate"
             )
         logger.info("Fold cycle complete: %r", result)
         return result

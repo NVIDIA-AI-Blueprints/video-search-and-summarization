@@ -17,17 +17,16 @@
 """
 Durable store for consolidated realtime events.
 
-Owns one Elasticsearch index, written only by the folder and read by the
-retrieval path.  The index is deliberately *not* date-partitioned: document ids
+Owns one Elasticsearch index, written only by the folder. This service serves
+no retrieval endpoint for it: consumers read the filtered ``mdx-`` alias
+published by :meth:`ensure_index`, which hides the bookkeeping documents that
+share the index.  The index is deliberately *not* date-partitioned: document ids
 are unique per index in Elasticsearch, so a single index is what makes an upsert
-keyed on the frozen event id genuinely idempotent.  Partitioning by day would
+keyed on the event id genuinely idempotent.  Partitioning by day would
 let one event exist twice once late evidence moved its start across a boundary.
 
-Ordering and paging use ``createdAt`` with ``Id`` as a tie-break.  Both are
-frozen when the event is first stored, unlike ``end``, which advances while the
-underlying condition continues, and unlike ``timestamp``, which moves *earlier*
-when evidence predating the event arrives; paging on either would silently skip
-and repeat rows.
+``createdAt`` is frozen when an event is first stored, so it stays usable as
+an ordering key while ``timestamp`` moves earlier and ``end`` advances.
 """
 
 import logging
@@ -84,10 +83,12 @@ def _now_epoch() -> float:
 
 
 INDEX_PREFIX = "ab-"
+# The name a consumer in another service reads. It is an Elasticsearch alias
+# rather than the index itself because it carries a filter: this index also
+# holds the fold lock, the freshness record and identity aliases, and a
+# consumer that queried the index directly would render those as events.
+DEFAULT_CONSUMER_ALIAS = "mdx-alert-realtime-events"
 DEFAULT_COLLECTION = "alert-realtime-events"
-# Defined here rather than in the folder because both the folder and the read
-# path need it, and they must not disagree: the read path derives ``status``
-# from the same window the folder re-folds.
 DEFAULT_FOLD_WINDOW_SECONDS = 600.0
 
 # Explicit rather than dynamic: this index is read by other services, so the
@@ -106,6 +107,12 @@ _MAPPING: Dict[str, Any] = {
         # would be pinned at "open" for the record's life. ``settlesAt`` is the
         # instant after which no cycle can reach the event, which is not.
         "settlesAt": {"type": "date"},
+        # Alias bookkeeping. Mapped because a consumer — and the chain
+        # collapse below — has to be able to *query* them; under
+        # ``dynamic: false`` an unmapped field is in _source but invisible
+        # to a term query, which fails silently rather than loudly.
+        "from": {"type": "keyword"},
+        "to": {"type": "keyword"},
         "updatedAt": {"type": "date"},
         "chunk_ids": {"type": "keyword"},
         "chunk_meta": {
@@ -145,12 +152,47 @@ class RealtimeEventStore:
         self,
         es_client,
         collection: str = DEFAULT_COLLECTION,
+        consumer_alias: str = DEFAULT_CONSUMER_ALIAS,
     ) -> None:
         self._es = es_client
         self._index = f"{INDEX_PREFIX}{collection}"
+        self._consumer_alias = consumer_alias
+        self._alias_published = False
     @property
     def index(self) -> str:
         return self._index
+
+    @property
+    def consumer_alias(self) -> str:
+        return self._consumer_alias
+
+    def _ensure_consumer_alias(self, client) -> None:
+        """Publish the filtered view other services read.
+
+        The index holds three kinds of document that are not events — the fold
+        lock, the freshness record, and identity aliases — and until this MR
+        the code that excluded them lived in this service's own read path. That
+        path is gone: the index *is* the contract now. An unfiltered alias
+        would hand a consumer the lock and every identity alias as incidents,
+        and since an identity alias carries its target's ``end`` it lands
+        squarely inside whatever time range the consumer asks for.
+
+        Created here rather than by hand so it cannot drift from the index.
+        """
+        try:
+            client.indices.update_aliases(actions=[{
+                "add": {
+                    "index": self._index,
+                    "alias": self._consumer_alias,
+                    "filter": {"bool": {"must_not": {"exists": {"field": _DOC_KIND_FIELD}}}},
+                }
+            }])
+        except Exception:
+            logger.error(
+                "Could not publish the consumer alias %s; other services would "
+                "otherwise read this index unfiltered",
+                self._consumer_alias, exc_info=True,
+            )
 
     def ensure_index(self) -> bool:
         """Create the index with its explicit mapping if it does not exist.
@@ -162,8 +204,13 @@ class RealtimeEventStore:
         try:
             client = self._es.client
             if client.indices.exists(index=self._index):
+                if not self._alias_published:
+                    self._ensure_consumer_alias(client)
+                    self._alias_published = True
                 return True
             client.indices.create(index=self._index, mappings=_MAPPING)
+            self._ensure_consumer_alias(client)
+            self._alias_published = True
             logger.info("Created realtime event index %s", self._index)
             return True
         except Exception:
@@ -179,7 +226,7 @@ class RealtimeEventStore:
         events: Sequence[dict],
         versions: Optional[Dict[str, Tuple[int, int]]] = None,
     ) -> Tuple[List[str], List[str]]:
-        """Index events by their frozen id, conditional on what was read.
+        """Index events by id, conditional on the version that was read.
 
         Returns ``(written_ids, failed_ids)``. The split matters: the caller
         deletes documents that a re-fold replaced, and deleting on the strength
@@ -286,6 +333,33 @@ class RealtimeEventStore:
             1 for item in resp.get("items", [])
             if item.get("delete", {}).get("result") == "deleted"
         )
+
+    def _aliases_pointing_at(self, event_id: str) -> List[Tuple[str, Optional[Tuple[int, int]]]]:
+        """Aliases whose target is about to be superseded, with their versions."""
+        query = {
+            "bool": {
+                "filter": [
+                    {"term": {_DOC_KIND_FIELD: "alias"}},
+                    {"term": {"to": event_id}},
+                ]
+            }
+        }
+        try:
+            resp = self._es.client.search(
+                index=self._index, query=query, size=100, ignore_unavailable=True,
+            )
+        except Exception:
+            logger.error("Could not look up aliases pointing at %s", event_id, exc_info=True)
+            return []
+        out = []
+        for hit in resp.get("hits", {}).get("hits", []):
+            source = hit.get("_source", {})
+            origin = source.get("from")
+            if not origin:
+                continue
+            seq, primary = hit.get("_seq_no"), hit.get("_primary_term")
+            out.append((str(origin), (seq, primary) if seq is not None else None))
+        return out
 
     # ------------------------------------------------------------------
     # Fold freshness
@@ -495,11 +569,21 @@ class RealtimeEventStore:
         alias is the reconciliation: the identity stays a pure function of the
         evidence, and the old reference still resolves.
 
-        Stored in the same index, tagged as internal so no read returns it, and
-        carrying the **target's** ``end`` rather than the current time — so the
-        reaper takes the alias in the same sweep as the event it points at. An
+        Stored in the same index, tagged as internal so the consumer alias
+        filters it out, and carrying the **target's** ``end`` as of the move —
+        so the reaper takes the alias no later than the event it points at. An
         alias stamped with "now" outlives its target by the whole retention
-        period, leaving a reference that resolves to a document that is gone.
+        period, leaving a reference to a document that is gone. (If the target
+        keeps growing afterwards its ``end`` advances while the alias's does
+        not, so the alias may be reaped up to ``max_event_duration_seconds``
+        early — harmless against a retention measured in days.)
+
+        Chains are collapsed here rather than left for the reader to walk. An
+        id can move twice, and the second move would otherwise leave the first
+        reference pointing at a document that has since been superseded and
+        deleted — so the reference a caller has held longest is the one that
+        breaks first. Anything already pointing at an id being superseded now
+        is repointed at its successor in the same batch.
         """
         if not pairs:
             return 0
@@ -512,6 +596,19 @@ class RealtimeEventStore:
                 "to": str(new_id),
                 "end": end_iso,
             })
+            for stale_id, version in self._aliases_pointing_at(str(old_id)):
+                action: Dict[str, Any] = {
+                    "_index": self._index, "_id": _ALIAS_PREFIX + stale_id,
+                }
+                if version is not None:
+                    action["if_seq_no"], action["if_primary_term"] = version
+                body.append({"index": action})
+                body.append({
+                    _DOC_KIND_FIELD: "alias",
+                    "from": stale_id,
+                    "to": str(new_id),
+                    "end": end_iso,
+                })
         try:
             resp = self._es.client.bulk(operations=body, refresh=False)
         except Exception:

@@ -601,6 +601,11 @@ FOLD_EVENTS_PURGED = Counter(
     'Events removed by the retention reaper',
 )
 
+FOLD_ALIASES_WRITTEN = Counter(
+    'alert_bridge_fold_aliases_written_total',
+    'Identity aliases written for ids a re-fold consumed',
+)
+
 FOLD_FRESHNESS_UNPUBLISHED = Counter(
     'alert_bridge_fold_freshness_unpublished_total',
     'Completed cycles whose freshness record could not be written',
