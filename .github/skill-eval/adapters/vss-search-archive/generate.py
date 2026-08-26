@@ -205,10 +205,14 @@ IN_PRODUCT_AGENT_PREAMBLE = (
     " HEAD:services/agent)\" from the checkout; wait bounded (up to 5 minutes) for"
     " ghcr.io/nvidia-ai-blueprints/vss/vss-agent:$TAG to become pullable and fail with diagnostics"
     " rather than falling back to any other tag; read the deployment's compose file and env-file"
-    " list from the running container's com.docker.compose.* labels (never guess them); recreate"
-    " with VSS_AGENT_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-agent and VSS_CONTAINER_TAG=$TAG set"
-    " in the compose invocation's environment (VSS_CONTAINER_TAG has interpolation precedence;"
-    " VSS_AGENT_VERSION alone is masked by containers.env) using up -d --force-recreate --no-deps"
+    " list from the running container's com.docker.compose.* labels; if the environment_file label"
+    " is absent, fall back to the deployment profile's documented env-file set and say so"
+    " explicitly — never silently guess; recreate"
+    " pinned to that image using whichever mechanism the deployment's compose files honor:"
+    " VSS_AGENT_IMAGE plus VSS_CONTAINER_TAG=$TAG in the invocation environment when the compose file"
+    " interpolates them (VSS_CONTAINER_TAG has precedence; VSS_AGENT_VERSION alone is masked by"
+    " containers.env), or a minimal additional compose override file setting only the vss-agent image"
+    " when the resolved file has the image hardcoded — always up -d --force-recreate --no-deps"
     " vss-agent; then PROVE the pin took: docker inspect vss-agent --format '{{.Config.Image}}' must"
     " end with :$TAG, and fail the step if it does not. Wait for the agent health check before"
     " probing. Do not redeploy the profile, do not touch any other service, and do not ingest"
@@ -255,7 +259,29 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     '  if [[ -n "$COMPOSE_FILES" && -n "$COMPOSE_WD" ]]; then\n'
     "    FARGS=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"; for f in \"${CF[@]}\"; do FARGS+=(-f \"$f\"); done\n"
     "    EARGS=(); if [[ -n \"$ENV_FILES\" ]]; then IFS=',' read -ra EF <<< \"$ENV_FILES\"; for f in \"${EF[@]}\"; do EARGS+=(--env-file \"$f\"); done; fi\n"
-    '    (cd "$COMPOSE_WD" && docker compose "${EARGS[@]}" "${FARGS[@]}" up -d --force-recreate --no-deps vss-agent) || true\n'
+    "    # Verified restore with one bounded retry. Never fails the verifier —\n"
+    "    # masking the step's real verdict would trade one integrity problem for\n"
+    "    # another — but a failed restore is loud: a machine-greppable marker on\n"
+    "    # stdout plus a breadcrumb in the verifier artifacts. The environment\n"
+    "    # provider's docker wipe before the next spec is the terminal backstop.\n"
+    "    for RESTORE_ATTEMPT in 1 2; do\n"
+    '      (cd "$COMPOSE_WD" && docker compose "${EARGS[@]}" "${FARGS[@]}" up -d --force-recreate --no-deps vss-agent) || true\n'
+    "      sleep 5\n"
+    '      POST_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
+    '      if [[ "$POST_IMAGE" != *":tree-"* && -n "$POST_IMAGE" ]]; then\n'
+    '        echo "verifier cleanup: restored vss-agent to $POST_IMAGE (attempt $RESTORE_ATTEMPT)"\n'
+    "        break\n"
+    "      fi\n"
+    "      if [[ $RESTORE_ATTEMPT -eq 2 ]]; then\n"
+    '        echo "VERIFIER-RESTORE-FAILED: vss-agent still on $POST_IMAGE after 2 attempts"\n'
+    '        mkdir -p /logs/verifier 2>/dev/null || true\n'
+    '        echo "still pinned: $POST_IMAGE" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    "      fi\n"
+    "    done\n"
+    "  else\n"
+    '    echo "VERIFIER-RESTORE-FAILED: compose labels missing on vss-agent; cannot restore"\n'
+    '    mkdir -p /logs/verifier 2>/dev/null || true\n'
+    '    echo "compose labels missing" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
     "  fi\n"
     "fi\n"
 )

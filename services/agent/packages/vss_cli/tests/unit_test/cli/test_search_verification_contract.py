@@ -155,11 +155,12 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "tree-$(git rev-parse HEAD:services/agent)" in action_query
     assert "--no-deps" in action_query
     assert "fail rather than falling back" in action_query
-    # VSS_AGENT_VERSION alone is masked by containers.env's VSS_CONTAINER_TAG
-    # (compose resolves ${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-...}}), so the
-    # pin must ride VSS_CONTAINER_TAG and must be PROVEN via docker inspect.
+    # VSS_AGENT_VERSION alone is masked by containers.env's VSS_CONTAINER_TAG,
+    # and a baked resolved.yml ignores env interpolation entirely — so the pin
+    # is mechanism-agnostic (env var or image-only override) but must always be
+    # PROVEN via docker inspect.
     assert "VSS_CONTAINER_TAG" in action_query
-    assert "VSS_AGENT_VERSION" not in action_query
+    assert "compose override file" in action_query
     assert "docker inspect vss-agent" in action_query
     probe = spec["expects"][10]
     assert "self-sufficient" in probe["query"]
