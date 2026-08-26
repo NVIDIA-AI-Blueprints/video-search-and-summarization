@@ -285,10 +285,46 @@ such a URL under a prefix introduced here.
 
 **Deprecation window.** `/vst`, `/alert-bridge` and `/lvs` remain supported
 for the whole of 3.3.x and are removed no earlier than 3.4.0 — one full minor
-release of overlap, so callers can move on their own schedule. They are not
-yet warned on at the edge. Removal is a separate ticket that retires the old
-prefix in Docker, Helm and the CLI together, and it should not start until the
-aliases have soaked.
+release of overlap, so callers can move on their own schedule. Removal is a
+separate ticket that retires the old prefix in Docker, Helm and the CLI
+together, and it should not start until the aliases have soaked.
+
+**The soak is measured, not guessed.** A response on a legacy prefix carries an
+RFC 9745 / RFC 8594 deprecation signal, so the question "is anything still
+calling `/vst`?" is answered by proxy logs and client warnings instead of an
+assumption:
+
+| Header | Value | Notes |
+|--------|-------|-------|
+| `Deprecation` | `true` | On `/vst`, `/alert-bridge`, `/lvs` only |
+| `Link` | `</vios>; rel="successor-version"` | Per prefix: `/vios`, `/alerts` or `/video-summarization`, so a client can migrate itself |
+| `Sunset` | operator-supplied HTTP-date | **Absent by default** |
+
+`Sunset` takes an HTTP-date and 3.4.0 has no release date, so it is emitted
+only when `VSS_GATEWAY_LEGACY_SUNSET` is set — a guessed date is worse than
+none, because clients automate against this header. Set it in your profile's
+env once the date is known:
+
+```bash
+VSS_GATEWAY_LEGACY_SUNSET="Wed, 01 Jul 2026 00:00:00 GMT"
+```
+
+Nothing but the headers changes: same status, body, routing and timeouts, so a
+client that works today keeps working. The aliases emit nothing, and neither
+does `/storage` nor the `host:port` `/vst` compat route — both rewrite into
+VST's namespace, but they are shims for URLs the product already emitted, with
+no removal planned. Two exceptions worth knowing: the `HEAD`/`OPTIONS`
+short-circuits on `/vst/storage` answer inside HAProxy and so carry no header,
+and Kubernetes has no equivalent (see below).
+
+Kubernetes does not carry this signal. The HAProxy ingress controller can set
+response headers per-ingress, but the legacy and alias paths for a backend live
+in the **same** Ingress object in every chart here, so an annotation would
+stamp the successor prefix too — the one thing the signal must not do. Splitting
+each chart's Ingress in two to express it would change the rendered object
+graph for a telemetry nicety. Docker gets the header; Helm gets the same
+routing without it, and the deprecation window is documented rather than
+advertised at the edge.
 
 The CLI still probes and records the **old** prefixes. `vss configure` is
 deliberately left on `/vst` and `/lvs`: pointing it at an unsoaked alias would
