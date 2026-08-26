@@ -1,36 +1,265 @@
 {
-  "message_broker": {
-    "enable_notification": true,
-    "enable_notification_consumer": true,
-    "use_message_broker_consumer": "kafka",
-    "message_broker_topic_consumer": "mdx-raw",
-    "use_message_broker": "redis",
-    "message_broker_payload_key": "sensor.id",
-    "message_broker_topic": "vst.event",
-    "message_broker_metadata_topic": "mdx-raw",
-    "redis_server_env_var": "redis:6379",
-    "kafka_server_address": "kafka:29092",
-    "mqtt_broker_address": "tcp://172.17.0.1:1883"
-  },
-  "webhooks": {
-    "enabled": false,
-    "items": [
-      {
-        "enabled": false,
-        "id": "dummy-camera-add",
-        "camera_status_change": "camera_add",
-        "request": [
-          {
-            "url": "http://127.0.0.1:18088/bdd/webhooks/camera/add",
-            "method": "POST",
-            "headers": {"Content-Type": "application/json", "x-stream-id": "{{event.camera_id}}"},
-            "query_params": {"change": "{{event.change}}"},
-            "camera_type": ["rtsp", "file"],
-            "timeout_ms": 5000,
-            "retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-          }
+    "message_broker": {
+        "enable_notification": true,
+        "enable_notification_consumer": true,
+        "use_message_broker_consumer": "kafka",
+        "message_broker_topic_consumer": "mdx-raw",
+        "use_message_broker": "redis",
+        "message_broker_payload_key": "sensor.id",
+        "message_broker_topic": "vst.event",
+        "message_broker_metadata_topic": "mdx-raw",
+        "redis_server_env_var": "redis:6379",
+        "kafka_server_address": "kafka:29092",
+        "mqtt_broker_address": "tcp://172.17.0.1:1883"
+    },
+    "webhooks": {
+        "enabled": true,
+        "items": [
+            {
+                "enabled": false,
+                "id": "dummy-camera-add",
+                "camera_status_change": "camera_add",
+                "request": [],
+                "auth": {
+                    "type": "hmac-sha256",
+                    "secret": "{{secrets.signing_key}}",
+                    "header_name": "X-VIOS-Signature"
+                }
+            },
+            {
+                "enabled": true,
+                "camera_status_change": "camera_streaming",
+                "request": [
+                    {
+                        "url": "http://vss-rtvi-cv:9000/api/v1/stream/add",
+                        "method": "POST",
+                        "headers": {
+                            "Content-Type": "application/json",
+                            "x-stream-id": "{{event.camera_id}}"
+                        },
+                        "camera_type": [
+                            "file", "rtsp"
+                        ],
+                        "timeout_ms": 60000,
+                        "retry": {
+                            "max_attempts": 3,
+                            "backoff_ms": [
+                                1000,
+                                5000,
+                                15000
+                            ],
+                            "retry_on_status": [
+                                408,
+                                429,
+                                500,
+                                502,
+                                503,
+                                504
+                            ]  
+                        },
+                        "auth": {"type": "hmac-sha256", "secret": "{{secrets.signing_key}}", "header_name": "X-VIOS-Signature"}
+                    },
+
+                    {
+                        "url": "http://vss-rtvi-embed:8000/v1/stream/add",
+                        "method": "POST",
+                        "headers": {
+                            "accept": "application/json",
+                            "Content-Type": "application/json",
+                            "x-stream-id": "{{event.camera_id}}"
+                        },
+                        "camera_type": [
+                            "file", "rtsp"
+                        ],
+                        "timeout_ms": 600000,
+                        "retry": {
+                            "max_attempts": 3,
+                            "backoff_ms": [
+                                1000,
+                                5000,
+                                15000
+                            ],
+                            "retry_on_status": [
+                                408,
+                                429,
+                                500,
+                                502,
+                                503,
+                                504
+                            ]
+                        },
+                        "user_defined_metadata": {"model": "cosmos-embed1-448p-anomaly-detection", "chunk_duration": 5}
+
+                    },
+                    {
+                        
+                        "url": "http://rtvi-vlm:8000/v1/stream/add",
+                        "method": "POST",
+                        "headers": {
+                              "Content-Type": "application/json",
+                              "x-camera-id": "{{event.camera_id}}"
+                        },
+                        "query_params": {"change": "{{event.change}}"},
+                        "camera_type": ["rtsp", "file"],
+                        "timeout_ms": 5000,
+                        "retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]},
+                        "user_defined_metadata": {"prompt": "Analyze only this video interval. Return  visible concepts, actions, objects, and events and description in one concise factual sentence. Do not infer facts that are not visible", "chunk_duration": 5}
+                      }
+                ]
+            },
+            {
+                "enabled": true,
+                "camera_status_change": "camera_remove",
+                "request": [
+                    {
+                        "url": "http://elasticsearch:9200/mdx-embed-filtered-2025-01-01/_delete_by_query?",
+                        "method": "POST",
+                        "headers": {
+                            "Content-Type": "application/json"
+                        },
+                        "query_params": {
+                            "conflicts": "proceed",
+                            "refresh": "true"
+                        },
+                        "body": {
+                            "query": {
+                            "term": {
+                                "sensor.id.keyword": "{{event.camera_id}}"
+                            }
+                            }
+                        },
+                        "timeout_ms": 5000
+                    },
+                    {
+                        "url": "http://elasticsearch:9200/mdx-behavior-2025-01-01/_delete_by_query?",
+                        "method": "POST",
+                        "headers": {
+                            "Content-Type": "application/json"
+                        },
+                        "query_params": {
+                            "conflicts": "proceed",
+                            "refresh": "true"
+                        },
+                        "body": {
+                            "query": {
+                            "term": {
+                                "sensor.id.keyword": "{{event.camera_name}}"
+                            }
+                            }
+                        },
+                        "timeout_ms": 5000
+                    },
+                                        {
+                        "url": "http://elasticsearch:9200/mdx-raw-2025-01-01/_delete_by_query?",
+                        "method": "POST",
+                        "headers": {
+                            "Content-Type": "application/json"
+                        },
+                        "query_params": {
+                            "conflicts": "proceed",
+                            "refresh": "true"
+                        },
+                        "body": {
+                            "query": {
+                            "term": {
+                                "sensorId.keyword": "{{event.camera_name}}"
+                            }
+                            }
+                        },
+                        "timeout_ms": 5000
+                    },
+                    {
+                        "url": "http://vss-rtvi-cv:9000/api/v1/stream/remove",
+                        "method": "POST",
+                        "headers": {
+                            "Content-Type": "application/json",
+                            "x-stream-id": "{{event.camera_id}}"
+                        },
+                        "camera_type": [
+                            "file", "rtsp"
+                        ],
+                        "timeout_ms": 60000,
+                        "retry": {
+                            "max_attempts": 3,
+                            "backoff_ms": [
+                                1000,
+                                5000,
+                                15000
+                            ],
+                            "retry_on_status": [
+                                408,
+                                429,
+                                500,
+                                502,
+                                503,
+                                504
+                            ]
+                        }
+                    },
+
+                    {
+                        "url": "http://vss-rtvi-embed:8000/v1/stream/remove",
+                        "method": "POST",
+                        "headers": {
+                            "accept": "application/json",
+                            "Content-Type": "application/json",
+                            "x-stream-id": "{{event.camera_id}}"
+                        },
+                        "camera_type": [
+                            "file", "rtsp"
+                        ],
+                        "timeout_ms": 600000,
+                        "retry": {
+                            "max_attempts": 3,
+                            "backoff_ms": [
+                                1000,
+                                5000,
+                                15000
+                            ],
+                            "retry_on_status": [
+                                408,
+                                429,
+                                500,
+                                502,
+                                503,
+                                504
+                            ]
+                        }
+                    },
+                    {
+                        "url": "http://rtvi-vlm:8000/v1/stream/remove",
+                        "method": "POST",
+                        "headers": {
+                            "accept": "application/json",
+                            "Content-Type": "application/json",
+                            "x-stream-id": "{{event.camera_id}}"
+                        },
+                        "camera_type": [
+                            "file", "rtsp"
+                        ],
+                        "timeout_ms": 600000,
+                        "retry": {
+                            "max_attempts": 3,
+                            "backoff_ms": [
+                                1000,
+                                5000,
+                                15000
+                            ],
+                            "retry_on_status": [
+                                408,
+                                429,
+                                500,
+                                502,
+                                503,
+                                504
+                            ]
+                        }
+                    }
+                ]
+            }
         ]
-      }
-    ]
-  }
+    }
 }
+
+
+
