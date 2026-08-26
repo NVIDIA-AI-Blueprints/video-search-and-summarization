@@ -387,6 +387,13 @@ class RealtimeEventFolder:
             return None
         return _iso(newest + timedelta(seconds=self.rewrite_horizon_seconds))
 
+    def _purge(self, now: datetime, result: "FoldResult") -> None:
+        """Drop events past the retention bound. Runs even on an abandoned cycle."""
+        cutoff = now - timedelta(days=self._retention_days)
+        result.purged = self._store.purge_older_than(_iso(cutoff))
+        if FOLD_EVENTS_PURGED is not None and result.purged:
+            FOLD_EVENTS_PURGED.inc(result.purged)
+
     def _renew_due(self, now_monotonic: float) -> bool:
         """Whether the lease is close enough to expiry to be worth rewriting.
 
@@ -522,6 +529,14 @@ class RealtimeEventFolder:
         # read whole. Writing an event assembled from part of its evidence would
         # overwrite the complete record with a shorter one.
         fetch_iso = _iso(window_start - timedelta(seconds=self._lookback))
+
+        # Before the abort checks, deliberately. Retention selects on age and
+        # is independent of whether *this* cycle's fold can be trusted, so
+        # coupling them means an instance that aborts every cycle — a loser of
+        # the lock race, or one hitting the stored-set cap — never purges at
+        # all. The events carry cloned model text and nothing else bounds this
+        # index, so the reaper has to run on the paths that give up too.
+        self._purge(now, result)
 
         existing, complete = self._store.events_in_window(fetch_iso, end_iso)
         if not complete:
@@ -691,14 +706,6 @@ class RealtimeEventFolder:
                 if FOLD_ALIASES_WRITTEN is not None and written_aliases:
                     FOLD_ALIASES_WRITTEN.inc(written_aliases)
 
-        # Unconditional: retention is a mandatory bound, not an optional one.
-        # Persisted events clone the representative chunk's model text and
-        # reach the UI through a service with no authorization boundary, so
-        # there is no configuration in which the reaper does not run.
-        cutoff = now - timedelta(days=self._retention_days)
-        result.purged = self._store.purge_older_than(_iso(cutoff))
-        if FOLD_EVENTS_PURGED is not None and result.purged:
-            FOLD_EVENTS_PURGED.inc(result.purged)
 
         result.duration = time.monotonic() - started
         completed_at = time.time()

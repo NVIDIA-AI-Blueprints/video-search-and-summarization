@@ -620,6 +620,13 @@ FOLD_CYCLES_ABORTED = Counter(
 FOLD_LAST_COMPLETED = Gauge(
     'alert_bridge_fold_last_completed_timestamp_seconds',
     'Unix time of the last completed fold cycle',
+    # Explicit for the same reason as the gauges above: the default is 'all',
+    # which exports one ``pid``-labelled series per process. The bare metric
+    # name would then match nothing, so a freshness alert written against it
+    # never fires — and 'all' files are not reaped on process death, so each
+    # leader restart leaves another series reporting a fold that finished days
+    # ago. This is the only live freshness signal the folder has.
+    multiprocess_mode='livemostrecent',
 )
 
 # ---------------------------------------------------------------------------

@@ -180,7 +180,6 @@ def get_elastic_client():
     return _ELASTIC_CLIENT
 
 
-@lru_cache()
 def get_rule_store() -> Optional[RuleStore]:
     """Build the :class:`ESRuleStore` backed by the shared persistence layer.
 
@@ -212,6 +211,9 @@ def get_rule_store() -> Optional[RuleStore]:
         )
         return None
 
+    # Not cached, for the same reason as :func:`get_incident_service`: a
+    # store built while Elasticsearch was briefly unreachable would otherwise
+    # be memoised, and every later request would keep using it.
     es_client = get_elastic_client()
     store = create_persistence_store(config, es_client=es_client)
 
@@ -257,8 +259,17 @@ def get_always_on_service() -> AlwaysOnService:
 
 
 @lru_cache()
-def get_incident_service() -> IncidentService:
-    """Create IncidentService with shared ES client."""
+def _incident_service_settings():
+    """The parts of the incident service that come from the config file.
+
+    Cached separately from the service itself so the client is resolved per
+    request: memoising the service captures whatever ``get_elastic_client``
+    returned the first time it was called, which for one request arriving
+    during an Elasticsearch restart is ``None`` — and every later request then
+    gets that same ``None``-backed service, for the life of the process. That
+    is the failure ``get_elastic_client`` stopped memoising in order to avoid,
+    and caching here instead of there simply moved it.
+    """
     config = load_config()
     sink_cfg = config.get("vlm_enhanced_sink", {})
     incident_cfg = sink_cfg.get("incident", {})
@@ -267,7 +278,12 @@ def get_incident_service() -> IncidentService:
         index_base = incident_cfg.get("elastic", {}).get("index", index_base)
 
     consolidation = config.get("rtvi_vlm", {}).get("consolidation", {})
+    return index_base, consolidation
 
+
+def get_incident_service() -> IncidentService:
+    """Create IncidentService with the shared ES client, resolved per request."""
+    index_base, consolidation = _incident_service_settings()
     return IncidentService(
         es_client=get_elastic_client(),
         index_base=index_base,

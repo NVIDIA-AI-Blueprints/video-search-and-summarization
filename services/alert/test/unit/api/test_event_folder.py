@@ -724,7 +724,7 @@ class TestUncoveredPaths:
         assert result.groups == 5, f"only {result.groups} of 5 groups were walked"
         assert len(stored_events(es)) == 5
 
-    def test_a_lost_lease_stops_before_retention_and_freshness(self, es, folder):
+    def test_a_lost_lease_stops_before_publishing_the_cycle(self, es, folder):
         es.client.raw = [chunk(0, sensor="cam-1"), chunk(0, sensor="cam-2")]
         calls = {"purge": 0, "record": 0}
         folder._store.purge_older_than = lambda *a, **k: calls.__setitem__("purge", calls["purge"] + 1) or 0
@@ -735,9 +735,14 @@ class TestUncoveredPaths:
         result = folder.run_once(now=BASE + timedelta(seconds=400))
 
         assert result.aborted is True
-        assert calls == {"purge": 0, "record": 0}, (
-            "an abandoned cycle must not delete or publish itself as complete"
+        assert calls["record"] == 0, (
+            "an abandoned cycle published itself as a completed fold"
         )
+        # Retention *does* run: it happened under a lease this cycle still
+        # held, it selects on age rather than on anything this cycle computed,
+        # and skipping it on every abandoned cycle is how an instance that
+        # aborts repeatedly stops bounding the index at all.
+        assert calls["purge"] == 1
 
     def test_release_hands_the_lock_to_a_different_owner(self, es, folder):
         es.client.raw = [chunk(0, offset_s=0)]
@@ -2745,3 +2750,86 @@ class TestTheConsumerAliasMustActuallyPublish:
         store.ensure_index()
 
         assert calls["n"] == 1
+
+
+class TestRetentionRunsOnAbandonedCycles:
+    """Retention is age-based and independent of whether this cycle's fold can
+    be trusted. Coupling them means an instance that aborts every cycle stops
+    bounding the index — and nothing else bounds it."""
+
+    def _old_event(self, store):
+        store.ensure_index()
+        store.upsert([{
+            "Id": "evt-ancient", "sensorId": "cam-1", "category": "alert",
+            "timestamp": iso(BASE - timedelta(days=30)),
+            "end": iso(BASE - timedelta(days=30)),
+            "createdAt": iso(BASE - timedelta(days=30)),
+        }])
+
+    def test_an_incomplete_stored_read_still_purges(self, es, folder):
+        self._old_event(folder._store)
+        real = folder._store.events_in_window
+        folder._store.events_in_window = lambda *a, **k: ([], False)
+
+        result = folder.run_once(now=BASE)
+        folder._store.events_in_window = real
+
+        assert result.aborted
+        assert "evt-ancient" not in es.client.docs[folder._store.index], (
+            "an instance that aborts every cycle would never bound the index"
+        )
+
+    def test_an_incomplete_group_walk_still_purges(self, es, folder):
+        self._old_event(folder._store)
+        folder._groups = lambda *a, **k: ([], False)
+
+        result = folder.run_once(now=BASE)
+
+        assert result.aborted
+        assert "evt-ancient" not in es.client.docs[folder._store.index]
+
+
+class TestRoutesRecoverWhenElasticsearchReturns:
+    """The client stopped memoising its failures; that only helps if the things
+    built from it are not memoised either. A service cached during an outage
+    keeps its ``None`` client for the life of the process, which is the exact
+    defect the client change was made to remove."""
+
+    def test_neither_dependency_is_memoised(self):
+        import web.api.realtime_routes as routes
+
+        for fn in (routes.get_incident_service, routes.get_rule_store):
+            assert not hasattr(fn, "cache_info"), (
+                f"{fn.__name__} is lru_cached, so it captures whatever the "
+                f"client was on the first request and never lets go"
+            )
+
+    def test_the_incident_service_resolves_the_client_every_call(self, monkeypatch):
+        import web.api.realtime_routes as routes
+
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            routes, "get_elastic_client",
+            lambda: (calls.__setitem__("n", calls["n"] + 1), None)[1],
+        )
+
+        routes.get_incident_service()
+        routes.get_incident_service()
+
+        assert calls["n"] == 2
+
+    def test_the_rule_store_resolves_the_client_every_call(self, monkeypatch):
+        import web.api.realtime_routes as routes
+
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            routes, "get_elastic_client",
+            lambda: (calls.__setitem__("n", calls["n"] + 1), None)[1],
+        )
+        # Short-circuit before any real connection is attempted.
+        monkeypatch.setattr(routes, "create_persistence_store", lambda *a, **k: None)
+
+        routes.get_rule_store()
+        routes.get_rule_store()
+
+        assert calls["n"] == 2
