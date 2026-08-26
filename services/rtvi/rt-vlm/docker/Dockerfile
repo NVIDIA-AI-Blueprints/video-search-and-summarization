@@ -162,8 +162,12 @@ RUN --mount=from=sbsa-media-runtime,source=/,target=/tmp/sbsa-root,readonly \
         test -s "$source_plugin"; \
         install -Dm755 "$source_plugin" /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvvideo4linux2.so; \
     fi
-COPY --from=triton-cuda-runtime /usr/local/cuda/targets /tmp/triton-cuda-targets
-RUN set -e; if [ "$TARGETARCH" = "amd64" ]; then \
+# Mount Triton's CUDA targets instead of copying the whole tree into an image
+# layer. Only NPP and NVJPEG are needed at runtime; a COPY followed by rm would
+# retain every other target file in the preceding layer and inflate BuildKit's
+# peak disk use.
+RUN --mount=from=triton-cuda-runtime,source=/usr/local/cuda/targets,target=/tmp/triton-cuda-targets,readonly \
+    set -e; if [ "$TARGETARCH" = "amd64" ]; then \
         cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnpp*.so* /usr/local/cuda/targets/x86_64-linux/lib/ \
         && cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnvjpeg.so* /usr/local/cuda/targets/x86_64-linux/lib/; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
@@ -171,7 +175,6 @@ RUN set -e; if [ "$TARGETARCH" = "amd64" ]; then \
             if [ -e "$library" ]; then cp -a "$library" /usr/local/cuda/targets/aarch64-linux/lib/; fi; \
         done; \
     fi \
-    && rm -rf /tmp/triton-cuda-targets \
     && ldconfig
 
 FROM rtvi-media AS pyds-builder
@@ -271,9 +274,8 @@ COPY --from=pdm-export /tmp/rtvi-requirements.txt /tmp/rtvi-requirements.txt
 # vLLM, xFormers, and FlashInfer packages owned by the NVIDIA base image.
 # OpenCV cannot function without the intentionally excluded proprietary codecs.
 # Remove the copies inherited from vLLM to prevent failed imports from polluting sys.path.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    env -u PIP_CONSTRAINT -u PIP_BUILD_CONSTRAINT \
-        pip install --no-deps --require-hashes -r /tmp/rtvi-requirements.txt \
+RUN env -u PIP_CONSTRAINT -u PIP_BUILD_CONSTRAINT \
+        pip install --no-cache-dir --no-deps --require-hashes -r /tmp/rtvi-requirements.txt \
     && pip uninstall -y opencv-python opencv-python-headless \
     && rm -f /usr/local/lib/python3.12/dist-packages/decord.libs/libx264* \
     && rm -f /tmp/rtvi-requirements.txt
