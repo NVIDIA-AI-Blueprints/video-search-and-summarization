@@ -42,6 +42,10 @@ global:
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 infra:
+  # SDRC stays enabled in real-time mode as well; only the workload config
+  # differs. Compose dropped SDRC for VIOS webhooks — do not mirror that here,
+  # SDRC is what scales stream placement in Kubernetes. Full rationale is in
+  # values.yaml under infra.sdrc.
   sdrc:
     configFilePath: configs/sdrc/config-realtime.yml
 

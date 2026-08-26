@@ -1,6 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+{{- /* Renders the SDRC workload config for the alerts profile.
+       KEEP THIS TEMPLATE. The docker compose alerts profile removed SDRC and
+       provisions vss-rtvi-cv from VIOS webhooks instead; Helm keeps SDRC
+       because it is what distributes streams across streamprocessing /
+       vss-rtvi-cv replicas and recovers them on pod loss. Webhooks target one
+       fixed Service address and cannot do that. See infra.sdrc in
+       values.yaml for the full rationale before changing this for compose
+       parity. */}}
 {{- $infra := index .Values "infra" | default dict }}
 {{- $sdrc := index $infra "sdrc" | default dict }}
 {{- $config := index $sdrc "config" | default dict }}
