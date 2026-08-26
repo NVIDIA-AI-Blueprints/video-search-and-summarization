@@ -202,10 +202,8 @@ def validate_persistence_config(
         else DEFAULT_MAX_EVENT_DURATION_SECONDS
     )
     window = _positive("fold_window_seconds", persistence.get("fold_window_seconds", 600))
-    lookback = validate_fold_bounds(
-        window, cap, consolidation.get("max_inter_alert_gap_seconds", 60),
-    )
-    return window, window + lookback
+    validate_fold_bounds(window, cap, consolidation.get("max_inter_alert_gap_seconds", 60))
+    return window
 
 
 def validate_fold_bounds(

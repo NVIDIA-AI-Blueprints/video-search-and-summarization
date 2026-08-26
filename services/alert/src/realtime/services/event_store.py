@@ -48,10 +48,6 @@ _STATE_ID = "_fold_state"
 _DOC_KIND_FIELD = "_docKind"
 _INTERNAL_KINDS = ["lock", "state", "alias"]
 _ALIAS_PREFIX = "_alias-"
-# A reference that has been superseded more than once resolves through a
-# chain. Bounded so a cycle — which should be impossible, but is cheap to
-# rule out — cannot spin a request.
-_ALIAS_MAX_HOPS = 8
 
 
 def _parse_iso(value: Any) -> Optional[float]:
@@ -147,22 +143,9 @@ class RealtimeEventStore:
         self,
         es_client,
         collection: str = DEFAULT_COLLECTION,
-        rewrite_horizon_seconds: Optional[float] = None,
     ) -> None:
         self._es = es_client
         self._index = f"{INDEX_PREFIX}{collection}"
-        # How far back a cycle can still reach — the fold window *plus* the
-        # lookback margin, not the window alone. See ``_status``.
-        #
-        # ``None`` means "never claim an event is settled". There is
-        # deliberately no numeric default: the window default would be wrong by
-        # exactly the lookback margin, which is the mistake this value exists
-        # to prevent, and being silently wrong here breaks the one promise a
-        # consumer is invited to cache on.
-        self._rewrite_horizon = (
-            None if rewrite_horizon_seconds is None else float(rewrite_horizon_seconds)
-        )
-
     @property
     def index(self) -> str:
         return self._index
@@ -500,101 +483,6 @@ class RealtimeEventStore:
     # Reads used by the folder
     # ------------------------------------------------------------------
 
-    def page(
-        self,
-        *,
-        sensor_id: Optional[str] = None,
-        category: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        limit: int = 50,
-        cursor: Optional[Tuple[str, str]] = None,
-        now: Optional[float] = None,
-    ) -> Tuple[List[dict], Optional[Tuple[str, str]], int, bool]:
-        """One page of events, newest first, plus the cursor for the next page.
-
-        Ordered by ``createdAt`` with ``Id`` breaking ties, and paged with
-        ``search_after`` on that pair. Both are fixed when the event is first
-        stored, which is what makes the cursor stable. Neither of the other two
-        instants is: ``end`` advances while a condition continues, and
-        ``timestamp`` moves earlier when evidence predating the event arrives,
-        so a cursor anchored on either would revisit rows it had already
-        returned and never reach the older ones. ``offset`` has the same defect
-        for a different reason — positions shift as documents are written
-        beneath the reader.
-
-        Returns the page, the cursor for the next one, the match count, and
-        whether that count is a lower bound rather than exact.
-        """
-        filters: List[dict] = []
-        if sensor_id:
-            filters.append({"term": {"sensorId": sensor_id}})
-        if category:
-            filters.append({"term": {"category": category}})
-        if start_time:
-            filters.append({"range": {"end": {"gte": start_time}}})
-        if end_time:
-            filters.append({"range": {"timestamp": {"lte": end_time}}})
-
-        body: Dict[str, Any] = {
-            "query": {
-                "bool": {
-                    "filter": filters,
-                    "must_not": [{"terms": {_DOC_KIND_FIELD: _INTERNAL_KINDS}}],
-                }
-            },
-            "size": max(1, int(limit)),
-            # Ordered on values fixed when the event was first stored.
-            # ``timestamp`` is not one of them: it moves earlier when evidence
-            # predating the event arrives, which would slide the event behind a
-            # cursor already issued and have a caller see it twice.
-            "sort": [{"createdAt": {"order": "desc"}}, {"Id": {"order": "desc"}}],
-            # Bounded: the exact count over a whole retention period is work no
-            # consumer needs, since paging is by cursor.
-            "track_total_hits": _TOTAL_HITS_CAP,
-        }
-        if cursor:
-            body["search_after"] = list(cursor)
-
-        try:
-            # A store nobody has folded into yet has no index. That is an empty
-            # result, not an outage, and answering 503 for it would make the
-            # endpoint report a healthy cluster as down on every deployment
-            # until the first cycle lands.
-            resp = self._es.client.search(
-                index=self._index, ignore_unavailable=True, **body
-            )
-        except Exception:
-            logger.error("Paging realtime events failed", exc_info=True)
-            raise EventStoreUnavailable("could not page realtime events")
-
-        hits = resp.get("hits", {})
-        events: List[dict] = []
-        last_sort: Optional[Sequence[Any]] = None
-        stamped_at = now if now is not None else _now_epoch()
-        for hit in hits.get("hits", []):
-            doc = hit.get("_source", {})
-            doc["_id"] = hit.get("_id")
-            doc["_index"] = self._index
-            doc["status"] = self._status(doc, stamped_at)
-            events.append(doc)
-            last_sort = hit.get("sort") or last_sort
-
-        total = hits.get("total", {})
-        if isinstance(total, dict):
-            total_value = total.get("value", 0)
-            # Elasticsearch stops counting at the cap and says so. Passing the
-            # number on without the relation presents a floor as a measurement,
-            # and a caller sizing pages from it is wrong with no way to tell.
-            capped = total.get("relation") == "gte"
-        else:
-            total_value, capped = total, False
-
-        next_cursor = None
-        if last_sort and len(events) == body["size"]:
-            next_cursor = (str(last_sort[0]), str(last_sort[1]))
-        return events, next_cursor, total_value, capped
-
     def write_aliases(self, pairs: Sequence[Tuple[str, str, str]]) -> int:
         """Point superseded ids at whatever absorbed them.
 
@@ -631,96 +519,6 @@ class RealtimeEventStore:
             1 for item in resp.get("items", [])
             if not (item.get("index") or {}).get("error")
         )
-
-    def resolve(self, event_id: str) -> Tuple[Optional[dict], Optional[str]]:
-        """Fetch an event by id, following aliases.
-
-        Returns ``(event, requested_id)`` where ``requested_id`` is the id the
-        caller asked for when it differed from the one that answered — so a
-        consumer can see its reference has moved and update it, rather than
-        silently following a redirect for ever.
-        """
-        requested = str(event_id)
-        current = requested
-        for _hop in range(_ALIAS_MAX_HOPS):
-            try:
-                doc = self._es.client.get(index=self._index, id=current)
-            except Exception as exc:
-                if _is_missing(exc):
-                    alias = self._alias_target(current)
-                    if alias is None:
-                        return None, None
-                    current = alias
-                    continue
-                logger.error("Reading event %s failed", current, exc_info=True)
-                raise EventStoreUnavailable(f"could not read event {current}") from exc
-            source = doc.get("_source", {})
-            if source.get(_DOC_KIND_FIELD):
-                return None, None
-            source["_id"] = doc.get("_id")
-            source["status"] = self._status(source, _now_epoch())
-            return source, (requested if current != requested else None)
-        logger.error("Alias chain for %s exceeded %d hops", requested, _ALIAS_MAX_HOPS)
-        return None, None
-
-    def _alias_target(self, event_id: str) -> Optional[str]:
-        try:
-            doc = self._es.client.get(index=self._index, id=_ALIAS_PREFIX + str(event_id))
-        except Exception as exc:
-            if _is_missing(exc):
-                return None
-            raise EventStoreUnavailable(f"could not read alias for {event_id}") from exc
-        target = doc.get("_source", {}).get("to")
-        return str(target) if target else None
-
-    def _status(self, doc: Dict[str, Any], now: float) -> str:
-        """Whether this event can still change.
-
-        Derived on read, deliberately. An event stops changing when no cycle
-        can reach it any more — but nothing is written at that moment, so a
-        status stamped by the writer would be fixed at ``open`` for the whole
-        retention period and never corrected. A consumer that caches on
-        ``closed`` needs the answer to be true when it reads it, not when
-        someone last touched the row.
-
-        Measured against the **fetch** horizon, not the fold window. The two
-        differ by the lookback margin, and events in the gap between them are
-        the subtle case: they are never rewritten, because a write needs
-        ``end`` inside the window — but they are still *read*, so a bridging
-        chunk can merge one into an event that is written, after which the
-        original is superseded and deleted. Vanishing is a change. Only past
-        the fetch horizon is an event genuinely beyond reach.
-
-        Note this is a stronger claim than "no further evidence can join": an
-        event can stop growing and still be rewritten, because late evidence
-        elsewhere in the group can change where the boundaries fall.
-        """
-        if self._rewrite_horizon is None:
-            return "open"
-        # The newest instant anything in this event carries, not just ``end``.
-        # The fetch predicate is on each chunk's ``timestamp``, and a chunk can
-        # carry an ``end`` earlier than its own ``timestamp`` — in which case
-        # the event's ``end`` understates how recently it can still be read.
-        newest = max(
-            [
-                value for value in (
-                    _parse_iso(doc.get("end")),
-                    _parse_iso(doc.get("timestamp")),
-                    *(
-                        _parse_iso(member.get("timestamp"))
-                        for member in (doc.get("chunk_meta") or [])
-                        if isinstance(member, dict)
-                    ),
-                ) if value is not None
-            ] or [None]
-        )
-        if newest is None:
-            # No usable instant, so nothing can be proven about reachability.
-            # ``open`` is the conservative answer: it says the event may still
-            # change, where ``closed`` would invite a consumer to cache a
-            # document whose timestamps could not even be parsed.
-            return "open"
-        return "closed" if (now - newest) > self._rewrite_horizon else "open"
 
     def events_in_window(self, start_iso: str, end_iso: str) -> Tuple[List[dict], bool]:
         """Every stored event overlapping a window, with its id.

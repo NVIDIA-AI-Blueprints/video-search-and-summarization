@@ -720,7 +720,7 @@ class AnomalyEnhancer(
         # TypeError on ``null``, which is not what the caller above catches, so
         # the folder would be disabled silently by the one configuration this
         # check exists to reject loudly.
-        window, horizon = validate_persistence_config(persistence, consolidation)
+        window = validate_persistence_config(persistence, consolidation)
 
         # Elasticsearch is frequently a few seconds behind Alert Bridge at
         # startup. Building the client once and giving up would disable folding
@@ -728,13 +728,13 @@ class AnomalyEnhancer(
         # attempt is retried on its own thread until it succeeds.
         thread = threading.Thread(
             target=self._event_folder_supervisor,
-            args=(persistence, consolidation, window, horizon),
+            args=(persistence, consolidation, window),
             name="realtime-event-folder-init",
             daemon=True,
         )
         thread.start()
 
-    def _event_folder_supervisor(self, persistence, consolidation, window, horizon) -> None:
+    def _event_folder_supervisor(self, persistence, consolidation, window) -> None:
         """Build and start the folder, retrying while Elasticsearch is unreachable."""
         from realtime.services.elastic_factory import build_elastic_client
         from realtime.services.event_folder import RealtimeEventFolder
@@ -769,9 +769,7 @@ class AnomalyEnhancer(
             index_base=index_base,
             consolidation=consolidation,
         )
-        store = RealtimeEventStore(
-            es_client, collection=collection, rewrite_horizon_seconds=horizon,
-        )
+        store = RealtimeEventStore(es_client, collection=collection)
         self._event_folder = RealtimeEventFolder(
             service, store, es_client, f"{index_base}-*",
             fold_interval_seconds=persistence.get("fold_interval_seconds", 30),

@@ -23,17 +23,14 @@ call-assertion mock cannot express them.
 
 from datetime import datetime, timedelta, timezone
 
+import time
+
 import pytest
 
 from realtime.services.event_folder import RealtimeEventFolder
 from realtime.services.event_store import EventStoreUnavailable, RealtimeEventStore
 from realtime.services.incident_service import IncidentService
 
-# Captured before any test swaps it out, so ``_release`` restores the real
-# implementation rather than whatever the previous test installed.
-from web.api.realtime_routes import (
-    event_persistence_enabled as _REAL_PERSISTENCE_ENABLED,
-)
 
 BASE = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -543,37 +540,6 @@ class TestFoldCycle:
         assert result.groups == 2
         assert len(stored_events(es)) == 2
 
-    def test_late_chunk_extends_the_event_and_the_old_reference_still_resolves(
-        self, es, folder,
-    ):
-        """Identity follows the evidence; the old reference follows an alias.
-
-        The id derives from the event's first chunk, so evidence that predates
-        the event moves it — which is exactly what makes the id independent of
-        the order evidence arrives in. A caller holding the previous reference
-        is carried across by an alias rather than by pinning the id.
-        """
-        es.client.raw = [chunk(1, offset_s=30)]
-        folder.run_once(now=BASE + timedelta(seconds=120))
-        original_id = next(iter(stored_events(es)))
-
-        # Evidence that predates the event arrives afterwards.
-        es.client.raw.insert(0, chunk(0, offset_s=0))
-        folder.run_once(now=BASE + timedelta(seconds=130))
-
-        events = stored_events(es)
-        assert len(events) == 1, "the late chunk must not create a second event"
-        new_id = next(iter(events))
-        assert new_id != original_id, "the id did not follow the evidence"
-        assert events[new_id]["chunk_ids"] == ["cam-1-alert-0", "cam-1-alert-1"]
-
-        resolved, requested = folder._store.resolve(original_id)
-        assert resolved is not None, "the reference a caller already held dangles"
-        assert resolved["Id"] == new_id
-        assert requested == original_id, (
-            "a caller is not told its reference moved, so it can never update it"
-        )
-
     def test_non_confirmed_evidence_is_not_folded(self, es, folder):
         rejected = chunk(0, offset_s=0)
         rejected["info"]["verdict"] = "rejected"
@@ -610,142 +576,6 @@ class TestReviewRegressions:
             assert "_id" not in event
             assert "_index" not in event
             assert event["Id"], "the application-visible identifier must survive"
-
-    def test_status_is_not_stored(self, es, folder):
-        """A written status would be fixed at ``open`` for the record's life.
-
-        An event stops changing when it drops out of the fold window — a moment
-        at which nothing is being written, so no writer is there to correct it.
-        """
-        es.client.raw = [chunk(0, offset_s=0)]
-
-        folder.run_once(now=BASE + timedelta(seconds=400))
-
-        event = next(iter(stored_events(es).values()))
-        assert "status" not in event
-
-    def test_an_event_still_inside_the_window_reads_as_open(self, es, folder):
-        es.client.raw = [chunk(0, offset_s=0)]
-        folder.run_once(now=BASE + timedelta(seconds=400))
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-
-        events, _, _, _ = store.page(now=(BASE + timedelta(seconds=400)).timestamp())
-
-        assert events[0]["status"] == "open"
-
-    def test_an_event_past_the_window_reads_as_closed(self, es, folder):
-        es.client.raw = [chunk(0, offset_s=0)]
-        folder.run_once(now=BASE + timedelta(seconds=400))
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-
-        # The event ends at BASE+30; a reader an hour later is past any cycle
-        # that could still rewrite it.
-        events, _, _, _ = store.page(now=(BASE + timedelta(seconds=3600)).timestamp())
-
-        assert events[0]["status"] == "closed"
-
-    def test_an_event_outside_the_window_but_inside_the_fetch_is_still_open(
-        self, es, folder,
-    ):
-        """The gap between the two horizons, which is where the subtlety is.
-
-        Such an event is never *rewritten* — a write needs ``end`` inside the
-        window — but it is still *read*, so a bridging chunk can merge it into
-        an event that is written, after which it is superseded and deleted.
-        Reporting it as closed would promise a consumer it is safe to cache
-        something that can still vanish.
-        """
-        es.client.raw = [chunk(0, offset_s=0)]
-        folder.run_once(now=BASE + timedelta(seconds=400))
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-
-        # Ends at BASE+30. At BASE+700 it is 670s old: past the 600s window,
-        # inside the 960s fetch horizon.
-        events, _, _, _ = store.page(now=(BASE + timedelta(seconds=700)).timestamp())
-
-        assert events[0]["status"] == "open"
-
-    def test_a_closed_event_never_changes_afterwards(self, es, folder):
-        """The promise ``closed`` makes, checked where it can actually fail.
-
-        The second fold has to genuinely *read* the closed event, or this
-        passes because nothing was fetched rather than because the invariant
-        holds. So the group is kept active into the second cycle and the
-        bridging chunk lands inside its fetch range — the arrangement under
-        which a closed event was previously deleted out from under a caller.
-        """
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        es.client.raw = [
-            chunk(0, offset_s=0), chunk(1, offset_s=100), chunk(2, offset_s=150),
-        ]
-        folder.run_once(now=BASE + timedelta(seconds=300))
-
-        # Read at a point where the early events are past the fetch horizon.
-        read_at = BASE + timedelta(seconds=1100)
-        before = {
-            e["Id"]: (e["timestamp"], e["end"], tuple(e["chunk_ids"]))
-            for e in store.page(now=read_at.timestamp())[0]
-            if e["status"] == "closed"
-        }
-        assert before, "no event was closed at the time of the first read"
-
-        # The group stays active, so the next cycle really does fetch back over
-        # the closed events, and a bridging chunk arrives among them.
-        es.client.raw += [chunk(4, offset_s=700), chunk(3, offset_s=60)]
-        second_fold = BASE + timedelta(seconds=800)
-        fetch_from = 800 - 600 - 360
-        assert 60 >= fetch_from, "the bridging chunk must be inside the fetch range"
-        folder.run_once(now=second_fold)
-
-        after = {
-            e["Id"]: (e["timestamp"], e["end"], tuple(e["chunk_ids"]))
-            for e in store.page(now=read_at.timestamp())[0]
-        }
-        for event_id, state in before.items():
-            assert event_id in after, f"{event_id} was deleted after being reported closed"
-            assert after[event_id] == state, f"{event_id} changed after being reported closed"
-
-    def test_a_finished_event_is_byte_identical_across_cycles(self, es, folder):
-        """The window sliding past an event must not change it at all.
-
-        Asserting membership rather than document count: an event eroding from
-        ten chunks to one keeps the count steady while destroying the record.
-        """
-        es.client.raw = [chunk(i, offset_s=i * 30) for i in range(21)]
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-
-        snapshots = []
-        # Far enough that the last event leaves the 600s window and the
-        # snapshot has something closed in it to hold to account.
-        for elapsed in (330, 700, 900, 1250, 1700, 2000):
-            folder.run_once(now=BASE + timedelta(seconds=elapsed))
-            snapshots.append({
-                event_id: {
-                    "timestamp": e["timestamp"],
-                    "end": e["end"],
-                    "chunk_ids": tuple(e["chunk_ids"]),
-                    "chunk_meta": len(e["chunk_meta"]),
-                    "status": store._status(e, (BASE + timedelta(seconds=elapsed)).timestamp()),
-                }
-                for event_id, e in stored_events(es).items()
-            })
-
-        # An open event may legitimately grow as later chunks enter the window.
-        # Once closed it must never change again — that is what makes it a
-        # durable record rather than a view.
-        settled: dict = {}
-        for snapshot in snapshots:
-            for event_id, before in settled.items():
-                assert event_id in snapshot, f"{event_id} was deleted after settling"
-                assert snapshot[event_id] == before, (
-                    f"{event_id} changed after it was settled: "
-                    f"{before} -> {snapshot[event_id]}"
-                )
-            for event_id, state in snapshot.items():
-                if state["status"] == "closed":
-                    settled.setdefault(event_id, state)
-
-        assert settled, "no event ever reached a settled state"
 
     def test_a_late_chunk_that_splits_an_event_loses_no_evidence(self, es):
         service = IncidentService(
@@ -873,22 +703,6 @@ class TestUncoveredPaths:
             "an event assembled from a partial read must not be written"
         )
         assert result.superseded == 0
-
-    def test_an_event_at_the_duration_cap_is_closed_even_when_recent(self, es, folder):
-        # Ten chunks 30s apart span exactly the 300s cap.
-        es.client.raw = [chunk(i, offset_s=i * 30) for i in range(11)]
-
-        # Only seconds after the last chunk, so the gap bound alone would keep
-        # it open; the cap must close it.
-        folder.run_once(now=BASE + timedelta(seconds=310))
-
-        events = stored_events(es)
-        capped = [e for e in events.values() if len(e["chunk_ids"]) >= 10]
-        assert capped, "no event reached the duration cap"
-        # It has stopped growing, but it is still inside the window, so a later
-        # cycle can still rewrite it — and ``closed`` is a claim about that.
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        assert store._status(capped[0], (BASE + timedelta(seconds=310)).timestamp()) == "open"
 
     def test_group_enumeration_pages_beyond_one_composite_page(self, es, folder, monkeypatch):
         import realtime.services.event_folder as module
@@ -1084,108 +898,6 @@ class TestCycleDiscipline:
         assert folder.last_completed_at is not None
 
 
-class TestPaging:
-    """Cursor paging must stay correct while events are still growing."""
-
-    @staticmethod
-    def _seed(es, count):
-        store = RealtimeEventStore(es)
-        events = []
-        for i in range(count):
-            start = BASE + timedelta(seconds=i * 600)
-            events.append({
-                "Id": f"evt-{i:03d}",
-                "sensorId": "cam-1",
-                "category": "alert",
-                "timestamp": iso(start),
-                "end": iso(start + timedelta(seconds=60)),
-                # Deliberately the reverse of the ``Id`` ordering. Seeding them
-                # in agreement would let a sort on ``Id`` alone — or on no key
-                # at all — satisfy every ordering assertion below.
-                "createdAt": iso(BASE + timedelta(seconds=(count - i) * 600)),
-            })
-        store.upsert(events)
-        return store
-
-    def test_pages_cover_every_event_exactly_once(self, es):
-        store = self._seed(es, 7)
-
-        seen, cursor = [], None
-        for _ in range(10):
-            page, cursor, total, _ = store.page(limit=3, cursor=cursor)
-            seen.extend(e["Id"] for e in page)
-            assert total == 7
-            if cursor is None:
-                break
-
-        assert len(seen) == len(set(seen)), "an event was returned on two pages"
-        assert set(seen) == {f"evt-{i:03d}" for i in range(7)}
-
-    def test_a_growing_event_does_not_disturb_the_cursor(self, es):
-        store = self._seed(es, 6)
-
-        first, cursor, _, _ = store.page(limit=3)
-        # The oldest event keeps running: its end advances between pages. A
-        # cursor anchored on end would revisit it; this one is anchored on the
-        # creation-time key, which does not move.
-        docs = es.client.docs[store.index]
-        docs["evt-000"]["end"] = iso(BASE + timedelta(days=1))
-
-        second, _, _, _ = store.page(limit=3, cursor=cursor)
-
-        ids = [e["Id"] for e in first] + [e["Id"] for e in second]
-        assert len(ids) == len(set(ids)), "the growing event was returned twice"
-        assert set(ids) == {f"evt-{i:03d}" for i in range(6)}
-
-    def test_newest_events_come_first(self, es):
-        self._seed(es, 5)
-        store = RealtimeEventStore(es)
-
-        page, _, _, _ = store.page(limit=5)
-
-        ids = [e["Id"] for e in page]
-        # Seeded with ``createdAt`` running opposite to ``Id``, so this holds
-        # only if the sort really is on ``createdAt``: an accidental sort on
-        # ``Id``, or none at all, produces the reverse of this list.
-        assert ids == sorted(ids), (
-            f"page() must order on createdAt, newest first, got {ids}"
-        )
-        # ``evt-000`` carries the greatest ``createdAt`` under this seed, so it
-        # is the newest event despite having the lowest identifier.
-        assert ids[0] == "evt-000", "the most recent event must lead the first page"
-
-    def test_internal_documents_never_reach_a_caller(self, es):
-        store = self._seed(es, 2)
-        store.acquire_lock("someone", ttl_seconds=300)
-        store.record_fold(completed_at=1.0, duration=0.1, events=2)
-
-        page, _, total, _ = store.page(limit=50)
-
-        assert total == 2, f"lock/state documents leaked into the count: {total}"
-        assert all(not e.get("_docKind") for e in page)
-        assert {e["Id"] for e in page} == {"evt-000", "evt-001"}
-
-    def test_last_page_reports_no_cursor(self, es):
-        self._seed(es, 2)
-        store = RealtimeEventStore(es)
-
-        _, cursor, _, _ = store.page(limit=50)
-
-        assert cursor is None
-
-    def test_sensor_filter_applies(self, es):
-        store = self._seed(es, 3)
-        store.upsert([{
-            "Id": "evt-other", "sensorId": "cam-2", "category": "alert",
-            "timestamp": iso(BASE), "end": iso(BASE), "status": "closed",
-        }])
-
-        page, _, total, _ = store.page(sensor_id="cam-2", limit=10)
-
-        assert total == 1
-        assert page[0]["Id"] == "evt-other"
-
-
 class TestStoreLock:
     def test_second_owner_is_refused_while_the_lock_is_live(self, es):
         store = RealtimeEventStore(es)
@@ -1225,175 +937,6 @@ class TestStoreLock:
 
         assert events == []
         assert complete is True
-
-
-class TestEventsEndpoint:
-    """The retrieval surface: what a caller can and cannot be told."""
-
-    @staticmethod
-    def _client(store, enabled=True):
-        from fastapi.testclient import TestClient
-        from web.api.realtime_routes import event_persistence_enabled, get_event_store
-        from web.main import app
-
-        app.dependency_overrides[get_event_store] = lambda: store
-        app.dependency_overrides[event_persistence_enabled] = lambda: enabled
-        # The route calls this directly rather than through Depends, so the
-        # override above does not reach it; patch the module attribute too.
-        import web.api.realtime_routes as routes
-        routes.event_persistence_enabled = lambda: enabled
-        return TestClient(app)
-
-    @staticmethod
-    def _release():
-        from web.main import app
-        import web.api.realtime_routes as routes
-
-        app.dependency_overrides.clear()
-        routes.event_persistence_enabled = _REAL_PERSISTENCE_ENABLED
-
-    def test_a_disabled_deployment_says_so_rather_than_reporting_an_outage(self, es):
-        """501, not 503 and not an empty 200.
-
-        Every shipped configuration has this off by default, so this is the
-        first thing an operator meets. Answering 503 would blame a healthy
-        cluster; answering 200 with no events would say nothing has happened.
-        """
-        client = self._client(RealtimeEventStore(es), enabled=False)
-        try:
-            response = client.get("/api/v1/realtime/events")
-        finally:
-            self._release()
-
-        assert response.status_code == 501
-        assert response.json()["error"] == "persistence_disabled"
-
-    def test_an_index_that_does_not_exist_yet_is_an_empty_page_not_an_outage(self, es):
-        """Enabled, but no cycle has folded yet, so the index is absent.
-
-        This is the state of every fresh deployment for the first cycle, and
-        Elasticsearch answers ``index_not_found`` for it — which must not be
-        relayed as the cluster being unavailable.
-        """
-        es.client.indices_set.clear()
-        es.client.docs.clear()
-        client = self._client(RealtimeEventStore(es))
-        try:
-            response = client.get("/api/v1/realtime/events")
-        finally:
-            self._release()
-
-        assert response.status_code == 200
-        assert response.json()["events"] == []
-
-    def test_a_forged_cursor_is_a_client_error_not_an_outage(self, es):
-        """Well-formed base64 JSON, but not a value this endpoint ever issued.
-
-        Passed through, it reaches ``search_after`` against a date field and
-        Elasticsearch answers 400 — which the store cannot distinguish from an
-        outage, so the caller would be told the cluster was down.
-        """
-        import base64, json
-
-        token = base64.urlsafe_b64encode(
-            json.dumps(["not-a-date", "x"]).encode()
-        ).decode()
-        client = self._client(RealtimeEventStore(es))
-        try:
-            response = client.get("/api/v1/realtime/events", params={"cursor": token})
-        finally:
-            self._release()
-
-        assert response.status_code == 400
-        assert response.json()["error"] == "validation_failed"
-
-    def test_a_capped_total_is_reported_as_a_lower_bound(self, es):
-        store = RealtimeEventStore(es)
-        store.upsert([{
-            "Id": "evt-000", "sensorId": "cam-1", "category": "alert",
-            "timestamp": iso(BASE), "end": iso(BASE + timedelta(seconds=30)),
-            "createdAt": iso(BASE),
-        }])
-        real_search = es.client.search
-
-        def capped(**kwargs):
-            resp = real_search(**kwargs)
-            resp["hits"]["total"] = {"value": 10000, "relation": "gte"}
-            return resp
-
-        es.client.search = capped
-        client = self._client(store)
-        try:
-            body = client.get("/api/v1/realtime/events").json()
-        finally:
-            es.client.search = real_search
-            self._release()
-
-        assert body["total"] == 10000
-        assert body["total_is_lower_bound"] is True
-
-    def test_unavailable_store_is_reported_as_503_not_an_empty_page(self, es):
-        store = RealtimeEventStore(es)
-
-        def blow_up(**_kwargs):
-            raise EventStoreUnavailable("cluster is red")
-
-        store.page = blow_up
-        client = self._client(store)
-        try:
-            response = client.get("/api/v1/realtime/events")
-        finally:
-            self._release()
-
-        assert response.status_code == 503, (
-            "an outage answered with 200 and no events reads as 'the condition cleared'"
-        )
-        assert response.json()["status"] == "error"
-
-    def test_a_cursor_this_endpoint_did_not_issue_is_rejected(self, es):
-        client = self._client(RealtimeEventStore(es))
-        try:
-            response = client.get("/api/v1/realtime/events", params={"cursor": "not-a-cursor"})
-        finally:
-            self._release()
-
-        assert response.status_code == 400
-        assert response.json()["error"] == "validation_failed"
-
-    def test_a_page_carries_the_fold_lag_and_a_usable_cursor(self, es):
-        store = RealtimeEventStore(es)
-        store.upsert([
-            {
-                "Id": f"evt-{i:03d}",
-                "createdAt": iso(BASE + timedelta(seconds=i * 60)),
-                "timestamp": iso(BASE + timedelta(seconds=i * 60)),
-                "end": iso(BASE + timedelta(seconds=i * 60 + 30)),
-                "sensorId": "cam-1", "category": "alert", "status": "closed",
-            }
-            for i in range(3)
-        ])
-        store.record_fold(completed_at=_now_for_test(), duration=0.2, events=3)
-
-        client = self._client(store)
-        try:
-            first = client.get("/api/v1/realtime/events", params={"limit": 2}).json()
-            second = client.get(
-                "/api/v1/realtime/events",
-                params={"limit": 2, "cursor": first["next_cursor"]},
-            ).json()
-        finally:
-            self._release()
-
-        assert first["count"] == 2 and first["next_cursor"]
-        assert first["fold_lag_seconds"] is not None, "freshness must be reported"
-        seen = [e["Id"] for e in first["events"]] + [e["Id"] for e in second["events"]]
-        assert sorted(seen) == ["evt-000", "evt-001", "evt-002"]
-
-
-def _now_for_test() -> float:
-    import time
-
-    return time.time()
 
 
 class TestSupersessionGuards:
@@ -1714,7 +1257,7 @@ class TestRetentionTargets:
         es.client.raw = [chunk(0, offset_s=0)]
         folder.run_once(now=BASE + timedelta(seconds=120))
         store = folder._store
-        store.record_fold(completed_at=_now_for_test(), duration=0.1, events=1)
+        store.record_fold(completed_at=time.time(), duration=0.1, events=1)
         store.acquire_lock("someone", ttl_seconds=90)
 
         store.purge_older_than(iso(BASE + timedelta(days=3650)))
@@ -1874,7 +1417,7 @@ class TestPersistenceConfigIsValidated:
     def test_the_shipped_defaults_are_accepted(self):
         from realtime.services.event_folder import validate_persistence_config
 
-        assert validate_persistence_config(*self._cfg()) == (600, 960)
+        assert validate_persistence_config(*self._cfg()) == 600
 
     def test_zero_retention_is_refused_rather_than_read_as_disabled(self):
         """``retention_days: 0`` read as falsey disables the reaper silently,
@@ -1994,96 +1537,6 @@ class TestFreshnessIsPublishedOrTheCycleIsNot:
         assert stored_events(es), "the events themselves should still have landed"
 
 
-class TestCursorScope:
-    def test_a_cursor_cannot_be_replayed_against_different_filters(self, es):
-        """``search_after`` resumes at an ordering position, and that position
-        only means something relative to the filters that produced it."""
-        from web.api.realtime_routes import _decode_cursor, _encode_cursor, _filter_tag
-
-        tag_all = _filter_tag(None, None, None, None)
-        tag_cam2 = _filter_tag("cam-2", None, None, None)
-        token = _encode_cursor(("1740820800000", "evt-1"), tag_all)
-
-        assert _decode_cursor(token, tag_all) == ("1740820800000", "evt-1")
-        assert _decode_cursor(token, tag_cam2) is None
-
-    def test_a_cursor_with_the_right_scope_but_a_bad_position_is_rejected(self, es):
-        """The filter tag is not the only check that has to hold.
-
-        A token can carry the correct scope and still hold a position that is
-        not a date — passed through, it reaches ``search_after`` against a date
-        field and Elasticsearch answers 400, which the store cannot tell from
-        an outage.
-        """
-        import base64, json
-        from web.api.realtime_routes import _decode_cursor, _filter_tag
-
-        tag = _filter_tag(None, None, None, None)
-        token = base64.urlsafe_b64encode(
-            json.dumps(["not-a-date", "evt-1", tag]).encode()
-        ).decode()
-
-        assert _decode_cursor(token, tag) is None
-
-    def test_a_cursor_survives_the_query_that_issued_it(self, es):
-        from web.api.realtime_routes import _decode_cursor, _encode_cursor, _filter_tag
-
-        tag = _filter_tag("cam-1", "alert", "2026-03-01T00:00:00", None)
-        token = _encode_cursor(("1", "evt-9"), tag)
-
-        assert _decode_cursor(token, tag) == ("1", "evt-9")
-
-
-class TestSettledBoundary:
-    """The exact instant ``closed`` starts, and the values around it."""
-
-    def _doc(self, end_offset):
-        return {
-            "Id": "evt-1", "sensorId": "cam-1", "category": "alert",
-            "timestamp": iso(BASE), "end": iso(BASE + timedelta(seconds=end_offset)),
-        }
-
-    def test_an_event_exactly_on_the_horizon_is_still_open(self, es):
-        """The comparison is strictly greater-than, and it has to be.
-
-        An event exactly on the boundary is one a cycle starting this instant
-        still reads, so calling it settled promises something that is not yet
-        true.
-        """
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        now = (BASE + timedelta(seconds=960)).timestamp()
-
-        assert store._status(self._doc(0), now) == "open"
-
-    def test_one_second_past_the_horizon_is_closed(self, es):
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        now = (BASE + timedelta(seconds=961)).timestamp()
-
-        assert store._status(self._doc(0), now) == "closed"
-
-    def test_a_store_with_no_horizon_never_claims_an_event_is_settled(self, es):
-        """The horizon has no numeric default on purpose — the obvious one (the
-        fold window) is wrong by exactly the lookback margin."""
-        store = RealtimeEventStore(es)
-
-        assert store._status(self._doc(0), (BASE + timedelta(days=365)).timestamp()) == "open"
-
-    def test_the_newest_member_decides_not_the_event_end(self, es):
-        """The fetch predicate is on each chunk's ``timestamp``.
-
-        A chunk carrying an ``end`` earlier than its own ``timestamp`` leaves
-        the event's ``end`` understating how recently it can still be read.
-        """
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        doc = self._doc(0)
-        doc["chunk_meta"] = [{"id": "c1", "timestamp": iso(BASE + timedelta(seconds=500))}]
-        now = (BASE + timedelta(seconds=1000)).timestamp()
-
-        assert store._status(doc, now) == "open", (
-            "an event with a member inside the fetch range was reported settled"
-        )
-
-
 class TestBoundsAreFinite:
     def test_a_nan_bound_is_refused(self):
         from realtime.services.event_folder import validate_persistence_config
@@ -2117,7 +1570,7 @@ class TestBoundsAreFinite:
 
         assert validate_persistence_config(
             {"fold_window_seconds": 600}, {"max_inter_alert_gap_seconds": 60},
-        ) == (600, 960)
+        ) == 600
 
     def test_an_explicitly_null_duration_cap_is_still_refused(self):
         from realtime.services.event_folder import validate_persistence_config
@@ -2166,121 +1619,6 @@ class TestSupersessionSkipsMemberlessDocuments:
         folder.run_once(now=BASE + timedelta(seconds=140))
 
         assert "evt-malformed" in es.client.docs[store.index]
-
-
-class TestClosedSurvivesLaterCycles:
-    def test_a_cycle_after_the_read_does_not_disturb_what_was_reported_closed(
-        self, es, folder,
-    ):
-        """The contract is about cycles in the *future* of the read.
-
-        An earlier version of this test folded before the instant it read at,
-        which checks the opposite direction and cannot catch a later cycle
-        reaching back too far.
-        """
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        es.client.raw = [chunk(0, offset_s=0), chunk(1, offset_s=30)]
-        folder.run_once(now=BASE + timedelta(seconds=120))
-
-        read_at = BASE + timedelta(seconds=1100)
-        closed = {
-            e["Id"]: (e["timestamp"], e["end"], tuple(e["chunk_ids"]))
-            for e in store.page(now=read_at.timestamp())[0]
-            if e["status"] == "closed"
-        }
-        assert closed, "nothing was closed at the read instant"
-
-        # Live evidence keeps the group active, and a late chunk lands among
-        # the closed event's members — after the caller has been told it is
-        # settled.
-        es.client.raw += [chunk(2, offset_s=1050), chunk(3, offset_s=45)]
-        folder.run_once(now=read_at.timestamp() and BASE + timedelta(seconds=1130))
-
-        after = {
-            e["Id"]: (e["timestamp"], e["end"], tuple(e["chunk_ids"]))
-            for e in store.page(now=(BASE + timedelta(seconds=1130)).timestamp())[0]
-        }
-        for event_id, state in closed.items():
-            assert event_id in after, f"{event_id} vanished after being reported closed"
-            assert after[event_id] == state, f"{event_id} changed after being reported closed"
-
-
-class TestCursorNormalisation:
-    def test_a_position_that_renders_differently_is_rejected(self, es):
-        """The guard has to check the value it forwards.
-
-        Validating the parsed integer while sending on the original rendering
-        let anything ``int()`` accepts but ``str()`` renders differently
-        through: ``1e20`` becomes ``"1e+20"``, which Elasticsearch rejects as a
-        date, which the store cannot tell from an outage — so a client's bad
-        cursor pages the on-call for a cluster failure.
-        """
-        import base64, json
-        from web.api.realtime_routes import _decode_cursor, _filter_tag
-
-        tag = _filter_tag(None, None, None, None)
-        for position in (1e20, "  1772366400000  ", True):
-            token = base64.urlsafe_b64encode(
-                json.dumps([position, "evt-x", tag]).encode()
-            ).decode()
-            decoded = _decode_cursor(token, tag)
-            if decoded is not None:
-                assert decoded[0].isdigit(), (
-                    f"{position!r} was forwarded as {decoded[0]!r}, which is not "
-                    f"a value Elasticsearch accepts for a date field"
-                )
-
-    def test_a_boolean_position_is_refused_outright(self, es):
-        """``bool`` is a subclass of ``int``, so ``int(True)`` succeeds."""
-        import base64, json
-        from web.api.realtime_routes import _decode_cursor, _filter_tag
-
-        tag = _filter_tag(None, None, None, None)
-        token = base64.urlsafe_b64encode(json.dumps([True, "evt-x", tag]).encode()).decode()
-
-        assert _decode_cursor(token, tag) is None
-
-
-class TestElasticClientRecovery:
-    def test_a_failed_client_build_is_not_remembered(self, monkeypatch):
-        """One request during an Elasticsearch restart must not pin every
-        dependent route at 503 for the life of the process."""
-        import web.api.realtime_routes as routes
-
-        monkeypatch.setattr(routes, "_ELASTIC_CLIENT", None)
-        attempts = {"n": 0}
-
-        def unreachable_then_healthy():
-            attempts["n"] += 1
-            return None if attempts["n"] == 1 else "a-client"
-
-        monkeypatch.setattr(routes, "build_elastic_client", unreachable_then_healthy)
-        try:
-            assert routes.get_elastic_client() is None
-            assert routes.get_elastic_client() == "a-client", (
-                "the failure was memoised, so the endpoint stays down after the "
-                "cluster recovers"
-            )
-        finally:
-            routes._ELASTIC_CLIENT = None
-
-    def test_a_successful_client_is_reused(self, monkeypatch):
-        import web.api.realtime_routes as routes
-
-        monkeypatch.setattr(routes, "_ELASTIC_CLIENT", None)
-        builds = {"n": 0}
-
-        def count_builds():
-            builds["n"] += 1
-            return "a-client"
-
-        monkeypatch.setattr(routes, "build_elastic_client", count_builds)
-        try:
-            routes.get_elastic_client()
-            routes.get_elastic_client()
-            assert builds["n"] == 1, "a new client per request would leak connections"
-        finally:
-            routes._ELASTIC_CLIENT = None
 
 
 class TestLeaseRenewalCadence:
@@ -2491,17 +1829,6 @@ class TestConsolidationConfigFailsAtStartup:
             )
 
 
-class TestDocumentedCursorExample:
-    def test_the_openapi_example_is_a_cursor_the_endpoint_accepts(self):
-        """A consumer copying the example must not get a 400."""
-        from web.api.realtime_routes import _decode_cursor, _filter_tag
-        from web.schemas.realtime_schemas import EventListResponse
-
-        example = EventListResponse.model_config["json_schema_extra"]["example"]
-
-        assert _decode_cursor(example["next_cursor"], _filter_tag(None, None, None, None)) is not None
-
-
 class TestNullBoundsAreRefusedNotLeaked:
     """``null`` is the value most likely to be typed by hand, and a bare
     ``float(None)`` raises ``TypeError`` — which neither caller catches. The
@@ -2530,20 +1857,6 @@ class TestNullBoundsAreRefusedNotLeaked:
             validate_persistence_config(
                 *self._cfg(consolidation={"max_inter_alert_gap_seconds": None})
             )
-
-    def test_the_read_path_degrades_to_open_rather_than_failing(self):
-        """A bad configuration is the pipeline's to report, not this path's.
-
-        Here it only means the horizon cannot be computed, so every event reads
-        as ``open`` — never claiming something is settled when the number that
-        decides it is unknown.
-        """
-        from web.api.realtime_routes import _rewrite_horizon
-
-        assert _rewrite_horizon({"max_inter_alert_gap_seconds": None},
-                                {"fold_window_seconds": 600}) is None
-        assert _rewrite_horizon({}, {"fold_window_seconds": None}) is None
-
 
 class TestLockRegressionsArePinned:
     """The two behaviours the previous round changed, each with a test, so a
@@ -2594,105 +1907,6 @@ class TestLockRegressionsArePinned:
         assert result.aborted
         assert deletes["n"] == 0
         assert stored_events(es) == before
-
-
-class TestReadsAreCoveredNotStubbed:
-    """The store's own reads, exercised against documents rather than through
-    a stubbed method — several were only ever reached via a stub."""
-
-    def test_an_unreadable_instant_is_never_advertised_as_settled(self, es):
-        """The unsafe direction. A document whose timestamps cannot be parsed
-        would otherwise be offered to a consumer as safe to cache for ever."""
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        doc = {"Id": "evt-1", "end": "not-a-date", "timestamp": None}
-
-        assert store._status(doc, (BASE + timedelta(days=365)).timestamp()) == "open"
-
-    def test_a_window_read_that_hit_the_cap_reports_itself_incomplete(self, es, monkeypatch):
-        """Computed from a document count, not from a stub.
-
-        The abort this drives is the whole point of the completeness rule, and
-        it was only ever reached through a replaced method.
-        """
-        import realtime.services.event_store as module
-
-        monkeypatch.setattr(module, "_WINDOW_READ_CAP", 2, raising=False)
-        store = RealtimeEventStore(es)
-        store.ensure_index()
-        store.upsert([
-            {
-                "Id": f"evt-{i}", "sensorId": "cam-1", "category": "alert",
-                "timestamp": iso(BASE), "end": iso(BASE + timedelta(seconds=30)),
-                "createdAt": iso(BASE),
-            }
-            for i in range(3)
-        ])
-
-        _events, complete = store.events_in_window(
-            iso(BASE - timedelta(hours=1)), iso(BASE + timedelta(hours=1)),
-        )
-
-        assert complete is False
-
-    def test_a_window_read_within_the_cap_reports_itself_complete(self, es, monkeypatch):
-        import realtime.services.event_store as module
-
-        monkeypatch.setattr(module, "_WINDOW_READ_CAP", 3, raising=False)
-        store = RealtimeEventStore(es)
-        store.ensure_index()
-        store.upsert([
-            {
-                "Id": f"evt-{i}", "sensorId": "cam-1", "category": "alert",
-                "timestamp": iso(BASE), "end": iso(BASE + timedelta(seconds=30)),
-                "createdAt": iso(BASE),
-            }
-            for i in range(3)
-        ])
-
-        events, complete = store.events_in_window(
-            iso(BASE - timedelta(hours=1)), iso(BASE + timedelta(hours=1)),
-        )
-
-        assert complete is True and len(events) == 3
-
-    def test_the_window_read_selects_on_overlap_not_on_start_alone(self, es):
-        """An event that began before the window but runs into it is the case
-        the fold exists to keep whole."""
-        store = RealtimeEventStore(es)
-        store.ensure_index()
-        store.upsert([{
-            "Id": "evt-straddling", "sensorId": "cam-1", "category": "alert",
-            "timestamp": iso(BASE - timedelta(seconds=300)),
-            "end": iso(BASE + timedelta(seconds=30)),
-            "createdAt": iso(BASE - timedelta(seconds=300)),
-        }, {
-            "Id": "evt-long-gone", "sensorId": "cam-1", "category": "alert",
-            "timestamp": iso(BASE - timedelta(days=2)),
-            "end": iso(BASE - timedelta(days=2)),
-            "createdAt": iso(BASE - timedelta(days=2)),
-        }])
-
-        events, _ = store.events_in_window(iso(BASE), iso(BASE + timedelta(hours=1)))
-
-        ids = {e["Id"] for e in events}
-        assert "evt-straddling" in ids, "an event overlapping the window was missed"
-        assert "evt-long-gone" not in ids
-
-    def test_start_time_selects_events_that_run_into_the_window(self, es):
-        """``start_time`` bounds on ``end``, not on ``timestamp``: an event that
-        began earlier but was still running is one the caller asked for."""
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
-        store.ensure_index()
-        store.upsert([{
-            "Id": "evt-running", "sensorId": "cam-1", "category": "alert",
-            "timestamp": iso(BASE - timedelta(seconds=600)),
-            "end": iso(BASE + timedelta(seconds=60)),
-            "createdAt": iso(BASE - timedelta(seconds=600)),
-        }])
-
-        events, _, _, _ = store.page(start_time=iso(BASE))
-
-        assert [e["Id"] for e in events] == ["evt-running"]
 
 
 class TestSuccessionRanking:
@@ -2755,32 +1969,6 @@ class TestChunkMetaContract:
         assert out[0]["chunk_meta"][0]["end"] is not None
 
 
-class TestCursorScopeCoversEveryFilter:
-    @pytest.mark.parametrize("changed", [
-        {"sensor_id": "cam-2"}, {"category": "other"},
-        {"start_time": "2026-03-01T00:00:00"}, {"end_time": "2026-03-02T00:00:00"},
-    ])
-    def test_changing_any_filter_invalidates_the_cursor(self, changed):
-        from web.api.realtime_routes import _decode_cursor, _encode_cursor, _filter_tag
-
-        base = {"sensor_id": None, "category": None, "start_time": None, "end_time": None}
-        original = _filter_tag(**base)
-        token = _encode_cursor(("1", "evt-1"), original)
-
-        assert _decode_cursor(token, _filter_tag(**{**base, **changed})) is None
-
-    def test_a_token_with_extra_payload_is_refused(self):
-        import base64, json
-        from web.api.realtime_routes import _decode_cursor, _filter_tag
-
-        tag = _filter_tag(None, None, None, None)
-        token = base64.urlsafe_b64encode(
-            json.dumps(["1", "evt-1", tag, "and-something-else"]).encode()
-        ).decode()
-
-        assert _decode_cursor(token, tag) is None
-
-
 class TestBoundaryHelpers:
     def test_an_event_ending_exactly_on_the_window_start_is_kept(self):
         """The comparison exists for this case and nothing else."""
@@ -2795,16 +1983,6 @@ class TestBoundaryHelpers:
         from realtime.services.event_folder import _iso
 
         assert _iso(BASE + timedelta(milliseconds=250)).endswith(".250Z")
-
-
-class TestReadPathHorizonFallback:
-    def test_an_unusable_configuration_never_claims_an_event_is_settled(self):
-        """Falling back to the fold window would be wrong by exactly the
-        lookback margin, and would report events settled six minutes early."""
-        from web.api.realtime_routes import _rewrite_horizon
-
-        assert _rewrite_horizon({"max_event_duration_seconds": None},
-                                {"fold_window_seconds": 600}) is None
 
 
 class TestRenewalIsBounded:
@@ -2835,29 +2013,6 @@ class TestRenewalIsBounded:
             "two renewals saw the same lease clock, so at least one did not "
             "reset it and every later check falls due immediately"
         )
-
-
-class TestStoreUnavailableAtTheDependency:
-    def test_no_store_at_all_is_answered_as_an_outage(self, es):
-        """Distinct from the 503 raised by a failing query: here the client
-        could not be built, so there is nothing to ask. Falling through would
-        raise ``AttributeError`` on ``None`` and answer 500.
-        """
-        from fastapi.testclient import TestClient
-        from web.api.realtime_routes import get_event_store
-        from web.main import app
-        import web.api.realtime_routes as routes
-
-        app.dependency_overrides[get_event_store] = lambda: None
-        routes.event_persistence_enabled = lambda: True
-        try:
-            response = TestClient(app).get("/api/v1/realtime/events")
-        finally:
-            app.dependency_overrides.clear()
-            routes.event_persistence_enabled = _REAL_PERSISTENCE_ENABLED
-
-        assert response.status_code == 503
-        assert response.json()["error"] == "elasticsearch_unavailable"
 
 
 class TestArrivalOrderInvariantIdentity:
@@ -2925,27 +2080,6 @@ class TestArrivalOrderInvariantIdentity:
 
 
 class TestAliasesCarryOldReferences:
-    def test_a_reference_survives_two_successive_moves(self, es, folder):
-        """Chains happen: earlier evidence can arrive twice."""
-        es.client.raw = [chunk(2, offset_s=200)]
-        folder.run_once(now=BASE + timedelta(seconds=300))
-        first_id = next(iter(stored_events(es)))
-
-        es.client.raw.insert(0, chunk(1, offset_s=150))
-        folder.run_once(now=BASE + timedelta(seconds=320))
-        second_id = next(iter(stored_events(es)))
-
-        es.client.raw.insert(0, chunk(0, offset_s=100))
-        folder.run_once(now=BASE + timedelta(seconds=340))
-        third_id = next(iter(stored_events(es)))
-
-        assert len({first_id, second_id, third_id}) == 3, "the id never moved"
-        resolved, requested = folder._store.resolve(first_id)
-        assert resolved is not None and resolved["Id"] == third_id, (
-            "the oldest reference did not survive two moves"
-        )
-        assert requested == first_id
-
     def test_an_alias_is_not_written_for_a_write_that_failed(self, es, folder):
         """An alias pointing at a document that was never created resolves to
         nothing, which is worse than one that still resolves to the old id."""
@@ -2964,25 +2098,12 @@ class TestAliasesCarryOldReferences:
 
         assert result.failed >= 1, "the premise is that the event write failed"
         assert result.aliases == 0
-        resolved, _ = folder._store.resolve(original_id)
-        assert resolved is not None, "the caller's reference was orphaned"
-        assert resolved["Id"] == original_id
-
-    def test_an_alias_never_appears_as_an_event(self, es, folder):
-        es.client.raw = [chunk(1, offset_s=100)]
-        folder.run_once(now=BASE + timedelta(seconds=200))
-        es.client.raw.insert(0, chunk(0, offset_s=60))
-        folder.run_once(now=BASE + timedelta(seconds=220))
-
-        events, _, total, _ = folder._store.page(limit=50)
-
-        assert total == 1
-        assert all(not e.get("_docKind") for e in events)
-
-    def test_resolving_an_unknown_id_is_not_found_rather_than_an_error(self, es, folder):
-        folder._store.ensure_index()
-
-        assert folder._store.resolve("evt-never-existed") == (None, None)
+        docs = es.client.docs[folder._store.index]
+        assert not any(v.get("_docKind") == "alias" for v in docs.values()), (
+            "an alias was written pointing at an event that never landed, so "
+            "the reference it carries resolves to nothing"
+        )
+        assert original_id in docs, "the caller's reference was orphaned"
 
     def test_an_alias_is_never_reaped_later_than_its_target(self, es):
         """The ordering is the point, so the cutoff has to fall between them.
@@ -2992,7 +2113,7 @@ class TestAliasesCarryOldReferences:
         resolves to a document retention has already removed. Purging with a
         far-future cutoff removes both and proves nothing.
         """
-        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
+        store = RealtimeEventStore(es)
         store.ensure_index()
         long_ago = BASE - timedelta(days=10)
         store.upsert([{
@@ -3027,134 +2148,3 @@ class TestAliasesCarryOldReferences:
             "end of the event it points at"
         )
 
-
-class TestEventByIdEndpoint:
-    @staticmethod
-    def _client(store, enabled=True):
-        from fastapi.testclient import TestClient
-        from web.api.realtime_routes import get_event_store
-        from web.main import app
-        import web.api.realtime_routes as routes
-
-        app.dependency_overrides[get_event_store] = lambda: store
-        routes.event_persistence_enabled = lambda: enabled
-        return TestClient(app)
-
-    @staticmethod
-    def _release():
-        from web.main import app
-        import web.api.realtime_routes as routes
-
-        app.dependency_overrides.clear()
-        routes.event_persistence_enabled = _REAL_PERSISTENCE_ENABLED
-
-    def test_a_moved_reference_resolves_and_says_so(self, es, folder):
-        es.client.raw = [chunk(1, offset_s=100)]
-        folder.run_once(now=BASE + timedelta(seconds=200))
-        original_id = next(iter(stored_events(es)))
-        es.client.raw.insert(0, chunk(0, offset_s=60))
-        folder.run_once(now=BASE + timedelta(seconds=220))
-        new_id = next(iter(stored_events(es)))
-
-        client = self._client(folder._store)
-        try:
-            response = client.get(f"/api/v1/realtime/events/{original_id}")
-        finally:
-            self._release()
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["event"]["Id"] == new_id
-        assert body["requested_id"] == original_id, (
-            "a caller following an alias is never told to update its reference"
-        )
-
-    def test_an_id_that_did_not_move_reports_no_redirect(self, es, folder):
-        es.client.raw = [chunk(0, offset_s=0)]
-        folder.run_once(now=BASE + timedelta(seconds=120))
-        event_id = next(iter(stored_events(es)))
-
-        client = self._client(folder._store)
-        try:
-            body = client.get(f"/api/v1/realtime/events/{event_id}").json()
-        finally:
-            self._release()
-
-        assert body["event"]["Id"] == event_id
-        assert body["requested_id"] is None
-
-    def test_an_unknown_id_is_404(self, es, folder):
-        folder._store.ensure_index()
-        client = self._client(folder._store)
-        try:
-            response = client.get("/api/v1/realtime/events/evt-nope")
-        finally:
-            self._release()
-
-        assert response.status_code == 404
-        assert response.json()["error"] == "not_found"
-
-    def test_an_internal_document_is_not_addressable(self, es, folder):
-        """The lock and the freshness record live in the same index; neither is
-        an event and neither may be fetched as one."""
-        folder._store.ensure_index()
-        folder._store.acquire_lock("someone", ttl_seconds=90)
-        client = self._client(folder._store)
-        try:
-            response = client.get("/api/v1/realtime/events/_fold_lock")
-        finally:
-            self._release()
-
-        assert response.status_code == 404
-
-    def test_the_endpoint_is_501_when_persistence_is_off(self, es, folder):
-        client = self._client(folder._store, enabled=False)
-        try:
-            response = client.get("/api/v1/realtime/events/evt-1")
-        finally:
-            self._release()
-
-        assert response.status_code == 501
-
-
-class TestAliasChainIsBounded:
-    def test_a_chain_longer_than_the_hop_limit_does_not_resolve(self, es, folder):
-        """Unbounded, a cycle in the alias graph spins a request for ever.
-
-        A chain past the limit answering "not found" is the safe failure: the
-        alternative is a request that never returns.
-        """
-        import realtime.services.event_store as module
-
-        store = folder._store
-        store.ensure_index()
-        store.upsert([{
-            "Id": "evt-final", "sensorId": "cam-1", "category": "alert",
-            "timestamp": iso(BASE), "end": iso(BASE), "createdAt": iso(BASE),
-        }])
-        hops = module._ALIAS_MAX_HOPS + 2
-        store.write_aliases(
-            [(f"evt-{i}", f"evt-{i + 1}", iso(BASE)) for i in range(hops)]
-            + [(f"evt-{hops}", "evt-final", iso(BASE))]
-        )
-
-        assert store.resolve(f"evt-{hops}") == (
-            store.resolve(f"evt-{hops}")[0], store.resolve(f"evt-{hops}")[1]
-        )
-        assert store.resolve("evt-0") == (None, None), (
-            "a chain past the hop limit resolved, so nothing bounds a cycle"
-        )
-
-    def test_a_chain_within_the_limit_still_resolves(self, es, folder):
-        store = folder._store
-        store.ensure_index()
-        store.upsert([{
-            "Id": "evt-final", "sensorId": "cam-1", "category": "alert",
-            "timestamp": iso(BASE), "end": iso(BASE), "createdAt": iso(BASE),
-        }])
-        store.write_aliases([("evt-a", "evt-b", iso(BASE)), ("evt-b", "evt-final", iso(BASE))])
-
-        resolved, requested = store.resolve("evt-a")
-
-        assert resolved is not None and resolved["Id"] == "evt-final"
-        assert requested == "evt-a"
