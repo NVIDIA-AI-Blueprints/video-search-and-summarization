@@ -113,7 +113,19 @@ spec:
             - name: RTVI_VLM_MODEL_TO_USE
               value: {{ .Values.rtviVlmModelToUse | default $vlmNameStr | quote }}
             - name: ALWAYS_ON_RULES_CONFIG
+              # Docker compose points this at /app/runtime/realtime-config.yml
+              # because env-substitute.py copies the file there after
+              # substituting ${VLM_NAME} etc. Helm renders the ConfigMap with
+              # tpl at chart-render time, so the mounted /app/configs path is
+              # already fully substituted -- no runtime copy needed.
               value: "/app/configs/realtime-config.yml"
+            - name: ALERT_AGENT_ALWAYS_ON
+              # Mirrors docker compose (services/alert/compose.yml). In Helm
+              # the alert_agent.always_on gate is already templated into
+              # configs/config.yml at render time via
+              # .Values.alertAgentAlwaysOn; the env var is exposed as well so
+              # an operator can grep the running container the same way.
+              value: {{ .Values.alertAgentAlwaysOn | default false | quote }}
           volumeMounts:
             - name: runtime-config
               mountPath: /app/runtime

@@ -63,6 +63,13 @@ agent:
 vss-agent-ui:
   appSubtitle: "Vision (Alerts - VLM)"
 
+# Real-time (2d_vlm): turn on the alert_agent.always_on gate so VIOS
+# camera_streaming events start always-on VLM rules. Docker parity:
+# dev-profile.sh sets ALERT_AGENT_ALWAYS_ON=true for --mode real-time and
+# env-substitute.py substitutes it into the alert-bridge config at startup.
+vss-alert-bridge:
+  alertAgentAlwaysOn: true
+
 analytics:
   enabled: true
   vss-behavior-analytics:

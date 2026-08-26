@@ -165,7 +165,11 @@ alert_agent:
     use_verdict: false
   enrichment:
     enabled: false
-  always_on: false
+  # Always-on VLM alert rules — set via .Values.alertAgentAlwaysOn
+  # (false for verification/2d_cv, true for real-time/2d_vlm). Docker parity:
+  # alerts profile compose passes ALERT_AGENT_ALWAYS_ON=${ALERT_AGENT_ALWAYS_ON}
+  # and env-substitute.py substitutes it into the config at startup.
+  always_on: {{ .Values.alertAgentAlwaysOn | default false }}
 
 rtvi_vlm:
   base_url: "{{ $rtviVlmBase }}/v1"

@@ -400,6 +400,11 @@ vss-alert-bridge:
   vstBaseUrl: ""
   alertReviewMediaBaseDir: ""
   configVariant: ""
+  # Verification mode (2d_cv): always-on VLM alert rules stay off. Real-time
+  # mode flips this to true in values-realtime.yaml. Docker parity: alerts
+  # profile sets ALERT_AGENT_ALWAYS_ON=false here and true in dev-profile.sh
+  # for --mode real-time.
+  alertAgentAlwaysOn: false
   waitForDependencies:
     enabled: true
 

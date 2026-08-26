@@ -145,6 +145,13 @@ alert_agent:
     max_vlm_concurrent: 4
     max_vst_concurrent: 8
 
+  # Always-on VLM alert rules — set via .Values.alertAgentAlwaysOn
+  # (false for verification/2d_cv, true for real-time/2d_vlm). Docker parity:
+  # alerts profile compose passes ALERT_AGENT_ALWAYS_ON=${ALERT_AGENT_ALWAYS_ON}
+  # and env-substitute.py substitutes it into the EDGE-LOCAL-VLM config at
+  # startup.
+  always_on: {{ .Values.alertAgentAlwaysOn | default false }}
+
 # RTVI VLM Configuration - Real-time VLM alert management
 rtvi_vlm:
   base_url: "{{ $rtviVlmBase }}/v1"

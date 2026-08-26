@@ -52,6 +52,13 @@ alertReviewMediaBaseDir: ""
 # When "edge-local-vlm", uses EDGE-LOCAL-VLM-config.yml content (adds request_timeout, use_vlm_media_defaults).
 configVariant: ""
 
+# Gate for alert_agent.always_on in the rendered config. false for verification
+# (2d_cv), true for real-time (2d_vlm). Docker parity: ALERT_AGENT_ALWAYS_ON is
+# env-substituted into vlm-as-verifier configs by env-substitute.py at
+# container startup; in Helm the same value is templated in at chart-render
+# time via configs/config.yml and configs/EDGE-LOCAL-VLM-config.yml.
+alertAgentAlwaysOn: false
+
 # App listens on 9080 (see logs: "Uvicorn running on http://0.0.0.0:9080")
 service:
   port: 9080
