@@ -257,7 +257,25 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     '  COMPOSE_WD="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.working_dir"}}\' 2>/dev/null || true)"\n'
     '  ENV_FILES="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.environment_file"}}\' 2>/dev/null || true)"\n'
     '  if [[ -n "$COMPOSE_FILES" && -n "$COMPOSE_WD" ]]; then\n'
-    "    FARGS=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"; for f in \"${CF[@]}\"; do FARGS+=(-f \"$f\"); done\n"
+    "    # Exclude any compose file that itself pins a candidate image: when the\n"
+    "    # pin used an override FILE, that file is in the pinned container's own\n"
+    "    # config_files label, and passing it back would faithfully recreate the\n"
+    "    # pin. A file mentioning a tree- tag is part of the pin, not the base\n"
+    "    # deployment.\n"
+    "    FARGS=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"\n"
+    "    for f in \"${CF[@]}\"; do\n"
+    '      if [[ -f "$f" ]] && grep -q ":tree-" "$f" 2>/dev/null; then\n'
+    '        echo "verifier cleanup: excluding pin override $f from restore"\n'
+    "        continue\n"
+    "      fi\n"
+    '      FARGS+=(-f "$f")\n'
+    "    done\n"
+    '    if [[ ${#FARGS[@]} -eq 0 ]]; then\n'
+    '      echo "VERIFIER-RESTORE-FAILED: no base compose files left after excluding pin overrides"\n'
+    '      mkdir -p /logs/verifier 2>/dev/null || true\n'
+    '      echo "no base compose files" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    "      RESTORE_FAILED=1\n"
+    "    fi\n"
     "    EARGS=(); if [[ -n \"$ENV_FILES\" ]]; then IFS=',' read -ra EF <<< \"$ENV_FILES\"; for f in \"${EF[@]}\"; do EARGS+=(--env-file \"$f\"); done; fi\n"
     "    # Verified restore with one bounded retry. Never fails the verifier —\n"
     "    # masking the step's real verdict would trade one integrity problem for\n"
