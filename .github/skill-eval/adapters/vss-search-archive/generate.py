@@ -411,6 +411,10 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "RESTORE_FAILED=0\n"
             "CLEANUP_RAN=0\n"
             "cleanup() {\n"
+            "  # Critical section: once cleanup starts, catchable signals are\n"
+            "  # ignored so an interrupt cannot abandon the restore or the reward\n"
+            "  # invalidation partway (SIGKILL remains covered structurally).\n"
+            "  trap '' TERM INT HUP\n"
             '  [[ "$CLEANUP_RAN" == "1" ]] && return 0\n'
             "  CLEANUP_RAN=1\n"
             + _RESTORE_AGENT_IMAGE_SNIPPET
@@ -465,6 +469,10 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "RESTORE_FAILED=0\n"
             "CLEANUP_RAN=0\n"
             "cleanup() {\n"
+            "  # Critical section: once cleanup starts, catchable signals are\n"
+            "  # ignored so an interrupt cannot abandon the restore or the reward\n"
+            "  # invalidation partway (SIGKILL remains covered structurally).\n"
+            "  trap '' TERM INT HUP\n"
             '  [[ "$CLEANUP_RAN" == "1" ]] && return 0\n'
             "  CLEANUP_RAN=1\n"
             + _RESTORE_AGENT_IMAGE_SNIPPET
