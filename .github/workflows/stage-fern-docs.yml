@@ -31,7 +31,9 @@ permissions:
 
 concurrency:
   group: fern-stage
-  cancel-in-progress: true
+  # Do not cancel an in-flight Fern upload. Killing the ledger mid-register
+  # can leave the shared staging site incomplete until a later run succeeds.
+  cancel-in-progress: false
 
 jobs:
   stage:
