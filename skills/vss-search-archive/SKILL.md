@@ -107,7 +107,7 @@ index inventory is a snapshot.
    - Several matches: ask the user to choose and stop.
    - Never substitute another video or run an unrestricted search as a probe.
 
-   Preserve both the matched source's `.sensorId` and `.name`. The required
+   Preserve both the matched source's `.sensor_id` and `.name` (the CLI's listing rows are snake_case). The required
    `--video-source` value depends on the search path, not the source type:
    `embed` and `fusion` use the sensor ID; `attribute` and `object` use the
    name. The CLI matches this value literally and does no name↔ID conversion.

@@ -262,10 +262,11 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "    # config_files label, and passing it back would faithfully recreate the\n"
     "    # pin. A file mentioning a tree- tag is part of the pin, not the base\n"
     "    # deployment.\n"
-    "    FARGS=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"\n"
+    "    FARGS=(); PIN_OVERRIDES=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"\n"
     "    for f in \"${CF[@]}\"; do\n"
     '      if [[ -f "$f" ]] && grep -q ":tree-" "$f" 2>/dev/null; then\n'
     '        echo "verifier cleanup: excluding pin override $f from restore"\n'
+    '        PIN_OVERRIDES+=("$f")\n'
     "        continue\n"
     "      fi\n"
     '      FARGS+=(-f "$f")\n'
@@ -288,6 +289,8 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     '      POST_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
     '      if [[ "$POST_IMAGE" != *":tree-"* && -n "$POST_IMAGE" ]]; then\n'
     '        echo "verifier cleanup: restored vss-agent to $POST_IMAGE (attempt $RESTORE_ATTEMPT)"\n'
+    "        # tidy the now-inert pin override files off the shared box\n"
+    '        for po in "${PIN_OVERRIDES[@]:-}"; do [[ -n "$po" ]] && rm -f "$po" 2>/dev/null || true; done\n'
     "        break\n"
     "      fi\n"
     "      if [[ $RESTORE_ATTEMPT -eq 2 ]]; then\n"
