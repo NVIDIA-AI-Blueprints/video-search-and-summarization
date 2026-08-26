@@ -153,7 +153,7 @@ def cmd_reuse(args: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     # retry transient 404s (GHCR read-after-write lag)
-    retry_delays = (2, 4, 8, 16)
+    retry_delays = (5, 10, 20, 40, 60, 90)
     for attempt, delay in enumerate((0, *retry_delays)):
         if delay:
             time.sleep(delay)
