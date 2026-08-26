@@ -5,7 +5,8 @@
 
 Spawns one `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md`
 as its system prompt and lets it drive an eval end-to-end:
-adapter/dataset → Brev box selection → run_leg.py → results comment. Two modes:
+adapter/dataset → (OpenShell GHA: in-guest Harbor via SKILL_EVAL_LOCAL_GPU_INSTANCE;
+otherwise Brev box selection) → run_leg.py → results comment. Two modes:
 
   - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
     diff into a matrix of one leg per (spec, platform); each leg invokes
@@ -230,9 +231,14 @@ class WorkDeadlineExceeded(RuntimeError):
     pass
 
 
+def _local_gpu_runner() -> bool:
+    """True when this process is an OpenShell GHA GPU guest, not a coordinator."""
+    return bool(os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip())
+
+
 def _direct_progress_monitor() -> DirectAgentProgress | None:
     """Build the direct-OpenShell-only monitor; preserve the Brev path."""
-    if not os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip():
+    if not _local_gpu_runner():
         return None
     try:
         cold_grace = float(os.environ.get(
@@ -428,6 +434,18 @@ async def _block_bash_background(input_data, tool_use_id, context):
                 ),
             }
         }
+    if _local_gpu_runner() and re.search(r"(^|[;&|]\s*)brev\b", cmd):
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "This job is already on the OpenShell GPU guest. Do not "
+                    "call brev or hop to a coordinator; run Harbor in-guest "
+                    "via run_leg.py (SKILL_EVAL_LOCAL_GPU_INSTANCE)."
+                ),
+            }
+        }
     return {}
 
 
@@ -541,6 +559,25 @@ End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
             "append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on)"
             if manual else "post ONE PR comment for this spec"
         )
+        local_gpu = os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+        if local_gpu:
+            harbor_step = (
+                f"this job is already on OpenShell GHA runner `{local_gpu}` "
+                f"(SKILL_EVAL_LOCAL_GPU_INSTANCE). Do NOT call `brev`, do NOT "
+                f"SSH to a coordinator, and do NOT select a `vss-eval-*` pool "
+                f"box. Generate the dataset, then run "
+                f"`.github/skill-eval/run_leg.py` in the foreground; the "
+                f"wrapper pins this guest and Harbor uses local Docker/GPU"
+            )
+        else:
+            platform_label = eval_platform or "the spec's platform"
+            harbor_step = (
+                f"select a `vss-eval-*` member matching "
+                f"`{platform_label}` → run "
+                f"`.github/skill-eval/run_leg.py` for this platform "
+                f"(§ Harbor invocation; never background it; the wrapper "
+                f"holds the per-box lock while Harbor runs)"
+            )
         user_prompt = f"""
 {target}: evaluate exactly ONE spec on ONE platform —
 `{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
@@ -560,10 +597,7 @@ Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
 already selected this (spec, platform). Run steps 2–7 for it only:
 ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
 (missing/stale → handle per § 3c, then exit BLOCKED — never run a
-locally-patched adapter in this leg) → generate the dataset → select a
-`vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
-run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
-never background it; the wrapper holds the per-box lock while Harbor runs)
+locally-patched adapter in this leg) → generate the dataset → {harbor_step}
 {render_block}
 → {post_step}, posting `{report_path}` verbatim
   (`gh pr comment --body-file`).

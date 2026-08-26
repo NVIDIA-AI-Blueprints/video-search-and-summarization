@@ -33,6 +33,8 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
             assert '"$skill_eval_venv_dir/bin/python" .github/skill-eval/skills_eval_agent.py' in workflow
             assert "python3 .github/skill-eval/skills_eval_agent.py" not in workflow
             assert "Assert OpenShell GPU runtime" in workflow
+            assert "matrix.local_gpu" in workflow
+            assert "startsWith(runner.name, 'vss-skill-eval-gpu-a40-')" not in workflow
             assert "uv tool run" in workflow
             assert "base64 -d" in workflow
             assert "python3.12" in workflow

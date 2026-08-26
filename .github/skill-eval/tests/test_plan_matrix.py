@@ -245,8 +245,10 @@ class RealSpecCorpus(unittest.TestCase):
             if leg["cohort"] == "blocked":
                 self.assertEqual(leg["kind"], "not_run_infra_acquisition")
                 self.assertIn("BLOCKED_NO_COMPATIBLE_COHORT", leg["skip_reason"])
+                self.assertFalse(leg["local_gpu"])
                 continue
             self.assertEqual(leg["kind"], "eval")
+            self.assertTrue(leg["local_gpu"])
             if leg["cohort"].startswith("a16"):
                 self.assertIn("openshell-a16-active", leg["runs_on"])
             elif leg["cohort"].startswith("a40"):

@@ -221,10 +221,10 @@ jobs:
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
       - name: Assert OpenShell GPU runtime
-        if: >-
-          startsWith(runner.name, 'vss-skill-eval-gpu-rtxpro6000-') ||
-          startsWith(runner.name, 'vss-skill-eval-gpu-a16-') ||
-          startsWith(runner.name, 'vss-skill-eval-gpu-a40-')
+        # Planner sets matrix.local_gpu on every OpenShell GPU cohort
+        # (A16/A40/H200/RTX). Do not key this on runner.name: H200
+        # registrations are h200-N-g<gen>-<id>, not vss-skill-eval-gpu-h200-*.
+        if: ${{ matrix.local_gpu }}
         run: |
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
           # Harbor/GHA call `uvx --python` and `uvx --version`. A symlink
@@ -287,9 +287,10 @@ jobs:
           printf "SKILL_EVAL_ENV_FILE=%s\n" "$COORD_ENV" >> "$GITHUB_ENV"
           printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
-          if [[ "${RUNNER_NAME:-}" == vss-skill-eval-gpu-rtxpro6000-* || \
-                "${RUNNER_NAME:-}" == vss-skill-eval-gpu-a16-* || \
-                "${RUNNER_NAME:-}" == vss-skill-eval-gpu-a40-* ]]; then
+          # Pin Harbor to this guest whenever the planner placed the leg on
+          # an OpenShell GHA cohort. Runner-name prefixes miss H200
+          # (h200-2-g10-…) and send the agent down the coordinator brev path.
+          if [ "${{ matrix.local_gpu }}" = "true" ]; then
             printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
             if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
               printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"

@@ -308,8 +308,18 @@ The canonical harbor command is in § Harbor invocation.
    mirror sync. If every changed skill is parked, you exit BLOCKED
    without reaching step 5.
 
-5. **Run harbor trials via the leg wrapper — it picks and locks the
-   fleet box itself.** For each target platform:
+5. **Run harbor trials via the leg wrapper.**
+
+   **OpenShell GHA guests (A16, A40, H200, RTX PRO 6000).** When
+   `SKILL_EVAL_LOCAL_GPU_INSTANCE` is set, this process is already on the
+   GPU VM GitHub assigned. Harbor must run in this guest's Docker. Do not
+   call `brev`, do not SSH to a coordinator, and do not wait on a
+   `vss-eval-*` pool lock. `run_leg.py` pins that instance and skips pool
+   selection. `brev` is not on the guest PATH; treating this job as a
+   coordinator is how H200 legs burned 21000s and exited 75.
+
+   **Coordinator path (no local-GPU pin).** The wrapper picks and locks
+   the fleet box itself. For each target platform:
 
    a. **Do NOT select an instance and do NOT export `BREV_INSTANCE`.**
       `run_leg.py` owns fleet selection: it reads the leg's hardware
