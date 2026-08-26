@@ -152,13 +152,16 @@ services:
     image: quay.io/coreos/etcd:v3.5.18
     profiles: ["reid-etcd-mc-tracking"]
     container_name: reid-etcd-mc-tracking
-    network_mode: host
+    networks:
+      default:
+        aliases:
+          - reid-etcd
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
-    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    command: etcd -advertise-client-urls=http://reid-etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     healthcheck:
       test: ["CMD", "etcdctl", "endpoint", "health"]
       interval: 5s
@@ -170,13 +173,16 @@ services:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     profiles: ["reid-minio-mc-tracking"]
     container_name: reid-minio-mc-tracking
-    network_mode: host
+    networks:
+      default:
+        aliases:
+          - reid-minio
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    command: minio server /minio_data --console-address ":${MINIO_CONSOLE_PORT:-9801}" --address ":${MINIO_PORT:-9800}"
+    command: minio server /minio_data --console-address ":${MINIO_CONSOLE_PORT:-9001}" --address ":${MINIO_PORT:-9000}"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${MINIO_PORT:-9800}/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:${MINIO_PORT:-9000}/minio/health/live"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -186,7 +192,10 @@ services:
     image: milvusdb/milvus:v2.5.12
     profiles: ["reid-milvus-mc-tracking"]
     container_name: reid-milvus-mc-tracking
-    network_mode: host
+    networks:
+      default:
+        aliases:
+          - reid-milvus
     depends_on:
       reid-etcd-mc-tracking:
         condition: service_healthy
@@ -195,8 +204,8 @@ services:
     security_opt:
       - seccomp:unconfined
     environment:
-      ETCD_ENDPOINTS: localhost:2379
-      MINIO_ADDRESS: localhost:${MINIO_PORT:-9800}
+      ETCD_ENDPOINTS: reid-etcd:2379
+      MINIO_ADDRESS: reid-minio:${MINIO_PORT:-9000}
     command: ["milvus", "run", "standalone"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
@@ -209,7 +218,14 @@ services:
     image: ${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.08.1}
     profiles: ["reid-embed-mc-tracking"]
     container_name: reid-embed-mc-tracking
-    network_mode: host
+    networks:
+      default:
+        aliases:
+          - reid-embed
+    # On the bridge the service is no longer on the host's loopback, so publish it
+    # for host-side probes and scrapers.
+    ports:
+      - ${REID_SERVICE_HOST_PORT:-8088}:${REID_SERVICE_PORT:-8088}
     restart: unless-stopped
     ipc: host
     depends_on:
@@ -227,25 +243,23 @@ services:
     volumes:
       - "${MOUNT_DIR:-$VSS_DATA_DIR/models/reid}:${MOUNT_DIR:-$VSS_DATA_DIR/models/reid}:${MOUNT_OPTS:-rw}"
     environment:
-      # Not the image default of 8000: NVStreamer holds 32 SO_REUSEPORT sockets
-      # on :8000 and wins the race whenever it starts first (host network, so
-      # uvicorn then dies with EADDRINUSE).
+      # Retained from the host-networked layout, where the image default of :8000
+      # lost a SO_REUSEPORT race with NVStreamer. Nothing forces it on the bridge,
+      # but keeping it means the published port and any existing probes still match.
       - REID_SERVICE_PORT=${REID_SERVICE_PORT:-8088}
-      - KAFKA_CONSUMER_SERVER=${KAFKA_CONSUMER_SERVER:-localhost:${KAFKA_HOST_PORT:-9092}}
+      - KAFKA_CONSUMER_SERVER=${KAFKA_CONSUMER_SERVER:-kafka:29092}
       - KAFKA_CONSUMER_TOPIC=${KAFKA_CONSUMER_TOPIC:-mdx-raw}
-      - KAFKA_PRODUCER_SERVER=${KAFKA_PRODUCER_SERVER:-localhost:${KAFKA_HOST_PORT:-9092}}
+      - KAFKA_PRODUCER_SERVER=${KAFKA_PRODUCER_SERVER:-kafka:29092}
       - KAFKA_PRODUCER_TOPIC=${KAFKA_PRODUCER_TOPIC:-mdx-compressed-embeddings}
+      - MILVUS_HOST=${MILVUS_HOST:-reid-milvus}
       - ENABLE_COMPRESSION=${ENABLE_COMPRESSION:-False}
       - ENABLE_CLUSTERING=${ENABLE_CLUSTERING:-False}
       - COMPRESSION_INTERVAL_SEC=${COMPRESSION_INTERVAL_SEC:-1}
       - TRIGGER_INTERVAL_SEC=${TRIGGER_INTERVAL_SEC:-1}
-      # Left at False: flip to True to actually load the SigLIP model that
-      # reid-embed-init downloaded. The path is pre-wired either way, so enabling
-      # it needs no other change.
       - ENABLE_SECONDARY_EMBEDDING=${ENABLE_SECONDARY_EMBEDDING:-False}
       - SECONDARY_EMBEDDING_MODEL=${SECONDARY_EMBEDDING_MODEL:-siglip2}
       - SECONDARY_EMBEDDING_ONNX_MODEL_PATH=${SECONDARY_EMBEDDING_ONNX_MODEL_PATH:-${MOUNT_DIR:-$VSS_DATA_DIR/models/reid}/siglip_v2_vdeployable_v1.0/siglip2_v1.0.onnx}
-      - VIOS_SERVER=${VIOS_SERVER:-localhost:30888}
+      - VIOS_SERVER=${VIOS_SERVER:-vst-ingress:${VST_PORT:-30888}}
       - PYTHONUNBUFFERED=1
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     healthcheck:
