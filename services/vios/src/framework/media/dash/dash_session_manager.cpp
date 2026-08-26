@@ -623,12 +623,13 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         result.error = "Stream not found";
         return result;
     }
+    /* A browser cannot play HEVC through Media Source Extensions on most
+     * platforms, so republishing an H.265 recording's own bitstream produces a
+     * manifest nothing can decode.  Decode it and encode H.264 instead - the
+     * same private pipeline an overlay already uses.  The difference is only
+     * that here the recording's codec asks for it rather than the viewer. */
     const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
-    if (videoCodec != "h264" && videoCodec != "avc")
-    {
-        result.error = "Replay DASH v1 requires an H.264 recording";
-        return result;
-    }
+    const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
     if (stream->replay_url.empty())
     {
         result.error = "Stream has no recording to replay";
@@ -674,6 +675,17 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         // A replay timeline is synthesised from the frame index, so the rate is
         // not a refinement here: it decides the speed the recording plays at.
         packagerConfig.sourceFrameRate = parseFrameRate(stream->settings.encoderValues.frameRate, 30.0);
+        /* Republished frames carry the recording's own timestamps, but
+         * re-encoded ones are stamped zero: the encoder is the source of the
+         * frames now, not the recording.  The muxer cannot place a frame it
+         * cannot time, so it writes nothing at all - the session plays, frames
+         * are pushed, and not one segment is ever cut.  Build the timeline from
+         * the frame index instead, which is what the live path does for the
+         * same reason. */
+        if (transcodeRequired)
+        {
+            packagerConfig.synthesizeTimestamps = true;
+        }
     }
 
     auto session = std::make_shared<Session>();
@@ -704,11 +716,16 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     }
     opts["codec"] = stream->settings.encoderValues.encoding;
     opts["framerate"] = stream->settings.encoderValues.frameRate;
-    // Terminates the pipeline in this session's packager.  Without an overlay
-    // the decoder republishes the recording's own bitstream and nothing is
-    // decoded or encoded; an overlay has to burn boxes into pixels, so that
-    // case still runs the full decode, overlay and encode chain.
+    // Terminates the pipeline in this session's packager.  With neither an
+    // overlay nor a transcode the decoder republishes the recording's own
+    // bitstream and nothing is decoded or encoded; an overlay has to burn boxes
+    // into pixels and an H.265 recording has to become H.264, so either of
+    // those still runs the full decode, overlay and encode chain.
     opts["dash"] = "dash";
+    if (transcodeRequired)
+    {
+        opts["dash_transcode"] = "true";
+    }
     // Overlay flags are read from the same schema the WebRTC APIs use, so a
     // caller describes an overlay once and every protocol understands it.
     setOverlayOptsBasedOnJson(opts, overlay);
@@ -756,6 +773,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     // recording's own bitstream; they behave differently enough that a report
     // of a stall is not much use unless the log says which one was running.
     LOG(info) << "Replay DASH viewer started" << (dashOverlayRequested(overlay) ? " with overlay" : "")
+              << (transcodeRequired ? " transcoding " + videoCodec + " to h264" : "")
               << " streamId=" << streamId
               << " startTime=" << startTime << " endTime=" << (endTime.empty() ? "none" : endTime)
               << " state=" << stateString(result.state) << endl;

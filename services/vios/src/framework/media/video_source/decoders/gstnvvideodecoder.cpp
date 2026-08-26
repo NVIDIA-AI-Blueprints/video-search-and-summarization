@@ -2297,7 +2297,14 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
     const bool overlayRequested = (opts.find("overlay") != opts.end() && opts.at("overlay") == "true")
                                   || (opts.find("overlayBbox") != opts.end() && opts.at("overlayBbox") == "true");
     const bool dashSession = (opts.find("dash") != opts.end() && opts.at("dash") == "dash");
-    m_dashPassthrough = dashSession && !overlayRequested && m_recordedPlayback && !m_isImageCapture;
+    /* Republishing the recording's own access units only works when a browser
+     * can decode them.  An H.265 recording has to be decoded and encoded as
+     * H.264 first, and the caller says so here; passing it through instead
+     * builds an h265parse and then links it as H.264. */
+    const bool transcodeRequested =
+        (opts.find("dash_transcode") != opts.end() && opts.at("dash_transcode") == "true");
+    m_dashPassthrough = dashSession && !overlayRequested && !transcodeRequested
+                        && m_recordedPlayback && !m_isImageCapture;
     LOG(info) << "Is this HLS playback? " << m_hlsPlayback << endl;
     LOG(info) << "Is this DASH passthrough? " << m_dashPassthrough << endl;
     LOG(info) << "Is this Composite playback? " << m_compositePlayback << endl;
