@@ -253,6 +253,15 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "# addressed candidate image (tree-<sha>), recreate it from the deployment's\n"
     "# own compose coordinates so the pin never outlives this step.\n"
     'CURRENT_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
+    "# Consume the agent-written pre-pin record UNCONDITIONALLY, pinned or not:\n"
+    "# deleting it on every verifier run means any record read below was written\n"
+    "# during THIS step — staleness across steps or trials is structurally\n"
+    "# impossible, not merely unlikely.\n"
+    'PREPIN_RECORD=""\n'
+    "if [[ -f /tmp/vss-prepin-image.txt ]]; then\n"
+    "  PREPIN_RECORD=\"$(head -c 300 /tmp/vss-prepin-image.txt | tr -d '[:space:]')\"\n"
+    "  rm -f /tmp/vss-prepin-image.txt 2>/dev/null || true\n"
+    "fi\n"
     'if [[ "$CURRENT_IMAGE" == *":tree-"* ]]; then\n'
     '  echo "verifier cleanup: vss-agent is pinned to $CURRENT_IMAGE — restoring"\n'
     '  COMPOSE_FILES="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.config_files"}}\' 2>/dev/null || true)"\n'
@@ -298,16 +307,12 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     '      echo "verifier cleanup: compose-resolved image $EXPECTED_IMAGE is itself a candidate — pin leaked into base coordinates; discarding"\n'
     '      EXPECTED_IMAGE=""\n'
     "    fi\n"
-    "    # Prefer the pre-pin record the agent wrote before recreating: it is the\n"
-    "    # image that was ACTUALLY deployed, not a re-resolution. Trust it only\n"
-    "    # when it is plausibly a base image (non-empty, not a candidate tag):\n"
-    "    # a wrong record can only zero this step's own reward, so recording\n"
-    "    # honestly is incentive-compatible.\n"
-    '    PREPIN_RECORD=""\n'
-    "    if [[ -f /tmp/vss-prepin-image.txt ]]; then\n"
-    "      PREPIN_RECORD=\"$(head -c 300 /tmp/vss-prepin-image.txt | tr -d '[:space:]')\"\n"
-    "      rm -f /tmp/vss-prepin-image.txt 2>/dev/null || true\n"
-    "    fi\n"
+    "    # Prefer the pre-pin record consumed above: it is the image that was\n"
+    "    # ACTUALLY deployed before this step's pin, not a re-resolution, and\n"
+    "    # unconditional consumption guarantees it was written during this step.\n"
+    "    # Trust it only when it is plausibly a base image (non-empty, not a\n"
+    "    # candidate tag): a wrong record can only zero this step's own reward,\n"
+    "    # so recording honestly is incentive-compatible.\n"
     '    if [[ -n "$PREPIN_RECORD" && "$PREPIN_RECORD" != *":tree-"* ]]; then\n'
     '      if [[ -n "$EXPECTED_IMAGE" && "$EXPECTED_IMAGE" != "$PREPIN_RECORD" ]]; then\n'
     '        echo "verifier cleanup: pre-pin record $PREPIN_RECORD overrides compose-resolved $EXPECTED_IMAGE"\n'
