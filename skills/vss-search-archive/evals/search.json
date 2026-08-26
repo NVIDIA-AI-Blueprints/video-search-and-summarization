@@ -44,7 +44,7 @@
       ]
     },
     {
-      "query": "Find up to three instances of forklifts in the registered sample warehouse source `warehouse_sample`. Resolve its exact sensor ID from VST, then use `vss search run embed` with `--query forklifts`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. The Docker search profile and evaluation fixtures are already prepared on this host.",
+      "query": "Find up to three instances of forklifts in the registered sample warehouse source `warehouse_sample`. Resolve its exact sensor ID from VST, then use `vss search run embed` with `--query forklifts`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. The Docker search profile and evaluation fixtures are already prepared on this host. Cite each hit's screenshot or clip URL exactly as the CLI stamps it, at the origin recorded by `vss configure`. If those URLs point at a host-reachable origin (for example localhost or an internal address) instead of a public Brev HTTPS origin, explicitly label them host-local in your final reply.",
       "checks": [
         "Before search, the agent listed sources through the configured origin's VST route and resolved the explicitly requested `warehouse_sample` to its exact registered name and nonempty sensor ID",
         "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run embed` command from the validated checkout, relying on the deployment recorded by `vss configure`; it passed no endpoint, index, or model flags, and did not use `--search-mode`, `--deployment`, `--profile`, `--base-url`, a container/pod shell, or `/api/v1/search`",
