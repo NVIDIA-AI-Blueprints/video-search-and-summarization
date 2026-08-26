@@ -221,7 +221,7 @@ echo -e "\nPGIE config:"
 cat "${CONFIG_DIR}/ds-pgie-config.yml"
 
 echo -e "\nTracker config:"
-cat "${CONFIG_DIR}/ds-mc-tracking-tracker-config.yml"
+cat "${CONFIG_DIR}/ds-mc-tracking-config.yml"
 
 echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MC-Tracking)..."
 echo -e "\nMain config:"

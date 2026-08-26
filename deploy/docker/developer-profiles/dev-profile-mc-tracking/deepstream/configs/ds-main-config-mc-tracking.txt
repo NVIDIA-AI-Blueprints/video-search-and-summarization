@@ -173,7 +173,7 @@ tracker-height=1088
 display-tracking-id=1
 gpu-id=0
 ll-lib-file=/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so
-ll-config-file=ds-mc-tracking-tracker-config.yml
+ll-config-file=ds-mc-tracking-config.yml
 
 [tests]
 file-loop=0
