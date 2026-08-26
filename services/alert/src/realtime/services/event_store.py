@@ -39,7 +39,6 @@ logger = logging.getLogger(__name__)
 
 _ES_META_FIELDS = frozenset({"_id", "_seq_no", "_primary_term", "_index", "_version"})
 _WINDOW_READ_CAP = 10000
-_TOTAL_HITS_CAP = 10000
 _LOCK_ID = "_fold_lock"
 _STATE_ID = "_fold_state"
 # Internal bookkeeping documents live in the same index as the events they

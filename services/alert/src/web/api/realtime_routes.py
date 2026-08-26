@@ -32,9 +32,6 @@ invoked from non-REST callers (agent flows, replay tools, integration
 tests) without going through HTTP.
 """
 
-import asyncio
-import base64
-import hashlib
 import json
 import threading
 import logging
