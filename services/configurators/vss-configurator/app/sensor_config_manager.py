@@ -128,6 +128,7 @@ def get_config():
             # Service endpoints
             'SENSOR_BRIDGE_HTTP_ENDPOINT': os.environ.get("SENSOR_BRIDGE_HTTP_ENDPOINT", "http://localhost:8000/mtmc/urls"),
             'VST_CAMERA_ADD_ENDPOINT': os.environ.get("VST_CAMERA_ADD_ENDPOINT", "http://vms-vms-svc:30000/api/v1/sensor/add"),
+            'VST_CAMERA_ADD_TIMEOUT': int(os.environ.get("VST_CAMERA_ADD_TIMEOUT", "15")),
             'NVSTREAMER_STREAMS_ENDPOINT': os.environ.get("NVSTREAMER_STREAMS_ENDPOINT", "http://localhost:30000/api/v1/live/streams"),
             'NVSTREAMER_SENSOR_STATUS_ENDPOINT': os.environ.get("NVSTREAMER_SENSOR_STATUS_ENDPOINT", "http://localhost:30000/api/v1/sensor/status"),
             
@@ -278,7 +279,27 @@ def fetch_sensor_data_from_msb(delay=60, timeout=5) -> Optional[List[Dict]]:
             time.sleep(delay) 
             continue
 
-def add_sensor(sensor_info: Sensor, delay=30, timeout=15):
+def _get_vms_error_message(response):
+    if response is None:
+        return ""
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text or ""
+    if isinstance(payload, dict):
+        return str(payload.get("error_message") or "")
+    return response.text or ""
+
+
+def _sensor_already_registered(response, error_message):
+    return (
+        response is not None
+        and response.status_code == 400
+        and error_message.startswith("Sensor exists already")
+    )
+
+
+def add_sensor(sensor_info: Sensor, delay=30, timeout=None):
     logger.debug(f"Adding sensor: {sensor_info.name} to VMS endpoint: {CONFIG['VST_CAMERA_ADD_ENDPOINT']}")
     headers = {"Content-Type": "application/json"}
     sensor_data = {
@@ -291,11 +312,12 @@ def add_sensor(sensor_info: Sensor, delay=30, timeout=15):
         sensor_data["tags"] = f"{sensor_info.region}|{sensor_info.group_id}"
         logger.debug(f"Sensor tags set: {sensor_data['tags']}")
 
+    timeout = CONFIG['VST_CAMERA_ADD_TIMEOUT'] if timeout is None else timeout
     while True:
         try:
             logger.debug(f"Sending POST request to add sensor: {sensor_data['name']}")
             response = requests.post(CONFIG['VST_CAMERA_ADD_ENDPOINT'], json=sensor_data, headers=headers, timeout=timeout)
-            if response and response.status_code == 200:
+            if response is not None and response.status_code == 200:
                 logger.info(f"Successfully added sensor: {sensor_data['name']}")
                 logger.debug(f"VMS response: {response.text}")
                 return
@@ -304,22 +326,20 @@ def add_sensor(sensor_info: Sensor, delay=30, timeout=15):
             # treat it as success. VST reports this distinctly from a same-name/
             # different-URL collision ("User given name is invalid or already
             # exists"), which is a real conflict and must still retry/surface.
-            error_message = ""
-            if response is not None:
-                try:
-                    error_message = response.json().get("error_message", "")
-                except ValueError:
-                    error_message = response.text or ""
-            already_registered = (
-                response is not None
-                and response.status_code == 400
-                and error_message.startswith("Sensor exists already")
-            )
-            if already_registered:
+            error_message = _get_vms_error_message(response)
+            if _sensor_already_registered(response, error_message):
                 logger.info(f"Sensor {sensor_data['name']} already registered with VMS: {error_message}")
                 return
-            logger.warning(f"Error adding sensor {sensor_data['name']}. Received status code {response.status_code} from VMS. Retrying in {delay} seconds...")
-            logger.debug(f"VMS error response: {response.text if response else 'No response'}")
+            status_code = response.status_code if response is not None else "no response"
+            logger.warning(f"Error adding sensor {sensor_data['name']}. Received status code {status_code} from VMS. Retrying in {delay} seconds...")
+            logger.debug(f"VMS error response: {response.text if response is not None else 'No response'}")
+            time.sleep(delay)
+        except requests.exceptions.Timeout as e:
+            logger.warning(
+                f"Timed out after {timeout}s waiting for VST to add sensor {sensor_data['name']}; "
+                f"the request may still complete in VMS. Retrying in {delay} seconds..."
+            )
+            logger.debug(f"Exception details: {repr(e)}")
             time.sleep(delay)
         except Exception as e:
             logger.warning(

@@ -16,6 +16,7 @@
 """Unit tests for add_sensor()'s VST 400 "already exists" idempotency handling."""
 from unittest.mock import MagicMock
 import pytest
+import requests
 
 
 @pytest.fixture(autouse=True)
@@ -81,6 +82,52 @@ def test_add_sensor_treats_already_exists_400_as_success(monkeypatch):
     sleep.assert_not_called()
 
 
+def test_add_sensor_treats_already_exists_after_timeout_as_success(monkeypatch):
+    """If the client times out but VST completes the add, the duplicate retry is success."""
+    import sensor_config_manager as mod
+
+    post = MagicMock(
+        side_effect=[
+            requests.exceptions.Timeout("read timed out"),
+            _response(
+                400,
+                "Sensor exists already, sensorId: df996508-d848-40cb-ac40-dd0a39925732, sensorName: Camera_02",
+            ),
+        ]
+    )
+    sleep = MagicMock()
+    monkeypatch.setattr(mod.requests, "post", post)
+    monkeypatch.setattr(mod.time, "sleep", sleep)
+
+    mod.add_sensor(_sensor_info(), delay=30, timeout=5)
+
+    assert post.call_count == 2
+    sleep.assert_called_once_with(30)
+
+
+def test_add_sensor_treats_already_exists_after_499_as_success(monkeypatch):
+    """Ingress 499 means the client gave up; the follow-up duplicate confirms VST added it."""
+    import sensor_config_manager as mod
+
+    post = MagicMock(
+        side_effect=[
+            _response(499, "client closed request"),
+            _response(
+                400,
+                "Sensor exists already, sensorId: df996508-d848-40cb-ac40-dd0a39925732, sensorName: Camera_02",
+            ),
+        ]
+    )
+    sleep = MagicMock()
+    monkeypatch.setattr(mod.requests, "post", post)
+    monkeypatch.setattr(mod.time, "sleep", sleep)
+
+    mod.add_sensor(_sensor_info(), delay=30, timeout=5)
+
+    assert post.call_count == 2
+    sleep.assert_called_once_with(30)
+
+
 def test_add_sensor_retries_on_name_conflict_400(monkeypatch):
     """VST's name-only collision ("different URL, same name") is a real
     conflict, not our own abandoned request -- it must retry, not succeed."""
@@ -140,6 +187,21 @@ def test_add_sensor_retries_on_genuine_error(monkeypatch):
     assert post.call_count == 3
     assert sleep.call_count == 2
     sleep.assert_called_with(30)
+
+
+def test_add_sensor_uses_configured_timeout(monkeypatch):
+    """The default VST add timeout can be tuned for slower ingress/VST paths."""
+    import sensor_config_manager as mod
+
+    monkeypatch.setitem(mod.CONFIG, "VST_CAMERA_ADD_TIMEOUT", 22)
+    post = MagicMock(return_value=_response(200))
+    monkeypatch.setattr(mod.requests, "post", post)
+    monkeypatch.setattr(mod.time, "sleep", MagicMock())
+
+    mod.add_sensor(_sensor_info())
+
+    _, kwargs = post.call_args
+    assert kwargs["timeout"] == 22
 
 
 def test_add_sensor_uses_generous_default_timeout(monkeypatch):
