@@ -481,7 +481,7 @@ void replaceAttribute(std::string& manifest, size_t begin, size_t end,
 // Keep an explicit cushion behind the edge.  The initial catalogue is large
 // enough to cover this shift, and without it Chrome can begin only one or two
 // segments behind the live edge and drain at every segment boundary.
-constexpr int kDashLiveAvailabilityShiftSec = 4;
+constexpr int kDashLiveAvailabilityShiftSec = 0;
 constexpr int kDashReplayAvailabilityShiftSec = 6;
 
 // How often the player is asked to refetch the manifest.
