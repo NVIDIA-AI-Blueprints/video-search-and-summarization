@@ -116,10 +116,9 @@ ReID:
   modelEngineFile: "/opt/storage/reid/reid_model.onnx_b64_gpu0_fp32.engine"
 
 ReIDService:
-  reidServiceType: 0
-  enableBlocking: 0
-  debugVerboseLevel: 0
-  serviceAddress: "127.0.0.1"
-  servicePort: 8000
+  reidServiceType: 1
+  debugVerboseLevel: 1
+  serviceAddress: "reid-embed"
+  servicePort: 8088
   operateOnClassIds: [0]
 
