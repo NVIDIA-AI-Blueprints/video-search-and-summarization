@@ -897,6 +897,41 @@ void anchorAvailabilityToFirstSegment(std::string& manifest, const std::filesyst
     manifest.replace(valueBegin, valueEnd - valueBegin, stamp);
 }
 
+/* Declare that a listed segment can be fetched at once.
+ *
+ * A player works out whether a segment exists yet from availabilityStartTime
+ * plus the segment's own end time, because an ordinary SegmentTemplate predicts
+ * segments that have not been produced. This manifest does not predict: the
+ * timeline is rebuilt on every request from the fragments actually on disk, so
+ * anything listed has already been written and could be fetched now. Without
+ * saying so the player holds off on the newest segments and plays at the edge
+ * of what the clock allows rather than the edge of what exists, which leaves it
+ * with nothing buffered - measured at a tenth of a second, hitching fifteen
+ * times a minute.
+ *
+ * The offset is how much earlier than nominal a segment becomes available; an
+ * hour is far past any window this serves. */
+void setAvailabilityTimeOffset(std::string& manifest, int seconds)
+{
+    constexpr const char* templateTag = "<SegmentTemplate ";
+    const std::string attribute = std::string(" availabilityTimeOffset=\"") + std::to_string(seconds) + "\"";
+    size_t position = 0;
+    while ((position = manifest.find(templateTag, position)) != std::string::npos)
+    {
+        const size_t insertAt = position + std::char_traits<char>::length(templateTag) - 1;
+        if (manifest.compare(position, manifest.find('>', position) - position,
+                             manifest.substr(position, manifest.find('>', position) - position))
+            == 0
+            && manifest.find("availabilityTimeOffset", position) < manifest.find('>', position))
+        {
+            position += 1;
+            continue;
+        }
+        manifest.insert(insertAt, attribute);
+        position = insertAt + attribute.size() + 1;
+    }
+}
+
 void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& directory,
                            bool replay)
 {
@@ -956,6 +991,8 @@ void normalizeLiveManifest(std::string& manifest, const std::filesystem::path& d
         // with an overlay.  Poll at a quarter second so the next segment is
         // requested before the current one is exhausted.
         setMinimumUpdatePeriod(manifest, kDashManifestRefreshPeriod);
+        // Everything this manifest lists is already on disk.
+        setAvailabilityTimeOffset(manifest, 3600);
         updatePublishTime(manifest);
         // Live only.  A replay session publishes its whole recording window on
         // purpose, so bounding it would cut the viewer off from the start of
