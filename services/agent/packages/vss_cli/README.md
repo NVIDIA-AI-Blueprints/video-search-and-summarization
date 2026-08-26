@@ -52,9 +52,34 @@ vss configure show     # what was recorded
 vss configure check    # re-probe; exit 3 if a route disappeared
 ```
 
-`configure` probes the origin's ingress routes (`/api`, `/vst`, `/elasticsearch`,
-`/cosmos-embed`, `/rtvi-cv`, `/rtvi-vlm`) and writes `~/.vss/config.json` (mode
-0600, no credentials). Re-run it after any deployment change.
+`configure` probes the origin's ingress routes — `/api`, `/vst`,
+`/elasticsearch`, `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm`, `/lvs`, `/va-mcp` —
+and writes `~/.vss/config.json` (mode 0600, no credentials). Re-run it after any
+deployment change.
+
+`/va-mcp` is recorded but required by no command group: nothing here calls the
+MCP server — the agent is its client. It is probed because it is the one gateway
+mount an operator cannot otherwise check from the host, and it is the first
+thing to check when the agent's video-analytics tools go missing.
+
+### Give it the origin you can reach, not the one containers use
+
+The origin is whatever answers **from this host**. Locally that is
+`http://<host>:7777` (the published HAProxy port); on a platform that fronts the
+deployment with TLS — a Brev secure link, for instance — it is that
+platform's `https://…` URL, because TLS terminates at the platform edge and
+plain HTTP is forwarded inward.
+
+**Never `vss.local`.** Inside the deployment, services address the same HAProxy
+front door as `http://vss.local:7777`, and `VSS_GATEWAY_ORIGIN` is set to
+exactly that. It is a Docker bridge network alias: it does not resolve on the
+host, and configuring the CLI with it produces a `ConnectError` on every route
+and a summary that blames the deployment. Same front door, same paths, two
+origins — one for callers inside the network and one for callers outside it.
+
+```bash
+vss configure --base-url "${VSS_PUBLIC_URL}"    # e.g. http://localhost:7777
+```
 
 ## The surface
 

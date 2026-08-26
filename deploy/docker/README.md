@@ -154,6 +154,146 @@ If you choose to pass `overrides.env` directly instead of `generated.env`, first
 replace its placeholder values for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
 credentials, ports, and model settings.
 
+### Gateway identity
+
+HAProxy is the HTTP front door. Service-to-service HTTP inside the deployment
+uses one logical origin plus the stable path contract below — not Compose DNS
+nicknames like `http://vss-va-mcp:9901`. Placement lives in DNS and in HAProxy;
+no caller branches on whether a service is colocated.
+
+Profiles expose three variables:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `VSS_GATEWAY_HOST` | `vss.local` | The gateway's name. HAProxy publishes `vss.local` as a bridge network alias unconditionally. |
+| `VSS_GATEWAY_PORT` | `${HAPROXY_PORT:-7777}` | The listener HAProxy binds. |
+| `VSS_GATEWAY_ORIGIN` | `http://vss.local:7777` | What callers prefix a mount with. |
+
+**The gateway origin is pinned to HAProxy's listener and is deliberately not
+derived from `VSS_PUBLIC_*`.** The two describe different callers. `VSS_PUBLIC_*`
+is the browser's origin; where a platform terminates TLS outside the stack — a
+Brev secure link is `https` on `443`, forwarding plain HTTP to `7777` — reusing
+it here would hand every container `https://vss.local:443`, a listener that does
+not exist. `VSS_PUBLIC_*` keeps browsers, report links, and
+`vss configure --base-url` on the host; the gateway keeps the containers. Never
+point a container at the platform's secure-link hostname.
+
+The end state is one front door, one path contract, two origins: internal
+callers use `http://vss.local:7777`, external callers use the platform's HTTPS
+URL.
+
+None of these may render empty. An empty origin produces URLs like
+`/elasticsearch`, which fail inside an HTTP client as a malformed request rather
+than here as a configuration error, so `services/agent/compose.yml` spells out
+an inline default on every gateway-derived variable.
+
+Agent Compose derives the agent's HTTP backends from the origin —
+`VIDEO_ANALYSIS_MCP_URL`, `VST_INTERNAL_URL`, `ELASTIC_SEARCH_ENDPOINT`,
+`COSMOS_EMBED_ENDPOINT`, `RTVI_CV_ENDPOINT`, `RTVI_VLM_BASE_URL`,
+`ALERT_BRIDGE_URL`, `LVS_BACKEND_URL`, `PHOENIX_ENDPOINT`. Browser-facing
+`VST_EXTERNAL_URL` stays on `VSS_PUBLIC_*`. Non-HTTP data planes — Kafka, Redis,
+RTSP, raw media — are out of scope and keep their own addressing.
+
+Same-bridge check (native Compose; no helper script):
+
+```bash
+cd deploy/docker
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-alerts/.env \
+  --env-file developer-profiles/dev-profile-alerts/overrides.env \
+  config vss-agent vss-va-mcp vss-haproxy-ingress
+```
+
+After `up -d`, from a container on the bridge:
+
+```bash
+docker exec vss-agent getent hosts vss.local
+docker exec vss-agent curl -fsS http://vss.local:7777/va-mcp/health
+docker exec vss-agent curl -fsS http://vss.local:7777/elasticsearch/
+```
+
+The last two prove the rewrite, not just the route: `/va-mcp/health` must return
+the MCP server's own health body and `/elasticsearch/` the cluster banner. A 404
+means HAProxy matched the path but rewrote it into something the backend does
+not serve.
+
+From the host, the same front door on the published port:
+
+```bash
+curl -fsS "${VSS_PUBLIC_URL}/va-mcp/health"
+vss configure --base-url "${VSS_PUBLIC_URL}"   # never http://vss.local:7777
+vss configure check
+```
+
+Off-bridge: set `VSS_GATEWAY_HOST` and `VSS_GATEWAY_ORIGIN` to the externally
+resolvable name (and TLS scheme/port), then pass `-f compose.gateway-alias.yml`
+only when you also want that hostname aliased on the Compose network.
+
+```bash
+docker compose -f compose.yml -f compose.gateway-alias.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-alerts/.env \
+  --env-file developer-profiles/dev-profile-alerts/overrides.env \
+  config vss-haproxy-ingress
+```
+
+Gateway path contract (HAProxy). Callers use `${VSS_GATEWAY_ORIGIN}<mount>` then
+the service's own path. Prefix is stripped only where the backend does not
+serve that prefix natively.
+
+| Mount | Prefix | Caller base when gateway-routed | Example public path | Backend path |
+|---|---|---|---|---|
+| `/va-mcp` | strip | `${VSS_GATEWAY_ORIGIN}/va-mcp` | `/va-mcp/mcp`, `/va-mcp/health` | `/mcp`, `/health` |
+| `/alert-bridge` | strip | `${VSS_GATEWAY_ORIGIN}/alert-bridge` | `/alert-bridge/health` | `/health` |
+| `/video-analytics-api` | strip | origin + `/video-analytics-api` | `/video-analytics-api/...` | `/...` |
+| `/elasticsearch` | strip (method/path restricted) | `${VSS_GATEWAY_ORIGIN}/elasticsearch` | `/elasticsearch/_cat/indices` | `/_cat/indices` |
+| `/rtvi-vlm` | strip | `${VSS_GATEWAY_ORIGIN}/rtvi-vlm` | `/rtvi-vlm/v1/models` | `/v1/models` |
+| `/rtvi-cv` | strip | `${VSS_GATEWAY_ORIGIN}/rtvi-cv` | `/rtvi-cv/api/v1/stream/add` | `/api/v1/stream/add` |
+| `/rtvi-embed` | strip | `${VSS_GATEWAY_ORIGIN}/rtvi-embed` | `/rtvi-embed/v1/models` | `/v1/models` |
+| `/lvs` | strip | `${VSS_GATEWAY_ORIGIN}/lvs` | `/lvs/v1/live` | `/v1/live` |
+| `/phoenix` | strip | `${VSS_GATEWAY_ORIGIN}/phoenix` | `/phoenix` | `/` (keep `PHOENIX_HOST_ROOT_PATH=/phoenix`) |
+| `/vst` | preserve | `${VSS_GATEWAY_ORIGIN}` (not `/vst`) | `/vst/api/...` | `/vst/api/...` |
+| `/storage` | rewrite to `/vst/storage` | origin | `/storage/...` | `/vst/storage/...` |
+| `/kibana` | preserve | origin + `/kibana` | `/kibana/...` | `/kibana/...` |
+| `/api`, `/chat`, `/websocket`, `/static` | preserve | origin | `/api/v1/...` | `/api/v1/...` |
+| `/behavior-analytics`, `/perception-sdr` | preserve | origin + prefix | prefix paths | same (often 503 if backend has no HTTP) |
+
+The proposed renames to `/vios`, `/alerts` and `/video-summarization` are not
+applied: those prefixes exist in neither Helm nor the CLI today, and Docker
+matches the current Helm and CLI mounts. Renaming them is a separate change that
+has to move all three at once.
+
+### Elasticsearch through the gateway
+
+`/elasticsearch` is a **narrow** mount, not a general-purpose ES proxy. The
+frontend allows `GET`/`HEAD`/`POST`/`OPTIONS`, answers `403` on
+`_cluster`/`_nodes`/`_snapshot`/`_security`/`_settings`/`_shutdown`/`_license`
+and on `<index>/_bulk`, `_update`, `_delete_by_query`, `_forcemerge`, `_close`
+and `_open`, and permits exactly one `PUT` — `vss-memory[-suffix]/_doc/<id>`,
+for unified memory. That is the query surface the agent and the `vss` CLI need,
+and widening it would turn an ingress-exposed route into unauthenticated cluster
+administration.
+
+So which ES clients ride the gateway is decided by that ACL, not by preference:
+
+| ES client | Routing | Why |
+|---|---|---|
+| `vss-agent` (search, embed, critic, memory, `es_caption`) | gateway `/elasticsearch` | Query paths plus the one permitted memory `PUT`. |
+| `vss-va-mcp` (`video_analytics.es_url`) | gateway `/elasticsearch` | `_search` only. |
+| `vss` CLI | gateway `/elasticsearch` | Same query surface, from outside. |
+| Kibana | direct `elasticsearch:9200` | It does honor a path in `elasticsearch.hosts`, but its startup node/version probe is `GET _nodes/_all/_none`, which the mount answers `403`: measured against this route, Kibana logs "Unable to retrieve version information from Elasticsearch nodes" and retries forever without becoming ready. It also needs `_cluster`, `_security` and `PUT`/`DELETE` on its own `.kibana*` indices. `kibana.yml` is mounted verbatim with no variable substitution besides. |
+| `vss-video-analytics-api` | direct `elasticsearch:9200` | A read-write client: `indices.putIndexTemplate`, `index()` with an id (`PUT`), and `bulk()` on `<index>/_bulk` are 405/403 through the mount. Its JSON config is mounted verbatim, so it has no substitution hook either. |
+| `alert-bridge` / `vlm-as-verifier` | direct `elasticsearch:9200` | Writes `mdx-vlm-incidents` / `mdx-vlm-alerts` and creates its own `ab-*` indices. `source_elasticsearch.py` also takes host and port separately and cannot express a path prefix. |
+| Logstash pipelines | direct `elasticsearch:9200` | Ingest data plane: ILM and index-template `PUT`s, plus bulk indexing. Not something to put behind an HTTP edge proxy. |
+| `elasticsearch-init-container`, `kibana-import-dashboard.sh` | direct `elasticsearch:9200` | Bootstrap: they create the ILM policies, templates and pipelines with `PUT`, and they run before and independently of HAProxy. |
+| LVS (`lvs-server`) | direct `ES_HOST` / `ES_PORT` | Takes host and port as separate settings, so it cannot express `origin + /elasticsearch` without a code change. |
+| VST / nvstreamer `video_metadata_server` | direct `elasticsearch:9200/mdx-*` | Not a base URL — the setting embeds an index pattern in the host string. |
+
+Every entry left direct is either denied by the ACL above, unable to express a
+path prefix, or part of the bootstrap that has to run before the proxy. Moving
+any of them means changing the client, not the route.
+
 Create writable host directories for the bind-mounted infrastructure volumes
 before starting a direct Compose stack:
 

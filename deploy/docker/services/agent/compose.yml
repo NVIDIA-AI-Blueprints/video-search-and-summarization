@@ -27,6 +27,13 @@ services:
     environment:
     - HOST_IP=${HOST_IP}
     - VST_MCP_URL=${VST_MCP_URL}
+    # Gateway-derived, like the agent below. The default is spelled out on every
+    # line because Compose has no way to name it once: a bare
+    # ${VSS_GATEWAY_ORIGIN} renders "/elasticsearch" when the variable is unset,
+    # which fails inside the client as a malformed URL rather than here as a
+    # missing configuration value.
+    - VST_INTERNAL_URL=${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}
+    - ELASTIC_SEARCH_ENDPOINT=${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/elasticsearch
     - VSS_AGENT_HOST=${VSS_AGENT_HOST}
     - VSS_VA_MCP_PORT=${VSS_VA_MCP_PORT}
     - VSS_ES_PORT=${VSS_ES_PORT}
@@ -64,6 +71,16 @@ services:
     profiles: ["vss-agent"]
     ports:
     - ${VSS_AGENT_HOST_PORT:-8000}:${VSS_AGENT_PORT:-8000}
+    # Every HTTP backend the agent calls is ${VSS_GATEWAY_ORIGIN} plus the mount
+    # HAProxy publishes for it (see deploy/docker/README.md for the path
+    # contract). The agent therefore holds no Compose DNS name and no
+    # colocated-vs-remote branch; placement is DNS's job. The long inline
+    # default is repeated rather than named because Compose cannot bind an
+    # expression to a variable, and a bare ${VSS_GATEWAY_ORIGIN} would render
+    # "/elasticsearch" if a profile forgot to set it.
+    #
+    # Non-HTTP planes (Kafka, Redis, RTSP, raw media) are out of scope and stay
+    # on their own addressing.
     environment:
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
@@ -78,32 +95,33 @@ services:
       VSS_AGENT_CONFIG_FILE: ${VSS_AGENT_CONFIG_FILE}
       VSS_AGENT_HOST: ${VSS_AGENT_HOST}
       VSS_AGENT_PORT: ${VSS_AGENT_PORT}
-      LVS_BACKEND_URL: ${LVS_BACKEND_URL}
+      LVS_BACKEND_URL: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/lvs
       RTVI_EMBED_MODEL: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       RTVI_EMBED_PORT: ${RTVI_EMBED_PORT}
       RTVI_CV_PORT: ${RTVI_CV_PORT}
-      RTVI_CV_ENDPOINT: ${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:${RTVI_CV_PORT:-9000}}
+      RTVI_CV_ENDPOINT: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/rtvi-cv
       VSS_ES_PORT: ${VSS_ES_PORT}
 
       # Phoenix Telemetry
-      PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT}
+      PHOENIX_ENDPOINT: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/phoenix
 
-      # VST (Video Storage Tool)
+      # VST (Video Storage Tool). Agent-to-VST uses the gateway origin, not
+      # vst.env's Docker hostname (that file stays docker-local for VST itself).
       VST_BASE_URL: ${VST_BASE_URL:-${VST_EXTERNAL_URL}}
-      VST_INTERNAL_URL: ${VST_INTERNAL_URL}
+      VST_INTERNAL_URL: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}
       VST_EXTERNAL_URL: ${VST_EXTERNAL_URL}
       VST_MCP_URL: ${VST_MCP_URL}
 
       # MCP Server
-      VIDEO_ANALYSIS_MCP_URL: ${VIDEO_ANALYSIS_MCP_URL:-http://vss-va-mcp:${VSS_VA_MCP_PORT:-9901}}
+      VIDEO_ANALYSIS_MCP_URL: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/va-mcp
 
       # LLM Endpoints
       LLM_NAME: ${LLM_NAME}
       LLM_BASE_URL: ${LLM_BASE_URL}
       VLM_NAME: ${VLM_NAME}
       VLM_BASE_URL: ${VLM_BASE_URL}
-      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
-      ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://alert-bridge:${ALERT_BRIDGE_PORT:-9080}}
+      RTVI_VLM_BASE_URL: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/rtvi-vlm
+      ALERT_BRIDGE_URL: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/alert-bridge
 
       # Audio Configuration
       ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
@@ -133,8 +151,8 @@ services:
       VSS_AGENT_TEMPLATE_NAME: ${VSS_AGENT_TEMPLATE_NAME}
 
       # Cosmos Embed & ElasticSearch (for search profile)
-      COSMOS_EMBED_ENDPOINT: ${COSMOS_EMBED_ENDPOINT}
-      ELASTIC_SEARCH_ENDPOINT: ${ELASTIC_SEARCH_ENDPOINT}
+      COSMOS_EMBED_ENDPOINT: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/rtvi-embed
+      ELASTIC_SEARCH_ENDPOINT: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/elasticsearch
       ELASTIC_SEARCH_INDEX: ${ELASTIC_SEARCH_INDEX}
       # Evaluation, used with nat eval workflow
       EVAL_LLM_JUDGE_NAME: ${EVAL_LLM_JUDGE_NAME}

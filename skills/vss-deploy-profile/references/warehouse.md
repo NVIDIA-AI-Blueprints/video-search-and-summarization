@@ -179,7 +179,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | **Never** — that container is not deployed by any warehouse list, so this route 503s |
 | `/alert-bridge`, `.../...` | `alert-bridge` (path-stripped) | `BP_PROFILE=bp_wh` only |
 | `/phoenix`, `.../...` | `phoenix` (path-stripped) | `BP_PROFILE=bp_wh` only |
-| `/va-mcp`, `.../...` | `vss-va-mcp` | `BP_PROFILE=bp_wh` only |
+| `/va-mcp`, `.../...` | `vss-va-mcp` (path-stripped) | `BP_PROFILE=bp_wh` only |
 | `/api`, `/api/...` | `vss-agent` | `BP_PROFILE=bp_wh` only |
 | `/api/chat`, `.../...` | `vss-ui` (matched before `/api`) | `BP_PROFILE=bp_wh` only |
 | `/chat`, `/static`, `/websocket` | `vss-agent` | `BP_PROFILE=bp_wh` only |
@@ -202,7 +202,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 
 > There is **no VST MCP container** (`vss-vios-mcp` was removed) — nothing listens on `8001`.
 
-`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. HAProxy first denies anything whose `Host` header is not in its `known_host` ACL (`VSS_PUBLIC_HOST[:VSS_PUBLIC_PORT]`, `EXTERNAL_IP`, `HOST_IP`, `localhost`, `127.0.0.1`, each with and without `:HAPROXY_PORT`) with a **404**, then routes matching traffic via the identical `h_main` ACL. A wrong `Host` header therefore looks like "every path 404s".
+`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. HAProxy first denies anything whose `Host` header is not in its `known_host` ACL (`VSS_PUBLIC_HOST[:VSS_PUBLIC_PORT]`, `VSS_GATEWAY_HOST[:VSS_GATEWAY_PORT]`, `EXTERNAL_IP`, `HOST_IP`, `localhost`, `127.0.0.1`, each with and without the matching port) with a **404**, then routes matching traffic via the identical `h_main` ACL. A wrong `Host` header therefore looks like "every path 404s".
 
 ## Compose File Structure
 

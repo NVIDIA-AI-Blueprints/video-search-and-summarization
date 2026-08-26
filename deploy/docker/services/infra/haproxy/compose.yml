@@ -51,6 +51,15 @@ services:
       EXTERNAL_IP: ${EXTERNAL_IP}
       VSS_PUBLIC_HOST: ${VSS_PUBLIC_HOST}
       VSS_PUBLIC_PORT: ${VSS_PUBLIC_PORT}
+      # Canonical gateway identity, used by the Host ACLs so a caller addressing
+      # the gateway name is admitted like any other known vhost. The port is the
+      # listener HAProxy binds (HAPROXY_PORT), not the host-published or public
+      # one: an in-network caller reaches the container port, and VSS_PUBLIC_PORT
+      # is 443 wherever a platform terminates TLS in front of this proxy.
+      # VSS_GATEWAY_ORIGIN is deliberately absent -- haproxy.cfg.template never
+      # reads it, and a `${VAR:-}` default here is how it ends up empty.
+      VSS_GATEWAY_HOST: ${VSS_GATEWAY_HOST:-vss.local}
+      VSS_GATEWAY_PORT: ${VSS_GATEWAY_PORT:-${HAPROXY_PORT:-7777}}
       VSS_UI_SERVICE_HOST: ${VSS_UI_SERVICE_HOST:-vss-ui}
       VSS_UI_PORT: ${VSS_UI_PORT:-3000}
       VSS_AGENT_SERVICE_HOST: ${VSS_AGENT_SERVICE_HOST:-vss-agent}
@@ -77,3 +86,12 @@ services:
       PHOENIX_PORT: ${PHOENIX_PORT:-6006}
     volumes:
       - ./haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg:ro
+    # vss.local is published unconditionally so the gateway origin resolves on
+    # the bridge with no extra overlay and no per-profile opt-in. A different
+    # VSS_GATEWAY_HOST is aliased by compose.gateway-alias.yml instead of being
+    # interpolated here, which would duplicate this entry in the common case
+    # where the two are the same name.
+    networks:
+      default:
+        aliases:
+          - vss.local
