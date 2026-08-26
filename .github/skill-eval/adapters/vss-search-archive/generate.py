@@ -309,6 +309,19 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "fi\n"
 )
 
+# A step that leaves the deployment on the candidate image is not a passing
+# step, even if its probe succeeded: green must mean "behavior correct AND
+# environment left clean". The pre-cleanup verdict is preserved in the
+# artifacts (reward-before-cleanup.txt and the details file) so the true
+# measurement is never lost — only the recorded score is invalidated.
+_REWARD_INVALIDATION_SNIPPET = (
+    'if [[ "$RESTORE_FAILED" == "1" ]]; then\n'
+    "  cp /logs/verifier/reward.txt /logs/verifier/reward-before-cleanup.txt 2>/dev/null || true\n"
+    '  echo "0.0" > /logs/verifier/reward.txt 2>/dev/null || true\n'
+    '  echo "VERIFIER-RESTORE-FAILED: reward invalidated to 0.0 (pre-cleanup verdict preserved in reward-before-cleanup.txt)"\n'
+    "fi\n"
+)
+
 _IN_PRODUCT_SCENARIOS = (
     "in-product-agent-action-query",
     "in-product-agent-absent-object-probe",
@@ -346,7 +359,8 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
             "\n"
             "RESTORE_FAILED=0\n"
-            + _RESTORE_AGENT_IMAGE_SNIPPET +
+            + _RESTORE_AGENT_IMAGE_SNIPPET
+            + _REWARD_INVALIDATION_SNIPPET +
             "exit $RESTORE_FAILED\n"
         )
     if scenario == "in-product-agent-action-query":
@@ -369,7 +383,8 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
             "\n"
             "RESTORE_FAILED=0\n"
-            + _RESTORE_AGENT_IMAGE_SNIPPET +
+            + _RESTORE_AGENT_IMAGE_SNIPPET
+            + _REWARD_INVALIDATION_SNIPPET +
             "exit $RESTORE_FAILED\n"
         )
     return (
