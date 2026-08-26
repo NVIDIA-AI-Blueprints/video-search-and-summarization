@@ -1542,6 +1542,7 @@ When `SENSOR_INFO_SOURCE=file`, the RTSP URLs provided in the sensor info source
 | --- | --- | --- | --- |
 | `CALL_SENSOR_ADD_API` | `true` | `true`, `false` | \| Enable automatic sensor registration with VMS. \| **true**: Register each sensor with VMS via API call \| **false**: Skip VMS registration |
 | `VST_CAMERA_ADD_ENDPOINT` | `http://vms-vms-svc:30000/api/v1/sensor/add` | Valid HTTP URL | \| VMS API endpoint for sensor registration. \| Sensors are registered with name, URL, and tags (region\|group_id) |
+| `VST_CAMERA_ADD_TIMEOUT` | `15` | Positive integer (seconds) | Request timeout for VMS sensor registration. Keep this above expected ingress/VST cold-add latency so client timeouts do not create 499s while VST continues processing. |
 
 **Sensor Registration Details:**
 
