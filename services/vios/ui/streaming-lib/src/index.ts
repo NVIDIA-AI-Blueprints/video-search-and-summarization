@@ -32,7 +32,7 @@ import {
 import { AppConfig } from './StreamManager';
 import { ErrorCode, ErrorType } from './utils/error';
 import { WebRTCIssue, WebRTCNetworkScores, WebRTCIssueDetectorCallbacks } from './webrtc/WebRTCIssueDetector';
-import { DashStream, DashStreamConfig } from './dash/DashStream';
+import { DashStream, DashStreamConfig, DashPhase } from './dash/DashStream';
 
 export default StreamManager;
 export type {
@@ -50,5 +50,6 @@ export type {
     RetryConfig,
     StreamRestartInfo,
     DashStreamConfig,
+    DashPhase,
 };
 export { StreamType, StreamState, ErrorCode, DashStream };
