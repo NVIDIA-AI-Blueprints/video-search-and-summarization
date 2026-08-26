@@ -329,13 +329,12 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "      sleep 5\n"
     '      POST_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
     "      RESTORE_OK=0\n"
-    '      if [[ -n "$EXPECTED_IMAGE" ]]; then\n'
-    '        [[ "$POST_IMAGE" == "$EXPECTED_IMAGE" ]] && RESTORE_OK=1\n'
-    '      elif [[ -n "$POST_IMAGE" && "$POST_IMAGE" != *":tree-"* ]]; then\n'
-    "        # (reached only when EXPECTED_IMAGE is empty; see the guards above)\n"
-    "        # Only when the expected image is unresolvable: accept a non-\n"
-    "        # candidate image, loudly, rather than fail a correct restore.\n"
-    '        echo "verifier cleanup: expected image unresolvable; using non-candidate fallback check"\n'
+    "      # Success REQUIRES a known target and an exact match. When neither\n"
+    "      # the pre-pin record nor compose resolution produced a target, the\n"
+    "      # restore cannot be verified, and an unverifiable restore is a failed\n"
+    "      # restore: the reward is invalidated (verdict preserved) rather than\n"
+    "      # accepting whatever non-candidate image happens to be running.\n"
+    '      if [[ -n "$EXPECTED_IMAGE" && "$POST_IMAGE" == "$EXPECTED_IMAGE" ]]; then\n'
     "        RESTORE_OK=1\n"
     "      fi\n"
     "      # Structural invariant: cleanup NEVER reports success while the\n"
@@ -348,9 +347,9 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "        break\n"
     "      fi\n"
     "      if [[ $RESTORE_ATTEMPT -eq 2 ]]; then\n"
-    '        echo "VERIFIER-RESTORE-FAILED: vss-agent on $POST_IMAGE after 2 attempts (expected ${EXPECTED_IMAGE:-non-candidate})"\n'
+    '        echo "VERIFIER-RESTORE-FAILED: vss-agent on $POST_IMAGE after 2 attempts (expected ${EXPECTED_IMAGE:-unresolvable})"\n'
     '        mkdir -p /logs/verifier 2>/dev/null || true\n'
-    '        echo "wrong image after restore: $POST_IMAGE (expected ${EXPECTED_IMAGE:-non-candidate})" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    '        echo "wrong image after restore: $POST_IMAGE (expected ${EXPECTED_IMAGE:-unresolvable})" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
     "        RESTORE_FAILED=1\n"
     "      fi\n"
     "    done\n"
@@ -409,9 +408,6 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "# (only SIGKILL skips it, and the provider's docker wipe covers that).\n"
             "set -uo pipefail\n"
             "\n"
-            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
-            "\n"
             "RESTORE_FAILED=0\n"
             "CLEANUP_RAN=0\n"
             "cleanup() {\n"
@@ -428,6 +424,13 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "}\n"
             "trap finish EXIT\n"
             "trap 'exit 143' TERM INT HUP\n"
+            "# Traps are installed before ANY other work (even pip) so no pre-trap\n"
+            "# window exists for a catchable signal; SIGKILL cannot be handled by\n"
+            "# any process and is backstopped out-of-process by the environment\n"
+            "# provider's docker wipe before the next spec's first trial.\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
             "\n"
             'python3 "$TEST_DIR/generic_judge.py" \\\n'
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
@@ -449,9 +452,6 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "# (only SIGKILL skips it, and the provider's docker wipe covers that).\n"
             "set -uo pipefail\n"
             "\n"
-            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
-            "\n"
             "RESTORE_FAILED=0\n"
             "CLEANUP_RAN=0\n"
             "cleanup() {\n"
@@ -468,6 +468,13 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "}\n"
             "trap finish EXIT\n"
             "trap 'exit 143' TERM INT HUP\n"
+            "# Traps are installed before ANY other work (even pip) so no pre-trap\n"
+            "# window exists for a catchable signal; SIGKILL cannot be handled by\n"
+            "# any process and is backstopped out-of-process by the environment\n"
+            "# provider's docker wipe before the next spec's first trial.\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
             "\n"
             'python3 "$TEST_DIR/generic_judge.py" \\\n'
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
