@@ -278,6 +278,11 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "      RESTORE_FAILED=1\n"
     "    fi\n"
     "    EARGS=(); if [[ -n \"$ENV_FILES\" ]]; then IFS=',' read -ra EF <<< \"$ENV_FILES\"; for f in \"${EF[@]}\"; do EARGS+=(--env-file \"$f\"); done; fi\n"
+    "    # The restore target is whatever the base compose coordinates resolve to\n"
+    "    # in this verifier's environment — the same resolution the restore `up`\n"
+    "    # below performs. Computing it up front lets the post-restore check\n"
+    "    # demand the EXACT pre-pin image, not merely any non-candidate image.\n"
+    "    EXPECTED_IMAGE=\"$(cd \"$COMPOSE_WD\" && docker compose \"${EARGS[@]}\" \"${FARGS[@]}\" config vss-agent 2>/dev/null | awk '$1==\"image:\"{print $2; exit}')\"\n"
     "    # Verified restore with one bounded retry. Never fails the verifier —\n"
     "    # masking the step's real verdict would trade one integrity problem for\n"
     "    # another — but a failed restore is loud: a machine-greppable marker on\n"
@@ -287,16 +292,25 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     '      (cd "$COMPOSE_WD" && docker compose "${EARGS[@]}" "${FARGS[@]}" up -d --force-recreate --no-deps vss-agent) || true\n'
     "      sleep 5\n"
     '      POST_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
-    '      if [[ "$POST_IMAGE" != *":tree-"* && -n "$POST_IMAGE" ]]; then\n'
-    '        echo "verifier cleanup: restored vss-agent to $POST_IMAGE (attempt $RESTORE_ATTEMPT)"\n'
+    "      RESTORE_OK=0\n"
+    '      if [[ -n "$EXPECTED_IMAGE" ]]; then\n'
+    '        [[ "$POST_IMAGE" == "$EXPECTED_IMAGE" ]] && RESTORE_OK=1\n'
+    '      elif [[ -n "$POST_IMAGE" && "$POST_IMAGE" != *":tree-"* ]]; then\n'
+    "        # Only when the expected image is unresolvable: accept a non-\n"
+    "        # candidate image, loudly, rather than fail a correct restore.\n"
+    '        echo "verifier cleanup: expected image unresolvable; using non-candidate fallback check"\n'
+    "        RESTORE_OK=1\n"
+    "      fi\n"
+    '      if [[ "$RESTORE_OK" == "1" ]]; then\n'
+    '        echo "verifier cleanup: restored vss-agent to $POST_IMAGE (attempt $RESTORE_ATTEMPT, expected ${EXPECTED_IMAGE:-unresolved})"\n'
     "        # tidy the now-inert pin override files off the shared box\n"
     '        for po in "${PIN_OVERRIDES[@]:-}"; do [[ -n "$po" ]] && rm -f "$po" 2>/dev/null || true; done\n'
     "        break\n"
     "      fi\n"
     "      if [[ $RESTORE_ATTEMPT -eq 2 ]]; then\n"
-    '        echo "VERIFIER-RESTORE-FAILED: vss-agent still on $POST_IMAGE after 2 attempts"\n'
+    '        echo "VERIFIER-RESTORE-FAILED: vss-agent on $POST_IMAGE after 2 attempts (expected ${EXPECTED_IMAGE:-non-candidate})"\n'
     '        mkdir -p /logs/verifier 2>/dev/null || true\n'
-    '        echo "still pinned: $POST_IMAGE" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    '        echo "wrong image after restore: $POST_IMAGE (expected ${EXPECTED_IMAGE:-non-candidate})" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
     "        RESTORE_FAILED=1\n"
     "      fi\n"
     "    done\n"
