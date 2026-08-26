@@ -39,9 +39,15 @@ services:
     volumes:
       - $VSS_APPS_DIR/services/monitoring/config/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
     ports:
-      - "${OTEL_COLLECTOR_GRPC_HOST_PORT:-4317}:4317"   # OTLP gRPC receiver
-      - "${OTEL_COLLECTOR_HTTP_HOST_PORT:-4318}:4318"   # OTLP HTTP receiver
-      - "${OTEL_COLLECTOR_METRICS_HOST_PORT:-8889}:8889"  # Prometheus scrape target
+      # Loopback-bound. Alert Bridge and every other producer reach the
+      # collector over the compose network (otel-collector:4318), so none of
+      # these needs a routable host binding -- and OTLP ingest is
+      # unauthenticated, so a wildcard bind lets anything that can reach the
+      # host inject forged spans into an operator's Jaeger and Phoenix. Set the
+      # *_HOST_PORT vars to "0.0.0.0:<port>" to widen deliberately.
+      - "${OTEL_COLLECTOR_GRPC_HOST_PORT:-127.0.0.1:4317}:4317"   # OTLP gRPC receiver
+      - "${OTEL_COLLECTOR_HTTP_HOST_PORT:-127.0.0.1:4318}:4318"   # OTLP HTTP receiver
+      - "${OTEL_COLLECTOR_METRICS_HOST_PORT:-127.0.0.1:8889}:8889"  # Prometheus scrape target
     depends_on:
       jaeger:
         condition: service_healthy
@@ -60,8 +66,9 @@ services:
       # Jaeger's own OTLP receivers are remapped on the host side: the
       # collector already holds 4317/4318 there, and services send to the
       # collector rather than straight here.
-      - "${JAEGER_OTLP_GRPC_HOST_PORT:-4319}:4317"
-      - "${JAEGER_OTLP_HTTP_HOST_PORT:-4320}:4318"
+      # Loopback for the same reason as the collector's: unauthenticated ingest.
+      - "${JAEGER_OTLP_GRPC_HOST_PORT:-127.0.0.1:4319}:4317"
+      - "${JAEGER_OTLP_HTTP_HOST_PORT:-127.0.0.1:4320}:4318"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
       interval: 30s

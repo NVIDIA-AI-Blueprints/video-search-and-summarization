@@ -128,7 +128,7 @@ spec:
               value: {{ (.Values.tracing).serviceName | default "vss-alert-ms" | quote }}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: {{ (.Values.tracing).resourceAttributes | default "" | quote }}
-            {{- /* The same three the compose file enumerates, for the same reason:
+            {{- /* The same set the compose file enumerates, for the same reason:
                    what is not rendered here is unreachable in the pod. Metrics
                    follow the traces setting, mirroring meters.py's own chain --
                    without it, pointing the exporter at nothing leaves metrics
