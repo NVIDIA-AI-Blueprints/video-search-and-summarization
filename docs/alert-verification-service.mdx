@@ -119,7 +119,7 @@ Prompt configuration changes require a container restart in the current release.
 Each alert type requires a configuration with the following components:
 
 - **user** (mandatory): The primary instruction describing how to analyze the video and what decision to make.
-- **system** (optional): Contextual setup that shapes the VLM's behavior, tone, and domain knowledge.
+- **system** (optional): Contextual setup that shapes the VLM's behavior, tone, and domain knowledge. When an alert type has none, the service default (`prompt.default_system_prompt`) is used for the VLM call.
 - **enrichment** (optional): A prompt to generate detailed event descriptions after successful verification. When defined, a second VLM call provides additional context such as objects involved, sequence of events, and environmental factors.
 - **output_category** (optional): A user-friendly display name for the alert category in output. When specified, this name appears in Elasticsearch and downstream systems instead of the internal `alert_type` value (e.g., `"collision"` displays as `"Vehicle Collision"`).
 - **vlm_params** (optional): Per-alert-type VLM parameter overrides (for example `model`, `max_tokens`, `temperature`, `num_frames`). Specified fields override the global `vlm` config; unspecified fields fall back to the global defaults. Unknown fields raise a startup validation error so configuration typos fail fast.
@@ -933,6 +933,7 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 | `alert_type_config_file` | `alert_type_config.json` | Path to alert type configuration file. |
 | `prompt.prefer_payload_prompt` | `false` | Prefer prompts from alert payload over stored prompts. |
 | `prompt.override_prompts_on_start` | `true` | Override stored prompts with config file on startup. |
+| `prompt.default_system_prompt` | `You are a helpful assistant.` | System prompt used when an alert config has none of its own. A stored `system_prompt` always wins; set to `""` to send no system message. |
 
 ### Logging Configuration
 

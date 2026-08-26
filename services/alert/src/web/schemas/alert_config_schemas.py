@@ -40,7 +40,7 @@ class AlertConfigRequest(BaseModel):
     """Create a new alert type configuration."""
     alert_type: str = Field(..., description="Alert type identifier", min_length=1, max_length=100)
     prompt: str = Field(..., description="User prompt text", min_length=1, max_length=5000)
-    system_prompt: Optional[str] = Field(None, description="System prompt text", max_length=5000)
+    system_prompt: Optional[str] = Field(None, description="System prompt text. Omit to use the service default (prompt.default_system_prompt)", max_length=5000)
     enrichment_prompt: Optional[str] = Field(None, description="Optional enrichment prompt for post-verification VLM call", max_length=5000)
     vlm_params: Optional[VlmParams] = Field(None, description="VLM parameter overrides")
     output_category: Optional[str] = Field(None, description="Display name for output", max_length=200)
@@ -77,7 +77,7 @@ class AlertConfigRequest(BaseModel):
 class AlertConfigUpdateRequest(BaseModel):
     """Update an existing alert type configuration. All fields optional (partial update)."""
     prompt: Optional[str] = Field(None, description="User prompt text", max_length=5000)
-    system_prompt: Optional[str] = Field(None, description="System prompt text", max_length=5000)
+    system_prompt: Optional[str] = Field(None, description="System prompt text. Clear it to fall back to the service default (prompt.default_system_prompt)", max_length=5000)
     enrichment_prompt: Optional[str] = Field(None, description="Optional enrichment prompt for post-verification VLM call", max_length=5000)
     vlm_params: Optional[VlmParams] = Field(None, description="VLM parameter overrides")
     output_category: Optional[str] = Field(None, description="Display name for output", max_length=200)
@@ -107,7 +107,7 @@ class AlertConfigResponse(BaseModel):
     """Response for a single alert type configuration."""
     alert_type: str = Field(..., description="Alert type identifier")
     prompt: str = Field(..., description="User prompt text")
-    system_prompt: Optional[str] = Field(None, description="System prompt text")
+    system_prompt: Optional[str] = Field(None, description="System prompt text as stored; null means the service default is used at inference time")
     enrichment_prompt: Optional[str] = Field(None, description="Optional enrichment prompt")
     vlm_params: Optional[Dict[str, Any]] = Field(None, description="VLM parameter overrides")
     output_category: Optional[str] = Field(None, description="Display name for output")
