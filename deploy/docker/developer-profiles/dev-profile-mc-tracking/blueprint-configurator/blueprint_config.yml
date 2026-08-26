@@ -128,6 +128,17 @@ commons:
           msg-broker-proto-lib: "${msg-broker-proto-lib}"
           latency: "${ds_config_latency}"
 
+      # Keep the tracker's ReIDService port in step with the port
+      # reid-embed-mc-tracking actually binds; 
+      - operation_type: "text_replace"
+        target_file: "${DS_CONFIG_DIR}/ds-mc-tracking-tracker-config.yml"
+        backup: true
+        operations:
+          - action: "replace"
+            pattern: '(?m)^(\s*)servicePort:.*$'
+            replacement: '\1servicePort: ${REID_SERVICE_PORT}'
+            regex: true
+
       # Update NVStreamer configs
       - operation_type: "json_update"
         target_file: ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/nvstreamer/configs/vst-config.json
