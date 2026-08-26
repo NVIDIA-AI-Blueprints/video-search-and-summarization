@@ -693,15 +693,17 @@ class SummarizeGroup(CommandGroup):
             # is the only place that can say the handle went stale.
             body["persist"] = {"status": "failed", "error": str(error)}
             body["record"] = close("partial", str(error))
-            return outcome(body, Exit.PARTIAL, status="partial")
+            return outcome(body, Exit.PARTIAL, status="partial", persisted_override=False)
 
         body["persist"] = {
             "status": "complete",
             "index": memory.index,
             "group": memory_mod.group_token(self.name),
             "events": len(content["events"]),
+            "requested": persist_result.requested,
             "expected": persist_result.expected,
             "written": persist_result.written,
+            "collapsed": persist_result.collapsed,
         }
         # `closed` without asking: the terminal upsert above is what closing
         # means, and it either returned or we are in the except clause.

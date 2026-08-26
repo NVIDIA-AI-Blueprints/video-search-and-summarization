@@ -74,18 +74,26 @@ class PersistFailure:
 class PersistResult:
     """Outcome of persisting a :class:`RecordBundle` (or equivalent)."""
 
+    requested: int
     expected: int
     written: int
     failed: list[PersistFailure] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return self.written == self.expected and not self.failed
+        return self.requested == self.expected == self.written and not self.failed
+
+    @property
+    def collapsed(self) -> int:
+        """Number of requested records that shared another record's storage id."""
+        return self.requested - self.expected
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "requested": self.requested,
             "expected": self.expected,
             "written": self.written,
+            "collapsed": self.collapsed,
             "failed": [
                 {
                     **(
@@ -191,9 +199,10 @@ class MemoryService:
         children that actually persisted, so job reads do not advertise a
         complete result set that record queries cannot return.
 
-        ``expected`` / ``written`` count **distinct** storage ids (not upsert
-        call sites). Two children that collide on ``record_id`` share one
-        storage document; both calls succeed, but only one id is written.
+        ``requested`` counts upsert call sites. ``expected`` / ``written`` count
+        **distinct** storage ids. Two children that collide on ``record_id``
+        share one storage document; both calls succeed, but only one id is
+        expected and written, so :attr:`PersistResult.ok` remains false.
 
         Callers must still return the paid-for operation result when persistence
         is incomplete. Use :attr:`PersistResult.ok` / :meth:`PersistResult.to_dict`
@@ -202,6 +211,7 @@ class MemoryService:
         failed: list[PersistFailure] = []
         written_ids: set[str] = set()
         records = bundle.all_records
+        requested = len(records)
         # A bundle that nests its own children is the adapter's bug, not a
         # backend failure, so it raises here instead of being reported as a
         # partial write that a caller would be told to retry.
@@ -235,7 +245,12 @@ class MemoryService:
                         is_parent=False,
                     )
                 )
-            return PersistResult(expected=expected, written=len(written_ids), failed=failed)
+            return PersistResult(
+                requested=requested,
+                expected=expected,
+                written=len(written_ids),
+                failed=failed,
+            )
 
         for child in bundle.children:
             child_storage_id = storage_id_for(child)
@@ -276,7 +291,12 @@ class MemoryService:
                         )
                     )
 
-        return PersistResult(expected=expected, written=len(written_ids), failed=failed)
+        return PersistResult(
+            requested=requested,
+            expected=expected,
+            written=len(written_ids),
+            failed=failed,
+        )
 
     def get(
         self,

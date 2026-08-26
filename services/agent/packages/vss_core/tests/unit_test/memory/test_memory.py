@@ -768,10 +768,13 @@ def test_upsert_bundle_counts_distinct_storage_ids_on_child_collision() -> None:
 
     result = service.upsert_bundle(bundle)
     # Distinct storage ids: parent + one child document.
+    assert result.requested == 3
     assert result.expected == 2
     assert result.written == 2
-    assert result.ok
+    assert result.collapsed == 1
+    assert not result.ok
     assert result.failed == []
+    assert result.to_dict()["collapsed"] == 1
 
     parent = service.get("summarize-collision", reconcile=False)
     assert parent.job.status == "partial"

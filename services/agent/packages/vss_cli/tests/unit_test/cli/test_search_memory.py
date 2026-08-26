@@ -310,6 +310,67 @@ def test_child_write_failure_preserves_search_result(search_group: SearchGroup) 
     assert result.extra["marker"]["persisted"] is False
 
 
+def test_colliding_search_hits_report_partial(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    duplicate = SearchResult(
+        video_name="warehouse",
+        description="same hit twice",
+        start_time="2026-07-22T12:30:04Z",
+        end_time="2026-07-22T12:30:14Z",
+        sensor_id="warehouse-camera",
+        screenshot_url="https://x/same.mp4",
+        similarity=0.9,
+        object_ids=["object-1"],
+    )
+
+    class _DuplicateVSS:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+        async def search(self, **_kwargs: Any) -> SearchOutput:
+            return SearchOutput(data=[duplicate, duplicate], search_messages=[])
+
+        @classmethod
+        def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
+            return cls()
+
+    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _DuplicateVSS)
+    service = MemoryService(InMemoryStore())
+    result = search_group.run(
+        "embed",
+        _inputs(),
+        Context(
+            deployment=_deployment(),
+            memory=Memory(service, index="vss-memory"),
+        ),
+    )
+
+    assert result.exit == Exit.PARTIAL
+    assert len(result.body["data"]) == 2
+    assert result.body["persisted"] is False
+    assert result.body["persistence"] == {
+        "requested": 3,
+        "expected": 2,
+        "written": 2,
+        "collapsed": 1,
+        "failed": [],
+    }
+    assert result.extra["marker"]["status"] == "partial"
+    assert result.extra["marker"]["persisted"] is False
+    parent = service.get(result.job_id, reconcile=False)
+    assert parent.job.status == "partial"
+    assert parent.output is not None
+    assert parent.output.ext is not None
+    assert parent.output.ext["result_count"] == 1
+    children = service.query(MemoryQuery(job_id=result.job_id, record_type="search_hit", limit=10))
+    assert len(children) == 1
+
+
 def test_submitted_write_failure_keeps_results_but_exits_partial(search_group: SearchGroup) -> None:
     class _Refusing(InMemoryStore):
         def upsert(self, record: Any) -> Any:

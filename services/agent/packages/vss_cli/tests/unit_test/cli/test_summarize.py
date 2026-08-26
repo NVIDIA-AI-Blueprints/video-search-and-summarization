@@ -621,8 +621,10 @@ def test_persist_writes_one_unified_memory_record(
         "index": memory.index,
         "group": "summary",
         "events": 0,
+        "requested": 1,
         "expected": 1,
         "written": 1,
+        "collapsed": 0,
     }
 
 
@@ -779,6 +781,37 @@ def test_structured_output_becomes_answer_and_events(
     body = _body(result)
     assert body["persist"]["events"] == 1
     assert body["persist"]["written"] == 2  # parent + one child
+
+
+def test_colliding_events_report_partial_and_keep_summary(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+) -> None:
+    duplicate = {
+        "event_id": "evt-duplicate",
+        "start_time": "2025-01-01T00:00:00.000Z",
+        "end_time": "2025-01-01T00:00:10.000Z",
+        "type": "forklift",
+        "description": "same event twice",
+    }
+    structured = {"video_summary": "a forklift crosses", "events": [duplicate, duplicate]}
+    _capture_post(monkeypatch, _Response(_completion(structured)))
+
+    result = _run("--id", "v1")
+
+    assert result.exit_code == int(Exit.PARTIAL), result.output
+    body = _body(result)
+    marker = _marker(result)
+    assert body["summary"]["id"] == "cmpl-1"
+    assert body["persist"]["status"] == "failed"
+    assert "'requested': 3" in body["persist"]["error"]
+    assert "'collapsed': 1" in body["persist"]["error"]
+    assert marker["status"] == "partial"
+    assert marker["persisted"] is False
+    parent = memory.service.get(body["job_id"], reconcile=False)
+    assert parent.job.status == "partial"
+    assert len(_persisted_event_children(memory)) == 1
 
 
 def test_epoch_event_times_become_instants(
