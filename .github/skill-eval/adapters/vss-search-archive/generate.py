@@ -207,7 +207,9 @@ IN_PRODUCT_AGENT_PREAMBLE = (
     " rather than falling back to any other tag; read the deployment's compose file and env-file"
     " list from the running container's com.docker.compose.* labels; if the environment_file label"
     " is absent, fall back to the deployment profile's documented env-file set and say so"
-    " explicitly — never silently guess; recreate"
+    " explicitly — never silently guess; record the pre-pin image first"
+    " (docker inspect vss-agent --format '{{.Config.Image}}' > /tmp/vss-prepin-image.txt) so the"
+    " harness cleanup can verify its restore against the exact original; recreate"
     " pinned to that image using whichever mechanism the deployment's compose files honor:"
     " VSS_AGENT_IMAGE plus VSS_CONTAINER_TAG=$TAG in the invocation environment when the compose file"
     " interpolates them (VSS_CONTAINER_TAG has precedence; VSS_AGENT_VERSION alone is masked by"
@@ -283,6 +285,22 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     "    # below performs. Computing it up front lets the post-restore check\n"
     "    # demand the EXACT pre-pin image, not merely any non-candidate image.\n"
     "    EXPECTED_IMAGE=\"$(cd \"$COMPOSE_WD\" && docker compose \"${EARGS[@]}\" \"${FARGS[@]}\" config vss-agent 2>/dev/null | awk '$1==\"image:\"{print $2; exit}')\"\n"
+    "    # Prefer the pre-pin record the agent wrote before recreating: it is the\n"
+    "    # image that was ACTUALLY deployed, not a re-resolution. Trust it only\n"
+    "    # when it is plausibly a base image (non-empty, not a candidate tag):\n"
+    "    # a wrong record can only zero this step's own reward, so recording\n"
+    "    # honestly is incentive-compatible.\n"
+    '    PREPIN_RECORD=""\n'
+    "    if [[ -f /tmp/vss-prepin-image.txt ]]; then\n"
+    "      PREPIN_RECORD=\"$(head -c 300 /tmp/vss-prepin-image.txt | tr -d '[:space:]')\"\n"
+    "      rm -f /tmp/vss-prepin-image.txt 2>/dev/null || true\n"
+    "    fi\n"
+    '    if [[ -n "$PREPIN_RECORD" && "$PREPIN_RECORD" != *":tree-"* ]]; then\n'
+    '      if [[ -n "$EXPECTED_IMAGE" && "$EXPECTED_IMAGE" != "$PREPIN_RECORD" ]]; then\n'
+    '        echo "verifier cleanup: pre-pin record $PREPIN_RECORD overrides compose-resolved $EXPECTED_IMAGE"\n'
+    "      fi\n"
+    '      EXPECTED_IMAGE="$PREPIN_RECORD"\n'
+    "    fi\n"
     "    # Verified restore with one bounded retry. Never fails the verifier —\n"
     "    # masking the step's real verdict would trade one integrity problem for\n"
     "    # another — but a failed restore is loud: a machine-greppable marker on\n"
@@ -345,8 +363,9 @@ _IN_PRODUCT_SCENARIOS = (
 def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
     """Wrapper that invokes the generic judge for one step's checks.
 
-    The final in-product step's verifier additionally performs deterministic
-    image restoration BEFORE judging (see _RESTORE_AGENT_IMAGE_SNIPPET); the
+    The in-product steps' verifiers additionally perform deterministic image
+    restoration from an EXIT trap after judging, so even an interrupted
+    verifier cannot strand the pin (see _RESTORE_AGENT_IMAGE_SNIPPET); the
     action step restores only when the pin should not survive, i.e. its
     successor will re-establish it anyway, so a conditional is unnecessary
     there — restoration on the terminal step plus the provider's docker wipe
@@ -363,19 +382,35 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "#!/bin/bash\n"
             f"# vss-search-archive verifier (step {step}): generic LLM-as-judge first\n"
             "# (verdict persisted), then unconditional verified image restoration;\n"
-            "# exits nonzero if restoration ultimately fails.\n"
+            "# exits nonzero if restoration ultimately fails. Restoration runs from\n"
+            "# an EXIT trap so an interrupted verifier still cannot strand the pin\n"
+            "# (only SIGKILL skips it, and the provider's docker wipe covers that).\n"
             "set -uo pipefail\n"
             "\n"
             'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
             "\n"
+            "RESTORE_FAILED=0\n"
+            "CLEANUP_RAN=0\n"
+            "cleanup() {\n"
+            '  [[ "$CLEANUP_RAN" == "1" ]] && return 0\n'
+            "  CLEANUP_RAN=1\n"
+            + _RESTORE_AGENT_IMAGE_SNIPPET
+            + _REWARD_INVALIDATION_SNIPPET +
+            "}\n"
+            "finish() {\n"
+            "  st=$?\n"
+            "  cleanup\n"
+            '  if [[ "$RESTORE_FAILED" == "1" && "$st" -eq 0 ]]; then exit 1; fi\n'
+            '  exit "$st"\n'
+            "}\n"
+            "trap finish EXIT\n"
+            "trap 'exit 143' TERM INT HUP\n"
+            "\n"
             'python3 "$TEST_DIR/generic_judge.py" \\\n'
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
             "\n"
-            "RESTORE_FAILED=0\n"
-            + _RESTORE_AGENT_IMAGE_SNIPPET
-            + _REWARD_INVALIDATION_SNIPPET +
-            "exit $RESTORE_FAILED\n"
+            "exit 0\n"
         )
     if scenario == "in-product-agent-action-query":
         # Pinning step: judge FIRST (verdict persisted to reward.txt), then
@@ -387,19 +422,35 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "#!/bin/bash\n"
             f"# vss-search-archive verifier (step {step}): generic LLM-as-judge first\n"
             "# (verdict persisted), then unconditional verified image restoration;\n"
-            "# exits nonzero if restoration ultimately fails.\n"
+            "# exits nonzero if restoration ultimately fails. Restoration runs from\n"
+            "# an EXIT trap so an interrupted verifier still cannot strand the pin\n"
+            "# (only SIGKILL skips it, and the provider's docker wipe covers that).\n"
             "set -uo pipefail\n"
             "\n"
             'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
             "\n"
+            "RESTORE_FAILED=0\n"
+            "CLEANUP_RAN=0\n"
+            "cleanup() {\n"
+            '  [[ "$CLEANUP_RAN" == "1" ]] && return 0\n'
+            "  CLEANUP_RAN=1\n"
+            + _RESTORE_AGENT_IMAGE_SNIPPET
+            + _REWARD_INVALIDATION_SNIPPET +
+            "}\n"
+            "finish() {\n"
+            "  st=$?\n"
+            "  cleanup\n"
+            '  if [[ "$RESTORE_FAILED" == "1" && "$st" -eq 0 ]]; then exit 1; fi\n'
+            '  exit "$st"\n'
+            "}\n"
+            "trap finish EXIT\n"
+            "trap 'exit 143' TERM INT HUP\n"
+            "\n"
             'python3 "$TEST_DIR/generic_judge.py" \\\n'
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
             "\n"
-            "RESTORE_FAILED=0\n"
-            + _RESTORE_AGENT_IMAGE_SNIPPET
-            + _REWARD_INVALIDATION_SNIPPET +
-            "exit $RESTORE_FAILED\n"
+            "exit 0\n"
         )
     return (
         "#!/bin/bash\n"
