@@ -27,7 +27,7 @@
 #   ./scripts/add-streams.sh Camera=rtsp://host/cam0 Camera_01=rtsp://host/cam1 ...
 #   ./scripts/add-streams.sh --file streams.txt          # one NAME=URL per line, # comments
 #   ./scripts/add-streams.sh --remove Camera_01                   # remove one stream
-#   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # also accepted
+#   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # also accepted, any URL scheme
 #   ./scripts/add-streams.sh --remove --file streams.txt          # remove every listed stream
 #   ./scripts/add-streams.sh --remove-all                         # remove every registered stream
 #   ./scripts/add-streams.sh --remove-all --yes                   # same, no confirmation prompt
@@ -452,6 +452,10 @@ print(json.dumps({
     echo "   ✗ HTTP ${code} failed to ${3#camera_} stream"
     cat "$tmp" >&2 || true
     echo >&2
+    if grep -q 'Source url empty' "$tmp"; then
+      echo "     This build of the API will not drop a stream by camera_id alone." >&2
+      echo "     Retry with the source URL:  --remove ${1}=<url>" >&2
+    fi
     rm -f "$tmp"; return 1
   fi
   if [[ "$code" == "200" || "$code" == "201" ]]; then
@@ -541,14 +545,14 @@ if [[ "$MODE" == remove ]]; then
   for entry in "${STREAMS[@]}"; do
     if [[ "$entry" == *=* ]]; then
       cam="${entry%%=*}"; url="${entry#*=}"
-      if [[ -z "$cam" || "$url" != rtsp://* ]]; then
-        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=rtsp://... or camera_id)" >&2
+      if [[ -z "$cam" || "$url" != *://* ]]; then
+        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=URL or camera_id)" >&2
         rc=2; continue
       fi
     else
       cam="$entry"; url=""
       if [[ -z "$cam" ]]; then
-        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=rtsp://... or camera_id)" >&2
+        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=URL or camera_id)" >&2
         rc=2; continue
       fi
       lu=0; stream_is_registered "$cam" || lu=$?
