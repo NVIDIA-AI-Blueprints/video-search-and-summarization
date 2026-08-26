@@ -365,6 +365,17 @@ def spec_platforms(spec_path: str) -> list[str]:
     return sorted(spec_platform_config(spec_path))
 
 
+def spec_agent(spec_path: str) -> str:
+    """Optional evaluated agent declared by the spec; empty preserves workflow defaults."""
+    try:
+        data = json.loads((REPO_ROOT / spec_path).read_text())
+    except (OSError, ValueError):
+        return ""
+    agent = data.get("agent") if isinstance(data, dict) else None
+    name = agent.get("name") if isinstance(agent, dict) else None
+    return name if isinstance(name, str) and name else ""
+
+
 def build_matrix(changed: list[str]) -> list[dict]:
     # Explicitly-changed specs vs. skills pulled in wholesale by a non-spec
     # (or adapter) change. A spec reached by both paths appears once.
@@ -449,6 +460,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "eval_dir": meta["eval_dir"],
                     "platform": platform,
                     "kind": "eval",
+                    "agent": spec_agent(meta["spec_path"]),
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
                     "runs_on": runs_on_labels(

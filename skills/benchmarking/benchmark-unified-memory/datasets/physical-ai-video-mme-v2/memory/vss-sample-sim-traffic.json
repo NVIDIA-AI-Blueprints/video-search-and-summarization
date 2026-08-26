@@ -1,0 +1,189 @@
+{
+  "schema": "nv.vss.memory/1.0",
+  "job": {
+    "job_id": "summary:d0f1d526-1082-43be-ba82-cc3ee3efce20",
+    "group": "summary",
+    "operation": "run",
+    "status": "completed",
+    "created_at": "2026-08-26T20:20:14Z",
+    "backend_ref": "d0f1d526-1082-43be-ba82-cc3ee3efce20"
+  },
+  "input": {
+    "intent": "traffic monitoring",
+    "sensors": [
+      {
+        "id": "vss-sample-sim-traffic",
+        "type": "vst",
+        "info": {
+          "source": "vst",
+          "stream_id": "c84a65a8-d400-4ada-aca1-4d7a26cc4961",
+          "name": "vss-sample-sim-traffic.mp4"
+        }
+      }
+    ],
+    "window": {
+      "start": {
+        "timestamp": "2025-01-01T00:00:00Z"
+      },
+      "end": {
+        "timestamp": "2025-01-01T00:02:10.433Z"
+      }
+    },
+    "params": {
+      "scenario": "traffic monitoring",
+      "events": [
+        "vehicle movement",
+        "traffic congestion",
+        "pedestrian activity",
+        "traffic incidents",
+        "notable types of vehicles"
+      ],
+      "objects_of_interest": [
+        "cars",
+        "trucks",
+        "pedestrians",
+        "traffic signals"
+      ],
+      "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+      "creation_time": "2025-01-01T00:00:00.000Z",
+      "chunk_duration": 10,
+      "seed": 1
+    }
+  },
+  "output": {
+    "answer": "\n\n**Observational Report Summary**  \n\nThe sequence of events begins with a roundabout intersection where multiple vehicles are observed. A dark SUV, white truck, and passenger car navigate the curved path, while a yellow car moves steadily along the roadway. Concurrently, a police car follows a yellow taxi and red SUV, and a yellow school bus travels along a separate curved road. Light to moderate traffic flow is recorded during this period, characterized by vehicles spaced apart and moving smoothly without significant delays. No pedestrians are present except for a single individual in dark clothing, who walks along the sidewalk and later crosses the street near a crosswalk.  \n\nSubsequently, the scene transitions to a later timeframe, marked by distinct vehicle activity. A white car and black car are observed moving away from the camera, with the white car proceeding in the general direction and the black car moving toward the top right of the frame. A red truck traverses a roundabout, while a black truck with a trailer remains near the entrance, either stationary or moving slowly. Pedestrians are visible during this interval, walking along the sidewalk and crossing near the crosswalk area.  \n\nFurther observations reveal a white car approaching an intersection marked with directional arrows and lane markings. A red car is positioned near the center of a roundabout, and a yellow taxi moves forward along the curved road. At a subsequent moment, a red SUV is stopped behind a yellow sedan at an intersection. A black police SUV with flashing lights, accompanied by a yellow sedan and red SUV, moves through the roundabout. This is followed by a scene involving a black police vehicle with roof-mounted emergency lights, a yellow four-door sedan, a red compact SUV, and a white fire truck with orange markings, all stopped in an intersection or parking lot. Two pedestrians are observed near the vehicles, with one interacting with the group and another standing apart.  \n\nThe narrative concludes with the police SUV, yellow sedan, and red SUV continuing their movement through the roundabout, maintaining a coordinated path along the curved roadway. The presence of emergency vehicles and pedestrians underscores the dynamic nature of the observed traffic and activity during this period.  \n\nThis summary consolidates all recorded events in chronological order, emphasizing the progression of vehicle movements, traffic conditions, and pedestrian interactions without reference to specific timestamps.\n",
+    "ext": {
+      "completion_id": "d0f1d526-1082-43be-ba82-cc3ee3efce20",
+      "completion_video_id": "e4170d25-b263-4cb7-869c-2b88c96ae0a9",
+      "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+      "created": 1787775614,
+      "object": "summarization.completion",
+      "media_info": {
+        "type": "offset",
+        "start_offset": 0,
+        "end_offset": 0
+      },
+      "usage": {
+        "query_processing_time": 91,
+        "total_chunks_processed": 14,
+        "summary_tokens": 4381,
+        "aggregation_tokens": 3849,
+        "summary_requests": 6,
+        "summary_latency": 3.0929737091064453,
+        "aggregation_latency": 36.92511701583862
+      },
+      "event_count": 14,
+      "total_events": 14,
+      "events": [
+        {
+          "id": 1,
+          "start_time": "2025-01-01T00:00:00Z",
+          "end_time": "2025-01-01T00:01:40Z",
+          "type": "vehicle movement",
+          "description": "A dark SUV, white truck, and approaching car are visible at a roundabout intersection, with a yellow car navigating the curved path steadily. A police car follows a yellow taxi and red SUV moving forward along the same curved roadway. Separately, a yellow school bus travels along a curved road, maintaining its lane position."
+        },
+        {
+          "id": 2,
+          "start_time": "2025-01-01T00:00:00Z",
+          "end_time": "2025-01-01T00:01:00Z",
+          "type": "traffic congestion",
+          "description": "The scene depicts light to moderate traffic flow with vehicles spaced apart, moving smoothly without significant delays, queuing, or visible signs of congestion."
+        },
+        {
+          "id": 3,
+          "start_time": "2025-01-01T00:00:00Z",
+          "end_time": "2025-01-01T00:01:00Z",
+          "type": "pedestrian activity",
+          "description": "During this segment, no pedestrians are present or visible except for a person wearing dark clothing. The individual walks along the sidewalk adjacent to the road at a steady pace away from the camera and later crosses the street near the crosswalk area from one side to the other."
+        },
+        {
+          "id": 4,
+          "start_time": "2025-01-01T00:00:00Z",
+          "end_time": "2025-01-01T00:01:40Z",
+          "type": "notable types of vehicles",
+          "description": "A dark-colored SUV navigates a roundabout, accompanied by a white truck and a smaller passenger car entering or exiting. A bright yellow sedan stands out due to its color. Nearby, a black police car with flashing red and blue lights drives through the roundabout, following a yellow taxi and a red SUV. On the left side of the intersection, a black truck is positioned near a stop sign, while a yellow school bus is visible on the right side, both stationary or moving slowly."
+        },
+        {
+          "id": 5,
+          "start_time": "2025-01-01T00:00:00Z",
+          "end_time": "2025-01-01T00:00:20Z",
+          "type": "notable types of vehicles",
+          "description": "A white car and a black car are seen driving, one through an intersection and the other along a curved road, both moving away from the camera. The white car moves in the general direction away from the camera, while the black car moves toward the top right corner of the frame."
+        },
+        {
+          "id": 6,
+          "start_time": "2025-01-01T00:00:40Z",
+          "end_time": "2025-01-01T00:00:50Z",
+          "type": "vehicle movement",
+          "description": "A red truck is driving through a roundabout, moving forward along its path."
+        },
+        {
+          "id": 7,
+          "start_time": "2025-01-01T00:00:40Z",
+          "end_time": "2025-01-01T00:00:50Z",
+          "type": "notable types of vehicles",
+          "description": "A black truck with a trailer is positioned near the entrance of the roundabout, appearing stationary or slowly advancing."
+        },
+        {
+          "id": 8,
+          "start_time": "2025-01-01T00:00:40Z",
+          "end_time": "2025-01-01T00:00:50Z",
+          "type": "pedestrian activity",
+          "description": "Pedestrians can be seen walking along the sidewalk adjacent to the road, crossing near the crosswalk area."
+        },
+        {
+          "id": 9,
+          "start_time": "2025-01-01T00:01:10Z",
+          "end_time": "2025-01-01T00:01:20Z",
+          "type": "notable types of vehicles",
+          "description": "A white car is seen driving along a curved road, approaching an intersection marked with directional arrows and lane markings."
+        },
+        {
+          "id": 10,
+          "start_time": "2025-01-01T00:01:20Z",
+          "end_time": "2025-01-01T00:01:30Z",
+          "type": "vehicle movement",
+          "description": "A red car is positioned near the center of a roundabout, while a yellow taxi moves forward along the curved road surface, heading toward the right side of the frame."
+        },
+        {
+          "id": 11,
+          "start_time": "2025-01-01T00:01:30Z",
+          "end_time": "2025-01-01T00:01:40Z",
+          "type": "notable types of vehicles",
+          "description": "A red SUV is stopped behind a yellow sedan at an intersection."
+        },
+        {
+          "id": 12,
+          "start_time": "2025-01-01T00:01:50Z",
+          "end_time": "2025-01-01T00:02:00Z",
+          "type": "vehicle movement",
+          "description": "A black police SUV with flashing lights drives forward through a roundabout intersection, followed closely by a yellow sedan and then a red SUV. All three vehicles move in the same direction along the curved roadway."
+        },
+        {
+          "id": 13,
+          "start_time": "2025-01-01T00:01:50Z",
+          "end_time": "2025-01-01T00:02:10.433Z",
+          "type": "notable types of vehicles",
+          "description": "A black police vehicle equipped with roof-mounted emergency lights is positioned near a bright yellow four-door sedan and a red compact SUV, along with a white fire truck featuring orange markings. The vehicles are stopped in an intersection or parking lot area."
+        },
+        {
+          "id": 14,
+          "start_time": "2025-01-01T00:02:10Z",
+          "end_time": "2025-01-01T00:02:10.433Z",
+          "type": "pedestrian activity",
+          "description": "Two individuals are standing near the vehicles; one appears to be interacting with the group while another stands slightly apart."
+        }
+      ],
+      "uuids": [
+        "e4170d25-b263-4cb7-869c-2b88c96ae0a9"
+      ],
+      "job_id": "lvs-d0f1d526-1082-43be-ba82-cc3ee3efce20",
+      "videos": [
+        {
+          "video_id": "vss-sample-sim-traffic",
+          "vios_sensor": "vss-sample-sim-traffic"
+        }
+      ]
+    }
+  }
+}

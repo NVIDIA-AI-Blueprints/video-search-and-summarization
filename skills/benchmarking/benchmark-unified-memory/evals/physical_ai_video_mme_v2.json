@@ -1,0 +1,55 @@
+{
+  "agent": {
+    "name": "openclaw"
+  },
+  "skills": [
+    "benchmark-unified-memory",
+    "vss-deploy-profile",
+    "vss-manage-video-io-storage",
+    "vss-ask-video"
+  ],
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "setup": [
+    {
+      "name": "Deploy and verify LVS",
+      "query": "Use the vss-deploy-profile skill to deploy the LVS profile with Elasticsearch, VIOS, the VLM. Configure the project-local vss CLI for this deployment and verify that the services are healthy.",
+      "checks": [
+        "The LVS profile and its required Elasticsearch, VIOS, and VLM services are running and healthy.",
+        "The project-local vss CLI is configured for the deployed profile."
+      ]
+    },
+    {
+      "name": "Download and ingest benchmark videos",
+      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download the NVIDIA dataset named `vss-devx-base` with `nvdataset` into `$TMPDIR/videos`, preserving its video filenames. Ingest only these two particular videos `vss-sample-warehouse-4min.mp4` and `vss-sample-sim-traffic.mp4` into VIOS, with their filename stem as the sensor name.",
+      "checks": [
+        "Every video ID required by the benchmark Parquet exists as a downloaded video filename stem under `$TMPDIR/videos`.",
+        "Every required video ID exists as a VIOS video sensor name."
+      ]
+    },
+    {
+      "name": "Initialize frozen unified memories",
+      "query": "Use the benchmark-unified-memory skill to initialize every frozen JSON memory under `datasets/physical-ai-video-mme-v2/memory`.",
+      "checks": [
+        "Every frozen unified-memory record is readable from Elasticsearch by its authoritative record ID.",
+        "A job-named Markdown projection exists for every verified record under `~/.openclaw/workspace/memory/vss/` and contains its authoritative record ID and video mappings."
+      ]
+    }
+  ],
+  "dataset": {
+    "path": "datasets/physical-ai-video-mme-v2/data.parquet",
+    "format": "video-mme-v2"
+  },
+  "memory": {
+    "directory": "datasets/physical-ai-video-mme-v2/memory"
+  },
+  "scoring": {
+    "metric": "overall_group_score",
+    "minimum": 0.75
+  }
+}

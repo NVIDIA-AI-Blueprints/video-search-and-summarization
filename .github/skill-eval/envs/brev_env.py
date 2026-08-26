@@ -28,6 +28,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import subprocess
@@ -119,6 +120,8 @@ class BrevEnvironment(BaseEnvironment):
         super().__init__(**kwargs)
         self._instance_name: str | None = DEFAULT_INSTANCE
         self._started = False
+        self._task_tmpdir: str | None = None
+        self._leg_state_dir: str | None = None
 
     @staticmethod
     def type() -> BrevEnvironmentType:
@@ -283,6 +286,37 @@ class BrevEnvironment(BaseEnvironment):
                 f"log-dir reset/setup failed on {self._instance_name}: "
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
+
+        # Every trial gets one private, deterministic scratch directory. Clean
+        # it at START because a cancelled SSH session cannot guarantee exit-side
+        # cleanup. Shared leg state is reset only by step-1, then retained for
+        # the remaining tasks in the same locked leg.
+        run_id = re.sub(
+            r"[^A-Za-z0-9_-]+", "-", os.environ.get("HARBOR_EVAL_RUN_ID", "local")
+        )
+        leg_id = re.sub(
+            r"[^A-Za-z0-9_-]+", "-", os.environ.get("HARBOR_EVAL_LEG", "local")
+        )
+        task_id = re.sub(r"[^A-Za-z0-9_-]+", "-", self.environment_dir.parent.name)
+        scratch_root = f"/tmp/harbor/{run_id}/{leg_id}"
+        self._task_tmpdir = f"{scratch_root}/tasks/{task_id}"
+        self._leg_state_dir = f"{scratch_root}/state"
+        reset_state = "sudo rm -rf {state}; " if task_id == "step-1" else ""
+        scratch_result = await _run_brev_exec(
+            self._instance_name,
+            (
+                f"sudo rm -rf {shlex.quote(self._task_tmpdir)}; "
+                + reset_state.format(state=shlex.quote(self._leg_state_dir))
+                + f"mkdir -p {shlex.quote(self._task_tmpdir)} "
+                + f"{shlex.quote(self._leg_state_dir)}; "
+                + f"chmod 700 {shlex.quote(self._task_tmpdir)} "
+                + shlex.quote(self._leg_state_dir)
+            ),
+            timeout=30,
+        )
+        if scratch_result.return_code != 0:
+            detail = scratch_result.stderr or scratch_result.stdout
+            raise RuntimeError(f"task scratch reset failed: {detail}")
 
         # Archive session JSONLs and root-level agent outputs left by
         # prior trials on this warm-pool box. Without this, harbor's claude-code
@@ -1194,6 +1228,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         is_trial_agent = (
             "claude --verbose --output-format=stream-json" in command
             or "codex exec " in command
+            or "openclaw agent --local" in command
         )
         agent_run_marker = (
             f"{REMOTE_AGENT_RUN_PREFIX}{uuid.uuid4().hex}"
@@ -1220,6 +1255,13 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         if env:
             for k, v in env.items():
                 parts.append(f"export {shlex.quote(k)}={shlex.quote(v)};")
+        if self._task_tmpdir:
+            parts.append(f"export TMPDIR={shlex.quote(self._task_tmpdir)};")
+        if self._leg_state_dir:
+            parts.append(
+                f"export SKILL_EVAL_LEG_STATE_DIR="
+                f"{shlex.quote(self._leg_state_dir)};"
+            )
         if agent_run_marker is not None:
             # Claude/Bun background workers inherit this marker even after
             # setsid(). It gives cancellation and the next warm-box trial a
@@ -1425,7 +1467,8 @@ def _prior_agent_output_archive_command() -> str:
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
         "PROJ=/logs/agent/sessions/projects; "
         "ROOT=/logs/agent; "
-        "OUTPUTS='claude-code.txt trajectory.json trajectory.jsonl agent.log'; "
+        "OUTPUTS='claude-code.txt openclaw.txt openclaw.session.jsonl "
+        "trajectory.json trajectory.jsonl agent.log'; "
         "HAS_SESSIONS=0; "
         "HAS_OUTPUT=0; "
         'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '

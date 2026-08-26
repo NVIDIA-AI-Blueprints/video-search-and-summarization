@@ -334,10 +334,16 @@ def build_harbor_command(
             "-a", "agents.nemoclaw:NemoClaw",
             "--model", model,
         ]
+    elif agent == "openclaw":
+        agent_flags = [
+            "-a", "agents.openclaw_unified_memory:UnifiedMemoryOpenClaw",
+            "--model", model,
+            "--ak", "session_to_trajectory=true",
+        ]
     else:
         raise ValueError(
             f"unsupported agent {agent!r} "
-            "(expected claude-code | codex | nemoclaw)"
+            "(expected claude-code | codex | nemoclaw | openclaw)"
         )
     return [
         "uvx",
@@ -1439,16 +1445,16 @@ def run_invocations(
     # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
     # silently fall through to the claude-code path and be indistinguishable
     # from a real claude-code run in the logs.
-    if agent not in ("claude-code", "codex", "nemoclaw"):
+    if agent not in ("claude-code", "codex", "nemoclaw", "openclaw"):
         print(
             f"FATAL: unsupported EVAL_AGENT {agent!r} "
-            "(expected claude-code | codex | nemoclaw)",
+            "(expected claude-code | codex | nemoclaw | openclaw)",
             file=sys.stderr,
         )
         return 1
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if not base_url:
+    if agent != "openclaw" and not base_url:
         print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
         return 1
     if agent == "codex":
@@ -1464,6 +1470,23 @@ def run_invocations(
             return 1
         env["OPENAI_API_KEY"] = anthropic_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
+    elif agent == "openclaw":
+        model = os.environ.get("OPENCLAW_MODEL", "") or model
+        if not model:
+            print("FATAL: OPENCLAW_MODEL or ANTHROPIC_MODEL must be set", file=sys.stderr)
+            return 1
+        if "/" not in model:
+            model = f"anthropic/{model}"
+        provider = model.split("/", 1)[0]
+        prefix = provider.upper().replace("-", "_")
+        required_key = f"{prefix}_API_KEY"
+        required_base = f"{prefix}_BASE_URL"
+        if not env.get(required_key):
+            print(f"FATAL: {required_key} not set for OpenClaw model {model}", file=sys.stderr)
+            return 1
+        if not env.get(required_base):
+            print(f"FATAL: {required_base} not set for OpenClaw model {model}", file=sys.stderr)
+            return 1
     if not model:
         print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
         return 1
@@ -1473,6 +1496,8 @@ def run_invocations(
     # the env vars are the authoritative source when the agent exports them.
     leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
     run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
+    env["HARBOR_EVAL_RUN_ID"] = run_id
+    env["HARBOR_EVAL_LEG"] = leg_slug
     # Record which box this leg locked BEFORE the first Harbor invocation, so a
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.
