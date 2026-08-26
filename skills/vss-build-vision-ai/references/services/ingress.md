@@ -26,6 +26,11 @@ unreachable from the host CLI. NvStreamer is never fronted here (see below).
 - The interactive front-door use requires the Agent owner (`vss-agent` / UI).
   The headless use requires none of that tier — only the browse/operate owners it
   routes to (ELK/Kibana, VIOS, Alerts, Elasticsearch, RT-Embed, RT-CV).
+  **Retaining the ingress never justifies retaining that tier.** The dependency
+  runs one way: the front door needs the Agent, the Agent does not come along
+  because the front door is present. `vss-agent`, `vss-ui` and `phoenix` are
+  selected or pruned on their own merits, and a headless build prunes them while
+  keeping the ingress — their routes simply `503`.
 - Requires the host-identity env below, or the host-header allowlist returns
   `404` for every request.
 
@@ -51,6 +56,13 @@ routes, not to have surfaces reachable on one. Asking to expose browse and
 operate surfaces through a single ingress is satisfied by the stock template and
 is not a curation request. When curation is genuinely asked for it is a
 build-generation artifact, so a validate-only pass is no reason to skip it.
+
+> **A request to expose surfaces through a single ingress is not a curation
+> request.** "Expose the browse and operate surfaces through a single ingress"
+> asks for those surfaces to be *reachable on one origin*, which the stock
+> template already delivers. Writing `patches/vss-haproxy-ingress.yml` for it is
+> an unrequested service-definition change. Read past this point only when the
+> caller asks to *remove* routes.
 
 **Curate by consumer class, not by profile.** Retain, for the backends the build
 deploys, the routes each consumer of the origin needs:
