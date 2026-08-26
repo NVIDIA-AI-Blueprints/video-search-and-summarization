@@ -661,8 +661,20 @@ class RealtimeEventFolder:
                 )
 
             superseded, aliases = self._superseded(events, stored, set(written))
+            dropped: Set[str] = set()
             if superseded:
-                result.superseded += self._store.delete(superseded, versions)
+                dropped = set(self._store.delete(superseded, versions))
+                result.superseded += len(dropped)
+                refused = set(superseded) - dropped
+                if refused:
+                    # The record is still there, so it and its replacement are
+                    # both visible. Claiming otherwise with an alias would
+                    # report the same evidence twice; the next cycle re-reads
+                    # and settles it.
+                    logger.warning(
+                        "Superseded events not removed for %s/%s: %s",
+                        sensor_id, category, sorted(refused),
+                    )
             # Written after the delete: an alias only means anything once the
             # record it stands in for is actually gone. It ages out with the
             # event it points at, so it carries that event's end rather than
@@ -671,7 +683,7 @@ class RealtimeEventFolder:
             live = [
                 (old_id, new_id, ends[new_id])
                 for old_id, new_id in aliases
-                if ends.get(new_id)
+                if ends.get(new_id) and old_id in dropped
             ]
             if live:
                 written_aliases = self._store.write_aliases(live)

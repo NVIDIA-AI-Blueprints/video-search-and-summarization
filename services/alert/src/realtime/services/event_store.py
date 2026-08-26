@@ -166,7 +166,7 @@ class RealtimeEventStore:
     def consumer_alias(self) -> str:
         return self._consumer_alias
 
-    def _ensure_consumer_alias(self, client) -> None:
+    def _ensure_consumer_alias(self, client) -> bool:
         """Publish the filtered view other services read.
 
         The index holds three kinds of document that are not events — the fold
@@ -178,6 +178,9 @@ class RealtimeEventStore:
         squarely inside whatever time range the consumer asks for.
 
         Created here rather than by hand so it cannot drift from the index.
+        Returns whether it is published: a failure leaves the folder writing
+        data its intended consumer cannot discover, so it has to be retried on
+        the next cycle rather than recorded as done.
         """
         try:
             client.indices.update_aliases(actions=[{
@@ -187,12 +190,14 @@ class RealtimeEventStore:
                     "filter": {"bool": {"must_not": {"exists": {"field": _DOC_KIND_FIELD}}}},
                 }
             }])
+            return True
         except Exception:
             logger.error(
-                "Could not publish the consumer alias %s; other services would "
-                "otherwise read this index unfiltered",
+                "Could not publish the consumer alias %s; until it exists the "
+                "events written here are not discoverable by their consumer",
                 self._consumer_alias, exc_info=True,
             )
+            return False
 
     def ensure_index(self) -> bool:
         """Create the index with its explicit mapping if it does not exist.
@@ -205,12 +210,10 @@ class RealtimeEventStore:
             client = self._es.client
             if client.indices.exists(index=self._index):
                 if not self._alias_published:
-                    self._ensure_consumer_alias(client)
-                    self._alias_published = True
+                    self._alias_published = self._ensure_consumer_alias(client)
                 return True
             client.indices.create(index=self._index, mappings=_MAPPING)
-            self._ensure_consumer_alias(client)
-            self._alias_published = True
+            self._alias_published = self._ensure_consumer_alias(client)
             logger.info("Created realtime event index %s", self._index)
             return True
         except Exception:
@@ -304,10 +307,14 @@ class RealtimeEventStore:
         self,
         event_ids: Sequence[str],
         versions: Optional[Dict[str, Tuple[int, int]]] = None,
-    ) -> int:
+    ) -> List[str]:
         """Remove events superseded by a re-fold.  Missing ids are not an error.
 
-        Returns the number Elasticsearch confirmed, not the number requested.
+        Returns the ids Elasticsearch confirmed gone, not the ones requested.
+        The caller needs to know *which*: an alias claiming a record was
+        superseded, written for a delete that a version conflict refused,
+        leaves the old event and its replacement both visible through the
+        consumer alias — the same evidence reported twice.
 
         Fenced on the read version for the same reason as :meth:`upsert`: a
         delete that lands after another writer has rewritten the document would
@@ -316,7 +323,7 @@ class RealtimeEventStore:
         writers reading the same ages choose the same documents.
         """
         if not event_ids:
-            return 0
+            return []
         body: List[dict] = []
         for event_id in event_ids:
             action: Dict[str, Any] = {"_index": self._index, "_id": event_id}
@@ -328,11 +335,18 @@ class RealtimeEventStore:
             resp = self._es.client.bulk(operations=body, refresh=False)
         except Exception:
             logger.error("Bulk delete of superseded events failed", exc_info=True)
-            return 0
-        return sum(
-            1 for item in resp.get("items", [])
-            if item.get("delete", {}).get("result") == "deleted"
-        )
+            return []
+        gone = []
+        for item in resp.get("items", []):
+            outcome = item.get("delete", {})
+            if outcome.get("result") in ("deleted", "not_found"):
+                gone.append(str(outcome.get("_id")))
+            elif outcome.get("error"):
+                logger.warning(
+                    "Superseded event %s was not deleted: %s",
+                    outcome.get("_id"), outcome.get("error"),
+                )
+        return gone
 
     def _aliases_pointing_at(self, event_id: str) -> List[Tuple[str, Optional[Tuple[int, int]]]]:
         """Aliases whose target is about to be superseded, with their versions."""
@@ -543,15 +557,28 @@ class RealtimeEventStore:
         try:
             resp = self._es.client.search(
                 index=self._index, query=query, size=max_docs,
-                sort=[{"end": {"order": "asc"}}],
+                sort=[{"end": {"order": "asc"}}], ignore_unavailable=True,
             )
         except Exception:
             logger.error("Retention scan failed", exc_info=True)
             return 0
-        doc_ids = [hit.get("_id") for hit in resp.get("hits", {}).get("hits", []) if hit.get("_id")]
+        doc_ids, versions = [], {}
+        for hit in resp.get("hits", {}).get("hits", []):
+            doc_id = hit.get("_id")
+            if not doc_id:
+                continue
+            doc_ids.append(doc_id)
+            seq, primary = hit.get("_seq_no"), hit.get("_primary_term")
+            if seq is not None and primary is not None:
+                versions[str(doc_id)] = (seq, primary)
         if not doc_ids:
             return 0
-        removed = self.delete(doc_ids)
+        # Fenced on what the scan saw. Selecting on age is not enough on its
+        # own: a condition that is still running has its ``end`` extended by
+        # the fold, so a document old enough to select can be current again by
+        # the time the delete lands. A conflict here means exactly that, and
+        # the right answer is to leave it for a later cycle.
+        removed = len(self.delete(doc_ids, versions))
         logger.info("Retention removed %d events ended before %s", removed, cutoff_iso)
         return removed
 

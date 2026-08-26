@@ -1718,7 +1718,7 @@ class TestWritesAreFenced:
 
         removed = store.delete([str(stored[0]["Id"])], versions)
 
-        assert removed == 0, "a stale delete destroyed a newer record"
+        assert removed == [], "a stale delete destroyed a newer record"
         assert stored_events(es), "the newer fold's event was deleted"
 
     def test_an_event_nobody_read_is_created_not_blindly_overwritten(self, es, folder):
@@ -2609,3 +2609,139 @@ class TestElasticClientRecovery:
             assert builds["n"] == 1, "a new client per request would leak pools"
         finally:
             routes._ELASTIC_CLIENT = None
+
+
+class TestASupersessionThatDidNotHappenIsNotClaimed:
+    def test_no_alias_is_written_when_the_delete_was_refused(self, es, folder):
+        """An alias says "this record was replaced". If the delete was refused,
+        the record is still there and its replacement is too — so the alias
+        turns a transient conflict into the same evidence reported twice,
+        through the very view the consumer reads.
+        """
+        es.client.raw = [chunk(0, offset_s=0), chunk(2, offset_s=120)]
+        folder.run_once(now=BASE + timedelta(seconds=300))
+        store = folder._store
+        before = set(stored_events(es))
+        assert len(before) == 2
+
+        real_delete = store.delete
+        store.delete = lambda ids, versions=None: []   # every delete refused
+
+        es.client.raw.append(chunk(1, offset_s=60))
+        result = folder.run_once(now=BASE + timedelta(seconds=320))
+        store.delete = real_delete
+
+        assert result.superseded == 0
+        assert result.aliases == 0, (
+            "an alias claimed a supersession that the delete refused"
+        )
+        docs = es.client.docs[store.index]
+        assert not any(v.get("_docKind") == "alias" for v in docs.values())
+
+    def test_an_alias_is_written_for_the_ids_that_did_go(self, es, folder):
+        es.client.raw = [chunk(0, offset_s=0), chunk(2, offset_s=120)]
+        folder.run_once(now=BASE + timedelta(seconds=300))
+        before = set(stored_events(es))
+
+        es.client.raw.append(chunk(1, offset_s=60))
+        result = folder.run_once(now=BASE + timedelta(seconds=320))
+
+        gone = before - set(stored_events(es))
+        assert result.aliases == len(gone) > 0
+        aliased = {
+            v["from"] for v in es.client.docs[folder._store.index].values()
+            if v.get("_docKind") == "alias"
+        }
+        assert aliased == gone
+
+
+class TestRetentionIsFencedToo:
+    def test_an_event_extended_since_the_scan_is_not_purged(self, es):
+        """Selecting on age is not enough on its own: a still-running condition
+        has its ``end`` extended by the fold, so a document old enough to be
+        selected can be current again by the time the delete lands.
+        """
+        store = RealtimeEventStore(es)
+        store.ensure_index()
+        store.upsert([{
+            "Id": "evt-still-running", "sensorId": "cam-1", "category": "alert",
+            "timestamp": iso(BASE - timedelta(days=30)),
+            "end": iso(BASE - timedelta(days=30)),
+            "createdAt": iso(BASE - timedelta(days=30)),
+        }])
+
+        # Another writer moves the document between the scan and the delete.
+        real_delete = store.delete
+
+        def move_first(event_ids, versions=None):
+            for event_id in event_ids:
+                key = (store.index, event_id)
+                es.client.seq[key] = es.client.seq.get(key, 0) + 5
+            return real_delete(event_ids, versions)
+
+        store.delete = move_first
+        removed = store.purge_older_than(iso(BASE - timedelta(days=7)))
+        store.delete = real_delete
+
+        assert removed == 0, "retention deleted a record that had moved since the scan"
+        assert "evt-still-running" in es.client.docs[store.index]
+
+    def test_retention_still_removes_an_untouched_event(self, es):
+        store = RealtimeEventStore(es)
+        store.ensure_index()
+        store.upsert([{
+            "Id": "evt-old", "sensorId": "cam-1", "category": "alert",
+            "timestamp": iso(BASE - timedelta(days=30)),
+            "end": iso(BASE - timedelta(days=30)),
+            "createdAt": iso(BASE - timedelta(days=30)),
+        }])
+
+        assert store.purge_older_than(iso(BASE - timedelta(days=7))) == 1
+
+
+class TestTheConsumerAliasMustActuallyPublish:
+    def test_a_failed_publication_is_retried_not_recorded_as_done(self, es):
+        """Swallowed, a transient failure leaves the folder writing data its
+        consumer cannot discover, until the process restarts."""
+        store = RealtimeEventStore(es)
+        attempts = {"n": 0}
+        real = es.client.indices.update_aliases
+
+        def fail_twice(actions):
+            attempts["n"] += 1
+            if attempts["n"] <= 2:
+                raise RuntimeError("cluster_block_exception")
+            return real(actions)
+
+        # Two failures, not one: the index is created on the first call and
+        # already exists on the rest, so a single failure only exercises one of
+        # the two branches that record publication.
+        es.client.indices.update_aliases = fail_twice
+        assert store.ensure_index() is True
+        assert store.consumer_alias not in es.client.indices.aliases
+        assert store.ensure_index() is True
+        assert store.consumer_alias not in es.client.indices.aliases, (
+            "the second failure was recorded as published, so it is never "
+            "attempted again"
+        )
+
+        assert store.ensure_index() is True
+
+        assert store.consumer_alias in es.client.indices.aliases
+        assert attempts["n"] == 3
+
+    def test_publication_is_not_repeated_once_it_has_succeeded(self, es):
+        store = RealtimeEventStore(es)
+        calls = {"n": 0}
+        real = es.client.indices.update_aliases
+
+        def counted(actions):
+            calls["n"] += 1
+            return real(actions)
+
+        es.client.indices.update_aliases = counted
+        store.ensure_index()
+        store.ensure_index()
+        store.ensure_index()
+
+        assert calls["n"] == 1
