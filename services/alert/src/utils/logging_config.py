@@ -100,10 +100,13 @@ class _SingleLineFormatter(_TraceAppendMixin, logging.Formatter):
 class _TraceContextFilter(logging.Filter):
     """Stamps the current trace/span ids onto every record.
 
-    Empty strings when tracing is off or no span is current. The facade it calls
-    needs no enable check of its own: with no context attached,
-    ``get_current_span()`` returns a non-recording span whose context is invalid,
-    which is exactly the signal needed.
+    Empty strings when tracing is off or no span is current. Correctness comes
+    from the invalid span context ``get_current_span()`` returns when nothing is
+    attached; cost comes from ``context.current_trace_ids`` short-circuiting on
+    the enable flag before it touches the SDK at all. That guard is not
+    redundant -- this filter is installed unconditionally so correlation
+    survives both fallback branches, so it runs on every log record, and without
+    the short-circuit it measured +55% per record on the shipped default.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:

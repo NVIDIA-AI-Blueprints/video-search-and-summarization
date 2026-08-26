@@ -58,16 +58,40 @@ services:
       # deployment that sets nothing behaves exactly as it does today - the
       # service never opens a connection to the endpoint below.
       #
-      # The remaining OTEL_* variables are read by the SDK's own
-      # auto-configuration and are deliberately not enumerated here; naming
-      # them would freeze a subset of a standard that the SDK already handles.
-      # Two are exceptions the service overrides on its own: request-header
-      # capture is unset because arbitrary headers must not reach spans, and
-      # OTEL_SEMCONV_STABILITY_OPT_IN is pinned so the caller user-agent
-      # attribute keeps a stable name.
-      ENABLE_OTEL_MONITORING: ${ENABLE_OTEL_MONITORING:-false}
+      # OTEL_* variables have to be enumerated: Compose passes only what is
+      # listed here, and this service has no env_file, so anything unlisted is
+      # unreachable no matter what the operator exports. An earlier version of
+      # this comment claimed the SDK's own auto-configuration would pick them
+      # up - true of the SDK, false of the container it runs in.
+      #
+      # Enumerated are the ones the service actually reads. OTEL_METRICS_EXPORTER
+      # in particular is the documented mitigation in src/tracing/meters.py for a
+      # dead collector blocking ~7s at exit against docker stop's 10s grace; it
+      # has to be reachable for that to be advice rather than trivia.
+      #
+      # Two are deliberately absent rather than forgotten: request-header capture
+      # stays unset because arbitrary headers must not reach spans, and
+      # OTEL_SEMCONV_STABILITY_OPT_IN is pinned by init_tracing() itself, with
+      # setdefault, so the caller user-agent attribute keeps a stable name and
+      # an operator who does set it still wins.
+      ENABLE_OTEL_MONITORING: ${ALERT_ENABLE_OTEL_MONITORING:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${ALERT_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       OTEL_SERVICE_NAME: ${ALERT_OTEL_SERVICE_NAME:-vss-alert-ms}
+      OTEL_RESOURCE_ATTRIBUTES: ${ALERT_OTEL_RESOURCE_ATTRIBUTES:-}
+      OTEL_TRACES_EXPORTER: ${ALERT_OTEL_TRACES_EXPORTER:-otlp}
+      # Falls back to the traces setting, mirroring the chain in
+      # src/tracing/meters.py. Enumerating both with independent defaults
+      # made OTEL_METRICS_EXPORTER always explicitly 'otlp', so the chain
+      # could never fire and setting ALERT_OTEL_TRACES_EXPORTER=none --
+      # the documented lever for a dead collector blocking shutdown --
+      # silenced traces while metrics kept retrying OTLP. Not ':-' with an
+      # empty default: Compose renders '' and meters.py reads '' as off.
+      OTEL_METRICS_EXPORTER: ${ALERT_OTEL_METRICS_EXPORTER:-${ALERT_OTEL_TRACES_EXPORTER:-otlp}}
+      OTEL_METRIC_EXPORT_INTERVAL: ${ALERT_OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      OTEL_METRIC_EXPORT_TIMEOUT: ${ALERT_OTEL_METRIC_EXPORT_TIMEOUT:-5000}
+      # The SDK leaves this unlimited, and span attributes carry
+      # producer-controlled fields; see src/tracing/attributes.py.
+      OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT: ${ALERT_OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT:-4096}
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro

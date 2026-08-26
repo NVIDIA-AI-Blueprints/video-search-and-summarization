@@ -35,6 +35,14 @@ exporters:
   # auto-sets PROMETHEUS_MULTIPROC_DIR, so :9081 serves a MultiProcessCollector
   # registry assembled from on-disk shards, and an in-process OTel reader would
   # register into a registry that endpoint never reads.
+  #
+  # Nothing shipped scrapes this today, and that is stated rather than implied:
+  # the profile that can enable tracing (dev-profile-alerts) ships no prometheus,
+  # and the profile family that ships prometheus (warehouse-operations) does not
+  # ship the collector. The endpoint is here so the pairing works when an
+  # operator deploys both -- see the commented-out job in
+  # services/monitoring/config/prometheus.yml. Traces do not depend on any of
+  # this; they reach Jaeger and Phoenix regardless.
   prometheus:
     endpoint: "0.0.0.0:8889"
 

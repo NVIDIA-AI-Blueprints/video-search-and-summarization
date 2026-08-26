@@ -126,6 +126,19 @@ spec:
               value: {{ (.Values.tracing).otlpEndpoint | default (index ($g) "otelExporterOtlpEndpoint") | default "http://otel-collector:4318" | quote }}
             - name: OTEL_SERVICE_NAME
               value: {{ (.Values.tracing).serviceName | default "vss-alert-ms" | quote }}
+            {{- /* The same three the compose file enumerates, for the same reason:
+                   what is not rendered here is unreachable in the pod. Metrics
+                   follow the traces setting, mirroring meters.py's own chain --
+                   without it, pointing the exporter at nothing leaves metrics
+                   retrying OTLP and blocking roughly seven seconds at exit. The
+                   attribute cap backstops span attributes lifted from Kafka,
+                   which the SDK otherwise leaves unlimited. */}}
+            - name: OTEL_TRACES_EXPORTER
+              value: {{ (.Values.tracing).tracesExporter | default "otlp" | quote }}
+            - name: OTEL_METRICS_EXPORTER
+              value: {{ (.Values.tracing).metricsExporter | default ((.Values.tracing).tracesExporter | default "otlp") | quote }}
+            - name: OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT
+              value: {{ (.Values.tracing).attributeValueLengthLimit | default 4096 | quote }}
             {{- end }}
           volumeMounts:
             - name: runtime-config

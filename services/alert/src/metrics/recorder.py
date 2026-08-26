@@ -254,7 +254,7 @@ def _normalize_verdict(raw: Any) -> str:
     if raw_repr not in _UNKNOWN_VERDICTS_SEEN:
         _UNKNOWN_VERDICTS_SEEN.add(raw_repr)
         logger.warning(
-            "EVENTS_TOTAL: unrecognized verdict %r — recording as 'unknown'. "
+            "unrecognized verdict %r — recording as 'unknown'. "
             "Expected one of %s.",
             raw_repr,
             EVENTS_VERDICTS,
@@ -489,7 +489,6 @@ def _count_by_sensor(messages) -> Dict[str, int]:
 
 
 def _observe_verification_duration_otel(message: Dict[str, Any],
-                                        latency: Dict[str, Any],
                                         pipeline_mode: Optional[str] = None) -> None:
     """Mirror the E2E observation into the OTel histogram.
 
@@ -499,18 +498,35 @@ def _observe_verification_duration_otel(message: Dict[str, Any],
     problem and must not cost an alert.
     """
     try:
+        # Before any work, including the normalisation below. This function is
+        # called above the PROMETHEUS_ENABLED gate on purpose, so on a
+        # deployment with both backends off everything here is dead weight --
+        # and _normalize_verdict is not free or pure: it warns once per distinct
+        # unrecognised value and retains it in a process-global set, so a
+        # producer emitting a unique verdict per event would leak on a
+        # deployment recording nothing at all.
+        if not _otel_meters.is_recording():
+            return
         seconds = iso_delta_seconds(
             message.get("end"), datetime.now(timezone.utc).isoformat()
         )
-        if seconds is None or seconds < 0:
+        # iso_delta_seconds already returns None for a negative delta.
+        if seconds is None:
             return
         _otel_meters.observe_verification_duration(
             seconds,
-            # Passed in, not read off `latency`: nothing in the repository ever
-            # writes `pipelineMode` into that dict, so reading it produced a
-            # dimension that was silently absent forever.
+            # Passed in by the caller rather than read off its `latency` dict:
+            # nothing in the repository ever writes `pipelineMode` there, so
+            # reading it produced a dimension that was silently absent forever.
             pipeline_mode=pipeline_mode,
-            verdict=(message.get("info") or {}).get("verdict"),
+            # Normalised, like every Prometheus site in this file. Raw
+            # `info.verdict` is producer-controlled free text and reaches here
+            # unvalidated on the early-return paths (`no_prompt`,
+            # `malformed_message`), where the VLM has not run -- so it would
+            # mint an unbounded attribute set at the collector, permanently.
+            # It also keeps the two surfaces comparable: EVENTS_TOTAL records
+            # "unknown" where the raw value would say "YES".
+            verdict=_normalize_verdict((message.get("info") or {}).get("verdict")),
         )
     except Exception:
         pass
@@ -597,7 +613,7 @@ def record_event_complete(
     # production caller is below the gate here, so it was never entered. Clearing
     # a function's own guard proves nothing; the call graph is what decides
     # whether the line runs.
-    _observe_verification_duration_otel(message, latency, pipeline_mode)
+    _observe_verification_duration_otel(message, pipeline_mode)
 
     if not PROMETHEUS_ENABLED:
         return
@@ -756,7 +772,10 @@ def observe_capacity_wait(service: str, seconds: float) -> None:
     """Record time spent waiting for a per-service concurrency slot."""
     # Additive and independently gated: the OTel series must not depend on
     # PROMETHEUS_METRICS_ENABLED, which is off in every shipped profile.
-    _otel_meters.observe_capacity_wait(seconds, service)
+    # The callee is keyword-only, because this module's own
+    # observe_capacity_wait takes (service, seconds) and that one takes
+    # (seconds, service) -- same name, reversed, one line apart.
+    _otel_meters.observe_capacity_wait(seconds=seconds, service=service)
 
     if not PROMETHEUS_ENABLED:
         return

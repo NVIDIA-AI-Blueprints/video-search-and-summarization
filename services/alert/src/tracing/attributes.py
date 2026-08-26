@@ -60,24 +60,61 @@ def truncate(value: Any, max_chars: int = DEFAULT_MAX_CONTENT_CHARS) -> Optional
     # made `max_content_chars` a floor rather than the maximum it is named for -
     # a 512 setting produced 528 characters. When the budget is too small to hold
     # any suffix at all, a bare cut is the honest result.
-    marker = f"...[+{len(text) - max_chars} chars]"
-    keep = max_chars - len(marker)
+    keep = max_chars - len(f"...[+{len(text) - max_chars} chars]")
     if keep <= 0:
         return text[:max_chars]
-    marker = f"...[+{len(text) - keep} chars]"
-    return text[:max_chars - len(marker)] + marker
+    # Iterate to a fixed point. The reported count depends on how much is kept,
+    # and how much is kept depends on how many digits that count needs -- so one
+    # pass could report a number computed against a different prefix than the one
+    # actually returned. At len=1005, max=1000 it claimed 18 dropped where 19
+    # were. Converges in two passes; the loop is bounded anyway.
+    for _ in range(4):
+        settled = max_chars - len(f"...[+{len(text) - keep} chars]")
+        if settled == keep:
+            break
+        keep = settled
+        if keep <= 0:
+            return text[:max_chars]
+    return text[:keep] + f"...[+{len(text) - keep} chars]"
 
 
-def _put(target: Dict[str, Any], key: str, value: Any) -> None:
-    """Set ``key`` only when the value carries information.
+#: Ceiling for identifying fields. Separate from ``max_content_chars``, which
+#: governs prompts and responses and is operator-tunable down to a few hundred
+#: characters; this one exists only to stop an unbounded value, so it is large
+#: enough that no real sensor id, category or correlation id ever reaches it.
+MAX_IDENTIFIER_CHARS = 1024
+
+
+def _put(target: Dict[str, Any], key: str, value: Any,
+         limit: Optional[int] = MAX_IDENTIFIER_CHARS) -> None:
+    """Set ``key`` only when the value carries information, and cap its size.
 
     OTel drops ``None`` attributes anyway, but emitting empty strings makes
     Jaeger's attribute list noisier without adding signal.
+
+    The cap is not about PII -- these fields are the ones deliberately kept when
+    the content gate is closed. It is about size. They arrive from Kafka, which
+    is not validated through ``AlertRequestEntity`` (that model, and its
+    ``max_length=256``, guards only the REST surface), so a producer writing a
+    200 KB ``sensorId`` would put 200 KB on every span of that alert. The SDK
+    leaves ``OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`` unlimited by default, so
+    nothing downstream would trim it either.
+
+    ``limit=None`` is for values the caller has already truncated to a policy of
+    its own. Applying both caps the *output* of the first, so an operator's
+    ``max_content_chars`` above 1024 was silently clamped and the "+N chars"
+    marker counted from the intermediate rather than the original -- with
+    ``max_content_chars=4096``, 5000 chars in, 1024 out, marker claiming 3088
+    dropped where 3992 were. Which is the defect
+    ``truncate``'s own tests exist to prevent, one layer up.
     """
     if value is None:
         return
-    if isinstance(value, str) and not value.strip():
-        return
+    if isinstance(value, str):
+        if not value.strip():
+            return
+        if limit is not None:
+            value = truncate(value, limit)
     target[key] = value
 
 
@@ -95,9 +132,11 @@ def manual_attributes(
     (``attempt``, ``service``, ``success`` and so on).
 
     Keys in :data:`CONTENT_KEYS` are dropped unless ``include_content`` is true,
-    and truncated when kept. Everything else is emitted as-is: sensor ids,
-    categories, verdicts and counts are not PII, and withholding them would make
-    the trace useless for the incident triage it exists to support.
+    and truncated to ``max_content_chars`` when kept. Everything else is emitted
+    in full up to :data:`MAX_IDENTIFIER_CHARS`: sensor ids, categories, verdicts
+    and counts are not PII, and withholding them would make the trace useless for
+    the incident triage it exists to support -- but they are producer-supplied
+    and arrive over Kafka unvalidated, so the ceiling is about size, not secrecy.
     """
     attrs: Dict[str, Any] = {}
 
@@ -111,7 +150,7 @@ def manual_attributes(
     for key, value in extra.items():
         if key in CONTENT_KEYS:
             if include_content:
-                _put(attrs, key, truncate(value, max_content_chars))
+                _put(attrs, key, truncate(value, max_content_chars), limit=None)
             # Gate closed: drop it. Not even a redacted placeholder — an absent
             # attribute is unambiguous, a placeholder invites someone to "just
             # turn it on to see" in an environment where that is not safe.

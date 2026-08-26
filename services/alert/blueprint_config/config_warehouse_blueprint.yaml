@@ -104,15 +104,23 @@ alert_agent:
   # block is the tuning, the same way metrics pairs with PROMETHEUS_METRICS_ENABLED.
   tracing:
     # Fraction of traces sampled, 0.0-1.0, applied with ParentBased so a sampled
-    # caller keeps its whole trace. Not 1.0: this service is specified for high
-    # event rates, and a profile shipping always-on sampling leaves an operator
-    # no headroom to reduce under load.
+    # caller keeps its whole trace. This controls export volume and backend
+    # storage cost, not CPU: the sampler decides inside start_span, so an event
+    # whose trace is dropped has already paid for building the attributes. A
+    # measured run put 0.1 within ~1 point of 1.0 on throughput, so reaching for
+    # this key to recover headroom under load will not find any - turn the
+    # feature off instead.
     sampling_ratio: 0.1
     # When false, prompt text, VLM responses and video URLs never reach a span.
     # Alert data may contain PII, so enabling this is a decision about one
     # specific environment - which is why it has no env-var shortcut.
     include_content: false
     # Applies only when include_content is true; the suffix counts against it.
+    # A second ceiling can apply past this one: where a deployment sets
+    # OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT the SDK cuts at that without leaving the
+    # "+N chars" marker. The compose and Helm surfaces set it to 4096; this file
+    # is a CONFIG_PATH target that neither mounts, so unless the environment
+    # carries it the SDK limit is unlimited here.
     max_content_chars: 512
 
 elastic:

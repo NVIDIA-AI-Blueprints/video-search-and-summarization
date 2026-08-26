@@ -110,6 +110,18 @@ def test_sync_handler_re_raises_and_sets_the_failure_flag(module_ast):
 
 
 def test_sync_root_is_closed_only_from_the_finally(module_ast):
+    """The twin of the event_loop guard, and it has to stay the twin.
+
+    This file's whole premise is that the two modes are wired by different
+    edits, so the guarantees are asserted twice rather than assumed to travel
+    together. The event_loop version of this test was widened -- receiver-blind,
+    and walking the handlers as well as the body -- and this one was not, so for
+    one revision the two mutations that fix caught here passed silently. That is
+    the shape this file exists to prevent, reproduced inside the file itself.
+
+    Sync is not the minority path: five of the ten shipped configs resolve to it,
+    including the warehouse product profile.
+    """
     method = _find(module_ast, PIPELINE_METHOD)
     outer = _outer_try(method)
 
@@ -119,11 +131,31 @@ def test_sync_root_is_closed_only_from_the_finally(module_ast):
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
             and n.func.attr == "close"
-            and getattr(n.func.value, "id", None) == "span_handle"
         ]
 
-    assert closes_in(outer.finalbody)
-    assert not closes_in(outer.body), "the root would close before enrichment"
+    # Pinned to the handle: a receiver-blind positive half would assert only
+    # that *something* is closed in the finally.
+    assert [
+        n.lineno for stmt in outer.finalbody for n in ast.walk(stmt)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "close"
+        and getattr(n.func.value, "id", None) == "span_handle"
+    ], "the finally must close the span handle"
+
+    # Receiver-blind, and across handlers and orelse too. `_h = span_handle;
+    # _h.close(...)` slipped through a name-pinned matcher, and a close in the
+    # outer handler sets `_closed` *and* claims `_decorated`, so the finally's
+    # close(failure_reason='uncaught_exception') becomes a no-op: the alert
+    # loses its error_reason on the one path that has one.
+    early = outer.body + outer.handlers + (outer.orelse or [])
+    assert not closes_in(early), (
+        f"close() found outside the finally at lines {closes_in(early)}. If that "
+        "is the root span handle, the root would close before enrichment, or "
+        "before the finally can stamp the failure reason. If it is some other "
+        "object that legitimately needs closing here, this matcher is "
+        "deliberately receiver-blind — an aliased handle slipped through when it "
+        "was not — so give it its own name and narrow the match."
+    )
 
 
 def test_sync_vlm_span_is_live_per_attempt_with_success_preset(module_ast):

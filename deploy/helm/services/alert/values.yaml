@@ -28,6 +28,18 @@ tracing:
   # default that every other VSS chart already names.
   otlpEndpoint: ""
   serviceName: "vss-alert-ms"
+  # The lever for a collector that is not there. Metrics fall back to this, so
+  # "none" silences both: without it the OTLP exporter retries three times with
+  # backoff and blocks roughly seven seconds at pod termination. Declared here
+  # rather than left implicit -- the template reads it either way, but an
+  # operator greping values.yaml for the variable the code documents would
+  # otherwise find nothing.
+  tracesExporter: "otlp"
+  # Defaults to tracesExporter when unset; set it only to diverge from traces.
+  metricsExporter: ""
+  # Span attributes are lifted from Kafka messages that never passed through
+  # AlertRequestEntity, and the SDK leaves this unlimited by default.
+  attributeValueLengthLimit: 4096
 
 image:
   repository: ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms

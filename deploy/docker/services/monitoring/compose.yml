@@ -28,7 +28,7 @@ services:
   # OpenTelemetry collector and trace backend for the alert path.
   #
   # Both are opt-in via their own compose profiles and are absent from every
-  # shipped profile list, matching ENABLE_OTEL_MONITORING defaulting to false:
+  # shipped profile list, matching ALERT_ENABLE_OTEL_MONITORING defaulting to false:
   # a deployment that has not asked for tracing runs exactly the containers it
   # runs today.
   otel-collector:

@@ -733,6 +733,8 @@ _REPO = pathlib.Path(__file__).resolve().parents[5]
 DEPLOYED_CONFIGS = [
     _REPO / "deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml",
     _REPO / "deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/EDGE-LOCAL-VLM-config.yml",
+    _REPO / "deploy/docker/industry-profiles/warehouse-operations/vlm-as-verifier/configs/config.yml",
+    _REPO / "deploy/docker/industry-profiles/smartcities/vlm-as-verifier/configs/config.yml",
     _REPO / "services/alert/blueprint_config/config_warehouse_blueprint.yaml",
     _REPO / "services/alert/blueprint_config/config_smartcity_blueprint.yaml",
     _REPO / "services/alert/blueprint_config/config_public_safety_blueprint.yaml",
@@ -754,7 +756,10 @@ def test_every_deployed_config_ships_the_tracing_block(config_path):
     assert config_path.exists(), f"{config_path} moved; this test is now blind"
     block = (yaml.safe_load(config_path.read_text())["alert_agent"] or {}).get("tracing")
     assert block is not None, "alert_agent.tracing is missing; sampling falls back to the code default"
-    assert 0 < block["sampling_ratio"] < 1.0
+    # Pinned to the shipped value, like the Helm half of this audit asserts
+    # textually. A range check let a config drift to 0.99 -- effectively the
+    # always-on sampling REQ-015 forbids -- while still passing.
+    assert block["sampling_ratio"] == 0.1
     assert block["include_content"] is False
 
 
@@ -768,6 +773,61 @@ def test_helm_configs_ship_the_tracing_block(config_path):
     assert "\n  tracing:\n" in body.group(1)
     assert "\n    sampling_ratio: 0.1\n" in body.group(1)
     assert "\n    include_content: false\n" in body.group(1)
+
+
+def test_no_shipped_config_escapes_the_tracing_audit():
+    """The two lists above must name every shipped config, not most of them.
+
+    They were hand-written and missed both industry profiles — the product
+    profiles, the ones a customer actually deploys. Nothing failed, because
+    ``DEFAULT_SAMPLING_RATIO`` happens to equal what the other eight declare;
+    the audit was simply blind to them. Discover the set instead of trusting
+    the list, so profile number eleven cannot arrive unnoticed.
+
+    Bounded on purpose: it finds a *top-level* ``alert_agent:``. A config that
+    nested the block under a parent key would still escape, which is the same
+    class of miss — but matching at any indentation also matches the heredoc
+    inside the CI workflow and every test fixture, so the cure is worse. If a
+    nested variant is ever shipped, this needs a real YAML walk.
+    """
+    import re
+    import subprocess
+
+    audited = {p.resolve() for p in DEPLOYED_CONFIGS + HELM_CONFIGS}
+
+    # Tracked files only. Walking the filesystem meant a customer config copied
+    # into the checkout to reproduce a bug reddened the suite, which is an
+    # ordinary thing to do and nothing to do with this code.
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(_REPO), "ls-files", "-z", "*.yml", "*.yaml"],
+            capture_output=True, text=True,
+        )
+    except OSError:  # no git binary at all
+        pytest.skip("git is not available; the audit cannot enumerate tracked configs")
+    if listing.returncode != 0:
+        pytest.skip("not a git checkout; the audit cannot enumerate tracked configs")
+
+    found = set()
+    for rel in listing.stdout.split("\0"):
+        if not rel or "test" in pathlib.PurePosixPath(rel).parts:
+            continue
+        path = _REPO / rel
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        # \s*$ rather than $: a CRLF checkout leaves "alert_agent:\r" and the
+        # bare anchor would miss every config on it.
+        if re.search(r"^alert_agent:\s*$", text, re.M):
+            found.add(path.resolve())
+
+    assert found, "discovery found nothing; the walk is broken, not the configs"
+    assert found == audited, (
+        "shipped configs carrying alert_agent: are not the ones audited above.\n"
+        f"  missing from the lists: {sorted(str(p.relative_to(_REPO)) for p in found - audited)}\n"
+        f"  listed but not found:   {sorted(str(p.relative_to(_REPO)) for p in audited - found)}"
+    )
 
 
 def test_the_code_default_matches_what_the_configs_ship(tracing_state):
@@ -1956,7 +2016,7 @@ def test_metric_recording_is_silent_when_uninitialised(tracing_state):
 
     meters.observe_verification_duration(1.0, pipeline_mode="event_loop", verdict="true")
     meters.count_vlm_attempt(success=False, attempt=2)
-    meters.observe_capacity_wait(0.5, service="vst")
+    meters.observe_capacity_wait(seconds=0.5, service="vst")
     meters.shutdown()
 
 
@@ -2237,9 +2297,325 @@ def test_duration_histograms_can_resolve_a_percentile():
                 point = list(metric.data.data_points)[0]
                 seen[metric.name] = sum(1 for c in point.bucket_counts if c)
 
-    for name, values in samples.items():
-        assert seen.get(name) == len(values), (
-            f"{name}: {len(values)} values spanning the range fell into "
-            f"{seen.get(name)} bucket(s) — percentiles are not recoverable"
+    try:
+        for name, values in samples.items():
+            assert seen.get(name) == len(values), (
+                f"{name}: {len(values)} values spanning the range fell into "
+                f"{seen.get(name)} bucket(s) — percentiles are not recoverable"
+            )
+    finally:
+        provider.shutdown()
+
+
+def test_the_shipped_instruments_get_those_buckets(tmp_path):
+    """The test above proves ``_views()`` is right; this proves it is used.
+
+    Both survive mutations that reintroduce the original defect -- dropping
+    ``views=`` from the ``MeterProvider(...)`` call, or renaming a production
+    instrument so no view matches it -- because they exercise ``_views`` in
+    isolation against hand-copied names. So the fix was guarded at the helper
+    and unguarded at the wiring, which is the half that ships.
+
+    Drives the real ``init_metrics()`` and records through the real public
+    functions, swapping only the reader so the points can be read back. In a
+    subprocess for the same reason as everything else here: ``init_metrics``
+    sets the process-global MeterProvider, which OpenTelemetry refuses to
+    replace, so running it in-process would leave a shut-down provider installed
+    for every test after it.
+    """
+    out = _run_isolated(
+        """
+        from opentelemetry.sdk.metrics import export as export_mod
+        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+        from tracing import meters
+
+        reader = InMemoryMetricReader()
+        export_mod.PeriodicExportingMetricReader = lambda *a, **k: reader
+
+        assert meters.init_metrics("test-wiring") is True
+        for v in (0.0031, 0.2, 0.6, 1.5, 12.0):
+            meters.observe_verification_duration(v, pipeline_mode="event_loop")
+        for v in (0.002, 0.03, 0.4, 3.0):
+            meters.observe_capacity_wait(seconds=v, service="vlm")
+
+        spread = {}
+        for rm in reader.get_metrics_data().resource_metrics:
+            for sm in rm.scope_metrics:
+                for metric in sm.metrics:
+                    point = metric.data.data_points[0]
+                    if hasattr(point, "bucket_counts"):
+                        spread[metric.name] = sum(1 for c in point.bucket_counts if c)
+        meters.shutdown()
+        print(sorted(spread.items()))
+        """,
+        # console, so nothing dials a collector; the reader is swapped anyway.
+        {"OTEL_METRICS_EXPORTER": "console"},
+        tmp_path,
+    )
+    assert out == "[('alert.capacity.wait.duration', 4), ('alert.verification.duration', 5)]", (
+        f"the shipped instruments did not get the views: {out}. Either views= was "
+        "dropped from MeterProvider(...) or an instrument name no longer matches "
+        "the view that targets it."
+    )
+
+
+# --------------------------------------------------------------------------
+# Guards for the round-6 fixes. Each of these was shipped unguarded first, and
+# reverting it left all 3366 tests green -- which on this feature is how a fix
+# survives one round and is quietly undone the next.
+# --------------------------------------------------------------------------
+
+
+def test_identifiers_are_capped_before_they_reach_a_span():
+    """Producer-controlled fields arrive from Kafka unvalidated.
+
+    `AlertRequestEntity`'s `max_length=256` guards the REST surface only, and
+    the SDK leaves `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` unlimited by default, so
+    nothing downstream trims them either. Measured before the cap: two fields
+    produced 250 KB of attributes on every span of one alert.
+    """
+    from tracing.attributes import MAX_IDENTIFIER_CHARS, manual_attributes
+
+    attrs = manual_attributes(
+        {"sensorId": "X" * 200_000, "category": "C" * 50_000, "correlationId": "ok-1"},
+        include_content=False,
+    )
+    assert len(attrs["sensorId"]) == MAX_IDENTIFIER_CHARS
+    assert len(attrs["category"]) == MAX_IDENTIFIER_CHARS
+    # Real values pass through untouched; the cap is a ceiling, not a formatter.
+    assert attrs["correlationId"] == "ok-1"
+
+
+def test_the_content_budget_is_not_clamped_by_the_identifier_cap():
+    """`max_content_chars` is the operator's budget and must be honoured above 1024.
+
+    Applying both caps truncated the *output* of the first: 5000 chars in, 1024
+    out, and the marker counted from the intermediate -- claiming 3088 dropped
+    where 3976 were. Same defect `truncate`'s own tests exist to prevent, one
+    layer up.
+    """
+    import re
+
+    from tracing.attributes import manual_attributes
+
+    for budget in (512, 2000, 4096):
+        attrs = manual_attributes(
+            None, include_content=True, max_content_chars=budget,
+            **{"video.url": "P" * 5000},
         )
-    provider.shutdown()
+        value = attrs["video.url"]
+        assert len(value) == budget, f"budget {budget} produced {len(value)}"
+        # The marker counts from the original, and is itself inside the budget:
+        # kept text + dropped == the input length. Counting from the truncated
+        # intermediate instead is exactly the double-truncation defect.
+        dropped = int(re.search(r"\.\.\.\[\+(\d+) chars\]$", value).group(1))
+        marker_len = len(f"...[+{dropped} chars]")
+        assert (len(value) - marker_len) + dropped == 5000, (
+            f"budget {budget}: kept {len(value) - marker_len} + reported {dropped} "
+            f"!= 5000 — the marker is counting from the wrong string"
+        )
+
+
+def test_the_root_span_caps_verdict_and_error_reason():
+    """The two largest producer-controlled fields are written past `_put`.
+
+    `RootSpanHandle.decorate`/`close` call `set_attribute` directly, so the cap
+    on the identifiers left these two uncapped -- 501 KB on the span where the
+    fix claimed 250 KB had been removed.
+    """
+    from tracing.attributes import MAX_IDENTIFIER_CHARS
+    from tracing.spans import RootSpanHandle
+
+    written = {}
+
+    class _Span:
+        def is_recording(self):
+            return True
+
+        def set_attribute(self, key, value):
+            written[key] = value
+
+        def end(self, *a, **k):
+            pass
+
+    handle = RootSpanHandle(_Span(), None, None)
+    handle.decorate(None, {"info": {"verdict": "V" * 200_000}}, "R" * 200_000)
+
+    assert len(written["verdict"]) == MAX_IDENTIFIER_CHARS
+    assert len(written["error_reason"]) == MAX_IDENTIFIER_CHARS
+
+
+def test_metrics_exporter_falls_back_to_the_traces_exporter_in_compose():
+    """`OTEL_TRACES_EXPORTER=none` is the documented lever for a dead collector.
+
+    `meters.py` chains the two variables so that lever silences metrics too --
+    without it, metrics keep retrying OTLP and block ~7s at exit against docker
+    stop's 10s grace. Enumerating both in compose with independent defaults made
+    `OTEL_METRICS_EXPORTER` always explicitly `otlp`, so the chain could never
+    fire and the lever did nothing. Asserted on the rendered default expression
+    because no unit test can run `docker compose config`.
+    """
+    compose = _REPO / "deploy/docker/services/alert/compose.yml"
+    text = compose.read_text()
+    assert "OTEL_METRICS_EXPORTER: ${ALERT_OTEL_METRICS_EXPORTER:-${ALERT_OTEL_TRACES_EXPORTER:-otlp}}" in text, (
+        "OTEL_METRICS_EXPORTER must fall back to ALERT_OTEL_TRACES_EXPORTER; an "
+        "independent default disables the lever meters.py documents"
+    )
+    # Not an empty default: Compose renders '' and meters.py reads '' as off,
+    # which would silently disable metrics on every deployment.
+    assert "OTEL_METRICS_EXPORTER: ${ALERT_OTEL_METRICS_EXPORTER:-}" not in text
+
+
+def test_the_single_process_startup_initialises_tracing_eagerly():
+    """Every shipped config sets `processes: 1`.
+
+    The other `init_tracing()` lives in `_run_pipeline_process`, which only runs
+    in a spawned child, so on the shipped default the ~160ms of imports, config
+    read and HTTP-client patching landed inside the first alert on the event
+    loop thread -- exactly what the eager call exists to avoid.
+    """
+    import ast
+
+    entrypoint = _REPO / "services/alert/enhance_alert_with_vlm.py"
+    tree = ast.parse(entrypoint.read_text())
+
+    single_process_branches = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.UnaryOp)
+        and isinstance(node.test.op, ast.Not)
+        and getattr(node.test.operand, "id", None) == "multi_process"
+    ]
+    assert single_process_branches, "the `if not multi_process:` branch moved"
+
+    def inits(nodes):
+        return any(
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "init_tracing"
+            for stmt in nodes for n in ast.walk(stmt)
+        )
+
+    assert any(inits(branch.body) for branch in single_process_branches), (
+        "no init_tracing() in the single-process branch; the shipped default "
+        "would initialise lazily, inside the first alert"
+    )
+
+
+def test_the_otel_verdict_is_normalised_like_the_prometheus_one(monkeypatch):
+    """Raw `info.verdict` is producer-controlled and unbounded.
+
+    It reaches `record_event_complete` unvalidated on the early-return paths
+    (`no_prompt`, `malformed_message`), before the VLM has run. Unnormalised it
+    would mint a new attribute set per distinct string -- permanent, at the
+    collector -- and would disagree with `EVENTS_TOTAL`, which records
+    "unknown" for the same event.
+    """
+    from metrics import recorder
+
+    seen = {}
+
+    def _capture(seconds, pipeline_mode=None, verdict=None):
+        seen["verdict"] = verdict
+
+    monkeypatch.setattr(recorder._otel_meters, "_instruments", {"verification_duration": object()})
+    monkeypatch.setattr(recorder._otel_meters, "observe_verification_duration", _capture)
+
+    recorder._observe_verification_duration_otel(
+        {"end": "2020-01-01T00:00:00+00:00", "info": {"verdict": "upstream-freeform"}},
+        "event_loop",
+    )
+    assert seen["verdict"] == "unknown", (
+        f"raw verdict {seen['verdict']!r} reached the OTel histogram; "
+        "Prometheus would have recorded 'unknown' for the same event"
+    )
+
+
+def test_the_otel_observation_does_no_work_when_metrics_are_off(monkeypatch):
+    """It runs above the PROMETHEUS_ENABLED gate, so it must check its own.
+
+    `_normalize_verdict` is neither free nor pure: it warns once per distinct
+    unrecognised value and retains it in a process-global set. Evaluated as an
+    argument, it ran before `_record` could discover the instrument was absent
+    -- so a producer emitting a unique verdict per event leaked one string per
+    event on a deployment recording nothing at all.
+    """
+    from metrics import recorder
+
+    monkeypatch.setattr(recorder._otel_meters, "_instruments", {})
+    monkeypatch.setattr(recorder, "_UNKNOWN_VERDICTS_SEEN", set())
+
+    for i in range(5):
+        recorder._observe_verification_duration_otel(
+            {"end": "2020-01-01T00:00:00+00:00", "info": {"verdict": f"freeform-{i}"}},
+            "event_loop",
+        )
+
+    assert not recorder._UNKNOWN_VERDICTS_SEEN, (
+        f"{len(recorder._UNKNOWN_VERDICTS_SEEN)} verdicts retained with no "
+        "instruments to record them against"
+    )
+
+
+@pytest.mark.parametrize("length,budget", [
+    (1005, 1000),   # the digit-width case: one pass reported 18 dropped, 19 were
+    (1030, 1024),   # the same at MAX_IDENTIFIER_CHARS
+    (5000, 512),    # the shipped budget
+    (10000, 100),
+    (200000, 1024),
+])
+def test_truncate_reports_what_it_actually_dropped(length, budget):
+    """Two invariants, and the second used to fail on a digit-width boundary.
+
+    The kept prefix depends on how many digits the reported count needs, and the
+    count depends on the prefix -- so a single pass could report a number
+    computed against a different prefix than the one returned. `max_chars` stays
+    a hard ceiling either way; what broke was the claim.
+    """
+    import re
+
+    from tracing.attributes import truncate
+
+    out = truncate("P" * length, budget)
+    assert len(out) <= budget, f"{len(out)} exceeds the ceiling {budget}"
+
+    match = re.search(r"\.\.\.\[\+(\d+) chars\]$", out)
+    if match is None:
+        return  # budget too small to hold any suffix; a bare cut is the contract
+    reported = int(match.group(1))
+    kept = len(out) - len(f"...[+{reported} chars]")
+    assert kept + reported == length, (
+        f"kept {kept} + reported {reported} != {length} — the marker is counting "
+        "against a prefix other than the one returned"
+    )
+
+
+def test_every_tracing_key_the_chart_reads_is_declared_in_values():
+    """Close the class, not the instance.
+
+    The template read six `tracing.*` keys while values.yaml declared three, so
+    three levers worked and none of them were greppable -- an operator looking
+    for the knob the code documents found nothing. Adding the three fixes that
+    instance; this stops key seven arriving the same way, which is the same move
+    that replaced the hand-written config list with `git ls-files`.
+
+    values.yaml is the discovery surface, so a key being *reachable* through
+    `(.Values.tracing).x | default ...` is not enough.
+    """
+    import re
+
+    template = _REPO / "deploy/helm/services/alert/templates/deployment.yaml"
+    values = _REPO / "deploy/helm/services/alert/values.yaml"
+    assert template.exists() and values.exists(), "chart layout moved; this test is blind"
+
+    read = set(re.findall(r"\(\.Values\.tracing\)\.(\w+)", template.read_text()))
+    assert read, "no tracing keys found in the template; the accessor style changed"
+
+    block = re.search(r"^tracing:\n((?:[ \t]+.*\n|\n)*)", values.read_text(), re.M)
+    assert block, "no tracing block in values.yaml"
+    declared = set(re.findall(r"^\s+(\w+):", block.group(1), re.M))
+
+    assert read <= declared, (
+        "the chart reads tracing keys that values.yaml does not declare, so they "
+        f"work but cannot be found: {sorted(read - declared)}"
+    )

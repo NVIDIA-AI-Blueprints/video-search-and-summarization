@@ -3641,6 +3641,17 @@ if __name__ == "__main__":
             require_startup_budget("prompt seeding")
 
         if not multi_process:
+            # Same eager init as _run_pipeline_process, for the same reason and
+            # for the configuration that actually ships. Every shipped profile
+            # sets processes: 1, so that call site -- which only runs in a
+            # spawned child -- never fires on a default deployment, and the
+            # ~160ms of imports, config read and HTTP-client patching landed
+            # inside the first alert, on the event loop thread. Which is
+            # precisely what putting it at startup exists to avoid.
+            #
+            # Never raises, returns False when the feature is off: a no-op on
+            # the shipped default.
+            tracing.init_tracing()
             # Constructed before the metrics port binds (C15): the constructor
             # populates state that scrapes should see from the very first
             # response, and a boot that fails here must never expose a

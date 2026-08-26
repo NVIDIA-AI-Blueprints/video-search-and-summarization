@@ -11,7 +11,7 @@ The only distribution in this service's dependency set with no bundled license.
 It is published from `open-telemetry/opentelemetry-python-contrib`, the same
 repository and the same 0.65b0 release as `opentelemetry-instrumentation`,
 `-asgi`, `-fastapi`, `-httpx` and `-requests`, all of which bundle a license.
-Those four bundled files are byte-identical to each other (md5 86d3f3a95c32),
+Those five bundled files are byte-identical to each other (md5 86d3f3a95c32),
 and this file is a copy of that text: the Apache License 2.0.
 
 Sourced from the sibling wheel rather than transcribed, so it is verifiable

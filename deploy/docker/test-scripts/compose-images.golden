@@ -32,7 +32,9 @@ deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
 deploy/docker/services/infra/sdrc/docker-compose.yaml redis:8.10.0-alpine
 deploy/docker/services/monitoring/compose.yml docker.io/grafana/grafana:13.1.1-ubuntu
+deploy/docker/services/monitoring/compose.yml docker.io/jaegertracing/all-in-one:1.76.0
 deploy/docker/services/monitoring/compose.yml docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
+deploy/docker/services/monitoring/compose.yml docker.io/otel/opentelemetry-collector-contrib:0.137.0
 deploy/docker/services/monitoring/compose.yml ghcr.io/google/cadvisor:0.60.5
 deploy/docker/services/monitoring/compose.yml quay.io/prometheus/node-exporter:v1.12.1
 deploy/docker/services/monitoring/compose.yml quay.io/prometheus/prometheus:v3.13.1

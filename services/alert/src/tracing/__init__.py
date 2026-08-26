@@ -316,8 +316,10 @@ class SanitizingSpanExporter:
                 for e in events
             )
 
-        # Exactly the 13 real constructor parameters. There is no
-        # `set_status_on_exception` parameter; passing one raises TypeError.
+        # The 12 parameters worth carrying, out of the 13 the constructor
+        # takes; `instrumentation_info` is deprecated and omitted deliberately
+        # (see below). There is no `set_status_on_exception` parameter -- passing
+        # one raises TypeError.
         return ReadableSpan(
             name=span.name,
             context=span.context,

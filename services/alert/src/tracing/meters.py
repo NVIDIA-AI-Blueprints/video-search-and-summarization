@@ -198,6 +198,16 @@ def _record(name: str, kind: str, value: float, **attributes: Any) -> None:
         logger.debug("could not record %s", name, exc_info=True)
 
 
+def is_recording() -> bool:
+    """True when the instruments exist, i.e. metrics will actually be recorded.
+
+    Callers use this to skip work that would be wasted otherwise -- building
+    attributes, normalising a label -- which the no-op inside ``_record`` cannot
+    do for them, because arguments are evaluated first.
+    """
+    return bool(_instruments)
+
+
 def observe_verification_duration(seconds: float, pipeline_mode: Any = None,
                                   verdict: Any = None) -> None:
     _record("verification_duration", "histogram", seconds,
@@ -208,7 +218,15 @@ def count_vlm_attempt(success: bool, attempt: int) -> None:
     _record("vlm_attempts", "counter", 1, success=success, attempt=attempt)
 
 
-def observe_capacity_wait(seconds: float, service: str) -> None:
+def observe_capacity_wait(*, seconds: float, service: str) -> None:
+    """Keyword-only, deliberately.
+
+    ``metrics.recorder`` has a function of the same name taking
+    ``(service, seconds)`` -- reversed -- and it calls this one from the line
+    below its own signature. Positionally the two are one tidy-up away from
+    swapping a float and a string into a metric label, which nothing at this
+    boundary would catch.
+    """
     _record("capacity_wait", "histogram", seconds, service=service)
 
 

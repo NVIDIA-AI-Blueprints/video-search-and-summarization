@@ -169,13 +169,38 @@ def test_the_root_is_closed_only_from_the_finally(module_ast):
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
             and n.func.attr == "close"
-            and getattr(n.func.value, "id", None) == "span_handle"
+            # Any receiver, not just the literal name. Pinning it to
+            # `span_handle` meant `_h = span_handle; _h.close(None, None)` in
+            # the try body passed the whole suite - and that is the worst
+            # defect this feature can have: close() sets `_decorated`, so the
+            # later decorate() silently no-ops and the alert loses its verdict,
+            # its error_reason and every historical child, while the children
+            # outlive their parent. A close() on anything in this body is wrong;
+            # there is no other object here with a close().
         ]
 
-    assert closes_in(outer.finalbody), "the finally must close the span"
-    assert not closes_in(outer.body), (
-        f"span_handle.close() found in the try body at lines {closes_in(outer.body)} — "
-        "the root would close before enrichment"
+    # The positive half stays pinned to the handle: widening the matcher made
+    # it assert only that *something* is closed in the finally, which is the
+    # same coincidence the negative half stopped relying on.
+    assert [
+        n.lineno for stmt in outer.finalbody for n in ast.walk(stmt)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "close"
+        and getattr(n.func.value, "id", None) == "span_handle"
+    ], "the finally must close the span handle"
+    # handlers and orelse too, not just the body. A close() in the outer
+    # `except BaseException` sets `_closed`, so the finally's
+    # close(failure_reason='uncaught_exception') becomes a no-op and the alert
+    # loses its error_reason on the one path that has one -- and that mutation
+    # passed all 3366 tests while this only walked `outer.body`.
+    early = outer.body + outer.handlers + (outer.orelse or [])
+    assert not closes_in(early), (
+        f"close() found outside the finally at lines {closes_in(early)}. If that "
+        "is the root span handle, the root would close before enrichment, or "
+        "before the finally can stamp the failure reason. If it is some other "
+        "object that legitimately needs closing here, this matcher is "
+        "deliberately receiver-blind — an aliased handle slipped through when it "
+        "was not — so give it its own name and narrow the match."
     )
 
 

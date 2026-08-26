@@ -339,6 +339,28 @@ jobs:
           EOF
           CONFIG_PATH=/tmp/tracing-on.yaml .venv/bin/pytest test/unit -q
 
+      # The arm above pins sampling to 0.0, so every root span outside
+      # test/unit/tracing is a NonRecordingSpan and set_attribute/set_status/
+      # record_exception are all no-ops on it. That covers the unsampled path,
+      # which carried the original defect -- and leaves the recording path,
+      # where attributes are actually serialised, exercised nowhere else.
+      # Same suite, other half, ~100s.
+      - name: Run Alert MS tests with tracing enabled and fully sampled
+        if: matrix.name == 'alert'
+        working-directory: services/alert
+        env:
+          ENABLE_OTEL_MONITORING: "true"
+          OTEL_TRACES_EXPORTER: "none"
+          OTEL_METRICS_EXPORTER: "none"
+        run: |
+          cat > /tmp/tracing-sampled.yaml <<'EOF'
+          alert_agent:
+            tracing:
+              sampling_ratio: 1.0
+              include_content: false
+          EOF
+          CONFIG_PATH=/tmp/tracing-sampled.yaml .venv/bin/pytest test/unit -q
+
       - name: Generate Behavior Analytics coverage
         if: matrix.name == 'behavior-analytics'
         working-directory: services/analytics/behavior-analytics

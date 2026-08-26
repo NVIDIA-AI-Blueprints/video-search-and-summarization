@@ -56,7 +56,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from . import content_policy, ensure_initialised
-from .attributes import manual_attributes, verdict_of
+from .attributes import (
+    MAX_IDENTIFIER_CHARS,
+    manual_attributes,
+    truncate,
+    verdict_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -418,9 +423,18 @@ class RootSpanHandle:
                 build_historical_children(self._span, latency, self._tracer)
             verdict = verdict_of(message)
             if verdict is not None:
-                self._span.set_attribute("verdict", str(verdict))
+                # Capped for the same reason attributes._put caps the
+                # identifiers: info.verdict is producer-controlled free text
+                # off a Kafka message that never passed through
+                # AlertRequestEntity, so without this the two largest such
+                # fields sat uncapped on the root while the smaller ones
+                # were guarded.
+                self._span.set_attribute(
+                    "verdict", truncate(str(verdict), MAX_IDENTIFIER_CHARS))
             if failure_reason:
-                self._span.set_attribute("error_reason", str(failure_reason))
+                self._span.set_attribute(
+                    "error_reason",
+                    truncate(str(failure_reason), MAX_IDENTIFIER_CHARS))
         except Exception:
             logger.debug("RootSpanHandle.decorate() failed; continuing", exc_info=True)
 
@@ -445,7 +459,9 @@ class RootSpanHandle:
                     # decorate() already tolerates message=None via verdict_of().
                     self.decorate(latency, message, failure_reason)
                 elif failure_reason and self._span is not None:
-                    self._span.set_attribute("error_reason", str(failure_reason))
+                    self._span.set_attribute(
+                        "error_reason",
+                        truncate(str(failure_reason), MAX_IDENTIFIER_CHARS))
             except Exception:
                 logger.debug("RootSpanHandle.close() decoration failed", exc_info=True)
             finally:
