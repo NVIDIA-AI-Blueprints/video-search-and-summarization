@@ -196,6 +196,26 @@ VERIFICATION_PREAMBLE = (
     "evidence. Keep the final response implementation-neutral."
 )
 
+IN_PRODUCT_AGENT_PREAMBLE = (
+    PREAMBLE
+    + " The search profile and evaluation fixtures were prepared by the preceding steps. This step"
+    " verifies the IN-PRODUCT agent path (POST /generate), not the host CLI, and it must run the"
+    " checkout's own agent code. You are authorized, for this step only, to pin and recreate the"
+    " single vss-agent container and nothing else: compute TAG=\"tree-$(git rev-parse"
+    " HEAD:services/agent)\" from the checkout; wait bounded (up to 5 minutes) for"
+    " ghcr.io/nvidia-ai-blueprints/vss/vss-agent:$TAG to become pullable and fail with diagnostics"
+    " rather than falling back to any other tag; read the deployment's compose file and env-file"
+    " list from the running container's com.docker.compose.* labels (never guess them); recreate"
+    " with VSS_AGENT_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-agent and VSS_CONTAINER_TAG=$TAG set"
+    " in the compose invocation's environment (VSS_CONTAINER_TAG has interpolation precedence;"
+    " VSS_AGENT_VERSION alone is masked by containers.env) using up -d --force-recreate --no-deps"
+    " vss-agent; then PROVE the pin took: docker inspect vss-agent --format '{{.Config.Image}}' must"
+    " end with :$TAG, and fail the step if it does not. Wait for the agent health check before"
+    " probing. Do not redeploy the profile, do not touch any other service, and do not ingest"
+    " anything. When the step's probes are done and the step asks for restoration, recreate only"
+    " vss-agent again without the image/tag overrides and confirm the image reverted."
+)
+
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
     PREAMBLE
     + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
@@ -387,6 +407,11 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             preamble = KUBERNETES_INGRESS_CONTRACT_PREAMBLE
         elif expect.get("scenario") == "confirmed-search-result-verification":
             preamble = VERIFICATION_PREAMBLE
+        elif expect.get("scenario") in (
+            "in-product-agent-action-query",
+            "in-product-agent-absent-object-probe",
+        ):
+            preamble = IN_PRODUCT_AGENT_PREAMBLE
         else:
             preamble = OPERATION_PREAMBLE
         lines = [
@@ -421,7 +446,14 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'keywords = ["vss-search-archive", "{profile}", "{platform}"]',
             "",
             "[agent]",
-            "timeout_sec = 600.0",
+            # The in-product agent steps include a bounded registry wait, a
+            # container recreate, and a health start_period of up to 4 minutes,
+            # which cannot fit the standard budget.
+            (
+                "timeout_sec = 1500.0"
+                if expect.get("scenario", "").startswith("in-product-agent-")
+                else "timeout_sec = 600.0"
+            ),
             "",
             "[environment]",
             'skills_dir = "/skills"',
