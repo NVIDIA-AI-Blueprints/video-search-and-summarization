@@ -15,8 +15,8 @@ independent uses: (a) the interactive tier's public front door (UI + agent);
 (b) a single origin for a headless build, fronting its **browse** and host-CLI
 **operate** surfaces (detailed below). It is always included — never offered as a
 choice and never pruned (`SKILL.md`): the `vss` CLI takes no endpoint and reaches
-every backend through this origin (`AGENTS.md`), so a build without it is
-unreachable from the host CLI. NvStreamer is never fronted here (see below).
+the services it supports through this origin (`AGENTS.md`), so a build without
+it is unreachable from the host CLI. NvStreamer is never fronted here (see below).
 
 ## Required peers
 
@@ -38,9 +38,13 @@ unreachable from the host CLI. NvStreamer is never fronted here (see below).
 
 Every build includes `vss-haproxy-ingress`, and by default it runs the **stock**
 `haproxy.cfg.template` with no patch: the build does not curate the route table.
-Which routes a deployment can actually serve is discovered at runtime by
-`vss configure`, which probes the origin and records what answered — a route whose
-backend was pruned returns `503` and is recorded as absent. Curate only when the
+Which read paths a deployment can actually serve is discovered at runtime by
+`vss configure`, which probes its registered ingress services — `/api`, `/vst`,
+`/elasticsearch`, `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm`, `/lvs` — and records what
+answered. A route whose backend was pruned ordinarily returns `503`, which it
+records as absent, exactly as a `404` would. The browse-only routes (`/kibana`,
+`/storage`, `/video-analytics-api`, `/alert-bridge`) are not probed at all; they
+are simply left in place for a human. Curate only when the
 caller explicitly asks to restrict the origin to a named set of surfaces;
 otherwise a `patches/vss-haproxy-ingress.yml` is an unrequested service-definition
 change.

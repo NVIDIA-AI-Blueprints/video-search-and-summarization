@@ -34,11 +34,11 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 when it is retained).
 
 `vss-haproxy-ingress` is always-included infrastructure, not a capability to
-offer or prune (`SKILL.md`). The `vss` CLI takes no endpoint and reaches every
-deployed backend through this one origin (`AGENTS.md`), so a build without it is
-unreachable from the host CLI. Retain it with the stock `haproxy.cfg.template`:
-routes to services the build prunes return `503`, and that is exactly what
-`vss configure` reads to decide what the deployment can serve. See
+offer or prune (`SKILL.md`). The `vss` CLI takes no endpoint and reaches the
+services it supports through this one origin (`AGENTS.md`), so a build without it
+is unreachable from the host CLI. Retain it with the stock `haproxy.cfg.template`:
+a route to a service the build prunes ordinarily returns `503`, which is what
+`vss configure` records as absent for the read paths it probes. See
 `services/ingress.md`.
 
 ## Profile-specific environment knobs
