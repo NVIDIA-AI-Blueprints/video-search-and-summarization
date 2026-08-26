@@ -27,7 +27,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths.
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts, Mode C when the request asks for an SOP / compliance report (match against *Examples*).
-2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-agent` for the SOP tools).
+2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-ai` for the SOP tools).
 3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B and Mode C have no prompt-approval step.)
 4. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
 5. **Rewrite every user-facing clip URL** before embedding it in the report: prefer
@@ -76,13 +76,13 @@ Never route reports through VSS-agent `POST /generate`.
 ## Runtime prerequisites
 
 This skill is profile-agnostic for Mode A. A specific profile does **not** have to be pre-deployed as long as the chosen Mode A input path and VLM path are available.
-**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see `skills/vss-build-vision-agent/references/services/sop.md` § Patch specifics).
+**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-ai`; see `skills/vss-build-vision-ai/references/services/sop.md` § Patch specifics).
 
 ### Endpoint resolution (Kubernetes vs Docker)
 
 When operating against a deployed VSS stack (**base**, **lvs**, or **alerts** on
 Helm), resolve public endpoints once. Follow
-[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
+[`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md):
 
 ```bash
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
@@ -135,10 +135,10 @@ curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
 # Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
 # tools/list on ${VA_MCP_URL}/mcp (two-step JSON-RPC, see Mode C Step 1) must include
 # video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
-# hand off to /vss-build-vision-agent and do NOT proceed with Mode C.
+# hand off to /vss-build-vision-ai and do NOT proceed with Mode C.
 ```
 
-If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-agent` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
+If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
 
 ---
 
@@ -655,7 +655,7 @@ SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
 curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
-  || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-agent to compose the SOP profile" >&2; exit 1; }
+  || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-ai to compose the SOP profile" >&2; exit 1; }
 ```
 
 (No bash arrays — POSIX-`sh` safe; the session id is guarded, and the tool check exits non-zero when `get_sop_report` is missing.)
@@ -710,7 +710,7 @@ If `get_sop_report` returns an error or zero messages for the range/scope, STOP 
 
 - **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1.
 - **`/vss-query-analytics`** — incident retrieval for Mode B Step 2. (Mode C does **not** use it — it calls VA-MCP's `get_sop_report` directly; see Mode C Step 2.)
-- **`/vss-build-vision-agent`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-agent/references/services/sop/`).
+- **`/vss-build-vision-ai`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-ai/references/services/sop/`).
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
 - **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Step 3 loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.

@@ -58,7 +58,7 @@ Load these files only as directed:
 - [`references/video-summarization-environment-variables.md`](references/video-summarization-environment-variables.md)
   and `assets/video-summarization.env.example`: use when configuring the
   service environment.
-- [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
+- [`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md):
   Kubernetes `VSS_PUBLIC_URL` contract and LVS Exact `/v1` routes.
 - [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md): load
   when asked about LVS's own container image, GPU/CPU/storage sizing, or
@@ -138,7 +138,7 @@ private addresses.
 ## Endpoint resolution (Kubernetes vs Docker)
 
 Resolve endpoints once before probing. Follow
-[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+[`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md).
 
 ```bash
 # Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public origin.
