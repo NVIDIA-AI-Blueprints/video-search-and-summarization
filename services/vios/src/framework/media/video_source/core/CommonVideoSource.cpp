@@ -467,7 +467,11 @@ void CommonVideoSource::createConsumerPipeline()
     // decoded, composed and re-encoded.  Without this the wall silently
     // degrades to one camera wired straight to the packager, and the compositor
     // runs at full rate into nothing.
+    /* A session that exists to re-encode is not a passthrough either: wiring
+     * the decoder straight to the packager here would publish the camera's own
+     * codec and skip the encoder that was built to replace it. */
     if (m_config.isDashPlayback() && !m_config.getOverlay().enabled && !m_compositePlayback
+        && !m_config.isDashTranscode()
         && m_gstdecoder != nullptr
         && m_pipelineManager != nullptr && m_pipelineManager->getDashConsumer() != nullptr)
     {
