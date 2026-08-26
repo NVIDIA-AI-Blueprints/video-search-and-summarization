@@ -221,9 +221,13 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     verification = verification_steps[0]
     assert "Yes, verify this one result now" in verification["query"]
     assert any(
-        "at most one additional request only to repair malformed structured output" in check
+        "at most one additional request only to repair malformed structured output or to recover" in check
         for check in verification["checks"]
     )
+    # Technical-recovery retries (URL -> base64 after an SSRF/auth rejection) are
+    # sanctioned; semantic-verdict retries never are.
+    assert any("never retried a semantic verdict" in check for check in verification["checks"])
+    assert "implementation-neutral" in verification["query"]
     assert "ask_video_skill_dir" in adapter
     assert '(ask_video_skill_dir, "vss-ask-video")' in adapter
 

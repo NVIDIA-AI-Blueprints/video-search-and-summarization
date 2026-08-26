@@ -276,9 +276,48 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
     there — restoration on the terminal step plus the provider's docker wipe
     covers every path a model-driven step cannot.
     """
-    cleanup = ""
     if scenario == "in-product-agent-absent-object-probe":
-        cleanup = "\n" + _RESTORE_AGENT_IMAGE_SNIPPET + "\n"
+        # Terminal step: restore BEFORE judging, unconditionally — nothing
+        # after this step needs the pin, and the verifier runs even when the
+        # agent timed out or was terminated.
+        return (
+            "#!/bin/bash\n"
+            f"# vss-search-archive verifier (step {step}): unconditional harness-owned\n"
+            "# image restoration, then the generic LLM-as-judge.\n"
+            "set -euo pipefail\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+            "\n" + _RESTORE_AGENT_IMAGE_SNIPPET + "\n"
+            'python3 "$TEST_DIR/generic_judge.py" \\\n'
+            f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+        )
+    if scenario == "in-product-agent-action-query":
+        # Pinning step: judge FIRST, then restore ONLY on failure. A passing
+        # step must hand the pinned agent to the immediately-following probe
+        # step; a failing or timed-out step would otherwise strand the pin,
+        # because requires_previous_passed skips the successor (and with it
+        # the terminal verifier's restoration).
+        return (
+            "#!/bin/bash\n"
+            f"# vss-search-archive verifier (step {step}): generic LLM-as-judge, then\n"
+            "# harness-owned image restoration when (and only when) the step failed.\n"
+            "set -uo pipefail\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+            "\n"
+            'python3 "$TEST_DIR/generic_judge.py" \\\n'
+            f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+            "JUDGE_STATUS=$?\n"
+            "\n"
+            'REWARD="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
+            'if [[ "$REWARD" != "1.0" && "$REWARD" != "1" ]]; then\n'
+            "  # Failing step: the successor will be skipped, so restore here.\n"
+            + "".join("  " + line + "\n" for line in _RESTORE_AGENT_IMAGE_SNIPPET.rstrip("\\n").split("\\n")) +
+            "fi\n"
+            "exit $JUDGE_STATUS\n"
+        )
     return (
         "#!/bin/bash\n"
         f"# vss-search-archive verifier (step {step}): delegates to the generic\n"
@@ -287,7 +326,6 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
-        + cleanup +
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
