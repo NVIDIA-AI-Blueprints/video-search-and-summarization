@@ -15,7 +15,7 @@
       }
     }
   },
-  "env": "A VSS repository at `{{repo_root}}` on `{{platform}}` with Docker, NVIDIA Container Toolkit, and NGC credentials. This eval validates the complete Kafka-backed multi-camera tracking developer profile without deploying it. The checked-in four-camera sample calibration is available. The build label is a directory name, never a Compose profile.",
+  "env": "A VSS repository at `{{repo_root}}` on `{{platform}}` with Docker, NVIDIA Container Toolkit, NGC credentials, and active UFW. This eval validates the complete Kafka-backed multi-camera tracking developer profile without deploying it. The checked-in four-camera sample calibration is available. The build label is a directory name, never a Compose profile.",
   "expects": [
     {
       "query": "Set up MCT for the calibrated four-camera sample. Use `/vss-build-vision-ai` and build the complete Kafka-backed application under `_builds/mct-stock/`. Generate and validate the resolved Compose configuration, but do not deploy and do not modify anything under `deploy/docker/`.",
@@ -28,6 +28,7 @@
         "`override.env` carries the required path, host, hardware, dataset, stream-count, broker, NGC, and MCT Configurator-dependent closure without copying unrelated Foundation defaults; `NUM_STREAMS=4` is effective, the sample calibration/camInfo paths resolve from `dev-profile-mc-tracking`, and `BP_CONFIGURATOR_ENV_FILE` points at the absolute build `override.env` rather than the checked-in placeholder layer.",
         "`_builds/mct-stock/compose.yml` includes `../../deploy/docker/compose.yml`; no service patch is created for an unchanged stock deployment.",
         "Resolution uses `containers.env`, the MC-Tracking `.env`, the MC-Tracking `overrides.env`, and `_builds/mct-stock/override.env` in that order. Normalized `resolved.yml` validates directly, contains a non-empty service set, has no real unresolved Compose interpolation, and every checked-in bind source exists.",
+        "Firewall preflight is read-only: active UFW is reported without adding, removing, reloading, or disabling rules; no hard-coded Docker `/16`, unrestricted browser rule, or public HAProxy/NvStreamer port is opened. Stock MCT has no Agent/LLM/VLM bridge path, and this no-deploy run changes no host firewall or kernel state.",
         "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted."
       ]
     }

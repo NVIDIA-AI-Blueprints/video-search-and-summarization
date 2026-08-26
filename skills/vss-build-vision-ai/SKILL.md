@@ -12,7 +12,7 @@ description: >-
   vss-deploy-detection-tracking-3d.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.1"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint orchestration deployment compose code-generation"
 ---
@@ -127,7 +127,7 @@ After Q2b, the selected capabilities **are** the required-capability set. Select
 
 1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow keeps a named profile's authoritative service set unchanged (Stock mode).
 2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all five current profiles and select exactly one Foundation; ask only when two are equally plausible. Read `references/edge.md` for DGX Spark or Thor.
-3. Before resolution or deployment, run the applicable checks from `references/prerequisites.md`, `references/credentials.md`, and `references/ngc.md`. Read the environment and Brev references when applicable.
+3. Before resolution or deployment, run the applicable checks from `references/prerequisites.md`, `references/credentials.md`, and `references/ngc.md`. Read the environment and Brev references when applicable. Treat firewall inspection as read-only preflight: an active firewall alone never authorizes a rule change. Propose one least-privilege rule only after a concrete failed reachability probe, request approval once, and do not retry or broaden the request after rejection.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
 5. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Foundation’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs. If this single pass leaves a blocker the rules cannot settle (an unmapped or ambiguous capability, a Foundation tie, a singleton conflict, or a requested/excluded contradiction), apply the clarification gate in `references/composition.md`: ask one structured question, then resolve on the answer; never re-run the same resolution or guess past the blocker.
 6. Before writing delta artifacts or starting a stock or delta deployment, present a compact architecture diagram in the conversation. Show the Foundation, added and removed capability owners and service keys, principal data flows and topics, external endpoints, and GPU/model placement. Do not save the diagram as a build artifact.

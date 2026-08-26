@@ -205,49 +205,49 @@ user will browse from, ask before setting `EXTERNAL_IP`.**
 
 Pick `HOST_IP` / `EXTERNAL_IP` first — see [Network addressing](#network-addressing--host_ip--external_ip).
 
-VSS runs a mixed network topology: VST and `vss-agent` use host networking, but
-the VLM/LLM NIMs run on the Compose Docker bridge (`<project>_default`, default `vss_default`). The agent hands the VLM a
-`http://$HOST_IP:30888/...` VST URL, so the bridge must reach host ports. If `ufw`
-is active it blocks the bridge subnet by default — the VLM then can't download
-clips and `video_understanding` returns HTTP 500 (`fetch_video_async TimeoutError`).
+Firewall preflight is **read-only**. Inspect status and existing rules, but do
+not add, remove, reload, or disable firewall rules merely because `ufw` is
+active. Do not hard-code Docker subnets or open browser-facing ports before a
+failed reachability probe proves that a rule is required.
 
-Allow the Docker bridge subnets before deploying (skip if `ufw` is inactive). Use
-the specific `/16`s, **not** a broad `172.16.0.0/12` (it overlaps corporate-VPN
-ranges); **do not disable ufw**:
+VSS can use a mixed topology: VST and `vss-agent` may use host networking while
+VLM/LLM NIMs use the Compose bridge. The bridge-to-host firewall case applies
+only when the resolved deployment contains such a caller and it must reach a
+host-networked service. It does **not** apply to every profile. In particular,
+stock MCT has no VSS Agent, LLM, or VLM, so an active firewall alone requires no
+MCT firewall change.
 
-```bash
-if sudo ufw status 2>/dev/null | grep -q "Status: active"; then
-  sudo ufw allow from 172.17.0.0/16   # docker default bridge
-  sudo ufw allow from 172.18.0.0/16   # vss_default (first compose bridge, unless COMPOSE_PROJECT_NAME is changed)
-  sudo ufw reload
-fi
-```
+Use this sequence:
 
-If the Compose project network already exists and landed on a different subnet
-(multiple Docker stacks on the host), allow that one instead:
-`docker network inspect "${COMPOSE_PROJECT_NAME:-vss}_default" -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
-This applies to every profile on an active-ufw host, including Brev.
+1. Resolve and validate Compose without changing the firewall.
+2. Deploy and run the documented local or in-container readiness probes.
+3. If a specific bridge-to-host probe fails, identify the actual Compose
+   network and destination port from `resolved.yml` and `docker network
+   inspect`; never assume `172.17.0.0/16` or `172.18.0.0/16`.
+4. Show the failed probe, exact source subnet, destination IP/port, and one
+   least-privilege proposed rule. Request explicit approval once before running
+   any `ufw` mutation.
+5. If approval is denied, do not retry, broaden the CIDR, or request adjacent
+   ports. Continue with localhost/in-container verification when possible, or
+   report the external reachability blocker.
 
-**Browser access from another machine.** The bridge rule above only lets *containers*
-reach the host — it does **not** open ports to other devices. The `HAPROXY_HOST_PORT`
-ingress (default `7777`) reverse-proxies the UI, agent API, and VST, so a single
-allow covers all three:
-
-```bash
-sudo ufw allow 7777/tcp        # HAProxy ingress — fronts UI + agent + VST. Or scope to your LAN:
-# sudo ufw allow from 192.168.0.0/16 to any port 7777 proto tcp
-sudo ufw reload
-```
-
-`nvstreamer` is the exception — its host-published port (`NVSTREAMER_HTTP_HOST_PORT`, default `31000`) is **not** behind
-the ingress, so reaching its UI / RTSP directly needs its own allow:
+After approval, scope the rule to the measured source and destination rather
+than allowing all traffic from a Docker `/16`:
 
 ```bash
-sudo ufw allow 31000/tcp
-sudo ufw reload
+# Example template only; substitute values proven by the failed probe.
+sudo ufw allow from <compose-subnet> to <host-ip> port <required-port> proto tcp
 ```
 
-(Reachability still depends on `EXTERNAL_IP` — see [Network addressing](#network-addressing--host_ip--external_ip).)
+**Browser access from another machine is optional.** Deployment and local
+readiness do not require public access to HAProxy or NvStreamer. Open
+`HAPROXY_HOST_PORT` or `NVSTREAMER_HTTP_HOST_PORT` only when the user explicitly
+requests remote browser/direct NvStreamer access, after confirming the client
+source IP/CIDR. Never use an unrestricted `Anywhere` rule by default. Apply the
+same single-approval/no-retry rule above.
+
+Reachability still depends on `EXTERNAL_IP`; see
+[Network addressing](#network-addressing--host_ip--external_ip).
 
 ## GPU Module Loading
 

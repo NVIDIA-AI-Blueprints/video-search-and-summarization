@@ -138,10 +138,13 @@ VLM=$(docker ps --format '{{.Names}}' | grep -iE 'vss-rtvi-vlm|cosmos|nemotron|q
 docker exec "$VLM" curl -s -o /dev/null -w 'vlm→VST %{http_code}\n' --max-time 10 "http://$HOST_IP:30888/vst/api/v1/sensor/list"
 ```
 
-`host→VST 200` but `vlm→VST 000` ⇒ the bridge→host path is firewalled. **Fix:**
-apply the [Docker-bridge→host firewall allow](prerequisites.md#firewall) (you can
-run it now), then re-run the probe — once `vlm→VST` is `200`, re-issue the query,
-no redeploy needed.
+`host→VST 200` but `vlm→VST 000` indicates that the bridge→host path may be
+firewalled. Follow the [firewall gate](prerequisites.md#firewall): resolve the
+actual Compose subnet and VST destination port, show one least-privilege rule,
+and request approval once. Do not mutate `ufw` before this failed probe, and do
+not retry or broaden the request after rejection. After an approved rule is
+applied, re-run the probe; once `vlm→VST` returns `200`, re-issue the query. No
+redeploy is needed.
 
 ## Rule of Thumb
 

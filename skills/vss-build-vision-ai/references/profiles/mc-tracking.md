@@ -81,6 +81,10 @@ topic initializer.
   owner contract explicitly supports the combination.
 - Do not add VSS Agent, LLM, VLM, or agent UI to stock MCT. MCT is externally
   consumable through its service APIs, not an agent deployment.
+- Do not apply the generic VLM/LLM Docker-bridge firewall rule to stock MCT.
+  Inspect firewall state read-only and validate local endpoints first. Any
+  remote browser or proven service reachability rule requires one explicit,
+  least-privilege approval; denial ends that mutation path.
 - The profile is domain-neutral for calibrated person/forklift tracking. Add
   domain assets as a delta; do not recreate a Warehouse MV3DT profile.
 
