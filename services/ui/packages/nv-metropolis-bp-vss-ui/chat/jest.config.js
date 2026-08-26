@@ -3,7 +3,7 @@
 // dependency, which is the reason it exists.
 module.exports = {
   preset: 'ts-jest',
-  testEnvironment: 'jsdom',
+  testEnvironment: 'node', // parser tests are pure; switch to jsdom when component tests land
   moduleNameMapper: {
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },
