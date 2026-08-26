@@ -1,24 +1,44 @@
-# License Diff and OSRB Review
+# OSRB Scan and OSRB Review
 
 Dependency-related pull requests receive two related GitHub checks:
 
-1. **License Diff** creates the public package-change overview and complete CSV.
+1. **OSRB Scan (dependency inventory)** creates the public package-change
+   overview and complete CSV.
 2. **OSRB Review** evaluates changes that may require approval and publishes the
    final result.
 
 Both checks run automatically. Do not manually edit the generated PR comment.
 
-> **Transitional on `develop`.** License Diff still **fails** when the diff is
+> **Transitional on `develop`.** The OSRB Scan still **fails** when the diff is
 > non-empty, and that failure is still a real signal — get OSRB approval for the
 > touched lockfile/manifest paths from
 > `@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers`, as before. OSRB Review runs
-> alongside it and posts its verdict, but it does not yet replace License Diff as
-> the gate. Expect both signals until that changes. On `main`, License Diff has
+> alongside it and posts its verdict, but it does not yet replace the scan as
+> the gate. Expect both signals until that changes. On `main`, the scan has
 > already been downgraded to a notice and OSRB Review is the gate.
+
+## The three kinds of row
+
+Every row in the CSV and the overview is one of three classes. They are not
+interchangeable — two of them block, and the fix is different for each.
+
+| Class | Blocks? | What it means | What you do |
+|---|---|---|---|
+| Package change (`added` / `removed` / `updated`) | Blocks when it needs OSRB attention | A dependency entered, left, or changed version or license in a manifest or lockfile the scanner reads. | Get OSRB approval for a new dependency, a license change, or a license the scanner could not resolve. Same-license bumps and removals are recorded but need nothing. |
+| `UNCOVERED_SOURCE` | **Blocks** | Your PR touches a file that carries third-party software, and the scanner has no parser for it. Nothing in that file was inventoried, so the report is incomplete and nobody can see what is missing. | **Do not ask OSRB to approve this — there is nothing to approve yet.** Teach the scanner: extend `is_dependency_file` in `.github/scripts/osrb_scan.py`, add or extend the parser, and cover it in `.github/scripts/test_osrb_scan.py`. If the file genuinely carries no third-party dependency, exclude it there with a comment saying why. Ask a maintainer if it is not your area. |
+| `USED_UNDECLARED` | Never | Source code imports something that no manifest in the owning module declares. | Nothing is required to merge. Usually the package is reaching you transitively, the import name differs from the distribution name, or the code is vendored. Declare it when the gap is real and yours to fix. |
+
+### The use-side pass is report-only
+
+`USED_UNDECLARED` rows come from reading `import` statements, not from reading a
+declaration, so they can be wrong. By design they are counted separately, never
+added to the OSRB review total, and never fail the check. Treat them as a
+to-do list, not a gate. If one is a false positive, say so in the PR — it is a
+scanner bug worth fixing, not a merge blocker.
 
 ## What developers should do
 
-### License Diff reports no reviewable changes
+### The OSRB Scan reports no reviewable changes
 
 No OSRB action is required. Continue with the normal code and CODEOWNERS review.
 Same-license version updates and dependency removals remain in the complete CSV
@@ -51,7 +71,7 @@ repository maintainer, who will confirm what the check ran against.
 ### OSRB Review fails or is inconclusive
 
 1. Read the automated review on the PR.
-2. Open the linked **License Diff** Actions run.
+2. Open the linked **OSRB Scan** Actions run.
 3. Inspect the short overview. Download `license-diff.csv` only when more detail
    is needed.
 4. Address the reported issue:
@@ -62,7 +82,7 @@ repository maintainer, who will confirm what the check ran against.
      use needs approval;
    - ask a repository maintainer to retry an infrastructure failure.
 5. Push the correction. If no source change was needed, a maintainer can rerun
-   the License Diff workflow.
+   the OSRB Scan workflow.
 
 Do not paste private ticket comments, approval sheets, credentials, or internal
 links into the public PR. The protected reviewer reads that evidence privately
@@ -70,7 +90,7 @@ and publishes only the decision.
 
 ## What triggers review
 
-The overview requests attention for:
+The overview requests OSRB attention for:
 
 - a new dependency;
 - a confirmed license change;
@@ -79,9 +99,11 @@ The overview requests attention for:
 The complete CSV also retains same-license version updates and removals, but
 those rows do not require OSRB re-engagement by themselves.
 
-Container images that add dependencies without editing a manifest are covered
-too. If your PR changes a Dockerfile base image or installs packages in it, the
-review evaluates those lines even when the CSV is empty.
+Container images, Compose files, Helm charts, and build files that add
+dependencies without editing a language manifest are in scope as well. A file
+of that kind that the scanner cannot yet read shows up as `UNCOVERED_SOURCE`
+rather than being skipped in silence — that silence is the failure this scan
+exists to prevent.
 
 Changes in how an approved component is used can still require review even when
 its package version and license are unchanged. Examples include static instead

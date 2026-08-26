@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-name: License Diff
+name: OSRB Scan
 
 on:
   push:
@@ -17,8 +17,8 @@ defaults:
     shell: bash
 
 jobs:
-  license-diff:
-    name: License Diff (OSRB CSV)
+  osrb-scan:
+    name: OSRB Scan (dependency inventory)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -53,13 +53,13 @@ jobs:
             --json baseRefName --jq '.baseRefName // ""' 2>/dev/null || true)"
           target="${target:-${DEFAULT_BRANCH}}"
           # Release branches (dev/*, release/*) accept only curated content
-          # that already passed License Diff on its develop-targeted PR. Running
+          # that already passed the OSRB Scan on its develop-targeted PR. Running
           # the diff again here just floods every cherry-pick / release-train
           # PR with noise, so short-circuit and skip the rest of the workflow.
           case "${target}" in
             dev/*|release/*)
               echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "Skipping License Diff: PR targets release branch '${target}' — diff already enforced on the develop-targeted PR."
+              echo "Skipping OSRB Scan: PR targets release branch '${target}' — diff already enforced on the develop-targeted PR."
               exit 0
               ;;
           esac
@@ -70,12 +70,13 @@ jobs:
           echo "pr=${pr_number}" >> "$GITHUB_OUTPUT"
           echo "Comparing HEAD against ${merge_base} (PR target: ${target}) for PR #${pr_number}"
 
-      - name: Generate license diff CSV
+      # `--output license-diff.csv` is deliberate: see the upload step below.
+      - name: Generate OSRB dependency CSV
         id: gen
         if: steps.ctx.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          python .github/scripts/license_diff_csv.py \
+          python .github/scripts/osrb_scan.py \
             --base-ref "${{ steps.ctx.outputs.base }}" \
             --head-ref HEAD \
             --output license-diff.csv
@@ -89,11 +90,18 @@ jobs:
         if: steps.ctx.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          python .github/scripts/license_diff_summary.py \
+          python .github/scripts/osrb_summary.py \
             --input license-diff.csv \
             --output osrb-summary.md \
             --github-output "$GITHUB_OUTPUT"
 
+      # DO NOT RENAME the artifact or the CSV. The private GitLab OSRB
+      # pipeline fetches the artifact named `license-diff` and reads
+      # `license-diff.csv` out of it by those exact names, and that consumer
+      # lives in a repository we cannot see or change from here. Renaming
+      # either one to match the new "OSRB Scan" wording does not fail this
+      # workflow — the download simply finds nothing and the OSRB review
+      # proceeds against an empty dependency list. Leave both names alone.
       - name: Upload review evidence
         id: upload
         if: always() && steps.ctx.outputs.skip != 'true'
@@ -115,12 +123,12 @@ jobs:
           set -euo pipefail
           {
             if [[ "${SKIP}" == "true" ]]; then
-              echo "## License Diff for OSRB"
+              echo "## OSRB Scan"
               echo
               echo "Skipped: PR targets a release branch (\`dev/*\` or \`release/*\`)."
-              echo "License Diff already enforced on the develop-targeted PR; running again here only adds noise."
+              echo "The OSRB Scan already ran on the develop-targeted PR; running again here only adds noise."
             elif [[ ! -f license-diff.csv ]]; then
-              echo "## License Diff for OSRB"
+              echo "## OSRB Scan"
               echo
               echo "No CSV produced."
             else
@@ -144,6 +152,9 @@ jobs:
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
         run: |
           set -euo pipefail
+          # Not renamed with the workflow: this marker is how the step finds
+          # the comment it posted on earlier pushes. A new marker would leave
+          # the old comment stranded and post a second one on every open PR.
           marker='<!-- license-diff-osrb -->'
           {
             echo "$marker"
@@ -162,7 +173,7 @@ jobs:
             echo "### What to do"
             echo
             echo "The **OSRB Review** check evaluates these changes against existing approval evidence and posts its verdict on this PR."
-            echo "While that check is being rolled out, a red License Diff is still a real signal:"
+            echo "While that check is being rolled out, a red OSRB Scan is still a real signal:"
             echo "get approval from \`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers\` for the touched paths."
             echo "Do not paste private approval evidence into this public PR."
             echo
@@ -179,10 +190,31 @@ jobs:
             echo "$payload" | gh api -X POST "repos/${REPO}/issues/${PR}/comments" --input - > /dev/null
           fi
 
-      - name: Fail when OSRB re-engagement is required
-        if: steps.ctx.outputs.skip != 'true' && steps.overview.outputs.review_rows != '' && steps.overview.outputs.review_rows != '0'
+      # Two independent reasons to fail, kept in one step so the job cannot
+      # end green with either one outstanding. They are NOT the same problem:
+      # review_rows is a dependency a human must approve; uncovered_rows is the
+      # scanner admitting it does not understand a file in this PR, which no
+      # OSRB approval can fix.
+      - name: Fail when OSRB attention or scanner coverage is required
+        # Folded to one line by YAML. Every continuation stays at the same
+        # indent on purpose: a more-indented line in a folded scalar keeps its
+        # newline instead of becoming a space.
+        if: >-
+          steps.ctx.outputs.skip != 'true' &&
+          ((steps.overview.outputs.review_rows != '' && steps.overview.outputs.review_rows != '0')
+          || (steps.overview.outputs.uncovered_rows != '' && steps.overview.outputs.uncovered_rows != '0'))
         env:
           REVIEW_ROWS: ${{ steps.overview.outputs.review_rows }}
+          UNCOVERED_ROWS: ${{ steps.overview.outputs.uncovered_rows }}
         run: |
-          echo "::error title=OSRB review required::${REVIEW_ROWS} package changes require OSRB attention."
-          exit 1
+          set -uo pipefail
+          status=0
+          if [[ -n "${UNCOVERED_ROWS}" && "${UNCOVERED_ROWS}" != "0" ]]; then
+            echo "::error title=OSRB scanner coverage gap::${UNCOVERED_ROWS} dependency-bearing file(s) in this PR are not understood by the scanner, so their dependencies were never inventoried. This is a scanner gap, not an OSRB decision: asking for OSRB approval will not clear it. Teach .github/scripts/osrb_scan.py to parse the file (is_dependency_file / the matching parser) or, with a maintainer, record why the file carries no third-party dependency. See UNCOVERED_SOURCE rows in the step summary."
+            status=1
+          fi
+          if [[ -n "${REVIEW_ROWS}" && "${REVIEW_ROWS}" != "0" ]]; then
+            echo "::error title=OSRB review required::${REVIEW_ROWS} package change(s) require OSRB attention. Get approval for the touched paths from @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers; see .github/OSRB_REVIEW.md."
+            status=1
+          fi
+          exit "${status}"

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Trusted follow-up to License Diff. `workflow_run` loads this workflow and its
+# Trusted follow-up to the OSRB Scan. `workflow_run` loads this workflow and its
 # scripts from the default branch, not from the PR mirror. It creates the
 # public check, then triggers and polls the isolated private GitLab pipeline.
 # Internal compliance systems and credentials are used only in that pipeline.
@@ -9,7 +9,26 @@ name: OSRB Review
 
 "on":
   workflow_run:
-    workflows: ["License Diff"]
+    # Matches the upstream workflow's `name:`, not its filename. If this string
+    # and `name:` in osrb-scan.yml ever disagree, this workflow simply never
+    # runs: no check is created, nothing is reported, and the OSRB gate is
+    # silently off. Change both in the same commit.
+    # Both names on purpose. `workflow_run` matches on workflow NAME and is
+    # always loaded from the DEFAULT branch, never from the pull request. While
+    # the default branch still carries the pre-rename listener, a PR mirror
+    # emitting "OSRB Scan" matches nothing: OSRB Review never triggers, no check
+    # run is created, and `workflow_run` jobs are not listed on a PR, so nothing
+    # reports the absence. Accepting both names means that once THIS file
+    # reaches the default branch the gate works regardless of which name the
+    # producer emits, in-flight PRs mirroring the old name included.
+    #
+    # This does NOT make renames safe in general: a third name would match
+    # nothing, exactly as "OSRB Scan" matches nothing today. The rule it
+    # encodes is ordering — the listener must reach the default branch BEFORE
+    # the producer is renamed, and accepting both names is what makes that
+    # ordering possible in one change rather than two.
+    # "License Diff" can be dropped once no open PR predates the rename.
+    workflows: ["OSRB Scan", "License Diff"]
     types: [completed]
 
 permissions:
@@ -154,9 +173,9 @@ jobs:
           elif [[ "$TRIGGER_OUTCOME" != "success" ]]; then
             # No verdict was ever produced, so this says nothing about the
             # dependencies themselves. Do not word it like a finding.
-            summary="The OSRB gate could not run, so these dependency changes were not reviewed. Ask a repository maintainer to rerun License Diff; do not merge on the strength of this check."
+            summary="The OSRB gate could not run, so these dependency changes were not reviewed. Ask a repository maintainer to rerun the OSRB Scan; do not merge on the strength of this check."
           else
-            summary="This change needs attention. Read the automated PR review and linked License Diff, then correct the dependency or work with the OSRB owner before pushing an update."
+            summary="This change needs attention. Read the automated PR review and linked OSRB Scan, then correct the dependency or work with the OSRB owner before pushing an update."
           fi
           python3 .github/scripts/osrb_check.py complete \
             --repo "$REPO" \

@@ -15,7 +15,7 @@ from unittest import mock
 
 DIRECTORY = Path(__file__).parent
 WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-review.yml"
-LICENSE_WORKFLOW = DIRECTORY.parent / "workflows" / "license-diff.yml"
+SCAN_WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-scan.yml"
 DEVELOPER_GUIDE = DIRECTORY.parent / "OSRB_REVIEW.md"
 
 
@@ -145,11 +145,54 @@ class DispatchTests(unittest.TestCase):
 
     def test_github_output_explains_developer_actions(self) -> None:
         guide = DEVELOPER_GUIDE.read_text()
-        license_workflow = LICENSE_WORKFLOW.read_text()
+        scan_workflow = SCAN_WORKFLOW.read_text()
         self.assertIn("### OSRB Review fails or is inconclusive", guide)
         self.assertIn("Do not paste private ticket comments", guide)
-        self.assertIn("### What to do", license_workflow)
-        self.assertIn("Developer instructions", license_workflow)
+        self.assertIn("### What to do", scan_workflow)
+        self.assertIn("Developer instructions", scan_workflow)
+
+    def test_workflow_run_trigger_matches_the_scan_workflow_name(self) -> None:
+        """A mismatch here disables the whole OSRB gate and says nothing.
+
+        `workflow_run` matches on the upstream workflow's `name:`, not its
+        filename, so renaming one file without the other produces no error,
+        no check run, and no comment -- every pull request just stops being
+        reviewed. Parsed by hand because CI has no YAML library.
+        """
+        name_lines = [
+            line for line in SCAN_WORKFLOW.read_text().splitlines()
+            if line.startswith("name:")
+        ]
+        self.assertEqual(name_lines, ["name: OSRB Scan"], name_lines)
+        scan_name = name_lines[0].split(":", 1)[1].strip()
+
+        trigger = [
+            line.strip() for line in WORKFLOW.read_text().splitlines()
+            if line.strip().startswith("workflows:")
+        ]
+        self.assertEqual(len(trigger), 1, trigger)
+
+        # Membership, not equality. The listener deliberately accepts the old
+        # name as well, because `workflow_run` is loaded from the DEFAULT
+        # branch: until this file lands there, a mirror emitting the new name
+        # matches nothing and the gate silently does not run. Asserting an
+        # exact list would forbid that transition list; what actually must hold
+        # is that the producer's name is one the listener accepts.
+        accepted = {
+            part.strip().strip('"\'')
+            for part in trigger[0].split("[", 1)[1].rsplit("]", 1)[0].split(",")
+        }
+        self.assertIn(scan_name, accepted, (scan_name, accepted))
+
+    def test_scan_keeps_the_artifact_and_csv_names_the_private_pipeline_reads(self) -> None:
+        """The GitLab OSRB job fetches these by name; a rename fails open.
+
+        Nothing in this repository can observe that consumer, so the only
+        protection against a well-meaning tidy-up is this assertion.
+        """
+        workflow = SCAN_WORKFLOW.read_text()
+        self.assertIn("name: license-diff\n", workflow)
+        self.assertIn("--output license-diff.csv", workflow)
 
 
 if __name__ == "__main__":
