@@ -13,10 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+ARG PYTHON_VERSION=3.13
+ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.1.1
+
 # -----------------------------------------------------------------------------
 # Stage 1: Builder — install Python deps (with build tools for any C extensions)
 # -----------------------------------------------------------------------------
-FROM python:3.13-trixie AS builder
+FROM python:${PYTHON_VERSION}-trixie AS builder
 
 WORKDIR /usr/src/app
 
@@ -41,14 +45,16 @@ RUN uv sync --frozen --no-dev
 # Chainguard Python 3.13 is distroless: ~23MB base, no shell, non-root by default.
 # Google distroless does not ship Python 3.13; Chainguard does.
 # Runtime is distroless, so startup must use a Python entrypoint instead of a shell script.
-# FROM cgr.dev/chainguard/python:3.13 AS runtime
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.5 AS runtime
+# FROM cgr.dev/chainguard/python:${PYTHON_VERSION} AS runtime
+FROM ${DISTROLESS_IMG}:${DISTROLESS_TAG} AS runtime
+
+ARG PYTHON_VERSION
 
 WORKDIR /usr/src/app
 
 # Bring in deps from builder; distroless has its own Python, so we use PYTHONPATH
 # instead of copying into system paths (avoids mixing builder and runtime layouts).
-COPY --from=builder /usr/src/app/.venv/lib/python3.13/site-packages /usr/src/app/site-packages
+COPY --from=builder /usr/src/app/.venv/lib/python${PYTHON_VERSION}/site-packages /usr/src/app/site-packages
 ENV PYTHONPATH=/usr/src/app/site-packages
 
 # Application code (entrypoint.py is used because distroless has no shell).
