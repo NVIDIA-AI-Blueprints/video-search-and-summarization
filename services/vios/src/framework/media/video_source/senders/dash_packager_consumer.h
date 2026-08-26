@@ -150,4 +150,9 @@ private:
     std::chrono::steady_clock::time_point m_startedAt{};
     std::atomic<bool> m_firstFrameLogged{false};
     std::atomic<uint64_t> m_droppedFrames{0};
+    std::atomic<uint64_t> m_beforeWindow{0};
+    // Whether the wall-clock window can be applied to this source at all,
+    // decided from the first frame it delivers.
+    bool m_windowApplies = true;
+    std::atomic<bool> m_windowDecided{false};
 };
