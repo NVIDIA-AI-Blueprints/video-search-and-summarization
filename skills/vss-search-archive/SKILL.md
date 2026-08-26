@@ -21,6 +21,9 @@ differs. Source ingestion and deletion remain Agent-backed.
   exec`, a pod shell, or a globally installed `vss` as a substitute.
 - Never call Elasticsearch, RTVI-CV, RTVI-Embed, storage-ms, or VST directly
   for a mutation. Upload and delete through the Agent lifecycle.
+- Never upload via the deprecated single-step `PUT /api/v1/videos-for-search/{filename}`,
+  even as a fallback — it bypasses the Agent lifecycle. Uploads use only the
+  three-step workflow in [source lifecycle](references/source_lifecycle.md).
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect

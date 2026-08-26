@@ -615,12 +615,17 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                         "candidates, not sightings — see the Critic column per row."
                     )
                 else:
+                    rejected_note = (
+                        f", of which {n_rejected} rejected by the critic (retrieved but visually refuted)"
+                        if n_rejected
+                        else ""
+                    )
                     header = (
                         f"Found {result_count} candidate match{'es' if result_count != 1 else ''} "
-                        "(similarity-based retrieval; none visually confirmed)\n\n"
+                        f"(similarity-based retrieval; none visually confirmed{rejected_note})\n\n"
                         "Note: similarity scores indicate resemblance, not confirmed presence. "
                         "Report these as candidates, not as sightings, unless a critic verdict "
-                        "is 'confirmed'."
+                        "is 'confirmed'; rejected rows were visually refuted."
                     )
                 results_summary_table = _results_summary_table(final_results)
                 summary = header + "\n\n" + results_summary_table

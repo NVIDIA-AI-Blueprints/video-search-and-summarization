@@ -236,8 +236,49 @@ KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
-def generate_test_script(step: int, spec_name: str) -> str:
-    """Wrapper that invokes the generic judge for one step's checks."""
+# Deterministic, harness-executed restoration of the vss-agent image after the
+# in-product candidate-pin steps. The verifier phase runs even when the agent
+# times out or is terminated, so this cannot be skipped by a dying agent
+# session. Best-effort by design (`|| true`): a restore failure must not mask
+# the step's real verdict, and the environment provider wipes the docker
+# runtime before the next spec's first trial regardless.
+_RESTORE_AGENT_IMAGE_SNIPPET = (
+    "# Harness-owned cleanup: if the agent container is running a content-\n"
+    "# addressed candidate image (tree-<sha>), recreate it from the deployment's\n"
+    "# own compose coordinates so the pin never outlives this step.\n"
+    'CURRENT_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
+    'if [[ "$CURRENT_IMAGE" == *":tree-"* ]]; then\n'
+    '  echo "verifier cleanup: vss-agent is pinned to $CURRENT_IMAGE — restoring"\n'
+    '  COMPOSE_FILES="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.config_files"}}\' 2>/dev/null || true)"\n'
+    '  COMPOSE_WD="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.working_dir"}}\' 2>/dev/null || true)"\n'
+    '  ENV_FILES="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.environment_file"}}\' 2>/dev/null || true)"\n'
+    '  if [[ -n "$COMPOSE_FILES" && -n "$COMPOSE_WD" ]]; then\n'
+    "    FARGS=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"; for f in \"${CF[@]}\"; do FARGS+=(-f \"$f\"); done\n"
+    "    EARGS=(); if [[ -n \"$ENV_FILES\" ]]; then IFS=',' read -ra EF <<< \"$ENV_FILES\"; for f in \"${EF[@]}\"; do EARGS+=(--env-file \"$f\"); done; fi\n"
+    '    (cd "$COMPOSE_WD" && docker compose "${EARGS[@]}" "${FARGS[@]}" up -d --force-recreate --no-deps vss-agent) || true\n'
+    "  fi\n"
+    "fi\n"
+)
+
+_IN_PRODUCT_SCENARIOS = (
+    "in-product-agent-action-query",
+    "in-product-agent-absent-object-probe",
+)
+
+
+def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
+    """Wrapper that invokes the generic judge for one step's checks.
+
+    The final in-product step's verifier additionally performs deterministic
+    image restoration BEFORE judging (see _RESTORE_AGENT_IMAGE_SNIPPET); the
+    action step restores only when the pin should not survive, i.e. its
+    successor will re-establish it anyway, so a conditional is unnecessary
+    there — restoration on the terminal step plus the provider's docker wipe
+    covers every path a model-driven step cannot.
+    """
+    cleanup = ""
+    if scenario == "in-product-agent-absent-object-probe":
+        cleanup = "\n" + _RESTORE_AGENT_IMAGE_SNIPPET + "\n"
     return (
         "#!/bin/bash\n"
         f"# vss-search-archive verifier (step {step}): delegates to the generic\n"
@@ -246,6 +287,7 @@ def generate_test_script(step: int, spec_name: str) -> str:
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        + cleanup +
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
@@ -488,7 +530,9 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # tests/
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        (tests_dir / "test.sh").write_text(
+            generate_test_script(idx, spec_name, expect.get("scenario", ""))
+        )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
         (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2) + "\n")
