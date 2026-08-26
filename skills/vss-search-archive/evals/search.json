@@ -100,7 +100,7 @@
     },
     {
       "scenario": "kubernetes-ingress-contract",
-      "query": "Explain the exact host-side commands you would use to list registered sources and search the Kubernetes search profile exposed at `VSS_PUBLIC_URL=https://vss-search.example.com`. Search only the resolved `warehouse_sample` source for forklifts with the embed path and top-k 3. This is a contract check: show the commands but do not execute them or deploy anything.",
+      "query": "Explain the exact host-side commands you would use to list registered sources and search the Kubernetes search profile exposed at `VSS_PUBLIC_URL=https://vss-search.example.com`. Search only the resolved `warehouse_sample` source for forklifts with the embed path and top-k 3. This is a contract check: show the commands but do not execute them or deploy anything. Take the exact CLI grammar from the skill's references/cli_usage.md before answering \u2014 sub-action selection, flag names, and identifier kinds are specified there; do not invent flags or pass sources positionally.",
       "checks": [
         "The answer trims the trailing slash, runs `vss configure --base-url https://vss-search.example.com`, and lists sources with `vss vios list` \u2014 which reads that recorded origin and takes no endpoint of its own. A hand-built `/vst/api/v1/sensor/list` URL does not satisfy this: the CLI owns source listing now.",
         "The answer runs `vss configure --base-url https://vss-search.example.com` once, resolves `warehouse_sample` to its sensor ID from the listed source object, then runs `vss search run embed` with `--query`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3` \u2014 the same commands it would use for Compose",

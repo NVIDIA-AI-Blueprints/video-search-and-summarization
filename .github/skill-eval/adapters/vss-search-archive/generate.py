@@ -276,12 +276,14 @@ _RESTORE_AGENT_IMAGE_SNIPPET = (
     '        echo "VERIFIER-RESTORE-FAILED: vss-agent still on $POST_IMAGE after 2 attempts"\n'
     '        mkdir -p /logs/verifier 2>/dev/null || true\n'
     '        echo "still pinned: $POST_IMAGE" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    "        RESTORE_FAILED=1\n"
     "      fi\n"
     "    done\n"
     "  else\n"
     '    echo "VERIFIER-RESTORE-FAILED: compose labels missing on vss-agent; cannot restore"\n'
     '    mkdir -p /logs/verifier 2>/dev/null || true\n'
     '    echo "compose labels missing" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    "    RESTORE_FAILED=1\n"
     "  fi\n"
     "fi\n"
 )
@@ -303,20 +305,28 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
     covers every path a model-driven step cannot.
     """
     if scenario == "in-product-agent-absent-object-probe":
-        # Terminal step: restore BEFORE judging, unconditionally — nothing
-        # after this step needs the pin, and the verifier runs even when the
-        # agent timed out or was terminated.
+        # Terminal step: judge FIRST so the verdict is persisted to reward.txt
+        # (generic_judge always exits 0; the reward file alone carries the
+        # score), then perform the unconditional harness-owned restoration.
+        # A restoration that exhausts its retries HARD-FAILS this verifier's
+        # exit code: the verdict is already safe on disk, and a stranded pin
+        # must be an error the harness surfaces, never a silent artifact.
         return (
             "#!/bin/bash\n"
-            f"# vss-search-archive verifier (step {step}): unconditional harness-owned\n"
-            "# image restoration, then the generic LLM-as-judge.\n"
-            "set -euo pipefail\n"
+            f"# vss-search-archive verifier (step {step}): generic LLM-as-judge first\n"
+            "# (verdict persisted), then unconditional verified image restoration;\n"
+            "# exits nonzero if restoration ultimately fails.\n"
+            "set -uo pipefail\n"
             "\n"
             'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
-            "\n" + _RESTORE_AGENT_IMAGE_SNIPPET + "\n"
+            "\n"
             'python3 "$TEST_DIR/generic_judge.py" \\\n'
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+            "\n"
+            "RESTORE_FAILED=0\n"
+            + _RESTORE_AGENT_IMAGE_SNIPPET +
+            "exit $RESTORE_FAILED\n"
         )
     if scenario == "in-product-agent-action-query":
         # Pinning step: judge FIRST, then restore ONLY on failure. A passing
@@ -338,11 +348,14 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "JUDGE_STATUS=$?\n"
             "\n"
             'REWARD="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
+            "RESTORE_FAILED=0\n"
             'if [[ "$REWARD" != "1.0" && "$REWARD" != "1" ]]; then\n'
             "  # Failing step: the successor will be skipped, so restore here.\n"
             + "".join("  " + line + "\n" for line in _RESTORE_AGENT_IMAGE_SNIPPET.rstrip("\\n").split("\\n")) +
             "fi\n"
-            "exit $JUDGE_STATUS\n"
+            "# Verdict already persisted to reward.txt; a failed restore is a hard\n"
+            "# verifier error the harness must surface.\n"
+            "exit $RESTORE_FAILED\n"
         )
     return (
         "#!/bin/bash\n"
