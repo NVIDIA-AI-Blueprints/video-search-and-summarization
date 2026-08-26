@@ -51,6 +51,9 @@ kafkaServerAddress: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
+# Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
+# so WebRTC playback fails off-network/behind NAT.
+turnServerUrl: ""
 # Centralized DB: host matches vss-vios-postgres Service (same rules as global.useReleaseNamePrefix). Password from that chart's *-postgres-cm unless overridden.
 # Override when using external DB: centralizedDbHost, centralizedDbPort, centralizedDbPassword.
 # centralizedDbHost: ""

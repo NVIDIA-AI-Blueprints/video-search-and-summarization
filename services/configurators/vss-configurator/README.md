@@ -477,6 +477,7 @@ services:
 | **VMS Integration** | | |
 | `CALL_SENSOR_ADD_API` | `true` | Enable sensor registration with VMS |
 | `VST_CAMERA_ADD_ENDPOINT` | `http://vms-vms-svc:30000/api/v1/sensor/add` | VMS camera registration endpoint |
+| `VST_CAMERA_ADD_TIMEOUT` | `15` | Request timeout in seconds for VMS sensor registration; keep this above expected ingress/VST cold-add latency so client timeouts do not create 499s while VST continues processing |
 | **Message Broker Configuration** | | |
 | `MESSAGE_BROKER_TYPE` | `kafka` | Message broker type: `kafka` or `redis` |
 | `SEND_CONFIG_TO_SDR` | `true` | Send sensor configuration events to message broker |

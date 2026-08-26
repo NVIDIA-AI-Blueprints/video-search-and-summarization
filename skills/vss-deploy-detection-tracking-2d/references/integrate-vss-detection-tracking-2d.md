@@ -12,9 +12,9 @@ Use this service when the workflow requires per-frame bounding box metadata, cla
 - **Kafka foundational infra** — required. RT-CV publishes frame metadata into the shared broker path consumed by the broader search/analytics stack. Source: `compose.yml`, the DeepStream config mounted by `ds-start.sh`, and the shared infra compose.
 - **ELK** — required when detection metadata must be indexed and queryable. Elasticsearch stores the emitted metadata for query, and Kibana is the standard inspection surface. The Logstash / Elasticsearch path is provided by the shared ELK reference, not by extra RT-CV-owned services. Source: `integrate-elk.md`.
 
-### Structured component_services (consumed by `vss-build-vision-agent` Step 4)
+### Structured component_services (consumed by `vss-build-vision-ai` Step 4)
 
-See `skills/vss-build-vision-agent/references/component-services-schema.md` for the schema.
+See `skills/vss-build-vision-ai/references/component-services-schema.md` for the schema.
 
 ```yaml
 component_services:
@@ -116,7 +116,7 @@ For the standalone RT-CV operator flow, the deploy skill also uses `~/rtvicv-sto
 
 ## Known Integration Constraints
 
-- **This is the 2D ingestion and metadata path, not the analytics bundle.** This reference covers RT-CV detection and tracking with Kafka/ELK outputs. Behavior analytics, video-analytics API, and 3D fusion are optional higher layers that require their own integration references before `vss-build-vision-agent` can compose them.
+- **This is the 2D ingestion and metadata path, not the analytics bundle.** This reference covers RT-CV detection and tracking with Kafka/ELK outputs. Behavior analytics, video-analytics API, and 3D fusion are optional higher layers that require their own integration references before `vss-build-vision-ai` can compose them.
 - **The warehouse sample flow requires data artifact access.** The warehouse sample video set comes from `nvidia/vss-warehouse/vss-warehouse-app-data:<version>`. RT-DETR and vision encoder models are downloaded automatically by ds-start phase 0. Local overrides can smoke-test the service but do not reproduce the intended warehouse evaluation set.
 - **Person filtering is a deployment choice layered on the RT-DETR pipeline.** The model family is `rtdetr-warehouse`; the generated deployment should surface person-only filtering through config or env when the requested workflow requires it.
 - **The upstream compose anchor is not yet a standalone RT-CV slice.** The current component services live under `developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`, so generation must patch a local copy rather than treating that path as an existing search deployment. A smaller RT-CV-owned compose slice would make capability composition cleaner.
