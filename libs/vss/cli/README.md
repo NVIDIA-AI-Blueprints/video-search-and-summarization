@@ -55,6 +55,25 @@ vss configure check    # re-probe; exit 3 if a route disappeared
 not a job group: discovery is a probe, not a guess, so a route the deployment
 does not expose is *absent* from the file rather than present-but-broken.
 
+### Give it the origin you can reach, not the one containers use
+
+The origin is whatever answers **from this host**. Locally that is
+`http://<host>:7777` (the published HAProxy port); on a platform that fronts the
+deployment with TLS — a Brev secure link, for instance — it is that
+platform's `https://…` URL, because TLS terminates at the platform edge and
+plain HTTP is forwarded inward.
+
+**Never `vss.local`.** Inside the deployment, services address the same HAProxy
+front door as `http://vss.local:7777`, and `VSS_GATEWAY_ORIGIN` is set to
+exactly that. It is a Docker bridge network alias: it does not resolve on the
+host, and configuring the CLI with it produces a `ConnectError` on every route
+and a summary that blames the deployment. Same front door, same paths, two
+origins — one for callers inside the network and one for callers outside it.
+
+```bash
+vss configure --base-url "${VSS_PUBLIC_URL}"    # e.g. http://localhost:7777
+```
+
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--base-url` | required | Deployment origin, e.g. `http://10.0.0.1:7777`. A missing scheme is assumed `http://` with a note on stderr |
@@ -84,6 +103,12 @@ rather than a typed-in value.
 | `rtvi_cv` | `/rtvi-cv` | URL only (no introspection endpoint) |
 | `rt_vlm` | `/rtvi-vlm` | URL + model ids — the default model for `vss vlm` and introspection follow-ups |
 | `lvs` | `/lvs` | URL + model ids (long-video summarization) |
+| `va_mcp` | `/va-mcp` | URL only |
+
+`/va-mcp` is recorded but required by no command group: nothing here calls the
+MCP server — the agent is its client. It is probed because it is the one gateway
+mount an operator cannot otherwise check from the host, and it is the first
+thing to check when the agent's video-analytics tools go missing.
 
 If the origin exposes none of them, `configure` fails rather than writing an
 empty config. Elasticsearch indices are created by ingestion, not deployment,
