@@ -1,7 +1,7 @@
 ## Description: <br>
-Use when the user asks to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). <br>
+Deprecated compatibility redirect for VSS profile deployments. Use `vss-build-vision-ai` for base, search, lvs, and alerts developer profiles. Warehouse and edge requests are blocked until `vss-build-vision-ai` covers those profiles. <br>
 
-This skill is ready for commercial/non-commercial use. <br>
+This skill is deprecated; new profile deployment workflows should start with `vss-build-vision-ai`. <br>
 
 ## Owner
 NVIDIA <br>
@@ -9,14 +9,14 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) profiles on GPU-equipped hosts for video analytics applications. <br>
+Developers and engineers migrating existing NVIDIA Video Search and Summarization (VSS) profile deployment requests to `vss-build-vision-ai`, while preserving a clear blocker for warehouse/edge profile requests until coverage lands. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
 
 ## Requirements / Dependencies: <br>
-**Requires API Key or External Credential:** [Yes] <br>
-**Credential Type(s):** [API key] <br>
+**Requires API Key or External Credential:** [No] <br>
+**Credential Type(s):** [N/A] <br>
 
 Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
@@ -31,7 +31,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, Configuration instructions] <br>
+**Output Type(s):** [Configuration instructions] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>

@@ -46,7 +46,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-summarize-video/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-summarize-video \\
         --skill-dir skills/vss-summarize-video \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
+        --deploy-skill-dir skills/vss-build-vision-ai \\
         --video-io-skill-dir skills/vss-manage-video-io-storage
 """
 from __future__ import annotations
@@ -75,7 +75,7 @@ DEFAULT_PLATFORM = "L40S"
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires. Autonomy does not relax the skill's "
     "service contract: when a step requests summarization, invoke the "
     "vss-summarize-video skill before constructing the request, poll "
@@ -240,7 +240,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # skills/ — only include skill directories that appear in the spec's
         # `skills` list.  vss-summarize-video is always included (it is the
         # primary skill under test).  vss-manage-video-io-storage and
-        # vss-deploy-profile are included only when the spec declares them —
+        # vss-build-vision-ai are included only when the spec declares them —
         # this prevents the brev-exec ARG_MAX / MAX_ARG_STRLEN overflow
         # (Linux caps a single execve argument at 131 072 bytes; the full
         # base64 tarball of all three skills exceeds that limit as of PR #520
@@ -249,7 +249,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         all_copies = [
             (skill_dir, "vss-summarize-video"),
             (video_io_skill_dir, "vss-manage-video-io-storage"),
-            (deploy_skill_dir, "vss-deploy-profile"),
+            (deploy_skill_dir, "vss-build-vision-ai"),
         ]
         copies = [(src, name) for src, name in all_copies
                   if name == "vss-summarize-video" or name in spec_skills]
@@ -273,7 +273,7 @@ def main() -> None:
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-summarize-video")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
+                        help="Path to skills/vss-build-vision-ai (optional — included for agent debug)")
     parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
                         help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for video upload prerequisite)")
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)

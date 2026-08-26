@@ -1,6 +1,6 @@
 # VSS Skills Eval
 
-Evaluate VSS skills (vss-deploy-profile, vss-deploy-dense-captioning, vss-manage-alerts, vss-manage-video-io-storage, vss-query-analytics, vss-search-archive, vss-summarize-video, vss-ask-video, vss-generate-video-report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
+Evaluate VSS skills (vss-build-vision-ai, vss-deploy-dense-captioning, vss-manage-alerts, vss-manage-video-io-storage, vss-query-analytics, vss-search-archive, vss-summarize-video, vss-ask-video, vss-generate-video-report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
 
 Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
@@ -34,7 +34,7 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 | `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and capability-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or approved RTX 4090 |
 | `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
-Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-deploy-profile` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
+Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-build-vision-ai` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
@@ -60,7 +60,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 ├── skills_eval_agent.py   ← the CI entrypoint (spawns the agent)
 ├── run_leg.py             ← structural per-box lock + Harbor launcher
 ├── adapters/              ← per-skill dataset generators
-│   ├── vss-deploy-profile/            ← profile × platform × mode matrix
+│   ├── vss-build-vision-ai/            ← profile × platform × mode matrix
 │   │   └── generate.py
 │   ├── vss-deploy-dense-captioning/   ← RT-VLM standalone/profile API checks
 │   │   └── generate.py
@@ -110,29 +110,19 @@ Schema:
 |---|---|---|
 | `skills` | `string[]` | Skill names this spec exercises (usually just one). |
 | `resources.platforms` | `object` | `{<platform>: {"modes": [...]}}` — the Cartesian matrix the adapter fans out. E.g. `{"L40S": {"modes": ["remote-all"]}}` produces exactly one dataset. Platforms: `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`. **Required** — the agent files a `missing_platforms_declaration` blocker comment and skips any spec without it. |
-| `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. There is no separate `env` field: every prerequisite (deployed profile, required env vars, ports, sample-data ingest, platform notes) goes **inside the relevant `expects[].query`** — usually the first/setup query, often a `/vss-deploy-profile …` deploy step. |
+| `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. There is no separate `env` field: every prerequisite (deployed profile, required env vars, ports, sample-data ingest, platform notes) goes **inside the relevant `expects[].query`** — usually the first/setup query, often a `/vss-build-vision-ai …` deploy step. |
 | `expects[].query` | `string` | What the agent is asked to do at this step, in plain English — including any prerequisites/environment the step needs. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl` / `docker` / `grep` commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
 
-### Eval-profile vs deploy-profile (vss-deploy-profile adapter only)
+### Build Vision AI Specs
 
-The `vss-deploy-profile` adapter exposes a small `PROFILES` dict that maps **eval-profile names** to the underlying `/vss-deploy-profile` invocation:
+`vss-build-vision-ai` evals are spec-driven like the other skills. Each spec names a build/profile label, lists the target platforms under `resources.platforms`, and puts the stock-workflow or custom-build instruction directly in `expects[].query`.
 
-```python
-PROFILES = {
-  "base":       {"description": "..."},                  # key == deploy profile
-  "alerts_cv":  {"profile": "alerts", "deploy_mode": "verification"},
-  "alerts_vlm": {"profile": "alerts", "deploy_mode": "real-time"},
-  "lvs":        {"description": "..."},
-  "search":     {"description": "..."},
-}
-```
-
-An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/vss-deploy-profile -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
+For stock deployments, write the query in the same terms the skill routes on, such as "use the `/vss-build-vision-ai` stock Search workflow with remote LLM/VLM placement" or "use the stock Alerts workflow in verification mode." Do not use legacy `-p` / `-m` command flags.
 
 ### Worked example — `skills/vss-manage-video-io-storage/evals/vios_ops.json`
 
-13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. There is no `/vss-deploy-profile` prerequisite — the **first query** tells the agent to stand VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook, and folds the environment prerequisites (required env vars, ports) into that same query. Produces 13 chained tasks on the targeted platform.
+13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. There is no `/vss-build-vision-ai` prerequisite — the **first query** tells the agent to stand VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook, and folds the environment prerequisites (required env vars, ports) into that same query. Produces 13 chained tasks on the targeted platform.
 
 ```json
 {
@@ -154,7 +144,7 @@ An empty or absent `profile` means the dict key *is* the deploy profile (the `ba
 Source: [`skills/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/vss-manage-video-io-storage/evals/vios_ops.json)
 
 What the agent derives from this spec:
-- `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
+- `profile` is absent → **no `/vss-build-vision-ai` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
 - `resources.platforms` is `{L40S: {gpu_count: 1}}` → one dataset, one platform. No fan-out.
 - `expects[]` has 13 entries → 13 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
 - `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.

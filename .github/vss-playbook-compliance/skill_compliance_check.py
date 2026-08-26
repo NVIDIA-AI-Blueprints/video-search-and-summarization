@@ -504,7 +504,7 @@ def check_naming(skill_path: Path, result: SkillResult) -> None:
         result.findings.append(Finding(
             ERROR, "NAM-002",
             f"Folder name '{name}' is too generic. "
-            "Use a descriptive <team-prefix>-<verb>-<object> pattern (e.g. vss-deploy-profile).",
+            "Use a descriptive <team-prefix>-<verb>-<object> pattern (e.g. vss-build-vision-ai).",
         ))
 
     info = analyse_name_structure(name)
@@ -517,7 +517,7 @@ def check_naming(skill_path: Path, result: SkillResult) -> None:
             f"Folder name '{name}' is a reserved single-word name that will collide "
             "with any other skill of the same name in an aggregated namespace. "
             "Use the '<team-prefix>-<verb>-<object>' pattern instead "
-            "(e.g. 'vss-deploy-profile' rather than 'deploy', "
+            "(e.g. 'vss-build-vision-ai' rather than 'deploy', "
             "'vss-generate-video-report' rather than 'report').",
         ))
 

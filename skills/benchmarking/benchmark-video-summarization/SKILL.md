@@ -12,14 +12,14 @@ metadata:
 
 Follow the routing table and step-by-step workflow below. Execute each step in order on a first run. For repeat runs, go directly to the **Repeat Runs** section. Detailed reference material lives in `references/` and benchmark scripts live in `scripts/`.
 
-> **⚠️ Shared GPU systems:** On a multi-user host, multiple LVS instances may be running on different ports. Always benchmark against the instance YOU deployed. Never assume port 38111 — always use the exact endpoint URL returned by `vss-deploy-profile` when you deployed LVS. If you did not deploy an LVS instance in this session, deploy one first before running benchmarks.
+> **⚠️ Shared GPU systems:** On a multi-user host, multiple LVS instances may be running on different ports. Always benchmark against the instance YOU deployed. Never assume port 38111 — always use the exact endpoint URL returned by `vss-build-vision-ai` when you deployed LVS. If you did not deploy an LVS instance in this session, deploy one first before running benchmarks.
 
 ## Purpose
 
 Measure the latency and throughput limits of a deployed LVS (Long Video Summarization) instance, identify GPU and pipeline bottlenecks, and suggest configuration changes that improve performance. Produces XLSX reports and JSON result files per scenario, plus a natural-language analysis with improvement recommendations.
 
 **Do NOT use this skill for:**
-- Deploying LVS — use the `vss-deploy-profile` skill with the `lvs` profile.
+- Deploying LVS — use the `vss-build-vision-ai` skill with the stock Video Summarization (`lvs`) profile.
 - Production monitoring or alerting — this is an offline benchmarking tool.
 - Non-LVS VSS profiles (RTVI, search-only, etc.) — the `/files` API and `/summarize` endpoint are LVS-specific.
 
@@ -27,7 +27,7 @@ Measure the latency and throughput limits of a deployed LVS (Long Video Summariz
 
 | Situation | Action |
 |---|---|
-| User has not deployed LVS in this session | Deploy LVS with `vss-deploy-profile` (lvs profile) using a unique `COMPOSE_PROJECT_NAME` — note the exact endpoint URL it returns, then return here |
+| User has not deployed LVS in this session | Deploy LVS with `vss-build-vision-ai` (stock Video Summarization / `lvs` profile) using a unique `COMPOSE_PROJECT_NAME` — note the exact endpoint URL it returns, then return here |
 | `LVS_BACKEND` is not set | Ask the user for the endpoint URL of the LVS instance they deployed — do not guess or default |
 | Results directory already exists with data and user asks to analyze only | Skip to **Step 6: Analyze Results** |
 | First run or new hardware configuration | Run the full workflow Steps 0–7 |
@@ -39,7 +39,7 @@ Measure the latency and throughput limits of a deployed LVS (Long Video Summariz
 
 | Requirement | How to Check |
 |---|---|
-| LVS deployed by you via `vss-deploy-profile` (lvs profile) with a unique `COMPOSE_PROJECT_NAME` | `curl -sf ${LVS_BACKEND}/v1/ready` returns 200 |
+| LVS deployed by you via `vss-build-vision-ai` (stock Video Summarization / `lvs` profile) with a unique `COMPOSE_PROJECT_NAME` | `curl -sf ${LVS_BACKEND}/v1/ready` returns 200 |
 | `LVS_BACKEND` set to your deployment's endpoint | `echo $LVS_BACKEND` (e.g. `http://localhost:38111`) |
 | `LVS_CONTAINER_NAME` set to your LVS container name | `echo $LVS_CONTAINER_NAME` (e.g. `vss-lvs`) |
 | `VIA_DEV_API=true` on YOUR LVS container | `docker inspect ${LVS_CONTAINER_NAME} --format '{{range .Config.Env}}{{println .}}{{end}}' \| grep VIA_DEV_API` |
@@ -53,7 +53,7 @@ Measure the latency and throughput limits of a deployed LVS (Long Video Summariz
 
 ## Deploy LVS for Benchmarking
 
-Before benchmarking, deploy a fresh LVS instance using `vss-deploy-profile`. On shared systems, always use a unique `COMPOSE_PROJECT_NAME` so your containers and volumes are isolated from other users.
+Before benchmarking, deploy a fresh LVS instance using `vss-build-vision-ai`. On shared systems, always use a unique `COMPOSE_PROJECT_NAME` so your containers and volumes are isolated from other users.
 
 ```bash
 # Choose a unique project name (e.g. your username)
@@ -346,7 +346,7 @@ cd "${SKILL_DIR}"
 
 ## Cross-reference
 
-- **vss-deploy-profile** — deploy LVS with the `lvs` profile before benchmarking
+- **vss-build-vision-ai** — deploy LVS with the stock Video Summarization (`lvs`) profile before benchmarking
 - **vss-summarize-video** — operational use of LVS for video summarization (not benchmarking)
 - **Benchmark modes reference** — [`references/benchmark-modes.md`](references/benchmark-modes.md)
 - **Analyzing results reference** — [`references/analyzing-results.md`](references/analyzing-results.md)

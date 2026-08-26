@@ -23,7 +23,7 @@ The repository ships the RAG-enabled LVS agent config at
 It is a superset of the default LVS config: regular caption retrieval remains
 enabled, and `frag_retrieval` adds Enterprise RAG document grounding.
 
-Use the normal `/vss-deploy-profile` workflow for deployment. The source
+Use the normal `/vss-build-vision-ai` stock Video Summarization deployment flow as the base, then apply the RAG config override below. The source
 `.env` and `overrides.env` remain read-only; initialize `generated.env` from
 `overrides.env` and apply non-secret overrides there.
 `generated.env` is ignored by the repository, but it is still a plaintext file:
@@ -84,7 +84,7 @@ docker compose \
   --env-file developer-profiles/dev-profile-lvs/.env \
   --env-file developer-profiles/dev-profile-lvs/generated.env \
   config > resolved.yml
-uv run "$REPO/skills/vss-deploy-profile/scripts/normalize_resolved_yml.py" \
+uv run "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \
   "$REPO/deploy/docker/resolved.yml"
 docker compose \
   --env-file developer-profiles/dev-profile-lvs/.env \
@@ -260,5 +260,4 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
 - The RAG-enabled agent config must keep its HITL templates and `hitl_enabled: true` settings for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
-
 

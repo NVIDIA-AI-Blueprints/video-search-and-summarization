@@ -5,10 +5,10 @@
     "expected_skill": "vss-deploy-video-embedding",
     "expected_script": null,
     "should_trigger": true,
-    "ground_truth": "vss-deploy-video-embedding is the skill for deploying and operating the RT-Embed video embedding microservice; the agent should identify and load it rather than vss-deploy-profile or other VSS skills.",
+    "ground_truth": "vss-deploy-video-embedding is the skill for deploying and operating the RT-Embed video embedding microservice; the agent should identify and load it rather than vss-build-vision-ai or other VSS skills.",
     "expected_behavior": [
       "Loads (activates) the vss-deploy-video-embedding skill in response to the question.",
-      "Does not route to vss-deploy-profile, vss-deploy-dense-captioning, vss-search-archive, or detection-tracking skills."
+      "Does not route to vss-build-vision-ai, vss-deploy-dense-captioning, vss-search-archive, or detection-tracking skills."
     ]
   },
   {
@@ -21,7 +21,7 @@
     "expected_behavior": [
       "Loads (activates) the vss-deploy-video-embedding skill in response to the question.",
       "Identifies RT-Embed or Cosmos-Embed1 as the embedding microservice, not the full Elasticsearch search profile.",
-      "Does not invoke vss-deploy-profile for this standalone embedding request."
+      "Does not invoke vss-build-vision-ai for this standalone embedding request."
     ]
   }
 ]

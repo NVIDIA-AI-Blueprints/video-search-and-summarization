@@ -8,8 +8,8 @@ description: >
   brokers, basic external MQTT/Kafka brokers, verification, and teardown.
   Trigger for generic MV3DT, RTVI-CV-3D, multi-view 3D tracking, multi-cam
   tracking, or sample MV3DT dataset requests. Explicit warehouse
-  blueprint/profile MV3DT requests route to vss-deploy-profile; single-camera
-  2D tracking routes to the 2D tracking or DeepStream skills. Not for full
+  blueprint/profile MV3DT requests are blocked until vss-build-vision-ai covers
+  warehouse; single-camera 2D tracking routes to the 2D tracking or DeepStream skills. Not for full
   warehouse blueprint deployment, single-camera 2D tracking, camera calibration
   itself, or VSS summarization, Q&A, and RAG workflows.
 license: Apache-2.0
@@ -27,12 +27,13 @@ metadata:
 Deploy the standalone RT-CV-3D MV3DT stack from `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
 This is the default path for MV3DT / RTVI-CV-3D / multi-camera tracking requests.
 
-Do not derive MV3DT services from the warehouse blueprint for this skill. Use
-`vss-deploy-profile` only when the user explicitly asks for warehouse MV3DT,
-the warehouse blueprint, a `bp_wh*` profile, warehouse compose files, or the
-combined warehouse application stack. When routing an explicit warehouse MV3DT
-request, also state the boundary: generic MV3DT uses standalone RT-CV-3D, while
-warehouse MV3DT uses warehouse/profile deployment. For single-camera 2D
+Do not derive MV3DT services from the warehouse blueprint for this skill. When
+the user explicitly asks for warehouse MV3DT, the warehouse blueprint, a
+`bp_wh*` profile, warehouse compose files, or the combined warehouse application
+stack, stop and explain that warehouse/profile deployment is blocked until
+`vss-build-vision-ai` covers the warehouse profile. Also state the boundary:
+generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT uses
+warehouse/profile deployment. For single-camera 2D
 detection or tracking, use the 2D tracking or DeepStream skills instead.
 
 Public docs: https://docs.nvidia.com/vss/latest/object-detection-tracking.html.
@@ -149,4 +150,4 @@ Follow these stages for deployment work:
 
 - `vss-generate-video-calibration` owns AMC deployment and calibration from local MP4s or RTSP streams.
 - `vss-manage-video-io-storage` is used only to bring up or verify VIOS when RTSP calibration needs VIOS and it is not already deployed.
-- `vss-deploy-profile` owns full warehouse blueprint deployments, including explicit warehouse MV3DT requests.
+- Full warehouse blueprint deployments, including explicit warehouse MV3DT requests, are blocked until warehouse coverage moves to `vss-build-vision-ai`.

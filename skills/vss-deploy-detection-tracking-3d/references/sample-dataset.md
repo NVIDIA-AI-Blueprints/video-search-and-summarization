@@ -2,7 +2,7 @@
 
 Load this reference when the user asks to deploy MV3DT / RTVI-CV-3D on the sample dataset, the 4-cam example dataset, or the warehouse 4-camera synthetic dataset.
 
-This is still the standalone RT-CV-3D path. Do not switch to warehouse compose files or `vss-deploy-profile` unless the user explicitly asks for the full warehouse blueprint.
+This is still the standalone RT-CV-3D path. Do not switch to warehouse compose files or a full-profile workflow unless the user explicitly asks for the full warehouse blueprint.
 
 ## Contents
 

@@ -1,6 +1,6 @@
 # Video Summarization Deployment Reference
 
-Use `vss-deploy-profile` for full deployment. This file is the video summarization-specific
+Use `vss-build-vision-ai` for full deployment. This file is the video summarization-specific
 service reference for the VSS 3.2.0 `lvs` profile.
 
 ## Current VSS Docker Compose Shape
@@ -45,10 +45,10 @@ docker logs --tail 100 vss-lvs
 
 ## Deploy Or Recreate
 
-Prefer the profile deploy skill:
+Prefer the profile build skill:
 
 ```text
-/vss-deploy-profile -p lvs
+Use /vss-build-vision-ai and choose the stock Video Summarization workflow.
 ```
 
 If you are already operating the resolved Docker Compose stack, include the
@@ -65,7 +65,7 @@ The checked-in profile env files split stable defaults and runtime/profile defau
 `deploy/docker/developer-profiles/dev-profile-lvs/.env` is the stable-default layer,
 and `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env` is copied to
 `generated.env` for deployment-specific overrides. For a deployment, follow
-`vss-deploy-profile` and apply overrides to
+`vss-build-vision-ai` and apply overrides to
 `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`, then resolve
 `deploy/docker/resolved.yml` using `.env` plus `generated.env`. Do not edit the service compose directly.
 Password values should come from the profile env or deployment overrides; do
@@ -210,7 +210,7 @@ services:
 
 After adding an override, set the matching values in
 `developer-profiles/dev-profile-lvs/generated.env`, then resolve through the
-same dry-run path used by `vss-deploy-profile`:
+same dry-run path used by `vss-build-vision-ai`:
 
 ```bash
 cd "$REPO/deploy/docker"
@@ -224,7 +224,7 @@ docker compose \
 Normalize `resolved.yml`, then verify it before recreating the service:
 
 ```bash
-uv run "$REPO/skills/vss-deploy-profile/scripts/normalize_resolved_yml.py" \
+uv run "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \
   "$REPO/deploy/docker/resolved.yml"
 sed -n '/lvs-server:/,/^[^ ]/p' resolved.yml \
   | grep -E 'LVS_DATABASE_BACKEND|GRAPH_DB_|ARANGO_DB_|LVS_EMB_'

@@ -13,7 +13,7 @@ AMC standalone via the skill's bundled
 `references/deploy-auto-calibration-service.md` runbook before exercising
 the calibration API. Per `.github/skill-eval/AGENTS.md` section 2, an absent
 `profile` is the supported signal to the harness that no
-`/vss-deploy-profile` prerequisite should be prepended; the trial runs
+`/vss-build-vision-ai` prerequisite should be prepended; the trial runs
 directly on a bare Brev instance.
 
 ## Deploy modes
@@ -26,7 +26,7 @@ whatever it needs:
 1. **Profile-less spec (current `auto-calibration.json` -- `profile` absent):**
    the instruction.md tells the agent to stand AMC up standalone via the
    skill's bundled `references/deploy-auto-calibration-service.md` runbook
-   (pre-authorized per the PREAMBLE bypass). No `/vss-deploy-profile`.
+   (pre-authorized per the PREAMBLE bypass). No `/vss-build-vision-ai`.
 
 ## Directory layout
 
@@ -39,7 +39,7 @@ whatever it needs:
             tests/auto-calibration.json
             solution/solve.sh
             skills/vss-generate-video-calibration/   (full skill copy)
-            skills/vss-deploy-profile/               (optional, for agent debug)
+            skills/vss-build-vision-ai/               (optional, for agent debug)
             environment/Dockerfile
         step-2/
             ...
@@ -52,7 +52,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-generate-video-calibration/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-generate-video-calibration \\
         --skill-dir skills/vss-generate-video-calibration \\
-        --deploy-skill-dir skills/vss-deploy-profile
+        --deploy-skill-dir skills/vss-build-vision-ai
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ DEFAULT_PLATFORM = "RTXPRO6000BW"
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 
@@ -236,7 +236,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # skills/ -- include vss-generate-video-calibration + deploy (so agent
         # can diagnose if AMC isn't live).
         for src, name in ((skill_dir, "vss-generate-video-calibration"),
-                          (deploy_skill_dir, "vss-deploy-profile")):
+                          (deploy_skill_dir, "vss-build-vision-ai")):
             if src and src.exists():
                 dst = step_dir / "skills" / name
                 if dst.exists():
@@ -256,7 +256,7 @@ def main() -> None:
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-generate-video-calibration")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional -- included for agent debug)")
+                        help="Path to skills/vss-build-vision-ai (optional -- included for agent debug)")
     parser.add_argument("--spec", default=None,
                         help="Path to auto-calibration.json "
                              "(default: <skill-dir>/evals/auto-calibration.json)")
@@ -309,7 +309,7 @@ def main() -> None:
     print(f"Generated {len(platforms)} task(s) under {output_root}/base/")
     print()
     print("Note: this spec OMITS `profile`. The trial runs on a bare Brev")
-    print("instance -- no /vss-deploy-profile prerequisite is injected. The agent is")
+    print("instance -- no /vss-build-vision-ai prerequisite is injected. The agent is")
     print("expected to stand AMC up standalone via the skill's bundled")
     print("references/deploy-auto-calibration-service.md runbook before")
     print("exercising the calibration API.")

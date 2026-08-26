@@ -64,7 +64,7 @@ operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
-**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
+**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-build-vision-ai`** to bring up current developer workflows (`base`, `search`, `lvs`, `alerts`) or compose a custom delta overlay. Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own. `vss-deploy-profile` is deprecated and retained only as a transitional redirect for profile coverage that has not moved yet.
 
 | Profile | Workflow it deploys |
 |---|---|
@@ -72,7 +72,7 @@ skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 | `search` | Natural-language search across video archives using embeddings |
 | `lvs` | Summarization of long recordings via chunking + dense-caption aggregation |
 | `alerts` | Real-time perception → behavior analytics → VLM alert verification |
-| `warehouse` / `edge` | Industry example stacks and edge-device deployments |
+| `warehouse` / `edge` | Industry example stacks and edge-device deployments; removal is blocked until `vss-build-vision-ai` covers these profiles |
 
 ---
 
@@ -82,7 +82,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 | I want to… | Use this skill |
 |---|---|
-| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
+| Stand up a current developer VSS workflow (base / search / lvs / alerts) or compose a custom vision stack | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](vss-summarize-video/SKILL.md) |
 | Ask a one-off visual question about a clip | [`vss-ask-video`](vss-ask-video/SKILL.md) |
@@ -105,7 +105,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 - `vss-ask-video` (one-off VLM question on a clip) vs. `vss-search-archive` (retrieval across an archive) vs. `vss-query-analytics` (read already-computed metrics/incidents — no live inference).
 - `vss-generate-video-report` (formatted report from per-clip VLM or an incident range) vs. `vss-generate-video-report-rag` (the frag/RAG pipeline with HITL parameter collection).
-- `vss-deploy-profile` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
+- `vss-build-vision-ai` (a developer-profile or custom composed workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice). `vss-deploy-profile` is a deprecated compatibility redirect.
 
 ---
 
@@ -114,14 +114,15 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 ### Deployment & infrastructure
 | Skill | Description |
 |---|---|
-| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-build-vision-ai](vss-build-vision-ai/SKILL.md) | Select, compose, configure, deploy, verify, debug, or tear down current VSS developer profiles (`base`, `search`, `lvs`, `alerts`) and custom delta overlays. Start here for a full developer workflow. |
+| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Deprecated compatibility redirect. Use `vss-build-vision-ai` for current developer profiles; warehouse/edge requests are blocked until that coverage lands. |
 | [vss-generate-video-calibration](vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
 ### Layer 1 — Real-time video intelligence
 | Skill | Description |
 |---|---|
 | [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
-| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
+| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests are blocked until `vss-build-vision-ai` covers warehouse. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
 | [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
 
@@ -158,7 +159,7 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | Pre-GA command | VSS 3.2 GA command |
 |---|---|
 | `/alerts` | `/vss-manage-alerts` |
-| `/deploy` | `/vss-deploy-profile` |
+| `/deploy` | `/vss-build-vision-ai` |
 | `/report` | `/vss-generate-video-report` |
 | `/rt-vlm` | `/vss-deploy-dense-captioning` |
 | `/video-analytics` | `/vss-query-analytics` |

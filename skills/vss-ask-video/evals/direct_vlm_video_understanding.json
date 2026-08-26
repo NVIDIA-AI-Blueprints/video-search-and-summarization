@@ -1,7 +1,7 @@
 {
   "skills": [
     "vss-ask-video",
-    "vss-deploy-profile"
+    "vss-build-vision-ai"
   ],
   "resources": {
     "platforms": {
@@ -12,7 +12,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base` so a local NIM Cosmos VLM is serving. Run autonomously.\n\n**Purpose of this eval:** it exercises the **vss-ask-video direct-VLM path with NO VST/VIOS** — later steps answer a question about a *local* video file by POSTing it straight to the VLM's `/v1/chat/completions` (inline base64 or a self-served URL). The skill does NOT call `POST /generate` and does NOT resolve a VST clip URL. For this step, only bring the base profile up so a VLM endpoint resolves. Read `VLM_BASE_URL` / `VLM_NAME` / `VLM_MODE` (and `RTVI_VLM_BASE_URL` for RT-VLM) off the `vss-agent` container env — the image is distroless, so use `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`, not `docker exec`. (See `skills/vss-ask-video/SKILL.md`.)",
+      "query": "Deploy the VSS **base** profile on `{{platform}}` via the `/vss-build-vision-ai` stock Base workflow so a local NIM Cosmos VLM is serving. Run autonomously.\n\n**Purpose of this eval:** it exercises the **vss-ask-video direct-VLM path with NO VST/VIOS** — later steps answer a question about a *local* video file by POSTing it straight to the VLM's `/v1/chat/completions` (inline base64 or a self-served URL). The skill does NOT call `POST /generate` and does NOT resolve a VST clip URL. For this step, only bring the base profile up so a VLM endpoint resolves. Read `VLM_BASE_URL` / `VLM_NAME` / `VLM_MODE` (and `RTVI_VLM_BASE_URL` for RT-VLM) off the `vss-agent` container env — the image is distroless, so use `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`, not `docker exec`. (See `skills/vss-ask-video/SKILL.md`.)",
       "checks": [
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
         "A VLM endpoint resolves from the vss-agent container environment (read via `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`): either VLM_BASE_URL + VLM_NAME (NIM Cosmos, base default :30082) or RTVI_VLM_BASE_URL + VLM_NAME (RT-VLM), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"

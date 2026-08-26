@@ -64,7 +64,7 @@ For **standalone RT-Embed**, work from the service directory:
 cd "{{repo_root}}/deploy/docker/services/rtvi/rtvi-embed"
 ```
 
-Do **not** use `/vss-deploy-profile` or `scripts/dev-profile.sh` for this standalone deployment.
+Do **not** use full-profile workflows (`/vss-build-vision-ai`) or `scripts/dev-profile.sh` for this standalone deployment.
 
 For agent-driven validation, never let `sudo` prompt interactively. Before any
 privileged ownership or Docker operation, use the non-interactive guard in

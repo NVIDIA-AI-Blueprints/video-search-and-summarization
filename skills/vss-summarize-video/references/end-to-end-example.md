@@ -63,7 +63,7 @@ if [ "$video_sum_code" != "200" ]; then
 video summarization service not ready (HTTP $video_sum_code).
 
 Decision point:
-- Interactive run: ask the user whether to deploy the VSS lvs profile with /vss-deploy-profile -p lvs.
+- Interactive run: ask the user whether to deploy the VSS lvs profile with the `/vss-build-vision-ai` stock Video Summarization workflow.
 - If deployment is approved or was pre-authorized in the original task, invoke that deploy skill, then rerun the readiness probe and continue with the LVS request below.
 - If lower-quality VLM fallback is explicitly approved or was pre-authorized in the original task, follow the SKILL.md Stages 3-4 VLM fallback.
 - Non-interactive / Harbor run: if neither deployment nor fallback was pre-authorized in the original task, report BLOCKED because the LVS service is unavailable and no user decision is available. Do not wait for input and do not silently fall back to VLM.
