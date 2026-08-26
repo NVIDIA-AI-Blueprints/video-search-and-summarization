@@ -51,6 +51,10 @@ metadata:
       /streamer/(.*) /\1
 {{- end }}
       ^/storage/(.*) /vst/storage/\1
+      {{- /* /vios aliases /vst and is rewritten onto it, not stripped:
+             VST serves its whole surface under /vst/. Same shape as the
+             /storage rewrite above. */}}
+      ^/vios/(.*) /vst/\1
     haproxy.org/frontend-config-snippet: |
       http-request replace-path ^//vst(/.*)?$ /vst\1
       http-request set-var(txn.path) path
@@ -65,6 +69,14 @@ spec:
       http:
         paths:
           - path: /vst/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index $vi "vstServiceName" | default "vss-vios-ingress" }}
+                port:
+                  number: {{ index $vi "vstPort" | default 30888 }}
+          # Alias for /vst/; /vst/ stays supported and is deprecated.
+          - path: /vios/
             pathType: Prefix
             backend:
               service:
