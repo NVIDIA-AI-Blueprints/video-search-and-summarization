@@ -17,7 +17,7 @@
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source $SCRIPT_DIR/generate_env.sh
-. "$SCRIPT_DIR/docker_compose/infra/.env"
+. "$SCRIPT_DIR/docker_compose/.env"
 
 cd "$PROJ_ROOT_DIR"
 
@@ -26,7 +26,7 @@ DATA_FILEPATH=${1:-tests/integration/docker_compose/apps_data/playback/warehouse
 PLAYBACK_MODE=${2:-}
 
 # Start the infra services
-docker compose -f $SCRIPT_DIR/docker_compose/infra/compose.yml up -d --build --force-recreate
+docker compose --env-file "$MDX_SAMPLE_APPS_DIR/.env" --profile elasticsearch --profile elasticsearch-init-container --profile kafka --profile kafka-topic-init-container --profile broker-health-check --profile logstash -f "$SHARED_INFRA_COMPOSE" up -d --build --force-recreate
 
 # Run the playback app
 docker run -it --rm --network host \

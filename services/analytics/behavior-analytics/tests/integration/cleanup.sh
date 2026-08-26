@@ -34,7 +34,7 @@ cleanup_docker_environment() {
     echo "Docker Compose down..."
     
     # Build the docker compose command with optional profile
-    COMPOSE_CMD="docker compose -f infra/compose.yml -f apps/mdx-apps.yml"
+    COMPOSE_CMD="docker compose --profile elasticsearch --profile elasticsearch-init-container --profile kafka --profile kafka-topic-init-container --profile broker-health-check --profile logstash -f $SHARED_INFRA_COMPOSE -f apps/mdx-apps.yml"
     if [[ "$STREAMING_SERVICE" != "kafka" ]]; then
         COMPOSE_CMD="$COMPOSE_CMD --profile $STREAMING_SERVICE"
     fi
@@ -70,7 +70,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     source "$SCRIPT_DIR/generate_env.sh"
 
     # Source the environment file with proper path resolution
-    . "$SCRIPT_DIR/docker_compose/infra/.env"
+    . "$SCRIPT_DIR/docker_compose/.env"
 
     cleanup_docker_environment
 fi

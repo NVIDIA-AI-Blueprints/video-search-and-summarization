@@ -32,8 +32,3 @@ services:
 
 volumes:
   video-analytics-api-app:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: $DATA_DIR/data_log/video-analytics-api-app/files

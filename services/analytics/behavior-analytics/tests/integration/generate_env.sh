@@ -63,9 +63,11 @@ fi
 # listener from metadata. Advertising the Docker bridge/container IP breaks the
 # in-container healthcheck and topic initialization in CI, so advertise loopback.
 HOST_IP="localhost"
+VSS_APPS_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker"
+SHARED_INFRA_COMPOSE="$VSS_APPS_DIR/services/infra/compose.yml"
 
 # Create/populate the .env file based on profiles
-ENV_FILE="$SCRIPT_DIR/docker_compose/infra/.env"
+ENV_FILE="$SCRIPT_DIR/docker_compose/.env"
 echo "Generating environment variables at $ENV_FILE"
 
 # Create the .env file with all necessary variables
@@ -80,6 +82,7 @@ APP_DIR="$APP_DIR"
 
 # Streaming service from PROFILE2: $PROFILE2
 STREAMING_SERVICE="$PROFILE2"
+STREAM_TYPE="$PROFILE2"
 
 # Playback mode configuration
 PLAYBACK_MODE="$PLAYBACK_MODE"
@@ -88,6 +91,9 @@ PLAYBACK_MODE="$PLAYBACK_MODE"
 PROJ_ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MDX_SAMPLE_APPS_DIR="${SCRIPT_DIR}/docker_compose"
 MDX_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
+VSS_APPS_DIR="$VSS_APPS_DIR"
+SHARED_INFRA_COMPOSE="$SHARED_INFRA_COMPOSE"
+VSS_DATA_DIR="$MDX_DATA_DIR"
 
 # Host configuration
 HOST_IP="$HOST_IP"
@@ -99,4 +105,4 @@ EOF
 echo "Generated environment file:"
 echo "--------------------------------"
 cat "$ENV_FILE"
-echo "--------------------------------" 
+echo "--------------------------------"

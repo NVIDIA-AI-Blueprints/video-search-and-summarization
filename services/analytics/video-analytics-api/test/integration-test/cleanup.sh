@@ -22,7 +22,7 @@ cleanup_docker_environment() {
     echo "Stopping video-analytics-api integration stack..."
     cd "$INTEGRATION_TEST_DIR/docker_compose"
 
-    COMPOSE_CMD="docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml down --volumes --rmi all"
+    COMPOSE_CMD="docker compose --profile elasticsearch -f $SHARED_INFRA_COMPOSE -f apps/video-analytics-api-app.yml down --volumes --rmi all"
     if $COMPOSE_CMD; then
         echo "✓ Docker Compose down successfully"
     else
@@ -39,6 +39,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     INTEGRATION_TEST_DIR="$SCRIPT_DIR"
     source "$SCRIPT_DIR/generate_env.sh"
-    . "$SCRIPT_DIR/docker_compose/infra/.env"
+    . "$SCRIPT_DIR/docker_compose/.env"
     cleanup_docker_environment
 fi

@@ -49,7 +49,7 @@ echo "Running in $MODE mode with $PROFILE1 and $PROFILE2"
 source "$SCRIPT_DIR/generate_env.sh"
 
 # Source the environment file with proper path resolution
-. "$SCRIPT_DIR/docker_compose/infra/.env"
+. "$SCRIPT_DIR/docker_compose/.env"
 
 # Source the cleanup script
 source "$SCRIPT_DIR/cleanup.sh"
@@ -57,7 +57,6 @@ source "$SCRIPT_DIR/cleanup.sh"
 # Containers run as non-root users and write integration artifacts through this
 # bind mount. Keep the permission contract with the test harness instead of
 # requiring CI-specific chmod setup.
-mkdir -p "$MDX_DATA_DIR"
 chmod -R a+rwX "$MDX_DATA_DIR"
 
 cd "$PROJ_ROOT_DIR"
@@ -91,7 +90,7 @@ cd "$MDX_SAMPLE_APPS_DIR"
 echo "Starting Docker Compose services..."
 
 # Compose command base (same for build and up)
-COMPOSE_BASE="docker compose -f infra/compose.yml -f apps/mdx-apps.yml"
+COMPOSE_BASE="docker compose --profile elasticsearch --profile elasticsearch-init-container --profile kafka --profile kafka-topic-init-container --profile broker-health-check --profile logstash -f $SHARED_INFRA_COMPOSE -f apps/mdx-apps.yml"
 if [[ "$STREAMING_SERVICE" != "kafka" ]]; then
     COMPOSE_BASE="$COMPOSE_BASE --profile $STREAMING_SERVICE"
 fi
@@ -510,7 +509,7 @@ for data_type in $DATA_TYPES; do
         continue
     fi
 
-    COMPARISON_OUTPUT=$(python3 tests/integration/docker_compose/infra/scripts/compare_mdx_data.py "$BASELINE_FILE" "$EXTRACTED_FILE" 2>&1)
+    COMPARISON_OUTPUT=$(python3 tests/integration/compare_mdx_data.py "$BASELINE_FILE" "$EXTRACTED_FILE" 2>&1)
     COMPARISON_OUTPUTS+=("$COMPARISON_OUTPUT")
 
     if echo "$COMPARISON_OUTPUT" | tail -1 | grep -q "pass"; then
