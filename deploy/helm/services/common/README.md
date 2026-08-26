@@ -38,9 +38,12 @@ the paths `vss configure` records
 | `ui` | `/api/chat`, `/` | kept | `/` is the catch-all and renders last |
 | `agent` | `/api`, `/chat`, `/websocket`, `/static`, `/docs`, `/redoc`, `/generate`, `/openapi.json` | kept | `/openapi.json` is `Exact`, the rest `Prefix` |
 | `vst` | `/vst` | kept | |
+| `vst` | `/vios` | → `/vst` | alias for `/vst`; the canonical prefix stays |
 | `vst` | `/storage` | → `/vst/storage` | VST mints absolute media links against the origin root |
+| `vst` | `/vios/storage` | → `/vst/storage` | same media surface under the `/vios` alias |
 | `va-mcp` | `/va-mcp` | stripped | public MCP endpoint is `/va-mcp/mcp` |
 | `alert-bridge` | `/alert-bridge` | stripped | |
+| `alert-bridge` | `/alerts` | stripped | alias for `/alert-bridge`; the canonical prefix stays |
 | `video-analytics-api` | `/video-analytics-api` | stripped | |
 | `behavior-analytics` | `/behavior-analytics` | kept | |
 | `elasticsearch` | `/elasticsearch` | stripped | edge guard on the ES Service, see below |
@@ -48,6 +51,7 @@ the paths `vss configure` records
 | `rtvi-cv` | `/rtvi-cv` | stripped | also on the host-less east-west rule |
 | `rtvi-embed` | `/rtvi-embed` | stripped | also on the host-less east-west rule |
 | `lvs` | `/lvs` | stripped | |
+| `lvs` | `/video-summarization` | stripped | alias for `/lvs`; the canonical prefix stays |
 | `phoenix` | `/phoenix` | stripped | keep `PHOENIX_HOST_ROOT_PATH` in step |
 
 Kibana and NVStreamer are **not** in the table. Both are served on their own host

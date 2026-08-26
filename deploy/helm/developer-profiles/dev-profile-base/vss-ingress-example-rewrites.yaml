@@ -32,8 +32,12 @@ metadata:
   namespace: <NAMESPACE>
   annotations:
     haproxy.org/path-rewrite: |
+      /vios/(.*) /vst/\1
+      /vios /vst
       /storage/(.*) /vst/storage/\1
       /storage /vst/storage
+      /vios/storage/(.*) /vst/storage/\1
+      /vios/storage /vst/storage
       /rtvi-vlm/(.*) /\1
       /rtvi-vlm /
       /phoenix/(.*) /\1
@@ -44,7 +48,21 @@ spec:
   - host: vss.<EXTERNAL_HOST>.nip.io
     http:
       paths:
+      - path: /vios
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-vios-ingress
+            port:
+              number: 30888
       - path: /storage
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-vios-ingress
+            port:
+              number: 30888
+      - path: /vios/storage
         pathType: Prefix
         backend:
           service:

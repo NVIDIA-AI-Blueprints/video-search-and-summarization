@@ -86,11 +86,21 @@
   path: /vst
   pathType: Prefix
   rewrite: none
+# Alias for /vst. Rewritten onto /vst, not stripped: VST serves its whole
+# surface under /vst/, so /vios/api/v1/x must arrive as /vst/api/v1/x.
+- key: vst
+  path: /vios
+  pathType: Prefix
+  rewrite: /vst
 # VST media links are minted absolute against the origin root. The Docker edge
 # answers them with the same replacement, so a clip URL works on either
 # deployment without the caller rewriting it.
 - key: vst
   path: /storage
+  pathType: Prefix
+  rewrite: /vst/storage
+- key: vst
+  path: /vios/storage
   pathType: Prefix
   rewrite: /vst/storage
 - key: va-mcp
@@ -99,6 +109,11 @@
   rewrite: strip
 - key: alert-bridge
   path: /alert-bridge
+  pathType: Prefix
+  rewrite: strip
+# Alias for /alert-bridge; strips identically. The canonical prefix stays.
+- key: alert-bridge
+  path: /alerts
   pathType: Prefix
   rewrite: strip
 - key: video-analytics-api
@@ -129,6 +144,11 @@
   rewrite: strip
 - key: lvs
   path: /lvs
+  pathType: Prefix
+  rewrite: strip
+# Alias for /lvs; strips identically. The canonical prefix stays.
+- key: lvs
+  path: /video-summarization
   pathType: Prefix
   rewrite: strip
 - key: phoenix

@@ -262,15 +262,47 @@ serve that prefix natively.
 | `/lvs` | strip | `${VSS_GATEWAY_ORIGIN}/lvs` | `/lvs/v1/live` | `/v1/live` |
 | `/phoenix` | strip | `${VSS_GATEWAY_ORIGIN}/phoenix` | `/phoenix` | `/` (keep `PHOENIX_HOST_ROOT_PATH=/phoenix`) |
 | `/vst` | preserve | `${VSS_GATEWAY_ORIGIN}` (not `/vst`) | `/vst/api/...` | `/vst/api/...` |
+| `/vios` | **rewrite to `/vst`** | `${VSS_GATEWAY_ORIGIN}/vios` | `/vios/api/...` | `/vst/api/...` |
+| `/alerts` | strip | `${VSS_GATEWAY_ORIGIN}/alerts` | `/alerts/api/v1/alerts` | `/api/v1/alerts` |
+| `/video-summarization` | strip | `${VSS_GATEWAY_ORIGIN}/video-summarization` | `/video-summarization/v1/summarize` | `/v1/summarize` |
 | `/storage` | rewrite to `/vst/storage` | origin | `/storage/...` | `/vst/storage/...` |
 | `/kibana` | preserve | origin + `/kibana` | `/kibana/...` | `/kibana/...` |
 | `/api`, `/chat`, `/websocket`, `/static` | preserve | origin | `/api/v1/...` | `/api/v1/...` |
 | `/behavior-analytics`, `/perception-sdr` | preserve | origin + prefix | prefix paths | same (often 503 if backend has no HTTP) |
 
-The proposed renames to `/vios`, `/alerts` and `/video-summarization` are not
-applied: those prefixes exist in neither Helm nor the CLI today, and Docker
-matches the current Helm and CLI mounts. Renaming them is a separate change that
-has to move all three at once.
+#### `/vios`, `/alerts`, `/video-summarization` are aliases, not renames
+
+The three new prefixes route to the same backends as `/vst`, `/alert-bridge`
+and `/lvs`. **All six work.** Nothing that addresses an old prefix has to
+change, which is the point: a hard rename would have to move the `skills/`
+tree, the CLI's vios client (which spells `/vst/` in many places), the Helm
+templates, the notebooks and the skill evals in one commit, and any straggler
+would 404 in production.
+
+`/vios` is the one that is **rewritten rather than stripped**, and the
+asymmetry is not cosmetic. VST serves its whole surface under `/vst/`, so
+`/vios/api/v1/x` has to arrive as `/vst/api/v1/x`; a strip would send
+`/api/v1/x` and 404 every call. `/alerts` and `/video-summarization` strip,
+exactly like the prefixes they alias. `/vios/storage` also inherits the same
+HEAD/OPTIONS range short-circuits `/vst/storage` gets, so the alias cannot
+answer a range request differently from the prefix it stands in for.
+
+`/vios` has no counterpart to `bk_vst_prefixed_compat`, the backend that
+repairs legacy media URLs embedding `host:port` ahead of `/vst`. Nothing emits
+such a URL under a prefix introduced here.
+
+**Deprecation window.** `/vst`, `/alert-bridge` and `/lvs` remain supported
+for the whole of 3.3.x and are removed no earlier than 3.4.0 — one full minor
+release of overlap, so callers can move on their own schedule. They are not
+yet warned on at the edge. Removal is a separate ticket that retires the old
+prefix in Docker, Helm and the CLI together, and it should not start until the
+aliases have soaked.
+
+The CLI still probes and records the **old** prefixes. `vss configure` is
+deliberately left on `/vst` and `/lvs`: pointing it at an unsoaked alias would
+couple every CLI invocation to a route with no field exposure, for no gain,
+since both resolve to the same backend. Moving it is a follow-up, and it wants
+its own change so a regression there is attributable.
 
 ### Elasticsearch through the gateway
 

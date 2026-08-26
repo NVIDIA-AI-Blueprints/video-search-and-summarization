@@ -135,6 +135,39 @@ backend bk_va_mcp_strip
     http-request replace-path ^/va-mcp$ /
     server s1 "${VSS_VA_MCP_SERVICE_HOST}:${VSS_VA_MCP_PORT}" check resolvers docker init-addr none
 
+# --- Aliases: /vios, /alerts, /video-summarization ---
+#
+# Additive. Each alias points at the same backend as the prefix it renames,
+# and /vst, /alert-bridge and /lvs keep working unchanged. A hard rename would
+# reach into the skills tree, the CLI's vios client (which spells /vst/ in many
+# places), the Helm templates, notebooks and the skill evals all at once; the
+# old prefixes are retired in a follow-up after a soak period instead.
+
+# /vios REWRITES to /vst, it does not strip. VST serves its whole surface under
+# /vst/, so /vios/api/v1/x has to arrive as /vst/api/v1/x -- a strip would send
+# /api/v1/x and 404 every call. bk_vst_storage_compat above is the same shape.
+backend bk_vios_rewrite
+    http-request replace-path ^/vios/(.*) /vst/\1
+    http-request replace-path ^/vios$ /vst
+    server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
+
+# Strips, exactly like bk_alert_bridge_strip. The backend's own /api/v1/alerts
+# paths are untouched: the strip runs after routing, so /alerts/api/v1/alerts
+# reaches alert-bridge as /api/v1/alerts.
+backend bk_alerts_strip
+    http-request replace-path ^/alerts/(.*) /\1
+    http-request replace-path ^/alerts$ /
+    server s1 "${ALERT_BRIDGE_SERVICE_HOST}:${ALERT_BRIDGE_PORT}" check resolvers docker init-addr none
+
+# Strips, exactly like bk_lvs_strip -- including its raised server timeout. A
+# summarization that outlives 120s must not 504 on the alias while succeeding
+# on /lvs; an alias that behaves differently is worse than no alias.
+backend bk_video_summarization_strip
+    http-request replace-path ^/video-summarization/(.*) /\1
+    http-request replace-path ^/video-summarization$ /
+    timeout server 3600s
+    server s1 "${LVS_SERVICE_HOST}:${LVS_SERVICE_PORT}" check resolvers docker init-addr none
+
 frontend fe_http
     bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
 
@@ -174,14 +207,21 @@ frontend fe_http
     acl p_vst_prefixed_storage path_reg ^/[^/]+:[0-9]+/vst/storage(/|$)
     acl p_storage path /storage
     acl p_storage path_beg /storage/
+    # /vios/storage is the same media surface under the alias, so it gets the
+    # same HEAD/OPTIONS short-circuits. Without these the alias would hand a
+    # range request whatever VST answers while /vst/storage answers here.
+    acl p_vios_storage path /vios/storage
+    acl p_vios_storage path_beg /vios/storage/
     acl m_head method HEAD
     acl m_options method OPTIONS
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_storage
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_storage
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_prefixed_storage
+    http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vios_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_prefixed_storage
+    http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vios_storage
     use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api
@@ -191,6 +231,13 @@ frontend fe_http
     acl p_alert_bridge path /alert-bridge
     acl p_alert_bridge path_beg /alert-bridge/
     use_backend bk_alert_bridge_strip if h_main p_alert_bridge
+
+    # Alias for /alert-bridge. Disjoint from the agent's /api route below --
+    # path_beg /api/ does not match /alerts -- so ordering between them is
+    # immaterial.
+    acl p_alerts path /alerts
+    acl p_alerts path_beg /alerts/
+    use_backend bk_alerts_strip if h_main p_alerts
 
     acl p_kibana path /kibana
     acl p_kibana path_beg /kibana/
@@ -254,6 +301,11 @@ frontend fe_http
     acl p_lvs path_beg /lvs/
     use_backend bk_lvs_strip if h_main p_lvs
 
+    # Alias for /lvs.
+    acl p_video_summarization path /video-summarization
+    acl p_video_summarization path_beg /video-summarization/
+    use_backend bk_video_summarization_strip if h_main p_video_summarization
+
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/
     use_backend bk_phoenix_strip if h_main p_phoenix
@@ -292,6 +344,14 @@ frontend fe_http
     acl p_vst_prefixed path_reg ^/[^/]+:[0-9]+/vst(/|$)
     use_backend bk_vst_prefixed_compat if h_main p_vst_prefixed
     use_backend bk_vst_ingress if h_main p_vst
+
+    # Alias for /vst, rewritten rather than stripped (see bk_vios_rewrite).
+    # No /vios counterpart to bk_vst_prefixed_compat: that backend exists to
+    # repair legacy media URLs that embed host:port ahead of /vst, and nothing
+    # emits such a URL under a prefix introduced here.
+    acl p_vios path /vios
+    acl p_vios path_beg /vios/
+    use_backend bk_vios_rewrite if h_main p_vios
 
     acl p_behavior path /behavior-analytics
     acl p_behavior path_beg /behavior-analytics/
