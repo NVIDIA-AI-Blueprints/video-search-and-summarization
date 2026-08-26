@@ -19,6 +19,7 @@ Script to read two mdx data json files, sort by timestamp, and compare _source c
 """
 
 import json
+import math
 import sys
 from typing import Any
 from datetime import datetime
@@ -27,6 +28,14 @@ from pathlib import Path
 # Because the trajectory to detect events is not always the same, we ignore some keys
 EVENT_IGNORE_KEYS = ["distance", "speed", "analyticsModule", "speedOverTime", "object", "bearing", "direction", "timeInterval"]
 # Because sampling, some attributes are not always same for behavior data
+# Budget for how many behaviour records may differ before the comparison fails.
+# A flat percentage is uneven across profiles: warehouse_2d has 40 behaviour
+# records, so 1% rounds below a single record and any one difference fails it,
+# while warehouse_3d has 1577 and would tolerate fifteen. The floor keeps small
+# datasets from silently becoming zero-tolerance.
+BEHAVIOR_DIFFERENCE_RATIO = 0.01
+MIN_BEHAVIOR_DIFFERENCE_BUDGET = 3
+
 BEHAVIOR_IGNORE_KEYS = ["length", "locations", "edges", "smoothLocations", "speedOverTime", "direction", "info", "bearing", "speed", "distance"]
 
 def parse_json_lines(file_path: str) -> list[dict[str, Any]]:
@@ -259,10 +268,12 @@ def compare_sources(data1: list[dict[str, Any]], data2: list[dict[str, Any]]) ->
             comparison['differences'].append(diff)
 
     if data_type == "mdx-behavior":
+        budget = max(MIN_BEHAVIOR_DIFFERENCE_BUDGET,
+                     math.ceil(len(data1) * BEHAVIOR_DIFFERENCE_RATIO))
         if comparison['total_records_file1'] != comparison['total_records_file2']:
             comparison['result'] = 'fail'
-        # elif len(comparison['differences']) >= len(data1) * 0.01:
-        #     comparison['result'] = 'fail'
+        elif len(comparison['differences']) >= budget:
+            comparison['result'] = 'fail'
     elif len(comparison['differences']) > 0:
         comparison['result'] = 'fail'
     comparison['data_type'] = data_type

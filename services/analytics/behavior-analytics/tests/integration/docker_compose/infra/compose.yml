@@ -48,6 +48,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:8.3.0
+    profiles: ["kafka"]
     volumes:
       - mdx-kafka:/tmp/kafka-data
       - $INFRA_DIR/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
@@ -83,6 +84,7 @@ services:
       start_period: 60s
 
   kafka-topic-init-container:
+    profiles: ["kafka"]
     build:
       context: $INFRA_DIR
       dockerfile: Dockerfiles/kafka-health-check.Dockerfile
@@ -175,9 +177,6 @@ services:
         {"name": "mdx-frames"},
         {"name": "mdx-events"},
         {"name": "mdx-incidents"}]'
-    depends_on:
-      kafka-topic-init-container:
-        condition: service_completed_successfully
 
   kibana:
     image: docker.elastic.co/kibana/kibana:9.3.3

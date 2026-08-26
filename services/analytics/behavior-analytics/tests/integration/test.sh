@@ -91,8 +91,10 @@ cd "$MDX_SAMPLE_APPS_DIR"
 echo "Starting Docker Compose services..."
 
 # Compose command base (same for build and up)
-COMPOSE_BASE="docker compose -f infra/compose.yml -f apps/mdx-apps.yml"
-if [[ "$STREAMING_SERVICE" != "kafka" ]]; then
+# Always select the broker profile, so a redis run does not start kafka. mqtt is
+# bridged into kafka, so it needs both its own profile and the kafka one.
+COMPOSE_BASE="docker compose -f infra/compose.yml -f apps/mdx-apps.yml --profile $STREAM_TYPE"
+if [[ "$STREAMING_SERVICE" != "$STREAM_TYPE" ]]; then
     COMPOSE_BASE="$COMPOSE_BASE --profile $STREAMING_SERVICE"
 fi
 

@@ -34,5 +34,5 @@ services:
     container_name: mdx-analytics
     command: python3 apps/${APP_DIR}/main_${APP_DIR}${APP_MODE}_app.py --config /resources/analytics-stream-config.json --calibration /resources/calibration.json
     depends_on:
-      kafka-topic-init-container:
+      broker-health-check:
         condition: service_completed_successfully
