@@ -453,6 +453,10 @@ class AnomalyEnhancer(
         # retry via the handler's backoff path.
         self._verdict_retention_job = None
         self._event_folder = None
+        # Set when the supervisor thread fails, so the failure is inspectable
+        # rather than only a line in the log.
+        self._event_folder_error = None
+        self._event_folder_stop = threading.Event()
         try:
             if self.redis_handler is not None:
                 self.redis_handler.ensure_verdict_index()
@@ -735,14 +739,33 @@ class AnomalyEnhancer(
         thread.start()
 
     def _event_folder_supervisor(self, persistence, consolidation, window) -> None:
-        """Build and start the folder, retrying while Elasticsearch is unreachable."""
+        """Build and start the folder, retrying while Elasticsearch is unreachable.
+
+        Everything here runs on a daemon thread, so an exception would reach
+        the default ``threading.excepthook``, print a traceback and end the
+        thread — leaving an instance that reports healthy, has persistence
+        switched on, and folds nothing for the rest of its life. That is the
+        one operator-invisible failure this feature set out to remove, so it is
+        caught and recorded rather than left to the hook.
+        """
+        try:
+            self._run_event_folder_supervisor(persistence, consolidation, window)
+        except Exception as exc:                       # noqa: BLE001
+            self._event_folder_error = exc
+            logger.error(
+                "Realtime event folder could not be started; persistence is "
+                "enabled but nothing is folding",
+                exc_info=True,
+            )
+
+    def _run_event_folder_supervisor(self, persistence, consolidation, window) -> None:
         from realtime.services.elastic_factory import build_elastic_client
         from realtime.services.event_folder import RealtimeEventFolder
         from realtime.services.event_store import RealtimeEventStore
         from realtime.services.incident_service import IncidentService
 
         delay, max_delay = 2.0, 60.0
-        while True:
+        while not self._event_folder_stop.is_set():
             es_client = build_elastic_client(self.config)
             if es_client is not None:
                 break
@@ -753,8 +776,13 @@ class AnomalyEnhancer(
                 "Realtime event folder waiting: Elasticsearch is disabled or "
                 "not yet reachable; retrying in %.0fs", delay,
             )
-            time.sleep(delay)
+            # Waited on the stop event rather than slept, so a shutdown does
+            # not have to outlast the backoff.
+            if self._event_folder_stop.wait(delay):
+                return
             delay = min(delay * 2, max_delay)
+        if self._event_folder_stop.is_set():
+            return
 
         incident_cfg = (
             self.config.get("vlm_enhanced_sink", {}).get("incident", {}) or {}
@@ -3127,7 +3155,13 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         # no longer lets it re-take its own lease, that would make every
         # ordinary restart wait out a full TTL before folding again, not just
         # the crashes the TTL is there for.
-        folder = getattr(locals().get("enhancer", None), "_event_folder", None)
+        instance = locals().get("enhancer", None)
+        stop = getattr(instance, "_event_folder_stop", None)
+        if stop is not None:
+            # Unblocks the supervisor if it is still backing off waiting for
+            # Elasticsearch; otherwise it sits out the full delay.
+            stop.set()
+        folder = getattr(instance, "_event_folder", None)
         if folder is not None:
             try:
                 folder.stop(timeout=5)

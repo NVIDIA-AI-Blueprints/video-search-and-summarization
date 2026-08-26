@@ -23,6 +23,7 @@ call-assertion mock cannot express them.
 
 from datetime import datetime, timedelta, timezone
 
+import threading
 import time
 
 import pytest
@@ -2833,3 +2834,170 @@ class TestRoutesRecoverWhenElasticsearchReturns:
         routes.get_rule_store()
 
         assert calls["n"] == 2
+
+
+class TestTheSupervisorDoesNotDieSilently:
+    """Everything after the Elasticsearch retry loop runs on a daemon thread.
+    An exception there reaches the default excepthook and ends the thread,
+    leaving an instance that reports healthy and folds nothing for ever."""
+
+    def _enhancer(self):
+        import enhance_alert_with_vlm as entry
+
+        obj = entry.AnomalyEnhancer.__new__(entry.AnomalyEnhancer)
+        obj._event_folder = None
+        obj._event_folder_error = None
+        obj._event_folder_stop = threading.Event()
+        obj.config = {}
+        return obj, entry
+
+    def test_a_failure_is_recorded_rather_than_lost_to_the_excepthook(self):
+        obj, _entry = self._enhancer()
+        obj._run_event_folder_supervisor = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("mapping conflict")
+        )
+
+        obj._event_folder_supervisor({}, {}, 600)
+
+        assert isinstance(obj._event_folder_error, RuntimeError), (
+            "the supervisor died silently; the instance stays healthy and "
+            "folds nothing"
+        )
+        assert obj._event_folder is None
+
+    def test_the_retry_loop_gives_up_when_shutdown_is_signalled(self, monkeypatch):
+        import enhance_alert_with_vlm as entry
+
+        obj, _entry = self._enhancer()
+        attempts = {"n": 0}
+
+        def never_reachable(_config):
+            attempts["n"] += 1
+            if attempts["n"] == 2:
+                obj._event_folder_stop.set()
+            return None
+
+        monkeypatch.setattr(
+            "realtime.services.elastic_factory.build_elastic_client", never_reachable
+        )
+        started = time.monotonic()
+        obj._run_event_folder_supervisor({}, {}, 600)
+
+        assert obj._event_folder is None
+        assert time.monotonic() - started < 5, (
+            "shutdown had to outlast the backoff instead of interrupting it"
+        )
+
+
+class TestOnlyWritableGroupsAreFetched:
+    def test_a_group_whose_evidence_cannot_produce_a_write_is_not_fetched(
+        self, es, folder,
+    ):
+        """An event is written only when its ``end`` reaches the window, and an
+        event ends where its last chunk ends. A group with nothing that late can
+        only be folded into events the write filter discards — so fetching it is
+        one Elasticsearch search per cycle spent to produce nothing."""
+        # cam-2's only chunk ends deep in the lookback zone, before the window.
+        es.client.raw = [
+            chunk(0, sensor="cam-1", offset_s=700),
+            chunk(0, sensor="cam-2", offset_s=100),
+        ]
+        fetched = []
+        real_search = es.client.search
+
+        def watch(**kwargs):
+            query = str(kwargs.get("query"))
+            if not kwargs.get("aggregations"):
+                for cam in ("cam-1", "cam-2"):
+                    if f"'{cam}'" in query or f'"{cam}"' in query:
+                        fetched.append(cam)
+            return real_search(**kwargs)
+
+        es.client.search = watch
+        folder.run_once(now=BASE + timedelta(seconds=800))
+        es.client.search = real_search
+
+        assert "cam-1" in fetched
+        assert "cam-2" not in fetched, (
+            "a group that cannot produce a write was fetched anyway"
+        )
+
+    def test_a_group_straddling_the_window_start_is_still_fetched(self, es, folder):
+        """The filter is on ``end``, not on ``timestamp`` — an event that began
+        in the lookback zone but runs into the window must still be folded."""
+        es.client.raw = [chunk(0, sensor="cam-3", offset_s=180, span_s=60)]
+        folder.run_once(now=BASE + timedelta(seconds=800))
+
+        assert any(
+            e["sensorId"] == "cam-3" for e in stored_events(es).values()
+        ), "an event running into the window was skipped"
+
+
+class TestShutdownIsHonouredImmediately:
+    def test_no_connection_is_attempted_once_shutdown_is_signalled(self, monkeypatch):
+        """The loop condition matters on its own: without it a shutdown that
+        arrives before the first attempt still costs one connection attempt and
+        one backoff before anything notices."""
+        import enhance_alert_with_vlm as entry
+
+        obj = entry.AnomalyEnhancer.__new__(entry.AnomalyEnhancer)
+        obj._event_folder = None
+        obj._event_folder_error = None
+        obj._event_folder_stop = threading.Event()
+        obj.config = {}
+        obj._event_folder_stop.set()
+
+        attempts = {"n": 0}
+
+        def count(_config):
+            attempts["n"] += 1
+            return None
+
+        monkeypatch.setattr(
+            "realtime.services.elastic_factory.build_elastic_client", count
+        )
+        obj._run_event_folder_supervisor({}, {}, 600)
+
+        assert attempts["n"] == 0, (
+            "a shutdown already signalled still cost a connection attempt"
+        )
+        assert obj._event_folder is None
+
+
+class TestStopReturnsTheLease:
+    def test_stopping_releases_the_lease_rather_than_leaving_it_to_lapse(self, es, folder):
+        """The owner is per-process, so a lease left behind locks the next
+        process out for a full TTL on every ordinary restart."""
+        es.client.raw = [chunk(0, offset_s=0)]
+        folder.run_once(now=BASE + timedelta(seconds=120))
+        store = folder._store
+        # A cycle that ended holding the lease, as an interrupted one would.
+        folder._lock_version = store.acquire_lock(folder._owner, ttl_seconds=90)
+        assert folder._lock_version is not None
+        assert "_fold_lock" in es.client.docs[store.index]
+
+        folder.stop(timeout=1)
+
+        assert "_fold_lock" not in es.client.docs[store.index], (
+            "the lease was left for the next process to wait out"
+        )
+        assert folder._lock_version is None
+
+    def test_a_cycle_still_running_keeps_its_lease(self, es, folder):
+        """Taking the lease from a live writer is the failure the lock exists
+        to prevent, so a join that times out leaves it alone."""
+        import threading as _t
+
+        store = folder._store
+        store.ensure_index()
+        folder._lock_version = store.acquire_lock(folder._owner, ttl_seconds=90)
+        blocked = _t.Event()
+        folder._thread = _t.Thread(target=blocked.wait, daemon=True)
+        folder._thread.start()
+
+        folder.stop(timeout=0.1)
+        blocked.set()
+
+        assert "_fold_lock" in es.client.docs[store.index], (
+            "the lease was taken from a cycle that was still running"
+        )

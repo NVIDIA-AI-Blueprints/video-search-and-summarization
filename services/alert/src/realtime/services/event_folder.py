@@ -36,9 +36,18 @@ own.
 would be cheaper, but it narrows how late evidence can arrive and still be
 merged: a chunk older than the last closed event would never be read again, so
 it would belong to no event at all. Per-group scanning already removes the
-document-cap ceiling that the tail optimisation was also solving, and the full
-re-fold measures under one percent of a cycle at the sizes this is built for,
-so the tolerance is worth more than the saving. Evidence arriving up to
+document-cap ceiling that the tail optimisation was also solving, so the
+tolerance is worth more than the saving.
+
+The cost model, stated rather than asserted, because a reader will size a
+deployment on it: one composite-aggregation page per 200 groups, then **one
+sequential search per group with evidence that can still be written**, then one
+bulk write. Latency is linear in group count — cameras times alert types — not
+in chunk volume. At a 15 ms round trip, 600 groups is roughly 9 s of a 30 s
+cycle before Elasticsearch does any work. This has not been measured at fleet
+scale; an overrun shows up as ``alert_bridge_fold_cycles_skipped_total`` rising
+and the last-completed gauge falling behind. Batching the per-group fetches with
+``_msearch`` is the remedy if it becomes one. Evidence arriving up to
 ``fold_window_seconds`` after its event ended is therefore still merged into it.
 
 *Lifecycle travels as an instant, not as a state.* Each document carries
@@ -444,10 +453,28 @@ class RealtimeEventFolder:
         return True
 
     def stop(self, timeout: Optional[float] = None) -> None:
+        """Stop folding and give the lease back.
+
+        Releasing rather than letting it lapse: the owner is per-process, so a
+        lease left behind locks the next process out for a full TTL on every
+        ordinary restart. If the join times out the cycle is still running and
+        owns the lease, so it is left alone — taking it from a live writer is
+        the failure the lock exists to prevent.
+        """
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
+            still_running = self._thread.is_alive()
             self._thread = None
+            if still_running:
+                logger.warning(
+                    "Fold thread did not finish within the shutdown window; "
+                    "leaving its lease to expire"
+                )
+                return
+        if self._lock_version is not None:
+            self._store.release_lock(self._owner, self._lock_version)
+            self._lock_version = None
 
     def _run(self) -> None:
         """Fold on a fixed cadence, counting the ticks a slow cycle costs.
@@ -566,7 +593,7 @@ class RealtimeEventFolder:
         # events are written for. A group whose only recent chunk predates the
         # window still owns an event that ends inside it, and enumerating on
         # the narrower range would drop that group's fold entirely.
-        groups, groups_complete = self._groups(fetch_iso, end_iso)
+        groups, groups_complete = self._groups(fetch_iso, end_iso, _iso(window_start))
         if not groups_complete:
             # Some of the fleet was never walked. Purging and publishing
             # freshness now would report a partial cycle as a whole one.
@@ -748,7 +775,9 @@ class RealtimeEventFolder:
     # Pieces
     # ------------------------------------------------------------------
 
-    def _groups(self, start_iso: str, end_iso: str) -> Tuple[List[Tuple[str, str]], bool]:
+    def _groups(
+        self, start_iso: str, end_iso: str, writable_from_iso: str,
+    ) -> Tuple[List[Tuple[str, str]], bool]:
         """Every (sensorId, category) with foldable evidence in the range.
 
         A composite aggregation rather than ``terms``: it pages without a size
@@ -757,11 +786,19 @@ class RealtimeEventFolder:
         Returns the groups and whether the walk finished. A partial walk is not
         a smaller fleet — it is an unknown one, and the caller has to be able to
         tell those apart before it purges anything or publishes the cycle.
+
+        Only groups that can produce a write are enumerated. An event is written
+        when its ``end`` is at or after ``writable_from_iso``, and an event ends
+        where its last chunk ends — so a group with no chunk ending that late
+        can only be folded into events the write filter discards. Skipping those
+        removes one Elasticsearch search per group per cycle across the whole
+        lookback-only tail, which is the cost that scales with fleet size.
         """
         query = {
             "bool": {
                 "must": realtime_confirmed_clauses() + [
                     {"range": {"timestamp": {"gte": start_iso, "lte": end_iso}}},
+                    {"range": {"end": {"gte": writable_from_iso}}},
                 ]
             }
         }
