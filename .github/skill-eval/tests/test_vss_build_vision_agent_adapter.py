@@ -45,5 +45,5 @@ def test_a40_task_carries_per_gpu_fleet_metadata(tmp_path):
 
     task = tomllib.loads((output / "profile_in_1" / "a40" / "task.toml").read_text())
     assert task["metadata"]["gpu_count"] == 2
-    assert task["metadata"]["min_vram_gb_per_gpu"] == 48
+    assert task["metadata"]["min_vram_gb_per_gpu"] == 46
     assert task["metadata"]["min_root_disk_gb"] == 220

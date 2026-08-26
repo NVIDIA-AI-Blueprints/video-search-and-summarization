@@ -79,7 +79,7 @@ PLATFORMS: dict[str, dict] = {
         "short_name": "a40",
         "gpu_type": "NVIDIA A40",
         "gpu_count": 1,
-        "min_vram_per_gpu": 48,
+        "min_vram_per_gpu": 46,
         "brev_search": "A40",
         "min_root_disk_gb": 220,
     },

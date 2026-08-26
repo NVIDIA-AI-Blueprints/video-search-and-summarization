@@ -174,7 +174,9 @@ OPENSHELL_A40_LABELS: tuple[str, ...] = (
     "a40",
     "gpu-a40",
     "gpu-nvidia-a40",
-    "vram-48gb",
+    # Measured usable VRAM is 46068 MiB. run_leg compares nvidia-smi MiB
+    # against min_vram_gb*1000, so 48 GB does not fit; do not advertise 48.
+    "vram-46gb",
     "video-codec",
     "openshell-a40-active",
 )
@@ -228,11 +230,11 @@ OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
         (*OPENSHELL_A16_LABELS, "gpus-1"),
     ),
     OpenShellCohort(
-        "a40-1g", "A40", "A40", 1, 48, 4,
+        "a40-1g", "A40", "A40", 1, 46, 4,
         (*OPENSHELL_A40_LABELS, "gpus-1"),
     ),
     OpenShellCohort(
-        "a40-2g", "A40", "A40", 2, 48, 2,
+        "a40-2g", "A40", "A40", 2, 46, 2,
         (*OPENSHELL_A40_LABELS, "gpus-2"),
     ),
     OpenShellCohort(
@@ -540,7 +542,7 @@ def select_openshell_cohort(
             continue
         demand = requirements["gpu_count"]
         # A two-GPU VM may run a one-GPU large/Blackwell workload, but two
-        # 48 GB GPUs never satisfy a >48 GB-per-GPU requirement.
+        # 46 GB GPUs never satisfy a >46 GB-per-GPU requirement.
         if demand > cohort.gpu_count:
             continue
         if requirements["min_vram_gb_per_gpu"] > cohort.vram_gb_per_gpu:
