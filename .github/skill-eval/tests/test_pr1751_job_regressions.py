@@ -203,9 +203,9 @@ def test_openshell_matrix_routes_a16_a40_and_rtx_without_duplicates() -> None:
     assert len({leg["slug"] for leg in lvs}) == len(lvs)
 
     assert len(compatible) == 1
-    assert compatible[0]["platform"] == "A16"
-    assert compatible[0]["cohort"] == "a16-1g"
-    assert "gpus-1" in compatible[0]["runs_on"]
+    assert compatible[0]["kind"] == "not_run_infra_acquisition"
+    assert compatible[0]["cohort"] == "blocked"
+    assert "BLOCKED_NO_COMPATIBLE_COHORT" in compatible[0]["skip_reason"]
 
     assert len(two_gpu) == 1
     assert two_gpu[0]["platform"] == "A40"
