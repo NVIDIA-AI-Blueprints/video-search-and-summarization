@@ -13,9 +13,10 @@ port `7777`) behind a host-header allowlist. It is infrastructure, not a
 capability producer — it only routes to owners the build already deploys. Two
 independent uses: (a) the interactive tier's public front door (UI + agent);
 (b) a single origin for a headless build, fronting its **browse** and host-CLI
-**operate** surfaces (detailed below). It is reached only when the request asks
-to expose surfaces through one origin; otherwise it is pruned. NvStreamer is
-never fronted here (see below).
+**operate** surfaces (detailed below). It is always included — never offered as a
+choice and never pruned (`SKILL.md`): the `vss` CLI takes no endpoint and reaches
+every backend through this origin (`AGENTS.md`), so a build without it is
+unreachable from the host CLI. NvStreamer is never fronted here (see below).
 
 ## Required peers
 
@@ -30,19 +31,24 @@ never fronted here (see below).
 
 ## Headless single-origin ingress
 
-This section applies only when the build includes `vss-haproxy-ingress`. A
-headless build that exposes no single origin prunes the proxy (see Access role)
-and produces no curated patch — do not reach for it when no service-definition
-change to the ingress is needed.
+Every build includes `vss-haproxy-ingress`, and by default it runs the **stock**
+`haproxy.cfg.template` with no patch: the build does not curate the route table.
+Which routes a deployment can actually serve is discovered at runtime by
+`vss configure`, which probes the origin and records what answered — a route whose
+backend was pruned returns `503` and is recorded as absent. Curate only when the
+caller explicitly asks to restrict the origin to a named set of surfaces;
+otherwise a `patches/vss-haproxy-ingress.yml` is an unrequested service-definition
+change.
 
 The shipped `haproxy.cfg.template` is authored for the full stack: its catch-all
 plus the `/api/chat`, `/chat`, `/static`, `/websocket`, `/phoenix`, and `/va-mcp`
-routes target the interactive tier that a headless build prunes. Two headless
-modes, not interchangeable — **default to the curated patch** when the build
-exposes a chosen set of surfaces through one origin (a "single ingress" request,
-or any named-surface list). It is a build-generation artifact, so a validate-only
-pass is no reason to skip it. Use as-is only when the caller explicitly accepts
-advertised dead routes and a `503` `/` landing.
+routes target the interactive tier that a headless build prunes. Two modes, not
+interchangeable — **default to the stock template**: every backend uses
+`init-addr none`, so the proxy starts whatever is missing, a pruned backend's
+route simply `503`s, and `/` lands on `503` rather than Kibana. Reach for the
+curated patch only when the caller asks to restrict the origin to a named set of
+surfaces (a "single ingress" request, or any named-surface list); it is then a
+build-generation artifact, so a validate-only pass is no reason to skip it.
 
 **Curate by consumer class, not by profile.** Retain, for the backends the build
 deploys, the routes each consumer of the origin needs:
@@ -53,13 +59,14 @@ deploys, the routes each consumer of the origin needs:
 | Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
 
 The operate set is the read-path subset of what `vss configure` probes to resolve
-a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
-headless build **must** carry it — post-#1469 `vss search run` takes no endpoints,
-so a build missing these routes is **unqueryable from the host CLI** (no
-ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
-make it queryable — an ingestion/indexing-only build that requests no read surface
-prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`, but RT-VLM is
-host-port resolved and deliberately **not** fronted here — it records `absent`,
+a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). Every build
+carries it, because the stock template already does — post-#1469 `vss search run`
+takes no endpoints, so a build missing these routes is **unqueryable from the host
+CLI** (no ingress-less read path), and that applies to an ingestion/indexing-only
+build too: `vss vios` is how its media plane is driven. A curated config that drops
+one of these routes takes that away, which is why curation waits for an explicit
+request. `vss configure` also probes `/rtvi-vlm`, but RT-VLM is host-port
+resolved and deliberately **not** fronted here — it records `absent`,
 which is expected and harmless because no read path consumes it. Do not add the
 route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
 through HAProxy.

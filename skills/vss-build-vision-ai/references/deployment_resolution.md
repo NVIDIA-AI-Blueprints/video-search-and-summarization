@@ -239,7 +239,7 @@ runtime `generated.env` from the profile deploy workflow.
 
 ```bash
 VSS_ORIGIN="${VSS_ORIGIN:-http://${HOST_IP:-127.0.0.1}:${HAPROXY_HOST_PORT:-7777}}"
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss)
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
 
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN}"
 DEPLOYMENT=$("${VSS[@]}" configure show)

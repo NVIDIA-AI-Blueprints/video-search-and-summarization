@@ -33,11 +33,13 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 `redis` is a shared peer used by this profile graph (see `services/elk.md` for
 when it is retained).
 
-`vss-haproxy-ingress` is the optional single-origin front door: retain it only
-when the Agent/UI tier is present or the request explicitly asks to expose
-surfaces through one browse origin; otherwise prune it (headless clients reach
-each backend on its own port). See `services/ingress.md`. When it is ambiguous
-whether a browse origin is wanted, ask rather than silently retaining it.
+`vss-haproxy-ingress` is always-included infrastructure, not a capability to
+offer or prune (`SKILL.md`). The `vss` CLI takes no endpoint and reaches every
+deployed backend through this one origin (`AGENTS.md`), so a build without it is
+unreachable from the host CLI. Retain it with the stock `haproxy.cfg.template`:
+routes to services the build prunes return `503`, and that is exactly what
+`vss configure` reads to decide what the deployment can serve. See
+`services/ingress.md`.
 
 ## Profile-specific environment knobs
 

@@ -26,7 +26,7 @@
         "All long-running selected containers are running or healthy, and all selected one-shot initialization containers exit 0.",
         "`curl -sf http://localhost:${RTVI_CV_HOST_PORT:-9010}/api/v1/ready` returns HTTP 200 with `ready-info.ds-ready=YES`.",
         "RT-CV and Behavior Analytics publish candidate alerts, `alert-bridge` can retrieve the corresponding VIOS clip, and the verifier records a verdict of `confirmed`, `rejected`, or `unverified` in Elasticsearch and Kafka.",
-        "The VSS Agent, video-analytics MCP, alert API, VIOS playback API, and Elasticsearch health endpoints respond successfully.",
+        "The VSS Agent, video-analytics MCP, alert API, and Elasticsearch health endpoints respond successfully, and VIOS answers through the repository-local `vss` CLI (`vss configure --base-url http://localhost:${HAPROXY_HOST_PORT:-7777}` then `vss vios list`) rather than a raw VIOS REST probe — the CLI comes from `uv run --project {{repo_root}}/services/agent --no-dev --extra cli vss`, never a globally installed `vss`.",
         "The final response identifies `alerts` as the Foundation, reports the effective service delta and changed environment knobs, and includes evidence for the alert-verification round trip."
       ]
     }
