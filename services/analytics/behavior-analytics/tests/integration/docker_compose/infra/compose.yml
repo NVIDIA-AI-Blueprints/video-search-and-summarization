@@ -132,23 +132,6 @@ services:
       - $MDX_DATA_DIR/data_log/redis/data:/data
       - $MDX_DATA_DIR/data_log/redis/log:/log
 
-  redis-kafka-bridge:
-    build:
-      context: $MDX_SAMPLE_APPS_DIR/infra
-      dockerfile: Dockerfiles/Dockerfile.redisbridge
-    depends_on:
-      - logstash
-      - redis
-    environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BROKERS: kafka:29092
-      KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
-      STARTUP_DELAY: 50
-    container_name: mdx-bridge
-    restart: always
-    profiles: ["redis"]
-
   emqx:
     image: emqx:latest
     profiles: ["mqtt"]
@@ -176,15 +159,16 @@ services:
   broker-health-check:
     build:
       context: $INFRA_DIR
-      dockerfile: Dockerfiles/kafka-health-check.Dockerfile
+      dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
     image: mdx-broker-health-check
     container_name: mdx-broker-health-check
     restart: "no"
     environment:
       MAX_RETRIES: 60
       RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: "kafka"
+      BOOTSTRAP_HOST: "${STREAM_TYPE}"
       KAFKA_PORT: "29092"
+      REDIS_PORT: "6379"
       KAFKA_TOPICS: '[{"name": "mdx-raw"},
         {"name": "mdx-bev"},
         {"name": "mdx-behavior"},
@@ -219,11 +203,16 @@ services:
       - mdx-logstash-libs:/opt/logstash-data-libs
       - $INFRA_DIR/elk/logstash/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
       - $INFRA_DIR/elk/logstash/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
+      # The redis pipeline decodes via descriptors rather than the ruby classes.
+      - $INFRA_DIR/elk/logstash/pb_definitions/descriptors/ext.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/ext.desc
+      - $INFRA_DIR/elk/logstash/pb_definitions/descriptors/schema.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/schema.desc
       - $INFRA_DIR/elk/logstash/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
-      - $INFRA_DIR/elk/logstash/pipelines/kafka/:/usr/share/logstash/pipelines/:ro
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
+      - $INFRA_DIR/elk/logstash/pipelines/${STREAM_TYPE}/:/usr/share/logstash/pipelines/:ro
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/pipelines-${STREAM_TYPE}.yml:/usr/share/logstash/config/pipelines.yml:ro
+      - $INFRA_DIR/elk/logstash/gems/logstash-input-redis_stream-3.3.0-java.gem:/usr/share/logstash/gems/logstash-input-redis_stream-java.gem
     environment:
       LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
+      STREAM_TYPE: "${STREAM_TYPE}"
     container_name: mdx-logstash
     restart: always
     depends_on:
@@ -235,7 +224,13 @@ services:
       bash -c "
         echo 'Installing gems for mdx-apps.. This may take sometime to install plugins...' &&
         ls -al /opt/logstash-data-libs/ &&
-        /usr/share/logstash/bin/logstash-plugin install logstash-codec-protobuf &&
+        if [ \"$$STREAM_TYPE\" = 'redis' ]; then
+          echo 'Installing Redis stream input plugin...' &&
+          /usr/share/logstash/bin/logstash-plugin install /usr/share/logstash/gems/logstash-input-redis_stream-java.gem;
+        else
+          echo 'Installing protobuf codec plugin...' &&
+          /usr/share/logstash/bin/logstash-plugin install logstash-codec-protobuf;
+        fi &&
         echo 'Installed gems for logstash plugins' &&
         /usr/local/bin/docker-entrypoint"
 

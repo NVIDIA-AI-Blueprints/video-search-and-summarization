@@ -51,6 +51,13 @@ else
     APP_DIR="$APP_NAME"
 fi
 
+# Logstash reads whichever broker the app writes to. mqtt is bridged into kafka.
+if [[ "$PROFILE2" = "redis" ]]; then
+    STREAM_TYPE="redis"
+else
+    STREAM_TYPE="kafka"
+fi
+
 # Set PLAYBACK_MODE based on profile: '--playback-from-json' for 'smart_city', empty otherwise
 if [[ "$APP_NAME" = "smart_city" ]]; then
     PLAYBACK_MODE="--playback-from-json"
@@ -80,6 +87,11 @@ APP_DIR="$APP_DIR"
 
 # Streaming service from PROFILE2: $PROFILE2
 STREAMING_SERVICE="$PROFILE2"
+
+# Which broker logstash consumes from, selecting the shared pipeline set in
+# deploy/docker/services/infra/elk/logstash/pipelines/. The mqtt profile bridges
+# into kafka, so only the redis profile changes the pipeline.
+STREAM_TYPE="$STREAM_TYPE"
 
 # Playback mode configuration
 PLAYBACK_MODE="$PLAYBACK_MODE"
