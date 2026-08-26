@@ -665,6 +665,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
             "slug": f"{meta['skill']}__{meta['spec_stem']}__blocked",
             "name": f"{meta['skill']} · {meta['spec_stem']} · BLOCKED",
             "runs_on": list(SKIP_RUNNER),
+            "local_gpu": False,
         })
 
     for skill in sorted(by_skill):
@@ -686,6 +687,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     if os.environ.get("OPENSHELL_GPU_FLEET")
                     else list(BASE_LABELS)
                 ),
+                "local_gpu": False,
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
@@ -721,6 +723,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "min_vram_gb_per_gpu": (
                         requirements["min_vram_gb_per_gpu"]
                     ),
+                    "local_gpu": True,
                 })
                 continue
 
@@ -740,6 +743,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
                     "runs_on": labels,
+                    "local_gpu": False,
                 })
     if os.environ.get("OPENSHELL_GPU_FLEET") and not include:
         # Harness-only diffs (no skills/ files) still need a GPU canary.
@@ -771,6 +775,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "slug": f"{skill}__no-eligible-openshell-platform",
                     "name": f"{skill} · NOT_RUN_INFRA_ACQUISITION",
                     "runs_on": list(SKIP_RUNNER),
+                    "local_gpu": False,
                 })
         else:
             smoke_meta = {
@@ -809,6 +814,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                         "min_vram_gb_per_gpu": (
                             requirements["min_vram_gb_per_gpu"]
                         ),
+                        "local_gpu": True,
                     })
     return include
 

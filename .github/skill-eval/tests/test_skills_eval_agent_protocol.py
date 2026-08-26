@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from enum import Enum
+import asyncio
 import fnmatch
 import importlib.util
 import os
@@ -323,6 +324,34 @@ def _assert_delegates(prompt: str) -> None:
 def test_pr_leg_prompt_delegates_rendering() -> None:
     _assert_delegates(skills_eval_agent.build_user_prompt(
         **_LEG, pr_number="1780", manual=False, daily_run=False))
+
+
+def test_local_gpu_prompt_forbids_brev_pool_selection(monkeypatch) -> None:
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_GPU_INSTANCE", "h200-2-g10-6bf27366")
+    prompt = skills_eval_agent.build_user_prompt(
+        **_LEG, pr_number="1751", manual=False, daily_run=False
+    )
+    assert "h200-2-g10-6bf27366" in prompt
+    assert "Do NOT call `brev`" in prompt
+    assert "select a `vss-eval-*` member" not in prompt
+
+
+def test_local_gpu_hook_denies_brev(monkeypatch) -> None:
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_GPU_INSTANCE", "h200-1")
+
+    async def hook(cmd: str):
+        return await skills_eval_agent._block_bash_background(
+            {"tool_name": "Bash", "tool_input": {"command": cmd}},
+            "tool-1",
+            None,
+        )
+
+    denied = asyncio.run(hook("brev ls --json"))
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
+    allowed = asyncio.run(
+        hook("python3 .github/skill-eval/run_leg.py --dataset-root /tmp/ds")
+    )
+    assert allowed == {}
 
 
 def test_nightly_leg_prompt_delegates_rendering() -> None:
