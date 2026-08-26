@@ -69,7 +69,8 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.imagePullSecrets }}
+      {{- $ips := .Values.imagePullSecrets | default (index (.Values.global | default dict) "imagePullSecrets") }}
+      {{- with $ips }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

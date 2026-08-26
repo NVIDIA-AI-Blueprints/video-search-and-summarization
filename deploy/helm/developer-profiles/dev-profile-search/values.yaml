@@ -339,6 +339,10 @@ rtvi:
   vss-rtvi-embed:
     enabled: true
     replicas: 1
+    # rtvi-embed accepts a per-chart pull-secret list; retain the profile-wide
+    # NGC secret here as an explicit safeguard for private managed images.
+    imagePullSecrets:
+      - name: ngc-docker-reg-secret
     # Shared managed-image channel. Global container_prefix/container_tag values
     # select a promoted image without changing this profile.
     # SBSA/DGX-Spark shares the GHCR repository but needs its separate build
