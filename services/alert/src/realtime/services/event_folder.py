@@ -615,7 +615,14 @@ class RealtimeEventFolder:
             # at a document that was never created is a reference that resolves
             # to nothing, which is worse than one that resolves to the old id.
             landed = set(written)
-            live_aliases = [(old, new) for old, new in aliases if new in landed]
+            # The alias ages out with the event it points at, so it carries
+            # that event's end rather than the time it was minted.
+            ends = {str(e.get("Id")): str(e.get("end") or "") for e in events}
+            live_aliases = [
+                (old, new, ends.get(new, ""))
+                for old, new in aliases
+                if new in landed and ends.get(new)
+            ]
             if live_aliases:
                 result.aliases += self._store.write_aliases(live_aliases)
             result.events += len(written)

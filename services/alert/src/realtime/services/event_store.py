@@ -54,10 +54,6 @@ _ALIAS_PREFIX = "_alias-"
 _ALIAS_MAX_HOPS = 8
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
 def _parse_iso(value: Any) -> Optional[float]:
     """Epoch seconds for an ISO-8601 instant, or None if it is not one."""
     if not value:
@@ -599,7 +595,7 @@ class RealtimeEventStore:
             next_cursor = (str(last_sort[0]), str(last_sort[1]))
         return events, next_cursor, total_value, capped
 
-    def write_aliases(self, pairs: Sequence[Tuple[str, str]]) -> int:
+    def write_aliases(self, pairs: Sequence[Tuple[str, str, str]]) -> int:
         """Point superseded ids at whatever absorbed them.
 
         Identity is derived from content, so it moves when earlier evidence
@@ -609,20 +605,22 @@ class RealtimeEventStore:
         alias is the reconciliation: the identity stays a pure function of the
         evidence, and the old reference still resolves.
 
-        Stored in the same index, tagged as internal so no read returns it.
+        Stored in the same index, tagged as internal so no read returns it, and
+        carrying the **target's** ``end`` rather than the current time — so the
+        reaper takes the alias in the same sweep as the event it points at. An
+        alias stamped with "now" outlives its target by the whole retention
+        period, leaving a reference that resolves to a document that is gone.
         """
         if not pairs:
             return 0
         body: List[dict] = []
-        for old_id, new_id in pairs:
+        for old_id, new_id, end_iso in pairs:
             body.append({"index": {"_index": self._index, "_id": _ALIAS_PREFIX + str(old_id)}})
             body.append({
                 _DOC_KIND_FIELD: "alias",
                 "from": str(old_id),
                 "to": str(new_id),
-                # Reaped on the same clock as the events themselves; an alias
-                # outliving what it points at is a reference to nothing.
-                "end": _now_iso(),
+                "end": end_iso,
             })
         try:
             resp = self._es.client.bulk(operations=body, refresh=False)

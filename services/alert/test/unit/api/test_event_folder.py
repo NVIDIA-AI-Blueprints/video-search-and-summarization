@@ -2984,26 +2984,48 @@ class TestAliasesCarryOldReferences:
 
         assert folder._store.resolve("evt-never-existed") == (None, None)
 
-    def test_an_alias_does_not_outlive_the_events_it_points_at(self, es, folder):
-        """A reference resolving to a document retention has removed is a
-        dangling pointer with extra steps."""
+    def test_an_alias_is_never_reaped_later_than_its_target(self, es):
+        """The ordering is the point, so the cutoff has to fall between them.
+
+        An alias stamped with the time it was minted outlives an event that
+        ended long ago by the whole retention period, leaving a reference that
+        resolves to a document retention has already removed. Purging with a
+        far-future cutoff removes both and proves nothing.
+        """
+        store = RealtimeEventStore(es, rewrite_horizon_seconds=960)
+        store.ensure_index()
+        long_ago = BASE - timedelta(days=10)
+        store.upsert([{
+            "Id": "evt-new", "sensorId": "cam-1", "category": "alert",
+            "timestamp": iso(long_ago), "end": iso(long_ago), "createdAt": iso(long_ago),
+        }])
+        store.write_aliases([("evt-old", "evt-new", iso(long_ago))])
+        docs = es.client.docs[store.index]
+        assert "_alias-evt-old" in docs and "evt-new" in docs
+
+        # A cutoff the event falls behind but a "minted now" alias would not.
+        store.purge_older_than(iso(BASE - timedelta(days=7)))
+
+        docs = es.client.docs[store.index]
+        assert "evt-new" not in docs, "the event should have been reaped"
+        assert "_alias-evt-old" not in docs, (
+            "the alias outlived its target, so the reference it carries now "
+            "resolves to a document that is gone"
+        )
+
+    def test_the_alias_a_fold_writes_carries_the_events_end(self, es, folder):
         es.client.raw = [chunk(1, offset_s=100)]
         folder.run_once(now=BASE + timedelta(seconds=200))
         es.client.raw.insert(0, chunk(0, offset_s=60))
         folder.run_once(now=BASE + timedelta(seconds=220))
-        store = folder._store
-        assert any(
-            v.get("_docKind") == "alias"
-            for v in es.client.docs[store.index].values()
+
+        docs = es.client.docs[folder._store.index]
+        alias = next(v for v in docs.values() if v.get("_docKind") == "alias")
+        target = docs[alias["to"]]
+        assert alias["end"] == target["end"], (
+            "the alias was stamped with the time it was minted, not with the "
+            "end of the event it points at"
         )
-
-        store.purge_older_than(iso(BASE + timedelta(days=3650)))
-
-        assert not any(
-            v.get("_docKind") == "alias"
-            for v in es.client.docs[store.index].values()
-        ), "aliases outlived the events they point at"
-        assert "_fold_lock" not in es.client.docs[store.index] or True
 
 
 class TestEventByIdEndpoint:
@@ -3112,8 +3134,8 @@ class TestAliasChainIsBounded:
         }])
         hops = module._ALIAS_MAX_HOPS + 2
         store.write_aliases(
-            [(f"evt-{i}", f"evt-{i + 1}") for i in range(hops)]
-            + [(f"evt-{hops}", "evt-final")]
+            [(f"evt-{i}", f"evt-{i + 1}", iso(BASE)) for i in range(hops)]
+            + [(f"evt-{hops}", "evt-final", iso(BASE))]
         )
 
         assert store.resolve(f"evt-{hops}") == (
@@ -3130,7 +3152,7 @@ class TestAliasChainIsBounded:
             "Id": "evt-final", "sensorId": "cam-1", "category": "alert",
             "timestamp": iso(BASE), "end": iso(BASE), "createdAt": iso(BASE),
         }])
-        store.write_aliases([("evt-a", "evt-b"), ("evt-b", "evt-final")])
+        store.write_aliases([("evt-a", "evt-b", iso(BASE)), ("evt-b", "evt-final", iso(BASE))])
 
         resolved, requested = store.resolve("evt-a")
 
