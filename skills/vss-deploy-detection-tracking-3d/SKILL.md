@@ -1,19 +1,14 @@
 ---
 name: vss-deploy-detection-tracking-3d
 description: >
-  Use when deploying or operating standalone RTVI-CV-3D / MV3DT multi-camera
-  3D tracking for calibrated MP4/file inputs and live RTSP streams:
-  missing-calibration handoff to AMC skills, the 4-camera sample dataset,
-  camera config, BEV Fusion, live OSD or saved grid/BEV outputs, bundled
-  brokers, basic external MQTT/Kafka brokers, verification, and teardown.
-  Trigger for generic MV3DT, RTVI-CV-3D, multi-view 3D tracking, multi-cam
-  tracking, or sample MV3DT dataset requests. Requests for the full
-  VIOS-backed "mc-tracking" developer profile (with VST/nvstreamer,
-  bp-configurator, behavior analytics, and a Kibana/Video-Analytics-API UI),
-  or for the warehouse blueprint/profile, route to vss-deploy-profile;
-  single-camera 2D tracking routes to the 2D tracking or DeepStream skills.
-  Not for full warehouse blueprint deployment, single-camera 2D tracking,
-  camera calibration itself, or VSS summarization, Q&A, and RAG workflows.
+  Use when deploying or operating the standalone RTVI-CV-3D / MV3DT stack for
+  calibrated files or live RTSP, especially explicit standalone/core, OSD,
+  saved grid/BEV output, no-VIOS/no-VST, or sample standalone requests. Covers
+  AMC handoff, camera config, BEV Fusion, brokers, verification, and teardown.
+  Generic MCT setup or custom multi-camera-tracking application requests route
+  to vss-build-vision-ai. Requests to deploy the checked-in "mc-tracking"
+  developer profile as shipped route to vss-deploy-profile; single-camera 2D
+  tracking routes to the 2D tracking or DeepStream skills.
 license: Apache-2.0
 metadata:
   author: NVIDIA
@@ -27,7 +22,9 @@ metadata:
 ## When to Use This Skill
 
 Deploy the standalone RT-CV-3D MV3DT stack from `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
-This is the default path for MV3DT / RTVI-CV-3D / multi-camera tracking requests.
+Use this path when the user explicitly asks for standalone/core MV3DT,
+RTVI-CV-3D, OSD or saved output, or a deployment without VIOS/VST. Route a
+generic or customized MCT application request to `vss-build-vision-ai`.
 
 **`mc-tracking` developer profile is a separate, third path** — not this
 skill's standalone stack, and not the warehouse industry profile. It's the
@@ -162,4 +159,5 @@ Follow these stages for deployment work:
 
 - `vss-generate-video-calibration` owns AMC deployment and calibration from local MP4s or RTSP streams.
 - `vss-manage-video-io-storage` is used only to bring up or verify VIOS when RTSP calibration needs VIOS and it is not already deployed.
+- `vss-build-vision-ai` owns generic MCT setup and capability-driven or customized MCT application requests.
 - `vss-deploy-profile` owns full warehouse blueprint deployments and the `mc-tracking` developer profile.
