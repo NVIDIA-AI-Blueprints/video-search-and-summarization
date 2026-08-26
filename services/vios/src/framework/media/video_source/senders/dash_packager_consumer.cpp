@@ -380,17 +380,35 @@ void DashPackagerConsumer::stop()
     GstElement* pipeline = nullptr;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_videoAppsrc != nullptr)
+        /* End of stream asks the muxer to finalize, and finalizing means
+         * describing the media - its codec, its resolution - in the manifest.
+         * A session torn down before its first frame arrived never negotiated
+         * caps, so there is nothing to describe: asking anyway walks the
+         * muxer through a finalize whose every field is absent.  Nothing was
+         * written, so there is nothing to finish either. */
+        const bool wroteMedia = m_videoTimeline.framesPushed > 0 || m_audioTimeline.framesPushed > 0;
+        if (wroteMedia)
         {
-            gst_app_src_end_of_stream(GST_APP_SRC(m_videoAppsrc));
+            if (m_videoAppsrc != nullptr)
+            {
+                gst_app_src_end_of_stream(GST_APP_SRC(m_videoAppsrc));
+            }
+            if (m_audioAppsrc != nullptr)
+            {
+                gst_app_src_end_of_stream(GST_APP_SRC(m_audioAppsrc));
+            }
+            if (m_pipeline != nullptr)
+            {
+                pipeline = GST_ELEMENT(gst_object_ref(m_pipeline));
+            }
         }
-        if (m_audioAppsrc != nullptr)
+        else if (m_pipeline != nullptr)
         {
-            gst_app_src_end_of_stream(GST_APP_SRC(m_audioAppsrc));
-        }
-        if (m_pipeline != nullptr)
-        {
-            pipeline = GST_ELEMENT(gst_object_ref(m_pipeline));
+            /* Only worth saying when there is still a pipeline to finalize.
+             * Tearing down resets the counters, so a second stop looks exactly
+             * like a session that never received a frame. */
+            LOG(info) << "DASH packager for " << m_config.streamToken
+                      << " stopped before any frame arrived; skipping the muxer finalize" << endl;
         }
     }
     if (pipeline != nullptr)
