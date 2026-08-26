@@ -226,4 +226,4 @@ cat "${CONFIG_DIR}/ds-mc-tracking-tracker-config.yml"
 echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MC-Tracking)..."
 echo -e "\nMain config:"
 cat "${CONFIG_DIR}/ds-main-config-mc-tracking.txt"
-exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mc-tracking.txt" -m 1 -t 0 -l 5 --message-rate 1
+exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mc-tracking.txt" -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid

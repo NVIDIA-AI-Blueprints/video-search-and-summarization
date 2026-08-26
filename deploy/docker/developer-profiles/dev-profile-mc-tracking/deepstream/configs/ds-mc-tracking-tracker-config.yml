@@ -7,6 +7,7 @@ BaseConfig:
 
 TargetManagement:
   enableBboxUnClipping: 1
+  outputVisibility: 1
   preserveStreamUpdateOrder: 0
   maxTargetsPerStream: 200
   minIouDiff4NewTarget: 0.33485659954800495
@@ -15,6 +16,9 @@ TargetManagement:
   maxShadowTrackingAge: 131
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
+
+TrajectoryManagement:
+  reidExtractionInterval: 8
 
 DataAssociator:
   dataAssociatorType: 0
@@ -80,3 +84,42 @@ Communicator:
   communicatorType: 2
   pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
   mqttProtoAdaptorConfigPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_mqtt.txt
+
+ReID:
+  reidType: 2    # The type of reid among { DUMMY=0, NvDEEPSORT=1, Reid based reassoc=2, both NvDEEPSORT and reid based reassoc=3}
+  debugVerboseLevel: 0
+
+  # [Reid Network Info]
+  batchSize: 64    # Batch size of reid network
+  workspaceSize: 1000    # Workspace size to be used by reid engine, in MB
+  reidFeatureSize: 1280    # Size of reid feature
+  reidHistorySize: 100    # Max number of reid features kept for one object
+  inferDims: [3, 256, 128]    # Reid network input dimension CHW or HWC based on inputOrder
+  networkMode: 0    # Reid network inference precision mode among {fp32=0, fp16=1, int8=2 }
+
+  # [Input Preprocessing]
+  inputOrder: 0    # Reid network input order among { NCHW=0, NHWC=1 }. Batch will be converted to the specified order before reid input.
+  colorFormat: 0    # Reid network input color format among {RGB=0, BGR=1 }. Batch will be converted to the specified color before reid input.
+  offsets: [127.5, 127.5, 127.5]    # Array of values to be subtracted from each input channel, with length equal to number of channels
+  netScaleFactor: 0.007843    # Scaling factor for reid network input after substracting offsets = 2.0/255
+  keepAspc: 0    # Whether to keep aspc ratio when resizing input objects for reid
+  useVPICropScaler: 1 # Use VPI for image cropping and rescaling
+  outputReidTensor: 1
+
+  # [Output Postprocessing]
+  addFeatureNormalization: 1       # If reid feature is not normalized in network, adding normalization on output so each reid feature has l2 norm equal to 1
+  minVisibility4GalleryUpdate: 0.6 # Add ReID embedding to the gallery only if the visibility is not lower than this
+
+  # [Paths and Names]
+  onnxFile: "/opt/storage/reid/reid_model.onnx" # NVIDIA TAO model path
+  tltModelKey: "nvidia_tao" # NVIDIA TAO model key
+  modelEngineFile: "/opt/storage/reid/reid_model.onnx_b64_gpu0_fp32.engine"
+
+ReIDService:
+  reidServiceType: 0
+  enableBlocking: 0
+  debugVerboseLevel: 0
+  serviceAddress: "127.0.0.1"
+  servicePort: 8000
+  operateOnClassIds: [0]
+
