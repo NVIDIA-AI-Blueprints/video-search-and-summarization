@@ -20,8 +20,13 @@
 #include "logger.h"
 
 #include <gst/app/gstappsrc.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <climits>
+#include <cstdlib>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <iterator>
 #include <system_error>
@@ -437,6 +442,9 @@ void DashPackagerConsumer::stop()
 
     std::lock_guard<std::mutex> lock(m_mutex);
     destroyPipeline();
+    // Before cleanupOutput: the descriptors are matched by path, and the paths
+    // stop existing the moment the directory is removed.
+    closeLeakedFragmentDescriptors();
     cleanupOutput();
     if (!m_hasError.load())
     {
@@ -454,6 +462,84 @@ void DashPackagerConsumer::sendEOS()
     if (m_audioAppsrc != nullptr)
     {
         gst_app_src_end_of_stream(GST_APP_SRC(m_audioAppsrc));
+    }
+}
+
+void DashPackagerConsumer::closeLeakedFragmentDescriptors()
+{
+    /* Scoped to this session's own directory, which carries a uuid: no other
+     * session, and nothing else in the process, can have a descriptor open
+     * under it.  Only reached once the pipeline is destroyed, so nothing of
+     * ours is still writing.  A descriptor still open here belongs to a stream
+     * object the sink leaked, and a leaked object is never finalized - which
+     * is what makes closing it safe rather than a race against its owner. */
+    const std::filesystem::path normalizedRoot = m_config.outputRoot.lexically_normal();
+    const std::filesystem::path normalizedOutput = m_outputDirectory.lexically_normal();
+    if (m_config.streamToken.empty() || normalizedOutput.parent_path() != normalizedRoot
+        || normalizedOutput.filename() != m_config.streamToken)
+    {
+        return;
+    }
+    /* The configured root is relative to the working directory, while the
+     * descriptor table answers in absolute paths, so the two only ever match
+     * once this one is resolved. */
+    std::error_code resolveFailure;
+    std::filesystem::path absoluteOutput =
+        std::filesystem::weakly_canonical(std::filesystem::absolute(normalizedOutput, resolveFailure),
+                                          resolveFailure);
+    if (resolveFailure || absoluteOutput.empty())
+    {
+        return;
+    }
+    const std::string sessionPrefix = absoluteOutput.string() + "/";
+
+    /* Read the descriptor table with the POSIX calls rather than a directory
+     * iterator: the table changes under the walk as other threads open and
+     * close, and every C++ iterator answer to that is either an exception or
+     * an error that would throw away the entries already found. */
+    DIR* descriptorTable = ::opendir("/proc/self/fd");
+    if (descriptorTable == nullptr)
+    {
+        return;
+    }
+    std::vector<int> leaked;
+    /* Collect before closing: closing while walking would invalidate the
+     * descriptor the walk itself is using. */
+    while (const dirent* entry = ::readdir(descriptorTable))
+    {
+        char* end = nullptr;
+        const long descriptor = std::strtol(entry->d_name, &end, 10);
+        if (end == entry->d_name || *end != '\0' || descriptor <= STDERR_FILENO)
+        {
+            continue;
+        }
+        const std::string link = std::string("/proc/self/fd/") + entry->d_name;
+        char target[PATH_MAX];
+        const ssize_t length = ::readlink(link.c_str(), target, sizeof(target) - 1);
+        if (length <= 0)
+        {
+            continue;
+        }
+        target[length] = '\0';
+        if (std::string(target).rfind(sessionPrefix, 0) == 0)
+        {
+            leaked.push_back(static_cast<int>(descriptor));
+        }
+    }
+    ::closedir(descriptorTable);
+
+    unsigned closed = 0;
+    for (const int descriptor : leaked)
+    {
+        if (::close(descriptor) == 0)
+        {
+            ++closed;
+        }
+    }
+    if (closed > 0)
+    {
+        LOG(info) << "DASH closed " << closed << " fragment descriptor(s) the sink left open for "
+                  << m_config.streamToken << endl;
     }
 }
 

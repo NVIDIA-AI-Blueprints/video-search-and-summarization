@@ -88,6 +88,13 @@ public:
 private:
     [[nodiscard]] bool createPipeline();
     void destroyPipeline();
+    /* dashsink opens the next fragment before it knows whether one is coming,
+     * and closes a fragment only when the one after it opens.  The final
+     * fragment of a session therefore has no successor to close it and stays
+     * open for the life of the process - one descriptor a session.  The stream
+     * is not reachable through the element graph by the time the pipeline has
+     * stopped, so the descriptor is closed directly. */
+    void closeLeakedFragmentDescriptors();
     void cleanupOutput();
     // Per-branch state for turning producer timestamps into a monotonic media
     // timeline.  A producer that stamps every frame identically (the recorded
