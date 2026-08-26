@@ -1376,11 +1376,6 @@ function state_up() {
   elif [[ -n "${llm}" ]]; then
     set_env_var "LLM_NAME" "${llm}"
     set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
-  elif [[ "${profile}" == "base" ]] && [[ "${hardware_profile}" == "GB300" ]]; then
-    # Nano v2's NIM cannot execute on ARM64. Keep the checked-in Base default
-    # unchanged and select the supported LVS model only for the GB300 overlay.
-    set_env_var "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b"
-    set_env_var "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
   fi
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
