@@ -57,6 +57,16 @@ repos:
     language: system
     stages: [commit-msg]
 
+  # GitLab Master rejects regular git blobs > 5 MiB. Scoped to services/,
+  # libs/, tools/ (mirror-sync folders). LFS pointers pass; checks git blob size.
+  - id: large-files-must-be-lfs
+    name: Files >5 MiB under services/ libs/ tools/ must be Git LFS
+    entry: bash .github/scripts/check_large_files_lfs.sh
+    language: system
+    files: ^(services|libs|tools)/
+    pass_filenames: true
+    stages: [pre-commit]
+
   # Mirrors CI Job 7 — SPDX copyright headers on source files
   - id: copyright-headers
     name: SPDX copyright headers
