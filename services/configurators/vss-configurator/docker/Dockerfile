@@ -15,7 +15,7 @@
 
 ARG PYTHON_VERSION=3.13
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
-ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.9
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.1.1
 
 # -----------------------------------------------------------------------------
 # Stage 1: Builder — install Python deps (with build tools for any C extensions)
