@@ -348,6 +348,40 @@ class RealtimeEventFolder:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def _settles_at(self, event: dict) -> Optional[str]:
+        """The instant after which no cycle can reach this event again.
+
+        Written rather than a ``status``, and the difference matters. Lifecycle
+        state is a function of *now*, so a stored one would be fixed at "open"
+        for the record's life — an event becomes immutable at a moment when
+        nothing is writing, so no writer is there to correct it. This instant is
+        not a function of now: it is recomputed whenever the event is rewritten,
+        and once nothing rewrites it any more the last value written is already
+        the right one.
+
+        It also spares the reader the fold's configuration. A consumer decides
+        lifecycle with ``now > settlesAt``, without being told the window, the
+        duration cap or the gap — which is what a consumer in another service
+        would otherwise have to be given and kept in step with.
+
+        Measured from the newest instant anything in the event carries, not from
+        ``end``: the fetch predicate is on each chunk's ``timestamp``, and a
+        chunk can carry an ``end`` earlier than its own timestamp.
+        """
+        instants = [
+            _parse_ts(event.get("end")),
+            _parse_ts(event.get("timestamp")),
+            *(
+                _parse_ts(m.get("timestamp"))
+                for m in (event.get("chunk_meta") or [])
+                if isinstance(m, dict)
+            ),
+        ]
+        newest = max([i for i in instants if i is not None] or [None])
+        if newest is None:
+            return None
+        return _iso(newest + timedelta(seconds=self.rewrite_horizon_seconds))
+
     def _renew_due(self, now_monotonic: float) -> bool:
         """Whether the lease is close enough to expiry to be worth rewriting.
 
@@ -584,10 +618,11 @@ class RealtimeEventFolder:
             if not events:
                 continue
 
-            events, aliases = self._reconcile_ids(events, stored)
+            events = self._reconcile_ids(events, stored)
             for event in events:
                 event["updatedAt"] = _iso(now)
                 event.setdefault("createdAt", event.get("timestamp"))
+                event["settlesAt"] = self._settles_at(event)
 
             # Proven immediately before the writes, not merely before the
             # work that precedes them: reading and consolidating a
@@ -612,17 +647,6 @@ class RealtimeEventFolder:
             # Written only for events that actually landed: an alias pointing
             # at a document that was never created is a reference that resolves
             # to nothing, which is worse than one that resolves to the old id.
-            landed = set(written)
-            # The alias ages out with the event it points at, so it carries
-            # that event's end rather than the time it was minted.
-            ends = {str(e.get("Id")): str(e.get("end") or "") for e in events}
-            live_aliases = [
-                (old, new, ends.get(new, ""))
-                for old, new in aliases
-                if new in landed and ends.get(new)
-            ]
-            if live_aliases:
-                result.aliases += self._store.write_aliases(live_aliases)
             result.events += len(written)
             result.failed += len(failed)
             if failed:
@@ -631,9 +655,21 @@ class RealtimeEventFolder:
                     len(written), len(written) + len(failed), sensor_id, category,
                 )
 
-            superseded = self._superseded(events, stored, set(written))
+            superseded, aliases = self._superseded(events, stored, set(written))
             if superseded:
                 result.superseded += self._store.delete(superseded, versions)
+            # Written after the delete: an alias only means anything once the
+            # record it stands in for is actually gone. It ages out with the
+            # event it points at, so it carries that event's end rather than
+            # the moment it was minted.
+            ends = {str(e.get("Id")): str(e.get("end") or "") for e in events}
+            live = [
+                (old_id, new_id, ends[new_id])
+                for old_id, new_id in aliases
+                if ends.get(new_id)
+            ]
+            if live:
+                result.aliases += self._store.write_aliases(live)
 
         # Unconditional: retention is a mandatory bound, not an optional one.
         # Persisted events clone the representative chunk's model text and are
@@ -769,8 +805,8 @@ class RealtimeEventFolder:
     @staticmethod
     def _reconcile_ids(
         events: List[dict], stored: Sequence[dict],
-    ) -> Tuple[List[dict], List[Tuple[str, str]]]:
-        """Settle identity against what is already stored, and say what moved.
+    ) -> List[dict]:
+        """Settle identity against what is already stored.
 
         Identity is the **content-derived** id, not the id an event was first
         stored under. That is the whole point: the derivation is already
@@ -782,20 +818,21 @@ class RealtimeEventFolder:
         What freezing was protecting is a real concern, though: a caller
         holding a reference should not find it dangling because earlier
         evidence turned up. So when a recomputed event absorbs a stored one
-        under a different id, this returns the pair, and the caller writes an
-        alias from the old id to the new. The reference keeps resolving; the
-        identity is still a function of the evidence alone.
+        under a different id, an alias is written from the old id to the new.
+        That happens in :meth:`_superseded`, where records are actually
+        dropped — more than this match can express, since a merge absorbs
+        several stored events into one.
 
-        Two things are inherited from the event being succeeded rather than
-        recomputed: ``createdAt``, because it is the key a cursor pages on and
-        it must not move when an event's start does. Matching is by shared
+        One thing is inherited from the event being succeeded rather than
+        recomputed: ``createdAt``, so an ordering key does not move when an
+        event's start does. Matching is by shared
         membership, strongest claim first, and each stored event is succeeded
         at most once.
         """
         for event in events:
             event.setdefault("createdAt", event.get("timestamp"))
         if not stored:
-            return _dedupe_derived_ids(events), []
+            return _dedupe_derived_ids(events)
 
         owner_of_chunk: Dict[str, str] = {}
         by_id: Dict[str, dict] = {}
@@ -827,18 +864,11 @@ class RealtimeEventFolder:
             succeeded[position] = stored_id
             taken.add(stored_id)
 
-        aliases: List[Tuple[str, str]] = []
         for position, stored_id in succeeded.items():
-            event = events[position]
             previous = by_id.get(stored_id, {})
             if previous.get("createdAt"):
-                event["createdAt"] = previous["createdAt"]
-            new_id = str(event.get("Id") or "")
-            if new_id and new_id != stored_id:
-                # The reference a caller already holds, pointed at whatever
-                # absorbed it.
-                aliases.append((stored_id, new_id))
-        return _dedupe_derived_ids(events), aliases
+                events[position]["createdAt"] = previous["createdAt"]
+        return _dedupe_derived_ids(events)
 
     def _gap_seconds(self) -> float:
         return float(self._svc.consolidation_bounds()["max_inter_alert_gap_seconds"])
@@ -852,8 +882,8 @@ class RealtimeEventFolder:
         events: Sequence[dict],
         stored: Sequence[dict],
         written_ids: Set[str],
-    ) -> List[str]:
-        """Stored events the re-fold has genuinely replaced.
+    ) -> Tuple[List[str], List[Tuple[str, str]]]:
+        """Stored events the re-fold has genuinely replaced, and where each went.
 
         A boundary shift can merge two events into one; the absorbed document
         has to go, or the same evidence is reported twice.
@@ -882,11 +912,18 @@ class RealtimeEventFolder:
         """
         kept = {str(e.get("Id")) for e in events if e.get("Id")}
         covered: Set[str] = set()
+        # Which written event absorbed each chunk, so a dropped record can be
+        # pointed at whatever now holds its evidence.
+        owner: Dict[str, str] = {}
         for event in events:
-            if str(event.get("Id")) in written_ids:
-                covered.update(str(c) for c in event.get("chunk_ids") or [])
+            event_id = str(event.get("Id"))
+            if event_id in written_ids:
+                for chunk_id in event.get("chunk_ids") or []:
+                    covered.add(str(chunk_id))
+                    owner.setdefault(str(chunk_id), event_id)
 
         drop: List[str] = []
+        aliases: List[Tuple[str, str]] = []
         for event in stored:
             event_id = str(event.get("Id") or event.get("_id") or "")
             if not event_id or event_id in kept:
@@ -897,4 +934,18 @@ class RealtimeEventFolder:
             if not members.issubset(covered):
                 continue          # its evidence is not safely stored elsewhere yet
             drop.append(event_id)
-        return drop
+            # Every dropped record gets an alias, not only the one that also
+            # supplied ``createdAt``. A merge absorbs two stored events into
+            # one, and the ``createdAt`` match picks a single predecessor — so
+            # tying aliases to that match orphaned every other id the merge
+            # consumed, in exactly the case the alias exists for.
+            counts: Dict[str, int] = {}
+            for chunk_id in members:
+                holder = owner.get(chunk_id)
+                if holder:
+                    counts[holder] = counts.get(holder, 0) + 1
+            if counts:
+                target = max(sorted(counts), key=lambda k: counts[k])
+                if target != event_id:
+                    aliases.append((event_id, target))
+        return drop, aliases

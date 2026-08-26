@@ -1910,13 +1910,10 @@ class TestLockRegressionsArePinned:
 
 
 class TestSuccessionRanking:
-    def test_the_strongest_claim_succeeds_a_stored_event_not_the_weakest(
-        self, es, folder,
-    ):
-        """Which recomputed event *succeeds* a stored one decides where its
-        alias points and whose ``createdAt`` is inherited. The rule is "most
-        members shared"; reversed, a reference is redirected to the event that
-        has least to do with it."""
+    def test_the_strongest_claim_inherits_the_ordering_key(self, es, folder):
+        """Which recomputed event succeeds a stored one decides whose
+        ``createdAt`` is inherited. The rule is "most members shared";
+        reversed, the key migrates to the event with least to do with it."""
         stored = [{
             "Id": "evt-A", "chunk_ids": ["c1", "c2", "c3"],
             "createdAt": "2026-03-01T11:00:00.000Z",
@@ -1926,13 +1923,10 @@ class TestSuccessionRanking:
             {"Id": "evt-strong", "chunk_ids": ["c1", "c2"], "timestamp": "2026-03-01T12:00:00.000Z"},
         ]
 
-        events, aliases = folder._reconcile_ids(candidates, stored)
+        events = folder._reconcile_ids(candidates, stored)
 
-        assert aliases == [("evt-A", "evt-strong")], (
-            f"the reference was redirected to the wrong successor: {aliases}"
-        )
         assert events[1]["createdAt"] == "2026-03-01T11:00:00.000Z", (
-            "the cursor key was not inherited by the succeeding event"
+            "the ordering key was inherited from the wrong predecessor"
         )
         assert events[0]["createdAt"] == "2026-03-01T12:00:00.000Z"
 
@@ -2148,3 +2142,124 @@ class TestAliasesCarryOldReferences:
             "end of the event it points at"
         )
 
+
+
+class TestAMergeAliasesEveryIdItConsumes:
+    def test_two_events_merging_leave_two_aliases(self, es, folder):
+        """A merge absorbs more than one stored record.
+
+        Aliases used to be emitted from the ``createdAt`` match, which picks a
+        single predecessor per recomputed event — so a merge of two stored
+        events produced one alias and orphaned the other id, in exactly the
+        case the alias exists for.
+        """
+        # 0..30 and 120..150 — a 90 s gap, wider than the 60 s bound.
+        es.client.raw = [chunk(0, offset_s=0), chunk(2, offset_s=120)]
+        folder.run_once(now=BASE + timedelta(seconds=300))
+        before = set(stored_events(es))
+        assert len(before) == 2, "the fixture must start as two separate events"
+
+        # 60..90 closes both gaps to 30 s, so all three become one event.
+        es.client.raw.append(chunk(1, offset_s=60))
+        folder.run_once(now=BASE + timedelta(seconds=320))
+
+        after = set(stored_events(es))
+        assert len(after) == 1, f"the two events did not merge: {after}"
+        survivor = next(iter(after))
+
+        docs = es.client.docs[folder._store.index]
+        aliased = {v["from"]: v["to"] for v in docs.values() if v.get("_docKind") == "alias"}
+        gone = before - after
+        assert gone <= set(aliased), (
+            f"ids consumed by the merge with no alias: {sorted(gone - set(aliased))}"
+        )
+        for old_id in gone:
+            assert aliased[old_id] == survivor
+
+    def test_an_alias_points_at_the_event_holding_most_of_its_evidence(self, es, folder):
+        es.client.raw = [chunk(i, offset_s=i * 30) for i in range(3)]
+        folder.run_once(now=BASE + timedelta(seconds=200))
+        original = next(iter(stored_events(es)))
+
+        es.client.raw.insert(0, chunk(9, offset_s=-60))
+        folder.run_once(now=BASE + timedelta(seconds=220))
+
+        docs = es.client.docs[folder._store.index]
+        aliases = {v["from"]: v["to"] for v in docs.values() if v.get("_docKind") == "alias"}
+        assert original in aliases
+        target = docs[aliases[original]]
+        assert set(target["chunk_ids"]) >= {"cam-1-alert-0", "cam-1-alert-1", "cam-1-alert-2"}
+
+
+class TestSettlesAtIsTheLifecycleContract:
+    """The persisted document has to let its consumer answer "can this still
+    change?" without being handed the fold's configuration."""
+
+    def test_every_written_event_carries_settles_at(self, es, folder):
+        es.client.raw = [chunk(0, offset_s=0)]
+        folder.run_once(now=BASE + timedelta(seconds=120))
+
+        event = next(iter(stored_events(es).values()))
+        assert event.get("settlesAt"), (
+            "the document offers no way to tell whether it can still change"
+        )
+
+    def test_settles_at_is_the_newest_instant_plus_the_reach_of_a_cycle(self, es, folder):
+        es.client.raw = [chunk(0, offset_s=0), chunk(1, offset_s=30)]
+        folder.run_once(now=BASE + timedelta(seconds=120))
+
+        event = next(iter(stored_events(es).values()))
+        expected = BASE + timedelta(seconds=60 + folder.rewrite_horizon_seconds)
+        assert event["settlesAt"] == iso(expected), (
+            f"expected {iso(expected)} (newest member ends at +60s, horizon "
+            f"{folder.rewrite_horizon_seconds}s), got {event['settlesAt']}"
+        )
+
+    def test_settles_at_moves_when_the_event_grows(self, es, folder):
+        es.client.raw = [chunk(0, offset_s=0)]
+        folder.run_once(now=BASE + timedelta(seconds=100))
+        first = next(iter(stored_events(es).values()))["settlesAt"]
+
+        es.client.raw.append(chunk(1, offset_s=40))
+        folder.run_once(now=BASE + timedelta(seconds=120))
+
+        second = next(iter(stored_events(es).values()))["settlesAt"]
+        assert second > first, (
+            "later evidence did not push the settle instant out, so a consumer "
+            "would treat a still-growing event as final"
+        )
+
+    def test_a_settled_event_is_never_touched_again(self, es, folder):
+        """The promise settlesAt makes, checked against the folder itself.
+
+        Whatever the field says, the folder must not rewrite an event after
+        that instant — otherwise a consumer that cached on it is wrong.
+        """
+        es.client.raw = [chunk(0, offset_s=0)]
+        folder.run_once(now=BASE + timedelta(seconds=100))
+        stored = dict(stored_events(es))
+        settles = _parse_iso_for_test(next(iter(stored.values()))["settlesAt"])
+
+        # Keep the group alive well past that instant with unrelated evidence,
+        # so cycles keep running and would touch it if they could reach it.
+        es.client.raw.append(chunk(9, offset_s=2000))
+        folder.run_once(now=settles + timedelta(seconds=1))
+        folder.run_once(now=settles + timedelta(seconds=60))
+
+        after = stored_events(es)
+        for event_id, before in stored.items():
+            assert event_id in after, f"{event_id} vanished after it had settled"
+            assert after[event_id] == before, f"{event_id} changed after it had settled"
+
+    def test_the_mapping_declares_settles_at(self, es):
+        from realtime.services.event_store import _MAPPING
+
+        assert _MAPPING["properties"]["settlesAt"]["type"] == "date"
+        assert "status" not in _MAPPING["properties"], (
+            "a stored status would be pinned at 'open' for the record's life"
+        )
+
+
+def _parse_iso_for_test(value):
+    from datetime import datetime
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))

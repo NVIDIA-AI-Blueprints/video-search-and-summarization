@@ -102,7 +102,10 @@ _MAPPING: Dict[str, Any] = {
         "category": {"type": "keyword"},
         "timestamp": {"type": "date"},
         "end": {"type": "date"},
-        "status": {"type": "keyword"},
+        # No ``status`` field: lifecycle is a function of now, so a stored one
+        # would be pinned at "open" for the record's life. ``settlesAt`` is the
+        # instant after which no cycle can reach the event, which is not.
+        "settlesAt": {"type": "date"},
         "updatedAt": {"type": "date"},
         "chunk_ids": {"type": "keyword"},
         "chunk_meta": {

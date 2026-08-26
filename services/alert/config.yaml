@@ -335,10 +335,11 @@ rtvi_vlm:
     representative: "latest"           # chunk that supplies the representative fields: latest | longest_reasoning
 
     # Durable consolidated events. When enabled, a background job on the
-    # instance leader folds realtime evidence into ab-alert-realtime-events and
-    # GET /api/v1/realtime/events serves the result. The retrieval-time view on
-    # /incidents?consolidate=true is unaffected and stays available as the
-    # reference the persisted events are compared against.
+    # instance leader folds realtime evidence into ab-alert-realtime-events.
+    # Alert Bridge owns index creation and writes and serves no retrieval
+    # endpoint for them; consumers query the index through their own service.
+    # The retrieval-time view on /incidents?consolidate=true is unaffected and
+    # stays available as the reference the persisted events are compared against.
     persistence:
       enabled: false                   # off until validated in a deployment
       collection: "alert-realtime-events"   # index becomes ab-alert-realtime-events

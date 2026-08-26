@@ -126,8 +126,9 @@ The last three are the durable-event path, off by default behind
 `rtvi_vlm.consolidation.persistence.enabled`. `event_folder` runs a background
 thread on the **instance leader only** — the same rule the verdict-retention
 reaper follows — periodically re-folding a tail window of raw evidence into
-consolidated events in `ab-alert-realtime-events`, which `GET
-/api/v1/realtime/events` serves. A lock document in that index keeps two
+consolidated events in `ab-alert-realtime-events`. Alert Bridge serves no
+retrieval endpoint for them — it owns index creation and writes, and consumers
+query the index through their own service. A lock document in that index keeps two
 replicas from folding at once, and every write is additionally conditioned on
 the version it read, so a stalled cycle cannot land on top of a newer one.
 
