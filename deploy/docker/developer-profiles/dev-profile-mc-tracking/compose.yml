@@ -147,6 +147,121 @@ services:
       - --secondary
       - --clipreid
 
+  # ── ReID embedding service stack ────────────────────────────────────────────────
+  reid-etcd-mc-tracking:
+    image: quay.io/coreos/etcd:v3.5.18
+    profiles: ["reid-etcd-mc-tracking"]
+    container_name: reid-etcd-mc-tracking
+    network_mode: host
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  reid-minio-mc-tracking:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    profiles: ["reid-minio-mc-tracking"]
+    container_name: reid-minio-mc-tracking
+    network_mode: host
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: minio server /minio_data --console-address ":${MINIO_CONSOLE_PORT:-9801}" --address ":${MINIO_PORT:-9800}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${MINIO_PORT:-9800}/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  reid-milvus-mc-tracking:
+    image: milvusdb/milvus:v2.5.12
+    profiles: ["reid-milvus-mc-tracking"]
+    container_name: reid-milvus-mc-tracking
+    network_mode: host
+    depends_on:
+      reid-etcd-mc-tracking:
+        condition: service_healthy
+      reid-minio-mc-tracking:
+        condition: service_healthy
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: localhost:2379
+      MINIO_ADDRESS: localhost:${MINIO_PORT:-9800}
+    command: ["milvus", "run", "standalone"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  reid-embed-mc-tracking:
+    image: ${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.08.1}
+    profiles: ["reid-embed-mc-tracking"]
+    container_name: reid-embed-mc-tracking
+    network_mode: host
+    restart: unless-stopped
+    ipc: host
+    depends_on:
+      reid-milvus-mc-tracking:
+        condition: service_healthy
+      reid-embed-init-mc-tracking:
+        condition: service_completed_successfully
+      broker-health-check:
+        condition: service_completed_successfully
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # Passthrough mount: the same absolute path inside and out, so the model
+    # paths below resolve identically on both sides.
+    volumes:
+      - "${MOUNT_DIR:-$VSS_DATA_DIR/models/reid}:${MOUNT_DIR:-$VSS_DATA_DIR/models/reid}:${MOUNT_OPTS:-rw}"
+    environment:
+      # Not the image default of 8000: NVStreamer holds 32 SO_REUSEPORT sockets
+      # on :8000 and wins the race whenever it starts first (host network, so
+      # uvicorn then dies with EADDRINUSE).
+      - REID_SERVICE_PORT=${REID_SERVICE_PORT:-8088}
+      - KAFKA_CONSUMER_SERVER=${KAFKA_CONSUMER_SERVER:-localhost:${KAFKA_HOST_PORT:-9092}}
+      - KAFKA_CONSUMER_TOPIC=${KAFKA_CONSUMER_TOPIC:-mdx-raw}
+      - KAFKA_PRODUCER_SERVER=${KAFKA_PRODUCER_SERVER:-localhost:${KAFKA_HOST_PORT:-9092}}
+      - KAFKA_PRODUCER_TOPIC=${KAFKA_PRODUCER_TOPIC:-mdx-compressed-embeddings}
+      - ENABLE_COMPRESSION=${ENABLE_COMPRESSION:-False}
+      - ENABLE_CLUSTERING=${ENABLE_CLUSTERING:-False}
+      - COMPRESSION_INTERVAL_SEC=${COMPRESSION_INTERVAL_SEC:-1}
+      - TRIGGER_INTERVAL_SEC=${TRIGGER_INTERVAL_SEC:-1}
+      # Left at False: flip to True to actually load the SigLIP model that
+      # reid-embed-init downloaded. The path is pre-wired either way, so enabling
+      # it needs no other change.
+      - ENABLE_SECONDARY_EMBEDDING=${ENABLE_SECONDARY_EMBEDDING:-False}
+      - SECONDARY_EMBEDDING_MODEL=${SECONDARY_EMBEDDING_MODEL:-siglip2}
+      - SECONDARY_EMBEDDING_ONNX_MODEL_PATH=${SECONDARY_EMBEDDING_ONNX_MODEL_PATH:-${MOUNT_DIR:-$VSS_DATA_DIR/models/reid}/siglip_v2_vdeployable_v1.0/siglip2_v1.0.onnx}
+      - VIOS_SERVER=${VIOS_SERVER:-localhost:30888}
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:${REID_SERVICE_PORT:-8088}/health/live"]
+      interval: 60s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   # Extends the generic, shared rtvi-cv-mv3dt library (services/rtvi/rtvi-cv/rtvi-cv-mv3dt/) —
   # that path is a shared capability name, not this profile's own packaging.
   vss-rtvi-cv-bev-fusion-mc-tracking:
@@ -216,7 +331,7 @@ services:
         condition: service_completed_successfully
       vss-rtvi-cv-bev-fusion-mc-tracking:
         condition: service_healthy
-      reid-embed-init-mc-tracking:
-        condition: service_completed_successfully
+      reid-embed-mc-tracking:
+        condition: service_healthy
       mosquitto:
         condition: service_healthy
