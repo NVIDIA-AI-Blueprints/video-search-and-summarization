@@ -299,18 +299,36 @@ class FakeClient:
         return self._bool(doc, query.get("bool", {}) or {})
 
     def _bool(self, doc, node):
-        unsupported = set(node) - {"must", "must_not", "filter", "should"}
+        unsupported = set(node) - {
+            "must", "must_not", "filter", "should", "minimum_should_match",
+        }
         if unsupported:
             raise AssertionError(f"double does not model bool clauses {sorted(unsupported)}")
         # ``filter`` scores nothing but selects identically to ``must``; a double
         # that ignored it would let every filtered query match everything.
-        for clause in node.get("must", []) + node.get("filter", []):
+        for clause in self._as_list(node.get("must")) + self._as_list(node.get("filter")):
             if not self._clause(doc, clause):
                 return False
-        for clause in node.get("must_not", []):
+        for clause in self._as_list(node.get("must_not")):
             if self._clause(doc, clause):
                 return False
+        should = self._as_list(node.get("should"))
+        if should:
+            # Elasticsearch defaults ``minimum_should_match`` to 0 when the
+            # bool already has a must/filter, and to 1 when it does not.
+            required = node.get("minimum_should_match")
+            if required is None:
+                required = 0 if (node.get("must") or node.get("filter")) else 1
+            if sum(1 for c in should if self._clause(doc, c)) < int(required):
+                return False
         return True
+
+    @staticmethod
+    def _as_list(value):
+        """Elasticsearch accepts a single clause or a list wherever a list fits."""
+        if value is None:
+            return []
+        return value if isinstance(value, list) else [value]
 
     def _clause(self, doc, clause):
         if "bool" in clause:
@@ -3001,3 +3019,93 @@ class TestStopReturnsTheLease:
         assert "_fold_lock" in es.client.docs[store.index], (
             "the lease was taken from a cycle that was still running"
         )
+
+
+class TestBothViewsSelectTheSameEvidence:
+    """The persisted and computed views are checked against each other, so a
+    predicate that admits different evidence makes that check meaningless."""
+
+    def _service(self, es):
+        return IncidentService(
+            es_client=es, index_base="mdx-vlm-incidents",
+            consolidation={
+                "max_inter_alert_gap_seconds": 60,
+                "max_event_duration_seconds": 300,
+                "representative": "latest",
+            },
+        )
+
+    def test_a_chunk_with_no_end_is_folded_like_the_computed_view_folds_it(
+        self, es, folder,
+    ):
+        """``_build_event`` falls back to ``timestamp`` when ``end`` is absent.
+        A group predicate testing only ``end`` dropped such evidence from the
+        persisted view while the computed view still returned it.
+        """
+        without_end = chunk(0, offset_s=100)
+        without_end.pop("end")
+        es.client.raw = [without_end]
+
+        result = folder.run_once(now=BASE + timedelta(seconds=200))
+        computed = self._service(es).consolidate(list(es.client.raw))
+
+        assert len(computed) == 1, "the fixture must be evidence both views accept"
+        assert result.events == len(computed), (
+            f"the folder produced {result.events} events where the computed "
+            f"view produced {len(computed)}"
+        )
+        assert stored_events(es)
+
+    def test_a_chunk_with_no_end_before_the_window_is_still_excluded(self, es, folder):
+        """The fallback widens which evidence is *considered*, not which is
+        written: a chunk whose timestamp is also behind the window stays out."""
+        stale = chunk(0, offset_s=-2000)
+        stale.pop("end")
+        live = chunk(1, offset_s=700)
+        es.client.raw = [stale, live]
+
+        folder.run_once(now=BASE + timedelta(seconds=800))
+
+        members = {c for e in stored_events(es).values() for c in e["chunk_ids"]}
+        assert "cam-1-alert-1" in members
+        assert "cam-1-alert-0" not in members
+
+
+class TestAliasReadinessIsItsOwnSignal:
+    def test_a_cycle_reports_that_nothing_can_discover_what_it_wrote(self, es, folder):
+        """The folder can write perfectly well while no consumer can reach the
+        data. Freshness does not reveal that — it answers "how current", not
+        "reachable at all" — so it gets its own signal.
+        """
+        es.client.indices.update_aliases = lambda actions: (_ for _ in ()).throw(
+            RuntimeError("403 forbidden")
+        )
+        es.client.raw = [chunk(0, offset_s=0)]
+
+        result = folder.run_once(now=BASE + timedelta(seconds=120))
+
+        assert result is not None and result.events == 1, (
+            "the fold itself should still run: the data is worth writing"
+        )
+        assert folder._store.consumer_alias_published is False
+        assert folder._store.consumer_alias not in es.client.indices.aliases
+
+    def test_readiness_flips_once_the_alias_lands(self, es, folder):
+        real = es.client.indices.update_aliases
+        attempts = {"n": 0}
+
+        def fail_first(actions):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("403 forbidden")
+            return real(actions)
+
+        es.client.indices.update_aliases = fail_first
+        es.client.raw = [chunk(0, offset_s=0)]
+        folder.run_once(now=BASE + timedelta(seconds=120))
+        assert folder._store.consumer_alias_published is False
+
+        folder.run_once(now=BASE + timedelta(seconds=150))
+
+        assert folder._store.consumer_alias_published is True
+        assert folder._store.consumer_alias in es.client.indices.aliases

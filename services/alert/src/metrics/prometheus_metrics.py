@@ -601,6 +601,14 @@ FOLD_EVENTS_PURGED = Counter(
     'Events removed by the retention reaper',
 )
 
+FOLD_CONSUMER_ALIAS_READY = Gauge(
+    'alert_bridge_fold_consumer_alias_ready',
+    'Whether the filtered alias consumers read has been published (1) or not (0)',
+    # The folder can write perfectly well while this is 0 — and then nothing
+    # can discover what it wrote, which no other signal reveals.
+    multiprocess_mode='livemostrecent',
+)
+
 FOLD_ALIASES_WRITTEN = Counter(
     'alert_bridge_fold_aliases_written_total',
     'Identity aliases written for ids a re-fold consumed',

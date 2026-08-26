@@ -103,6 +103,7 @@ try:
             FOLD_EVENTS_SUPERSEDED,
             FOLD_EVENTS_PURGED,
             FOLD_ALIASES_WRITTEN,
+            FOLD_CONSUMER_ALIAS_READY,
             FOLD_FRESHNESS_UNPUBLISHED,
             FOLD_CYCLES_ABORTED,
             FOLD_LAST_COMPLETED,
@@ -113,11 +114,13 @@ try:
         FOLD_EVENTS_PERSISTED = FOLD_EVENTS_SUPERSEDED = FOLD_TRUNCATED = None
         FOLD_CYCLES_ABORTED = FOLD_LAST_COMPLETED = None
         FOLD_FRESHNESS_UNPUBLISHED = FOLD_ALIASES_WRITTEN = None
+        FOLD_CONSUMER_ALIAS_READY = None
 except Exception:  # pragma: no cover - metrics module absent
     FOLD_CYCLES_SKIPPED = FOLD_DURATION = FOLD_EVENTS_PURGED = None
     FOLD_EVENTS_PERSISTED = FOLD_EVENTS_SUPERSEDED = FOLD_TRUNCATED = None
     FOLD_CYCLES_ABORTED = FOLD_LAST_COMPLETED = None
     FOLD_FRESHNESS_UNPUBLISHED = FOLD_ALIASES_WRITTEN = None
+    FOLD_CONSUMER_ALIAS_READY = None
 
 
 def _count_abort(reason: str) -> None:
@@ -525,6 +528,21 @@ class RealtimeEventFolder:
             if not self._store.ensure_index():
                 logger.error("Fold cycle abandoned: the event index is not usable")
                 return None
+            # Reported separately from freshness, and every cycle. The folder
+            # can write perfectly well while this is false — and then nothing
+            # can discover what it wrote, which no other signal reveals. It is
+            # not folded into the freshness gauge because these are different
+            # questions: one is "how current is the data", the other is
+            # "can anyone reach it at all".
+            alias_ready = self._store.consumer_alias_published
+            if FOLD_CONSUMER_ALIAS_READY is not None:
+                FOLD_CONSUMER_ALIAS_READY.set(1 if alias_ready else 0)
+            if not alias_ready:
+                logger.error(
+                    "Folding into %s but the consumer alias %s is not published; "
+                    "the events written are not discoverable",
+                    self._store.index, self._store.consumer_alias,
+                )
             lock = self._store.acquire_lock(self._owner, ttl_seconds=self._interval * 3)
             # Recorded before any work, not part-way through it: every path out
             # of the cycle releases what is recorded here, and an abandoned
@@ -788,17 +806,34 @@ class RealtimeEventFolder:
         tell those apart before it purges anything or publishes the cycle.
 
         Only groups that can produce a write are enumerated. An event is written
-        when its ``end`` is at or after ``writable_from_iso``, and an event ends
-        where its last chunk ends — so a group with no chunk ending that late
-        can only be folded into events the write filter discards. Skipping those
-        removes one Elasticsearch search per group per cycle across the whole
-        lookback-only tail, which is the cost that scales with fleet size.
+        when its effective end is at or after ``writable_from_iso``, and an
+        event ends where its last chunk ends — so a group with no chunk ending
+        that late can only be folded into events the write filter discards.
+        Skipping those removes one Elasticsearch search per group per cycle
+        across the whole lookback-only tail, which is the cost that scales with
+        fleet size.
+
+        "Effective end" is load-bearing: a chunk may carry no ``end`` at all,
+        and the consolidation falls back to its ``timestamp``. A predicate that
+        only tested ``end`` dropped such evidence from the persisted view while
+        the computed view still returned it — the two must select the same
+        evidence or the equivalence they are checked against means nothing.
         """
         query = {
             "bool": {
                 "must": realtime_confirmed_clauses() + [
                     {"range": {"timestamp": {"gte": start_iso, "lte": end_iso}}},
-                    {"range": {"end": {"gte": writable_from_iso}}},
+                    # An event's effective end is its last chunk's ``end``,
+                    # or that chunk's ``timestamp`` when ``end`` is absent —
+                    # ``_build_event`` says so, and this predicate has to agree
+                    # with it or the two views diverge on evidence both accept.
+                    {"bool": {"minimum_should_match": 1, "should": [
+                        {"range": {"end": {"gte": writable_from_iso}}},
+                        {"bool": {
+                            "must_not": {"exists": {"field": "end"}},
+                            "must": {"range": {"timestamp": {"gte": writable_from_iso}}},
+                        }},
+                    ]}},
                 ]
             }
         }

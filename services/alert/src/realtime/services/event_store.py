@@ -166,6 +166,11 @@ class RealtimeEventStore:
     def consumer_alias(self) -> str:
         return self._consumer_alias
 
+    @property
+    def consumer_alias_published(self) -> bool:
+        """Whether consumers can currently discover anything written here."""
+        return self._alias_published
+
     def _ensure_consumer_alias(self, client) -> bool:
         """Publish the filtered view other services read.
 
