@@ -17,7 +17,7 @@ import threading
 import time
 import types
 from contextlib import contextmanager
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,7 +31,12 @@ from concurrent_live_streams_benchmark import (  # noqa: E402
     _rtsp_reuse_summary as concurrent_rtsp_reuse_summary,
     _rtsp_source_config_for_results as concurrent_rtsp_source_config_for_results,
 )
-from base import BenchmarkBase, BenchmarkCleanupError  # noqa: E402
+from base import (  # noqa: E402
+    BenchmarkBase,
+    BenchmarkCleanupError,
+    BenchmarkResourceUnavailableError,
+    build_stream_start_error,
+)
 from latency_tracker import LatencyTracker  # noqa: E402
 from live_streams_benchmark import (  # noqa: E402
     LiveStreamsBenchmark,
@@ -67,7 +72,10 @@ class _AdvancingTime:
 class _ImmediateExecutor:
     def submit(self, fn, *args, **kwargs):
         future = Future()
-        future.set_result(None)
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
         return future
 
 
@@ -320,6 +328,9 @@ class _ProbeOnlyLiveStreamsBenchmark(LiveStreamsBenchmark):
         self.deleted_batches.append(list(stream_ids))
 
     def _monitor_stream_latency(self, *args, **kwargs):
+        startup_future = kwargs.get("startup_future")
+        if startup_future is not None and not startup_future.done():
+            startup_future.set_result(None)
         return None
 
     def _run_probe_stability_check(
@@ -365,6 +376,9 @@ class _PhaseOneOnlyLiveStreamsBenchmark(LiveStreamsBenchmark):
         return None
 
     def _monitor_stream_latency(self, *args, **kwargs):
+        startup_future = kwargs.get("startup_future")
+        if startup_future is not None and not startup_future.done():
+            startup_future.set_result(None)
         return None
 
     def start_gpu_monitoring(self):
@@ -438,6 +452,27 @@ def test_stop_live_generation_requests_uses_backend_specific_endpoint():
     assert ("DELETE", "/generate_video_embeddings/stream-b", None) in benchmark.api_calls
 
 
+def test_stop_live_generation_requests_uses_configured_captions_endpoint():
+    benchmark = _CleanupBenchmark()
+
+    benchmark._stop_live_generation_requests(
+        ["stream-a"],
+        backend_type="rtvi_vlm",
+        captions_endpoint="generate_captions_alerts",
+    )
+
+    assert ("DELETE", "/generate_captions_alerts/stream-a", None) in benchmark.api_calls
+
+
+def test_blocking_batch_delete_owns_live_generation_stop(monkeypatch):
+    monkeypatch.setenv("RTVI_BENCHMARK_BLOCKING_STREAM_DELETE", "true")
+    benchmark = _CleanupBenchmark()
+
+    benchmark._stop_live_generation_requests(["stream-a"], backend_type="rtvi_vlm")
+
+    assert benchmark.api_calls == []
+
+
 def test_stop_live_generation_requests_uses_bounded_concurrency(monkeypatch):
     class _ConcurrentStopBenchmark(_CleanupBenchmark):
         def __init__(self):
@@ -462,6 +497,131 @@ def test_stop_live_generation_requests_uses_bounded_concurrency(monkeypatch):
 
     assert benchmark.peak_calls == 2
     assert len(benchmark.api_calls) == 4
+
+
+def test_stream_start_503_server_busy_is_resource_bound():
+    response = types.SimpleNamespace(
+        status_code=503,
+        text="",
+        json=lambda: {
+            "code": "ServerBusy",
+            "message": "Insufficient GPU memory to start another live stream.",
+        },
+    )
+
+    error = build_stream_start_error(response, "/generate_captions", 241)
+
+    assert isinstance(error, BenchmarkResourceUnavailableError)
+    assert error.status_code == 503
+    assert error.code == "ServerBusy"
+    assert "stream 241" in str(error)
+
+
+def test_stream_monitor_startup_handshake_propagates_resource_boundary():
+    class _RejectingBenchmark(LiveStreamsBenchmark):
+        def _monitor_stream_latency(self, *args, **kwargs):
+            startup_future = kwargs["startup_future"]
+            startup_future.set_exception(
+                BenchmarkResourceUnavailableError(
+                    "GPU admission rejected",
+                    status_code=503,
+                    code="ServerBusy",
+                )
+            )
+
+    benchmark = _RejectingBenchmark("http://localhost:0", output_base_dir="/tmp")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        try:
+            benchmark._start_stream_monitoring(
+                executor,
+                {"stream_startup_timeout_seconds": 1},
+                10,
+                {"backend_type": "rtvi_vlm"},
+                "test-model",
+                "stream-241",
+                241,
+            )
+        except BenchmarkResourceUnavailableError as exc:
+            assert exc.status_code == 503
+            assert exc.code == "ServerBusy"
+        else:
+            raise AssertionError("resource admission failure was swallowed")
+
+
+def test_live_stream_startup_timeout_stops_monitor_worker(tmp_path):
+    class _BlockingStartupBenchmark(LiveStreamsBenchmark):
+        def __init__(self):
+            super().__init__("http://localhost:0", output_base_dir=str(tmp_path))
+            self.worker_stopped = threading.Event()
+
+        def _monitor_stream_latency(self, *args, **kwargs):
+            kwargs["startup_stop_event"].wait(timeout=1)
+            self.worker_stopped.set()
+
+    benchmark = _BlockingStartupBenchmark()
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        try:
+            benchmark._start_stream_monitoring(
+                executor,
+                {"stream_startup_timeout_seconds": 0.01},
+                10,
+                {"backend_type": "rtvi_vlm"},
+                "test-model",
+                "stream-timeout",
+                1,
+            )
+        except RuntimeError as exc:
+            assert "Timed out" in str(exc)
+        else:
+            raise AssertionError("startup timeout was not surfaced")
+        assert benchmark.worker_stopped.wait(timeout=1)
+    finally:
+        executor.shutdown(wait=True)
+
+
+def test_live_stream_add_rejects_missing_result_id(tmp_path):
+    benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir=str(tmp_path))
+    benchmark.make_api_call = lambda *_args, **_kwargs: types.SimpleNamespace(
+        json=lambda: {"results": [{}]}
+    )
+
+    try:
+        benchmark._add_live_stream(
+            {"rtsp_url": "rtsp://example.test/live", "unique_rtsp_url_per_stream": False},
+            1,
+        )
+    except RuntimeError as exc:
+        assert "missing results[0].id" in str(exc)
+    else:
+        raise AssertionError("missing stream id was accepted")
+
+
+def test_max_live_streams_execute_counts_zero_sustainable_streams_as_failed(tmp_path):
+    benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir=str(tmp_path))
+    scenario_dir = tmp_path / "zero_streams_scenario"
+    scenario_dir.mkdir()
+
+    benchmark.parse_global_config = lambda _config: {"backend_type": "rtvi_embed"}
+    benchmark.parse_benchmark_config = lambda _scenario_config, _global_config: {
+        "videos": [{"name": "zero_streams", "chunk_sizes": [10]}],
+        "backend_type": "rtvi_embed",
+    }
+    benchmark.setup_scenario_directory = lambda _scenario_name: str(scenario_dir)
+    benchmark.get_available_models = lambda: "cosmos-embed1-448p"
+    benchmark._execute_live_streams_test_case = lambda *_args, **_kwargs: {
+        "test_case_id": "max_live_streams_zero_streams_10sec",
+        "success": False,
+        "max_sustainable_streams": 0,
+    }
+
+    results = benchmark.execute({"test_scenarios": {"zero_streams": {}}}, "zero_streams")
+
+    assert results["total_test_cases"] == 1
+    assert results["successful_test_cases"] == 0
+    assert results["failed_test_cases"] == 1
+    assert results["test_cases"][0]["success"] is False
 
 
 def test_live_stream_results_preserve_all_supported_rtsp_source_modes():
@@ -513,6 +673,45 @@ def test_cleanup_resources_can_use_blocking_live_stream_delete(monkeypatch):
         ),
     ]
     assert benchmark.active_resources == []
+
+
+def test_bcd_config_can_enable_blocking_live_stream_delete():
+    benchmark = _CleanupBenchmark()
+    benchmark.parse_global_config(
+        {
+            "global": {
+                "vlm_gpus": [],
+                "blocking_stream_delete": True,
+                "stream_delete_timeout_seconds": 420,
+            }
+        }
+    )
+    benchmark.active_stream_ids = {"stream-a"}
+    benchmark.active_resources = ["stream_stream-a"]
+
+    benchmark.cleanup_resources()
+
+    assert benchmark.api_calls == [
+        (
+            "DELETE",
+            "/streams/delete-batch",
+            {
+                "stream_ids": ["stream-a"],
+                "blocking": True,
+                "drain_timeout_seconds": 420.0,
+            },
+        ),
+    ]
+
+
+def test_blocking_stream_delete_environment_overrides_config(monkeypatch):
+    benchmark = _CleanupBenchmark()
+    benchmark.blocking_stream_delete = True
+    monkeypatch.setenv("RTVI_BENCHMARK_BLOCKING_STREAM_DELETE", "false")
+
+    benchmark._stop_live_generation_requests(["stream-a"])
+
+    assert ("DELETE", "/generate_captions/stream-a", None) in benchmark.api_calls
 
 
 def test_live_stream_cleanup_verification_fails_closed_when_stream_info_unavailable():
@@ -723,6 +922,49 @@ def test_add_failure_after_stable_window_reports_capacity_boundary(tmp_path):
     assert result["first_unstable_stream_count"] == 6
     assert result["stream_add_failure_stream_count"] == 6
     assert "RTSP add failure" in result["stream_add_failure"]
+
+
+def test_max_live_blocking_delete_precedes_shared_monitor_wait(monkeypatch, tmp_path):
+    tracker = _PhaseOneLatencyTracker([False])
+    benchmark = _PhaseOneOnlyLiveStreamsBenchmark(tracker, tmp_path)
+    events = []
+
+    benchmark._blocking_stream_delete_enabled = lambda: True
+
+    def record_delete(stream_ids, inter_delete_delay=0.0):
+        events.append(("delete", list(stream_ids)))
+
+    def record_wait(futures, timeout):
+        events.append(("wait", timeout))
+        return set(futures), set()
+
+    benchmark._batch_delete_streams = record_delete
+    monkeypatch.setattr(live_streams_benchmark_module, "wait", record_wait)
+
+    with _fast_probe_sleep():
+        benchmark._execute_live_streams_test_case(
+            test_case_id="blocking_delete_order",
+            video_config={
+                "name": "blocking_delete_order",
+                "rtsp_url": "rtsp://example.test/live",
+                "chunk_sizes": [10],
+                "latency_threshold_seconds": 10,
+                "initial_stream_count": 1,
+                "stability_check_interval": 0,
+                "required_stable_windows": 1,
+                "required_unstable_windows": 1,
+                "binary_search_refinement": False,
+            },
+            chunk_size=10,
+            benchmark_config={"backend_type": "rtvi_vlm", "api_params": {}},
+            model_name="test-model",
+            scenario_dir=str(tmp_path),
+        )
+
+    assert events == [
+        ("delete", ["stream-1"]),
+        ("wait", benchmark.DEFAULT_THREAD_WAIT_TIMEOUT),
+    ]
 
 
 def test_initial_seed_add_failure_still_validates_created_streams(tmp_path):

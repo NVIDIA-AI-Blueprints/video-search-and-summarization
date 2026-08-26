@@ -81,7 +81,8 @@ PYBIND11_MODULE(gst_video_sei_meta, m) {
         [](py::object buffer) {
             uintptr_t buffer_ptr = py::cast<uintptr_t>(buffer);
             GstBuffer* gst_buffer = reinterpret_cast<GstBuffer*>(buffer_ptr);
-            GstVideoSEIMeta* meta = gst_buffer_add_video_sei_meta(gst_buffer);
+            GstVideoSEIMeta* meta = reinterpret_cast<GstVideoSEIMeta*>(
+                gst_buffer_add_meta(gst_buffer, GST_VIDEO_SEI_META_INFO, nullptr));
 
             // Check for NULL return (can happen if buffer is invalid or read-only)
             if (meta == nullptr) {
@@ -95,7 +96,8 @@ PYBIND11_MODULE(gst_video_sei_meta, m) {
         [](py::object buffer) -> py::object {
             uintptr_t buffer_ptr = py::cast<uintptr_t>(buffer);
             GstBuffer* gst_buffer = reinterpret_cast<GstBuffer*>(buffer_ptr);
-            GstVideoSEIMeta* meta = gst_buffer_get_video_sei_meta(gst_buffer);
+            GstVideoSEIMeta* meta = reinterpret_cast<GstVideoSEIMeta*>(
+                gst_buffer_get_meta(gst_buffer, GST_VIDEO_SEI_META_API_TYPE));
 
             // Return None if metadata not found (instead of crashing on NULL)
             if (meta == nullptr) {
