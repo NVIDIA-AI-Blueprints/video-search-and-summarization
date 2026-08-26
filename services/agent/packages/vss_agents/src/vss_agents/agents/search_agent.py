@@ -614,6 +614,14 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                         "rejected rows were visually refuted and unverified rows are similarity "
                         "candidates, not sightings — see the Critic column per row."
                     )
+                elif n_rejected == result_count:
+                    header = (
+                        f"Found {result_count} retrieval result{'s' if result_count != 1 else ''}, "
+                        "ALL rejected by the critic (retrieved by similarity but visually "
+                        "refuted) — no matches\n\n"
+                        "Note: these rows are refuted evidence, not candidates; do not report "
+                        "them as possible sightings."
+                    )
                 else:
                     rejected_note = (
                         f", of which {n_rejected} rejected by the critic (retrieved but visually refuted)"
