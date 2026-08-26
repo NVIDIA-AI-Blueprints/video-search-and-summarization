@@ -955,7 +955,7 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
              * delay gives it somewhere to start that is already behind. */
             const double required = published.longestSeconds > 0.0
                 ? std::max(static_cast<double>(kDashPrerollSeconds),
-                           published.longestSeconds * 2.5)
+                           published.longestSeconds * 4.0)
                 : static_cast<double>(kDashPrerollSeconds);
             const bool enoughMedia = published.seconds >= required;
             session->prerollComplete = enoughMedia && published.fragments >= kDashPrerollSegments;
