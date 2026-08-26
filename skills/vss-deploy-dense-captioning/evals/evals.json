@@ -5,7 +5,7 @@
     "expected_skill": "vss-deploy-dense-captioning",
     "ground_truth": "Loads vss-deploy-dense-captioning, follows the standalone RT-VLM deploy reference, uses a writable compose copy, selects the correct RT-VLM image tag for the platform, validates compose before starting rtvi-vlm, verifies readiness/models/OpenAPI on the configured port, and avoids the full VSS profile flow.",
     "expected_behavior": [
-      "Loads vss-deploy-dense-captioning rather than vss-deploy-profile.",
+      "Loads vss-deploy-dense-captioning rather than vss-build-vision-ai.",
       "Copies the RT-VLM compose into a writable standalone directory before editing it.",
       "Derives RTVI_VLM_IMAGE_TAG from the compose default and chooses the -sbsa variant only for Spark, GB10, or SBSA-class hosts.",
       "Runs docker compose config before starting rtvi-vlm and checks /v1/health/ready, /v1/models, and /openapi.json after startup.",

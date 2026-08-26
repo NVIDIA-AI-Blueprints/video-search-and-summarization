@@ -1095,7 +1095,7 @@ class PoolCandidates(unittest.TestCase):
                 "vss-ask-video", "base_profile_video_understanding"
             )
             unapproved = run_leg._registered_pool_allowlist(
-                "vss-deploy-profile", "search"
+                "vss-build-vision-ai", "search"
             )
 
         self.assertEqual(
@@ -1110,16 +1110,16 @@ class PoolCandidates(unittest.TestCase):
 
     def test_4090_test_capabilities_fail_closed(self):
         self.assertTrue(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "alerts_cv"
+            "vss-build-vision-ai", "alerts_cv"
         ))
         self.assertTrue(run_leg._rtx4090_supports(
             "vss-manage-alerts", "subscriptions_lifecycle"
         ))
         self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "search"
+            "vss-build-vision-ai", "search"
         ))
         self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "warehouse"
+            "vss-build-vision-ai", "warehouse"
         ))
         self.assertFalse(run_leg._rtx4090_supports(
             "vss-deploy-dense-captioning", "alerts_profile_api"

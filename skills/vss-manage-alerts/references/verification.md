@@ -14,7 +14,7 @@ camera (VIOS/VST)
 ```
 
 - Candidate alerts reach Alert Bridge over Kafka (or `POST /api/v1/alerts` for `nv.Behavior` submissions); Alert Bridge looks up the verifier prompts by the alert's `category` (= `alert_type`), calls the VLM on the clip, and stamps the result into the document's `info` block before publishing.
-- This whole path exists only when the alerts profile is deployed with `-m verification` (`MODE=2d_cv`). Deploy/mode-switch belongs to `vss-deploy-profile` — never duplicate it here.
+- This whole path exists only when the alerts profile is deployed in verification mode (`MODE=2d_cv`). Deploy/mode-switch belongs to `vss-build-vision-ai` — never duplicate it here.
 - The **real-time** path (VLM mode, Workflow D rules) writes *incident-kind* results to `mdx-vlm-incidents-*`, queryable via Workflow C's `GET /api/v1/realtime/incidents`. The two stores do not mix.
 
 ## Verdict interpretation

@@ -92,7 +92,7 @@ The full operational walkthrough — entrypoint table, config-source options, ca
 
 This skill deploys one container. Hand off instead when the request is:
 
-- **The full stack** (UI, agent, perception, storage) — [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md). Do not run both in parallel; it owns behavior-analytics as part of the profile.
+- **The full developer stack** (alerts UI, agent, perception, storage) — [`vss-build-vision-ai`](../vss-build-vision-ai/SKILL.md). Warehouse full-stack requests are blocked until warehouse coverage moves to `vss-build-vision-ai`. Do not run both in parallel; the full-stack skill owns behavior-analytics as part of the profile.
 - **Producing the frames this service consumes** — detection/tracking is upstream: [`vss-deploy-detection-tracking-2d`](../vss-deploy-detection-tracking-2d/SKILL.md) or [`-3d`](../vss-deploy-detection-tracking-3d/SKILL.md). This service analyses `mdx-raw`; it does not create it.
 - **Generating a calibration file** — [`vss-generate-video-calibration`](../vss-generate-video-calibration/SKILL.md). This skill only *mounts* one.
 - **Reading the output** — incidents, metrics and sensor queries are [`vss-query-analytics`](../vss-query-analytics/SKILL.md); alert workflows and verification verdicts are [`vss-manage-alerts`](../vss-manage-alerts/SKILL.md).
@@ -138,7 +138,7 @@ Both flows live entirely on the broker — the producer can be `video-analytics-
 
 ## Routing rules
 
-- If the user wants "the full stack" (UI / agent / perception): hand off to [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md) with profile `warehouse` (or `alerts`). Don't run this skill in parallel.
+- If the user wants the alerts full stack (UI / agent / perception): hand off to [`vss-build-vision-ai`](../vss-build-vision-ai/SKILL.md) stock Alerts. If the user wants the warehouse full stack, report the warehouse coverage blocker. Don't run this skill in parallel.
 - If the user needs to fold behavior-analytics into a composed/multi-service deployment — which Kafka topics it consumes and emits, and how it wires to producers/consumers around it: see the integration contract in [`references/integrate-behavior-analytics-service.md`](references/integrate-behavior-analytics-service.md).
 - If the user wants to publish a runtime config / calibration update to an already-running container: walk the [Dynamic updates](#dynamic-updates-runtime-no-restart) section. Both flows need a reachable broker.
 - If the user describes a behavior-analytics behavior change they want to validate (new incident type, new ROI rule, new sensor): point them at [`references/configuration.md`](references/configuration.md), [`references/dynamic-config.md`](references/dynamic-config.md), or [`references/dynamic-calibration.md`](references/dynamic-calibration.md) before editing the JSON.

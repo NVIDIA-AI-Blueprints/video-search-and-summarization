@@ -8,7 +8,7 @@ microservice (legacy name RT-Embed, Compose service `rtvi-embed`) as a
 standalone Docker Compose deployment. Unlike skills that probe an
 existing VSS deployment, this trial *is* the deploy — it runs from a
 bare Brev L40S instance and stands the service up itself. No
-`/vss-deploy-profile` prerequisite is required; the spec explicitly
+`/vss-build-vision-ai` prerequisite is required; the spec explicitly
 forbids invoking it.
 
 ## Platform
@@ -67,7 +67,7 @@ PLATFORMS: dict[str, dict] = {
     # fleets (e.g. the registered-node vss-eval-rtx-* boxes). Without it the
     # adapter has no gpu_type mapping for specs pinned to RTXPRO6000BW and
     # the skill silently never runs there. Values mirror the platform tables
-    # of the other adapters (vss-deploy-profile, vss-query-analytics).
+    # of the other adapters (vss-build-vision-ai, vss-query-analytics).
     "RTXPRO6000BW": {
         "short_name": "rtxpro6000bw",
         "gpu_type": "RTX PRO 6000",
@@ -85,7 +85,7 @@ DEFAULT_PLATFORM = "L40S"
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 
@@ -288,7 +288,7 @@ def generate_task(
         "",
         f"Use the `/vss-deploy-video-embedding` skill on this bare `{platform}` host "
         "to bring up the RT-Embed microservice standalone via Docker Compose. "
-        "Do not run `/vss-deploy-profile` or `scripts/dev-profile.sh`.",
+        "Do not run `/vss-build-vision-ai` or `scripts/dev-profile.sh`.",
         "",
         "## Query",
         "",

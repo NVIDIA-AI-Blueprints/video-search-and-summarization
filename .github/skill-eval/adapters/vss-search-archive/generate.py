@@ -33,7 +33,7 @@ query.
         tests/generic_judge.py
         solution/solve.sh
         skills/vss-search-archive/  (full skill copy)
-        skills/vss-deploy-profile/        (for prerequisite diagnostics)
+        skills/vss-build-vision-ai/        (for prerequisite diagnostics)
         skills/vss-manage-video-io-storage/          (the search spec's first checks reference VIOS
                                as the canonical source-list lookup)
         skills/vss-ask-video/              (confirmed search-result verification)
@@ -47,7 +47,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-search-archive/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-search-archive \\
         --skill-dir skills/vss-search-archive \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
+        --deploy-skill-dir skills/vss-build-vision-ai \\
         --video-io-skill-dir skills/vss-manage-video-io-storage \\
         --ask-video-skill-dir skills/vss-ask-video
 """
@@ -61,7 +61,7 @@ import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Platforms — mirrors the vss-manage-video-io-storage/vss-deploy-profile adapters so vss-search-archive runs on the
+# Platforms — mirrors the vss-manage-video-io-storage/vss-build-vision-ai adapters so vss-search-archive runs on the
 # same hosts. The spec's `resources.platforms` further filters this set.
 # ---------------------------------------------------------------------------
 
@@ -76,14 +76,14 @@ PLATFORMS: dict[str, dict] = {
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — do not pause to ask "
-    "for confirmation on `/vss-deploy-profile` or any other setup action the trial requires."
+    "for confirmation on `/vss-build-vision-ai` or any other setup action the trial requires."
 )
 
 DEPLOYMENT_PREAMBLE = (
     PREAMBLE
     + " This step deploys and validates the search profile only; do not download or ingest sample "
-    "media. Work from the validated project checkout and use `/vss-deploy-profile -p search -m "
-    "remote-all`. Compose commands executed by that deployment workflow are expected. Once it "
+    "media. Work from the validated project checkout and use the `/vss-build-vision-ai` stock "
+    "Search workflow with remote LLM/VLM placement. Compose commands executed by that deployment workflow are expected. Once it "
     "returns, require local Agent and VST health, the project-local `vss search run --help`, the "
     "running `vss-rtvi-vlm` proxy, and a nonempty bounded `/v1/models` response. On Brev, let the "
     "deployment workflow mint the public secure-link origin from environment-provided values. Use "
@@ -98,7 +98,7 @@ DEPLOYMENT_PREAMBLE = (
 INGESTION_PREAMBLE = (
     PREAMBLE
     + " The preceding step already deployed, validated, and configured the search profile. Reuse "
-    "that state. Read the origin from `vss configure show`; do not invoke `/vss-deploy-profile`, "
+    "that state. Read the origin from `vss configure show`; do not invoke `/vss-build-vision-ai`, "
     "`docker compose up`, restart or recreate containers, edit routing, or repeat public-origin "
     "selection. If the prepared deployment is unavailable, report the prerequisite failure and stop "
     "instead of repairing it. Initialize the source-lifecycle deadline once at the start of this "
@@ -466,7 +466,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # skills/ — primary + deploy + VIOS + ask-video. The affirmative
         # verification step must exercise its actual bundled dependency.
         copies = [(skill_dir, "vss-search-archive"),
-                  (deploy_skill_dir, "vss-deploy-profile"),
+                  (deploy_skill_dir, "vss-build-vision-ai"),
                   (video_io_skill_dir, "vss-manage-video-io-storage"),
                   (ask_video_skill_dir, "vss-ask-video")]
         for src, name in copies:
@@ -488,7 +488,7 @@ def main() -> None:
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-search-archive")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
+                        help="Path to skills/vss-build-vision-ai (optional — included for agent debug)")
     parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
                         help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)")
     parser.add_argument("--ask-video-skill-dir", default=None,

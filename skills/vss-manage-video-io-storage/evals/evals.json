@@ -23,7 +23,7 @@
     "ground_truth": "The agent should load vss-manage-video-io-storage, distinguish NvStreamer from the VIOS gateway by endpoint and port, upload through the NvStreamer API, read the generated RTSP URL from /sensor/<id>/streams, and use sensorUrl when registering that RTSP URL with VIOS.",
     "expected_behavior": [
       "Uses explicit VSS_STREAMER_URL for Kubernetes NvStreamer file-to-RTSP operations and the VSS_PUBLIC_URL /vst route for VIOS sensor registration or recording operations; it never derives a streamer host or uses kubectl port-forward.",
-      "Does not invoke vss-deploy-profile or a search, Q&A, or summarization skill for API-only VIOS operations.",
+      "Does not invoke vss-build-vision-ai or a search, Q&A, or summarization skill for API-only VIOS operations.",
       "Reads generated RTSP URLs from NvStreamer instead of constructing them from hardcoded container paths.",
       "Uses the sensorUrl field for VIOS POST /sensor/add, not url.",
       "Cleans up or reports any temporary test sensors or files it creates."

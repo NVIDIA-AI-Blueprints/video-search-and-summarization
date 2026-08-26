@@ -25,7 +25,7 @@ by default (RTXPRO6000BW).  Override with ``--platform``.
         tests/generic_judge.py
         solution/solve.sh
         skills/vss-generate-video-report/
-        skills/vss-deploy-profile/
+        skills/vss-build-vision-ai/
         skills/vss-manage-video-io-storage/
         environment/Dockerfile
 
@@ -35,7 +35,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-generate-video-report/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-generate-video-report \\
         --skill-dir skills/vss-generate-video-report \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
+        --deploy-skill-dir skills/vss-build-vision-ai \\
         --video-io-skill-dir skills/vss-manage-video-io-storage \\
         --spec skills/vss-generate-video-report/evals/base_profile_report.json
 """
@@ -63,13 +63,13 @@ PLATFORMS: dict[str, dict] = {
 DEFAULT_PLATFORM = "RTXPRO6000BW"
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
-# fires.  Skills default to "ask the user" before /vss-deploy-profile; in CI there is no
+# fires.  Skills default to "ask the user" before /vss-build-vision-ai; in CI there is no
 # user, so without this preamble the agent stalls or falls through to a
 # localhost default.
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 
@@ -260,7 +260,7 @@ def generate_task(
         # a sample warehouse video via vss-manage-video-io-storage before running report checks).
         copies = [
             (skill_dir,        "vss-generate-video-report"),
-            (deploy_skill_dir, "vss-deploy-profile"),
+            (deploy_skill_dir, "vss-build-vision-ai"),
             (video_io_skill_dir,   "vss-manage-video-io-storage"),
             (query_analytics_skill_dir, "vss-query-analytics"),
         ]
@@ -291,7 +291,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--deploy-skill-dir", default=None,
-        help="Path to skills/vss-deploy-profile (optional — included for agent diagnosis)",
+        help="Path to skills/vss-build-vision-ai (optional — included for agent diagnosis)",
     )
     parser.add_argument(
         "--video-io-skill-dir", dest="video_io_skill_dir", default=None,

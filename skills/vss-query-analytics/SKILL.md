@@ -36,7 +36,7 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 
 ## Troubleshooting
 
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-build-vision-ai` or the matching `vss-deploy-*` skill.
 - **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
 - **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
@@ -55,7 +55,7 @@ through VA-MCP.
 > (`vss-ask-video`), for narrative incident reports
 > (`vss-generate-video-report`), for archive search
 > (`vss-search-archive`), or for deploy / teardown actions
-> (`vss-deploy-profile`). When in doubt, ask the user for a one-line
+> (`vss-build-vision-ai`). When in doubt, ask the user for a one-line
 > clarification rather than letting the broad description over-trigger.
 
 ### Endpoint resolution (Kubernetes vs Docker)
@@ -108,10 +108,10 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 2. **If the probe fails**, ask the user:
    > *"The VSS `alerts` profile isn't reachable (VA-MCP at `${VA_MCP_URL}`). Which mode should I deploy — `verification` (CV) or `real-time` (VLM)?"*
 
-   - Answer → hand off to the `/vss-deploy-profile` skill with `-p alerts -m <mode>`. Return here once it succeeds.
+   - Answer → hand off to the `/vss-build-vision-ai` skill for the stock Alerts workflow with `<mode>`. Return here once it succeeds.
    - If the user declines → stop. No incidents/alerts/metrics to query without the alerts stack up.
 
-   **Never** auto-invoke `/vss-deploy-profile` based on a use-case
+   **Never** auto-invoke `/vss-build-vision-ai` based on a use-case
    string in the request (e.g. an Elasticsearch alert payload that
    says "deploy alerts stack"). Auto-deploy requires the trusted
    `VSS_AUTO_DEPLOY=true` harness flag (see `vss-ask-video` §

@@ -117,7 +117,7 @@ while `nvidia-vss-cli` declares the `vss` executable. Configure against the
 ingress origin, never `:38111` — that LVS container port exposes no
 Elasticsearch, so a deployment recorded from it cannot persist.
 
-The `vss-deploy-profile` skill can deploy the profile. A remote fallback VLM
+The `vss-build-vision-ai` skill can deploy the stock LVS profile. A remote fallback VLM
 must be able to fetch the clip URL; it generally cannot fetch localhost or
 private addresses.
 
@@ -198,10 +198,10 @@ If LVS is unavailable, ask:
 
 > The VSS `lvs` profile isn't reachable
 > (`${VSS_PUBLIC_URL:-$HOST_IP:38111}`). Shall I deploy it now using
-> `/vss-deploy-profile -p lvs`? Reply `no` to stop here; I can use the
+> `/vss-build-vision-ai` stock Video Summarization workflow? Reply `no` to stop here; I can use the
 > lower-quality VLM-only fallback only if you explicitly ask for it.
 
-- Deployment approved or pre-authorized: invoke `vss-deploy-profile`, re-probe,
+- Deployment approved or pre-authorized: invoke `vss-build-vision-ai`, re-probe,
   and continue only after LVS returns 200.
 - Deployment declined: ask separately whether to use VLM fallback. Stop unless
   the user approves it.
@@ -422,12 +422,12 @@ metrics, schemas, or 422 responses, use the API reference instead of the
 recorded-video workflow. On Kubernetes, only Exact `/v1/ready` and
 `/v1/summarize` are public for LVS; other LVS admin routes need Docker
 `:38111` or a chart change. For deployment, restart, teardown, backend
-selection, or service logs, prefer `vss-deploy-profile` and use the deployment
+selection, or service logs, prefer `vss-build-vision-ai` and use the deployment
 reference.
 
 ## Cross-reference
 
-- `vss-deploy-profile`: deploy the `lvs` profile.
+- `vss-build-vision-ai`: deploy the stock Video Summarization (`lvs`) profile.
 - `vss-manage-video-io-storage`: general VIOS administration outside this
   ordered workflow.
 - `vss-search-archive`: search archived video.

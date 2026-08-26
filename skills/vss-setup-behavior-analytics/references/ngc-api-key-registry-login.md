@@ -5,7 +5,7 @@ description: Obtain an NGC API key and log in to nvcr.io so Docker can pull the 
 
 # NGC Access — API Key + Registry Login
 
-The standalone `vss-behavior-analytics` deploy needs only an NGC API key so Docker can pull the container image from `nvcr.io`. It does not use the `ngc` CLI to download NGC resources, so the full NGC CLI install / verify flow is out of scope here (it lives in the `vss-deploy-profile` skill's `references/ngc.md`).
+The standalone `vss-behavior-analytics` deploy needs only an NGC API key so Docker can pull the container image from `nvcr.io`. It does not use the `ngc` CLI to download NGC resources, so the full NGC CLI install / verify flow is out of scope here (it lives in the `vss-build-vision-ai` skill's `references/ngc.md`).
 
 ## Check current state
 

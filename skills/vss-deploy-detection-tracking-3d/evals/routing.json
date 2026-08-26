@@ -19,7 +19,7 @@
         "The agent identifies vss-deploy-detection-tracking-3d as the default skill for generic MV3DT / RTVI-CV-3D intent.",
         "The answer names the standalone RT-CV-3D compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml and summarizes perception, BEV Fusion, bundled Mosquitto, bundled Kafka, and kafka-topic-init.",
         "The answer does not hardcode a runtime image version and does not infer image tags from the skill version.",
-        "The answer routes to vss-deploy-profile only for explicit warehouse blueprint/profile MV3DT requests.",
+        "The answer blocks explicit warehouse blueprint/profile MV3DT requests until vss-build-vision-ai covers warehouse.",
         "No docker compose up, docker pull, or docker run command is executed."
       ]
     },
@@ -36,7 +36,7 @@
     {
       "query": "Deploy MV3DT on the sample dataset / 4-cam example dataset. Do not run containers. Provide the high-level standalone plan, including display probing before choosing saved output and live OSD plus live fused BEV when display works.",
       "checks": [
-        "The agent uses vss-deploy-detection-tracking-3d and the standalone RT-CV-3D sample-dataset flow, not vss-deploy-profile or warehouse compose unless the user asks for the full warehouse blueprint.",
+        "The agent uses vss-deploy-detection-tracking-3d and the standalone RT-CV-3D sample-dataset flow, not warehouse compose or a full-profile workflow.",
         "The plan uses NGC warehouse app-data only as the source for sample models/videos and does not infer the app-data or runtime image version from the skill version.",
         "The plan validates required sample models/videos plus repo sample calibration/map assets before launch, then sets NUM_CAMS=4, INPUT_MODE=file, and the sample video directory.",
         "The plan probes display before forcing saved output; with a working display it uses both the live OSD camera-grid window and live fused BEV window, and when saved/headless it saves both grid and fused BEV output.",
@@ -47,7 +47,7 @@
     {
       "query": "How do I deploy multi-view 3D tracking on the VSS warehouse stack with the rest of the warehouse blueprint? Also clarify how this differs from a generic MV3DT request.",
       "checks": [
-        "The agent treats explicit warehouse intent as the exception and routes to vss-deploy-profile or warehouse compose guidance.",
+        "The agent treats explicit warehouse intent as blocked until vss-build-vision-ai covers warehouse/profile deployment.",
         "The answer explains the boundary: generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT uses warehouse/profile deployment.",
         "The agent does not claim the standalone compose deploys VST, ELK, agents, LLM, or VLM services."
       ]

@@ -718,7 +718,7 @@ docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down --rmi
 - **🟢 Healthcheck tuning divergence**: docs show `start_period: 300s`,
   `retries: 3`; compose sets `1200s` / `5`. The compose values are
   deliberately more lenient for model-download-on-first-boot. Not a bug.
-- **🟢 Source-backed MODEL_PATH default**: compose, `vss-deploy-profile`, and
+- **🟢 Source-backed MODEL_PATH default**: compose, `vss-build-vision-ai`, and
   the default alerts/LVS paths use
   `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`. Keep that default for standalone
   local Cosmos Reason3 validation unless the source profile explicitly changes

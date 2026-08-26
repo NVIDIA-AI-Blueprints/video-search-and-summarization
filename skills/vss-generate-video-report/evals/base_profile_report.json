@@ -1,7 +1,7 @@
 {
   "skills": [
     "vss-generate-video-report",
-    "vss-deploy-profile",
+    "vss-build-vision-ai",
     "vss-query-analytics"
   ],
   "resources": {
@@ -13,7 +13,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the necessary prerequisites for report generation on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** Need a **locally deployed** CR3 VLM NIM (nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner on localhost:30082 or RT-VLM on localhost:8018; VLM_MODE=local or local_shared — do NOT use remote VLM) and the full VIOS stack reachable at http://localhost:30888/vst/api/v1 so `/vss-generate-video-report` can upload clips and call the VLM.",
+      "query": "Deploy the necessary prerequisites for report generation on `{{platform}}` via the `/vss-build-vision-ai` stock Base workflow. Run autonomously.\n\n**Environment & prerequisites:** Need a **locally deployed** CR3 VLM NIM (nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner on localhost:30082 or RT-VLM on localhost:8018; VLM_MODE=local or local_shared — do NOT use remote VLM) and the full VIOS stack reachable at http://localhost:30888/vst/api/v1 so `/vss-generate-video-report` can upload clips and call the VLM.",
       "checks": [
         "A local CR3 VLM is ready: `curl -sf --max-time 10` to either http://localhost:30082/v1/models or http://localhost:8018/v1/models returns HTTP 200 with at least one `.data[].id` containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check",
         "`curl -sf --max-time 10` against http://localhost:30888/vst/api/v1/sensor/version (or an equivalent VST health/version endpoint) succeeds",
@@ -46,7 +46,7 @@
       ]
     },
     {
-      "query": "Before generating an incident report, use `/vss-query-analytics` to verify VA-MCP incident analytics is ready. If analytics is unavailable, deploy `alerts` via `/vss-deploy-profile -p alerts`, then re-check until it initializes successfully.",
+      "query": "Before generating an incident report, use `/vss-query-analytics` to verify VA-MCP incident analytics is ready. If analytics is unavailable, deploy `alerts` via the `/vss-build-vision-ai` stock Alerts workflow, then re-check until it initializes successfully.",
       "checks": [
         "The run used `/vss-query-analytics` (or equivalent VA-MCP calls) to verify incident analytics is ready on localhost:9901",
         "If analytics was unavailable, the run deployed alerts and re-checked until ready",

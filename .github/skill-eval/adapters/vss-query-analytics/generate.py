@@ -10,7 +10,7 @@ live VLM endpoints, or POST to ``/generate``.
 
 The spec (``skills/vss-query-analytics/evals/query_analytics.json``)'s
 **first** ``expects[]`` query deploys the VSS alerts profile in real-time
-mode via ``/vss-deploy-profile`` in the trial's own first turn; the
+mode via ``/vss-build-vision-ai`` in the trial's own first turn; the
 remaining queries then read analytics over the VA-MCP server it brings
 up. The harness no longer pre-deploys anything (the
 ``_ensure_prerequisite_deployed`` hook + ``active-deploy`` marker were
@@ -33,7 +33,7 @@ with ``--platform``.
             tests/generic_judge.py
             solution/solve.sh
             skills/vss-query-analytics/
-            skills/vss-deploy-profile/
+            skills/vss-build-vision-ai/
             environment/Dockerfile
 
 ``<profile>`` comes from ``spec.profile`` (here: ``alerts``).
@@ -48,7 +48,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-query-analytics/generate.py \\
         --output-dir <scratch>/datasets/vss-query-analytics/query_analytics \\
         --skill-dir skills/vss-query-analytics \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
+        --deploy-skill-dir skills/vss-build-vision-ai \\
         --spec skills/vss-query-analytics/evals/query_analytics.json
 """
 from __future__ import annotations
@@ -74,13 +74,13 @@ PLATFORMS: dict[str, dict] = {
 DEFAULT_PLATFORM = "L40S"
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
-# fires. Skills default to "ask the user" before /vss-deploy-profile; in CI
+# fires. Skills default to "ask the user" before /vss-build-vision-ai; in CI
 # there is no user, so without this preamble the agent stalls or falls
 # through to a localhost default.
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 
@@ -172,7 +172,7 @@ def generate_task(
             f"Use the `/vss-query-analytics` skill on this `{platform}` host to "
             "answer analytics questions over VA-MCP "
             "(`http://${HOST_IP:-localhost}:9901/mcp`). If a step's query asks you "
-            "to deploy first, use `/vss-deploy-profile`; the analytics queries "
+            "to deploy first, use `/vss-build-vision-ai`; the analytics queries "
             "themselves are **read-only** over VA-MCP and must not trigger deploys "
             "or call live VLM / report endpoints.",
             "",
@@ -216,7 +216,7 @@ def generate_task(
             # No profile / requires_deployed_vss / prerequisite_deploy_mode:
             # nothing in the harness reads them (the _ensure_prerequisite_deployed
             # pre-deploy hook is gone). The spec's first expects[] query deploys
-            # the alerts profile via /vss-deploy-profile in the trial's first turn.
+            # the alerts profile via /vss-build-vision-ai in the trial's first turn.
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -250,7 +250,7 @@ def generate_task(
         # skills/ — vss-query-analytics + deploy (so the agent can diagnose
         # / redeploy if VA-MCP is not live).
         for src, name in ((skill_dir, "vss-query-analytics"),
-                          (deploy_skill_dir, "vss-deploy-profile")):
+                          (deploy_skill_dir, "vss-build-vision-ai")):
             if src and src.exists():
                 dst = step_dir / "skills" / name
                 if dst.exists():
@@ -277,7 +277,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--deploy-skill-dir", default=None,
-        help="Path to skills/vss-deploy-profile (optional — included for agent diagnosis)",
+        help="Path to skills/vss-build-vision-ai (optional — included for agent diagnosis)",
     )
     parser.add_argument(
         "--spec", default=None,
@@ -326,7 +326,7 @@ def main() -> None:
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
     print()
-    print("Note: step-1's query deploys the alerts profile via /vss-deploy-profile")
+    print("Note: step-1's query deploys the alerts profile via /vss-build-vision-ai")
     print("in the trial's first turn; steps 2+ query VA-MCP read-only. The harness")
     print("does not pre-deploy (the _ensure_prerequisite_deployed hook is gone).")
 

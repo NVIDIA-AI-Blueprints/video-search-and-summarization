@@ -87,8 +87,9 @@ index inventory is a snapshot.
 ## Mandatory search workflow
 
 1. Confirm the selected deployment is the `search` profile. If required routes
-   are unavailable, ask whether to reconnect or deploy it with
-   `vss-deploy-profile -p search`; do not target another profile.
+   are unavailable, ask whether to reconnect or deploy it through
+   `vss-build-vision-ai` using the stock Search workflow; do not target another
+   profile.
 
 2. When the user names a file, camera, or sensor, list registered sources with
    `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin

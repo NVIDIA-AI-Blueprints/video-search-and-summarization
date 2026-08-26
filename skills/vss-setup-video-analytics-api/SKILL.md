@@ -48,7 +48,7 @@ For the field-by-field JSON config reference, see [`references/configuration.md`
 
 ## Troubleshooting
 
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-build-vision-ai` or the matching `vss-deploy-*` skill.
 - **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
 - **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
@@ -127,7 +127,7 @@ The API consumes real-time location (`mdx-rtls`) and AMR (`mdx-amr`) messages fr
 
 ## Routing rules
 
-- If the user wants "the full stack" (UI / agent / perception): hand off to `vss-deploy-profile` with profile `warehouse` (or `alerts`). Don't run this skill in parallel.
+- If the user wants the alerts full stack (UI / agent / perception): hand off to `vss-build-vision-ai` stock Alerts. If the user wants the warehouse full stack, report the warehouse coverage blocker. Don't run this skill in parallel.
 - If the user wants to deploy the analytics pipeline (behavior creation, incident detection): hand off to `vss-setup-behavior-analytics`.
 - If the user wants to publish a runtime config / calibration update through the REST API: confirm Kafka is reachable, then use the `/config` or calibration endpoints and point them at the behavior-analytics dynamic-update references for the consumer wire contract.
 - If the user wants to understand the dynamic config / dynamic calibration wire contract from the **consumer** (behavior-analytics) side: point them at the `vss-setup-behavior-analytics` dynamic-config and dynamic-calibration references.

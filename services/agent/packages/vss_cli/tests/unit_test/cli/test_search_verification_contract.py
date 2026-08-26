@@ -162,7 +162,7 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "do not download or ingest sample media" in deployment_preamble
     assert "Initial profile deployment activity is not a routing violation" in deployment_preamble
     assert "preceding step already deployed" in ingestion_preamble
-    assert "do not invoke `/vss-deploy-profile`" in ingestion_preamble
+    assert "do not invoke `/vss-build-vision-ai`" in ingestion_preamble
     assert "`docker compose up`" in ingestion_preamble
     assert any("one bounded source-setup deadline" in check for check in ingestion_checks)
 
@@ -383,7 +383,7 @@ def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> No
             "--skill-dir",
             str(SEARCH_SKILL),
             "--deploy-skill-dir",
-            str(REPOSITORY_ROOT / "skills/vss-deploy-profile"),
+            str(REPOSITORY_ROOT / "skills/vss-build-vision-ai"),
             "--video-io-skill-dir",
             str(REPOSITORY_ROOT / "skills/vss-manage-video-io-storage"),
             "--ask-video-skill-dir",
@@ -400,7 +400,7 @@ def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> No
     assert "deploys and validates the search profile only" in deployment_instruction
     assert "do not download or ingest sample media" in deployment_instruction
     assert "preceding step already deployed" in ingestion_instruction
-    assert "do not invoke `/vss-deploy-profile`" in ingestion_instruction
+    assert "do not invoke `/vss-build-vision-ai`" in ingestion_instruction
 
     verification_step = tmp_path / "search/rtxpro6000bw/step-7"
     assert (verification_step / "skills/vss-ask-video/SKILL.md").is_file()

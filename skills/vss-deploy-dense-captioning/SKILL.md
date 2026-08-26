@@ -25,7 +25,7 @@ For API calls against an existing service:
   service was configured.
 
 For full VSS profile deployment:
-- Use `../vss-deploy-profile/SKILL.md`; this skill does not deploy full VSS profiles.
+- Use `../vss-build-vision-ai/SKILL.md`; this skill does not deploy full VSS profiles.
 
 ## Instructions
 
@@ -46,7 +46,7 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 
 ## Troubleshooting
 
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-build-vision-ai` or the matching `vss-deploy-*` skill.
 - **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
 - **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
@@ -64,7 +64,7 @@ checks, NIM-compatible chat completions, or Prometheus metrics. API reference:
 ## Deployment Routing
 
 If the user asks to deploy a full VSS profile, use
-[`../vss-deploy-profile/SKILL.md`](../vss-deploy-profile/SKILL.md). That skill
+[`../vss-build-vision-ai/SKILL.md`](../vss-build-vision-ai/SKILL.md). That skill
 owns profile routing, `generated.env`, `resolved.yml`, multi-service sizing, and
 full-stack deploy/teardown.
 
@@ -72,7 +72,7 @@ If the user asks for standalone RT-VLM dense captioning, or no VSS profile is
 already running, use the standalone RT-VLM flow in
 [`references/deploy-rt-vlm-service.md`](references/deploy-rt-vlm-service.md)
 before calling the API. This follows the same compose-centric pattern as
-`vss-deploy-profile`: gather context, run preflights, work from a local copy,
+`vss-build-vision-ai`: gather context, run preflights, work from a local copy,
 dry-run with `docker compose config`, review, deploy, then wait for health.
 
 ## Standalone Deployment Flow

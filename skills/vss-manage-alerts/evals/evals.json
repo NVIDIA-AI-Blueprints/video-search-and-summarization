@@ -81,7 +81,7 @@
     "expected_behavior": [
       "Loads vss-manage-alerts and detects that subscription CRUD is Workflow D, which requires VLM real-time mode.",
       "Refuses with the canonical message that alert subscriptions and Slack notifications are only supported in VLM real-time mode.",
-      "Mentions redeploying with /vss-deploy-profile -p alerts -m real-time and notes that switching tears down current CV monitoring.",
+      "Mentions redeploying through /vss-build-vision-ai by choosing the stock Alerts workflow in real-time mode and notes that switching tears down current CV monitoring.",
       "Does not call Alert Bridge POST /api/v1/realtime.",
       "Does not auto-redeploy or switch modes without user confirmation.",
       "Does not call rtvi-vlm directly."

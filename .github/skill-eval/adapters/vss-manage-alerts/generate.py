@@ -35,7 +35,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-manage-alerts/generate.py \\
         --output-dir "$SCRATCH/datasets/vss-manage-alerts" \\
         --skill-dir   skills/vss-manage-alerts \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
+        --deploy-skill-dir skills/vss-build-vision-ai \\
         --spec        skills/vss-manage-alerts/evals/alerts_vlm_real_time.json
 """
 from __future__ import annotations
@@ -57,7 +57,7 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires. This pre-authorization covers deployment "
     "and setup ONLY. It does not extend to a destructive call — no interactive "
     "user exists to consent to one — so where the skill gates an action behind a "
@@ -256,7 +256,7 @@ def generate_platform_mode(
         # static host context lives in the leading paragraph below.
         if idx == 1:
             leading = [
-                f"Use the `/vss-manage-alerts` skill (and `/vss-deploy-profile` as needed) on this bare `{platform}` host.",
+                f"Use the `/vss-manage-alerts` skill (and `/vss-build-vision-ai` as needed) on this bare `{platform}` host.",
                 "Docker + NVIDIA Container Toolkit are available, `NGC_CLI_API_KEY` is set,",
                 "and the remote LLM/VLM endpoints are configured via "
                 "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`.",
@@ -340,7 +340,7 @@ def generate_platform_mode(
         # are resolved as siblings of the primary skill dir.
         skills_to_copy: list[tuple[Path | None, str]] = [
             (skill_dir, "vss-manage-alerts"),
-            (deploy_skill_dir, "vss-deploy-profile"),
+            (deploy_skill_dir, "vss-build-vision-ai"),
         ]
         already = {name for _, name in skills_to_copy}
         for extra_name in spec.get("skills") or []:
@@ -383,7 +383,7 @@ def main() -> None:
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-manage-alerts")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (included so agent can diagnose issues)")
+                        help="Path to skills/vss-build-vision-ai (included so agent can diagnose issues)")
     parser.add_argument("--spec", default=None,
                         help=f"Path to spec JSON (default: <skill-dir>/evals/{DEFAULT_SPEC})")
     parser.add_argument("--platform", default=None,
