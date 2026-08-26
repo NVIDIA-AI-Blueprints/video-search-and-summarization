@@ -1,0 +1,49 @@
+.main, .titleMain, .titleFooter, .nvidialogo, .nvidialogoHovered, .appMenuIcon {
+    position: absolute;
+    top: 0;
+    height: 3vw;
+    display: inline;
+  }
+  
+  .main {
+    background-color: #343131;
+    border-bottom: .25vw solid #76b900;
+    width: 100vw;
+  }
+  
+  .titleMain {
+    color: #fefefe !important;
+    font-weight: bold;
+    font-size: 2vw;
+    width: 50vw;
+    text-align: right;
+    left: 6vw;
+  }
+  
+  .titleFooter {
+    color: #fefefe !important;
+    font-weight: bold;
+    font-size: .5vw;
+    width: 3vw;
+    padding: 1.5vw 0 .5vw .5vw;
+    left: calc(6vw + 50vw);
+  }
+  
+  .nvidialogo, .nvidialogoHovered {
+    width: 16vw;
+    height: 40px;
+    margin: 5px;
+    padding: .75vw 0;
+    left: 0;
+  }
+  
+  .nvidialogoHovered {
+    cursor: pointer;
+  }
+  
+  .appMenuIcon {
+    top: .5vw;
+    right: 1vw;
+    cursor: pointer;
+  }
+  
