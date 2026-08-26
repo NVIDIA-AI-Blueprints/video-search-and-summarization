@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import os
 import time
-from typing import Optional
+from typing import Iterator, Optional
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -61,6 +62,81 @@ logger = logging.getLogger(__name__)
 # report NOT ready rather than admitting traffic to a broken subsystem.
 _startup_ready: bool = False
 _startup_error: str = "startup has not completed"
+
+# Four client attempts (10s request timeout each) plus 1+2+4s of backoff stay
+# inside the instance's default 60s startup budget.
+_ALERT_CONFIG_INIT_MAX_ATTEMPTS = 4
+_ALERT_CONFIG_INIT_RETRY_BASE_SECONDS = 1.0
+_ALERT_CONFIG_INIT_RETRY_MAX_SECONDS = 8.0
+_RETRYABLE_ES_STATUS_CODES = frozenset({429, 502, 503, 504})
+
+
+def _exception_chain(exc: BaseException) -> Iterator[BaseException]:
+    """Yield an exception and its explicit/implicit causes once each."""
+    seen = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_retryable_alert_config_init_error(exc: BaseException) -> bool:
+    """Whether alert-config initialisation failed for a transient ES reason.
+
+    Persistence wraps Elasticsearch exceptions at multiple layers, so inspect
+    the complete cause chain instead of depending on the outer exception type.
+    HTTP 4xx errors other than throttling and configuration failures remain
+    fail-fast.
+    """
+    for error in _exception_chain(exc):
+        meta = getattr(error, "meta", None)
+        status = getattr(meta, "status", None)
+        if status is None:
+            status = getattr(error, "status_code", None)
+        if status is not None:
+            return status in _RETRYABLE_ES_STATUS_CODES
+
+        if isinstance(error, (ConnectionError, TimeoutError)):
+            return True
+
+        # elastic-transport connection errors do not inherit Python's
+        # ConnectionError on every supported client version.
+        error_type = type(error)
+        if error_type.__module__.startswith("elastic_transport") and error_type.__name__ in {
+            "ConnectionError",
+            "ConnectionTimeout",
+        }:
+            return True
+
+    return False
+
+
+async def _initialise_alert_config_service() -> None:
+    """Build and hydrate the alert-config service with bounded ES retries."""
+    from .api.alert_config_routes import _get_service
+
+    delay = _ALERT_CONFIG_INIT_RETRY_BASE_SECONDS
+    for attempt in range(1, _ALERT_CONFIG_INIT_MAX_ATTEMPTS + 1):
+        try:
+            _get_service()
+            return
+        except Exception as exc:
+            retryable = _is_retryable_alert_config_init_error(exc)
+            exhausted = attempt == _ALERT_CONFIG_INIT_MAX_ATTEMPTS
+            if not retryable or exhausted:
+                raise
+
+            logger.warning(
+                "Transient Elasticsearch failure initialising the alert-config "
+                "store (attempt %d/%d); retrying in %.1fs: %s",
+                attempt,
+                _ALERT_CONFIG_INIT_MAX_ATTEMPTS,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _ALERT_CONFIG_INIT_RETRY_MAX_SECONDS)
 
 # Custom exception handler for validation errors
 @app.exception_handler(RequestValidationError)
@@ -135,16 +211,14 @@ async def startup_event():
     # no-op and the endpoint returns 503 ALWAYS_ON_DISABLED.
     validate_always_on_config_at_startup()
 
-    # Eagerly build + hydrate the alert-config store and gate readiness on
-    # it. A failure here is NOT swallowed: the store build enforces the
-    # persistence gate and confirms ES is reachable, so if it raises
-    # the service marks itself NOT ready and ``/health`` returns 503. This
-    # prevents a pod from admitting traffic while a mandatory subsystem
-    # (durable, ES-backed config storage) is unusable.
+    # Eagerly build + hydrate the alert-config store and gate readiness on it.
+    # A newly-created ES index can briefly reject searches while its primary
+    # shard is being allocated, so retry only transient transport/server
+    # failures. Permanent failures and an exhausted retry budget abort startup
+    # rather than leaving a live process permanently latched at NOT ready.
     global _startup_ready, _startup_error
     try:
-        from .api.alert_config_routes import _get_service
-        _get_service()
+        await _initialise_alert_config_service()
         _startup_ready = True
         _startup_error = ""
         logger.info("Alert config service eagerly initialised; service is ready")
@@ -152,9 +226,9 @@ async def startup_event():
         _startup_ready = False
         _startup_error = f"alert-config store initialisation failed: {e}"
         logger.error(
-            "Alert config store initialisation failed at startup; service will "
-            "report NOT ready until this is resolved: %s", e,
+            "Alert config store initialisation failed at startup; aborting: %s", e,
         )
+        raise
 
 
 @app.on_event("shutdown")
@@ -314,4 +388,4 @@ async def metrics():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)
