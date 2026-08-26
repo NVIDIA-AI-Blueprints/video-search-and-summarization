@@ -65,6 +65,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # GitLab Master rejects regular blobs > 5 MiB. Scoped to services/,
+      # libs/, tools/ (mirror-sync). LFS pointers are small in git and pass.
+      - name: Files >5 MiB under services/ libs/ tools/ must be Git LFS
+        run: bash .github/scripts/check_large_files_lfs.sh --all
+
       # One diff resolution answering several path questions. A second step
       # would have to re-resolve the same base, which is how the two gates
       # drifted apart last time.
