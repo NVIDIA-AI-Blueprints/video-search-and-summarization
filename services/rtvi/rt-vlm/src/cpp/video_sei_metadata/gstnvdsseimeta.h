@@ -29,7 +29,4 @@ const GstMetaInfo *gst_video_sei_meta_get_info(void);
 #define GST_VIDEO_SEI_META_API_TYPE (gst_video_sei_meta_api_get_type())
 #define GST_VIDEO_SEI_META_INFO (gst_video_sei_meta_get_info())
 
-GstVideoSEIMeta *gst_buffer_add_video_sei_meta(GstBuffer *buffer);
-GstVideoSEIMeta *gst_buffer_get_video_sei_meta(GstBuffer *buffer);
-
 #endif  // GST_NVDS_SEI_META_H_

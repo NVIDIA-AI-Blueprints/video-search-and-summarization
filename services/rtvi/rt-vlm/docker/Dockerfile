@@ -55,7 +55,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
     TRITON_NVDISASM_PATH=/usr/local/cuda/bin/nvdisasm \
     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     GST_PLUGIN_PATH=/opt/nvidia/rtvi/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins \
-    LD_LIBRARY_PATH=/opt/nvidia/rtvi/lib:/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+    LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/usr/lib/aarch64-linux-gnu/nvidia:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
 
 # Install only RTVI runtime dependencies directly on vLLM. Native build
 # dependencies are confined to pyds-builder and native-builder below.
@@ -162,18 +162,12 @@ RUN --mount=from=sbsa-media-runtime,source=/,target=/tmp/sbsa-root,readonly \
         test -s "$source_plugin"; \
         install -Dm755 "$source_plugin" /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvvideo4linux2.so; \
     fi
-
-# The Jetson SDK archive omits the two NvBuf runtime libraries required by pyds.
-# Use the portable iGPU copies rather than driver-mounted Tegra symlinks.
-COPY docker/base/binaries/igpu/libnvbufsurface.so docker/base/binaries/igpu/libnvbufsurftransform.so /tmp/igpu-nvbuf/
-RUN if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
-        ds_path=/opt/nvidia/deepstream/deepstream-9.1/lib \
-        && install -Dm755 /tmp/igpu-nvbuf/libnvbufsurface.so "$ds_path/libnvbufsurface.so" \
-        && install -Dm755 /tmp/igpu-nvbuf/libnvbufsurftransform.so "$ds_path/libnvbufsurftransform.so"; \
-    fi \
-    && rm -rf /tmp/igpu-nvbuf
-COPY --from=triton-cuda-runtime /usr/local/cuda/targets /tmp/triton-cuda-targets
-RUN set -e; if [ "$TARGETARCH" = "amd64" ]; then \
+# Mount Triton's CUDA targets instead of copying the whole tree into an image
+# layer. Only NPP and NVJPEG are needed at runtime; a COPY followed by rm would
+# retain every other target file in the preceding layer and inflate BuildKit's
+# peak disk use.
+RUN --mount=from=triton-cuda-runtime,source=/usr/local/cuda/targets,target=/tmp/triton-cuda-targets,readonly \
+    set -e; if [ "$TARGETARCH" = "amd64" ]; then \
         cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnpp*.so* /usr/local/cuda/targets/x86_64-linux/lib/ \
         && cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnvjpeg.so* /usr/local/cuda/targets/x86_64-linux/lib/; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
@@ -181,14 +175,15 @@ RUN set -e; if [ "$TARGETARCH" = "amd64" ]; then \
             if [ -e "$library" ]; then cp -a "$library" /usr/local/cuda/targets/aarch64-linux/lib/; fi; \
         done; \
     fi \
-    && rm -rf /tmp/triton-cuda-targets \
     && ldconfig
 
 FROM rtvi-media AS pyds-builder
 ARG TARGETARCH
 ARG ARM_PLATFORM
-ARG PYDS_SOURCE_COMMIT="6fdeefb7128435873f7794d2242ed48a1471ad7e"
+ARG PYDS_REF=master
 COPY docker/base/pyds.patch /tmp/pyds.patch
+ARG L4T_RELEASE=r39.2
+ARG L4T_PACKAGE_VERSION=39.2.1-20260806224157
 RUN apt update \
     && apt install -y --no-install-recommends \
         autoconf automake build-essential cmake g++ git libglib2.0-dev \
@@ -196,12 +191,36 @@ RUN apt update \
         python3-gi python3-gst-1.0 python-gi-dev python3-venv python3.12-dev \
         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev pkg-config pybind11-dev \
     && rm -rf /var/lib/apt/lists/*
-RUN git init /tmp/deepstream_python_apps \
+# Build iGPU bindings against JetPack 7.2.1 / L4T R39.2.1 NvBuf libraries.
+RUN mkdir -p /tmp/l4t-artifacts \
+    && if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
+        curl -fsSL https://repo.download.nvidia.com/jetson/jetson-ota-public.asc \
+            -o /etc/apt/trusted.gpg.d/jetson-ota-public.asc \
+        && echo "deb https://repo.download.nvidia.com/jetson/som $L4T_RELEASE main" \
+            > /etc/apt/sources.list.d/nvidia-l4t-som.list \
+        && echo "deb https://repo.download.nvidia.com/jetson/common $L4T_RELEASE main" \
+            > /etc/apt/sources.list.d/nvidia-l4t-common.list \
+        && apt-get update \
+        && mkdir -p /tmp/l4t-debs /tmp/l4t-root \
+        && cd /tmp/l4t-debs \
+        && apt-get download \
+            "nvidia-l4t-gstreamer=$L4T_PACKAGE_VERSION" \
+            "nvidia-l4t-multimedia=$L4T_PACKAGE_VERSION" \
+            "nvidia-l4t-multimedia-utils=$L4T_PACKAGE_VERSION" \
+        && for package in ./*.deb; do dpkg-deb -x "$package" /tmp/l4t-root; done \
+        && ds_path=/opt/nvidia/deepstream/deepstream-9.1/lib \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so.1.0.0 \
+            "$ds_path/libnvbufsurface.so" \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so.1.0.0 \
+            "$ds_path/libnvbufsurftransform.so" \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/nvidia/libgstnvdsseimeta.so.1.0.0 \
+            "$ds_path/libgstnvdsseimeta.so" \
+        && install -Dm755 /tmp/l4t-root/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvvideo4linux2.so \
+            /tmp/l4t-artifacts/libgstnvvideo4linux2.so \
+        && rm -rf /tmp/l4t-debs /tmp/l4t-root /var/lib/apt/lists/*; \
+    fi
+RUN git clone --depth 1 --branch "${PYDS_REF}" https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git /tmp/deepstream_python_apps \
     && cd /tmp/deepstream_python_apps \
-    && git remote add origin https://github.com/NVIDIA-AI-IOT/deepstream_python_apps.git \
-    && git fetch --depth 1 origin "${PYDS_SOURCE_COMMIT}" \
-    && git checkout --detach --force FETCH_HEAD \
-    && test "$(git rev-parse HEAD)" = "${PYDS_SOURCE_COMMIT}" \
     && git submodule update --init \
     && python3 bindings/3rdparty/git-partial-submodule/git-partial-submodule.py restore-sparse \
     && git apply /tmp/pyds.patch
@@ -238,7 +257,12 @@ FROM rtvi-media AS runtime
 ARG TARGETARCH
 ARG ARM_PLATFORM
 RUN --mount=from=pyds-builder,source=/tmp/pyds-wheel,target=/tmp/pyds-wheel,readonly \
-    pip install --no-deps /tmp/pyds-wheel/pyds-*.whl
+    --mount=from=pyds-builder,source=/tmp/l4t-artifacts,target=/tmp/l4t-artifacts,readonly \
+    pip install --no-deps /tmp/pyds-wheel/pyds-*.whl \
+    && if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
+        install -Dm755 /tmp/l4t-artifacts/libgstnvvideo4linux2.so \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvvideo4linux2.so; \
+    fi
 
 # Keep the manifest in the image filesystem so its contents are part of the
 # Docker cache key. A BuildKit bind mount is intentionally excluded from that
@@ -250,9 +274,8 @@ COPY --from=pdm-export /tmp/rtvi-requirements.txt /tmp/rtvi-requirements.txt
 # vLLM, xFormers, and FlashInfer packages owned by the NVIDIA base image.
 # OpenCV cannot function without the intentionally excluded proprietary codecs.
 # Remove the copies inherited from vLLM to prevent failed imports from polluting sys.path.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    env -u PIP_CONSTRAINT -u PIP_BUILD_CONSTRAINT \
-        pip install --no-deps --require-hashes -r /tmp/rtvi-requirements.txt \
+RUN env -u PIP_CONSTRAINT -u PIP_BUILD_CONSTRAINT \
+        pip install --no-cache-dir --no-deps --require-hashes -r /tmp/rtvi-requirements.txt \
     && pip uninstall -y opencv-python opencv-python-headless \
     && rm -f /usr/local/lib/python3.12/dist-packages/decord.libs/libx264* \
     && rm -f /tmp/rtvi-requirements.txt
@@ -323,9 +346,14 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-x86-evs-cython/ /tmp/evs-libs/x86/
-COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-arm-evs-cython/ /tmp/evs-libs/arm/
+COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/igpu/
+COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-sbsa-evs-cython/ /tmp/evs-libs/sbsa/
 RUN set -eu; \
-    case "$TARGETARCH" in amd64) evs_arch=x86 ;; arm64) evs_arch=arm ;; *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; esac; \
+    case "$TARGETARCH" in \
+        amd64) evs_arch=x86 ;; \
+        arm64) case "$ARM_PLATFORM" in igpu|sbsa) evs_arch="$ARM_PLATFORM" ;; *) echo "Unsupported ARM platform: $ARM_PLATFORM" >&2; exit 1 ;; esac ;; \
+        *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
     source_root="/tmp/evs-libs/$evs_arch/vllm"; \
     vllm_root=/usr/local/lib/python3.12/dist-packages/vllm; \
     test "$(find "$source_root" -type f -name "*.so" | wc -l)" -eq 11; \

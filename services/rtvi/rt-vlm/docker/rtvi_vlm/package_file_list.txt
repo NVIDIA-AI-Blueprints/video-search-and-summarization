@@ -53,6 +53,7 @@ utils/request_profiler.py
 vlm_pipeline/__init__.py
 vlm_pipeline/errors.py
 vlm_pipeline/ngc_model_downloader.py
+vlm_pipeline/ipc_frame_source.py
 vlm_pipeline/process_base.py
 vlm_pipeline/vlm_pipeline.py
 vlm_pipeline/video_file_frame_getter.py

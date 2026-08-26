@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -62,6 +62,7 @@ class MediaFileInfo:
     video_codec: str = ""
     video_duration_nsec: int = 0
     video_fps: float = 0.0
+    video_frame_count: int = 0
     video_resolution: tuple[int, int] = (0, 0)
 
     @staticmethod
@@ -141,6 +142,7 @@ class MediaFileInfo:
                     getattr(track, "frame_rate", None)
                     or getattr(track, "original_frame_rate", None)
                 )
+                media_file_info.video_frame_count = _to_int(getattr(track, "frame_count", None))
                 media_file_info.video_resolution = (
                     _to_int(getattr(track, "width", 0)),
                     _to_int(getattr(track, "height", 0)),

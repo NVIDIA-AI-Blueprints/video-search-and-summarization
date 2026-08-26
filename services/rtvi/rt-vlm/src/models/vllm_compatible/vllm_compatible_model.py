@@ -25,6 +25,7 @@ import random
 import re
 import string
 import threading
+import time
 import traceback
 import uuid
 from typing import List, Optional
@@ -55,8 +56,10 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_MAX_NUM_BATCHED_TOKENS": "RTVI_VLLM_MAX_NUM_BATCHED_TOKENS",
     "VLLM_ENABLE_PREFIX_CACHING": "RTVI_VLLM_ENABLE_PREFIX_CACHING",
     "VLLM_ENFORCE_EAGER": "RTVI_VLLM_ENFORCE_EAGER",
+    "VLLM_CUDAGRAPH_MODE": "RTVI_VLLM_CUDAGRAPH_MODE",
     "VLLM_DISABLE_MM_PREPROCESSOR_CACHE": "RTVI_VLLM_DISABLE_MM_PREPROCESSOR_CACHE",
     "VLLM_MM_PROCESSOR_CACHE_GB": "RTVI_VLLM_MM_PROCESSOR_CACHE_GB",
+    "VLLM_MM_PROCESSOR_CACHE_TYPE": "RTVI_VLLM_MM_PROCESSOR_CACHE_TYPE",
     "VLLM_MM_ENCODER_ATTN_BACKEND": "RTVI_VLLM_MM_ENCODER_ATTN_BACKEND",
     "VLLM_MM_TENSOR_IPC": "RTVI_VLLM_MM_TENSOR_IPC",
     "VLLM_MULTIMODAL_TENSOR_IPC": "RTVI_VLLM_MULTIMODAL_TENSOR_IPC",
@@ -74,6 +77,9 @@ _RTVI_VLLM_ENV_ALIASES = {
 }
 
 _DEFAULT_VLLM_NUM_PREPROCESS_WORKERS = 16
+_VLLM_CUDAGRAPH_MODES = frozenset(
+    {"NONE", "PIECEWISE", "FULL", "FULL_DECODE_ONLY", "FULL_AND_PIECEWISE"}
+)
 # Legacy admission serializes frontend preprocessing so transient allocations do not overlap.
 _LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS = 1
 # Keep at most one c128 2K-equivalent wave of CUDA-IPC multimodal inputs resident
@@ -165,6 +171,22 @@ def _get_num_preprocess_workers() -> int:
             f"'{num_workers}' must be greater than or equal to 1"
         )
     return num_workers
+
+
+def _get_vllm_compilation_config() -> dict[str, str] | None:
+    raw_mode = (_get_rtvi_vllm_env("VLLM_CUDAGRAPH_MODE", "") or "").strip()
+    if not raw_mode:
+        return None
+    cudagraph_mode = raw_mode.upper()
+    if cudagraph_mode not in _VLLM_CUDAGRAPH_MODES:
+        supported = ", ".join(sorted(_VLLM_CUDAGRAPH_MODES))
+        raise ValueError(
+            f"Invalid value for VLLM_CUDAGRAPH_MODE: '{raw_mode}'; " f"expected one of: {supported}"
+        )
+    return {
+        "mode": "VLLM_COMPILE",
+        "cudagraph_mode": cudagraph_mode,
+    }
 
 
 def _get_adaptive_preprocess_config() -> AdaptivePreprocessConfig:
@@ -320,6 +342,18 @@ def _get_mm_processor_cache_gb() -> float:
     if (_get_rtvi_vllm_env("VLLM_MM_PROCESSOR_CACHE_GB", "") or "").strip():
         return _parse_float_env("VLLM_MM_PROCESSOR_CACHE_GB", 1.0)
     return _parse_float_env("VLLM_MM_INPUT_CACHE_GIB", 1.0)
+
+
+def _get_mm_processor_cache_type() -> str:
+    cache_type = (
+        (_get_rtvi_vllm_env("VLLM_MM_PROCESSOR_CACHE_TYPE", "shm") or "shm").strip().lower()
+    )
+    if cache_type not in {"lru", "shm"}:
+        raise ValueError(
+            "Invalid value for VLLM_MM_PROCESSOR_CACHE_TYPE: "
+            f"'{cache_type}' must be 'lru' or 'shm'"
+        )
+    return cache_type
 
 
 CPU_COPY_OTHER_THREAD = True
@@ -509,10 +543,46 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
     }
     if config.min_tokens is not None:
         kwargs["min_tokens"] = config.min_tokens
+    response_format = config.response_format or {}
+    response_type = response_format.get("type")
+    is_structured_output = response_type in {"json_object", "json_schema"}
     env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-    if env_ignore_eos or config.ignore_eos is not None:
+    if is_structured_output:
+        kwargs["ignore_eos"] = False
+    elif env_ignore_eos or config.ignore_eos is not None:
         kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+    if response_type == "json_object":
+        from vllm.sampling_params import StructuredOutputsParams
+
+        kwargs["structured_outputs"] = StructuredOutputsParams(json_object=True)
+    elif response_type == "json_schema":
+        from vllm.sampling_params import StructuredOutputsParams
+
+        json_schema = response_format["json_schema"]
+        kwargs["structured_outputs"] = StructuredOutputsParams(
+            json=json_schema["schema"],
+        )
     return kwargs
+
+
+def _configure_structured_outputs(engine_args_kwargs: dict, supported_params: set[str]) -> None:
+    if "structured_outputs_config" not in supported_params:
+        return
+
+    from vllm.config import StructuredOutputsConfig
+
+    engine_args_kwargs["structured_outputs_config"] = StructuredOutputsConfig(
+        backend="xgrammar",
+        disable_fallback=True,
+        disable_any_whitespace=True,
+    )
+
+
+def _set_cosmos_no_repeat_ngram_size(sampling_params, model_type: str) -> None:
+    if model_type in ("cosmos-reason2", "cosmos-reason3") and not getattr(
+        sampling_params, "structured_outputs", None
+    ):
+        sampling_params.no_repeat_ngram_size = 3
 
 
 # Absolute video metadata changes the temporal positions seen by the model. Keep
@@ -807,6 +877,18 @@ def _normalize_qwen3vl_tokenizer_config(model_path: str) -> None:
         logger.exception("Failed to normalize tokenizer_config at %s", cfg_path)
 
 
+def _empty_vllm_worker_cuda_cache(_worker):
+    """Release cached CUDA blocks in each vLLM worker process."""
+    torch.cuda.synchronize()
+    torch.cuda.ipc_collect()
+    torch.cuda.empty_cache()
+    free_bytes, total_bytes = torch.cuda.mem_get_info()
+    return {
+        "free_mib": free_bytes // (1024 * 1024),
+        "total_mib": total_bytes // (1024 * 1024),
+    }
+
+
 class VllmCompatible(BaseVlmModel):
     def _initialize_model(self, vlm_model_type="", **kwargs):
         """Initialize the VllmCompatible model"""
@@ -970,6 +1052,7 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs,
                     _engine_supported_params,
                 )
+                _configure_structured_outputs(engine_args_kwargs, _engine_supported_params)
 
                 if "enable_prefix_caching" in _engine_supported_params:
                     prefix_caching_env = _get_rtvi_vllm_env(
@@ -987,6 +1070,10 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["disable_mm_preprocessor_cache"] = disable_mm_cache
                 if "mm_processor_cache_gb" in _engine_supported_params:
                     engine_args_kwargs["mm_processor_cache_gb"] = _get_mm_processor_cache_gb()
+                if "mm_processor_cache_type" in _engine_supported_params:
+                    cache_type = _get_mm_processor_cache_type()
+                    engine_args_kwargs["mm_processor_cache_type"] = cache_type
+                    logger.info("VLLM MM processor cache type: %s", cache_type)
 
                 mm_tensor_ipc = (_get_rtvi_vllm_env("VLLM_MM_TENSOR_IPC", "") or "").strip()
                 if mm_tensor_ipc:
@@ -1045,6 +1132,7 @@ class VllmCompatible(BaseVlmModel):
                 if "enable_chunked_prefill" in _engine_supported_params:
                     engine_args_kwargs["enable_chunked_prefill"] = True
 
+                enforce_eager = False
                 if "enforce_eager" in _engine_supported_params:
                     enforce_eager = (
                         _get_rtvi_vllm_env("VLLM_ENFORCE_EAGER", "false").lower() == "true"
@@ -1052,6 +1140,25 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["enforce_eager"] = enforce_eager
                     if enforce_eager:
                         logger.info("VLLM enforce_eager enabled via VLLM_ENFORCE_EAGER")
+
+                compilation_config = _get_vllm_compilation_config()
+                if compilation_config:
+                    if enforce_eager:
+                        raise ValueError(
+                            "VLLM_CUDAGRAPH_MODE cannot be set when VLLM_ENFORCE_EAGER=true"
+                        )
+                    if "compilation_config" in _engine_supported_params:
+                        engine_args_kwargs["compilation_config"] = compilation_config
+                        logger.info(
+                            "VLLM CUDA graph mode override: %s",
+                            compilation_config["cudagraph_mode"],
+                        )
+                    else:
+                        logger.warning(
+                            "VLLM_CUDAGRAPH_MODE=%s ignored; installed vLLM does not support "
+                            "compilation_config",
+                            compilation_config["cudagraph_mode"],
+                        )
 
                 vlm_trust_remote_code = _get_vlm_trust_remote_code(self._model_architecture)
                 if "trust_remote_code" in _engine_supported_params:
@@ -1728,15 +1835,14 @@ class VllmCompatible(BaseVlmModel):
         if not request_ids:
             return 0
 
+        for request_future in request_futures:
+            request_future.cancel()
+
         abort_future = asyncio.run_coroutine_threadsafe(
             self._llm.abort(request_ids),
             self._event_loop,
         )
-        try:
-            abort_future.result(timeout=timeout_sec)
-        finally:
-            for request_future in request_futures:
-                request_future.cancel()
+        abort_future.result(timeout=timeout_sec)
         return len(request_ids)
 
     async def process_async_vllm(
@@ -1983,13 +2089,66 @@ class VllmCompatible(BaseVlmModel):
                 if len(self._cuda_mm_pending_submission_ids) >= preprocess_capacity:
                     return False
                 if (
-                    self._multimodal_preprocess_limiter is None
-                    or self._multimodal_preprocess_limiter.config.shadow_mode
-                ) and sum(
-                    self._cuda_mm_resident_units_by_request.values()
-                ) >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS:
+                    sum(self._cuda_mm_resident_units_by_request.values())
+                    >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS
+                ):
                     return False
         return len(self._inflight_req_ids) < self._max_batch_size
+
+    def release_idle_resources(self, wait_timeout_sec: float = 0.0):
+        """Release allocator caches after the service becomes fully idle.
+
+        The vLLM EngineCore owns a separate CUDA allocator. Clearing only the
+        RTVI process cache therefore leaves encoder and worker allocations
+        visible as used memory, which can make the live-stream admission guard
+        reject the next benchmark level even though no requests remain.
+        """
+        deadline = time.monotonic() + max(0.0, wait_timeout_sec)
+        while True:
+            with self._cuda_mm_residency_lock:
+                pending = bool(
+                    self._adaptive_preprocess_pending_submission_ids
+                    or self._cuda_mm_pending_submission_ids
+                    or self._cuda_mm_resident_units_by_request
+                )
+            with self._live_request_ids_lock:
+                live_requests = bool(self._live_request_ids or self._live_request_futures)
+            inflight = len(self._inflight_req_ids)
+            if not inflight and not pending and not live_requests:
+                break
+            if time.monotonic() >= deadline:
+                logger.info(
+                    "Skipping idle VLM resource release after %.1fs: inflight=%d, "
+                    "pending=%s, live_requests=%s",
+                    max(0.0, wait_timeout_sec),
+                    inflight,
+                    pending,
+                    live_requests,
+                )
+                return False
+            time.sleep(0.05)
+
+        async def _release_engine_resources():
+            import cloudpickle
+
+            await self._llm.reset_encoder_cache()
+            worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
+            return await self._llm.collective_rpc(worker_method, timeout=60.0)
+
+        worker_memory = asyncio.run_coroutine_threadsafe(
+            _release_engine_resources(), self._event_loop
+        ).result(timeout=90.0)
+        torch.cuda.synchronize()
+        torch.cuda.ipc_collect()
+        torch.cuda.empty_cache()
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+        logger.info(
+            "Released idle VLM resources: frontend_free=%d MiB/%d MiB, workers=%s",
+            free_bytes // (1024 * 1024),
+            total_bytes // (1024 * 1024),
+            worker_memory,
+        )
+        return True
 
     def warmup(self):
         """Warm up the model with dummy tensors to initialize CUDA kernels and memory."""
@@ -3170,8 +3329,7 @@ class VllmCompatible(BaseVlmModel):
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if self._vlm_model_type in ("cosmos-reason2", "cosmos-reason3"):
-            vllm_sampling_params.no_repeat_ngram_size = 3
+        _set_cosmos_no_repeat_ngram_size(vllm_sampling_params, self._vlm_model_type)
 
         try:
             request_id = str(uuid.uuid4())
