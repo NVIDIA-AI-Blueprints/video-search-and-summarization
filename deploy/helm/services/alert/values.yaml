@@ -37,6 +37,17 @@ tracing:
   tracesExporter: "otlp"
   # Defaults to tracesExporter when unset; set it only to diverge from traces.
   metricsExporter: ""
+  # Comma-separated key=value pairs merged into every span's Resource. The SDK
+  # reads OTEL_RESOURCE_ATTRIBUTES directly, so leaving this "" renders an empty
+  # env var and lets the SDK's built-in defaults through. Useful for tagging
+  # spans with cluster/environment identifiers when the same trace backend fans
+  # in from multiple deployments.
+  resourceAttributes: ""
+  # Metric export cadence and per-export timeout, in milliseconds. Matches the
+  # code-side defaults in meters.py (60000 / 5000); declared here so an operator
+  # greping values.yaml for the levers the docker compose exposes finds them.
+  metricExportIntervalMillis: 60000
+  metricExportTimeoutMillis: 5000
   # Span attributes are lifted from Kafka messages that never passed through
   # AlertRequestEntity, and the SDK leaves this unlimited by default.
   attributeValueLengthLimit: 4096
