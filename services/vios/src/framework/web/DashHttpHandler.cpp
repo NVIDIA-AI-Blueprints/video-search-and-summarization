@@ -481,7 +481,13 @@ void replaceAttribute(std::string& manifest, size_t begin, size_t end,
 // Keep an explicit cushion behind the edge.  The initial catalogue is large
 // enough to cover this shift, and without it Chrome can begin only one or two
 // segments behind the live edge and drain at every segment boundary.
-constexpr int kDashLiveAvailabilityShiftSec = 4;
+/* Zero on purpose.  Shifting the advertised availability start and asking the
+ * player to keep a live delay are the same instruction given twice: the
+ * playhead ends up shift + delay behind the real edge, and the media that has
+ * to exist before playback can begin is the sum of the two.  The client delay
+ * is the one a player actually reports and tunes against, so it is kept and
+ * this is not.  Replay keeps a shift, where a deeper buffer costs nothing. */
+constexpr int kDashLiveAvailabilityShiftSec = 0;
 constexpr int kDashReplayAvailabilityShiftSec = 6;
 
 // How often the player is asked to refetch the manifest.
