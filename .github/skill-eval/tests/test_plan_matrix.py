@@ -677,6 +677,10 @@ class OpenshellGpuFleet(unittest.TestCase):
         a40_2g = plan_matrix.runs_on_labels("A40", {"gpu_count": 2})
         self.assertIn("openshell-a40-active", a40_1g)
         self.assertIn("gpu-nvidia-a40", a40_2g)
+        self.assertIn("vram-46gb", a40_1g)
+        self.assertIn("vram-46gb", a40_2g)
+        self.assertNotIn("vram-48gb", a40_1g)
+        self.assertNotIn("vram-48gb", a40_2g)
         self.assertIn("gpus-1", a40_1g)
         self.assertIn("gpus-2", a40_2g)
 
@@ -725,7 +729,7 @@ class OpenshellGpuFleet(unittest.TestCase):
 
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(
-                    min_vram=48, profiles=("A40",)
+                    min_vram=46, profiles=("A40",)
                 )
             )
             self.assertIsNone(error)
@@ -734,7 +738,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(
                     gpu_count=2,
-                    min_vram=48,
+                    min_vram=46,
                     multi_gpu=True,
                     profiles=("A40",),
                 )
@@ -744,7 +748,7 @@ class OpenshellGpuFleet(unittest.TestCase):
 
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(
-                    min_vram=49, profiles=("A40",)
+                    min_vram=47, profiles=("A40",)
                 )
             )
             self.assertIsNone(cohort)
@@ -786,7 +790,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         try:
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(
-                    min_vram=48, profiles=("A40",)
+                    min_vram=46, profiles=("A40",)
                 )
             )
         finally:
