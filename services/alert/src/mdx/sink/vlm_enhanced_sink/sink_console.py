@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
+from mdx.sink.console_render import parse_redact_paths, redact
+
 from .sink_base import VLMEnhancedSink
 
 
@@ -37,6 +39,7 @@ class VLMEnhancedConsoleSink(VLMEnhancedSink):
         max_chars: int = 0,
         category_mapping: Optional[Dict[str, str]] = None,
         alert_config_store: Any = None,
+        redact_paths: Optional[list] = None,
     ) -> None:
         super().__init__(
             alert_config_store=alert_config_store,
@@ -44,8 +47,16 @@ class VLMEnhancedConsoleSink(VLMEnhancedSink):
         )
         self._pretty = pretty
         self._max_chars = max_chars
+        self._redact_paths = parse_redact_paths(redact_paths)
         self._logger.warning(
-            "Console VLM enhanced sink selected: verdicts are logged only and are not persisted"
+            "Console VLM enhanced sink selected: intended for local development. "
+            "Verdicts are logged only, are not persisted, and the document is "
+            "written to the log in full -- including VLM reasoning, the video "
+            "URL and any location fields, so whoever can read these logs can "
+            "read that data%s",
+            f". Masking {self._redact_paths}" if self._redact_paths else
+            ". Redaction is off: set vlm_enhanced_sink.console.redact to mask "
+            "fields such as info.reasoning or info.videoSource",
         )
 
     @classmethod
@@ -62,6 +73,7 @@ class VLMEnhancedConsoleSink(VLMEnhancedSink):
             max_chars=int(console_cfg.get("max_chars", 0)),
             category_mapping=category_mapping,
             alert_config_store=alert_config_store,
+            redact_paths=console_cfg.get("redact"),
         )
 
     def _store_success(
@@ -98,6 +110,7 @@ class VLMEnhancedConsoleSink(VLMEnhancedSink):
 
     def _render(self, document: Dict[str, Any]) -> str:
         try:
+            document = redact(document, self._redact_paths)
             text = json.dumps(document, indent=2 if self._pretty else None, default=str)
         except Exception as exc:
             return f"<unrenderable document: {exc}>"

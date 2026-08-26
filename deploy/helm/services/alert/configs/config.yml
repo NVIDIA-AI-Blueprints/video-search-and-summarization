@@ -252,14 +252,12 @@ persistence:
 vlm_enhanced_sink:
   type: "{{ .Values.vlmSinkType | default "elastic" }}"
   incident:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-incidents"
     redisStream:
       stream: "mdx-vlm-incidents"
       message_type: "incident"
   alert:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
     redisStream:

@@ -303,7 +303,7 @@ class TestReadData:
             {},
         ]
 
-        with patch("mdx.source.source_kafka._record_key_alignment") as record:
+        with patch("mdx.source.source_kafka.record_key_alignment") as record:
             source.read_data()
 
         record.assert_called_once_with(b"cam-1", payload())

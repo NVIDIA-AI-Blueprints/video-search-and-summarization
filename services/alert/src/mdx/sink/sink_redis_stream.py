@@ -60,8 +60,8 @@ class SinkRedisStream(SinkBase):
                 "event_bridge.redis_sink.streams must define 'enhanced_anomaly' and/or 'incidents'"
             )
 
-        # Fail fast on an unreachable broker: unlike the consume path there is
-        # no retry loop here, so a misconfigured host should surface at boot.
+        # Fail fast on an unreachable broker: per-write retries are bounded and
+        # cannot ride out a misconfigured host, so surface it at boot instead.
         if not self.broker.ping():
             raise ConnectionError(
                 f"Unable to reach Redis at {self.broker.host}:{self.broker.port} for the event bridge sink"
@@ -77,8 +77,15 @@ class SinkRedisStream(SinkBase):
             self.logger.error("No Redis stream configured for %s; dropping message", label)
             return
         entry_id = self.broker.add(stream, payload, key=key)
-        if entry_id is not None:
-            self.logger.debug("Published %s to '%s' as %r", label, stream, entry_id)
+        if entry_id is None:
+            # The broker already retried and counted the drop; log here too so
+            # the loss is visible against the stream and message it belongs to
+            # rather than only as a metric.
+            self.logger.error(
+                "Dropped %s: Redis stream '%s' rejected the write after retries", label, stream
+            )
+            return
+        self.logger.debug("Published %s to '%s' as %r", label, stream, entry_id)
 
     @staticmethod
     def _message_key(message: StreamMessage) -> str:

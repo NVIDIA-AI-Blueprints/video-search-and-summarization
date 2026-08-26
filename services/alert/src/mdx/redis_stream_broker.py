@@ -35,9 +35,17 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import redis
+
+# Guarded so a minimal environment without the metrics package cannot break the
+# publish path.
+try:  # pragma: no cover - exercised indirectly
+    from metrics import recorder as _metrics
+except Exception:  # pragma: no cover
+    _metrics = None
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +53,13 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 6379
 DEFAULT_MAXLEN = 10000
 DEFAULT_SOCKET_TIMEOUT = 30
+
+#: Publish retries attempted before a payload is dropped. A redisStream sink has
+#: no second destination, so an XADD lost to a broker blip is an already-verified
+#: verdict gone for good. Kept small: the caller is on the consume path and the
+#: source has already acked, so blocking here stalls the batch behind it.
+DEFAULT_PUBLISH_RETRIES = 2
+DEFAULT_PUBLISH_RETRY_BACKOFF = 0.1
 
 #: Canonical MDX envelope fields.
 KEY_FIELD = b"key"
@@ -166,6 +181,10 @@ class RedisStreamBroker:
         self.approximate_trim: bool = bool(cfg.get("approximate_trim", True))
         self._socket_timeout = cfg.get("socket_timeout", DEFAULT_SOCKET_TIMEOUT)
         self._socket_connect_timeout = cfg.get("socket_connect_timeout", DEFAULT_SOCKET_TIMEOUT)
+        self.publish_retries: int = self._coerce_retries(cfg.get("publish_retries", DEFAULT_PUBLISH_RETRIES))
+        self.publish_retry_backoff: float = self._coerce_backoff(
+            cfg.get("publish_retry_backoff", DEFAULT_PUBLISH_RETRY_BACKOFF)
+        )
         self._client: Optional[redis.Redis] = None
         self._ensured_groups: set = set()
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -178,6 +197,33 @@ class RedisStreamBroker:
         except (TypeError, ValueError):
             return DEFAULT_MAXLEN
         return maxlen if maxlen > 0 else None
+
+    @staticmethod
+    def _coerce_retries(value: Any) -> int:
+        """Return a non-negative retry count; 0 disables retrying."""
+        try:
+            retries = int(value)
+        except (TypeError, ValueError):
+            return DEFAULT_PUBLISH_RETRIES
+        return max(retries, 0)
+
+    @staticmethod
+    def _coerce_backoff(value: Any) -> float:
+        """Return a non-negative backoff in seconds."""
+        try:
+            backoff = float(value)
+        except (TypeError, ValueError):
+            return DEFAULT_PUBLISH_RETRY_BACKOFF
+        return backoff if backoff > 0 else 0.0
+
+    def _record_publish_failure(self, outcome: str) -> None:
+        """Report a failed publish attempt, if a metrics recorder is present."""
+        if _metrics is None:
+            return
+        try:
+            _metrics.inc_redis_publish_failure(outcome)
+        except Exception:  # pragma: no cover - metrics must never break publish
+            pass
 
     @property
     def client(self) -> redis.Redis:
@@ -333,8 +379,16 @@ class RedisStreamBroker:
     ) -> Optional[bytes]:
         """Publish ``payload`` to ``stream`` using the MDX envelope.
 
+        A failed XADD is retried up to ``publish_retries`` times with a linear
+        backoff, because a redisStream sink is the only destination for the
+        payload: unlike the read path, there is nothing upstream that will hand
+        it to us again. Retries are deliberately few — the caller runs on the
+        consume path and the source has already acked.
+
         Returns:
-            The generated entry ID, or ``None`` if the write failed.
+            The generated entry ID, or ``None`` if every attempt failed. A
+            ``None`` return means the payload was dropped and is counted under
+            ``alert_bridge_redis_publish_failures_total{outcome="dropped"}``.
         """
         if isinstance(key, str):
             key = key.encode("utf-8")
@@ -352,15 +406,38 @@ class RedisStreamBroker:
             kwargs["maxlen"] = self.maxlen
             kwargs["approximate"] = self.approximate_trim
 
-        try:
-            return self.client.xadd(stream, fields, **kwargs)
-        except redis.exceptions.ConnectionError as exc:
-            self.logger.error("Redis connection lost while writing to '%s': %s", stream, exc)
-            self._reset_client()
-            return None
-        except redis.exceptions.RedisError as exc:
-            self.logger.error("Failed to write to Redis stream '%s': %s", stream, exc)
-            return None
+        attempts = self.publish_retries + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                entry_id = self.client.xadd(stream, fields, **kwargs)
+            except redis.exceptions.RedisError as exc:
+                # ConnectionError is a RedisError subclass; only a broken
+                # connection warrants rebuilding the client before retrying.
+                if isinstance(exc, redis.exceptions.ConnectionError):
+                    self._reset_client()
+                if attempt < attempts:
+                    self.logger.warning(
+                        "Redis write to '%s' failed (attempt %d/%d), retrying: %s",
+                        stream, attempt, attempts, exc,
+                    )
+                    if self.publish_retry_backoff:
+                        time.sleep(self.publish_retry_backoff * attempt)
+                    continue
+                self._record_publish_failure("dropped")
+                self.logger.error(
+                    "Dropping payload after %d failed Redis writes to '%s': %s",
+                    attempts, stream, exc,
+                )
+                return None
+
+            if attempt > 1:
+                self._record_publish_failure("recovered")
+                self.logger.warning(
+                    "Redis write to '%s' succeeded on attempt %d/%d", stream, attempt, attempts
+                )
+            return entry_id
+
+        return None  # pragma: no cover - loop always returns
 
     def close(self) -> None:
         """Release the connection."""

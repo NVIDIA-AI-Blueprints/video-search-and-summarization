@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Redis Streams source with the Elasticsearch VLM sink, so the test can count
+# indexed documents the same way test_multi_consumer_dedup does and the only
+# variable between the two is the transport.
+#
+# Deltas from the base p1 config:
+#   - event_bridge.sourceType -> redisStream, on a dedicated stream/group so the
+#     two Alert MS instances this test starts cannot collide with other tests
+#   - event_filters.dedup_ttl_seconds -> 60 (long enough that duplicates sent
+#     within the test window are caught in-process; base is 3s)
+#   - start_id 0-0 so the group reads what the test publishes regardless of
+#     whether the instances booted before or after the XADD
+
+ALERT_REVIEW_MEDIA_BASE_DIR: ""
+
+vst_config:
+  base_url: "http://127.0.0.1:30888"
+  sensor_list_endpoint: "/vst/api/v1/live/streams"
+  segment_anchor: "end"
+  segment_duration_seconds: 10
+  add_overlay: false
+  storage:
+    base_url: "http://127.0.0.1:30888"
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  db: 0
+  maxlen: 1000
+
+vlm:
+  base_url: "http://127.0.0.1:18081/v1"
+  model: "nvidia/cosmos-reason2-8b"
+  max_tokens: 256
+  min_pixels: 1568
+  max_pixels: 345600
+  num_frames: 18
+  enable_sampling: false
+  sampling_fps: 4
+
+event_bridge:
+  sourceType: "redisStream"
+  sinkType: "redisStream"
+
+  redis_source:
+    streams:
+      incident: "mdx-incidents-mc"
+      alert: "mdx-alerts-mc"
+    # ONE group shared by both instances: that is the configuration the README
+    # warns against, and the arrangement whose degradation this test pins.
+    consumer_group: "alert-bridge-mc-redis-group"
+    consumer_config:
+      count: 10
+      block_time: 100
+      start_id: "0-0"
+
+  redis_sink:
+    streams:
+      enhanced_anomaly: "alert-bridge-enhanced-alerts-mc"
+      incidents: "alert-bridge-incidents-mc"
+
+prompt:
+  prefer_payload_prompt: true
+  override_prompts_on_start: true
+
+alert_type_config_file: "alert_type_config.json"
+
+alert_agent:
+  num_workers: 1
+  max_allowed_stream_size: 2
+  default_stream_interval: 1
+  vst_pass_through_mode: false
+  chunk_size: 1
+  event_filters:
+    dedup_ttl_seconds: 60
+    # "collision" is the sample payload's category. Putting the end timestamp in
+    # its dedup key is what lets one sensorId produce several DISTINCT
+    # fingerprints: without it every event for a sensor collapses into one
+    # cohort entry and there is no way to watch a single sensor's events spread
+    # across instances. Same sensorId + same end timestamp still collides, which
+    # is what the duplicate scenarios rely on.
+    end_time_in_dedup_key_categories: ["collision"]
+    # Left off on purpose: this test is about what in-process dedup alone does
+    # when consumer affinity is absent. Enabling the ES-backed marker is the
+    # documented remedy, so switching it on here would hide the degradation.
+    protect_confirmed_verdicts:
+      enabled: false
+      ttl_seconds: 600
+
+elastic:
+  enabled: true
+  hosts:
+    - http://127.0.0.1:9200
+  index_name: "mdx-vlm-incidents"
+
+vlm_enhanced_sink:
+  type: "elastic"
+  incident:
+    elastic:
+      index: "mdx-vlm-incidents"
+  alert:
+    elastic:
+      index: "mdx-vlm-alerts"
+
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  third_party_level: "WARNING"

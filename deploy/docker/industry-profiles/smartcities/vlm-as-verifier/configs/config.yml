@@ -398,28 +398,25 @@ persistence:
 vlm_enhanced_sink:
   type: "${ALERT_VLM_SINK_TYPE}"
   incident:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-incidents"
     redisStream:
       stream: "mdx-vlm-incidents"
       message_type: "incident"
   alert:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
     redisStream:
       stream: "mdx-vlm-alerts"
       message_type: "alert"
 # vlm_enhanced_sink:
+#   type: "kafka"
 #   incident:
-#     type: "kafka"
 #     kafka:
 #       topic: "mdx-vlm-incidents"
 #       message_type: "incident"
 #       key_field: "id"
 #   alert:
-#     type: "kafka"
 #     kafka:
 #       topic: "mdx-vlm-alerts"
 #       message_type: "alert"

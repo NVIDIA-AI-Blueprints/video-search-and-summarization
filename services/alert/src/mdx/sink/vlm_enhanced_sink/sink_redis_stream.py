@@ -169,8 +169,11 @@ class VLMEnhancedRedisStreamSink(VLMEnhancedSink):
             )
             entry_id = self._broker.add(stream, self._serialize(route, document), key=key)
             if entry_id is None:
+                # Redis is the only destination for a redisStream sink, so this
+                # discards a verdict the VLM already paid to produce.
                 self._logger.error(
-                    "Redis Stream publish returned no entry id",
+                    "Dropped VLM-enhanced %s: Redis stream write failed after retries",
+                    event_kind,
                     extra={"incident_id": document.get("id"), "stream": stream},
                 )
                 return

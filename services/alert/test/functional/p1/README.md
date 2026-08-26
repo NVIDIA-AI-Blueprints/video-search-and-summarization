@@ -54,6 +54,7 @@ These run against simulators with known inputs — not a live deployment.
 | `test_redis_stream_source_sink` | Publish an incident into a Redis Stream with the MDX envelope; verify the enhanced result appears on the output stream and input entries are acked | Redis Streams as both source and sink, protobuf wire format, consumer-group acking |
 | `test_redis_sink_kafka_source` | Produce to Kafka but publish VLM results to a Redis Stream | Source and sink transports are selected independently |
 | `test_console_sink` | Select the console sink for both the event bridge and VLM results; verify the verdict is rendered to the log | Console sink emits processed results and needs no broker |
+| `test_redis_multi_consumer_dedup` | **Negative.** Two Alert MS instances share one Redis consumer group: 12 events for one sensorId split across both (A), a repeated fingerprint escapes in-process dedup and only ES doc-id idempotency collapses it (B), and killing one instance restores correct dedup (C) | Redis consumer groups provide no per-sensor affinity, so in-process dedup needs one replica per group or sensor sharding |
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
 | `test_realtime_alerts` (Test 8c) | Index 3 consecutive positives (same camera + alert type); `GET /api/v1/realtime/incidents?consolidate=true` (with a time window) returns one event and `total=1` (event count), `consolidate=false` returns 3 raw, and `consolidate=true` without a window is rejected `400` | Read-time consolidation groups duplicates into one event over a required window while raw chunk records remain available |
 | `test_realtime_alerts` (Test 8d) | Index sensor A/alert (2 chunks), A/intrusion (1), B/alert (1); per-sensor `consolidate=true` returns A=2 events, B=1 event | Consolidation groups are isolated by `(sensorId, category)` |
@@ -444,7 +445,7 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 **Trigger:** `produce_incident_redis` publishes an Incident protobuf into `mdx-incidents` using the MDX envelope (`key` / `value` / `headers`) that vss-behavior-analytics writes, so the source reads a real upstream payload rather than a test-only shape.
 
-**Check:** Assert the AB log shows `"Creating source of type: redisStream"` (a silent fallback to Kafka would otherwise make the test fail with a confusing timeout). Poll `mdx-vlm-incidents` with `XRANGE`, decode each entry through `extract_envelope`, and assert one carries the test `sensorId`. Decoding it proves the payload is the protobuf-in-MDX-envelope shape the Logstash `redis_stream` input consumes. Finally assert `XPENDING` on the input stream is 0.
+**Check:** Assert the AB log shows `"Creating source: ... resolved to 'redisStream'"` (a silent fallback to Kafka would otherwise make the test fail with a confusing timeout). Poll `mdx-vlm-incidents` with `XRANGE`, decode each entry through `extract_envelope`, and assert one carries the test `sensorId`. Decoding it proves the payload is the protobuf-in-MDX-envelope shape the Logstash `redis_stream` input consumes. Finally assert `XPENDING` on the input stream is 0.
 
 **Pass:** Enhanced incident found on the output stream and consumed entries were acked.
 **Fail:** AB selected the wrong source, no matching entry within 60s.
@@ -460,7 +461,7 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 **Trigger:** One incident produced to the `mdx-incidents` Kafka topic with `info.video_path`.
 
-**Check:** Assert the AB log shows `"Creating source of type: kafka"`, then poll the `mdx-vlm-incidents` Redis Stream for the test `sensorId`.
+**Check:** Assert the AB log shows `"Creating source: ... resolved to 'kafka'"`, then poll the `mdx-vlm-incidents` Redis Stream for the test `sensorId`.
 
 **Pass:** Incident consumed from Kafka and its enhanced result published to Redis.
 **Fail:** AB switched the source to Redis, or nothing appeared on the output stream within 60s.

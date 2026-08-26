@@ -312,3 +312,30 @@ class TestSinkBaseContract:
                 pass
 
         return ConcreteSink(config)
+
+
+class TestSelectionIsLegibleInTheLog:
+    """The log has to show the resolved transport, not just the raw string.
+
+    Transport names are matched case- and separator-insensitively, so the
+    configured value and the implementation actually chosen can differ. Logging
+    only the configured string hides that step: a value like ``Kafka`` prints
+    back exactly as written, which reads as confirmation even when a consumer
+    of the same value elsewhere fails to match it.
+    """
+
+    def test_the_source_log_carries_both_spellings(self, caplog):
+        config = {"event_bridge": {"sourceType": "REDIS_STREAM"}, "kafka": {}}
+        with caplog.at_level("INFO"):
+            with patch("mdx.source.source_redis_stream.SourceRedisStream"):
+                EventBridgeFactory.create_source(config)
+        assert "'REDIS_STREAM'" in caplog.text
+        assert "'redisStream'" in caplog.text
+
+    def test_the_sink_log_carries_both_spellings(self, caplog):
+        config = {"event_bridge": {"sinkType": "Console"}}
+        with caplog.at_level("INFO"):
+            with patch("mdx.sink.sink_console.ConsoleSink"):
+                EventBridgeFactory.create_sink(config)
+        assert "'Console'" in caplog.text
+        assert "'console'" in caplog.text

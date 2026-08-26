@@ -49,7 +49,7 @@ print_status "ok" "Redis reachable at $REDIS_HOST:$REDIS_PORT"
 # 1. Confirm Alert MS actually selected the Redis transports. Without this a
 #    silent fallback to Kafka would make the rest of the test pass for the
 #    wrong reason (or fail with a confusing timeout).
-if grep -q "Creating source of type: redisStream" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
+if grep -qE "Creating source: .*resolved to 'redisStream'" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
     print_status "ok" "AB log confirms the redisStream source was selected"
 else
     print_status "fail" "FAIL: AB did not select the redisStream source"

@@ -109,11 +109,9 @@ elastic:
 
 vlm_enhanced_sink:
   incident:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-incidents"
   alert:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
 

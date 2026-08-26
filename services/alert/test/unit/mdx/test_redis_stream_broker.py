@@ -36,6 +36,7 @@ import redis
 
 from mdx.redis_stream_broker import (
     DEFAULT_MAXLEN,
+    DEFAULT_PUBLISH_RETRIES,
     HEADERS_FIELD,
     KEY_FIELD,
     PAYLOAD_FIELD,
@@ -320,15 +321,77 @@ class TestAdd:
         assert broker.add("s", b"body") == b"1700000000000-0"
 
     def test_connection_error_returns_none_and_forces_reconnect(self):
-        broker = make_broker()
+        broker = make_broker({"publish_retry_backoff": 0})
         broker._client.xadd.side_effect = redis.exceptions.ConnectionError("down")
-        assert broker.add("s", b"body") is None
+        # Retries rebuild the client, so keep the replacement mocked too rather
+        # than letting the retry dial a real socket.
+        rebuilt = MagicMock(name="rebuilt")
+        rebuilt.xadd.side_effect = redis.exceptions.ConnectionError("still down")
+        with patch("mdx.redis_stream_broker.redis.Redis", return_value=rebuilt):
+            assert broker.add("s", b"body") is None
         assert broker._client is None
 
     def test_redis_error_returns_none(self):
-        broker = make_broker()
+        broker = make_broker({"publish_retry_backoff": 0})
         broker._client.xadd.side_effect = redis.exceptions.RedisError("boom")
         assert broker.add("s", b"body") is None
+
+
+class TestPublishRetry:
+    """A redisStream sink is the payload's only destination.
+
+    Nothing upstream will hand the verdict back after the source acked, so a
+    write lost to a broker blip is gone for good. These tests pin the bounded
+    retry and the counter that makes a real drop visible.
+    """
+
+    def test_a_transient_failure_is_retried_and_recovers(self):
+        broker = make_broker({"publish_retry_backoff": 0})
+        broker._client.xadd.side_effect = [
+            redis.exceptions.RedisError("blip"),
+            b"1700000000000-0",
+        ]
+        with patch.object(broker, "_record_publish_failure") as record:
+            assert broker.add("s", b"body") == b"1700000000000-0"
+        record.assert_called_once_with("recovered")
+
+    def test_a_connection_error_rebuilds_the_client_before_retrying(self):
+        """The Redis-restart case: the retry must not reuse the dead socket."""
+        broker = make_broker({"publish_retry_backoff": 0})
+        broker._client.xadd.side_effect = redis.exceptions.ConnectionError("down")
+        rebuilt = MagicMock(name="rebuilt")
+        rebuilt.xadd.return_value = b"1700000000000-0"
+        with patch("mdx.redis_stream_broker.redis.Redis", return_value=rebuilt):
+            assert broker.add("s", b"body") == b"1700000000000-0"
+        assert rebuilt.xadd.call_count == 1
+
+    def test_exhausted_retries_drop_the_payload_and_count_it(self):
+        broker = make_broker({"publish_retry_backoff": 0})
+        broker._client.xadd.side_effect = redis.exceptions.RedisError("boom")
+        with patch.object(broker, "_record_publish_failure") as record:
+            assert broker.add("s", b"body") is None
+        record.assert_called_once_with("dropped")
+        assert broker._client.xadd.call_count == DEFAULT_PUBLISH_RETRIES + 1
+
+    def test_a_first_attempt_success_counts_nothing(self):
+        broker = make_broker()
+        broker._client.xadd.return_value = b"1700000000000-0"
+        with patch.object(broker, "_record_publish_failure") as record:
+            broker.add("s", b"body")
+        record.assert_not_called()
+
+    def test_retries_can_be_disabled(self):
+        broker = make_broker({"publish_retries": 0})
+        broker._client.xadd.side_effect = redis.exceptions.RedisError("boom")
+        assert broker.add("s", b"body") is None
+        assert broker._client.xadd.call_count == 1
+
+    @pytest.mark.parametrize("value", ["not-a-number", None])
+    def test_unparseable_retry_count_falls_back_to_the_default(self, value):
+        assert make_broker({"publish_retries": value}).publish_retries == DEFAULT_PUBLISH_RETRIES
+
+    def test_a_negative_retry_count_is_clamped_to_zero(self):
+        assert make_broker({"publish_retries": -3}).publish_retries == 0
 
 
 class TestClientLifecycle:

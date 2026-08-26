@@ -30,16 +30,16 @@
 {{- /*
 Canonicalize a transport name the same way the application does.
 
-Alert MS resolves transports through _normalize_transport(), which lowercases
-the value and strips "_" and "-" before looking it up, and it treats "redis" as
-an alias of "redisStream". Matching the raw string here instead would let the
-chart's view of the selected transport diverge from the application's: with
-eventSourceType "Kafka" the pod would talk to Kafka while the init container
-skipped waiting for it, which is exactly the crash-loop this wait exists to
-prevent.
+Alert MS resolves transports through _normalize_transport(), which trims
+surrounding whitespace, lowercases the value and strips "_" and "-" before
+looking it up, and it treats "redis" as an alias of "redisStream". Every step
+has to be mirrored here, including the trim: YAML block scalars and copy-pasted
+values pick up stray spaces easily, and " redisStream" that the application
+resolves but the chart does not would leave the init container waiting for the
+wrong broker -- exactly the crash-loop this wait exists to prevent.
 */}}
 {{- define "vss-alert-bridge.transport" -}}
-{{- $value := . | default "" | lower | replace "_" "" | replace "-" "" -}}
+{{- $value := . | default "" | trim | lower | replace "_" "" | replace "-" "" -}}
 {{- if eq $value "redis" -}}
 redisstream
 {{- else -}}

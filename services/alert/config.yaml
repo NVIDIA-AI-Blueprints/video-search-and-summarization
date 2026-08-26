@@ -178,6 +178,12 @@ vlm:
 #   maxlen: 10000           # approximate MAXLEN cap applied on publish
 #   socket_timeout: 30
 #   socket_connect_timeout: 30
+#   # A redisStream sink is the payload's only destination, so a failed XADD is
+#   # retried before the payload is dropped. Kept low because the caller runs on
+#   # the consume path. Drops are counted by
+#   # alert_bridge_redis_publish_failures_total{outcome="dropped"}.
+#   publish_retries: 2      # 0 disables retrying
+#   publish_retry_backoff: 0.1   # seconds, multiplied by the attempt number
 
 # Event Bridge Configuration.
 # sourceType: kafka (default) | redisStream
@@ -203,6 +209,15 @@ event_bridge:
   #     incident: 'mdx-incidents'
   #     alert: 'mdx-alerts'
   #     # heartbeat: 'mdx-heartbeats'
+  #   # ONE replica per consumer group, or shard by sensorId. Dedup, the
+  #   # end-time delta filter and the rate limit are in-process and assume a
+  #   # sensorId is always handled by the same instance. Kafka guarantees that
+  #   # via partition ownership; XREADGROUP does not -- it hands each entry to
+  #   # whichever consumer asks first, so two replicas on one group split a
+  #   # sensor's cohort and duplicates reach the VLM with no error raised.
+  #   # Scaling out anyway? Give each replica its own group over disjoint
+  #   # streams, or enable alert_agent.event_filters.protect_confirmed_verdicts
+  #   # (off by default) so the ES verdict marker catches the duplicates.
   #   consumer_group: 'alert-bridge-vlm-group'
   #   consumer_config:
   #     count: 10             # max entries per XREADGROUP
@@ -216,10 +231,14 @@ event_bridge:
   #     enhanced_anomaly: 'alert-bridge-enhanced-alerts'
   #     incidents: 'alert-bridge-incidents'
 
-  # Console sink options (sinkType: console).
+  # Console sink options (sinkType: console). Payloads are written to the log in
+  # full; list dotted paths in `redact` to mask fields before they are logged.
   # console_sink:
   #   pretty: true
   #   max_chars: 0            # 0 disables truncation
+  #   redact:
+  #     - info.reasoning
+  #     - info.videoSource
 
 prompt:
   prefer_payload_prompt: false
@@ -417,15 +436,16 @@ persistence:
   #   hosts:
   #     - http://localhost:9200
 
-# Sink for VLM-enhanced results. `type` selects the transport for both kinds:
-# elastic (default) | kafka | redisStream | console
+# Sink for VLM-enhanced results. The top-level `type` selects the transport for
+# both kinds: elastic (default) | kafka | redisStream | console. One sink serves
+# incidents and alerts, so `type` is only read here — a `type` nested under
+# `incident:` or `alert:` is ignored, and the service logs a warning if it finds
+# one. The per-kind blocks below carry the routing (index, stream, topic) only.
 vlm_enhanced_sink:
   incident:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-incidents"
   alert:
-    type: "elastic"
     elastic:
       index: "mdx-vlm-alerts"
 
@@ -450,11 +470,19 @@ vlm_enhanced_sink:
 #       key_field: "sensor.id"
 
 # Log-only output for local development. Needs no broker or Elasticsearch.
+# The whole document is written to the log, including the VLM reasoning about
+# people and vehicles, the VST video URL and the GPS fix. List the dotted paths
+# to mask in `redact` when the log is collected somewhere that should not hold
+# them; the verdict stays readable either way.
 # vlm_enhanced_sink:
 #   type: "console"
 #   console:
 #     pretty: true
 #     max_chars: 0
+#     redact:
+#       - info.reasoning
+#       - info.videoSource
+#       - info.location
 
 # vlm_enhanced_sink:
 #   type: "kafka"

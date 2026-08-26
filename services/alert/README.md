@@ -476,6 +476,17 @@ sets none of these behaves exactly as before.
 | `event_bridge.sinkType` | `kafka` | `redisStream`, `console` | Validation-error responses |
 | `vlm_enhanced_sink.type` | `elastic` | `kafka`, `redisStream`, `console` | VLM-verified Alert and Incident results |
 
+Transport names are matched case-insensitively and ignore `_` and `-`, so
+`redisStream`, `redis_stream` and `redis` all select the same implementation. The
+resolved name is logged next to the configured one at startup, which is the
+quickest way to confirm a value was understood as intended.
+
+One VLM-enhanced sink serves both incidents and alerts, so `vlm_enhanced_sink.type`
+is read only at that top level. A `type` nested under `incident:` or `alert:` has
+never been read; older configs carry one, and the service now warns when it finds
+one that disagrees with the transport actually in use. The per-kind blocks carry
+routing — index, stream, topic — not transport selection.
+
 Selecting a `redisStream` transport requires an existing Redis instance —
 Alert MS does not deploy one, and none of the service's own state lives there
 (dedup state is in-process, durable state is in Elasticsearch). The connection
@@ -494,7 +505,96 @@ either transport identically.
 
 The `console` sink renders results to the log instead of a datastore. It needs no
 broker, which makes it the quickest way to inspect verdicts while developing, but
-output is not durable and nothing downstream can consume it.
+output is not durable and nothing downstream can consume it. It writes the whole
+document, which includes the VLM's reasoning about the people and vehicles in the
+footage, the VST video URL and the GPS fix; where the log is collected somewhere
+that should not hold those, list the dotted paths in
+`event_bridge.console_sink.redact` or `vlm_enhanced_sink.console.redact` and they
+are masked before the line is written. The verdict itself stays readable, so the
+sink remains useful with redaction on.
+
+### Delivery semantics
+
+Both sources are **at-most-once**, and deliberately so: the Kafka source commits
+offsets inside its poll loop and the Redis source `XACK`s once a batch is decoded
+— in both cases before the VLM has verified anything. A crash mid-verification
+therefore drops that batch rather than replaying it. The alternative costs more
+than it returns here: verification is the expensive step, dedup state is
+in-process and does not survive a restart, so replaying a batch would re-run the
+VLM and can publish a second verdict for an event already in Elasticsearch.
+Choosing Redis Streams does not change this contract in either direction, which
+is the point — the transport is swappable without the pipeline's guarantees
+moving underneath it.
+
+One consequence worth knowing when reading `XPENDING` output: because the ack
+follows the read by milliseconds, a non-empty PEL means a consumer died inside
+that window, not that a backlog is waiting to be reclaimed. Nothing sweeps the
+PEL on startup.
+
+Read-path drops are counted, not just logged. An entry with no payload field or
+one that fails to decode is acked and discarded — the right call for a poison
+pill, since leaving it un-acked replays it forever — and shows up under
+`alert_bridge_source_dropped_total{transport="redis_stream",reason=...}` with
+`reason` in `no_payload` / `undecodable`. A rising count means a producer is
+emitting entries this consumer cannot read.
+
+### Scaling the Redis source: dedup needs consumer affinity
+
+**Run one Alert MS replica per Redis consumer group, or shard by sensorId.**
+
+Dedup, the end-time delta filter and the VLM rate limit are all kept
+**in-process**, and that is only sound because a given `sensorId` is always seen
+by the same instance. On Kafka that holds structurally: `mdx-incidents` is
+partitioned by `sensorId`, every dedup cohort key is prefixed with `sensorId`,
+and a consumer owns whole partitions — so a cohort never splits across pods
+(`test_multi_consumer_dedup` pins this).
+
+A Redis Streams consumer group gives no such guarantee. `XREADGROUP` hands each
+entry to whichever consumer asks first, and each replica registers under its own
+consumer name (`alert-bridge-<host>-<pid>`). Two replicas on one group therefore
+interleave the same sensor's events, each sees only part of the cohort, and
+duplicates that in-process dedup would have suppressed reach the VLM instead —
+extra verification cost and duplicate verdicts, quietly. Nothing errors.
+
+How bad the duplicate gets depends on the **sink**, and the all-Redis
+configuration is the worst case:
+
+| Sink | What a cross-replica duplicate costs |
+|---|---|
+| `elastic` | The VLM verifies twice (wasted GPU), but the sink indexes by fingerprint (`document["Id"]`), so Elasticsearch still holds **one** document. |
+| `redisStream` / `kafka` | The VLM verifies twice **and** both verdicts are appended — `XADD` has no doc-id equivalent, so a genuine duplicate reaches downstream consumers. |
+
+`test_redis_multi_consumer_dedup` demonstrates both: with two replicas on one
+group, twelve events for a single sensorId split 6/6 across them, and a repeated
+fingerprint produced two publishes that only Elasticsearch's doc id collapsed.
+
+If you must run more than one replica against Redis, either give each replica
+its own consumer group over a disjoint set of streams (shard by sensor), or
+enable `alert_agent.event_filters.protect_confirmed_verdicts` so the
+Elasticsearch-backed verdict marker catches the duplicates that in-process state
+no longer can. Note that it is **off by default**, so an unsharded scale-up has
+no backstop as shipped.
+
+The write path is where at-most-once bites hardest, so it does not simply give
+up. A `redisStream` sink is the payload's only destination — the source has
+already acked and nothing upstream will offer the verdict again — so a failed
+`XADD` is retried (`publish_retries`, default 2, with a short linear backoff),
+rebuilding the connection first when the failure was a dropped one. Retries are
+few on purpose: the caller is on the consume path, so blocking there stalls the
+batch behind it. When they are exhausted the payload *is* dropped, and that is
+visible rather than silent: the sink logs an error naming the stream, and
+`alert_bridge_redis_publish_failures_total{outcome="dropped"}` counts it. The
+`outcome="recovered"` series counts blips a retry absorbed — a rising
+`recovered` with a flat `dropped` means Redis is unstable but nothing was lost.
+Alert on `dropped`.
+
+Startup behaviour differs between the two directions, also deliberately. The
+Redis sink pings on construction and refuses to start when Redis is unreachable,
+because a sink that cannot reach its destination has nowhere to put results and
+would discard them silently. The Redis source instead logs and retries with
+backoff, because a consumer outliving a broker restart is normal operation. The
+Kafka sink does not ping at all, so moving a sink to Redis makes startup stricter
+than it was.
 
 In Docker Compose the selections are environment variables
 (`ALERT_EVENT_SOURCE_TYPE`, `ALERT_EVENT_SINK_TYPE`, `ALERT_VLM_SINK_TYPE`,

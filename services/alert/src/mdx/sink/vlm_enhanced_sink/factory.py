@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .sink_base import VLMEnhancedSink
 from .sink_console import VLMEnhancedConsoleSink
@@ -41,9 +41,49 @@ _SINK_ALIASES = {
 }
 
 
-def _normalize_sink_type(value: str) -> str:
-    """Resolve a configured sink type to its canonical name."""
-    return _SINK_ALIASES.get(value.strip().lower().replace("_", "").replace("-", ""), value)
+def _normalize_sink_type(value: Any) -> Optional[str]:
+    """Resolve a configured sink type to its canonical name.
+
+    Returns ``None`` when the value is not a recognized sink, matching
+    ``event_bridge_factory._normalize_transport``. The two normalizers are kept
+    on one contract deliberately: they read operator-supplied transport names
+    from the same config file, and a reader who checks one should not have to
+    re-derive how the other treats an unknown or non-string value.
+    """
+    if not isinstance(value, str):
+        return None
+    return _SINK_ALIASES.get(value.strip().lower().replace("_", "").replace("-", ""))
+
+
+def _warn_on_per_kind_type(sink_root: Dict[str, Any], resolved: str) -> None:
+    """Point out ``incident.type`` / ``alert.type`` keys, which are never read.
+
+    One sink serves both kinds, so the transport comes from the top-level
+    ``vlm_enhanced_sink.type`` alone. Configs carrying a per-kind ``type`` are
+    common and predate the extra transports, and while it was only ever
+    decoration it now actively misleads: a chart that renders ``type:
+    redisStream`` at the top and a hardcoded ``incident.type: elastic`` below
+    reads as though incidents still go to Elasticsearch. This is a warning
+    rather than an error because those stale keys sit in working deployments,
+    and rejecting them would break the very upgrade that selects Redis.
+    """
+    for kind in ("incident", "alert"):
+        section = sink_root.get(kind)
+        if not isinstance(section, dict) or "type" not in section:
+            continue
+        declared = _normalize_sink_type(section.get("type"))
+        if declared == resolved:
+            logger.debug(
+                "Ignoring redundant vlm_enhanced_sink.%s.type; the transport comes "
+                "from vlm_enhanced_sink.type", kind,
+            )
+        else:
+            logger.warning(
+                "vlm_enhanced_sink.%s.type is '%s' but is never read: both kinds use "
+                "vlm_enhanced_sink.type, which resolved to '%s'. Remove the per-kind "
+                "'type' key so the config stops contradicting itself.",
+                kind, section.get("type"), resolved,
+            )
 
 
 def _load_category_mapping(config: Dict[str, Any]) -> Dict[str, str]:
@@ -103,7 +143,21 @@ def build_vlm_enhanced_sink(
     """
 
     sink_root = config.get("vlm_enhanced_sink", {}) or {}
-    sink_type = _normalize_sink_type(sink_root.get("type") or "elastic")
+    configured = sink_root.get("type") or "elastic"
+    sink_type = _normalize_sink_type(configured)
+    # Log both spellings: the configured value is what an operator can grep for
+    # in their config, the resolved one is what actually selected the sink.
+    logger.info(
+        "VLM enhanced sink type: %r resolved to '%s'", configured, sink_type
+    )
+    if sink_type is None:
+        # Raise before the per-kind warnings so an operator sees the actual
+        # problem instead of advice about keys on a sink that never resolved.
+        raise ValueError(
+            f"Unsupported vlm_enhanced_sink.type: {configured!r} "
+            "(supported: 'elastic', 'kafka', 'redisStream', 'console')"
+        )
+    _warn_on_per_kind_type(sink_root, sink_type)
 
     category_mapping = _load_category_mapping(config)
     verdict_description_mapping = _load_verdict_description_mapping(config)
@@ -148,9 +202,8 @@ def build_vlm_enhanced_sink(
             alert_config_store=alert_config_store,
         )
 
-    raise ValueError(
-        f"Unsupported vlm_enhanced_sink.type: {sink_type} "
-        "(supported: 'elastic', 'kafka', 'redisStream', 'console')"
+    raise AssertionError(  # pragma: no cover - every resolved type is handled above
+        f"Resolved sink type {sink_type!r} has no branch"
     )
 
 

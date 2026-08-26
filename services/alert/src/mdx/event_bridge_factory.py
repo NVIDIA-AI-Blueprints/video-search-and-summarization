@@ -101,7 +101,13 @@ class EventBridgeFactory:
             configured = _configured_transport(config, 'sourceType')
             source_type = _normalize_transport(configured)
 
-            logger.info(f"Creating source of type: {configured}")
+            # Both spellings: the configured value is what an operator can grep
+            # for in their config or Helm values, the resolved one is what
+            # actually picked the implementation. Logging only the raw string
+            # hides alias and casing mistakes behind a plausible-looking line.
+            logger.info(
+                "Creating source: configured %r resolved to %r", configured, source_type
+            )
 
             if source_type == KAFKA:
                 from mdx.source.source_kafka import SourceKafka
@@ -138,7 +144,9 @@ class EventBridgeFactory:
             configured = _configured_transport(config, 'sinkType')
             sink_type = _normalize_transport(configured)
 
-            logger.info(f"Creating sink of type: {configured}")
+            logger.info(
+                "Creating sink: configured %r resolved to %r", configured, sink_type
+            )
 
             if sink_type == KAFKA:
                 from mdx.sink.sink_kafka import KafkaSink

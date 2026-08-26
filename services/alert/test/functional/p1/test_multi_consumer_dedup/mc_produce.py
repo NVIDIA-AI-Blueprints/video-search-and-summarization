@@ -27,7 +27,7 @@ needs:
   two consumers) and prove in-process dedup does not span containers.
 
 Records are keyed by ``sensorId`` — the partition-key contract the in-process
-dedup design relies on (see ``mdx/source/source_kafka.py::_classify_key_alignment``).
+dedup design relies on (see ``mdx/source/source_utils.py::classify_key_alignment``).
 """
 
 import argparse

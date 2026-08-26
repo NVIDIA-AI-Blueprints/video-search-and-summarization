@@ -41,7 +41,7 @@ mkdir -p "$PID_DIR"
 
 # 1. Both sinks must have announced themselves as console-only, and the source
 #    must still be Kafka — that pairing is the independence claim.
-if grep -q "Creating source of type: kafka" "$AB_LOG" 2>/dev/null; then
+if grep -qE "Creating source: .*resolved to 'kafka'" "$AB_LOG" 2>/dev/null; then
     print_status "ok" "AB log confirms the Kafka source is still in use"
 else
     print_status "fail" "FAIL: AB did not select the Kafka source"

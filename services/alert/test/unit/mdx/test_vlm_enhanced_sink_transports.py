@@ -35,6 +35,7 @@ time from the live config store, and every sink has to do it independently.
 """
 
 import json
+import logging
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -230,6 +231,18 @@ class TestRedisStreamFailureHandling:
         sink._broker.add.return_value = None
         sink.publish_success(dict(INCIDENT), "prompt", None, {})
 
+    def test_a_dropped_verdict_is_logged_as_an_error(self, protobuf, caplog):
+        """Redis is the only destination here, so a swallowed write is lost data.
+        It has to leave something behind that an operator can alert on."""
+        sink = make_redis_sink()
+        sink._broker.add.return_value = None
+        with caplog.at_level(logging.ERROR):
+            sink.publish_success(dict(INCIDENT), "prompt", None, {})
+        assert any(
+            record.levelno >= logging.ERROR and "Dropped" in record.getMessage()
+            for record in caplog.records
+        ), caplog.text
+
     def test_a_serialization_failure_does_not_raise(self, protobuf):
         incident_converter, _ = protobuf
         incident_converter.side_effect = RuntimeError("bad document")
@@ -328,6 +341,21 @@ class TestFactorySelection:
         with pytest.raises(ValueError, match="redisStream"):
             build_vlm_enhanced_sink({"vlm_enhanced_sink": {"type": "rabbitmq"}})
 
+    def test_the_error_quotes_what_the_operator_configured(self):
+        """The resolved name is None on an unknown type, so echoing it back would
+        tell the operator nothing about what to fix."""
+        with pytest.raises(ValueError, match="rabbitmq"):
+            build_vlm_enhanced_sink({"vlm_enhanced_sink": {"type": "rabbitmq"}})
+
+    @pytest.mark.parametrize("value", [123, ["redisStream"], {"type": "kafka"}, True])
+    def test_a_non_string_type_is_rejected_rather_than_crashing(self, value):
+        """_normalize_sink_type() shares one contract with
+        event_bridge_factory._normalize_transport(): anything unrecognized,
+        including a non-string, resolves to None instead of raising
+        AttributeError from inside the normalizer."""
+        with pytest.raises(ValueError, match="Unsupported vlm_enhanced_sink.type"):
+            build_vlm_enhanced_sink({"vlm_enhanced_sink": {"type": value}})
+
 
 class TestRedisIsNotRequiredByDefault:
     """The ``redis`` package must stay optional at import time.
@@ -380,3 +408,68 @@ class TestRedisIsNotRequiredByDefault:
         with patch(target) as from_config:
             build({"vlm_enhanced_sink": {"type": sink_type}})
         from_config.assert_called_once()
+
+
+class TestTransportSelectionIsLegible:
+    """The factory has to say which transport it picked, and why.
+
+    Every shipped config carries ``incident.type`` / ``alert.type`` keys that
+    no code reads — the transport comes from the top-level
+    ``vlm_enhanced_sink.type`` alone. That was harmless decoration while
+    Elasticsearch was the only option, but the charts now render the top-level
+    key from ``vlmSinkType`` while leaving the per-kind keys hardcoded to
+    ``elastic``, so the config contradicts itself and reads as though incidents
+    still go to Elasticsearch. Nothing can be raised over it, because those
+    stale keys sit in working deployments; the warning is the whole defence.
+    """
+
+    def test_the_resolved_transport_is_logged_next_to_the_configured_one(self, caplog):
+        with caplog.at_level("INFO"):
+            with patch(
+                "mdx.sink.vlm_enhanced_sink.sink_console.VLMEnhancedConsoleSink.from_config"
+            ):
+                build_vlm_enhanced_sink({"vlm_enhanced_sink": {"type": "CONSOLE"}})
+        assert "'CONSOLE'" in caplog.text
+        assert "resolved to 'console'" in caplog.text
+
+    def test_a_contradicting_per_kind_type_is_called_out(self, caplog):
+        with caplog.at_level("WARNING"):
+            with patch(
+                "mdx.sink.vlm_enhanced_sink.sink_console.VLMEnhancedConsoleSink.from_config"
+            ):
+                build_vlm_enhanced_sink({
+                    "vlm_enhanced_sink": {
+                        "type": "console",
+                        "incident": {"type": "elastic"},
+                    },
+                })
+        assert "vlm_enhanced_sink.incident.type" in caplog.text
+        assert "never read" in caplog.text
+
+    def test_a_redundant_per_kind_type_stays_quiet(self, caplog):
+        """The default config agrees with the default transport; do not nag."""
+        with caplog.at_level("WARNING"):
+            with patch(
+                "mdx.sink.vlm_enhanced_sink.sink_elastic.VLMEnhancedElasticSink.from_config"
+            ):
+                build_vlm_enhanced_sink({
+                    "vlm_enhanced_sink": {
+                        "incident": {"type": "elastic"},
+                        "alert": {"type": "elastic"},
+                    },
+                })
+        assert "never read" not in caplog.text
+
+    def test_the_per_kind_key_does_not_change_the_selected_sink(self, caplog):
+        """The warning is advisory: the top-level key still governs."""
+        with patch(
+            "mdx.sink.vlm_enhanced_sink.sink_console.VLMEnhancedConsoleSink.from_config"
+        ) as console:
+            build_vlm_enhanced_sink({
+                "vlm_enhanced_sink": {
+                    "type": "console",
+                    "incident": {"type": "elastic"},
+                    "alert": {"type": "elastic"},
+                },
+            })
+        console.assert_called_once()

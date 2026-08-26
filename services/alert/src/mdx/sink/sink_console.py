@@ -25,6 +25,7 @@ import json
 import logging
 from typing import Any, Callable, List, Optional
 
+from mdx.sink.console_render import parse_redact_paths, redact
 from mdx.sink.sink_base import SinkBase
 from mdx.stream_message import StreamMessage
 
@@ -39,9 +40,15 @@ class ConsoleSink(SinkBase):
         section = (config.get('event_bridge') or {}).get('console_sink') or {}
         self.pretty = bool(section.get('pretty', True))
         self.max_chars = int(section.get('max_chars', 0))
+        self.redact_paths = parse_redact_paths(section.get('redact'))
 
         self.logger.warning(
-            "Console sink selected: event bridge output is logged only and is not durable"
+            "Console sink selected: intended for local development. Event bridge "
+            "output is logged only, is not durable, and payloads are written to "
+            "the log in full, so whoever can read these logs can read the "
+            "payload contents%s",
+            f". Masking {self.redact_paths}" if self.redact_paths else
+            ". Redaction is off: set event_bridge.console_sink.redact to mask fields",
         )
 
     def _render(self, payload: Any) -> str:
@@ -52,7 +59,10 @@ class ConsoleSink(SinkBase):
                 try:
                     payload = json.loads(payload)
                 except ValueError:
+                    # Not JSON, so there are no field paths to mask. Truncation
+                    # is the only protection left for an opaque payload.
                     return self._truncate(payload)
+            payload = redact(payload, self.redact_paths)
             text = json.dumps(payload, indent=2 if self.pretty else None, default=str)
         except Exception as exc:
             text = f"<unrenderable payload: {exc}>"

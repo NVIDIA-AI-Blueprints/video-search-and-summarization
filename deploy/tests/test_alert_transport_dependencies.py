@@ -121,6 +121,27 @@ class AlertTransportDependencyTests(unittest.TestCase):
                 self.assertIn(KAFKA_ENDPOINT, endpoints)
                 self.assertNotIn(REDIS_ENDPOINT, endpoints)
 
+    def test_surrounding_whitespace_is_trimmed_like_the_application_trims_it(self):
+        """_normalize_transport() strips the value first, so the chart must too.
+
+        Stray spaces survive YAML quoting and copy-paste, and the application
+        resolves " redisStream" to Redis. A chart that skipped the trim would
+        render a Redis pod still waiting for Kafka.
+        """
+        for spelling in (" redisStream", "redisStream ", "  redis  "):
+            with self.subTest(transport=repr(spelling)):
+                endpoints = _wait_endpoints(
+                    eventSourceType=spelling,
+                    eventSinkType=spelling,
+                    vlmSinkType="elastic",
+                )
+                self.assertIn(REDIS_ENDPOINT, endpoints)
+                self.assertNotIn(KAFKA_ENDPOINT, endpoints)
+
+        endpoints = _wait_endpoints(eventSourceType=" kafka ", eventSinkType=" kafka ")
+        self.assertIn(KAFKA_ENDPOINT, endpoints)
+        self.assertNotIn(REDIS_ENDPOINT, endpoints)
+
 
 if __name__ == "__main__":
     unittest.main()

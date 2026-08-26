@@ -761,6 +761,32 @@ RECORD_KEY_ALIGNMENT = Counter(
     ['aligned'],
 )
 
+# (4c) Redis Streams publish reliability. When a redisStream sink is selected
+# Redis is the only destination, so an XADD that never lands is silent data
+# loss of an already-verified verdict. outcome ∈ closed enum:
+#   recovered – XADD failed but a bounded retry succeeded (transient blip)
+#   dropped   – retries exhausted, payload discarded (actual loss — alert on it)
+# No stream label: stream names are operator-configured and would be unbounded.
+REDIS_PUBLISH_FAILURES = Counter(
+    'alert_bridge_redis_publish_failures_total',
+    'Redis Streams publish attempts that failed, by whether a retry recovered them',
+    ['outcome'],
+)
+
+# (4d) Read-path drops. The sources are at-most-once by design, so an entry that
+# cannot be decoded is acked and discarded rather than replayed forever. That is
+# the right call for a poison pill, but it must not be invisible: without a
+# counter the only trace is a log line. Mirrors the write-path counter above.
+#   no_payload  – envelope carried no value/metadata/data/payload field
+#   undecodable – StreamMessage construction raised on the entry
+# transport is a closed enum; only the Redis source reports today, the Kafka
+# source has equivalent drop sites that are not wired yet.
+SOURCE_DROPPED = Counter(
+    'alert_bridge_source_dropped_total',
+    'Consumed entries discarded before the pipeline, by transport and reason',
+    ['transport', 'reason'],
+)
+
 # ---------------------------------------------------------------------------
 # Confirmed-verdict marker retention (hourly throttled reaper)
 # ---------------------------------------------------------------------------

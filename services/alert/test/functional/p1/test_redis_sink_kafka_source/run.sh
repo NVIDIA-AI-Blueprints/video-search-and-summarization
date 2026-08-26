@@ -46,7 +46,7 @@ fi
 
 # 1. The source must still be Kafka. If the Redis sink selection leaked into
 #    the source, this catches it before the test times out on an empty stream.
-if grep -q "Creating source of type: kafka" "$AB_LOG" 2>/dev/null; then
+if grep -qE "Creating source: .*resolved to 'kafka'" "$AB_LOG" 2>/dev/null; then
     print_status "ok" "AB log confirms the Kafka source"
 else
     print_status "fail" "FAIL: AB did not select the Kafka source"

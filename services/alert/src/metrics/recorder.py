@@ -74,6 +74,8 @@ if PROMETHEUS_ENABLED:
         KAFKA_LAG_DURATION,
         KAFKA_LAG_DURATION_BY_SENSOR,
         RECORD_KEY_ALIGNMENT,
+        REDIS_PUBLISH_FAILURES,
+        SOURCE_DROPPED,
         VERDICT_RETENTION_DELETED,
         VERDICT_RETENTION_LAST_RUN,
         VERDICT_RETENTION_RUNS,
@@ -842,6 +844,11 @@ def warm_startup_labels() -> None:
         ALERT_CONFIG_READ_SOURCE.labels(source=source).inc(0)
     for aligned in RECORD_KEY_ALIGNMENT_VALUES:
         RECORD_KEY_ALIGNMENT.labels(aligned=aligned).inc(0)
+    for outcome in REDIS_PUBLISH_OUTCOMES:
+        REDIS_PUBLISH_FAILURES.labels(outcome=outcome).inc(0)
+    for transport in SOURCE_DROP_TRANSPORTS:
+        for reason in SOURCE_DROP_REASONS:
+            SOURCE_DROPPED.labels(transport=transport, reason=reason).inc(0)
     for store in DEDUP_CACHE_STORES:
         for mode in DEDUP_CACHE_EVICTION_MODES:
             DEDUP_CACHE_EVICTIONS.labels(store=store, mode=mode).inc(0)
@@ -865,6 +872,11 @@ DEDUP_CACHE_EVICTION_MODES = ("lazy", "sweep")
 VERDICT_FAIL_OPEN_REASONS = ("es_down", "error", "expired", "malformed", "write_error")
 ALERT_CONFIG_READ_SOURCES = ("cache", "es", "snapshot")
 RECORD_KEY_ALIGNMENT_VALUES = ("yes", "no", "unknown")
+REDIS_PUBLISH_OUTCOMES = ("recovered", "dropped")
+SOURCE_DROP_REASONS = ("no_payload", "undecodable")
+# Only the transports that actually report; adding one here without a call site
+# would warm a series that can never move.
+SOURCE_DROP_TRANSPORTS = ("redis_stream",)
 # Closed set of ES index labels for the readiness gauge (bounded cardinality).
 INDEX_READY_NAMES = ("confirmed-verdicts", "alert-configs")
 
@@ -928,6 +940,32 @@ def inc_record_key_alignment(aligned: str) -> None:
     if not PROMETHEUS_ENABLED or aligned not in RECORD_KEY_ALIGNMENT_VALUES:
         return
     RECORD_KEY_ALIGNMENT.labels(aligned=aligned).inc()
+
+
+def inc_redis_publish_failure(outcome: str) -> None:
+    """Record one failed Redis Streams publish attempt.
+
+    ``outcome`` must be in :data:`REDIS_PUBLISH_OUTCOMES`: ``recovered`` when a
+    retry succeeded, ``dropped`` when retries were exhausted and the payload was
+    discarded. NEVER pass a stream name or sensorId.
+    """
+    if not PROMETHEUS_ENABLED or outcome not in REDIS_PUBLISH_OUTCOMES:
+        return
+    REDIS_PUBLISH_FAILURES.labels(outcome=outcome).inc()
+
+
+def inc_source_dropped(transport: str, reason: str) -> None:
+    """Record one consumed entry discarded before it reached the pipeline.
+
+    ``transport`` must be in :data:`SOURCE_DROP_TRANSPORTS` and ``reason`` in
+    :data:`SOURCE_DROP_REASONS`; anything else is dropped so a bad call site
+    cannot mint a stray series. NEVER pass a stream name or sensorId.
+    """
+    if not PROMETHEUS_ENABLED:
+        return
+    if transport not in SOURCE_DROP_TRANSPORTS or reason not in SOURCE_DROP_REASONS:
+        return
+    SOURCE_DROPPED.labels(transport=transport, reason=reason).inc()
 
 
 def record_verdict_retention_run(deleted: int, ok: bool, run_ts: Optional[float] = None) -> None:

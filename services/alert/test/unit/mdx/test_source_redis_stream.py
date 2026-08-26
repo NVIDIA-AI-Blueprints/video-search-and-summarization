@@ -265,6 +265,16 @@ class TestReadDataResilience:
         assert source.read_data() == []
         source.broker.ack.assert_called_once_with("mdx-incidents", "alert-bridge-vlm-group", [b"1-0"])
 
+    def test_a_payloadless_entry_is_counted_not_just_logged(self):
+        """Dropping is correct here, but a log line alone is not alertable: a
+        producer emitting garbage would degrade the pipeline invisibly."""
+        source = make_source()
+        source.broker.read_group.return_value = [("mdx-incidents", b"1-0", {b"headers": b"{}"})]
+
+        with patch("mdx.source.source_redis_stream.record_source_drop") as drop:
+            source.read_data()
+        drop.assert_called_once_with("redis_stream", "no_payload")
+
     def test_an_unmapped_stream_falls_back_to_the_unknown_kind(self):
         source = make_source()
         source.broker.read_group.return_value = [("surprise", b"1-0", envelope(b"\x08\x01"))]
@@ -327,6 +337,13 @@ class TestOtherSourceMethods:
         source.broker.read_group.return_value = [("mdx-incidents", b"1-0", envelope(b"\x08\x01"))]
         assert source.poll() == []
         source.broker.ack.assert_called_once()
+
+    def test_an_undecodable_entry_is_counted(self):
+        source = make_source()
+        source.broker.read_group.return_value = [("mdx-incidents", b"1-0", envelope(b"\x08\x01"))]
+        with patch("mdx.source.source_redis_stream.record_source_drop") as drop:
+            source.poll()
+        drop.assert_called_once_with("redis_stream", "undecodable")
 
     def test_poll_heartbeats_reads_only_the_heartbeat_stream(self):
         config = {

@@ -41,10 +41,10 @@ from mdx.redis_stream_broker import (
     resolve_redis_config,
 )
 from mdx.source.source_base import SourceBase
-# Reuse the Kafka source's partition-key guardrail: it reports whether the
-# envelope key matches the payload sensorId, which dedup cohort affinity
-# depends on regardless of transport.
-from mdx.source.source_kafka import _record_key_alignment
+# Shared partition-key guardrail: it reports whether the envelope key matches
+# the payload sensorId, which dedup cohort affinity depends on regardless of
+# transport.
+from mdx.source.source_utils import record_key_alignment, record_source_drop
 from mdx.stream_message import StreamMessage
 
 DEFAULT_BLOCK_MS = 100
@@ -53,6 +53,8 @@ DEFAULT_ERROR_BACKOFF_SECONDS = 1.0
 #: New consumer groups start at ``$`` (new entries only) to match the Kafka
 #: source's ``auto_offset_reset: latest``.
 DEFAULT_START_ID = "$"
+#: ``transport`` label on the read-path drop counter.
+SOURCE_TRANSPORT = "redis_stream"
 
 
 class SourceRedisStream(SourceBase):
@@ -184,6 +186,7 @@ class SourceRedisStream(SourceBase):
                 self.logger.warning(
                     "Skipping Redis entry %r on '%s': no payload field", message_id, stream
                 )
+                record_source_drop(SOURCE_TRANSPORT, "no_payload")
                 continue
 
             published_ms = message_id_to_epoch_ms(message_id)
@@ -191,7 +194,7 @@ class SourceRedisStream(SourceBase):
                 earliest_published_ms = published_ms
 
             kind = self.stream_to_kind.get(stream, 'unknown')
-            _record_key_alignment(key, payload)
+            record_key_alignment(key, payload)
 
             if self._decode_json_payload(payload) is not None:
                 grouped.setdefault((kind, 'json'), []).append(payload.decode('utf-8'))
@@ -255,6 +258,7 @@ class SourceRedisStream(SourceBase):
                 )
             except Exception as exc:
                 self.logger.error("Error processing Redis entry %r on '%s': %s", message_id, stream, exc)
+                record_source_drop(SOURCE_TRANSPORT, "undecodable")
         self._ack(acks)
         return messages
 
