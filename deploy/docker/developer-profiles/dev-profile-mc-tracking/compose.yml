@@ -121,6 +121,32 @@ services:
     depends_on:
       - vss-video-analytics-api-mc-tracking
 
+  # One-shot: populates $VSS_DATA_DIR/models/reid with the SigLIP secondary
+  # embedding model (NGC) and the CLIP-ReID tracker ONNX. 
+  reid-embed-init-mc-tracking:
+    image: ${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.08.1}
+    profiles: ["reid-embed-init-mc-tracking"]
+    container_name: vss-reid-embed-init-mc-tracking
+    restart: "no"
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              device_ids: ["${RT_CV_DEVICE_ID:-0}"]
+    working_dir: /opt/storage/reid
+    volumes:
+      - $VSS_DATA_DIR/models/reid:/opt/storage/reid:rw
+      - $VSS_APPS_DIR/services/rtvi/reid-embed:/opt/scripts:ro
+    environment:
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+    command:
+      - bash
+      - /opt/scripts/download-embedding-models.sh
+      - --secondary
+      - --clipreid
+
   # Extends the generic, shared rtvi-cv-mv3dt library (services/rtvi/rtvi-cv/rtvi-cv-mv3dt/) —
   # that path is a shared capability name, not this profile's own packaging.
   vss-rtvi-cv-bev-fusion-mc-tracking:
@@ -190,5 +216,7 @@ services:
         condition: service_completed_successfully
       vss-rtvi-cv-bev-fusion-mc-tracking:
         condition: service_healthy
+      reid-embed-init-mc-tracking:
+        condition: service_completed_successfully
       mosquitto:
         condition: service_healthy
