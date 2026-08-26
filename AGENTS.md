@@ -16,11 +16,6 @@ Human contributor guidance — licensing, DCO, file headers — is in
 
 ## The `vss` CLI
 
-The host-side entry point to a **deployed** VSS stack. It runs beside the
-deployment, not inside it: no NAT, no torch, no GPU, no agent framework. One
-process per call — JSON on stdout, diagnostics on stderr, a typed exit code.
-That is the whole contract; there is no SDK, server, or session to manage.
-
 ### Setup
 
 ```bash
