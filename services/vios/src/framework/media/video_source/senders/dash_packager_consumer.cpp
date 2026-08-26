@@ -852,8 +852,50 @@ void DashPackagerConsumer::onFrame(std::shared_ptr<RawFrameParams> frameData)
         }
     }
 
-    if (m_config.startEpochMs > 0 && frameData->pts > 0 && frameData->pts < m_config.startEpochMs)
+    /* The window is expressed as wall clock, so it can only be applied to a
+     * source that stamps frames the same way. A recording made from an rtsp
+     * sensor does: its timestamps are milliseconds since the epoch and keep
+     * rising across file boundaries. An uploaded file does not - it counts from
+     * the start of the file - so comparing the two discards every frame ever
+     * delivered, and the session runs to completion having written nothing.
+     * That is what a seek into an uploaded recording did: the source seeked
+     * correctly to 7m28s and offered frames at 448581 ms against a window
+     * starting at 1735690039478 ms.
+     *
+     * Any real epoch timestamp is past the year 2001, so a first frame below
+     * that is counting from something else and the window cannot be applied. */
+    if (m_windowApplies && !m_windowDecided && frameData->pts > 0)
     {
+        /* Decided on the first frame that carries a timestamp at all. Deciding
+         * on the first frame unconditionally is wrong: a source whose opening
+         * frame is stamped zero would settle the question on no evidence and
+         * never revisit it, and every later frame would be discarded. */
+        m_windowDecided = true;
+        constexpr int64_t kYear2001Ms = 1000000000000;
+        if (frameData->pts < kYear2001Ms && m_config.startEpochMs >= kYear2001Ms)
+        {
+            m_windowApplies = false;
+            LOG(info) << "DASH source for " << m_config.streamToken
+                      << " timestamps from the start of the recording, not the epoch"
+                      << " (first frame " << frameData->pts << " ms); the requested window is"
+                      << " already applied by the source, so it is not filtered again" << endl;
+        }
+    }
+    if (m_windowApplies && m_config.startEpochMs > 0 && frameData->pts > 0
+        && frameData->pts < m_config.startEpochMs)
+    {
+        /* Dropping every frame here is indistinguishable from a stream that
+         * simply never started: the session runs, the decoder plays, and not a
+         * byte is ever written. Say so, rate limited, with the two numbers that
+         * explain it. */
+        const uint64_t skipped = m_beforeWindow.fetch_add(1) + 1;
+        if (skipped == 1 || (skipped % 300) == 0)
+        {
+            LOG(warning) << "DASH dropping frames before the requested window for "
+                         << m_config.streamToken << ": frame at " << frameData->pts
+                         << " ms, window starts at " << m_config.startEpochMs
+                         << " ms (" << skipped << " dropped so far)" << endl;
+        }
         return;
     }
     // pts is milliseconds since the epoch and keeps rising across file
