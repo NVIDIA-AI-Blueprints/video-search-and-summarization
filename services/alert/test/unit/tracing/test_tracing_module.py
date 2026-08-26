@@ -2194,3 +2194,52 @@ def test_open_root_span_survives_any_message(tracing_state, message):
     )
     if handle is not None:
         handle.detach()
+
+
+def test_duration_histograms_can_resolve_a_percentile():
+    """The SDK's default boundaries are shaped for milliseconds.
+
+    These instruments declare `unit="s"` and record seconds, so against the
+    default every alert from 3ms to 1.5s landed in the single `(0, 5]` bucket and
+    no percentile was recoverable — the same failure as the Prometheus histograms
+    whose smallest bucket is 1.0s, arrived at from the opposite direction.
+
+    Asserted as "values spanning the realistic range occupy distinct buckets"
+    rather than by pinning the boundary list, so the numbers can be tuned without
+    the test becoming a copy of the code.
+    """
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+    from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
+
+    from tracing.meters import _views
+
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(
+        metric_readers=[reader],
+        views=_views(ExplicitBucketHistogramAggregation, View),
+    )
+    meter = provider.get_meter("test")
+
+    samples = {
+        "alert.verification.duration": [0.0031, 0.2, 0.6, 1.5, 12.0],
+        "alert.capacity.wait.duration": [0.002, 0.03, 0.4, 3.0],
+    }
+    for name, values in samples.items():
+        instrument = meter.create_histogram(name, unit="s")
+        for v in values:
+            instrument.record(v)
+
+    seen = {}
+    for rm in reader.get_metrics_data().resource_metrics:
+        for sm in rm.scope_metrics:
+            for metric in sm.metrics:
+                point = list(metric.data.data_points)[0]
+                seen[metric.name] = sum(1 for c in point.bucket_counts if c)
+
+    for name, values in samples.items():
+        assert seen.get(name) == len(values), (
+            f"{name}: {len(values)} values spanning the range fell into "
+            f"{seen.get(name)} bucket(s) — percentiles are not recoverable"
+        )
+    provider.shutdown()

@@ -51,6 +51,41 @@ _provider: Any = None
 _instruments: Dict[str, Any] = {}
 
 
+def _views(aggregation_cls, view_cls):
+    """Second-shaped bucket boundaries for the two duration histograms.
+
+    The SDK's default boundaries are ``[0, 5, 10, 25, ... 10000]`` -- unitless
+    numbers shaped for milliseconds. These instruments declare ``unit="s"`` and
+    record seconds, so against the default every alert from 3ms to 1.5s lands in
+    the single ``(0, 5]`` bucket and no percentile is recoverable. Verified by
+    export before this existed: five observations spanning three orders of
+    magnitude produced ``bucket_counts = [0, 5, 0, ...]``.
+
+    Boundaries are set through a View rather than on the instrument, which is
+    how ``services/rtvi/rt-vlm`` does it, and are chosen to mirror the Prometheus
+    histogram measuring the same quantity so a reader comparing the two surfaces
+    is comparing like with like. ``alert.verification.duration`` is a superset of
+    ``E2E_DURATION_BUCKETS`` with finer buckets below 1.0s, which is where that
+    one starts and so cannot resolve anything. ``alert.capacity.wait.duration``
+    is a superset of ``WORKER_QUEUE_WAIT_BUCKETS``, which already starts at
+    0.01s -- the additions there are at the bottom, not the top.
+    """
+    return [
+        view_cls(
+            instrument_name="alert.verification.duration",
+            aggregation=aggregation_cls(
+                boundaries=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0]
+            ),
+        ),
+        view_cls(
+            instrument_name="alert.capacity.wait.duration",
+            aggregation=aggregation_cls(
+                boundaries=[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+            ),
+        ),
+    ]
+
+
 def init_metrics(service_name: str = "vss-alert-ms") -> bool:
     """Build this process's MeterProvider. Idempotent per pid. Never raises."""
     global _initialised_pid, _provider, _instruments
@@ -77,6 +112,10 @@ def _init_locked(pid: int, service_name: str) -> bool:
         from opentelemetry import metrics
         from opentelemetry.sdk.metrics import MeterProvider
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        from opentelemetry.sdk.metrics.view import (
+            ExplicitBucketHistogramAggregation,
+            View,
+        )
         from opentelemetry.sdk.resources import Resource
 
         # Honours OTEL_METRICS_EXPORTER the way _build_exporter honours
@@ -112,7 +151,11 @@ def _init_locked(pid: int, service_name: str) -> bool:
             export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "60000")),
             export_timeout_millis=int(os.getenv("OTEL_METRIC_EXPORT_TIMEOUT", "5000")),
         )
-        provider = MeterProvider(resource=resource, metric_readers=[reader])
+        provider = MeterProvider(
+            resource=resource, metric_readers=[reader], views=_views(
+                ExplicitBucketHistogramAggregation, View
+            ),
+        )
         metrics.set_meter_provider(provider)
         meter = provider.get_meter(__name__)
 
