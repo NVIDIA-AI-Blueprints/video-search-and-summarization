@@ -17,6 +17,10 @@ ARG PYTHON_VERSION=3.13
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
 ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.1.1
 
+# Cache-bust: force a fresh build so this image picks up provenance: false
+# (see PR #1875) instead of reusing a content-addressed tag built before that
+# change, which still carries the attestation manifests that break NGC promotion.
+
 # -----------------------------------------------------------------------------
 # Stage 1: Builder — install Python deps (with build tools for any C extensions)
 # -----------------------------------------------------------------------------
