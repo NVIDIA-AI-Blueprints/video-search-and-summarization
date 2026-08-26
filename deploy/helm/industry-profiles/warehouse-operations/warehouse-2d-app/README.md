@@ -326,6 +326,10 @@ With `<NODE_IP>` being any cluster node:
 
 `/storage/`, `/video-analytics-api/` and `/behavior-analytics/` are routed too.
 
+`/vios/` is an alias for `/vst/`, rewritten onto it (`^/vios/(.*)` -> `/vst/\1`)
+rather than stripped, because VST serves its whole surface under `/vst/`. Both
+work; `/vst/` is deprecated and removed no earlier than 3.4.0.
+
 Kibana, Grafana and Prometheus run under a path prefix set by
 **`infra.kibana.basePath`**, **`monitoring.grafana.rootUrl`** and
 **`monitoring.prometheus.routePrefix`**. Change an ingress path and the matching value

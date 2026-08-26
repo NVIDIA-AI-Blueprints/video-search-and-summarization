@@ -433,7 +433,8 @@ The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`*
 
 - **`Ingress`** **`<release>-vss-ingress`** in the release namespace.
 - **`spec.ingressClassName`**: **`vssIngress.ingressClassName`** (default **`haproxy`**).
-- Main host: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**.
+- Main host: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** and **`/vios`** → **vss-vios-ingress**.
+- **`/vios`** is an alias for **`/vst`**, rewritten onto it (**`^/vios/(.*)`** → **`/vst/\1`**) rather than stripped, because VST serves its whole surface under **`/vst/`**. When **`vssIngress.cliRoutes.enabled`** is set, **`/video-summarization`** is likewise an alias for **`/lvs`** and strips identically. Both spellings of each work; the old ones are deprecated and removed no earlier than 3.4.0.
 - If **Kibana** is enabled: host **`kibana.<main-host>`** (or **`vssIngress.kibanaHost`**) → **Kibana** (**`vssIngress.kibanaPort`**).
 - If **Phoenix** is enabled: host **`phoenix.<main-host>`** (or **`vssIngress.phoenixHost`**) → **Phoenix**.
 

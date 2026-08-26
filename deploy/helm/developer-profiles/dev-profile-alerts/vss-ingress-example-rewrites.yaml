@@ -32,12 +32,18 @@ metadata:
   namespace: <NAMESPACE>
   annotations:
     haproxy.org/path-rewrite: |
+      /vios/(.*) /vst/\1
+      /vios /vst
       /storage/(.*) /vst/storage/\1
       /storage /vst/storage
+      /vios/storage/(.*) /vst/storage/\1
+      /vios/storage /vst/storage
       /va-mcp/(.*) /\1
       /va-mcp /
       /alert-bridge/(.*) /\1
       /alert-bridge /
+      /alerts/(.*) /\1
+      /alerts /
       /video-analytics-api/(.*) /\1
       /video-analytics-api /
       /elasticsearch/(.*) /\1
@@ -52,7 +58,21 @@ spec:
   - host: vss.<EXTERNAL_HOST>.nip.io
     http:
       paths:
+      - path: /vios
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-vios-ingress
+            port:
+              number: 30888
       - path: /storage
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-vios-ingress
+            port:
+              number: 30888
+      - path: /vios/storage
         pathType: Prefix
         backend:
           service:
@@ -67,6 +87,13 @@ spec:
             port:
               number: 9901
       - path: /alert-bridge
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-alert-bridge
+            port:
+              number: 9080
+      - path: /alerts
         pathType: Prefix
         backend:
           service:
