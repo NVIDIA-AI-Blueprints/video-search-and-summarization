@@ -216,10 +216,10 @@ IN_PRODUCT_AGENT_PREAMBLE = (
     " vss-agent; then PROVE the pin took: docker inspect vss-agent --format '{{.Config.Image}}' must"
     " end with :$TAG, and fail the step if it does not. Wait for the agent health check before"
     " probing. Do not redeploy the profile, do not touch any other service, and do not ingest"
-    " anything. Restoration is an unconditional obligation once a recreate has happened: whether"
-    " the step succeeds, fails, or is cut short, if this step will not hand the pinned agent to an"
-    " immediately-following in-product step, recreate vss-agent without the image/tag overrides"
-    " and confirm the image reverted before finishing."
+    " anything. There is NO pin handoff between steps: each in-product step establishes (or"
+    " re-establishes) its own pin, and the step's harness verifier restores the original image"
+    " unconditionally afterward — so if the agent itself recreated vss-agent and finishes early,"
+    " it may leave the pin for the verifier, but must never assume a later step inherits it."
 )
 
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
@@ -347,15 +347,16 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "exit $RESTORE_FAILED\n"
         )
     if scenario == "in-product-agent-action-query":
-        # Pinning step: judge FIRST, then restore ONLY on failure. A passing
-        # step must hand the pinned agent to the immediately-following probe
-        # step; a failing or timed-out step would otherwise strand the pin,
-        # because requires_previous_passed skips the successor (and with it
-        # the terminal verifier's restoration).
+        # Pinning step: judge FIRST (verdict persisted to reward.txt), then
+        # restore UNCONDITIONALLY. There is no pin handoff: the runner may
+        # decline to start the successor on an exhausted leg-time reserve, so
+        # a pin must never outlive its own step's verifier. The probe step
+        # re-establishes its own pin (its query is self-sufficient by design).
         return (
             "#!/bin/bash\n"
-            f"# vss-search-archive verifier (step {step}): generic LLM-as-judge, then\n"
-            "# harness-owned image restoration when (and only when) the step failed.\n"
+            f"# vss-search-archive verifier (step {step}): generic LLM-as-judge first\n"
+            "# (verdict persisted), then unconditional verified image restoration;\n"
+            "# exits nonzero if restoration ultimately fails.\n"
             "set -uo pipefail\n"
             "\n"
             'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
@@ -363,16 +364,9 @@ def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
             "\n"
             'python3 "$TEST_DIR/generic_judge.py" \\\n'
             f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
-            "JUDGE_STATUS=$?\n"
             "\n"
-            'REWARD="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
             "RESTORE_FAILED=0\n"
-            'if [[ "$REWARD" != "1.0" && "$REWARD" != "1" ]]; then\n'
-            "  # Failing step: the successor will be skipped, so restore here.\n"
-            + "".join("  " + line + "\n" for line in _RESTORE_AGENT_IMAGE_SNIPPET.rstrip("\\n").split("\\n")) +
-            "fi\n"
-            "# Verdict already persisted to reward.txt; a failed restore is a hard\n"
-            "# verifier error the harness must surface.\n"
+            + _RESTORE_AGENT_IMAGE_SNIPPET +
             "exit $RESTORE_FAILED\n"
         )
     return (

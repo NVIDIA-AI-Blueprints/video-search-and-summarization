@@ -163,8 +163,11 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "compose override file" in action_query
     assert "docker inspect vss-agent" in action_query
     probe = spec["expects"][10]
-    assert "self-sufficient" in probe["query"]
-    assert "restore" in probe["query"]
+    # The probe establishes its own pin (no handoff: the runner may skip a
+    # successor on exhausted leg time, so each step's harness verifier
+    # restores unconditionally after judging).
+    assert "establishes its own pin" in probe["query"]
+    assert "restor" in probe["query"]
     assert any("not as sightings" in check for check in probe["checks"])
     assert any("proof of visual presence" in check for check in probe["checks"])
     assert "vss-ask-video" in spec["skills"]
