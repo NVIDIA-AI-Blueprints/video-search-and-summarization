@@ -46,8 +46,10 @@ routes target the interactive tier that a headless build prunes. Two modes, not
 interchangeable — **default to the stock template**: every backend uses
 `init-addr none`, so the proxy starts whatever is missing, a pruned backend's
 route simply `503`s, and `/` lands on `503` rather than Kibana. Reach for the
-curated patch only when the caller asks to restrict the origin to a named set of
-surfaces (a "single ingress" request, or any named-surface list); it is then a
+curated patch only when the caller asks to **restrict** the origin — to remove
+routes, not to have surfaces reachable on one. Asking to expose browse and
+operate surfaces through a single ingress is satisfied by the stock template and
+is not a curation request. When curation is genuinely asked for it is a
 build-generation artifact, so a validate-only pass is no reason to skip it.
 
 **Curate by consumer class, not by profile.** Retain, for the backends the build
@@ -65,11 +67,12 @@ takes no endpoints, so a build missing these routes is **unqueryable from the ho
 CLI** (no ingress-less read path), and that applies to an ingestion/indexing-only
 build too: `vss vios` is how its media plane is driven. A curated config that drops
 one of these routes takes that away, which is why curation waits for an explicit
-request. `vss configure` also probes `/rtvi-vlm`, but RT-VLM is host-port
-resolved and deliberately **not** fronted here — it records `absent`,
-which is expected and harmless because no read path consumes it. Do not add the
-route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
-through HAProxy.
+request. `vss configure` also probes `/rtvi-vlm`. The stock template does front it, so on
+a build that deploys RT-VLM the probe records it present; where RT-VLM is pruned
+the backend is down and the route `503`s, which records as `absent` — expected and
+harmless, because no read path consumes it. A curated config should not carry the
+route forward: it would re-expose RT-VLM's SSE generation endpoints through
+HAProxy for no read path that needs them.
 
 - **Curated (patch).** Write the trimmed config to `patches/haproxy.cfg`, beside
   the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the
