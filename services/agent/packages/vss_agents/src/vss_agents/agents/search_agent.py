@@ -593,22 +593,26 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                 # nearest-neighbor search returns the closest segments even when the
                 # queried object never appears. Only a confirmed critic verdict
                 # justifies asserting a match, and only for the rows that carry it.
-                n_confirmed = sum(
-                    1
-                    for r in final_results
-                    if getattr(getattr(r, "critic_result", None), "result", None) == "confirmed"
-                )
+                verdicts = [getattr(getattr(r, "critic_result", None), "result", None) for r in final_results]
+                n_confirmed = verdicts.count("confirmed")
+                n_rejected = verdicts.count("rejected")
+                n_unverified = result_count - n_confirmed - n_rejected
                 if n_confirmed == result_count:
                     header = f"Found {result_count} matching video{'s' if result_count != 1 else ''}"
                 elif n_confirmed > 0:
-                    n_other = result_count - n_confirmed
+                    parts = [f"{n_confirmed} visually confirmed match{'es' if n_confirmed != 1 else ''}"]
+                    if n_rejected:
+                        parts.append(f"{n_rejected} rejected by the critic (retrieved but visually refuted)")
+                    if n_unverified:
+                        parts.append(
+                            f"{n_unverified} unverified candidate{'s' if n_unverified != 1 else ''} (similarity only)"
+                        )
                     header = (
                         f"Found {result_count} result{'s' if result_count != 1 else ''}: "
-                        f"{n_confirmed} visually confirmed match{'es' if n_confirmed != 1 else ''}, "
-                        f"{n_other} unconfirmed candidate{'s' if n_other != 1 else ''} "
-                        "(similarity only)\n\n"
-                        "Note: rows without a 'confirmed' critic verdict are similarity "
-                        "candidates, not sightings; see the Critic column per row."
+                        + ", ".join(parts)
+                        + "\n\nNote: only rows with a 'confirmed' critic verdict are matches; "
+                        "rejected rows were visually refuted and unverified rows are similarity "
+                        "candidates, not sightings — see the Critic column per row."
                     )
                 else:
                     header = (
