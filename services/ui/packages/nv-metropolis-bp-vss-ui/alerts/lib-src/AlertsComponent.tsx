@@ -483,7 +483,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
       </div>
 
       {/* Alerts Table */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-hidden">
         <AlertsTable
           alerts={filteredAlerts}
           loading={loading}
