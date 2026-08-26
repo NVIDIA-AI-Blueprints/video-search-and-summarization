@@ -58,6 +58,16 @@ else
     STREAM_TYPE="kafka"
 fi
 
+COMPOSE_PROFILES="elasticsearch,elasticsearch-init-container,kibana,logstash,broker-health-check"
+if [[ "$STREAM_TYPE" = "redis" ]]; then
+    COMPOSE_PROFILES="$COMPOSE_PROFILES,redis"
+else
+    COMPOSE_PROFILES="$COMPOSE_PROFILES,kafka,kafka-topic-init-container"
+fi
+if [[ "$PROFILE2" = "mqtt" ]]; then
+    COMPOSE_PROFILES="$COMPOSE_PROFILES,mqtt"
+fi
+
 # Set PLAYBACK_MODE based on profile: '--playback-from-json' for 'smart_city', empty otherwise
 if [[ "$APP_NAME" = "smart_city" ]]; then
     PLAYBACK_MODE="--playback-from-json"
@@ -105,6 +115,17 @@ MDX_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
 # definitions) are single-sourced from the deployment tree rather than
 # duplicated under tests/. See deploy/docker/services/infra/.
 INFRA_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker/services/infra"
+
+# The deployment compose resolves every mount from these two, so point them at
+# the repo checkout and this suite's app data.
+VSS_APPS_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker"
+VSS_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
+
+# Service selection. The deployment tags every service with its own name, so the
+# suite names exactly what it needs; HAProxy, the SDR controller and the rest of
+# the deployment stay defined but unstarted. mqtt additionally brings up its own
+# broker and bridge, and still feeds the kafka pipeline.
+COMPOSE_PROFILES="$COMPOSE_PROFILES"
 
 # Host configuration
 HOST_IP="$HOST_IP"

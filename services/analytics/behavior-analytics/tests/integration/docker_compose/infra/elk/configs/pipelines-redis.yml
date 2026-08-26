@@ -1,4 +1,0 @@
-# Which shared pipelines this suite runs on the redis transport. See
-# pipelines-kafka.yml for why selection stays test-local.
-- pipeline.id: mdx-redis
-  path.config: "/usr/share/logstash/pipelines/mdx-logstash.conf"

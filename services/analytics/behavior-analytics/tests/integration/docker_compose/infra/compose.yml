@@ -13,126 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# The ELK, Kafka and Redis services are the deployment's own definitions, not
+# copies of them. Everything this suite needs from them -- images, listeners,
+# volumes, health checks -- is selected through COMPOSE_PROFILES and the env
+# layer that generate_env.sh writes. The deployment file also defines HAProxy
+# and the SDR controller; neither is in COMPOSE_PROFILES, so neither starts.
+include:
+  - path: ${INFRA_DIR}/compose.yml
+
+# Only the MQTT transport is test-only: the deployment has no equivalent,
+# because behaviour analytics is exercised over MQTT solely in this suite.
 services:
-
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
-    environment:
-      ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
-      discovery.type: single-node
-    volumes:
-      - $INFRA_DIR/elk/elasticsearch/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
-      - mdx-elastic-data:/tmp/elastic/data:rw
-      - mdx-elastic-logs:/tmp/elastic/logs:rw
-    container_name: mdx-elastic
-    restart: always
-    ports:
-      - "9200:9200"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-
-  elasticsearch-init-container:
-    build:
-      context: $INFRA_DIR
-      dockerfile: Dockerfiles/elastic-init.Dockerfile
-    container_name: mdx-elasticsearch-init
-    environment:
-      ELASTICSEARCH_URL: "http://elasticsearch:9200"
-    command: bash -c "bash /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh && bash /opt/mdx/init-scripts/elasticsearch-template-creation.sh"
-    depends_on:
-      - elasticsearch
-
-  kafka:
-    image: confluentinc/cp-kafka:8.3.0
-    profiles: ["kafka"]
-    volumes:
-      - mdx-kafka:/tmp/kafka-data
-      - $INFRA_DIR/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_NODE_ID: 1
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:9093'
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://localhost:9093
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://$HOST_IP:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_HEAP_OPTS: "-Xmx6G -Xms6G"
-      KAFKA_MAX_REQUEST_SIZE: 10485760
-      KAFKA_MESSAGE_MAX_BYTES: 10485760
-      KAFKA_MAX_PARTITION_FETCH_BYTES: 10485760
-      KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760
-      KAFKA_LOG_DIRS: '/tmp/kafka-data'
-    container_name: mdx-kafka
-    entrypoint: ["/bin/sh", "/usr/local/bin/kafka-entrypoint.sh"]
-    ports:
-      - "9092:9092"
-    healthcheck:
-      test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
-      interval: 15s
-      timeout: 15s
-      retries: 10
-      start_period: 60s
-
-  kafka-topic-init-container:
-    profiles: ["kafka"]
-    build:
-      context: $INFRA_DIR
-      dockerfile: Dockerfiles/kafka-health-check.Dockerfile
-      target: kafka-base
-    image: mdx-kafka-topic-init
-    container_name: mdx-kafka-topics
-    volumes:
-      - $INFRA_DIR/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
-    environment:
-      BOOTSTRAP_HOST: "kafka"
-      KAFKA_PORT: "29092"
-      DEFAULT_PARTITIONS: "8"
-      DEFAULT_RETENTION_MS: "14400000"
-      DEFAULT_SEGMENT_MS: "3600000"
-      DEFAULT_REPLICATION_FACTOR: "1"
-      KAFKA_TOPICS: '[{"name": "mdx-raw"},
-        {"name": "mdx-bev"},
-        {"name": "mdx-space-utilization"},
-        {"name": "mdx-alerts"},
-        {"name": "mdx-behavior", "retention_ms": "14400000", "segment_ms": "3600000", "replication_factor": "1"},
-        {"name": "mdx-behavior-plus"},
-        {"name": "mdx-frames"},
-        {"name": "mdx-mtmc"},
-        {"name": "mdx-rtls"},
-        {"name": "mdx-rtls-region-1"},
-        {"name": "mdx-amr"},
-        {"name": "mdx-vlm-alerts"},
-        {"name": "mdx-notification", "partitions": "1"},
-        {"name": "mdx-events"},
-        {"name": "mdx-incidents"},
-        {"name": "mdx-embed"},
-        {"name": "mdx-embed-filtered"},
-        {"name": "mdx-vlm-incidents"}]'
-    depends_on:
-      kafka:
-        condition: service_healthy
-    command: "bash /usr/bin/create-kafka-topics.sh"
-
-  redis:
-    image: redis:8.10.0-alpine
-    profiles: ["redis"]
-    restart: always
-    command: redis-server /config/redis.conf
-    container_name: mdx-redis
-    volumes:
-      - $INFRA_DIR/redis/configs/redis.conf:/config/redis.conf
-      - $MDX_DATA_DIR/data_log/redis/data:/data
-      - $MDX_DATA_DIR/data_log/redis/log:/log
 
   emqx:
     image: emqx:latest
@@ -158,101 +49,7 @@ services:
       KAFKA_BROKERS: kafka:29092
       KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
 
-  broker-health-check:
-    build:
-      context: $INFRA_DIR
-      dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
-    image: mdx-broker-health-check
-    container_name: mdx-broker-health-check
-    restart: "no"
-    environment:
-      MAX_RETRIES: 60
-      RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: "${STREAM_TYPE}"
-      KAFKA_PORT: "29092"
-      REDIS_PORT: "6379"
-      KAFKA_TOPICS: '[{"name": "mdx-raw"},
-        {"name": "mdx-bev"},
-        {"name": "mdx-behavior"},
-        {"name": "mdx-frames"},
-        {"name": "mdx-events"},
-        {"name": "mdx-incidents"}]'
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:9.3.3
-    volumes:
-      - $INFRA_DIR/elk/kibana/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
-    container_name: mdx-kibana
-    restart: always
-    ports:
-      - "5601:5601"
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5601/kibana/api/status"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:9.3.3
-    volumes:
-      - mdx-logstash-libs:/opt/logstash-data-libs
-      - $INFRA_DIR/elk/logstash/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
-      - $INFRA_DIR/elk/logstash/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
-      # The redis pipeline decodes via descriptors rather than the ruby classes.
-      - $INFRA_DIR/elk/logstash/pb_definitions/descriptors/ext.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/ext.desc
-      - $INFRA_DIR/elk/logstash/pb_definitions/descriptors/schema.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/schema.desc
-      - $INFRA_DIR/elk/logstash/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
-      - $INFRA_DIR/elk/logstash/pipelines/${STREAM_TYPE}/:/usr/share/logstash/pipelines/:ro
-      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/pipelines-${STREAM_TYPE}.yml:/usr/share/logstash/config/pipelines.yml:ro
-      - $INFRA_DIR/elk/logstash/gems/logstash-input-redis_stream-3.3.0-java.gem:/usr/share/logstash/gems/logstash-input-redis_stream-java.gem
-    environment:
-      LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
-      STREAM_TYPE: "${STREAM_TYPE}"
-    container_name: mdx-logstash
-    restart: always
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-      elasticsearch-init-container:
-        condition: service_completed_successfully
-    command: >
-      bash -c "
-        echo 'Installing gems for mdx-apps.. This may take sometime to install plugins...' &&
-        ls -al /opt/logstash-data-libs/ &&
-        if [ \"$$STREAM_TYPE\" = 'redis' ]; then
-          echo 'Installing Redis stream input plugin...' &&
-          /usr/share/logstash/bin/logstash-plugin install /usr/share/logstash/gems/logstash-input-redis_stream-java.gem;
-        else
-          echo 'Installing protobuf codec plugin...' &&
-          /usr/share/logstash/bin/logstash-plugin install logstash-codec-protobuf;
-        fi &&
-        echo 'Installed gems for logstash plugins' &&
-        /usr/local/bin/docker-entrypoint"
-
 volumes:
-  mdx-logstash-libs:
-  mdx-elastic-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: $MDX_DATA_DIR/data_log/elastic/data
-  mdx-elastic-logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: $MDX_DATA_DIR/data_log/elastic/logs
-  mdx-kafka:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: $MDX_DATA_DIR/data_log/kafka
   mdx-emqx-data:
     driver: local
     driver_opts:
