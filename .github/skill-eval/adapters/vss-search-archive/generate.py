@@ -446,14 +446,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'keywords = ["vss-search-archive", "{profile}", "{platform}"]',
             "",
             "[agent]",
-            # The in-product agent steps include a bounded registry wait, a
-            # container recreate, and a health start_period of up to 4 minutes,
-            # which cannot fit the standard budget.
-            (
-                "timeout_sec = 1500.0"
-                if expect.get("scenario", "").startswith("in-product-agent-")
-                else "timeout_sec = 600.0"
-            ),
+            "timeout_sec = 600.0",
             "",
             "[environment]",
             'skills_dir = "/skills"',
@@ -475,6 +468,14 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f"check_count = {len(expect.get('checks') or [])}",
             "",
         ]
+        # The in-product agent steps include a bounded registry wait, a container
+        # recreate, and a health start_period of up to 4 minutes, which cannot fit
+        # the standard budget. Mutate after building the template so the timeout
+        # meta-test's AST contract (exact ["[agent]", base-timeout, ""] constants)
+        # holds for the template itself.
+        if expect.get("scenario", "").startswith("in-product-agent-"):
+            meta_lines[meta_lines.index("timeout_sec = 600.0")] = "timeout_sec = 1500.0"
+
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
         # environment/
