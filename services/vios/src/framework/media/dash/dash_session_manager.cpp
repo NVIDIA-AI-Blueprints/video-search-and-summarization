@@ -188,6 +188,15 @@ void DashSessionManager::configure(std::chrono::seconds idleTimeout, unsigned ta
     m_playlistLength = std::max(playlistLength, 3U);
     m_maxSessions = std::max(maxSessions, size_t{1});
     m_outputRoot = std::move(outputRoot);
+    /* The settings that decide how a session behaves, recorded once where they
+     * take effect.  A report of segments arriving too slowly or sessions being
+     * refused is otherwise impossible to read without knowing which numbers
+     * were in force, and these are clamped here rather than taken verbatim. */
+    LOG(info) << "DASH configured: max sessions=" << m_maxSessions
+              << ", segment duration=" << m_targetDuration << "s"
+              << ", playlist length=" << m_playlistLength
+              << ", idle timeout=" << m_idleTimeout.count() << "s"
+              << ", output root=" << m_outputRoot << endl;
 }
 
 std::shared_ptr<nv_vms::StreamInfo> DashSessionManager::findStream(const std::string& streamId) const
