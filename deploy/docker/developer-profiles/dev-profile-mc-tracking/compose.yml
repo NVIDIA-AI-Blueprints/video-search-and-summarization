@@ -247,10 +247,18 @@ services:
       # lost a SO_REUSEPORT race with NVStreamer. Nothing forces it on the bridge,
       # but keeping it means the published port and any existing probes still match.
       - REID_SERVICE_PORT=${REID_SERVICE_PORT:-8088}
+      - MESSAGE_BROKER=${MESSAGE_BROKER:-${STREAM_TYPE:-kafka}}
       - KAFKA_CONSUMER_SERVER=${KAFKA_CONSUMER_SERVER:-kafka:29092}
       - KAFKA_CONSUMER_TOPIC=${KAFKA_CONSUMER_TOPIC:-mdx-raw}
       - KAFKA_PRODUCER_SERVER=${KAFKA_PRODUCER_SERVER:-kafka:29092}
       - KAFKA_PRODUCER_TOPIC=${KAFKA_PRODUCER_TOPIC:-mdx-compressed-embeddings}
+      - REDIS_CONSUMER_SERVER=${REDIS_CONSUMER_SERVER:-redis:6379}
+      - REDIS_CONSUMER_TOPIC=${REDIS_CONSUMER_TOPIC:-mdx-raw}
+      # same as payloadkey in deepstream/configs/ds-redis-config.txt 
+      - REDIS_CONSUMER_PAYLOAD_KEY=${REDIS_CONSUMER_PAYLOAD_KEY:-value}
+      - REDIS_PRODUCER_SERVER=${REDIS_PRODUCER_SERVER:-redis:6379}
+      - REDIS_PRODUCER_TOPIC=${REDIS_PRODUCER_TOPIC:-mdx-compressed-embeddings}
+      - REDIS_PRODUCER_PAYLOAD_KEY=${REDIS_PRODUCER_PAYLOAD_KEY:-value}
       - MILVUS_HOST=${MILVUS_HOST:-reid-milvus}
       - ENABLE_COMPRESSION=${ENABLE_COMPRESSION:-True}
       - COMPRESSION_INTERVAL_SEC=${COMPRESSION_INTERVAL_SEC:-1}
