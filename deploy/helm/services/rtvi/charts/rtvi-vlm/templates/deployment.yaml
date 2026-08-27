@@ -24,6 +24,19 @@
 {{- $wfkRepo := $wfkImg.repository | default "docker.io/confluentinc/cp-kafka" }}
 {{- $wfkTag := $wfkImg.tag | default "8.3.0" }}
 {{- $wfkTopics := $wfk.topics | default (list "mdx-vlm" "mdx-vlm-incidents") }}
+{{- $resources := deepCopy (.Values.resources | default dict) }}
+{{- $gpuResourceName := trim (.Values.gpuResourceName | default "") }}
+{{- if $gpuResourceName }}
+{{- $gpuResourceCount := .Values.gpuResourceCount | default 1 }}
+{{- $limits := $resources.limits | default dict }}
+{{- $requests := $resources.requests | default dict }}
+{{- $_ := unset $limits "nvidia.com/gpu" }}
+{{- $_ := unset $requests "nvidia.com/gpu" }}
+{{- $_ := set $limits $gpuResourceName $gpuResourceCount }}
+{{- $_ := set $requests $gpuResourceName $gpuResourceCount }}
+{{- $_ := set $resources "limits" $limits }}
+{{- $_ := set $resources "requests" $requests }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -197,7 +210,7 @@ spec:
             {{- $useSharedNim := .Values.useSharedNim }}
             {{- $envOverrides := .Values.envOverrides | default dict }}
             {{- range .Values.env }}
-            {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useSharedNim) (ne .name "VLM_MODEL_TO_USE")) }}
+            {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useSharedNim) (ne .name "VLM_MODEL_TO_USE")) (or (eq $gpuResourceName "") (ne .name "NVIDIA_VISIBLE_DEVICES")) }}
             - name: {{ .name }}
               value: {{ ternary (index $envOverrides .name) .value (hasKey $envOverrides .name) | quote }}
             {{- end }}
@@ -234,7 +247,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
-          {{- with .Values.resources }}
+          {{- with $resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
