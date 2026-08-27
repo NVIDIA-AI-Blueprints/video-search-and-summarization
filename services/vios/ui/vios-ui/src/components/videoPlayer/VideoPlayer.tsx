@@ -1707,6 +1707,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 volume={volume}
                 isMuted={isMuted}
                 streamType={streamType}
+                deliveryProtocol={deliveryProtocol}
                 isAudioTrackPresent={isAudioTrackPresent}
                 onPlayPause={handlePlayPause}
                 onFastForward={() => handleFastForwardAndRewind('fastForward')}
