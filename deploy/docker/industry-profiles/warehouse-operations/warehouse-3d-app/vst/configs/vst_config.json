@@ -16,6 +16,13 @@
 		"use_sensor_ntp_time": true,
 		"max_webrtc_out_connections": 40,
 		"max_webrtc_in_connections": 1,
+		"dash": {
+			"max_live_sessions": 8,
+			"segment_duration_sec": 1,
+			"playlist_length": 8,
+			"idle_timeout_sec": 45,
+			"output_root": "dash"
+		},
 		"webservice_access_control_list":"",
 		"rtsp_server_port": 30554,
 		"rtsp_server_instances_count": 10,
