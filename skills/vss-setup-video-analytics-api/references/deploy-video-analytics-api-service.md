@@ -140,7 +140,7 @@ If brokers are configured but unreachable, the server still starts (ES must be u
 
 ## How profiles use this service
 
-The common `services/compose.yml` includes one shared `vss-video-analytics-api` service. Profiles activate it by adding the same key to `COMPOSE_PROFILES`; its container name, service-shipped config mount, and `broker-health-check` / `elasticsearch-init-container` dependencies are common to every profile.
+The common `services/compose.yml` includes one shared `vss-video-analytics-api` service. Profiles activate it by adding the same key to `COMPOSE_PROFILES`; its container name and service-shipped config mount are common to every profile. The API retries Elasticsearch initialization itself, and Kafka is optional, so the service can also be started from its Compose file alone.
 ---
 
 ## REST API endpoints
