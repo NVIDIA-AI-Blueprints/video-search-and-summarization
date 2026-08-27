@@ -136,6 +136,15 @@ public:
      * `replayOnly` splits the answer the way the endpoints do: the live query
      * must not report recordings and the replay query must not report cameras. */
     std::vector<DashSessionInfo> query(const std::string& viewerId, bool replayOnly) const;
+
+private:
+    /* Every session that owns a pipeline, whichever collection happens to hold
+     * it: a shared live session is kept by stream, while a private one - replay,
+     * overlay, composite or transcode - is kept by token.  A cap that consults
+     * only one of them is not a cap.  Call with m_mutex held. */
+    [[nodiscard]] size_t activeSessionCount() const;
+
+public:
     DashAssetResult resolveAsset(const std::string& streamToken, const std::string& fileName);
     void touch(const std::string& streamToken);
     void configure(std::chrono::seconds idleTimeout, unsigned targetDuration, unsigned playlistLength,
