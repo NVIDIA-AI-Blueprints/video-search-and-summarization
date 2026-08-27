@@ -82,7 +82,16 @@ securityContext:
   runAsGroup: 1001
 shmSize: "16Gi"
 
+# Optional accelerator resource replacement. Set gpuResourceName to the MIG resource
+# advertised by the Kubernetes NVIDIA device plugin (for example,
+# nvidia.com/mig-3g.40gb). Empty retains nvidia.com/gpu.
+gpuResourceName: ""
+gpuResourceCount: 1
+
 resources:
+  # CPU and memory resources can be added here. gpuResourceName replaces the
+  # default GPU resource in both limits and requests. See
+  # overrides_rtvi_vlm_mig.yaml for a complete MIG example.
   limits:
     nvidia.com/gpu: 1
   requests:
