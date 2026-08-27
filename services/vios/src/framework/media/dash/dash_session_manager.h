@@ -141,8 +141,39 @@ private:
     /* Every session that owns a pipeline, whichever collection happens to hold
      * it: a shared live session is kept by stream, while a private one - replay,
      * overlay, composite or transcode - is kept by token.  A cap that consults
-     * only one of them is not a cap.  Call with m_mutex held. */
+     * only one of them is not a cap.  Sessions still being built count too, or
+     * two starts would both find room and both build.  Call with m_mutex held. */
     [[nodiscard]] size_t activeSessionCount() const;
+
+    /* Capacity taken before the pipeline is built rather than after. Building
+     * happens without the lock and costs a decoder, an encoder and a segment
+     * writer, so deciding afterwards means those exist before anyone asks
+     * whether they may.
+     *
+     * Released by the destructor unless the session it was taken for is
+     * admitted. There are two dozen ways out of a start, and a slot missed on
+     * any one of them would lower the limit for the life of the process -
+     * strictly worse than briefly exceeding it, which is what this replaces. */
+    class PendingSlot
+    {
+    public:
+        PendingSlot() = default;
+        explicit PendingSlot(DashSessionManager& owner) : m_owner(&owner) {}
+        ~PendingSlot();
+        PendingSlot(const PendingSlot&) = delete;
+        PendingSlot& operator=(const PendingSlot&) = delete;
+        PendingSlot(PendingSlot&&) = delete;
+        PendingSlot& operator=(PendingSlot&&) = delete;
+        /* Call with m_mutex held, once the session is in the maps and so is
+         * counted there in its own right. */
+        void commit();
+
+    private:
+        DashSessionManager* m_owner = nullptr;
+    };
+
+    // Slots taken by starts that have not yet been admitted or abandoned.
+    size_t m_pendingSessions = 0;
 
 public:
     DashAssetResult resolveAsset(const std::string& streamToken, const std::string& fileName);
