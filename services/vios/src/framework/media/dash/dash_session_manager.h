@@ -47,6 +47,42 @@ struct DashStartResult
     bool audioAvailable = false;
 };
 
+/* What a caller learns about a session that is already running, as opposed to
+ * one it has just started.  Deliberately per viewer rather than per session:
+ * several viewers can share one live stream, and a caller asking what is
+ * running wants the same granularity the WebRTC query gives it. */
+struct DashSessionInfo
+{
+    std::string viewerId;
+    std::string streamId;
+    std::string sensorId;
+    std::string streamToken;
+    std::string manifestRelativeUrl;
+    DashPackagerState state = DashPackagerState::Stopped;
+    bool audioAvailable = false;
+    bool replay = false;
+    bool paused = false;
+    std::string startTime;
+    std::string endTime;
+    // Position on the published media timeline, negative when nothing has been
+    // published yet, and how many frames put it there.
+    int64_t positionMs = -1;
+    /* Epoch milliseconds of the newest published frame, which is the form the
+     * WebRTC query reports and the one a caller feeds back to the picture API.
+     * Zero when nothing has been published. */
+    int64_t frameEpochMs = 0;
+    uint64_t framesPublished = 0;
+    // How many viewers share this session, which is why one stream can appear
+    // more than once in a query.
+    unsigned viewerCount = 0;
+};
+
+/* One definition of the wire shape, shared by the live and the replay
+ * endpoints.  They already keep separate copies of the start-response helper,
+ * and those have drifted; a query answered differently depending on which URL
+ * asked would be worse, because a caller polls both. */
+Json::Value dashSessionInfoToJson(const DashSessionInfo& info);
+
 struct DashAssetResult
 {
     bool valid = false;
@@ -96,6 +132,10 @@ public:
     bool controlReplay(const std::string& viewerId, const std::string& action, const std::string& value);
     bool stopViewer(const std::string& viewerId);
     std::optional<DashStartResult> status(const std::string& viewerId);
+    /* Every running session, or just one viewer's when a viewerId is given.
+     * `replayOnly` splits the answer the way the endpoints do: the live query
+     * must not report recordings and the replay query must not report cameras. */
+    std::vector<DashSessionInfo> query(const std::string& viewerId, bool replayOnly) const;
     DashAssetResult resolveAsset(const std::string& streamToken, const std::string& fileName);
     void touch(const std::string& streamToken);
     void configure(std::chrono::seconds idleTimeout, unsigned targetDuration, unsigned playlistLength,
@@ -109,6 +149,9 @@ private:
     struct Session
     {
         std::string streamId;
+        // Kept alongside the stream so a query can name the camera without
+        // going back to the device manager for every viewer it reports.
+        std::string sensorId;
         std::string streamToken;
         std::string mediaUrl;
         std::shared_ptr<DashPackagerConsumer> packager;

@@ -61,6 +61,36 @@ interface DashStartResponse {
     state: string;
 }
 
+/* What the server reports about a session that is already running. One entry
+ * per viewer, not per stream: a live stream is shared, so the same streamId can
+ * appear more than once with a different viewerId each time. */
+export interface DashSessionInfo {
+    viewerId: string;
+    streamId: string;
+    sensorId: string;
+    streamToken: string;
+    manifestUrl: string;
+    state: string;
+    audioAvailable: boolean;
+    replay: boolean;
+    viewerCount: number;
+    framesPublished: number;
+    /* Absent until the session has published something. This is how far the
+     * server has written, not where this player is watching - a player sits
+     * behind the live edge by its own buffer. */
+    positionMs?: number;
+    /* Epoch milliseconds of the newest published frame: for a recording the
+     * moment it depicts, for a live stream the moment it was published. Named
+     * to match the WebRTC query so the snapshot path is the same either way.
+     * Approximate with respect to what is on screen, for the same buffering
+     * reason as positionMs. */
+    ts?: number;
+    /* Replay sessions only. */
+    paused?: boolean;
+    startTime?: string;
+    endTime?: string;
+}
+
 export class DashStream {
     private player: dashjs.MediaPlayerClass | null = null;
     private viewerId = '';
@@ -888,6 +918,52 @@ export class DashStream {
         this.config = { ...this.config, startTime };
         await this.attachPlayer(this.config, result, ++this.startGeneration);
         return result;
+    }
+
+    /* Lists sessions without needing one of your own, which is what a caller
+     * asking "what is running" has. Omit viewerId for everything. */
+    public static async querySessions(
+        endpoint: string,
+        options?: { replay?: boolean; viewerId?: string; streamId?: string },
+    ): Promise<DashSessionInfo[]> {
+        const replay = options?.replay ?? false;
+        const path = replay ? '/vst/api/v1/replay/dash/query' : '/vst/api/v1/live/dash/query';
+        const url = new URL(path, endpoint);
+        if (options?.viewerId) {
+            url.searchParams.set('viewerId', options.viewerId);
+        }
+        const headers: Record<string, string> = {};
+        if (options?.streamId) {
+            headers.streamid = options.streamId;
+        }
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            credentials: 'include',
+            headers,
+        });
+        if (!response.ok) {
+            throw new Error(`DASH query failed (${response.status}): ${await response.text()}`);
+        }
+        const body = (await response.json()) as DashSessionInfo[] | { data: DashSessionInfo[] };
+        const sessions = Array.isArray(body) ? body : body.data;
+        /* The server answers with an array either way, but a proxy that folds
+         * an empty body into null would otherwise reach the caller as one. */
+        return sessions ?? [];
+    }
+
+    /* This stream's own session. Null before start, or once the server has
+     * forgotten the viewer - an idle session is reaped, so a viewerId held
+     * across a long pause is not proof the session is still there. */
+    public async query(): Promise<DashSessionInfo | null> {
+        if (!this.viewerId || !this.config) {
+            return null;
+        }
+        const sessions = await DashStream.querySessions(this.config.endpoint, {
+            replay: this.replay,
+            viewerId: this.viewerId,
+            streamId: this.config.streamId,
+        });
+        return sessions.find((session) => session.viewerId === this.viewerId) ?? null;
     }
 
     public async stop(endpoint?: string, streamId?: string): Promise<void> {
