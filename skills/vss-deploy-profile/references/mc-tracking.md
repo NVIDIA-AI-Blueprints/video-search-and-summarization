@@ -40,7 +40,7 @@ Person (class 0) and Forklift (class 1) — no other classes are tracked by this
 
 ## Sample dataset
 
-`SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"` (4 synthetic cameras, 20m × 20m floor) is the default. `NUM_STREAMS` in `.env` must match the camera count in the selected dataset (default `4`). Calibration, camInfo, and imagery for this dataset live under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`.
+`SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"` (4 synthetic cameras, 20m × 20m floor) is the default, set in `overrides.env`. `NUM_STREAMS` (also in `overrides.env`, right below it) must match the camera count in the selected dataset (default `4`). Calibration, camInfo, and imagery for this dataset live under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`.
 
 ## Hardware profiles
 
@@ -93,9 +93,25 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
 
    Point `VSS_DATA_DIR` at the extracted directory (containing `videos/warehouse-4cams-20mx20m-synthetic/`). Calibration/camInfo/imagery for the default dataset are self-contained in-repo under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/` — no separate calibration download needed.
 
+   > **Gate before deploying — verify the video files actually exist:**
+   > ```bash
+   > ls "$VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET"/*.mp4 | wc -l   # must be >= NUM_STREAMS
+   > ```
+   > If this comes back `0` (or short), stop and run the NGC download above — don't deploy first and debug later. With no video files, NvStreamer never reports streams, so `bp-configurator` blocks indefinitely on "Checking Nvstreamer streams endpoint" and nothing about the failure points at the data directory.
+
    Models download automatically (see below); this download is for sample videos only.
 
    Model acquisition is automatic and manifest-driven: `ds-start-mc-tracking.sh` downloads RT-DETR + BodyPose3DNet via `models-download.json` when `DS_MODEL_DOWNLOAD=auto` (the default) on first perception start. Ensure `NGC_CLI_API_KEY` is set and `$VSS_DATA_DIR/models` exists and is writable before first deploy. RT-CV builds a TensorRT engine from the downloaded models on first start (a few minutes) — the engine cache persists under `$VSS_DATA_DIR/models/` across ordinary restarts.
+
+   > **Create and permission `models/` and `data_log/` before bring-up — nothing creates them for you** (bind-mount dirs must pre-exist, and Docker auto-creates them as unwritable `root:root`):
+   >
+   > ```bash
+   > mkdir -p "$VSS_DATA_DIR"/models \
+   >   "$VSS_DATA_DIR"/data_log/{analytics_cache,calibration_toolkit,elastic/data,elastic/logs,kafka,redis/data,redis/log,vss_video_analytics_api}
+   > chmod -R 0777 "$VSS_DATA_DIR"/models "$VSS_DATA_DIR"/data_log
+   > ```
+   >
+   > Prefix with `sudo` only if you don't own `$VSS_DATA_DIR` (passwordless-sudo gate: [`SKILL.md` § Pre-flight check](../SKILL.md#pre-flight-check)).
 
 2. **Edit deployment overrides**
 
@@ -141,6 +157,12 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
 
 ## Teardown
 
+> **When `STREAM_TYPE` differs from the previous deploy (or you're unsure), do a proper project-scoped cleanup instead of the file-scoped `down` below** — it only tears down the *currently selected* `COMPOSE_PROFILES` variant, so a broker from the other variant (e.g. `kafka`) can be left running:
+>
+> ```bash
+> docker compose -p "${COMPOSE_PROJECT_NAME:-vss}" down -v --remove-orphans
+> ```
+
 4. **Stop the stack**
 
    ```bash
@@ -181,7 +203,7 @@ Perception/provisioning failures in this profile are almost always one of the si
 - **Switching to Redis mode (`STREAM_TYPE=redis` in `generated.env`), `broker-health-check` still waits for Kafka** — its image is selected by `STREAM_TYPE` at build time (`Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile`), so a stale cached image from a prior Kafka deploy keeps checking for Kafka even after `STREAM_TYPE` is fixed. Always redeploy with `--build` (see the `up` command above) when switching `STREAM_TYPE`. Also set `COMPOSE_PROFILES=${COMPOSE_PROFILES_MC_TRACKING_REDIS}` (or the `_MINIMAL`/`_PLAYBACK` variant) to match.
 - **`bp-configurator`'s `file_management` step fails with "Directory not found"** for the sample video dataset — symlinks into `$VSS_DATA_DIR/videos/...` don't resolve correctly inside the container's mount namespace. Copy the sample video/playback files into the data dir directly (`cp -a`, not `ln -s`).
 - **`kibana` unhealthy, logs show an Elasticsearch version mismatch** (e.g. Kibana `9.4.4` vs a stale locally-cached `elasticsearch:9.3.3`) — rebuild the Elasticsearch image: `docker compose build elasticsearch` (it's pinned to the matching version in `services/infra/Dockerfiles/elasticsearch.Dockerfile`), then recreate the container.
-- **`vss-behavior-analytics-mc-tracking` / `vss-video-analytics-api-mc-tracking` restart-looping with `EACCES`** — `bp-configurator` rewrites config files but preserves their original restrictive permissions, and `data_log/vss_video_analytics_api/` gets auto-created `root:root`. Fix with `chmod -R o+rX` on the rewritten config dirs and `chmod -R 777` on `data_log/vss_video_analytics_api`.
+- **`vss-behavior-analytics-mc-tracking` / `vss-video-analytics-api-mc-tracking` restart-looping with `EACCES`, or `vss-rtvi-cv-mc-tracking` fails to parse `ds-main-config-mc-tracking.txt` (`Permission denied`)** — `bp-configurator` rewrites config files but preserves their original restrictive permissions, and `data_log/vss_video_analytics_api/` gets auto-created `root:root`. Fix with `chmod -R o+rX` on the rewritten config dirs (`deepstream/configs`, `vss-behavior-analytics/configs`, `vst/configs`, `nvstreamer/configs`, `services/analytics/video-analytics-api/configs`) and `chmod -R 777` on `data_log/vss_video_analytics_api`.
 - **`vss-rtvi-cv-mc-tracking` stuck at 0 FPS** even though `bp-configurator` logs "Successfully added sensor" for all 4 cameras and `sdr-controller` shows `200`s — this is stale provisioning state, not a code bug. Root cause: `sdr-controller` (WDM) caches "what's currently provisioned on this pod" in a Redis hash (`vss-rtvi-cv-mc-tracking`) and sensor identity in Postgres (`vss_vios_pg_data`), neither of which is cleared by a plain `docker compose down` (no `-v`) or even `down -v` (Redis is a bind mount, not a Docker volume — see step 4). After a non-destructive teardown + redeploy, those caches can point at camera UUIDs that no longer exist, so provisioning silently never converges (symptoms vary — can show as a `stream/remove`-only loop with no `stream/add`, or as the sensors appearing "added" successfully while the perception pod never actually receives them).
 
   **Fix: tear down cleanly, don't patch a running system.** `docker exec redis redis-cli DEL vss-rtvi-cv-mc-tracking rtvi-cv-mc-tracking-data vss-rtvi-cv-mc-tracking-pod && docker restart sdr-controller` looks like the targeted fix but is **unreliable in practice** (verified) — restarting only `sdr-controller` leaves it waiting fresh on the `vst.event` Redis stream, but `bp-configurator` already sent its one-shot sensor config *before* the restart and won't resend it just because `sdr-controller` came back, so the new `sdr-controller` process never receives it and the stack stays stuck. Instead, tear down fully (`down -v --remove-orphans`) and clear `$VSS_DATA_DIR/data_log/redis/data/*` (via `cleanup_all_datalog.sh`, step 5) *before* redeploying — this was verified to reliably fix it, the partial restart was not. Confirm with `docker logs vss-rtvi-cv-mc-tracking | grep 'Active sources'` (should read 4, not 0).

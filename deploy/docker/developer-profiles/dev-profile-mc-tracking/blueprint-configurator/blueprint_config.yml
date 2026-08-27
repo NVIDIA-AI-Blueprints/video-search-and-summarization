@@ -211,6 +211,10 @@ RTXPRO6000BW:
   mc-tracking:
     max_streams_supported: 39
 
+RTXPRO4500BW:
+  mc-tracking:
+    max_streams_supported: 8
+
 IGX-THOR:
   mc-tracking:
     max_streams_supported: 7
