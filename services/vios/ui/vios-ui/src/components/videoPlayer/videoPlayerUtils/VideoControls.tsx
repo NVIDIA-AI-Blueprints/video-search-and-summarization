@@ -33,6 +33,7 @@ import {
     Replay,
 } from '@mui/icons-material';
 import { StreamState, StreamType } from 'vst-streaming-lib';
+import { LiveDeliveryProtocol } from '../../../interfaces/interfaces';
 
 interface VideoControlsProps {
     playbackStatus: StreamState;
@@ -40,6 +41,7 @@ interface VideoControlsProps {
     volume: number;
     isMuted: boolean;
     streamType: string;
+    deliveryProtocol: LiveDeliveryProtocol;
     isAudioTrackPresent: boolean;
     onPlayPause: () => void;
     onFastForward: () => void;
@@ -63,6 +65,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
     volume,
     isMuted,
     streamType,
+    deliveryProtocol,
     isAudioTrackPresent,
     onPlayPause,
     onFastForward,
@@ -82,6 +85,9 @@ const VideoControls: React.FC<VideoControlsProps> = ({
     const isXsScreen = useMediaQuery(theme.breakpoints.down('sm'));
     const isSmScreen = useMediaQuery(theme.breakpoints.down('md'));
     const isMdScreen = useMediaQuery(theme.breakpoints.down('lg'));
+    // Reverse playback is unavailable on both delivery protocols, so rewind stays
+    // disabled.  DASH has no fast forward or screenshot support either.
+    const isDash = deliveryProtocol === 'dash';
 
     return (
         <Box
@@ -157,13 +163,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
                             </IconButton>
                         </Tooltip>
                         <Tooltip title='Rewind'>
-                            <IconButton
-                                onClick={onRewind}
-                                disabled={playbackStatus === StreamState.NOT_PLAYING}
-                                size='small'
-                                sx={{ position: 'relative' }}
-                                id='rewind-control-btn'
-                            >
+                            <IconButton onClick={onRewind} disabled size='small' sx={{ position: 'relative' }} id='rewind-control-btn'>
                                 <Box sx={{ display: 'flex', alignItems: 'baseline' }}>
                                     <FastRewind />
                                     {playbackSpeed < 0 && (
@@ -185,7 +185,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
                         <Tooltip title='Fast Forward'>
                             <IconButton
                                 onClick={onFastForward}
-                                disabled={playbackStatus === StreamState.NOT_PLAYING}
+                                disabled={playbackStatus === StreamState.NOT_PLAYING || isDash}
                                 size='small'
                                 sx={{ position: 'relative' }}
                                 id='fast-forward-control-btn'
@@ -237,7 +237,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
 
                 {!isXsScreen && streamType !== StreamType.VideoWall && (
                     <Tooltip title='Take Screenshot'>
-                        <IconButton onClick={onScreenshot} size='small' id='screenshot-control-btn'>
+                        <IconButton onClick={onScreenshot} disabled={isDash} size='small' id='screenshot-control-btn'>
                             <PhotoCamera />
                         </IconButton>
                     </Tooltip>
