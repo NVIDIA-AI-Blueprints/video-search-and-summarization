@@ -313,9 +313,24 @@ Nothing but the headers changes: same status, body, routing and timeouts, so a
 client that works today keeps working. The aliases emit nothing, and neither
 does `/storage` nor the `host:port` `/vst` compat route — both rewrite into
 VST's namespace, but they are shims for URLs the product already emitted, with
-no removal planned. Two exceptions worth knowing: the `HEAD`/`OPTIONS`
-short-circuits on `/vst/storage` answer inside HAProxy and so carry no header,
-and Kubernetes has no equivalent (see below).
+no removal planned.
+
+**Where the signal is silent.** Three gaps, none of them a defect, all of them
+worth knowing before you read a soak number as a fact:
+
+- **`HEAD`/`OPTIONS` on `/vst/storage`.** These are answered inside HAProxy by
+  an `http-request return` short-circuit, which never reaches the
+  `http-response` rules. Range probes on media carry no header.
+- **HAProxy-synthesized `503`s.** When no backend is available HAProxy
+  generates the response itself, so again no `http-response` rule runs.
+  Measured on the alerts profile, where LVS is not deployed: `/lvs/v1/live`
+  returns a bare `503` with no `Deprecation` and no `Link`. The consequence
+  matters more than the mechanism — **a legacy-prefix call to a down or
+  undeployed service is invisible to header-based measurement**, so absence of
+  the header is not evidence of absence of legacy traffic. Closing this would
+  mean `http-after-response`, which reaches synthesized responses but also
+  stamps error pages; that trade has not been made.
+- **Kubernetes.** No equivalent at all (below).
 
 Kubernetes does not carry this signal. The HAProxy ingress controller can set
 response headers per-ingress, but the legacy and alias paths for a backend live
@@ -331,6 +346,14 @@ deliberately left on `/vst` and `/lvs`: pointing it at an unsoaked alias would
 couple every CLI invocation to a route with no field exposure, for no gain,
 since both resolve to the same backend. Moving it is a follow-up, and it wants
 its own change so a regression there is attributable.
+
+That decision has a consequence for the soak numbers. Every media URL `vss`
+mints is on `/vst/storage`, so **the CLI is itself a significant legacy-prefix
+caller** and its responses carry `Deprecation: true`. Nothing is wrong here —
+it follows directly from leaving the CLI on the stable prefixes — but a large
+share of legacy traffic during the window will be self-generated, and that has
+to be subtracted before the totals are read as evidence about third-party
+callers.
 
 ### Elasticsearch through the gateway
 
