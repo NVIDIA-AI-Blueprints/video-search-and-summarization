@@ -345,7 +345,20 @@ docker compose -f compose.yml \
   down -v --remove-orphans
 ```
 
-5. **Data / backup cleanup**
+`-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, so it survives `down -v` intact, including `sdr-controller`'s stale provisioning state. Clear it with step 6's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
+
+For a full reset that also drops locally-built images (Elasticsearch, init containers), use `down -v --rmi all` instead; expect the next `up` to take several minutes longer while those images rebuild.
+
+5. **Clean up dangling volumes**
+
+This is scoped to `COMPOSE_PROJECT_NAME` so dangling volumes from unrelated stopped containers/apps on the host are not touched. `COMPOSE_PROJECT_NAME` defaults to `vss` but can be customized in `overrides.env` — export it from there first so this standalone command (which isn't run through `docker compose` and won't otherwise see `overrides.env`) targets the same project you actually deployed, instead of silently falling back to `vss`:
+
+```bash
+export COMPOSE_PROJECT_NAME=$(grep -E '^COMPOSE_PROJECT_NAME=' industry-profiles/warehouse-operations/overrides.env | cut -d= -f2)
+docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss}" | xargs -r docker volume rm
+```
+
+6. **Data / backup cleanup**
 
 To reset **`data_log`** volumes, calibration/VST data, and
 blueprint-configurator backups in a way that matches how you deployed, use
@@ -427,17 +440,20 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
      down -v --remove-orphans
    ```
 
-   `-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, so it survives `down -v` intact, including `sdr-controller`'s stale provisioning state. Clear it with step 5's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
+   `-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, so it survives `down -v` intact, including `sdr-controller`'s stale provisioning state. Clear it with step 6's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
 
    For a full reset that also drops locally-built images (Elasticsearch, init containers), use `down -v --rmi all` instead; expect the next `up` to take several minutes longer while those images rebuild.
 
-   **Tear down this project's dangling volumes** (scoped to `COMPOSE_PROJECT_NAME` — `vss` by default — so dangling volumes from unrelated stopped containers/apps on the host are not touched):
+5. **Clean up dangling volumes**
+
+   This is scoped to `COMPOSE_PROJECT_NAME` so dangling volumes from unrelated stopped containers/apps on the host are not touched. `COMPOSE_PROJECT_NAME` defaults to `vss` but can be customized in `overrides.env` — export it from there first so this standalone command (which isn't run through `docker compose` and won't otherwise see `overrides.env`) targets the same project you actually deployed, instead of silently falling back to `vss`:
 
    ```bash
+   export COMPOSE_PROJECT_NAME=$(grep -E '^COMPOSE_PROJECT_NAME=' developer-profiles/dev-profile-mc-tracking/overrides.env | cut -d= -f2)
    docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss}" | xargs -r docker volume rm
    ```
 
-5. **Data / backup cleanup**
+6. **Data / backup cleanup**
 
    To reset `data_log` volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed:
 
