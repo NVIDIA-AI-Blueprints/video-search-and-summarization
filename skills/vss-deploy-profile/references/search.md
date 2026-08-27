@@ -170,12 +170,19 @@ The upstream perf guide doesn't publish a single GB number — it publishes per-
 
 Default layout, Nemotron 3.5 Lightning 30B A3B LLM + Cosmos-Embed1 on GPU 1.
 
-Note: `hw-H100-shared.env` pins `NIM_MODEL_PROFILE` to the INT4 tp1 profile
-(`vllm-int4-tp1-pp1-32.0`, requires >=32 GB). Raising the LLM's share below only
-buys KV cache — the weights already fit. vLLM also requires
-`free_memory >= NIM_GPU_MEM_FRACTION x total_memory` and does *not* subtract
-memory held by other processes, so the fraction must stay under whatever RT-Embed
-and the rest of the stack leave free.
+Note: `hw-H100-shared.env` pins `NIM_MODEL_PROFILE` to the INT4 single-GPU profile,
+which `list-model-profiles` labels `vllm-int4-tp1-pp1-32.0` (requires >=32 GB). The
+env var takes the profile's **SHA**, not that label:
+
+```bash
+NIM_MODEL_PROFILE=2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4
+```
+
+Re-derive it with `docker run --rm --gpus all -e NGC_API_KEY=$NGC_CLI_API_KEY <nim-image>
+list-model-profiles` if the image tag changes. (Some NIMs accept a
+`name-hash` form such as `vllm-fp8-tp1-pp1-<sha>` — see
+`services/nim/nemotron-3-nano/hw-H100-shared.env` — so copy whichever form that
+image's own listing prints.)
 
 **RT-Embed budget rule of thumb: 10 GB.** Cosmos-Embed1 weights are ~2 GB (1 B params at FP16); the rest is per-stream activation buffers, decoder workers, and Triton/ONNX runtime overhead. 10 GB is a comfortable budget for `NUM_STREAMS=16` on any GPU. Reserve those 10 GB and give the LLM the rest, leaving the standard 15% framework headroom.
 
@@ -188,11 +195,25 @@ and the rest of the stack leave free.
 
 Formula: `NIM_KVCACHE_PERCENT = (GPU_VRAM - 10) / GPU_VRAM - 0.15`, rounded to 2 decimals.
 
-Two writes:
+The shipped `hw-H100-shared.env` deliberately uses **0.5**, not the table value: the
+pinned INT4 profile needs only 32 GB, so 0.5 already fits the weights and the table's
+larger numbers buy KV cache, nothing else. Raise them only when you actually want more
+KV cache, and change **both** knobs together — `NIM_GPU_MEM_FRACTION` is what vLLM
+checks, so raising `NIM_KVCACHE_PERCENT` alone has no effect.
+
+Ceiling: vLLM refuses to start unless
+`free_memory >= NIM_GPU_MEM_FRACTION x total_memory`, and it does *not* subtract memory
+already held by other processes. On an 80 GB H100 with RT-Embed resident (~10 GB), the
+fraction must stay below ~0.87; on a GPU shared with more services the ceiling is much
+lower. Exceeding it produces `Engine core initialization failed`, not a fallback.
+
+Two writes (optional tuning — the shipped defaults work as-is):
 
 ```bash
 # 1. In deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env
+#    Shipped: both 0.5. Raise together, and only for extra KV cache.
 NIM_KVCACHE_PERCENT=0.72             # LLM gets ~58 GB; leaves 10 GB for RT-Embed + 12 GB framework
+NIM_GPU_MEM_FRACTION=0.72            # must match; this is the value vLLM enforces
 
 # 2. In deploy/docker/developer-profiles/dev-profile-search/generated.env
 RT_EMBED_DEVICE_ID=1
