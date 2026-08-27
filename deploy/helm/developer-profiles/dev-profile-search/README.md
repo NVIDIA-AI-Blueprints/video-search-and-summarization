@@ -181,7 +181,7 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
   --set controller.daemonset.hostPorts.https=443
 ```
 
-> **In-cluster RTVI affinity (optional).** Only needed when you deploy the Search profile with `global.rtviInternalIngress.enabled=true` (default `false`). That path routes vss-agent → rtvi-cv / rtvi-embed through the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`, matching the host-less rule the main Ingress renders for `/rtvi-cv` and `/rtvi-embed`; the consistent-hash annotations sit on those two Services (`rtvi.vss-rtvi-cv.streamAffinity`). To enable it, append `--set controller.service.type=ClusterIP` to the install command above. If you only need external traffic, leave it off.
+> **In-cluster RTVI affinity (optional).** Only needed when you deploy the Search profile with `global.rtviInternalIngress.enabled=true` (default `false`). That path routes vss-agent → rtvi-cv / rtvi-embed through the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`, matching the host-less rule the main Ingress renders for `/rtvi-cv` and `/rtvi-embed`; the stick-table affinity annotations sit on those two Services (`rtvi.vss-rtvi-cv.streamAffinity`). Stick tables are per controller replica (no peers sync), so keep the RTVI path on a single controller replica for global affinity. To enable it, append `--set controller.service.type=ClusterIP` to the install command above. If you only need external traffic, leave it off.
 
 Verify the controller is running:
 

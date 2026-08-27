@@ -122,7 +122,7 @@ spec:
     # East-west rule for global.rtviInternalIngress, off unless that is enabled.
     # Host-less so it matches whatever Host an in-cluster caller sends: the
     # agent reaches RT-CV / RT-Embed through the ingress controller Service to
-    # get consistent-hash stream affinity, and that request carries the
+    # get stick-table stream affinity, and that request carries the
     # controller Service name as its Host, not the public one above. Note a
     # host-less rule answers on every Host that reaches the controller, its
     # external listener included -- which is why it is not rendered by default.

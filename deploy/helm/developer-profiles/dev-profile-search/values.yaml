@@ -39,7 +39,7 @@ global:
   # `global.*` propagates across sub-charts. It now does one thing: point the
   # agent's RTVI_*_BASE_URL / COSMOS_EMBED_ENDPOINT at the ingress controller
   # Service instead of the rtvi ClusterIPs, so RT-CV / RT-Embed calls are
-  # consistent-hashed to one replica per stream.
+  # stuck to one replica per stream (HAProxy stick table on x-stream-id).
   #
   # It no longer renders an Ingress of its own. /rtvi-cv and /rtvi-embed are
   # published by templates/vss-ingress.yaml like every other route, on a
