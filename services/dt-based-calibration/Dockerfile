@@ -10,7 +10,7 @@ ARG IMG=nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}-${TAG}
 # Create base container
 ############################################################################################
 FROM --platform=$IMAGE_ARCH $IMG AS base
-FROM --platform=$IMAGE_ARCH nvcr.io/nvidian/distroless/python:${RUN_VERSION}-${RUN_TAG} AS base_runner
+FROM --platform=$IMAGE_ARCH nvcr.io/nvidia/distroless/python:${RUN_VERSION}-${RUN_TAG} AS base_runner
 ############################################################################################
 
 
