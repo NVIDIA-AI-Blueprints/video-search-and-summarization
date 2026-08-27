@@ -37,7 +37,7 @@
       "query": "Use the benchmark-unified-memory skill to initialize every frozen JSON memory under `datasets/physical-ai-video-mme-v2/memory`.",
       "checks": [
         "Every frozen unified-memory record is readable from Elasticsearch by its authoritative record ID.",
-        "A job-named Markdown projection exists for every verified record under `~/.openclaw/workspace/memory/vss/` and contains its authoritative record ID and video mappings."
+        "The OpenClaw daily VSS note under `~/.openclaw/workspace/memory/` contains one complete marked block for every verified parent summary job ID, including its sensor context and authoritative Elasticsearch pointer."
       ]
     }
   ],

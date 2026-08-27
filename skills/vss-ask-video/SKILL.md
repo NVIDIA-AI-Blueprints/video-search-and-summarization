@@ -74,10 +74,10 @@ Do **not** use this skill when the request is one of the following:
 
 ### Unified-memory route
 
-Use this route when the question starts with `Regarding video <video-id> in memory` or OpenClaw has already loaded a VSS job-memory Markdown document for the conversation.
+Use this route when the question starts with `Regarding video <video-id> in memory` or OpenClaw has already loaded a standard VSS daily-note block for the conversation.
 
-1. Let OpenClaw's native memory search handle the request. Do not run a separate filename search or assume a document named after the video. Use the job-memory document OpenClaw loaded into context and require an exact `videos[].video_id` match.
-2. Read that document's `authoritative_record_id` and the matching video's `vios_sensor`. If its summary is sufficient, answer from it.
+1. Let OpenClaw's native memory search handle the request. Do not run a separate filename search or assume a document named after the video. Use a loaded VSS block only when its `Sensor:` context contains an exact sensor ID equal to `<video-id>`.
+2. Read the authoritative summary job ID from that block's `vss memory get --job-id ...` pointer. The exact sensor ID is also the VIOS sensor name. If the block's answer is sufficient, answer from it.
 3. If the summary is insufficient, retrieve the full record into this task's `$TMPDIR`:
    ```bash
    VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
@@ -108,7 +108,7 @@ Use this route when the question starts with `Regarding video <video-id> in memo
 
 `$TMPDIR` is the current Harbor task's private working directory. Use it for intermediate retrieval and introspection files; do not inspect another task's temporary directory.
 
-For this route, do not use a guessed `memory/vss/<video-id>.md` path. The Markdown filename is the job ID, and OpenClaw's native memory search selects candidate job documents before this skill runs.
+For this route, do not guess a Markdown filename from either the video or job ID. Production VSS notes are daily files under `memory/YYYY-MM-DD-vss.md`; OpenClaw's native memory search selects the matching marked job block before this skill runs.
 
 ### Fresh visual route
 

@@ -53,16 +53,20 @@ VSS=(
   --extra cli
   vss
 )
+OPENCLAW_WORKSPACE="$HOME/.openclaw/workspace"
+mkdir -p "$OPENCLAW_WORKSPACE"
 
 "${VSS[@]}" configure memory \
   --enable \
   --backend elasticsearch \
-  --index vss-memory
+  --index vss-memory \
+  --markdown \
+  --harness openclaw \
+  --workspace "$OPENCLAW_WORKSPACE"
 "${VSS[@]}" configure memory check
 
 SOURCE_DIR="$HOME/.openclaw/skills/benchmark-unified-memory/datasets/physical-ai-video-mme-v2/memory"
 STATE_DIR="${TMPDIR:?}/memory-initialization"
-MARKDOWN_ROOT="$HOME/.openclaw/workspace/memory/vss"
 
 rm -rf "$STATE_DIR"
 mkdir -p "$STATE_DIR/upserts"
@@ -127,9 +131,8 @@ done < "$STATE_DIR/events.tsv"
 
 for persisted in "$STATE_DIR"/upserts/*_summary.json; do
   uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev --extra cli \
-    python "$HOME/.openclaw/skills/benchmark-unified-memory/scripts/write_job_markdown.py" \
-    --input "$persisted" \
-    --markdown-root "$MARKDOWN_ROOT"
+    python "$HOME/.openclaw/skills/benchmark-unified-memory/scripts/write_memory_note.py" \
+    --input "$persisted"
 done
 
 printf \
@@ -138,4 +141,4 @@ printf \
   "$total_events"
 ```
 
-Parent summaries are always persisted before their child events. Markdown generation starts only after every authoritative parent and child passes exact-identity readback. Upserts are idempotent, so the setup is safe to retry.
+Parent summaries are always persisted before their child events. Standard VSS daily-note blocks are written only after every authoritative parent and child passes exact-identity readback. Elasticsearch upserts and Markdown block replacement are idempotent, so the setup is safe to retry.
