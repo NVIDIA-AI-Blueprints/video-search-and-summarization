@@ -956,34 +956,6 @@ nims:
     pullSecretName: ngc-nim-docker-reg-secret
     authSecretName: ngc-api
     storageClass: ""
-  # Nemotron Nano 9B v2: superseded by nemotron35 below. Set enabled: true (and
-  # flip nemotron35 off, plus agent.vss-agent.llmName/llmServiceName) to go back.
-  nemotron:
-    enabled: false
-    image:
-      repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
-      tag: '1'
-      pullPolicy: IfNotPresent
-    replicas: 1
-    resources:
-      limits:
-        nvidia.com/gpu: '1'
-      requests:
-        nvidia.com/gpu: '1'
-    storage:
-      pvc:
-        storageClass: ''
-        size: 50Gi
-    service:
-      type: ClusterIP
-      port: 8000
-    nodeSelector: {}
-    tolerations:
-      - key: nvidia.com/gpu
-        operator: Exists
-        effect: NoSchedule
-    env:
-      CUDA_VISIBLE_DEVICES: '0'
   # Nemotron 3.5 Lightning 30B A3B — search profile LLM (matches base/LVS).
   # The subchart takes no env map; NIM runtime env comes from the
   # nims gpuProfiles.<gpuType>.nemotron35 ConfigMap (see helm/services/nims/values.yaml).

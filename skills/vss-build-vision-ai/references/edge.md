@@ -2,7 +2,14 @@
 
 Base-profile deployment guidance for edge platforms.
 
-On all three edge platforms the LLM is
+**DGX Spark** now runs the blueprint default,
+**`nvidia/nemotron-3.5-lightning-30b-a3b`** — it ships `hw-DGX-SPARK` and
+`hw-DGX-SPARK-shared` env files pinning the INT4 profile
+(`vllm-int4-tp1-pp1-32.0`), which is architecture-neutral: the NIM's arm64 image
+manifest carries the same profile id with only `min_vram_per_device_gb: 32.0`
+and no GPU allow-list, and Spark's GB10 has 128 GB of unified memory.
+
+On **AGX Thor and IGX Thor** the LLM is
 **`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`** (slug
 `nvidia-nemotron-nano-9b-v2-fp8`). It is served by raw vLLM, not a NIM:
 
@@ -15,15 +22,19 @@ graph — `deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml
 with `hw-DGX-SPARK`, `hw-AGX-THOR` and `hw-IGX-THOR` env pairs — so it deploys
 as a normal compose service and no standalone container is needed.
 
-The blueprint's default LLM, `nvidia/nemotron-3.5-lightning-30b-a3b`, ships no
-edge `hw-*.env` files and cannot be deployed on these platforms.
-`dev-profile.sh` therefore rewrites `LLM_NAME` / `LLM_NAME_SLUG` to the FP8
-build whenever the hardware profile is `DGX-SPARK`, `AGX-THOR` or `IGX-THOR`,
-no `--llm` was passed, and the LLM is not remote.
+`dev-profile.sh` rewrites `LLM_NAME` / `LLM_NAME_SLUG` to the FP8 build only for
+`AGX-THOR` and `IGX-THOR` — the two platforms with no Lightning sizing files —
+when no `--llm` was passed and the LLM is not remote. `DGX-SPARK` keeps the
+blueprint default.
+
+> The Spark sizing (`NIM_GPU_MEM_FRACTION=0.3` of unified memory, ~38 GB against
+> the profile's 32 GB floor) has **not** been measured on Spark hardware. Verify
+> before relying on it, and fall back to `--llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`
+> or a remote endpoint if the NIM fails to load.
 
 ## Ask first — the local edge LLM is latency-limited
 
-The edge local LLM — **Nemotron Nano 9B v2 FP8** — runs on the device's shared/unified memory and is **slow** (on DGX Spark it is the main latency bottleneck). **Before deploying, ask the user:**
+The edge local LLM runs on the device's shared/unified memory and is **slow** (on DGX Spark the LLM is the main latency bottleneck). **Before deploying, ask the user:**
 
 > The local edge LLM (Nemotron Nano 9B v2 FP8) runs on the device and is latency-limited. If you have a **remote LLM endpoint** (build.nvidia.com / NVIDIA API catalog, or your own OpenAI-compatible server), using it gives noticeably better latency. Use a remote LLM, or run the local one?
 
@@ -34,7 +45,8 @@ The edge local LLM — **Nemotron Nano 9B v2 FP8** — runs on the device's shar
 
 | Situation | LLM path |
 |---|---|
-| DGX Spark / AGX Thor / IGX Thor, local LLM | In-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service |
+| DGX Spark, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
+| AGX Thor / IGX Thor, local LLM | In-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service |
 | Any edge platform, remote-LLM mode | External endpoint; no local LLM needed |
 | Edge platform where 9 B is still too heavy | Standalone small-model vLLM — see [Alternative](#alternative--standalone-small-model-vllm) |
 | Non-edge hardware (H100, GB300, L40S, RTX PRO) | Default `nemotron-3.5-lightning-30b-a3b` NIM compose path |

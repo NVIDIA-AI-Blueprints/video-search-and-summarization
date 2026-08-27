@@ -1402,9 +1402,12 @@ function state_up() {
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
-    # The default LLM ships no hw-<edge>.env, so a local edge deploy must use the
-    # FP8 build. Only applied when the user did not pick an LLM and is not remote.
-    if [[ "${llm_mode}" != "remote" ]] && [[ -z "${llm}" ]]; then
+    # AGX/IGX Thor ship no hw-*.env for the default LLM, so a local deploy there
+    # must use the FP8 build. DGX Spark now has its own Lightning sizing files and
+    # keeps the blueprint default. Only applied when no --llm was given and the LLM
+    # is not remote.
+    if [[ "${llm_mode}" != "remote" ]] && [[ -z "${llm}" ]] \
+       && [[ "${hardware_profile}" != "DGX-SPARK" ]]; then
       set_env_var "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
       set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8"
     fi
