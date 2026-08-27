@@ -388,3 +388,57 @@ def test_cli_intent_stored_in_body(
     assert result.exit_code == 0, result.output
     body = json.loads(result.output.splitlines()[0])
     assert body.get("intent") == "report"
+
+
+def test_use_base64_with_sensor_is_invalid(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """--use-base64 combined with --sensor must be rejected before VIOS resolution."""
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "cam1", "--use-base64"],
+    )
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_sensor_path_uses_resolved_window_bounds(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Memory record must store the bounds VIOS actually served, not the raw CLI inputs."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    resolved_url = "http://vios/clip.mp4"
+    resolved_start = "2025-01-01T00:00:00Z"
+    resolved_end = "2025-01-01T00:00:30Z"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_args, **_kwargs: (resolved_url, resolved_start, resolved_end),
+    )
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("ok"))))
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    # Supply only --start-time; VIOS fills in the end bound.
+    inputs = VlmInput(prompt="What?", sensor="cam1", start_time="2025-01-01T00:00:05Z")
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    records = store.service.list_jobs()
+    assert records, "expected one persisted record"
+    rec = records[0]
+    assert rec.input.window is not None
+    assert rec.input.window.start.timestamp.isoformat().startswith("2025-01-01T00:00:00")
+    assert rec.input.window.end is not None
+    assert rec.input.window.end.timestamp.isoformat().startswith("2025-01-01T00:00:30")

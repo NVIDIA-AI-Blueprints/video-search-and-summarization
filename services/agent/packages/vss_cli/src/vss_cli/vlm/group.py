@@ -175,14 +175,22 @@ class VlmOptions(BaseModel):
 
 
 def _resolve_vios_clip(
-    deployment: config_mod.Deployment, sensor: str, start_time: str | None, end_time: str | None
-) -> str:
-    """Resolve a VIOS sensor to a clip URL using the same path as ``vss vios clip``."""
+    deployment: config_mod.Deployment,
+    sensor: str,
+    start_time: str | None,
+    end_time: str | None,
+) -> tuple[str, str | None, str | None]:
+    """Resolve a VIOS sensor to a clip URL and the effective window bounds.
+
+    Returns ``(media_url, resolved_start, resolved_end)`` where the bounds reflect
+    the actual window VIOS served, which may differ from the inputs when only one
+    bound was supplied or neither was supplied.
+    """
     from vss_core import vios
 
     origin = deployment.base_url.rstrip("/")
 
-    async def _fetch() -> str:
+    async def _fetch() -> tuple[str, str | None, str | None]:
         ref = await vios.resolve_sensor(origin, sensor)
         segments = await vios.recorded_segments(origin, ref.stream_id)
         start, end = vios.resolve_window(segments, start_time, end_time, ref.kind)
@@ -194,7 +202,7 @@ def _resolve_vios_clip(
         )
         url = vios.normalise_media_url(url, origin)
         await vios.warm_media_url(url)
-        return url
+        return url, start, end
 
     return asyncio.run(_fetch())
 
@@ -257,6 +265,9 @@ class VlmGroup(CommandGroup):
         deployment = ctx.deployment or config_mod.load()
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
+        if options.use_base64 and inputs.sensor:
+            raise InvalidInput("--use-base64 requires --media-url; it cannot be combined with --sensor")
+
         model = inputs.model or _default_model(deployment)
         job_id = _mint_job_id()
 
@@ -265,9 +276,12 @@ class VlmGroup(CommandGroup):
         resolved_start: str | None = inputs.start_time
         resolved_end: str | None = inputs.end_time
         if inputs.sensor:
-            # Path B: fetch a clip from VIOS.
+            # Path B: fetch a clip from VIOS. Capture the effective bounds VIOS resolved,
+            # which may extend beyond the CLI inputs when only one bound was supplied.
             try:
-                media_url = _resolve_vios_clip(deployment, inputs.sensor, inputs.start_time, inputs.end_time)
+                media_url, resolved_start, resolved_end = _resolve_vios_clip(
+                    deployment, inputs.sensor, inputs.start_time, inputs.end_time
+                )
             except Exception as exc:
                 raise InvalidInput(f"VIOS clip resolution failed: {exc}") from exc
         else:
