@@ -587,6 +587,9 @@ rtvi:
         value: "10"
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
+      # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.
+      - name: VLLM_ATTENTION_BACKEND
+        value: ""
       - name: VLM_BATCH_SIZE
         value: ""
       # Edge platforms (DGX-SPARK, IGX-THOR, AGX-THOR): override to 860 / 467 / 20 (see dev-profile.sh).
