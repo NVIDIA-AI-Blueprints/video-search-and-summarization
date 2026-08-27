@@ -62,6 +62,7 @@ With default **`values.yaml`** and typical overrides (LLM NIM + RT-VLM + **`vss-
 
 - **Helm** 3.x
 - **Kubectl**
+- **Curl** and **jq** (to discover model IDs from remote endpoints)
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
@@ -218,6 +219,10 @@ helm upgrade --install vss-base ./dev-profile-base \
 export LLM_BASE_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
 export VLM_BASE_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
 
+# Query the remote VLM and select the exact model ID it advertises.
+curl -fsS "$VLM_BASE_URL/v1/models" | jq -r '.data[].id'
+export VLM_MODEL_NAME='<MODEL ID returned by the command above>'
+
 helm upgrade --install vss-base ./dev-profile-base \
   -f dev-profile-base/values-base.yaml \
   -n vss-base --create-namespace \
@@ -228,7 +233,7 @@ helm upgrade --install vss-base ./dev-profile-base \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
   --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set-string global.vlmName="nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
+  --set-string global.vlmName="$VLM_MODEL_NAME" \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
 ```
 
