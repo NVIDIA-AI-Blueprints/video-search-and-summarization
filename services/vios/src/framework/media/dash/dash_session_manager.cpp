@@ -440,6 +440,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
 
     auto session = std::make_shared<Session>();
     session->streamId = streamId;
+    session->sensorId = stream->sensorId;
     session->streamToken = packagerConfig.streamToken;
     session->mediaUrl = mediaUrl;
     session->packager = std::make_shared<DashPackagerConsumer>(std::move(packagerConfig));
@@ -699,6 +700,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
 
     auto session = std::make_shared<Session>();
     session->streamId = streamId;
+    session->sensorId = stream->sensorId;
     session->streamToken = packagerConfig.streamToken;
     session->replay = true;
     session->ownsSource = true;
@@ -942,6 +944,132 @@ std::optional<DashStartResult> DashSessionManager::status(const std::string& vie
     result.state = session->packager->state();
     result.audioAvailable = session->packager->audioEnabled();
     return result;
+}
+
+Json::Value dashSessionInfoToJson(const DashSessionInfo& info)
+{
+    Json::Value entry;
+    entry["viewerId"] = info.viewerId;
+    entry["streamId"] = info.streamId;
+    entry["sensorId"] = info.sensorId;
+    entry["streamToken"] = info.streamToken;
+    entry["manifestUrl"] = info.manifestRelativeUrl;
+    entry["state"] = stateString(info.state);
+    entry["audioAvailable"] = info.audioAvailable;
+    entry["replay"] = info.replay;
+    entry["viewerCount"] = info.viewerCount;
+    entry["framesPublished"] = static_cast<Json::UInt64>(info.framesPublished);
+    /* Absent rather than negative when the session has not published anything:
+     * a caller reading a number expects a position, and -1 is not one. */
+    if (info.positionMs >= 0)
+    {
+        entry["positionMs"] = static_cast<Json::Int64>(info.positionMs);
+    }
+    /* Named `ts` to match the WebRTC query, so a caller that already turns a
+     * ts into an ISO time for the picture API does not need a second path. */
+    if (info.frameEpochMs > 0)
+    {
+        entry["ts"] = static_cast<Json::Int64>(info.frameEpochMs);
+    }
+    /* Only a replay has a window or a pause state; reporting them for a live
+     * camera would invite a caller to act on them. */
+    if (info.replay)
+    {
+        entry["paused"] = info.paused;
+        entry["startTime"] = info.startTime;
+        if (!info.endTime.empty())
+        {
+            entry["endTime"] = info.endTime;
+        }
+    }
+    return entry;
+}
+
+std::vector<DashSessionInfo> DashSessionManager::query(const std::string& viewerId,
+                                                       bool replayOnly) const
+{
+    std::vector<DashSessionInfo> found;
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    /* Walk the viewer map rather than the session maps: a live session is
+     * shared, so the same stream can be watched by several viewers, and a
+     * caller asking what is running wants to see each of them. */
+    for (const auto& [id, weakSession] : m_sessionsByViewer)
+    {
+        if (!viewerId.empty() && id != viewerId)
+        {
+            continue;
+        }
+        const std::shared_ptr<Session> session = weakSession.lock();
+        /* An entry whose session has already gone is not an error: teardown
+         * clears the maps in its own order, and a query is a snapshot. */
+        if (!session || session->replay != replayOnly || !session->packager)
+        {
+            continue;
+        }
+
+        DashSessionInfo info;
+        info.viewerId = id;
+        info.streamId = session->streamId;
+        info.sensorId = session->sensorId;
+        info.streamToken = session->streamToken;
+        info.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                   + session->streamToken + ".mpd";
+        info.state = session->packager->state();
+        info.audioAvailable = session->packager->audioEnabled();
+        info.replay = session->replay;
+        info.paused = session->paused;
+        info.startTime = session->startTime;
+        info.endTime = session->endTime;
+        info.positionMs = session->packager->publishedPositionMs();
+        info.framesPublished = session->packager->framesPublished();
+        /* What the frame depicts, not when it was handled.  A recording is
+         * replayed now but shows a moment in the past, so its media time comes
+         * from the window it was asked for plus how far into it the session has
+         * reached.  A live frame depicts the instant it was published. */
+        if (session->replay)
+        {
+            /* Ask the source what it is playing rather than deriving it from
+             * what was requested.  A caller may legitimately ask for the epoch
+             * and mean "from the beginning", and the player does exactly that
+             * before it knows the recording's extent - deriving from the
+             * request then reports 1970 and the caller has nothing usable. */
+            info.frameEpochMs = session->packager->lastSourceEpochMs();
+            if (info.frameEpochMs <= 0 && !session->startTime.empty() && info.positionMs >= 0)
+            {
+                /* A re-encoded recording is stamped by the encoder, so its
+                 * frames no longer carry the moment they depict.  The window
+                 * plus the distance travelled is the best available answer,
+                 * and it is only meaningful if a real window was asked for. */
+                const int64_t windowStart =
+                    static_cast<int64_t>(getEpocTimeInMS(session->startTime));
+                if (windowStart > 0)
+                {
+                    info.frameEpochMs = windowStart + info.positionMs;
+                }
+            }
+        }
+        else
+        {
+            info.frameEpochMs = session->packager->lastFrameEpochMs();
+        }
+        info.viewerCount = static_cast<unsigned>(session->viewerIds.size());
+        found.push_back(std::move(info));
+    }
+
+    /* An unordered map hands them over in whatever order it stores them, which
+     * changes as sessions come and go.  Sort so repeated calls read the same
+     * way and a caller can diff two answers. */
+    std::sort(found.begin(), found.end(),
+              [](const DashSessionInfo& left, const DashSessionInfo& right)
+              {
+                  if (left.streamId != right.streamId)
+                  {
+                      return left.streamId < right.streamId;
+                  }
+                  return left.viewerId < right.viewerId;
+              });
+    return found;
 }
 
 DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken, const std::string& fileName)

@@ -48,6 +48,11 @@ const std::vector<ApiSpec> REPLAY_API_SPEC = {
     {"/api/v1/replay/dash/status",
      {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
 
+    /* Reports every running replay DASH session, or one viewer's when the
+     * request names it.  The viewerId arrives as a query parameter, so there
+     * are no body fields to validate. */
+    {"/api/v1/replay/dash/query"},
+
     {"/api/v1/replay/dash/pause",
      {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
 
