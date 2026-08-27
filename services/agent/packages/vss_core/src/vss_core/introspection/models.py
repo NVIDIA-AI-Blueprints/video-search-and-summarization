@@ -46,15 +46,15 @@ class GroundedGap(_StrictModel):
 
     question: str
     sensor: str
-    start: str
-    end: str
+    start_time: str
+    end_time: str
 
     @field_validator("question", "sensor", mode="after")
     @classmethod
     def _require_nonempty(cls, value: str, info: Any) -> str:
         return _nonempty(value, info.field_name)
 
-    @field_validator("start", "end", mode="after")
+    @field_validator("start_time", "end_time", mode="after")
     @classmethod
     def _require_utc(cls, value: str) -> str:
         parse_utc_instant(value)
@@ -62,8 +62,8 @@ class GroundedGap(_StrictModel):
 
     @model_validator(mode="after")
     def _ordered_window(self) -> Self:
-        if parse_utc_instant(self.start) > parse_utc_instant(self.end):
-            raise ValueError("gap start must be before or equal to end")
+        if parse_utc_instant(self.start_time) > parse_utc_instant(self.end_time):
+            raise ValueError("gap start_time must be before or equal to end_time")
         return self
 
 
@@ -102,14 +102,14 @@ class SufficiencyDecision(_StrictModel):
             raise ValueError(f"unknown evidence_record_ids: {unknown_ids}")
 
         for gap in self.gaps:
-            start = parse_utc_instant(gap.start)
-            end = parse_utc_instant(gap.end)
+            start_time = parse_utc_instant(gap.start_time)
+            end_time = parse_utc_instant(gap.end_time)
             matching_records = [record for record in records if gap.sensor in _sensor_names(record)]
             if not matching_records:
                 raise ValueError(f"gap sensor {gap.sensor!r} is not present in retrieved records")
-            if not any(_record_window_overlaps(record, start, end) for record in matching_records):
+            if not any(_record_window_overlaps(record, start_time, end_time) for record in matching_records):
                 raise ValueError(
-                    f"gap window {gap.start!r} to {gap.end!r} does not overlap a retrieved record "
+                    f"gap window {gap.start_time!r} to {gap.end_time!r} does not overlap a retrieved record "
                     f"for sensor {gap.sensor!r}"
                 )
         return self
@@ -119,8 +119,8 @@ class VLMEvidence(_StrictModel):
     """Text evidence returned by a grounded introspection VLM query."""
 
     sensor: str
-    start: str
-    end: str
+    start_time: str
+    end_time: str
     prompt: str
     intent: str
     content: str
@@ -130,7 +130,7 @@ class VLMEvidence(_StrictModel):
     def _require_text(cls, value: str, info: Any) -> str:
         return _nonempty(value, info.field_name)
 
-    @field_validator("start", "end", mode="after")
+    @field_validator("start_time", "end_time", mode="after")
     @classmethod
     def _require_utc(cls, value: str) -> str:
         parse_utc_instant(value)
@@ -138,8 +138,8 @@ class VLMEvidence(_StrictModel):
 
     @model_validator(mode="after")
     def _ordered_window(self) -> Self:
-        if parse_utc_instant(self.start) > parse_utc_instant(self.end):
-            raise ValueError("VLM evidence start must be before or equal to end")
+        if parse_utc_instant(self.start_time) > parse_utc_instant(self.end_time):
+            raise ValueError("VLM evidence start_time must be before or equal to end_time")
         return self
 
 

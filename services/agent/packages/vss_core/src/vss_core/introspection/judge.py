@@ -55,7 +55,7 @@ class OpenAIIntrospectionClient:
             transport=transport,
         )
 
-    async def judge(self, query: str, records: list[UnifiedMemoryRecord]) -> SufficiencyDecision:
+    async def judge(self, *, query: str, records: list[UnifiedMemoryRecord]) -> SufficiencyDecision:
         """Judge memory sufficiency, retrying once only for invalid model output."""
         prompt = _judge_prompt(query, records, self._settings.sufficiency_threshold)
         last_error: InvalidJudgeResponseError | None = None
@@ -72,6 +72,7 @@ class OpenAIIntrospectionClient:
 
     async def synthesize(
         self,
+        *,
         query: str,
         memory_evidence: list[UnifiedMemoryRecord],
         vlm_evidence: list[VLMEvidence],
@@ -146,7 +147,8 @@ def _judge_prompt(query: str, records: list[UnifiedMemoryRecord], threshold: flo
         f"Use a sufficiency threshold of {threshold:.2f}. "
         "Return JSON only, with exactly the fields approved by the schema; do not add markdown or commentary. "
         "Every evidence_record_id must be an ID from the supplied records. Each gap must ask one targeted question "
-        "using a supplied sensor name and an ISO-8601 UTC window overlapping that sensor's supplied record window. "
+        "using a supplied sensor name plus start_time and end_time as ISO-8601 UTC instants that overlap that "
+        "sensor's supplied record window. "
         "Use canonical input.sensors[].id names or legacy input.sensors[].info.name names. "
         "If sufficient is true, gaps must be empty.\n"
         f"SCHEMA:\n{json.dumps(schema, separators=(',', ':'))}\n"

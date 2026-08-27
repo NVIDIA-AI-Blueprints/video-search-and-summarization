@@ -17,13 +17,14 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class SufficiencyJudge(Protocol):
-    async def judge(self, query: str, records: list[UnifiedMemoryRecord]) -> SufficiencyDecision: ...
+    async def judge(self, *, query: str, records: list[UnifiedMemoryRecord]) -> SufficiencyDecision: ...
 
 
 @runtime_checkable
 class AnswerSynthesizer(Protocol):
     async def synthesize(
         self,
+        *,
         query: str,
         memory_evidence: list[UnifiedMemoryRecord],
         vlm_evidence: list[VLMEvidence],
@@ -35,6 +36,7 @@ class AnswerSynthesizer(Protocol):
 class IntrospectionVLMRunner(Protocol):
     async def run(
         self,
+        *,
         sensor: str,
         start_time: str,
         end_time: str,
