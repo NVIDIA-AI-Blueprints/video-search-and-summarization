@@ -160,8 +160,6 @@ class DecoderPool
             {
                 std::lock_guard<std::mutex> guard(m_poolLock);
 
-                dec->removeConsumer(peerid);
-
                 size_t attached = 0;
                 std::map<std::string, std::set<std::string>, std::less<>>::iterator vit = m_attachedViewers.find(url);
                 if (vit != m_attachedViewers.end())
@@ -173,6 +171,14 @@ class DecoderPool
                         m_attachedViewers.erase(vit);
                     }
                 }
+
+                /* A newly acquired viewer may still be building its consumer
+                 * chain, so it is intentionally absent from the decoder sink
+                 * list at this point. Do not let removing this peer mark the
+                 * shared decoder stopped while that acquired viewer is pending.
+                 * The final release keeps the existing stop-on-last-sink
+                 * behavior and destroys the decoder below. */
+                dec->removeConsumer(peerid, attached == 0);
 
                 const size_t sinks = dec->getVideoSinkListSize();
                 if (attached > 0 || sinks > 0)

@@ -570,9 +570,11 @@ void CompositePipelineBuilder::stopPipeline()
 {
     LOG(info) << "Stopping composite pipeline" << endl;
     
-    // Stop all decoders first
+    // Pooled tile decoders are released in destroyPipeline(), where the pool
+    // can account for both attached and still-pending viewers. The gods-eye
+    // decoder is private to this pipeline and can be detached here.
     for (auto& decoder : m_decoders) {
-        if (decoder) {
+        if (decoder && decoder == m_godsEyeDecoder) {
             decoder->removeConsumer(m_config.getPeerId());
             LOG(info) << "Removed consumer from decoder in stop" << endl;
         }
