@@ -60,7 +60,7 @@ def _task_toml(
     return "\n".join(
         [
             "[task]",
-            f'name = "{name}"',
+            f'name = "nvidia-vss/{name}"',
             f'description = "{description}"',
             'keywords = ["benchmark-unified-memory", "video-mme-v2", "openclaw"]',
             "",
@@ -99,7 +99,7 @@ def _base_step(step_dir: Path, skills: tuple[str, ...], repo_root: Path) -> None
 
 def _setup_test_script(step: int, *, verify_videos: bool) -> str:
     deterministic = (
-        'if ! uv run --project "$HOME/video-search-and-summarization/services/agent" --no-dev --extra cli '
+        'if ! uv run --project "$HOME/video-search-and-summarization/services/agent" --no-dev --extra cli --with pyarrow '
         'python "$TEST_DIR/verify_video_setup.py" --dataset "$TEST_DIR/dataset.parquet"; then\n'
         '  printf "0.0\\n" > /logs/verifier/reward.txt\n'
         '  printf \'{"passed":false,"rationale":"deterministic video setup verification failed"}\\n\' '
@@ -220,7 +220,8 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
         shutil.copytree(SKILL_EVAL_ROOT / "benchmark", tests / "benchmark")
         (tests / "test.sh").write_text(
             '#!/bin/bash\nset -uo pipefail\nTEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-            'python3 "$TEST_DIR/verify_group.py" --group "$TEST_DIR/group.json"\n',
+            'uv run --python 3.12 python "$TEST_DIR/verify_group.py" '
+            '--group "$TEST_DIR/group.json"\n',
             encoding="utf-8",
         )
 
