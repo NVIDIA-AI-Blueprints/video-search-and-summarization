@@ -50,7 +50,7 @@ Redis, VIOS, and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
   DS-SOP Compose block in `sop/integrate-ds-sop.md § Example Compose Snippet`; and
   `sop-kibana-init` (SOP data-view + dashboard one-shot).
 - **remove** `rtvi-vlm` (DS-SOP takes the perception slot), and the parts SOP does
-  not use: `vss-agent`, `vss-ui`, `alert-bridge`, `vss-video-analytics-api-alerts`,
+  not use: `vss-agent`, `vss-ui`, `alert-bridge`, `vss-video-analytics-api`,
   `vss-behavior-analytics-alerts`, `perception-alerts`, `kibana-init-container-alerts`,
   and the `llm_${LLM_MODE}_${LLM_NAME_SLUG}` token (SOP reports are rendered by the
   `vss-generate-video-report` skill — no report LLM / agent / UI).
