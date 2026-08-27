@@ -100,6 +100,35 @@ const VssChatPanel = dynamic(
   { ssr: false },
 );
 
+/**
+ * Point a VSS media URL at this app's proxy.
+ *
+ * The search CLI stamps every hit's media URL with the origin it was configured
+ * with (`vss configure --base-url`), which here is the host-local ingress. A
+ * browser resolving `http://localhost:7777/...` hits the user's own machine, so
+ * thumbnails and clips silently fail to load. Only the path matters — the proxy
+ * knows where the ingress actually is.
+ */
+const proxyMediaUrl = (value: unknown): unknown => {
+  if (typeof value !== 'string' || !/^https?:\/\//.test(value)) return value;
+  try {
+    const { pathname, search } = new URL(value);
+    return `/api/proxy${pathname}${search}`;
+  } catch {
+    return value;
+  }
+};
+
+/** Rewrite every *_url field on each search hit. */
+const withProxiedMedia = (hits: Array<Record<string, unknown>>) =>
+  hits.map((hit) => {
+    const next: Record<string, unknown> = { ...hit };
+    for (const key of Object.keys(next)) {
+      if (key.endsWith('_url')) next[key] = proxyMediaUrl(next[key]);
+    }
+    return next;
+  });
+
 const readEnv = (key: string) => env(key) || process.env[key] || '';
 
 const vssChatEnabled = () => readEnv('NEXT_PUBLIC_USE_VSS_CHAT') === 'true';
@@ -554,7 +583,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
                 const last = await r.json();
                 if (!last?.data?.length) return;
                 handleSidebarAnswerCompleteWithContent(
-                  JSON.stringify({ data: last.data }),
+                  JSON.stringify({ data: withProxiedMedia(last.data) }),
                 );
               } catch {
                 // Non-fatal: the chat answer has already been delivered.
