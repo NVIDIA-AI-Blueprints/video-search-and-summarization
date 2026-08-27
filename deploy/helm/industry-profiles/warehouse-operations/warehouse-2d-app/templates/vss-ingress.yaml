@@ -55,6 +55,7 @@ metadata:
              VST serves its whole surface under /vst/. Same shape as the
              /storage rewrite above. */}}
       ^/vios/(.*) /vst/\1
+      ^/vios$ /vst
     haproxy.org/frontend-config-snippet: |
       http-request replace-path ^//vst(/.*)?$ /vst\1
       http-request set-var(txn.path) path

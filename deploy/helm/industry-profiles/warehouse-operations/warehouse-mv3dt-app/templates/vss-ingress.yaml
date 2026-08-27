@@ -55,6 +55,7 @@ metadata:
              VST serves its whole surface under /vst/. Same shape as the
              /storage rewrite above. */}}
       ^/vios/(.*) /vst/\1
+      ^/vios$ /vst
     # Normalize //vst/ double-slash produced by the VST UI when served under a
     # /vst/ subpath. replace-path fires before use_backend; re-setting txn.path
     # and txn.path_match lets the router find the vss-vios-ingress backend.

@@ -313,9 +313,8 @@ port: {{ index $svc "port" | default 8000 }}
 {{- $rw := $row.rewrite | default "none" }}
 {{- if and $b.service (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{- $anchor := ternary "^" "" ($row.anchored | default false) }}
-{{ $anchor }}{{ $row.path }}/(.*) {{ $to }}/\1
-{{ $anchor }}{{ $row.path }} {{ $to | default "/" }}
+{{ $row.path }}/(.*) {{ $to }}/\1
+^{{ $row.path }}$ {{ $to | default "/" }}
 {{- end }}
 {{- end }}
 {{- end -}}
