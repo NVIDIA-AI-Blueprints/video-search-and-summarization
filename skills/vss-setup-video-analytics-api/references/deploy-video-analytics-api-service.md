@@ -140,18 +140,7 @@ If brokers are configured but unreachable, the server still starts (ES must be u
 
 ## How profiles use this service
 
-Every profile extends the same base service and adds its own `depends_on` and `profiles` constraints. The config is always the same service-shipped config — no profile overrides it:
-
-| Profile compose | Service name | Container name | `depends_on` |
-|---|---|---|---|
-| `warehouse-2d-app/warehouse-2d-app.yml` | `vss-video-analytics-api-2d` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
-| `warehouse-3d-app/warehouse-3d-app.yml` | `vss-video-analytics-api-3d` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
-| `warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | `vss-video-analytics-api-mv3dt` | `vss-video-analytics-api-mv3dt` | `broker-health-check`, `elasticsearch-init-container` |
-| `dev-profile-alerts/compose.yml` | `vss-video-analytics-api-alerts` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
-| `dev-profile-search/video-analytics-2d-app/compose.yml` | `vss-video-analytics-api-fusion` | `vss-video-analytics-api` | `broker-health-check`, `elasticsearch-init-container` |
-
-The `import-calibration-output-container` in warehouse profiles depends on the video-analytics-api service — it POSTs calibration data to the API after startup.
-
+The common `services/compose.yml` includes one shared `vss-video-analytics-api` service. Profiles activate it by adding the same key to `COMPOSE_PROFILES`; its container name, service-shipped config mount, and `broker-health-check` / `elasticsearch-init-container` dependencies are common to every profile.
 ---
 
 ## REST API endpoints

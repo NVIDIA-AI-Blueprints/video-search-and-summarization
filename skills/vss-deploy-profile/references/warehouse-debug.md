@@ -90,7 +90,7 @@ vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/
 
 `MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) determine which explicit `COMPOSE_PROFILES_WH_*` service list from `generated.env` is active. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
 
-The **`-mv3dt` suffix is not universal** — it comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-video-analytics-api-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, only referenced by the MV3DT app file via `depends_on`) are unsuffixed, as are the VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check`. Both are MV3DT-only in practice — their profiles appear solely in the MV3DT Kafka/Redis lists.
+The **`-mv3dt` suffix is not universal** — it comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-kibana-init-mv3dt`, and `vss-import-calibration-output-mv3dt`. The shared `vss-video-analytics-api` stays unsuffixed in every mode. `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, only referenced by the MV3DT app file via `depends_on`) are unsuffixed, as are the VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check`. Both are MV3DT-only in practice — their profiles appear solely in the MV3DT Kafka/Redis lists.
 
 ### Warehouse CV core (2D and 3D variants)
 
@@ -142,7 +142,7 @@ Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list 
 |---|---|
 | `logstash` | Log ingestion pipeline |
 | `kibana` | Dashboard UI |
-| `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` | REST API for analytics data |
+| `vss-video-analytics-api` | REST API for analytics data |
 
 `elasticsearch`, `kibana`, `logstash`, `vss-video-analytics-api` are also deployed for `BP_PROFILE=bp_wh` (always — independent of deployment size). See [Phase 1](#phase-1-stack-snapshot) for the consolidated trigger table.
 
@@ -448,7 +448,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
 | `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
 | `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
-| Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt`; monitoring too, but **2D/3D only** |
+| Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api`; monitoring too, but **2D/3D only** |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |
 | `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode). **A `…_MINIMAL` list does NOT deploy ES** |
 
