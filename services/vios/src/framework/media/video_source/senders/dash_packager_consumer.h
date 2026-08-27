@@ -80,6 +80,23 @@ public:
 
     [[nodiscard]] DashPackagerState state() const;
     [[nodiscard]] bool audioEnabled() const;
+    /* How far along the published media timeline this session has reached, and
+     * how many frames put it there.  This is what the session has written, not
+     * what a viewer is watching: a player sits behind the live edge by its own
+     * buffer.  Negative when nothing has been published yet. */
+    [[nodiscard]] int64_t publishedPositionMs() const;
+    [[nodiscard]] uint64_t framesPublished() const;
+    /* Wall clock at which the newest frame was published, in epoch
+     * milliseconds.  For a live session that is what the frame depicts; for a
+     * recording it is when the frame was replayed, which is not the same thing
+     * at all and must not be reported as the media time. */
+    [[nodiscard]] int64_t lastFrameEpochMs() const;
+    /* The moment the newest frame depicts, taken from the source's own
+     * timestamps.  A recording made from a camera dates its frames on the
+     * epoch, and that is the only trustworthy answer to "what am I watching":
+     * the window a caller asked for is a request, not a result.  Zero when the
+     * source does not date its frames that way. */
+    [[nodiscard]] int64_t lastSourceEpochMs() const;
     [[nodiscard]] std::filesystem::path manifestPath() const;
     [[nodiscard]] std::string lastError() const;
 
@@ -146,6 +163,11 @@ private:
 
     std::atomic<DashPackagerState> m_state{DashPackagerState::Stopped};
     std::atomic<bool> m_hasError{false};
+    // Epoch milliseconds at which the newest frame was published; zero until a
+    // frame has been.
+    std::atomic<int64_t> m_lastFrameEpochMs{0};
+    // Newest source timestamp that looked like a real epoch; zero if none has.
+    std::atomic<int64_t> m_lastSourceEpochMs{0};
     mutable std::mutex m_mutex;
     mutable std::mutex m_errorMutex;
     std::string m_lastError;

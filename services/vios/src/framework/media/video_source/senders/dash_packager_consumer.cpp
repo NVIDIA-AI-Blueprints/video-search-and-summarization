@@ -727,9 +727,18 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
                 }
             }
         }
-        timeline.lastOut = pts;
-        timeline.lastOutValid = true;
     }
+
+    /* Recorded for every path, not just the one that reads the source clock.
+     * A session that synthesises its timeline - anything re-encoded, drawn on
+     * or composed - publishes just as real a position, and leaving it unset
+     * here means the only sessions that could report one are the ones nobody
+     * needs to ask about. */
+    timeline.lastOut = pts;
+    timeline.lastOutValid = true;
+    m_lastFrameEpochMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count());
 
     // How late the frames themselves arrive.  A viewer near the live edge starves
     // when a segment is written late, and the media timeline gives no sign of
@@ -985,6 +994,16 @@ void DashPackagerConsumer::onFrame(std::shared_ptr<RawFrameParams> frameData)
                       << " already applied by the source, so it is not filtered again" << endl;
         }
     }
+    /* Judged per frame rather than latched with the window decision: the
+     * window is decided once from the first frame that carries a timestamp,
+     * but this has to follow the source as it advances. */
+    {
+        constexpr int64_t kYear2001Ms = 1000000000000;
+        if (frameData->pts >= kYear2001Ms)
+        {
+            m_lastSourceEpochMs.store(frameData->pts);
+        }
+    }
     if (m_windowApplies && m_config.startEpochMs > 0 && frameData->pts > 0
         && frameData->pts < m_config.startEpochMs)
     {
@@ -1029,6 +1048,32 @@ bool DashPackagerConsumer::audioEnabled() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_config.enableAac;
+}
+
+int64_t DashPackagerConsumer::publishedPositionMs() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_videoTimeline.lastOutValid)
+    {
+        return -1;
+    }
+    return static_cast<int64_t>(m_videoTimeline.lastOut / GST_MSECOND);
+}
+
+uint64_t DashPackagerConsumer::framesPublished() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_videoTimeline.framesPushed;
+}
+
+int64_t DashPackagerConsumer::lastFrameEpochMs() const
+{
+    return m_lastFrameEpochMs.load();
+}
+
+int64_t DashPackagerConsumer::lastSourceEpochMs() const
+{
+    return m_lastSourceEpochMs.load();
 }
 
 std::filesystem::path DashPackagerConsumer::manifestPath() const
