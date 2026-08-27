@@ -365,10 +365,53 @@ def test_kafka_headers_tolerate_junk():
     assert ctx_mod.extract_context_from_kafka_headers([(None, b"x")]) is None
 
 
-def test_kafka_duplicate_header_first_wins():
+def test_kafka_duplicate_traceparent_starts_fresh():
+    """TS-027: two `traceparent` values is ambiguous, so neither is trusted.
+
+    Taking the first would attribute the record to a trace that may not be its
+    own, and the caller has no way to tell that happened. A fresh root is the
+    honest answer, the same one a malformed value gets.
+    """
     ctx = ctx_mod.extract_context_from_kafka_headers(
         [("traceparent", _TP), ("traceparent", "garbage")])
+    assert ctx is None
+
+    # Order must not matter -- the good one arriving second is still ambiguous.
+    assert ctx_mod.extract_context_from_kafka_headers(
+        [("traceparent", "garbage"), ("traceparent", _TP)]) is None
+
+    # A duplicate of some *other* header is not ambiguous about the parent, so
+    # it must not cost the trace context.
+    ctx = ctx_mod.extract_context_from_kafka_headers(
+        [("traceparent", _TP), ("tracestate", "a=1"), ("tracestate", "b=2")])
     assert ctx is not None
+    # And the tracestate is actually carried, not merely tolerated. Discarding
+    # it leaves the trace id parenting perfectly while a vendor's sampling and
+    # routing state silently disappears at this hop -- which looks correct from
+    # every assertion about the parent.
+    from opentelemetry import trace as _t
+    assert _t.get_current_span(ctx).get_span_context().trace_state.get("a") == "1", \
+        "tracestate was dropped; parenting looks right but vendor state is gone"
+
+    # TS-027's sub-cases compose: an unusable FIRST occurrence must still count
+    # as an occurrence. Keying the duplicate check off the decoded carrier let
+    # the second value look unique and parented the record anyway.
+    assert ctx_mod.extract_context_from_kafka_headers(
+        [("traceparent", b"\xff\xfe"), ("traceparent", _TP)]) is None, \
+        "non-UTF8 first occurrence did not count as an occurrence"
+    assert ctx_mod.extract_context_from_kafka_headers(
+        [("traceparent", None), ("traceparent", _TP)]) is None, \
+        "None first occurrence did not count as an occurrence"
+
+    # "Ambiguous" is about the count, not the values. Two IDENTICAL traceparents
+    # still mean a producer that lost track of what it stamped, and a guard that
+    # only rejects *conflicting* pairs passed every assertion above.
+    assert ctx_mod.extract_context_from_kafka_headers(
+        [("traceparent", _TP), ("traceparent", _TP)]) is None, \
+        "identical duplicates were accepted"
+    assert ctx_mod.extract_context_from_kafka_headers(
+        [("traceparent", _TP), ("TraceParent", _TP)]) is None, \
+        "a case-differing duplicate was accepted"
 
 
 def test_inject_is_noop_without_active_span():
@@ -1610,6 +1653,68 @@ def test_init_tracing_never_raises_on_a_pathological_config(tracing_state, tmp_p
     assert result.returncode == 0, f"init_tracing raised:\n{result.stderr}"
 
 
+def test_baggage_does_not_reach_the_wire(tracing_state, tmp_path):
+    """Setting OTEL_PROPAGATORS is not enough; the global is cached at import.
+
+    `opentelemetry.propagate` reads the variable once, when it is first
+    imported, and caches the composite. Anything that touches propagation
+    before init_tracing() -- an instrumentor, an extension, FastAPI's own
+    imports -- freezes `tracecontext,baggage` in place, and the setdefault then
+    only makes the environment *claim* the baggage is gone. It was still going
+    out on real requests: a value a caller attached to an inbound REST call
+    re-emitted onto AB's VLM and VST calls and its own Kafka produces.
+
+    This subprocess imports propagate first on purpose, which is the ordering
+    the shipping process has.
+    """
+    out = _run_isolated(
+        """
+        from opentelemetry import propagate          # caches the composite FIRST
+        import tracing
+        tracing.init_tracing()
+        from opentelemetry import baggage, trace
+        with trace.get_tracer("t").start_as_current_span("s"):
+            ctx = baggage.set_baggage("customer.secret", "TOPSECRET")
+            carrier = {}
+            propagate.inject(carrier, context=ctx)
+        print("baggage" in carrier, "traceparent" in carrier)
+        """,
+        {"ENABLE_OTEL_MONITORING": "true", "ALERT_OTEL_TRACES_SAMPLER_ARG": "1.0"}, tmp_path,
+    )
+    baggage_out, traceparent_out = out.split()
+    # Positive control: a propagator that injects nothing at all would satisfy
+    # the baggage assertion while quietly killing every outbound trace link.
+    assert traceparent_out == "True", (
+        "nothing is being propagated at all; the trace stops at every outbound call"
+    )
+    assert baggage_out == "False", (
+        "caller-controlled baggage is still propagated outbound; it reaches the "
+        "VLM, VST and Kafka produces, which is the mirror image of what the "
+        "inbound W3C header filter refuses to carry"
+    )
+
+
+def test_an_explicit_propagator_choice_is_left_alone(tracing_state, tmp_path):
+    """The override is a deployment decision, including asking for baggage."""
+    out = _run_isolated(
+        """
+        from opentelemetry import propagate
+        import tracing
+        tracing.init_tracing()
+        from opentelemetry import baggage
+        ctx = baggage.set_baggage("customer.secret", "wanted")
+        carrier = {}
+        propagate.inject(carrier, context=ctx)
+        print("baggage" in carrier)
+        """,
+        {"ENABLE_OTEL_MONITORING": "true",
+         "OTEL_PROPAGATORS": "tracecontext,baggage"}, tmp_path,
+    )
+    assert out.strip() == "True", (
+        "an operator who explicitly asked for baggage did not get it"
+    )
+
+
 def test_init_tracing_installs_the_http_client_instrumentors(tracing_state, tmp_path):
     """REQ-009's only production wiring.
 
@@ -1623,15 +1728,34 @@ def test_init_tracing_installs_the_http_client_instrumentors(tracing_state, tmp_
         import tracing
         tracing.init_tracing()
         from opentelemetry.instrumentation.requests import RequestsInstrumentor
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.instrumentation.httpx import (
+            HTTPX2ClientInstrumentor,
+            HTTPXClientInstrumentor,
+        )
         print(RequestsInstrumentor().is_instrumented_by_opentelemetry,
-              HTTPXClientInstrumentor().is_instrumented_by_opentelemetry)
+              HTTPXClientInstrumentor().is_instrumented_by_opentelemetry,
+              HTTPX2ClientInstrumentor().is_instrumented_by_opentelemetry)
         """,
         {"ENABLE_OTEL_MONITORING": "true"}, tmp_path,
     )
-    requests_on, httpx_on = out.split()
-    assert requests_on == "True", "requests is not instrumented; VST spans and traceparent are absent"
-    assert httpx_on == "True", "httpx is not instrumented; VLM spans and traceparent are absent"
+    requests_on, httpx_on, httpx2_on = out.split()
+    assert requests_on == "True", (
+        "requests is not instrumented; the sync pipeline's VST calls lose their "
+        "client spans and traceparent"
+    )
+    assert httpx_on == "True", (
+        "httpx is not instrumented; the event_loop pipeline's VST calls and the "
+        "RTVI realtime client lose their client spans and traceparent"
+    )
+    # The one an earlier revision missed. `openai` requires httpx2, a different
+    # distribution from httpx with its own instrumentor, so patching httpx alone
+    # left REQ-009's VLM half undone -- against a live collector every alert
+    # produced two VST client spans and none for the VLM call, while this test
+    # stayed green and its own failure message blamed httpx for "VLM spans".
+    assert httpx2_on == "True", (
+        "httpx2 is not instrumented; the VLM call loses its client span and "
+        "traceparent, which is half of REQ-009"
+    )
 
 
 def test_open_root_span_makes_the_root_current(tracing_state, tmp_path):
@@ -2619,3 +2743,257 @@ def test_every_tracing_key_the_chart_reads_is_declared_in_values():
         "the chart reads tracing keys that values.yaml does not declare, so they "
         f"work but cannot be found: {sorted(read - declared)}"
     )
+
+
+def test_a_real_openai_call_gets_a_client_span_and_a_traceparent(tmp_path):
+    """REQ-009's VLM half, driven end to end rather than asserted structurally.
+
+    The structural test above only checks that the instrumentors report
+    themselves installed. That is what let the gap live: `openai` moved to
+    `httpx2`, a different distribution from `httpx` with its own instrumentor,
+    and every structural check still passed while the VLM call produced no
+    client span and carried no header.
+
+    So this drives an actual `openai` request against a local stub and asserts
+    the two things that failed in production: a client span exists for the POST,
+    and the request arrived carrying a `traceparent` from the active trace.
+    """
+    out = _run_isolated(
+        """
+        import json, threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        seen = {}
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen.update({k.lower(): v for k, v in self.headers.items()})
+                body = json.dumps({
+                    "id": "x", "object": "chat.completion", "created": 0,
+                    "model": "stub",
+                    "choices": [{"index": 0, "finish_reason": "stop",
+                                 "message": {"role": "assistant", "content": "ok"}}],
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.handle_request, daemon=True).start()
+
+        import tracing
+        from tracing import spans
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+            InMemorySpanExporter,
+        )
+
+        tracing.init_tracing("openai-probe")
+        exporter = InMemorySpanExporter()
+        tracing._provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        import openai
+        client = openai.OpenAI(api_key="stub",
+                               base_url=f"http://127.0.0.1:{srv.server_address[1]}/v1")
+
+        handle = spans.open_root_span({"sensorId": "s"}, pipeline_mode="event_loop")
+        client.chat.completions.create(
+            model="stub", messages=[{"role": "user", "content": "hi"}], max_tokens=4)
+        if handle is not None:
+            handle.close()
+            handle.detach()
+
+        names = [s.name for s in exporter.get_finished_spans()]
+        tp = seen.get("traceparent", "")
+        print(json.dumps({
+            "client_span": any(n.upper() == "POST" for n in names),
+            "traceparent": tp[:2] if tp else "",
+            "trace_id_len": len(tp.split("-")[1]) if tp.count("-") == 3 else 0,
+        }))
+        """,
+        {"ENABLE_OTEL_MONITORING": "true"}, tmp_path,
+    )
+    result = __import__("json").loads(out.strip().splitlines()[-1])
+
+    assert result["client_span"] is True, (
+        "the openai call produced no client span; httpx2 is not instrumented"
+    )
+    assert result["traceparent"] == "00", (
+        "the openai request carried no W3C traceparent; REQ-009's VLM half is "
+        "not delivered"
+    )
+    assert result["trace_id_len"] == 32, "malformed traceparent trace-id"
+
+
+def _traceparent(trace_id_hex, span_id_hex="00f067aa0ba902b7"):
+    return [("traceparent", f"00-{trace_id_hex}-{span_id_hex}-01".encode())]
+
+
+def test_each_record_is_parented_on_its_own_inbound_context(tracing_state, tmp_path):
+    """REQ-007: a mixed-parent batch must not collapse onto one parent.
+
+    A batch-level context gets this wrong, and re-deriving the association by
+    position would be re-deriving something the decoder already knows. Two records arrive carrying different `traceparent` values; each
+    root span must land in its own trace.
+    """
+    out = _run_isolated(
+        """
+        import json
+        import tracing
+        from tracing import spans
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+            InMemorySpanExporter,
+        )
+
+        tracing.init_tracing("kafka-parent")
+        exporter = InMemorySpanExporter()
+        tracing._provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        out = []
+        for tid in (A, B):
+            msg = {"sensorId": "cam",
+                   spans.KAFKA_HEADERS_KEY: [("traceparent",
+                                              f"00-{tid}-00f067aa0ba902b7-01".encode())]}
+            h = spans.open_root_span(msg, pipeline_mode="event_loop")
+            # The key must be gone by the time anyone else sees the payload.
+            out.append(spans.KAFKA_HEADERS_KEY in msg)
+            if h is not None:
+                h.close(); h.detach()
+
+        traces = [format(s.context.trace_id, "032x")
+                  for s in exporter.get_finished_spans() if s.name == "Alert Verification"]
+        print(json.dumps({"key_left_behind": any(out), "traces": traces,
+                          "wanted": [A, B]}))
+        """,
+        {"ENABLE_OTEL_MONITORING": "true"}, tmp_path,
+    )
+    r = __import__("json").loads(out.strip().splitlines()[-1])
+
+    assert r["key_left_behind"] is False, (
+        "the header key survived open_root_span and would reach the ES document"
+    )
+    assert r["traces"] == r["wanted"], (
+        f"records did not keep their own parents: {r['traces']} != {r['wanted']}"
+    )
+
+
+def test_every_decoded_record_keeps_its_own_source(tracing_state):
+    """Pairing, asserted on a batch where a positional mistake would show.
+
+    The previous version of this test was named for mid-batch decode failure and
+    passed for the wrong reason: `protobuf_anomaly_to_json_string` re-raises, so
+    one bad record takes the whole call down, the test fell into its own except
+    branch and rebuilt the expected pairs from single-record batches -- where no
+    pairing bug can be observed. Mutating the decoder to pair every record with
+    the first source left it green.
+
+    Multiple records, each with a distinguishable header block, in one call.
+    """
+    import sys
+    sys.path.insert(0, str(_REPO / "services/alert/src"))
+    from utils.schema_util import protobuf_anomalies_to_json_string_list
+    from mdx.protobuf import Incident as NvIncident
+
+    def rec(sensor, key, tid):
+        m = NvIncident()
+        m.sensorId = sensor
+        return (key, m.SerializeToString(), 1700000000000,
+                [("traceparent", f"00-{tid}-00f067aa0ba902b7-01".encode())])
+
+    batch = {"t-0": [rec("cam-1", b"k1", "a" * 32), rec("cam-2", b"k2", "b" * 32)],
+             "t-1": [rec("cam-3", b"k3", "c" * 32)]}
+
+    pairs = protobuf_anomalies_to_json_string_list(batch, "incident")
+    assert len(pairs) == 3
+
+    seen = {}
+    for json_str, source in pairs:
+        sensor = __import__("json").loads(json_str)["sensorId"]
+        seen[sensor] = dict(source[3])["traceparent"].decode()
+
+    assert seen == {
+        "cam-1": f"00-{'a' * 32}-00f067aa0ba902b7-01",
+        "cam-2": f"00-{'b' * 32}-00f067aa0ba902b7-01",
+        "cam-3": f"00-{'c' * 32}-00f067aa0ba902b7-01",
+    }, f"records were paired with the wrong sources: {seen}"
+
+
+def test_one_bad_record_does_not_cost_the_others(tracing_state):
+    """TS-026: a mid-batch decode failure must not desynchronize the survivors.
+
+    An earlier revision of this test pinned the opposite -- that one malformed
+    payload loses the whole batch -- on the grounds that it described what the
+    code did. It did, and the finalized spec forbids it: `process_batch_vlm`
+    catches around the entire decode and returns without dispatching, while the
+    Kafka offsets were already committed during polling. The surviving alerts
+    were not retried, they were dropped.
+    """
+    import sys
+    sys.path.insert(0, str(_REPO / "services/alert/src"))
+    from utils.schema_util import protobuf_anomalies_to_json_string_list
+    from mdx.protobuf import Incident as NvIncident
+
+    def rec(sensor, key, tid):
+        m = NvIncident()
+        m.sensorId = sensor
+        return (key, m.SerializeToString(), 1700000000000,
+                (("traceparent", f"00-{tid}-00f067aa0ba902b7-01".encode()),))
+
+    bad = (b"kx", b"not-a-protobuf-at-all", 1700000000000,
+           (("traceparent", f"00-{'b' * 32}-00f067aa0ba902b7-01".encode()),))
+    good = [rec("cam-1", b"k1", "a" * 32), rec("cam-3", b"k3", "c" * 32)]
+
+    # First, middle and last. An earlier version only tried the middle, and a
+    # mutation that re-raised when the bad record came first stayed green.
+    for position in (0, 1, 2):
+        records = list(good)
+        records.insert(position, bad)
+        pairs = protobuf_anomalies_to_json_string_list({"t-0": records}, "incident")
+        assert len(pairs) == 2, (
+            f"the survivors were lost with a bad record at position {position}"
+        )
+        seen = {}
+        for json_str, source in pairs:
+            sensor = __import__("json").loads(json_str)["sensorId"]
+            seen[sensor] = dict(source[3])["traceparent"].decode()
+        # And each survivor keeps its OWN parent -- the shift a positional zip
+        # would introduce is exactly what a record dropping out causes.
+        assert seen == {
+            "cam-1": f"00-{'a' * 32}-00f067aa0ba902b7-01",
+            "cam-3": f"00-{'c' * 32}-00f067aa0ba902b7-01",
+        }, f"survivors were re-paired by position ({position}): {seen}"
+
+
+def test_a_systemic_decoder_failure_is_not_mistaken_for_a_bad_payload(tracing_state, monkeypatch):
+    """The skip is for bad producer payloads, not for our own breakage.
+
+    Catching every Exception per record turned a protobuf API change or a
+    misconfigured message_type into a batch that decoded to nothing and
+    returned normally -- offsets already committed, service reporting healthy,
+    every alert in the batch gone with no exception anywhere. Only DecodeError
+    is recoverable; anything else must reach the caller's batch handler.
+    """
+    import sys
+    sys.path.insert(0, str(_REPO / "services/alert/src"))
+    import utils.schema_util as schema_util
+    from mdx.protobuf import Incident as NvIncident
+
+    m = NvIncident()
+    m.sensorId = "cam-1"
+    batch = {"t-0": [(b"k1", m.SerializeToString(), 1700000000000, ())] * 3}
+
+    def systemic_failure(*_a, **_k):
+        raise RuntimeError("MessageToJson API mismatch")
+
+    monkeypatch.setattr(schema_util, "protobuf_anomaly_to_json_string", systemic_failure)
+
+    with pytest.raises(RuntimeError, match="API mismatch"):
+        schema_util.protobuf_anomalies_to_json_string_list(batch, "incident")

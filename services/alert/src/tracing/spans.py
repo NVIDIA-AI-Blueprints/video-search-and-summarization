@@ -26,8 +26,12 @@ event that completed inline; the sink-completion callback closes one whose
 publish was deferred to the sink executor. They hand off through one lock, and
 ``mark_deferred()`` is a *conditional* transition -- it refuses if the callback
 has already run, so the span can never be left with nobody to close it.
-``mark_deferred()`` is announced before the callback is attached, because a
-resolved future runs it synchronously.
+The callback is attached first and ``mark_deferred()`` announced second (HLD
+SG3-005). The reverse guards a resolved future -- registration would run the
+callback synchronously, before the handle knew a handoff was coming -- but the
+conditional transition already covers that by refusing, while nothing covers a
+raising ``add_done_callback`` after the span is marked deferred: the outer
+``finally`` would decline to close a span whose callback does not exist.
 
 **The recorder decorates, it never closes.** ``record_event_complete()`` calls
 ``decorate()`` as its first statement, above its own Prometheus gate: it is the
@@ -593,6 +597,73 @@ def traced_io(name: str, **static_attributes: Any):
     return decorator
 
 
+#: Private key under which the pipeline parks a record's inbound Kafka header
+#: block between decode and root-span open (REQ-007).
+#:
+#: **Three pop sites, and a new exit needs a fourth.** :func:`open_root_span` pops
+#: it, which covers every path that opens a root span. It does not cover paths
+#: that return earlier: ``vst_pass_through_mode`` leaves ``process_batch_vlm``
+#: before any span exists, and the key rode from there into an Elasticsearch
+#: document -- as raw bytes it made the document unserialisable, the sink
+#: swallowed the error, and the alert was silently lost. That exit now pops for
+#: itself, and the on-demand REST service strips it from the request body before
+#: the body is treated as a message. Anything added ahead of ``open_root_span``
+#: that can reach a publisher, or any ingress whose payload comes from outside,
+#: has to do the same -- ``process_batch_vlm``'s two non-protobuf branches strip
+#: for exactly that reason.
+#:
+#: The value is carried decoded to ``(str, str)`` for the case where that is
+#: forgotten again: a stray field in a document is survivable, an unserialisable
+#: document is not (REQ-019).
+KAFKA_HEADERS_KEY = "_otel_kafka_headers"
+
+
+#: The only inbound headers worth carrying. Everything else on a record is the
+#: producer's business: carrying it would put arbitrary upstream data on the
+#: payload dict, and from there into a document if a pop is ever missed. The
+#: defensive layer is smaller and strictly safer for being narrow.
+# `baggage` is deliberately absent: extract() would populate it, but the attach
+# below builds from the current context rather than the extracted one, so
+# inbound baggage never becomes readable. Listing it would promise something
+# the code does not do.
+_PROPAGATION_HEADERS = frozenset({"traceparent", "tracestate"})
+
+
+def decode_kafka_headers(headers) -> Optional[list]:
+    """Render the propagation headers as plain ``(str, str)`` pairs.
+
+    confluent-kafka hands back ``bytes`` values. Those must not travel on a
+    payload dict: Elasticsearch's serializer raises on ``bytes``, the sink
+    swallows that, and the alert is silently never indexed -- tracing costing an
+    event, which REQ-019 forbids. Decoding first means a key that escapes a pop
+    is a stray field rather than a lost document.
+
+    Never raises. Values are decoded with ``errors="replace"`` and kept rather
+    than dropped, so a non-UTF8 value survives as replacement characters and a
+    null value as the string ``"None"`` -- harmless, because ``extract()`` then
+    fails to parse it and the record simply gets no parent, but not the same as
+    discarding it. The only thing dropped outright is a header whose name is not
+    a propagation key.
+    """
+    out = []
+    try:
+        for item in headers or ():
+            try:
+                key, value = item[0], item[1]
+            except Exception:
+                continue
+            if isinstance(key, bytes):
+                key = key.decode("utf-8", "replace")
+            if isinstance(value, bytes):
+                value = value.decode("utf-8", "replace")
+            if str(key).lower() not in _PROPAGATION_HEADERS:
+                continue
+            out.append((str(key), str(value)))
+    except Exception:
+        return None
+    return out or None
+
+
 def open_root_span(
     message: Optional[Mapping[str, Any]] = None,
     parent_context: Any = None,
@@ -610,12 +681,35 @@ def open_root_span(
     so an exception here would escape and kill the event, which is precisely what
     REQ-019 promises tracing cannot do.
     """
+    # Popped first and unconditionally, before any early return: the key is a
+    # transport detail between decode and here, and leaving it on the dict would
+    # put it in front of every downstream consumer including the ES document
+    # builder.
+    inbound_headers = None
+    if isinstance(message, dict):
+        inbound_headers = message.pop(KAFKA_HEADERS_KEY, None)
+
     try:
         if not _tracing_active():
             return None
         mod = _otel()
         if mod is None:
             return None
+        if parent_context is None and link_to is None and inbound_headers:
+            # REQ-007: the record's own parent, not the batch's. Never raises --
+            # a malformed header must cost a parent, not an event.
+            #
+            # `link_to is None` is what keeps this to the Kafka pipeline. The
+            # on-demand REST path passes `link_to` and its `message` is the HTTP
+            # request body, whose schema allows extra fields -- so a caller could
+            # put this key in a POST body and become the parent of AB's root
+            # span. Worse, ParentBased honours a remote `sampled=1`: at
+            # sampling_ratio 0.0, 200 injected requests exported 199 spans where
+            # 200 honest ones exported none. Deriving a parent here would also
+            # defeat the reset below, which exists so the on-demand span is
+            # linked *instead of* parented.
+            from . import context as _ctx
+            parent_context = _ctx.extract_context_from_kafka_headers(inbound_headers)
         trace, otel_context = mod
         # None means "whatever config resolved for this process" — the caller in
         # the pipeline passes nothing, which is how the configured policy reaches

@@ -50,6 +50,13 @@ class FakeMessage:
     def timestamp(self):
         return (1, 1700000000000)
 
+    def headers(self):
+        """confluent_kafka.Message always has this; the double must too.
+
+        Returning None is the ordinary case -- most records carry no headers.
+        Tests that need an inbound traceparent set ``self._headers``.
+        """
+        return getattr(self, "_headers", None)
 
 class FakePartition:
     def __init__(self, topic, partition):
@@ -251,7 +258,7 @@ class TestWaitingDoesNotDropMessages:
 
         batch = broker.get_consumed_messages(consumer)
 
-        values = [value for msgs in batch.values() for _, value, _ in msgs]
+        values = [value for msgs in batch.values() for _, value, *_ in msgs]
         assert b"during-assign" in values
 
     def test_prefetched_messages_come_before_freshly_polled_ones(self, broker):
@@ -261,7 +268,7 @@ class TestWaitingDoesNotDropMessages:
 
         batch = broker.get_consumed_messages(consumer)
 
-        values = [value for msgs in batch.values() for _, value, _ in msgs]
+        values = [value for msgs in batch.values() for _, value, *_ in msgs]
         assert values[:2] == [b"first", b"second"]
 
     def test_an_overflowing_prefetch_is_kept_for_the_next_batch(self, broker):
@@ -272,7 +279,7 @@ class TestWaitingDoesNotDropMessages:
         first = broker.get_consumed_messages(consumer, batch_size=2)
         second = broker.get_consumed_messages(consumer, batch_size=2)
 
-        seen = [v for batch in (first, second) for msgs in batch.values() for _, v, _ in msgs]
+        seen = [v for batch in (first, second) for msgs in batch.values() for _, v, *_ in msgs]
         assert seen == [b"m0", b"m1", b"m2", b"m3"]
 
     def test_the_buffer_is_emptied_once_drained(self, broker):

@@ -17,17 +17,23 @@
 
 Three directions, all of them optional and all of them silent on failure:
 
-* **In, from Kafka** — a producer's ``traceparent`` header. **No production
-  caller: see req-spec Open/Deferred.** AB's own consumer drops headers twice
-  (the broker keeps ``(key, value, timestamp)``; the protobuf decoder then
-  collapses the tuples into JSON strings, losing the per-record association), and
-  restoring that needs an envelope through the decode path every alert flows
-  through. Nothing in VSS sends the header today either, so wiring it would be
-  dead code with no sender. The helper is kept because it is the half that needs
-  no coordination once one does.
-* **Out** — ``traceparent`` into an outgoing carrier. This half **is** wired:
-  AB injects it on its own Kafka produces, which is what makes the header exist
-  at all.
+* **In, from Kafka** — a producer's ``traceparent`` header. **Wired** (REQ-007).
+  It used to be dropped twice: the broker returned ``(key, value, timestamp)``
+  and the protobuf decoder collapsed those tuples into bare JSON strings, losing
+  which record produced which string. The broker now returns a four-field
+  ``KafkaMessage`` and the decoder returns ``(json_str, source_record)`` pairs,
+  so ``open_root_span()`` can parent each record on its own inbound context
+  rather than on whatever the batch happened to start with. No VSS producer
+  sends the header yet, so today this parents nothing -- but the receiving half
+  is the one that needs no coordination, and a mixed-parent batch now works the
+  moment a sender exists.
+* **Out** — ``traceparent`` into an outgoing carrier. Wired on **one** produce
+  site, ``mdx/sink/vlm_enhanced_sink/sink_kafka.py``: the others
+  (``mdx/sink/sink_kafka.py``, ``web/core/alert_service.py``) pass no ``headers=``
+  and so emit none. Worth knowing because ``alert_service`` produces to the very
+  topics this pipeline consumes, which makes REST → Kafka → pipeline the one
+  complete REQ-007 chain that lives entirely inside this repository -- one
+  ``headers=`` argument away from working.
 
 Inbound HTTP is deliberately absent. An earlier revision had a helper for it;
 the FastAPI instrumentation runs the global propagator on the request itself, so
@@ -98,24 +104,40 @@ def _extract_from_carrier(carrier: Mapping[str, str]) -> Optional[Any]:
 def extract_context_from_kafka_headers(headers: KafkaHeaders) -> Optional[Any]:
     """Build a parent context from Kafka record headers (REQ-007).
 
-    **No production caller** — see the module docstring.
+    Called from :func:`tracing.spans.open_root_span` when the pipeline hands it
+    a record's header block; see ``KAFKA_HEADERS_KEY`` for how the association
+    survives decode and filtering.
 
     Tolerates ``None``, byte values, non-UTF8 values and duplicate keys — a
-    malformed header is upstream's problem and must not cost an alert. On a
-    duplicate the first occurrence wins, matching the W3C guidance to treat a
-    repeated ``traceparent`` as a single (possibly broken) value rather than
-    concatenating.
+    malformed header is upstream's problem and must not cost an alert. A
+    duplicate ``traceparent`` is the one case that costs the parent: it is
+    ambiguous, so the record starts a fresh trace rather than being attributed
+    to one of the two on a coin flip (TS-027). Duplicates of any other name
+    keep their first occurrence.
     """
     if not headers:
         return None
     carrier: Dict[str, str] = {}
+    seen = set()
     try:
         for key, value in headers:
             if key is None:
                 continue
             name = str(key).lower()
-            if name in carrier:
+            # Count the occurrence before judging the value. Keying the
+            # duplicate check off `carrier` instead would only see occurrences
+            # that decoded cleanly, so a first `traceparent` that is non-UTF8
+            # or None -- TS-027's own sub-cases -- would leave the second one
+            # looking unique and get the record parented anyway.
+            if name in seen:
+                if name == "traceparent":
+                    logger.debug(
+                        "duplicate traceparent header on a record; starting a "
+                        "fresh trace rather than guessing which one is real"
+                    )
+                    return None
                 continue
+            seen.add(name)
             if isinstance(value, bytes):
                 try:
                     value = value.decode("utf-8")
@@ -159,8 +181,10 @@ def kafka_headers_for_current_span() -> Optional[list]:
     untraced produce already sends.
 
     This is the sending half of REQ-007. Nothing in VSS currently *reads* a
-    traceparent off a Kafka record: AB's own consumer drops headers in the
-    protobuf decode, and no other consumer looks. Emitting it anyway is what
+    traceparent off a Kafka record. AB's own consumer does now (REQ-007), but it
+    is the only one. It can read its own produces -- ``alert_service`` writes to
+    the topics the pipeline consumes -- so this is not purely for other services.
+    Emitting it anyway is what
     makes the header exist at all, and it costs one small string per record.
     """
     carrier = inject_traceparent({})

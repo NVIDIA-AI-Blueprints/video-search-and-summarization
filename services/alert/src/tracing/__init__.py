@@ -414,6 +414,13 @@ def _instrument_http_clients() -> None:
     for module_name, class_name in (
         ("opentelemetry.instrumentation.requests", "RequestsInstrumentor"),
         ("opentelemetry.instrumentation.httpx", "HTTPXClientInstrumentor"),
+        # httpx2 is a different package from httpx, and the VLM path is on it:
+        # openai>=3 requires httpx2, so `HTTPXClientInstrumentor` alone patches
+        # only the VST and RTVI clients and REQ-009's VLM half silently does not
+        # happen -- verified against a live collector, where every alert produced
+        # two VST client spans and none for the VLM call. Same distribution as
+        # the line above, so this costs no new dependency.
+        ("opentelemetry.instrumentation.httpx", "HTTPX2ClientInstrumentor"),
     ):
         try:
             module = __import__(module_name, fromlist=[class_name])
@@ -542,6 +549,37 @@ def _init_unlocked_body(
                 os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"],
             )
         os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "http/dup")
+
+        # Trace context only, no baggage. Unset, the SDK's default composite is
+        # `tracecontext,baggage`, and baggage travels *out*: a value a caller put
+        # on an inbound REST request is re-emitted onto AB's own Kafka produces
+        # and its VLM and VST calls. That is the mirror image of what the inbound
+        # header filter refuses to do -- carrying arbitrary upstream data -- and
+        # nothing in this service reads baggage, so the symmetric choice is to
+        # stop propagating it.
+        #
+        # Setting the variable alone does not do it. `opentelemetry.propagate`
+        # reads OTEL_PROPAGATORS once, at import, and caches the composite in a
+        # module global; by the time init_tracing() runs, anything that imported
+        # it first -- an instrumentor, an extension, FastAPI's own import chain --
+        # has already frozen `tracecontext,baggage` in place. The environment then
+        # claims one thing while the wire carries another, which is worse than not
+        # having tried: baggage was still going out on real HTTPX2 requests. So
+        # install the propagator directly as well.
+        #
+        # Only when the operator has not asked for something else. An explicit
+        # OTEL_PROPAGATORS is a deployment decision and is left alone, including
+        # a deliberate `tracecontext,baggage`.
+        if "OTEL_PROPAGATORS" not in os.environ:
+            os.environ["OTEL_PROPAGATORS"] = "tracecontext"
+            try:
+                from opentelemetry.propagate import set_global_textmap
+                from opentelemetry.trace.propagation.tracecontext import (
+                    TraceContextTextMapPropagator,
+                )
+                set_global_textmap(TraceContextTextMapPropagator())
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("could not install the W3C propagator", exc_info=True)
 
         # The provider is built here rather than by the SDK's auto-configuration,
         # which means the standard sampler variables do not reach it. Say so

@@ -1372,17 +1372,31 @@ class AnomalyEnhancer(
 
             if not message_type:
                 raise ValueError("message_type is required for process_batch_vlm")
+            # Only the protobuf branch below is a Kafka record, and only it may
+            # put the transport key on a message. Every other ingress -- Redis
+            # Stream, replay, a direct dict from a test or a plugin -- carries a
+            # payload whose contents came from outside, so the key is stripped
+            # rather than trusted: a payload that declares its own
+            # `traceparent` could otherwise choose AB's trace id and, because
+            # ParentBased honours a remote `sampled=1`, defeat sampling_ratio
+            # entirely. Same takeover as the REST body one, different door.
             if isinstance(messages, list) and all(isinstance(m, dict) for m in messages):
                 parsed_messages = messages
+                for message in parsed_messages:
+                    message.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
             elif isinstance(messages, list) and all(isinstance(m, str) for m in messages):
                 parsed_messages = []
                 for raw in messages:
                     try:
-                        parsed_messages.append(json.loads(raw))
+                        parsed = json.loads(raw)
                     except (json.JSONDecodeError, TypeError) as exc:
                         logger.warning(
                             "Skipping malformed JSON message in batch: %s", exc
                         )
+                        continue
+                    if isinstance(parsed, dict):
+                        parsed.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
+                    parsed_messages.append(parsed)
             else:
                 # Kafka sources provide protobuf tuples; Redis Stream sources
                 # provide JSON strings. Only run protobuf decoding for the
@@ -1393,16 +1407,72 @@ class AnomalyEnhancer(
                     message_type
                 )
                 parsed_messages = []
-                for message in decoded_messages:
+                for decoded in decoded_messages:
+                    # The decoder now hands back (json_str, source_record) so the
+                    # inbound headers stay tied to the record that carried them.
+                    # Older shapes (a bare string, or a dict) still arrive from
+                    # non-Kafka sources and from tests that stub the decoder.
+                    if isinstance(decoded, tuple) and len(decoded) == 2:
+                        message, source_record = decoded
+                    else:
+                        message, source_record = decoded, None
+
+                    parsed = None
                     if isinstance(message, str):
                         try:
-                            parsed_messages.append(json.loads(message))
+                            parsed = json.loads(message)
                         except (json.JSONDecodeError, TypeError) as exc:
                             logger.warning(
                                 "Skipping malformed JSON message in batch: %s", exc
                             )
+                            # Carried per record rather than re-derived by
+                            # position: this branch drops one, and a positional
+                            # zip downstream would then read the wrong source.
+                            continue
                     elif isinstance(message, dict):
-                        parsed_messages.append(message)
+                        parsed = message
+
+                    if parsed is None:
+                        continue
+
+                    # Parse-time attach (REQ-007/SG2-004). What has to hold is
+                    # that every step between here and the pop *carries* the
+                    # key -- not that it preserves object identity, which is the
+                    # weaker claim an earlier version of this comment made. The
+                    # dedup and rate-limit filters do preserve identity, but
+                    # normalize_alert_message (alert-shaped events only) returns
+                    # dict(message), so on that path the key survives by copy.
+                    # A future step that rebuilds the dict field by field would
+                    # unparent every alert silently.
+                    #
+                    # Attached only when tracing is on, so a disabled deployment
+                    # never sees the key at all (REQ-019), and popped before
+                    # anything can serialise it.
+                    headers = getattr(source_record, "headers", None)
+                    decoded = (
+                        tracing_spans.decode_kafka_headers(headers)
+                        if headers and tracing.ensure_initialised()
+                        else None
+                    )
+                    if decoded and any(n.lower() == "traceparent" for n, _ in decoded):
+                        # Decoded to str, not kept as the raw bytes confluent-kafka
+                        # hands back. If any exit path ever fails to pop this key,
+                        # a str value costs a stray field in a document; bytes cost
+                        # the whole document -- Elasticsearch's serializer raises on
+                        # them and the sink swallows that, so the alert is silently
+                        # never indexed. Tracing must not cost an event (REQ-019).
+                        # Only when a traceparent survived the W3C filter. A
+                        # record carrying only a schema id, a routing hint, or a
+                        # tracestate with no traceparent gets no key at all:
+                        # extraction returns None for all of them, so attaching
+                        # it there widens the exposure by exactly the traffic
+                        # that can never use it. Case-insensitive: the decoder
+                        # filters case-insensitively but keeps the name as sent,
+                        # and extraction folds case too, so a producer sending
+                        # `TraceParent` can be parented and must not be gated out.
+                        parsed[tracing_spans.KAFKA_HEADERS_KEY] = decoded
+
+                    parsed_messages.append(parsed)
 
             messages = parsed_messages
 
@@ -1414,6 +1484,12 @@ class AnomalyEnhancer(
             )
 
             if self.vst_pass_through_mode:
+                # This exit leaves the traced path entirely: no root span is
+                # opened, so nothing downstream pops the transport key. Drop it
+                # here rather than letting it ride into the publisher.
+                for _m in messages:
+                    if isinstance(_m, dict):
+                        _m.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
                 self._process_media_passthrough(worker_id, messages)
                 return
 
@@ -1793,7 +1869,8 @@ class AnomalyEnhancer(
 
         # Root span for this event. `open_root_span` never raises and returns
         # None on failure, so a tracing fault degrades to an untraced event
-        # rather than a lost one. Kafka parent context is wired separately.
+        # rather than a lost one. The record's inbound Kafka parent, if any,
+        # rides on the message and is consumed by the call below (REQ-007).
         span_handle = tracing_spans.open_root_span(
             message,
             pipeline_mode=getattr(self, 'pipeline_mode', None),
@@ -2710,13 +2787,15 @@ class AnomalyEnhancer(
             # when the executor raced ahead), ``add_done_callback``
             # runs the callback immediately.
             #
-            # The handoff is announced BEFORE the callback is attached, for
-            # exactly that reason: a resolved future runs _finalize
-            # synchronously, and announcing afterwards would hand closure to a
-            # callback that had already declined it. mark_deferred() is itself
-            # conditional and refuses if the callback has already run, so the
-            # two orderings cannot both claim the span -- and cannot both
-            # decline it.
+            # Registration first, the handoff second (HLD SG3-005). The
+            # opposite order looks safer against a future that is already
+            # resolved -- add_done_callback would fire _finalize synchronously
+            # before the handle knew a handoff was coming -- but mark_deferred()
+            # already refuses in exactly that case, and reversing it opens a leak
+            # with no such guard: if registration raises, the outer finally sees
+            # a deferred span and declines to close it while no callback exists
+            # to close it either, and the root is never ended.
+            publish_future.add_done_callback(_finalize)
             if span_handle is not None:
                 # The return value is the contract: False means the callback
                 # already ran and declined. Ignoring it is safe today only
@@ -2727,7 +2806,6 @@ class AnomalyEnhancer(
                     logger.debug(
                         "sink callback completed before the handoff; the finally keeps closure"
                     )
-            publish_future.add_done_callback(_finalize)
 
     @staticmethod
     def _classify_pre_processing_failure(exc) -> str:

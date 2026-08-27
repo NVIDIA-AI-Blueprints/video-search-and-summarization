@@ -192,9 +192,16 @@ def test_the_deferred_sink_callback_can_close_the_span(module_ast):
 
     In async sink mode the recorder fires from the sink executor thread, after
     the pipeline's `finally` has already run. `mark_deferred()` is announced
-    before `add_done_callback` on purpose: a resolved future runs the callback
-    synchronously, so announcing afterwards would hand closure to a callback that
-    had already declined it.
+    after `add_done_callback` (HLD SG3-005). The reverse looks safer against a
+    future that is already resolved -- registration fires `_finalize`
+    synchronously, before the handle knows a handoff is coming -- but
+    `mark_deferred()` already refuses in exactly that case and returns False, so
+    the finally keeps closure. Reversing it buys nothing and opens a leak with no
+    guard at all: if registration raises, the finally sees a deferred span and
+    declines, and no callback exists to close it either.
+
+    This test asserted the leaking order for several revisions, so the assertion
+    is stated as the direction plus its reason rather than as a bare comparison.
     """
     method = _find(module_ast, "_complete_event_after_publish")
     src = ast.unparse(method)
@@ -210,9 +217,10 @@ def test_the_deferred_sink_callback_can_close_the_span(module_ast):
         n.lineno for n in ast.walk(method)
         if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "add_done_callback"
     )
-    assert deferred_at < attached_at, (
-        "mark_deferred() must precede add_done_callback(); a resolved future fires "
-        "the callback synchronously"
+    assert attached_at < deferred_at, (
+        "add_done_callback() must precede mark_deferred() (HLD SG3-005): if "
+        "registration raises after the span is marked deferred, the outer finally "
+        "declines to close and no callback exists to close it either"
     )
 
 
@@ -287,3 +295,115 @@ def test_finalize_completes_the_handoff_in_a_finally(module_ast):
         )
     ]
     assert guarded, "mark_finalized() is not in a finally; a recorder raise strands the span"
+
+
+# --------------------------------------------------------------------------
+# Behavioural coverage for the handoff, the half the AST check cannot reach.
+# These pin RootSpanHandle's state machine, which the ordering change did not
+# touch. They do NOT pin the production ordering -- they call add_done_callback()
+# and mark_deferred() themselves, in the order the test chooses, so reverting
+# _complete_event_after_publish leaves all three green. The AST assertion above
+# is the only thing holding SG3-005, and saying otherwise here would be the same
+# kind of claim-that-outruns-the-code this file exists to catch.
+# --------------------------------------------------------------------------
+
+
+def _handle_and_future(resolved=False, raise_on_register=False):
+    """A real RootSpanHandle over a recording stub, plus a future stand-in."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+    from tracing.spans import RootSpanHandle
+
+    ended = []
+
+    class _Span:
+        def is_recording(self):
+            return True
+
+        def set_attribute(self, *a):
+            pass
+
+        def set_status(self, *a):
+            pass
+
+        def end(self, *a, **k):
+            ended.append(True)
+
+    class _Future:
+        def __init__(self):
+            self.callback = None
+
+        def add_done_callback(self, cb):
+            if raise_on_register:
+                raise RuntimeError("registration failed")
+            self.callback = cb
+            if resolved:
+                cb(self)          # a resolved future fires synchronously
+
+        def result(self):
+            return None
+
+        def exception(self):
+            return None
+
+    return RootSpanHandle(_Span(), None, None), _Future(), ended
+
+
+def test_handoff_declines_when_the_future_already_resolved():
+    """The case the old ordering was written to protect against.
+
+    Registration fires the callback synchronously, the callback marks the span
+    finalized, and `mark_deferred()` then refuses -- so the finally keeps
+    closure. Nothing is lost by registering first.
+    """
+    handle, future, ended = _handle_and_future(resolved=True)
+
+    def _finalize(_):
+        handle.mark_finalized()
+
+    future.add_done_callback(_finalize)
+    accepted = handle.mark_deferred()
+
+    assert accepted is False, "the handoff must be refused once the callback has run"
+    handle.mark_finally_reached()
+    assert handle.should_close_from_finally() is True, (
+        "the finally must keep closure when the handoff was refused"
+    )
+
+
+def test_handoff_is_accepted_for_a_pending_future():
+    """The ordinary path: registration returns, the handoff is taken."""
+    handle, future, ended = _handle_and_future(resolved=False)
+
+    future.add_done_callback(lambda _: handle.mark_finalized())
+    assert handle.mark_deferred() is True
+
+    handle.mark_finally_reached()
+    assert handle.should_close_from_finally() is False, (
+        "the finally must stand aside once the callback owns closure"
+    )
+    assert handle.should_close_from_callback() is True
+
+
+def test_registration_failure_leaves_the_span_closable():
+    """The leak the HLD ordering exists to prevent.
+
+    With `mark_deferred()` first, a raising `add_done_callback` left the span
+    marked deferred with no callback in existence: the finally declined and
+    nothing else could close it. Registering first means the exception
+    propagates *before* the handle is ever told a handoff is coming.
+    """
+    handle, future, ended = _handle_and_future(raise_on_register=True)
+
+    try:
+        future.add_done_callback(lambda _: handle.mark_finalized())
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("the stub was meant to raise")
+
+    handle.mark_finally_reached()
+    assert handle.should_close_from_finally() is True, (
+        "a span whose callback was never registered must still be closed by the "
+        "finally; marking it deferred first is what loses it"
+    )

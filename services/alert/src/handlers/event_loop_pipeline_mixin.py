@@ -594,8 +594,8 @@ class EventLoopPipelineMixin:
 
         # Root span for this event. `open_root_span` never raises and returns
         # None on failure, so a tracing fault degrades to an untraced event
-        # rather than a lost one. Kafka parent context is not wired yet — the
-        # per-record envelope it needs lands with REQ-007.
+        # rather than a lost one. The record's inbound Kafka parent, if any,
+        # rides on the message and is consumed by `open_root_span` (REQ-007).
         # Built before the span so the root can start when the event actually
         # entered the pipeline rather than when this coroutine reached it.
         stage_timestamps = {

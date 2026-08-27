@@ -108,6 +108,12 @@ class OnDemandVerificationService:
             ValueError: prompt manager failure or other validation issue.
         """
         message = dict(request_data)
+        # The request body is user input and its schema allows extra fields, so
+        # strip anything reserved for internal transport before the body is
+        # treated as a message. open_root_span() also refuses to derive a parent
+        # on this path, but the body should not be carrying the key in the first
+        # place -- defence at the boundary, not only at the consumer.
+        message.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
 
         now = datetime.now(timezone.utc).isoformat()
         message.setdefault("id", f"ondemand-{uuid.uuid4()}")
