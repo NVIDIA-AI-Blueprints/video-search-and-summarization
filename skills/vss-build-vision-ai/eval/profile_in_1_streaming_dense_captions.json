@@ -49,7 +49,7 @@
       ]
     },
     {
-      "query": "Deploy the validated `_builds/in-1/resolved.yml`, wait for readiness, and leave it running for runtime validation. Once services are up, bootstrap the repository-local CLI as `AGENTS.md` describes — `vss() { uv run --project {{repo_root}}/services/agent --no-dev --extra cli vss \"$@\"; }` — then record the deployment with `vss configure --base-url http://localhost:${HAPROXY_HOST_PORT:-7777}` and confirm VIOS answers through `vss vios list`. There is no global `vss`; both commands must go through that entry point.",
+      "query": "Deploy the validated `_builds/in-1/resolved.yml`, wait for readiness, and leave it running for runtime validation. Once services are up, bootstrap the repository-local CLI as `AGENTS.md` describes — `vss() { uv run --project {{repo_root}}/services/agent --no-dev --extra cli vss \"$@\"; }` — then record the deployment with `vss configure --base-url http://localhost:${HAPROXY_HOST_PORT:-7777}` and confirm VIOS answers through `vss vios list`. There is no usable global `vss`: the boxes carry a stale one whose `--help` omits the `vios` group entirely. If `vss --help` does not list `vios`, the wrong binary is being used — re-run through the `uv run --project` entry point above rather than concluding the command does not exist.",
       "checks": [
         "Deployment uses exactly `docker compose -f _builds/in-1/resolved.yml up -d`; it does not re-read Foundation env files, use an invented Compose profile, or deploy a copied Compose project.",
         "All selected long-running services are running or healthy and selected one-shot initialization containers (`kafka-topic-init-container`, `elasticsearch-init-container`, `broker-health-check`) exit 0.",
