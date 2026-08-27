@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# dt-based-calibration: digital-twin (CARLA) camera calibration service.
+# Compose profile: dt-based-calibration. Container exposes 5 ports:
+#   7865 API, 8000 accuracy, 7860 Gradio file-upload, 7861 Gradio manual, 8080 ROI refiner
+enabled: false
+global: {}
+
+image:
+  repository: ghcr.io/nvidia-ai-blueprints/vss/dt-based-calibration
+  tag: develop-latest
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Compose defaults mirrored here. Override per environment.
+carlaHost: "carla-server"
+carlaPort: 2000
+pgmPath: "/opt/geoids/egm96-15.pgm"
+# GOOGLE_MAPS_API_KEY: leave "" to omit (compose defaults to empty).
+googleMapsApiKey: ""
+
+# Port topology mirrors compose. Kubernetes Service exposes each as a named
+# port; hostPort mapping in compose does not translate — use Service/Ingress.
+service:
+  type: ClusterIP
+  apiPort: 7865
+  accuracyPort: 8000
+  fileUploadPort: 7860
+  manualPort: 7861
+  roiPort: 8080
+
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  mountPath: /app/output
+
+resources: {}
+nodeSelector: {}
+tolerations: []

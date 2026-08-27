@@ -1,0 +1,100 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dt-based-calibration.fullname" . }}
+  labels:
+    {{- include "dt-based-calibration.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "dt-based-calibration.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dt-based-calibration.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with (.Values.global).imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dt-based-calibration
+          image: {{ include "dt-based-calibration.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CARLA_HOST
+              value: {{ .Values.carlaHost | quote }}
+            - name: CARLA_PORT
+              value: {{ .Values.carlaPort | quote }}
+            - name: API_PORT
+              value: {{ .Values.service.apiPort | quote }}
+            - name: ACCURACY_PORT
+              value: {{ .Values.service.accuracyPort | quote }}
+            - name: GRADIO_DEMO_SERVER_PORT
+              value: {{ .Values.service.fileUploadPort | quote }}
+            - name: GRADIO_MANUAL_SERVER_PORT
+              value: {{ .Values.service.manualPort | quote }}
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: PGM_PATH
+              value: {{ .Values.pgmPath | quote }}
+            - name: GOOGLE_MAPS_API_KEY
+              value: {{ .Values.googleMapsApiKey | quote }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.service.apiPort }}
+              protocol: TCP
+            - name: accuracy
+              containerPort: {{ .Values.service.accuracyPort }}
+              protocol: TCP
+            - name: file-upload
+              containerPort: {{ .Values.service.fileUploadPort }}
+              protocol: TCP
+            - name: manual
+              containerPort: {{ .Values.service.manualPort }}
+              protocol: TCP
+            - name: roi
+              containerPort: {{ .Values.service.roiPort }}
+              protocol: TCP
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: output
+              mountPath: {{ .Values.persistence.mountPath }}
+      volumes:
+        - name: output
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "dt-based-calibration.fullname" . }}-output
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
