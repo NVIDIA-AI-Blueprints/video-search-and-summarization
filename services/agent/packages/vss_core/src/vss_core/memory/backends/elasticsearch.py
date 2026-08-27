@@ -22,6 +22,7 @@ from elasticsearch import Elasticsearch
 from elasticsearch import NotFoundError as ESNotFoundError
 from elasticsearch.exceptions import ConnectionError as ESConnectionError
 from elasticsearch.exceptions import TransportError as ESTransportError
+from pydantic import ValidationError
 
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
@@ -29,6 +30,7 @@ from vss_core._foundation.time import datetime_to_iso8601
 
 from ..models import UnifiedMemoryRecord
 from ..store import JobFilters
+from ..store import MemoryDecodeError
 from ..store import MemoryQuery
 from ..store import coerce_utc_instant
 from ..store import make_storage_id
@@ -37,6 +39,13 @@ from ..store import storage_id_for
 logger = logging.getLogger(__name__)
 
 DEFAULT_MEMORY_INDEX = "vss-memory"
+
+
+def _decode(source: dict[str, Any], storage_id: str) -> UnifiedMemoryRecord:
+    try:
+        return UnifiedMemoryRecord.model_validate(source)
+    except ValidationError as error:
+        raise MemoryDecodeError(storage_id, error) from error
 
 
 class ElasticsearchMemoryStore:
@@ -99,7 +108,7 @@ class ElasticsearchMemoryStore:
         source = response.get("_source")
         if not isinstance(source, dict):
             return None
-        return UnifiedMemoryRecord.model_validate(source)
+        return _decode(source, storage_id)
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         body = self._build_search_body(
@@ -149,7 +158,7 @@ class ElasticsearchMemoryStore:
         for hit in hits:
             source = hit.get("_source")
             if isinstance(source, dict):
-                records.append(UnifiedMemoryRecord.model_validate(source))
+                records.append(_decode(source, str(hit.get("_id", "(unknown)"))))
         return records
 
     @staticmethod

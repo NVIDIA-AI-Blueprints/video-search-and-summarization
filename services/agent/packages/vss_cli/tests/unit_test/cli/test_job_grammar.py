@@ -51,6 +51,17 @@ class _Group(CommandGroup):
         return Result(body={"query": inputs.query, "attributes": inputs.attributes})
 
 
+class _MarkerGroup(_Group):
+    name = "search"
+
+    def run(self, action: str, inputs: _Input, ctx: Context) -> Result:  # type: ignore[override]
+        return Result(
+            body={"data": [{"description": "paid-for result"}]},
+            job_id="search-01",
+            extra={"marker": {"asset_id": "camera-1", "status": "completed", "persisted": True}},
+        )
+
+
 # --------------------------------------------------------------------------
 # option derivation
 # --------------------------------------------------------------------------
@@ -118,6 +129,23 @@ def test_run_parses_derived_flags_into_the_model() -> None:
     assert owner.seen.top_k == 3
 
 
+def test_run_ends_with_compact_sdd_completion_marker_even_when_pretty() -> None:
+    result = CliRunner().invoke(_MarkerGroup().cli(), ["run", "--pretty"])
+    assert result.exit_code == 0, result.output
+    marker_line = result.stdout.splitlines()[-1]
+    marker = json.loads(marker_line)
+    assert marker == {
+        "event": "vss_job_completed",
+        "group": "search",
+        "job_id": "search-01",
+        "asset_id": "camera-1",
+        "status": "completed",
+        "persisted": True,
+        "exit_hint": 0,
+    }
+    assert len(marker_line.encode()) <= 1024
+
+
 def test_out_of_range_value_is_rejected() -> None:
     result = CliRunner().invoke(_Group().cli(), ["run", "--top-k", "9999"])
     assert result.exit_code != 0
@@ -139,6 +167,22 @@ def test_read_verbs_fail_honestly_without_a_deployment(tmp_path, monkeypatch: py
         assert "memory" in result.output.lower()
 
 
+def test_read_verbs_require_enabled_memory(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+    config_mod.save(
+        config_mod.Deployment(
+            base_url="http://h:7777",
+            services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
+            memory=config_mod.MemoryConfig(enabled=False, persist_by_default=False),
+        )
+    )
+    for argv in (["status", "--job-id", "x"], ["get", "--job-id", "x"], ["list"]):
+        result = CliRunner().invoke(_Group().cli(), argv)
+        assert result.exit_code == int(Exit.CONFIGURATION), argv
+        assert "memory is disabled" in result.output
+        assert "vss configure memory --enable" in result.output
+
+
 def test_since_only_advertises_what_it_accepts(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A rejected `--since` is the caller's mistake, so it exits 2 with a sentence.
 
@@ -156,11 +200,51 @@ def test_since_only_advertises_what_it_accepts(tmp_path, monkeypatch: pytest.Mon
     assert "Traceback" not in result.output
 
 
-def test_read_verbs_take_the_index_they_read_from() -> None:
-    """Reads and writes have to be able to name the same index."""
+def test_read_verbs_do_not_expose_static_memory_index() -> None:
+    """The authoritative index is configured once, not selected by a read."""
     for verb in ("status", "get", "list"):
         params = _Group().cli().commands[verb].params
-        assert "--memory-index" in {opt for param in params for opt in param.opts}, verb
+        assert "--memory-index" not in {opt for param in params for opt in param.opts}, verb
+
+
+def test_memory_builder_uses_configured_authoritative_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vss_cli import memory as memory_mod
+    import vss_core.memory as core_memory
+
+    built: list[tuple[str, str]] = []
+
+    def build_memory_service(*, es_endpoint: str, memory_index: str) -> object:
+        built.append((es_endpoint, memory_index))
+        return object()
+
+    monkeypatch.setattr(core_memory, "build_memory_service", build_memory_service)
+    deployment = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
+        memory=config_mod.MemoryConfig(index="tenant-memory"),
+    )
+    facade = memory_mod.build(deployment)
+    assert facade.index == "tenant-memory"
+    assert built == [("http://h:7777/elasticsearch", "tenant-memory")]
+
+
+@pytest.mark.parametrize(
+    "memory_config",
+    [
+        None,
+        config_mod.MemoryConfig(enabled=False, persist_by_default=False),
+    ],
+)
+def test_memory_builder_requires_enabled_static_configuration(memory_config: config_mod.MemoryConfig | None) -> None:
+    from vss_cli import memory as memory_mod
+
+    deployment = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
+        memory=memory_config,
+    )
+    with pytest.raises(memory_mod.MemoryUnavailable):
+        memory_mod.build(deployment)
 
 
 # --------------------------------------------------------------------------
@@ -313,7 +397,7 @@ def test_rt_vlm_is_discovered_from_the_same_origin(tmp_path, monkeypatch) -> Non
 
 
 def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
-    from vss_cli.search_group import _critic_from
+    from vss_cli.search.group import _critic_from
 
     deployment = config_mod.Deployment(
         base_url="http://h:7777",
@@ -327,7 +411,7 @@ def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
 
 
 def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli import search_group
+    from vss_cli.search import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",
@@ -357,7 +441,7 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
 
 
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli import search_group
+    from vss_cli.search import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",

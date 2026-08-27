@@ -264,6 +264,39 @@ describe('Foundation component migration – AlertsTable', () => {
     expect(dataRow?.className).toContain('bg-black');
   });
 
+  it('keeps rows in a separate scroll viewport below the toolbar and sticky column headers', () => {
+    const alertData = {
+      id: 'a1',
+      timestamp: '2026-01-01T00:00:00Z',
+      end: '2026-01-01T01:00:00Z',
+      sensor: 'S1',
+      alertType: 'T1',
+      alertTriggered: 'M1',
+      alertDescription: 'D1',
+      metadata: {},
+    };
+
+    render(<AlertsTable {...baseProps} alerts={[alertData]} />);
+
+    const toolbar = screen.getByTestId('alerts-table-toolbar');
+    expect(toolbar).toHaveClass('shrink-0');
+    expect(toolbar).not.toHaveClass('sticky');
+
+    const scrollContainer = screen.getByTestId('alerts-table-scroll-container');
+    expect(scrollContainer).toHaveClass('min-h-0', 'flex-1', 'overflow-auto');
+    expect(scrollContainer).not.toContainElement(toolbar);
+    expect(scrollContainer.previousElementSibling).toBe(toolbar);
+
+    const table = screen.getByTestId('alerts-table');
+    expect(table).toHaveClass('min-w-[1200px]');
+
+    const headers = table.querySelectorAll('th');
+    expect(headers.length).toBeGreaterThan(0);
+    headers.forEach((header) => {
+      expect(header).toHaveClass('sticky', 'top-0', 'z-10', 'bg-black');
+    });
+  });
+
   it('defaults page size to 100 when pageSize omitted so total pages scale with row count', () => {
     const makeRow = (i: number) => ({
       id: `a-${i}`,
