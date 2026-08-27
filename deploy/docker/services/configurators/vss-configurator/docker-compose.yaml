@@ -55,7 +55,8 @@ services:
         {"name": "mdx-vlm-captions"},
         {"name": "mdx-structured-events-summary"},
         {"name": "mdx-embed"},
-        {"name": "mdx-embed-filtered"}]'
+        {"name": "mdx-embed-filtered"},
+        {"name": "mdx-compressed-embeddings"}]'
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
