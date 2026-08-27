@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: MIT
+/**
+ * Same-origin proxy to the VSS ingress, for running the UI outside its normal
+ * deployment origin.
+ *
+ * In the deployed container the UI and every VSS API share one origin behind
+ * haproxy, so browser fetches work directly. Served from anywhere else — a dev
+ * server, a different tunnel — those same absolute URLs become cross-origin
+ * *and* hit haproxy's basic auth, which the browser has no credentials for, and
+ * every tab fails with "Failed to fetch".
+ *
+ * Forwarding through the server fixes both: the request is same-origin from the
+ * browser's point of view, and it reaches the ingress by its internal address,
+ * which haproxy leaves unauthenticated (auth only fires for traffic arriving
+ * via Cloudflare).
+ *
+ * Set VSS_INGRESS_ORIGIN to point at the ingress; defaults to the local one.
+ */
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+const INGRESS = (process.env.VSS_INGRESS_ORIGIN || 'http://127.0.0.1:7777').replace(/\/$/, '');
+
+export const config = {
+  api: {
+    bodyParser: false, // stream bodies through untouched (uploads included)
+    responseLimit: false,
+  },
+};
+
+const HOP_BY_HOP = new Set([
+  'connection',
+  'keep-alive',
+  'transfer-encoding',
+  'upgrade',
+  'host',
+  'content-length',
+]);
+
+async function readBody(req: NextApiRequest): Promise<Buffer | undefined> {
+  if (req.method === 'GET' || req.method === 'HEAD') return undefined;
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.from(chunk));
+  return chunks.length ? Buffer.concat(chunks) : undefined;
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const segments = Array.isArray(req.query.path) ? req.query.path : [req.query.path ?? ''];
+  const search = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const target = `${INGRESS}/${segments.join('/')}${search}`;
+
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (!HOP_BY_HOP.has(k.toLowerCase()) && typeof v === 'string') headers[k] = v;
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, {
+      method: req.method,
+      headers,
+      body: await readBody(req),
+      redirect: 'manual',
+    });
+  } catch (err) {
+    res.status(502).json({
+      error: `VSS ingress unreachable at ${target}`,
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  upstream.headers.forEach((value, key) => {
+    if (!HOP_BY_HOP.has(key.toLowerCase())) res.setHeader(key, value);
+  });
+  res.status(upstream.status);
+
+  if (!upstream.body) {
+    res.end();
+    return;
+  }
+
+  const reader = upstream.body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+  } catch {
+    // Client disconnected or upstream failed mid-response.
+  } finally {
+    reader.releaseLock();
+    res.end();
+  }
+}
