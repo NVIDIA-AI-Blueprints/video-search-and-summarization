@@ -1384,9 +1384,19 @@ for _spec in "${_shared_service_env_specs[@]}"; do
     fi
   done
 done
+_nvstreamer_base_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/base.yml"
 _nvstreamer_shared_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/compose.yml"
-if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_shared_compose}"; then
-  echo "FAIL: shared NVStreamer Compose should define nvstreamer-base"
+if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_base_compose}"; then
+  echo "FAIL: shared NVStreamer base Compose should define nvstreamer-base"
+  ((_split_failed++)) || true
+fi
+if ! awk '
+  /^  nvstreamer:$/ { found = 1; next }
+  found && /^  [[:alnum:]_-]+:$/ { exit }
+  found && /profiles: !override \["nvstreamer"\]/ { valid = 1 }
+  END { exit !(found && valid) }
+' "${_nvstreamer_shared_compose}"; then
+  echo "FAIL: shared NVStreamer Compose should define the profile-neutral nvstreamer service"
   ((_split_failed++)) || true
 fi
 if grep -Eq '(developer-profiles|industry-profiles)/' "${_nvstreamer_shared_compose}"; then
