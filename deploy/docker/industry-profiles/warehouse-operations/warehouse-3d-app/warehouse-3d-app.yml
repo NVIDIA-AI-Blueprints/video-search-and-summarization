@@ -194,21 +194,6 @@ services:
       kibana:
         condition: service_healthy
 
-  vss-video-analytics-api-3d:
-    extends:
-      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
-      service: vss-video-analytics-api
-    profiles: ["vss-video-analytics-api-3d"]
-    container_name: vss-video-analytics-api
-    networks:
-      default:
-        aliases:
-          - vss-video-analytics-api
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-      elasticsearch-init-container:
-        condition: service_completed_successfully
 
   import-calibration-output-container-3d:
     build:
@@ -221,7 +206,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
     depends_on:
-      - vss-video-analytics-api-3d
+      - vss-video-analytics-api
 
 volumes:
   vss-behavior-analytics-3d:

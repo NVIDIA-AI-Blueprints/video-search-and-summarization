@@ -32,21 +32,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  vss-video-analytics-api-fusion:
-    extends:
-      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
-      service: vss-video-analytics-api
-    profiles: ["vss-video-analytics-api-fusion"]
-    container_name: vss-video-analytics-api
-    networks:
-      default:
-        aliases:
-          - vss-video-analytics-api
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-      elasticsearch-init-container:
-        condition: service_completed_successfully
 
 
 
