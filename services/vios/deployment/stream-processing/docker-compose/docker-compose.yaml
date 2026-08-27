@@ -25,6 +25,12 @@ services:
     environment:
       - CONTAINER_NAME=sensor-ms
       - ADAPTOR=${VST_ADAPTOR}
+      # Optional adaptor credential override. When set (non-empty) these win over the
+      # adaptor_config.json entry; leave blank to use adaptor_config.json. Either source is valid.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - VST_USE_SDRC=${VST_USE_SDRC:-false}
