@@ -218,6 +218,65 @@ The API is available at `http://localhost:8000/docs`.
 
 Common service variables and chart values are listed in [Docker Compose and Helm Variables](#docker-compose-and-helm-variables).
 
+## Optional: Run RT-VLM on an NVIDIA MIG slice
+
+MIG is optional. Existing Docker Compose and Helm deployments continue to use their
+default full-GPU configuration without changes. Before using MIG, configure the
+GPU and NVIDIA Container Toolkit or Kubernetes device plugin on the host, then
+obtain the slice UUID or resource name from `nvidia-smi -L` or `kubectl describe
+node <node-name>`. The selected slice must have sufficient memory for the model.
+
+### VSS Docker Compose profiles
+
+For the VSS deployment Compose manifest at
+`deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`, set both
+variables to the same MIG UUID in the active deployment override or shell
+environment:
+
+```bash
+RT_VLM_DEVICE_ID="MIG-GPU-<gpu-uuid>/<gpu-instance>/<compute-instance>"
+RTVI_VLM_NVIDIA_VISIBLE_DEVICES="MIG-GPU-<gpu-uuid>/<gpu-instance>/<compute-instance>"
+```
+
+`RT_VLM_DEVICE_ID` assigns the MIG device to the container.
+`RTVI_VLM_NVIDIA_VISIBLE_DEVICES` exposes that same device to CUDA and vLLM.
+Inside the container it is CUDA device `0`. Do not set these MIG values for a
+normal full-GPU deployment.
+
+### Standalone Docker Compose
+
+The standalone Compose file under `services/rtvi/rt-vlm/docker/` uses its
+existing `NVIDIA_VISIBLE_DEVICES` setting. Set it to the MIG UUID in that
+stack’s `.env` file:
+
+```bash
+NVIDIA_VISIBLE_DEVICES="MIG-GPU-<gpu-uuid>/<gpu-instance>/<compute-instance>"
+```
+
+### Standalone Helm chart
+
+The Kubernetes NVIDIA device plugin assigns the device. Do not set a MIG UUID in
+`NVIDIA_VISIBLE_DEVICES`. Configure the resource name advertised by the plugin
+instead. For a device plugin using the `mixed` MIG strategy, an example is:
+
+```yaml
+gpuResourceName: "nvidia.com/mig-3g.40gb"
+gpuResourceCount: 1
+```
+
+The repository provides `overrides_rtvi_vlm_mig.yaml` as a complete example.
+Install it after the normal standalone override:
+
+```bash
+helm upgrade --install vss-rtvi-vlm . \
+  -n vss-rtvi \
+  -f overrides_rtvi_vlm.yaml \
+  -f overrides_rtvi_vlm_mig.yaml
+```
+
+The MIG resource replaces the chart’s default `nvidia.com/gpu: 1` request; the
+chart does not request a full GPU and a MIG slice together.
+
 ## Supported Models
 
 RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remote OpenAI-compatible endpoints. Use `MODEL_PATH=git:<Hugging Face URL>` for Hugging Face checkpoints, `MODEL_PATH=ngc:<org>/<team>/<model>:<version>` for NGC model artifacts, or `VLM_MODEL_TO_USE=openai-compat` with `VIA_VLM_ENDPOINT` for a remote endpoint.
@@ -956,8 +1015,10 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | `securityContext.runAsUser` | Pod user ID | `1001` |
 | `securityContext.runAsGroup` | Pod group ID | `1001` |
 | `shmSize` | `/dev/shm` memory volume size | `16Gi` |
-| `resources.requests.nvidia.com/gpu` | Requested GPUs | `1` |
-| `resources.limits.nvidia.com/gpu` | GPU limit | `1` |
+| `resources.requests.nvidia.com/gpu` | Default full-GPU request; replaced when `gpuResourceName` is set | `1` |
+| `resources.limits.nvidia.com/gpu` | Default full-GPU limit; replaced when `gpuResourceName` is set | `1` |
+| `gpuResourceName` | Optional Kubernetes MIG resource name advertised by the NVIDIA device plugin | Empty (uses `nvidia.com/gpu`) |
+| `gpuResourceCount` | Number of the selected GPU or MIG resources to request | `1` |
 | `env` | List of service environment variables | See the next table |
 | `nodeSelector` | Kubernetes node selector | `{}` |
 | `tolerations` | Kubernetes tolerations | `[]` |
