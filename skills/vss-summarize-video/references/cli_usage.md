@@ -79,19 +79,25 @@ LVS reports event times as numbers — offsets into the clip unless a
 `creation_time` anchors it. Unified memory stores instants, so a run that
 persists without `--creation-time` cannot write its events and degrades to
 exit 6 with the summary still on stdout. Pass the media's absolute start time
-whenever `--persist` is on. `2025-01-01T00:00:00.000Z` is the conventional
-value for uploaded sample media with no real timestamp.
+whenever configured persistence is enabled. `2025-01-01T00:00:00.000Z` is the
+conventional value for uploaded sample media with no real timestamp.
 
 ## Persistence
 
 | flag | meaning |
 |---|---|
-| `--persist/--no-persist` | persist to unified memory; on by default |
+| `--no-persist` | safe per-run opt-out from the configured persistence policy |
+| `--write-memory-note/--no-write-memory-note` | per-run OpenClaw cache override |
 | `--video-id` | `video_id` on the record; defaults to `--id`, required with `--url` |
 | `--media-source` | `media_ref.source`, default `vst` |
 | `--media-name` | `media_ref.name`, e.g. the original filename |
-| `--memory-index` | Elasticsearch index; defaults to the memory module's own |
 | `--request-timeout-seconds` | HTTP timeout, default 3600 |
+
+Configure Elasticsearch, its authoritative index, the default persistence
+policy, and optional OpenClaw Markdown cache once with `vss configure memory`.
+There is no positive per-run `--persist` flag and no per-run
+`--memory-index`. Query, identity, media, and model fields remain request
+flags.
 
 Persisting a `--url` summary without `--video-id` exits 2 before the
 summarization runs, rather than after paying for it. Both edges are configured
@@ -103,16 +109,19 @@ a run that times out or dies still leaves a record to reconcile against.
 
 ## Output and exits
 
-Output is compact by default: stdout is one line, a single JSON object naming
-the job. That line is the completion marker — read it, not the prose on stderr.
-Do not pass `--pretty`, which indents the object across many lines and breaks a
-`tail -1` parse. (`--help` renders the default as `(pretty)`; the behaviour is
-compact.)
+Output is compact by default: stdout contains two JSON documents. The first is
+the operation result; the final line is the completion marker naming the job.
+Read both, and do not treat prose on stderr as the result. Do not pass
+`--pretty`, which indents the documents across many lines and breaks
+first-line/final-line parsing. (`--help` renders the default as `(pretty)`; the
+behaviour is compact.)
 
 ```json
 {"job_id": "summarize-01K...", "summary": { ... LVS envelope ... },
  "persist": {"status": "complete", "index": "...", "group": "summary", "events": 3},
  "record": "closed"}
+{"event":"vss_job_completed","group":"summary","job_id":"summarize-01K...",
+ "status":"completed","persisted":true,"exit_hint":0}
 ```
 
 The LVS response is nested under `summary` verbatim, so its own envelope is
@@ -123,7 +132,7 @@ keys with `status`/`record`/`error` but still names the `job_id`, so only exits
 0 and 6 carry a summary to parse — reach for `summary` on any other exit and jq
 fails on a missing field, burying the marker that explains what went wrong.
 
-`record` is on every marker, and says what the `job_id` is now worth to a read:
+`record` is on every result body, and says what the `job_id` is now worth to a read:
 `closed` when the record states the outcome, `absent` when nothing was persisted
 (`--no-persist`), `stale` when the write could not land and the record therefore
 still reads `submitted`, which is the one state `status` reports as running. An
