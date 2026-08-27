@@ -26,6 +26,14 @@ from a named sensor, but it is never required.
 > pipeline) or `/v1/summarize` under any circumstances — a timestamp question does **not**
 > mean you should switch to the summarization pipeline; ask the VLM directly and read the
 > timing out of its answer.
+>
+> **Never substitute a different VLM/RT-VLM endpoint for a failed `/v1/chat/completions`.**
+> If that call fails (non-2xx, timeout, or an empty/malformed body), the only permitted
+> retry is one repair of the **same** `/v1/chat/completions` request — typically a missing
+> RT-VLM frame-sampling kwarg (`num_frames_per_second_or_fixed_frames_chunk` > 0) or a
+> too-large inline payload. Do **not** fall back to `/v1/generate_captions`, `/v1/summarize`,
+> or any other non-`chat/completions` route on the VLM host; those produce a different
+> kind of output and are not a verdict. A second failure is a technical failure — report it.
 
 ---
 

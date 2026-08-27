@@ -180,8 +180,11 @@ visual evidence.
      missing VLM, inaccessible media, and malformed or inconclusive output.
 
 The CLI is fail-open: verification failure must not discard or fail retrieval.
-Never derive a verdict from similarity, filenames, object IDs, or screenshot
-availability. Treat boolean `criteria_met` values as critic evidence only.
+Never derive a verdict from similarity, filenames, object IDs, screenshot
+availability, or your own multimodal vision / extracted frames — the only
+verdicts are the CLI critic's and, after explicit delegated verification, the
+single VLM request via vss-ask-video. Treat boolean `criteria_met` values as
+critic evidence only.
 
 7. Format nonempty results without raw JSON:
 

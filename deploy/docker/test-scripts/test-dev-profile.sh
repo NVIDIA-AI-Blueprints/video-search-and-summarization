@@ -1920,11 +1920,11 @@ _alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-
 _alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
 _alerts_cv_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_cv.json"
 _alerts_vlm_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_vlm.json"
-if [[ -f "${_alerts_agent_config}" ]]
-  && [[ ! -e "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml" ]]
-  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}"
-  && grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}"
-  && grep -q 'vss-rtvi-cv:9010/api/v1/stream/add' "${_alerts_cv_webhook}"
+if [[ -f "${_alerts_agent_config}" ]] \
+  && [[ ! -e "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml" ]] \
+  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}" \
+  && grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}" \
+  && grep -q 'vss-rtvi-cv:9010/api/v1/stream/add' "${_alerts_cv_webhook}" \
   && grep -q 'vss-alert-bridge:9080/api/v1/realtime/always-on' "${_alerts_vlm_webhook}"; then
   echo "PASS: alerts uses MODE-selected VIOS webhooks for stream registration"
   ((TESTS_PASSED++)) || true
@@ -1937,9 +1937,9 @@ fi
 # deployment-selected VLM_NAME instead of a hardcoded model id.
 _alert_compose="${REPO_ROOT}/deploy/docker/services/alert/compose.yml"
 _alerts_realtime_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml"
-if grep -Fq 'ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml' "${_alert_compose}"
-  && grep -Fq '/app/configs/realtime-config.yml' "${_alert_compose}"
-  && grep -Fq '/app/runtime/realtime-config.yml' "${_alert_compose}"
+if grep -Fq 'ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq '/app/configs/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq '/app/runtime/realtime-config.yml' "${_alert_compose}" \
   && grep -Fq 'model: "${VLM_NAME}"' "${_alerts_realtime_config}"; then
   echo "PASS: alert-bridge renders always-on rules with deployment-selected VLM_NAME"
   ((TESTS_PASSED++)) || true

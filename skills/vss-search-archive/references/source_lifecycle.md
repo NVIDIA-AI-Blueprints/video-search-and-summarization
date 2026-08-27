@@ -175,6 +175,16 @@ request. A literal `--max-time`, a new epoch-plus-duration expression, or a
 phase-local deadline after this initialization violates the source-setup
 contract.
 
+Reassigning `SEARCH_READINESS_DEADLINE` after it has been initialized — even
+under a new variable name, in a fresh shell, or because the first ingestion
+produced no embeddings — is a deadline reset and violates the contract. If the
+deadline expires, or if an ingestion produces no embeddings before it expires,
+print diagnostics and fail; do not delete the sensors and re-add them, do not
+POST `/api/v1/videos` a second time for the same fixture, and do not start a new
+deadline. One ingestion attempt per fixture, one deadline per source-setup: a
+delete-and-re-add cycle after a failed or expired ingestion is a re-ingest
+recovery loop, never a fresh attempt.
+
 Cleanup is an Agent operation. Resolve every exact or duplicate fixture entry
 from the VST source list, then delete its UUID only through the Agent:
 
