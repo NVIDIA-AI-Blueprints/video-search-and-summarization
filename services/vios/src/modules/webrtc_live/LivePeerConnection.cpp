@@ -228,6 +228,33 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
         return VmsErrorCode::MethodNotAllowedError;
     };
 
+    m_func["/api/v1/live/dash/query"] = [](const Json::Value& req_info, const Json::Value& /*in*/,
+                                           Json::Value& response, struct mg_connection* /*conn*/) -> VmsErrorCode
+    {
+        if (!iequals(req_info.get("method", UNKNOWN_STRING).asString(), "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+        /* An optional filter, not a required argument: with no viewerId this
+         * reports everything running, which is the question a caller asks when
+         * it does not yet know what is there. */
+        std::string viewerId;
+        CivetServer::getParam(req_info.get("query", EMPTY_STRING).asString(), "viewerId", viewerId);
+        const std::vector<DashSessionInfo> sessions =
+            DashSessionManager::instance().query(viewerId, false);
+        /* Answer with an array either way.  An empty result is not an error -
+         * nothing is running, or the named viewer is not live - and a caller
+         * that has to distinguish an object from an array to read a reply is a
+         * caller that will get it wrong. */
+        response = Json::Value(Json::arrayValue);
+        for (const DashSessionInfo& session : sessions)
+        {
+            response.append(dashSessionInfoToJson(session));
+        }
+        return VmsErrorCode::NoError;
+    };
+
     m_func["/api/v1/live/stream/query"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
         const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
