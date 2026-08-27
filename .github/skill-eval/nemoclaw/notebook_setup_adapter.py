@@ -34,6 +34,7 @@ _DERIVED_SETTINGS_MARKER = (
 )
 _NOTEBOOK_PARAMETERS = {
     "deploy_nemoclaw.ipynb": (
+        "NEMOCLAW_PROVIDER",
         "NEMOCLAW_ENDPOINT_URL",
         "NEMOCLAW_MODEL",
         "COMPATIBLE_API_KEY",
@@ -149,6 +150,7 @@ def prepare_environment(
     env["NEMOCLAW_ENDPOINT_URL"] = endpoint
     env["NEMOCLAW_MODEL"] = model
     env["COMPATIBLE_API_KEY"] = compatible_key
+    env.setdefault("NEMOCLAW_PROVIDER", "custom")
 
     llm_url = _endpoint_base_url(
         _first_nonempty(env.get("LLM_ENDPOINT_URL"), env.get("LLM_REMOTE_URL"))
