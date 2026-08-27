@@ -1000,6 +1000,43 @@ class PoolCandidates(unittest.TestCase):
             ],
         )
 
+    def test_managed_box_filtered_by_catalog_gpu_count(self):
+        """A managed SKU the catalog says is 1-GPU is not offered for 2 GPUs.
+
+        This is the failure that killed IN-3: the box passed the gpu_type
+        check, was locked, and only then did brev_env reject it on live
+        nvidia-smi -- after the leg had committed to it.
+        """
+        orig = run_leg._CATALOG_GPU_COUNTS
+        run_leg._CATALOG_GPU_COUNTS = {"g7e.4xlarge": 1, "g7e.12xlarge": 2}
+        try:
+            names = run_leg.pool_candidates(
+                {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
+            self.assertEqual(names, ["vss-eval-rtx-2g-VM1b", "vss-eval-rtx-2g-2"])
+        finally:
+            run_leg._CATALOG_GPU_COUNTS = orig
+
+    def test_unknown_sku_is_never_disqualifying(self):
+        """A catalog miss must not filter a box out.
+
+        An empty or partial catalog that excluded everything would convert a
+        slow schedule into a hard blocker, which is worse than the bug.
+        """
+        orig = run_leg._CATALOG_GPU_COUNTS
+        run_leg._CATALOG_GPU_COUNTS = {}          # catalog says nothing
+        try:
+            names = run_leg.pool_candidates(
+                {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
+            # Every managed box stays eligible -- brev_env validates the pick,
+            # and a refusal is recoverable. Filtering on a stale name here is
+            # what would starve the leg.
+            self.assertIn("vss-eval-rtx-2g-2", names)
+            self.assertIn("vss-eval-rtx-1g-2", names)
+            # The registered node is still filtered: its name is authoritative.
+            self.assertIn("vss-eval-rtx-2g-VM1b", names)
+        finally:
+            run_leg._CATALOG_GPU_COUNTS = orig
+
     def test_exact_count_hint_sorts_first(self):
         names = run_leg.pool_candidates(
             {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
@@ -1474,5 +1511,91 @@ run_leg.main(sys.argv[2:])
         )
 
 
+class AttemptLockTimeout(unittest.TestCase):
+    """Per-attempt lock budget.
+
+    The helper reads the monotonic clock itself. An earlier revision took
+    `now` from the caller, which passed `time.time()` against a monotonic
+    deadline and floored every attempt to 1s -- including the first.
+    """
+
+    def setUp(self):
+        self._orig = run_leg.time.monotonic
+        run_leg.time.monotonic = lambda: 100.0
+
+    def tearDown(self):
+        run_leg.time.monotonic = self._orig
+
+    def test_no_deadline_uses_the_base_budget(self):
+        self.assertEqual(run_leg.attempt_lock_timeout(900, None, 60), 900)
+
+    def test_capped_by_what_the_leg_has_left(self):
+        # 500s left at now=100, 60s reserved for Harbor -> 440s, not 900.
+        self.assertEqual(run_leg.attempt_lock_timeout(900, 600.0, 60), 440)
+
+    def test_base_wins_when_the_leg_has_room(self):
+        self.assertEqual(run_leg.attempt_lock_timeout(300, 100_000.0, 60), 300)
+
+    def test_floor_when_the_deadline_has_passed(self):
+        self.assertEqual(run_leg.attempt_lock_timeout(900, 50.0, 60), 1)
+
+
+class BoxRejectedForCapacity(unittest.TestCase):
+    """A refused box is not a failed trial -- nothing ran."""
+
+    def _trial(self, payload: dict, age_sec: float = 0.0) -> Path:
+        import tempfile, os, time as _t, json as _json
+        root = Path(tempfile.mkdtemp())
+        f = root / "result.json"
+        f.write_text(_json.dumps(payload), encoding="utf-8")
+        if age_sec:
+            old = _t.time() - age_sec
+            os.utime(f, (old, old))
+        return root
+
+    def test_detects_live_nvidia_smi_refusal(self):
+        root = self._trial({"exception_info": {"message":
+            "Brev instance 'vss-eval-rtx-1g-1' has 1 GPU(s) (live "
+            "nvidia-smi); task requires at least 2."}})
+        self.assertIsNotNone(run_leg.box_rejected_for_capacity(root, 0))
+
+    def test_detects_requirement_mismatch_refusal(self):
+        root = self._trial({"exception_info":
+            "Brev instance 'vss-eval-l40s' does not meet task requirements"})
+        self.assertIsNotNone(run_leg.box_rejected_for_capacity(root, 0))
+
+    def test_ignores_an_ordinary_trial_failure(self):
+        root = self._trial({"exception_info": None,
+                            "verifier_result": {"rewards": {"reward": 0.83}}})
+        self.assertIsNone(run_leg.box_rejected_for_capacity(root, 0))
+
+    def test_agent_quoting_the_error_is_not_a_refusal(self):
+        """The false positive that matters.
+
+        Eval agents diagnose this failure in their own trajectories, quoting
+        the message verbatim. A trial that reached the agent produced a real
+        result and must never be retried as a refused box.
+        """
+        root = self._trial({
+            "exception_info": "Brev instance 'x' does not meet task reqs",
+            "agent_execution": {"started_at": "2026-08-27T00:00:00Z",
+                                "transcript": "the box does not meet task "
+                                              "requirements, so I checked ..."},
+        })
+        self.assertIsNone(run_leg.box_rejected_for_capacity(root, 0))
+
+    def test_ignores_a_refusal_from_an_earlier_attempt(self):
+        import time as _t
+        root = self._trial({"exception_info":
+            "Brev instance 'old' has 1 GPU(s) (live nvidia-smi); task "
+            "requires at least 2."}, age_sec=600)
+        self.assertIsNone(run_leg.box_rejected_for_capacity(root, _t.time() - 60))
+
+    def test_unreadable_results_root_is_not_a_refusal(self):
+        self.assertIsNone(
+            run_leg.box_rejected_for_capacity(Path("/nonexistent-xyz"), 0))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

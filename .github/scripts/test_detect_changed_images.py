@@ -528,6 +528,7 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-configurator",
                 "vss-rt-config-adaptor",
                 "vss-rt-vlm",
+                "vss-rt-vlm-sbsa",
                 "vss-vios-sensor",
                 "vss-vios-streamprocessing",
                 "vss-vios-nvstreamer",
