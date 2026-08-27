@@ -2,8 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import shlex
+import subprocess
 
-from agents.openclaw_unified_memory import GROUP_PREFIX, GROUP_SUFFIX, _group_envelope
+from agents.openclaw_unified_memory import (
+    GROUP_PREFIX,
+    GROUP_SUFFIX,
+    _group_envelope,
+    _prediction_extractor_command,
+)
 
 
 def test_group_envelope_requires_four_turns() -> None:
@@ -12,9 +19,110 @@ def test_group_envelope_requires_four_turns() -> None:
         "kind": "unified-memory-group",
         "group_id": video_id,
         "turns": [
-            {"case_id": f"{video_id}-{index}", "prompt": "q"}
-            for index in range(1, 5)
+            {"case_id": f"{video_id}-{index}", "prompt": "q"} for index in range(1, 5)
         ],
     }
     instruction = f"preamble\n{GROUP_PREFIX}{json.dumps(payload)}{GROUP_SUFFIX}\n"
     assert _group_envelope(instruction) == payload
+
+
+def _run_prediction_pipeline(
+    payload: dict,
+    case_id: str,
+    log_path: str,
+    temporary_path: str,
+    prediction_path: str,
+) -> None:
+    encoded = json.dumps(payload)
+    command = (
+        "set -o pipefail; "
+        f"printf %s {shlex.quote(encoded)} "
+        f"| tee {shlex.quote(log_path)} "
+        f"| {_prediction_extractor_command(case_id)} "
+        f"> {shlex.quote(temporary_path)} "
+        f"&& mv {shlex.quote(temporary_path)} {shlex.quote(prediction_path)}"
+    )
+    subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_prediction_pipeline_preserves_complete_log(tmp_path) -> None:
+    payload = {"payloads": [{"text": "B"}], "meta": {"status": "ok"}}
+    log_path = tmp_path / "openclaw-turn-1.txt"
+    prediction_path = tmp_path / "prediction-1.json"
+
+    _run_prediction_pipeline(
+        payload,
+        "video-1",
+        str(log_path),
+        str(tmp_path / "prediction-1.json.tmp"),
+        str(prediction_path),
+    )
+
+    assert json.loads(log_path.read_text(encoding="utf-8")) == payload
+    assert json.loads(prediction_path.read_text(encoding="utf-8")) == {
+        "case_id": "video-1",
+        "response": "B",
+    }
+
+
+def test_prediction_pipeline_preserves_quoted_multiline_response(tmp_path) -> None:
+    response = 'The answer is "B".\nSecond line.'
+    prediction_path = tmp_path / "prediction-1.json"
+    _run_prediction_pipeline(
+        {"payloads": [{"text": response}]},
+        "video-1",
+        str(tmp_path / "openclaw.txt"),
+        str(tmp_path / "prediction-1.json.tmp"),
+        str(prediction_path),
+    )
+
+    assert (
+        json.loads(prediction_path.read_text(encoding="utf-8"))["response"] == response
+    )
+
+
+def test_four_prediction_artifacts_are_numbered_in_order(tmp_path) -> None:
+    expected = ["B", "A", "D", "C"]
+    for index, response in enumerate(expected, 1):
+        _run_prediction_pipeline(
+            {"payloads": [{"text": response}]},
+            f"video-{index}",
+            str(tmp_path / f"turn-{index}.txt"),
+            str(tmp_path / f"prediction-{index}.json.tmp"),
+            str(tmp_path / f"prediction-{index}.json"),
+        )
+    actual = [
+        json.loads((tmp_path / f"prediction-{index}.json").read_text())["response"]
+        for index in range(1, 5)
+    ]
+
+    assert actual == expected
+
+
+def test_prediction_pipeline_rejects_missing_or_non_string_text(tmp_path) -> None:
+    for index, payload in enumerate(
+        (
+            {"payloads": []},
+            {"payloads": [{"text": 2}]},
+        ),
+        1,
+    ):
+        prediction_path = tmp_path / f"prediction-{index}.json"
+        try:
+            _run_prediction_pipeline(
+                payload,
+                f"video-{index}",
+                str(tmp_path / f"invalid-{index}.txt"),
+                str(tmp_path / f"prediction-{index}.json.tmp"),
+                str(prediction_path),
+            )
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise AssertionError("invalid response unexpectedly produced a prediction")
+        assert not prediction_path.exists()
