@@ -15,6 +15,7 @@ from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
 from vss_cli.group import Context
 from vss_cli.vlm.group import VLM
+from vss_cli.vlm.runner import IntrospectionVLMJobRunner
 from vss_cli.vlm.runner import VLMJobError
 from vss_cli.vlm.runner import VLMJobRequest
 from vss_cli.vlm.runner import VLMJobResult
@@ -124,6 +125,96 @@ def test_runner_without_memory_never_persists() -> None:
     result = _run(_Analyzer(), memory=None)
     assert result.record == "absent"
     assert result.persisted is False
+
+
+def test_introspection_adapter_runs_direct_job_with_normal_persistence() -> None:
+    memory = _memory()
+    analyzer = _Analyzer()
+    runner = IntrospectionVLMJobRunner(
+        _deployment(),
+        memory=memory,
+        analyzer=analyzer,
+        analyzer_model="test-vlm",
+        resolve_sensor_fn=_sensor,
+        recorded_segments_fn=_segments,
+    )
+
+    evidence = asyncio.run(
+        runner.run(
+            sensor="warehouse",
+            start_time=START,
+            end_time=END,
+            prompt="What happened?",
+            intent="introspection",
+        )
+    )
+
+    assert evidence.persisted is True
+    assert evidence.answer == analyzer.answer
+    assert memory.service.list_jobs()[0].input.intent == "introspection"
+    assert runner.persistence_errors == []
+
+
+def test_introspection_adapter_preserves_answer_when_persistence_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = _memory()
+    analyzer = _Analyzer()
+    original_upsert = memory.service.upsert
+    writes = 0
+
+    def fail_completion(record: Any) -> Any:
+        nonlocal writes
+        writes += 1
+        if writes > 1:
+            raise BackendUnreachableError("memory", "offline")
+        return original_upsert(record)
+
+    monkeypatch.setattr(memory.service, "upsert", fail_completion)
+    runner = IntrospectionVLMJobRunner(
+        _deployment(),
+        memory=memory,
+        analyzer=analyzer,
+        analyzer_model="test-vlm",
+        resolve_sensor_fn=_sensor,
+        recorded_segments_fn=_segments,
+    )
+
+    evidence = asyncio.run(
+        runner.run(
+            sensor="warehouse",
+            start_time=START,
+            end_time=END,
+            prompt="What happened?",
+            intent="introspection",
+        )
+    )
+
+    assert evidence.answer == analyzer.answer
+    assert evidence.persisted is False
+    assert runner.persistence_errors
+
+
+def test_introspection_adapter_with_disabled_persistence_writes_nothing() -> None:
+    runner = IntrospectionVLMJobRunner(
+        _deployment(persist=False),
+        memory=None,
+        analyzer=_Analyzer(),
+        analyzer_model="test-vlm",
+        resolve_sensor_fn=_sensor,
+        recorded_segments_fn=_segments,
+    )
+    evidence = asyncio.run(
+        runner.run(
+            sensor="warehouse",
+            start_time=START,
+            end_time=END,
+            prompt="What happened?",
+            intent="introspection",
+        )
+    )
+    assert evidence.persisted is False
+    assert runner.persistence_errors == []
 
 
 def test_timeout_is_terminal_and_closes_record() -> None:

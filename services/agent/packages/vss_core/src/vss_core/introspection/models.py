@@ -217,6 +217,7 @@ class IntrospectionResult(_StrictModel):
     memory_evidence: list[MemoryEvidence] = Field(default_factory=list)
     vlm_evidence: list[VLMEvidence] = Field(default_factory=list)
     unresolved_gaps: list[str] = Field(default_factory=list)
+    failure_kind: Literal["backend_unreachable", "timeout"] | None = Field(default=None, exclude=True)
 
     @field_validator("answer", mode="after")
     @classmethod

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable
     from collections.abc import Callable
 
+    from vss_core.introspection.models import VLMEvidence
     from vss_core.vios import SensorRef
     from vss_core.vlm import VLMAnalyzer
 
@@ -110,6 +111,92 @@ class VLMJobError(Exception):
         super().__init__(str(cause))
         self.result = result
         self.cause = cause
+
+
+class IntrospectionVLMJobRunner:
+    """Adapt persisted VLM jobs to the core introspection runner protocol."""
+
+    def __init__(
+        self,
+        deployment: config_mod.Deployment,
+        *,
+        memory: Any | None,
+        timeout_seconds: int = 180,
+        analyzer: VLMAnalyzer | None = None,
+        analyzer_model: str | None = None,
+        resolve_sensor_fn: Callable[..., Awaitable[SensorRef]] | None = None,
+        recorded_segments_fn: Callable[..., Awaitable[list[tuple[str, str]]]] | None = None,
+    ) -> None:
+        self._deployment = deployment
+        self._memory = memory
+        self._timeout_seconds = timeout_seconds
+        self._analyzer = analyzer
+        self._analyzer_model = analyzer_model
+        self._resolve_sensor_fn = resolve_sensor_fn
+        self._recorded_segments_fn = recorded_segments_fn
+        self.persistence_errors: list[str] = []
+        self.backend_errors: list[str] = []
+        self.timed_out = False
+
+    async def run(
+        self,
+        *,
+        sensor: str,
+        start_time: str,
+        end_time: str,
+        prompt: str,
+        intent: str,
+    ) -> VLMEvidence:
+        from vss_core.introspection import VLMEvidence
+
+        if intent != "introspection":
+            raise ValueError("introspection VLM jobs require intent='introspection'")
+        request = VLMJobRequest(
+            sensor=sensor,
+            start_time=start_time,
+            end_time=end_time,
+            prompt=prompt,
+            intent="introspection",
+        )
+        try:
+            result = await run_vlm_job(
+                request,
+                self._deployment,
+                analyzer=self._analyzer,
+                analyzer_model=self._analyzer_model,
+                memory=self._memory,
+                timeout_seconds=self._timeout_seconds,
+                resolve_sensor_fn=self._resolve_sensor_fn,
+                recorded_segments_fn=self._recorded_segments_fn,
+            )
+        except VLMJobError as error:
+            self.timed_out = self.timed_out or error.result.status == "timeout"
+            if _is_backend_error(error.cause):
+                self.backend_errors.append(str(error.cause))
+            raise
+        except Exception as error:
+            if _is_backend_error(error):
+                self.backend_errors.append(str(error))
+            raise
+        if result.persistence_error is not None:
+            self.persistence_errors.append(result.persistence_error)
+        if result.answer is None:  # pragma: no cover - successful runner results always carry an answer
+            raise RuntimeError("VLM job completed without an answer")
+        return VLMEvidence(
+            job_id=result.job_id,
+            persisted=result.persisted,
+            sensor=result.sensor_name,
+            start_time=result.start_time,
+            end_time=result.end_time,
+            answer=result.answer,
+        )
+
+
+def _is_backend_error(error: BaseException) -> bool:
+    return any(
+        klass.__name__ in {"BackendUnreachableError", "ConnectError", "ConnectTimeout", "VSTError", "VIOSTimeoutError"}
+        for klass in type(error).__mro__
+    )
 
 
 def _production_analyzer(deployment: config_mod.Deployment, timeout_seconds: int) -> tuple[VLMAnalyzer, str]:
@@ -301,6 +388,7 @@ async def run_vlm_job(
 
 
 __all__ = [
+    "IntrospectionVLMJobRunner",
     "VLMJobError",
     "VLMJobRequest",
     "VLMJobResult",

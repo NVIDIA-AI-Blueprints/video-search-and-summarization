@@ -11,10 +11,13 @@ from typing import Any
 from click.testing import CliRunner
 import pytest
 
+from vss_cli import config as config_mod
 from vss_cli.exits import Exit
 from vss_cli.memory import Memory
 from vss_cli.memory_cmd import memory
+from vss_cli.memory_cmd import set_test_introspect
 from vss_cli.memory_cmd import set_test_memory
+from vss_core.introspection import IntrospectionResult
 from vss_core.memory import MemoryService
 from vss_core.memory import UnifiedMemoryRecord
 from vss_core.memory.backends.in_memory import InMemoryStore
@@ -68,6 +71,7 @@ def injected_memory() -> Generator[Memory]:
     facade = Memory(MemoryService(InMemoryStore()), index="vss-memory")
     set_test_memory(facade)
     yield facade
+    set_test_introspect(None)
     set_test_memory(None)
 
 
@@ -78,12 +82,12 @@ def _invoke(*args: str, input: str | None = None) -> Any:
 def test_memory_exposes_store_verbs_not_job_grammar() -> None:
     result = _invoke("--help")
     assert result.exit_code == 0
-    assert all(verb in result.output for verb in ("upsert", "get", "query", "events"))
+    assert all(verb in result.output for verb in ("upsert", "get", "query", "events", "introspect"))
     assert all(verb not in result.output for verb in ("run", "status", "list"))
 
 
 def test_memory_verbs_do_not_expose_static_index_selection() -> None:
-    for verb in ("upsert", "get", "query", "events"):
+    for verb in ("upsert", "get", "query", "events", "introspect"):
         result = _invoke(verb, "--help")
         assert result.exit_code == 0, result.output
         assert "--memory-index" not in result.output
@@ -151,3 +155,173 @@ def test_invalid_inputs_exit_two() -> None:
 def test_unknown_handles_exit_five() -> None:
     assert _invoke("get", "--job-id", "missing").exit_code == int(Exit.NOT_FOUND)
     assert _invoke("events", "--asset-id", "missing").exit_code == int(Exit.NOT_FOUND)
+
+
+def _introspection_result(status: str = "completed") -> IntrospectionResult:
+    return IntrospectionResult(
+        status=status,
+        sufficient_from_memory=status == "completed",
+        answer="A forklift crossed the aisle." if status != "no_memory" else None,
+    )
+
+
+def test_introspect_help_exposes_exact_options() -> None:
+    result = _invoke("introspect", "--help")
+    assert result.exit_code == 0
+    for option in (
+        "--query",
+        "--sensor",
+        "--start-time",
+        "--end-time",
+        "--job-id",
+        "--record-id",
+        "--record-type",
+        "--group",
+        "--pretty",
+    ):
+        assert option in result.output
+    assert "--no-persist" not in result.output
+
+
+@pytest.mark.parametrize(
+    "selector",
+    (
+        ("--sensor", "warehouse"),
+        ("--job-id", "summary-01"),
+        ("--record-id", "event-1"),
+        ("--record-type", "event", "--sensor", "warehouse"),
+        ("--group", "summary", "--sensor", "warehouse"),
+        ("--start-time", "2026-08-19T20:00:00Z", "--end-time", "2026-08-19T21:00:00+00:00"),
+    ),
+)
+def test_introspect_accepts_each_selector(selector: tuple[str, ...]) -> None:
+    async def fake(_request: Any) -> IntrospectionResult:
+        return _introspection_result()
+
+    set_test_introspect(fake)
+    result = _invoke("introspect", "--query", "What happened?", *selector)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        ("--query", "What happened?"),
+        ("--query", "What happened?", "--group", "summary"),
+        ("--query", "What happened?", "--record-type", "event"),
+        ("--query", "What happened?", "--start-time", "2026-08-19T20:00:00Z"),
+        ("--query", "What happened?", "--end-time", "2026-08-19T21:00:00Z"),
+        (
+            "--query",
+            "What happened?",
+            "--sensor",
+            "warehouse",
+            "--start-time",
+            "not-iso",
+            "--end-time",
+            "2026-08-19T21:00:00Z",
+        ),
+        ("--query", " ", "--sensor", "warehouse"),
+    ),
+)
+def test_introspect_rejects_invalid_scope_and_values(args: tuple[str, ...]) -> None:
+    assert _invoke("introspect", *args).exit_code == int(Exit.INVALID_INPUT)
+
+
+def test_introspect_compact_and_pretty_json() -> None:
+    async def fake(_request: Any) -> IntrospectionResult:
+        return _introspection_result()
+
+    set_test_introspect(fake)
+    compact = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+    pretty = _invoke("introspect", "--query", "What?", "--sensor", "warehouse", "--pretty")
+    assert "\n" not in compact.output.rstrip("\n")
+    assert ": " not in compact.output
+    assert '\n  "status"' in pretty.output
+    assert json.loads(compact.output) == json.loads(pretty.output)
+
+
+@pytest.mark.parametrize(
+    ("status", "failure_kind", "exit_code"),
+    (
+        ("completed", None, Exit.SUCCESS),
+        ("partial", None, Exit.SUCCESS),
+        ("no_memory", None, Exit.NOT_FOUND),
+        ("partial", "timeout", Exit.TIMEOUT),
+        ("partial", "backend_unreachable", Exit.BACKEND_UNREACHABLE),
+    ),
+)
+def test_introspect_emits_result_before_status_exit(
+    status: str,
+    failure_kind: str | None,
+    exit_code: Exit,
+) -> None:
+    async def fake(_request: Any) -> IntrospectionResult:
+        return _introspection_result(status).model_copy(update={"failure_kind": failure_kind})
+
+    set_test_introspect(fake)
+    result = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+    assert result.exit_code == int(exit_code)
+    payload = json.loads(result.output)
+    assert payload["status"] == status
+    assert "failure_kind" not in payload
+
+
+@pytest.mark.parametrize(
+    ("persist_by_default", "persistence_errors", "expected_exit"),
+    ((True, [], Exit.SUCCESS), (False, [], Exit.SUCCESS), (True, ["memory offline"], Exit.PARTIAL)),
+)
+def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
+    monkeypatch: pytest.MonkeyPatch,
+    injected_memory: Memory,
+    persist_by_default: bool,
+    persistence_errors: list[str],
+    expected_exit: Exit,
+) -> None:
+    import vss_cli.vlm.runner as runner_mod
+    import vss_core.introspection as introspection_mod
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={
+            "rt_vlm": config_mod.Service(url="http://vss.test/rtvi-vlm", models=["first-model"]),
+            "elasticsearch": config_mod.Service(url="http://vss.test/elasticsearch"),
+        },
+        memory=config_mod.MemoryConfig(enabled=True, persist_by_default=persist_by_default),
+    )
+    observed: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["client"] = kwargs
+
+        async def aclose(self) -> None:
+            observed["closed"] = True
+
+    class FakeRunner:
+        def __init__(self, _deployment: Any, **kwargs: Any) -> None:
+            self.persistence_errors = persistence_errors
+            self.backend_errors: list[str] = []
+            self.timed_out = False
+            observed["runner_memory"] = kwargs["memory"]
+
+    async def fake_introspect(*_args: Any, **kwargs: Any) -> IntrospectionResult:
+        observed["memory_service"] = kwargs["memory"]
+        assert injected_memory.service.list_jobs() == []
+        return _introspection_result()
+
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(introspection_mod, "OpenAIIntrospectionClient", FakeClient)
+    monkeypatch.setattr(introspection_mod, "introspect", fake_introspect)
+    monkeypatch.setattr(runner_mod, "IntrospectionVLMJobRunner", FakeRunner)
+
+    result = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+
+    assert result.exit_code == int(expected_exit), result.output
+    assert json.loads(result.output)["answer"] == "A forklift crossed the aisle."
+    assert observed["client"]["model"] == "first-model"
+    assert observed["closed"] is True
+    assert observed["memory_service"] is injected_memory.service
+    assert (observed["runner_memory"] is injected_memory) is persist_by_default
+    assert injected_memory.service.list_jobs() == []

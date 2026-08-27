@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from vss_core._foundation.errors import BackendUnreachableError
 from vss_core.introspection.judge import InvalidJudgeResponseError
 from vss_core.introspection.models import GroundedGap
 from vss_core.introspection.models import IntrospectionRequest
@@ -345,6 +346,16 @@ async def test_judge_invalid_twice_returns_partial_supported_answer_without_spec
 
 
 @pytest.mark.asyncio
+async def test_judge_backend_failure_carries_nonserialized_exit_signal() -> None:
+    judge = _Judge(error=BackendUnreachableError("rt-vlm", "offline"))
+    result, _, _, _ = await _run(judge=judge)
+
+    assert result.status == "partial"
+    assert result.failure_kind == "backend_unreachable"
+    assert "failure_kind" not in result.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
 async def test_mixed_vlm_failure_keeps_successful_evidence_and_synthesizes_once() -> None:
     gaps = [_gap(question=f"question {index}") for index in range(3)]
     result, _, synthesizer, runner = await _run(
@@ -383,6 +394,8 @@ async def test_total_workflow_timeout_is_partial_and_does_not_synthesize_after_d
 
     assert result.status == "partial"
     assert result.answer is None
+    assert result.failure_kind == "timeout"
+    assert "failure_kind" not in result.model_dump(mode="json")
     assert any("workflow timed out after 1 seconds" in gap for gap in result.unresolved_gaps)
     assert synthesizer.calls == []
 

@@ -36,6 +36,7 @@ class _WorkflowState:
     unresolved: list[str] = field(default_factory=list)
     pending: list[GroundedGap] = field(default_factory=list)
     sufficient_from_memory: bool = False
+    failure_kind: Literal["backend_unreachable"] | None = None
 
 
 async def introspect(
@@ -70,6 +71,7 @@ async def introspect(
             memory_records=state.memory_records,
             vlm_evidence=state.vlm_evidence,
             unresolved=state.unresolved,
+            failure_kind="timeout",
         )
 
 
@@ -105,6 +107,7 @@ async def _run_workflow(
             sufficient_from_memory=False,
             answer=None,
             unresolved=[f"memory retrieval failed: {error}"],
+            failure_kind="backend_unreachable" if _is_backend_unreachable(error) else None,
         )
     if not state.records:
         return _result(status="no_memory", sufficient_from_memory=False, answer=None)
@@ -112,6 +115,8 @@ async def _run_workflow(
     try:
         decision = await judge.judge(query=request.query, records=state.records)
     except Exception as error:
+        if _is_backend_unreachable(error):
+            state.failure_kind = "backend_unreachable"
         state.memory_records = _useful_records(state.records)
         state.unresolved.append(f"sufficiency judge failed after validation retry: {error}")
         answer = await _synthesize_best_effort(request, synthesizer, state)
@@ -121,6 +126,7 @@ async def _run_workflow(
             answer=answer,
             memory_records=state.memory_records,
             unresolved=state.unresolved,
+            failure_kind=state.failure_kind,
         )
 
     state.sufficient_from_memory = decision.sufficient
@@ -133,6 +139,7 @@ async def _run_workflow(
             answer=answer,
             memory_records=state.memory_records,
             unresolved=state.unresolved,
+            failure_kind=state.failure_kind,
         )
 
     valid_gaps = _validated_gaps(decision.gaps, state.records, settings, state.unresolved)
@@ -169,6 +176,7 @@ async def _run_workflow(
         memory_records=state.memory_records,
         vlm_evidence=state.vlm_evidence,
         unresolved=state.unresolved,
+        failure_kind=state.failure_kind,
     )
 
 
@@ -185,6 +193,8 @@ async def _synthesize_best_effort(
             unresolved_gaps=state.unresolved,
         )
     except Exception as error:
+        if _is_backend_unreachable(error):
+            state.failure_kind = "backend_unreachable"
         state.unresolved.append(f"answer synthesis failed: {error}")
         return None
 
@@ -302,6 +312,22 @@ def _gap_label(gap: GroundedGap) -> str:
     return f"{gap.question!r} on {gap.sensor!r} from {gap.start_time} to {gap.end_time}"
 
 
+def _is_backend_unreachable(error: BaseException) -> bool:
+    return any(
+        klass.__name__
+        in {
+            "BackendUnreachableError",
+            "ConnectError",
+            "ConnectTimeout",
+            "HTTPStatusError",
+            "ReadTimeout",
+            "VSTError",
+            "VIOSTimeoutError",
+        }
+        for klass in type(error).__mro__
+    )
+
+
 def _result(
     *,
     status: Literal["completed", "partial", "no_memory"],
@@ -310,6 +336,7 @@ def _result(
     memory_records: list[UnifiedMemoryRecord] | None = None,
     vlm_evidence: list[VLMEvidence] | None = None,
     unresolved: list[str] | None = None,
+    failure_kind: Literal["backend_unreachable", "timeout"] | None = None,
 ) -> IntrospectionResult:
     return IntrospectionResult(
         status=status,
@@ -320,6 +347,7 @@ def _result(
         ],
         vlm_evidence=vlm_evidence or [],
         unresolved_gaps=unresolved or [],
+        failure_kind=failure_kind,
     )
 
 

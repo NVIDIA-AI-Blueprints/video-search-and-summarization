@@ -45,6 +45,7 @@ vss memory upsert
 vss memory get --job-id <job-id>
 vss memory query --job-id <job-id>
 vss memory events --asset-id <sensor-or-video-id>
+vss memory introspect --query "What happened?" --sensor <sensor-name>
 ```
 
 Use `get` for an exact parent or child identity, `query` for filtered or text
@@ -57,6 +58,20 @@ Memory records use the human-readable VIOS sensor name in
 under `input.sensors[].info`. Sensor filters also match older records that
 stored the readable name as `input.sensors[].info.name`. Text queries rank by
 relevance before recency, while queries without text remain newest-first.
+
+`memory introspect` performs bounded, memory-first question answering and emits
+exactly one JSON object to stdout (compact by default, indented with `--pretty`).
+The query must be scoped by `--sensor`, `--job-id`, `--record-id`, or a complete
+`--start-time`/`--end-time` range. Time bounds accept ISO-8601 UTC instants only.
+`--record-type event|search_hit|incident` and `--group summary|search|alert`
+refine a useful scope but do not establish one by themselves.
+
+One workflow retrieves at most 10 records, requests at most 3 VLM follow-ups,
+limits each clip to 60 seconds, and has a 180-second overall timeout. The
+introspection request/result is never stored and never creates a Markdown note.
+Any internal VLM follow-up is a normal `vlm` job: it follows the configured
+static persistence policy and remains independently visible through VLM job
+reads when persistence is enabled.
 
 Accepted job groups are `summary`, `search`, `alert`, and `vlm`. `media` is
 not a job group because VIOS does not mint job IDs or memory completion
@@ -100,9 +115,9 @@ Elasticsearch persistence. Markdown status is reported separately as
 
 ## Scope
 
-This surface preserves parent/child persistence and recall. It does not
-implement introspection, gap or sufficiency analysis, VLM follow-up
-orchestration, introspection traces, semantic/vector recall, or graph memory.
+This surface preserves parent/child persistence and recall. Introspection adds
+bounded sufficiency analysis and VLM follow-ups without storing an
+introspection trace. Semantic/vector recall and graph memory are not included.
 
 Trusted persistence callbacks are not supported. No active code or tests
 require them, and arbitrary callback execution is not exposed to agents.
