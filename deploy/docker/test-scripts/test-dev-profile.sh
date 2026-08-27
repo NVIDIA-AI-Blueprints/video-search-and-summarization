@@ -1729,6 +1729,16 @@ run_dry_run_up_and_check_generated_env "generated.env Search defaults to Nemotro
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
+# GB300 search falls back to the Nano 9B v2 DLFW vLLM service because that NIM has
+# no SBSA build. Lightning ships an arm64 manifest and must NOT be swapped out:
+# without the scoping guard in state_up() this asserts nvidia-nemotron-nano-9b-v2-vllm
+# and fails, which is the point — the substitution is otherwise silent at runtime.
+run_dry_run_up_and_check_generated_env "generated.env Search keeps Nemotron 3.5 Lightning on GB300" "search" \
+ -i 127.0.0.1 -H GB300 -d -- \
+  "HARDWARE_PROFILE" "GB300" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
+
 run_dry_run_up_and_check_generated_env "generated.env Base GB300 overlay selects ARM64 LLM and SBSA RT-VLM" "base" \
  -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
   "HARDWARE_PROFILE" "GB300" \
