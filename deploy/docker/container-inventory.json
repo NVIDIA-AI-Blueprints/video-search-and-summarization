@@ -245,6 +245,14 @@
       "tag_variables": ["PERCEPTION_TAG"]
     },
     {
+      "name": "reid-embed",
+      "strategy": "external-pin",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["reid-embed"],
+      "tag_variables": ["VSS_REID_EMBED_TAG"],
+      "notes": "Docker-only (mc-tracking). Coordinates live in containers.env as VSS_REID_EMBED_IMAGE / VSS_REID_EMBED_TAG; not in this repo's GHCR build set."
+    },
+    {
       "name": "vss-rt-cv-mv3dt-bev-fusion",
       "strategy": "build",
       "ghcr_build": true,
