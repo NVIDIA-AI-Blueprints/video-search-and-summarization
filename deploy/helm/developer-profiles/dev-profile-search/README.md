@@ -47,7 +47,7 @@ The critic agent is available by default and controlled per request with `use_cr
 | `vss-rtvi-cv` | 1 | |
 | `vss-rtvi-embed` (Cosmos Embed) | 1 | |
 | `vss-vios-streamprocessing` | 1 | |
-| `nvidia-nemotron-nano-9b-v2` (NIM) | 1 | |
+| `nemotron-3.5-lightning-30b-a3b` (NIM) | 1 | |
 | `vss-rtvi-vlm` (Cosmos3 checkpoint) | 1 | VLM used by the critic and `video_understanding` — enabled by default |
 | **Total** | **5** | **4** if the VLM is disabled (`rtvi.vss-rtvi-vlm.enabled=false`) |
 
