@@ -20,14 +20,15 @@ from vss_core.memory.models import MemoryInput
 from vss_core.memory.models import MemoryOutput
 from vss_core.memory.models import OutputHandles
 from vss_core.memory.models import SensorInfo
-from vss_core.memory.models import TimeWindow
 from vss_core.memory.models import TimestampPoint
+from vss_core.memory.models import TimeWindow
 
 
 def _time_window(start_time: str | None, end_time: str | None) -> TimeWindow | None:
     if not start_time:
         return None
-    from datetime import datetime, UTC
+    from datetime import UTC
+    from datetime import datetime
 
     def _parse(value: str) -> TimestampPoint:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)

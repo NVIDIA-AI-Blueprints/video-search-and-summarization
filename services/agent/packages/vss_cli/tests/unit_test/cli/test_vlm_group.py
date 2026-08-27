@@ -11,8 +11,8 @@ reports itself.
 from __future__ import annotations
 
 import json
-from typing import Any
 from typing import TYPE_CHECKING
+from typing import Any
 
 from click.testing import CliRunner
 import httpx
@@ -25,7 +25,7 @@ from vss_cli.vlm.group import VLM
 from vss_cli.vlm.group import VlmInput
 from vss_cli.vlm.group import VlmOptions
 from vss_core.memory import InMemoryStore
-from vss_core.memory import MemoryService  # noqa: F401 — kept for _in_memory helper
+from vss_core.memory import MemoryService
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -71,12 +71,15 @@ def _completion(answer: str = "I see a forklift in aisle 3.") -> dict[str, Any]:
 def _fake_post(response: Any) -> Any:
     """Return a callable that patches httpx.post with a fixed response."""
     if isinstance(response, Exception):
+
         def _raise(*_args: Any, **_kwargs: Any) -> httpx.Response:
             raise response
+
         return _raise
 
     def _return(*_args: Any, **_kwargs: Any) -> httpx.Response:
         return response
+
     return _return
 
 
@@ -134,8 +137,8 @@ def test_run_media_url_persists_answer(
     answer = "I see a person carrying a box."
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured, memory=_in_memory(configured))
     group = VlmGroup()
@@ -155,8 +158,8 @@ def test_run_no_persist_skips_memory(
 ) -> None:
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}
@@ -181,8 +184,8 @@ def test_run_request_carries_video_url(
 
     monkeypatch.setattr(httpx, "post", _capture)
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}
@@ -211,8 +214,8 @@ def test_run_model_defaults_from_deployment(
 
     monkeypatch.setattr(httpx, "post", _capture)
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}
@@ -234,8 +237,8 @@ def test_run_timeout_returns_timeout_exit(
 ) -> None:
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.TimeoutException("timed out")))
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}
@@ -254,8 +257,8 @@ def test_run_5xx_returns_backend_unreachable(
 ) -> None:
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(503, text="Service Unavailable")))
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}
@@ -273,8 +276,8 @@ def test_run_4xx_returns_invalid_input(
 ) -> None:
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(400, text="Bad Request")))
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}
@@ -291,8 +294,8 @@ def test_run_network_error_returns_backend_unreachable(
 ) -> None:
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.ConnectError("refused")))
 
-    from vss_cli.vlm.group import VlmGroup
     from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
 
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}

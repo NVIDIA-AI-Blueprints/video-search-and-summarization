@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import secrets
 import time
 from typing import TYPE_CHECKING
@@ -173,7 +174,9 @@ class VlmOptions(BaseModel):
     )
 
 
-def _resolve_vios_clip(deployment: config_mod.Deployment, sensor: str, start_time: str | None, end_time: str | None) -> str:
+def _resolve_vios_clip(
+    deployment: config_mod.Deployment, sensor: str, start_time: str | None, end_time: str | None
+) -> str:
     """Resolve a VIOS sensor to a clip URL using the same path as ``vss vios clip``."""
     from vss_core import vios
 
@@ -271,9 +274,9 @@ class VlmGroup(CommandGroup):
             # Path A: use the caller-supplied URL (or local file with --use-base64).
             media_url = inputs.media_url  # type: ignore[assignment]
 
-        from .memory_adapter import VlmAdapter
-
         from vss_core.memory.adapters import utc_now_iso
+
+        from .memory_adapter import VlmAdapter
 
         adapter = VlmAdapter()
         created_at = utc_now_iso()
@@ -311,18 +314,46 @@ class VlmGroup(CommandGroup):
             response = httpx.post(vlm_url, json=request_payload, timeout=float(inputs.timeout))
         except httpx.TimeoutException:
             detail = f"VLM call timed out after {inputs.timeout}s"
-            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="timeout", message=detail)
+            _write_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status="timeout",
+                message=detail,
+            )
             click.echo(f"vss: {detail} (job {job_id})", err=True)
             return Result(body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id)
         except httpx.HTTPError as exc:
             detail = str(exc)
-            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            _write_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status="failed",
+                message=detail,
+            )
             click.echo(f"vss: RT-VLM unreachable at {vlm_url}: {exc}", err=True)
-            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=Exit.BACKEND_UNREACHABLE, job_id=job_id)
+            return Result(
+                body={"job_id": job_id, "status": "failed", "error": detail},
+                exit=Exit.BACKEND_UNREACHABLE,
+                job_id=job_id,
+            )
 
         if response.status_code >= 400:
             detail = f"HTTP {response.status_code}"
-            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            _write_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status="failed",
+                message=detail,
+            )
             code = Exit.BACKEND_UNREACHABLE if response.status_code >= 500 else Exit.INVALID_INPUT
             click.echo(f"vss: VLM backend error {detail}: {response.text[:500]}", err=True)
             return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=code, job_id=job_id)
@@ -331,17 +362,41 @@ class VlmGroup(CommandGroup):
             completion = response.json()
         except ValueError:
             detail = "VLM response was not valid JSON"
-            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            _write_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status="failed",
+                message=detail,
+            )
             click.echo(f"vss: {detail}", err=True)
-            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=Exit.BACKEND_UNREACHABLE, job_id=job_id)
+            return Result(
+                body={"job_id": job_id, "status": "failed", "error": detail},
+                exit=Exit.BACKEND_UNREACHABLE,
+                job_id=job_id,
+            )
 
         try:
             answer = _extract_answer(completion)
         except ValueError as exc:
             detail = str(exc)
-            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            _write_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status="failed",
+                message=detail,
+            )
             click.echo(f"vss: {detail}", err=True)
-            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=Exit.BACKEND_UNREACHABLE, job_id=job_id)
+            return Result(
+                body={"job_id": job_id, "status": "failed", "error": detail},
+                exit=Exit.BACKEND_UNREACHABLE,
+                job_id=job_id,
+            )
 
         completion_id: str | None = completion.get("id")
         body: dict[str, Any] = {
@@ -411,10 +466,8 @@ def _write_terminal(
         input_data=input_data,
         error=MemoryError(code=status, message=message),
     )
-    try:
+    with contextlib.suppress(Exception):
         memory.service.upsert(record)
-    except Exception:
-        pass
 
 
 VLM = VlmGroup()
