@@ -139,3 +139,66 @@ not run by `ci.yml` — a test nobody runs reads as coverage. It reads
 the artifact and CSV names the private GitLab pipeline fetches. If you rename something in
 those workflows and this file goes red, read the assertion before you change it — several
 of them exist because the failure they prevent is silent.
+
+## Known limitations — read this before trusting a verdict
+
+Adversarial review found these against the real tree. They are recorded here rather than
+quietly fixed, because each one changes how a number should be read.
+
+### The state comparison reports; it does not gate
+
+A ratchet was built here and removed. It was unsound in four independent ways: a cross-job
+`steps.ctx` reference that resolved to `""` (and `git show ":path"` with an empty rev reads
+the *index* rather than failing, so base counts equalled head counts); a baseline computed
+from the pull request's own `approved.csv`; count-netting, where removing one finding and
+adding another let a brand-new GPL-3.0 dependency merge green; and an ungated catch-all
+bucket for modules in neither `MODULE_MAP` nor `UNSUBMITTED`.
+
+Gating needs, in order: identity-based comparison against the merge base rather than counts,
+CODEOWNERS on the baseline (**done** — `approved.csv` and `module_map.py` now route to
+`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers`), a real verdict for unknown modules, and the
+`services/ui` submission below.
+
+The **delta** gate in the `osrb-scan` job is unaffected and still blocks: a dependency change
+a pull request actually introduces is caught there.
+
+### `NOT_APPROVED` is 1717 rows and roughly four fifths of it is one problem
+
+1350 of them are `services/ui`, whose entire approved baseline is two PR-delta rows for
+`@img/sharp-*`. That is one missing OSRB submission reported 1350 times, not 1350 findings.
+`MODULE_UNSUBMITTED` does not absorb it because the module has 2 > 0 approved rows. A further
+~50 are extraction artifacts that can never match: URL hostnames
+(`install.python-poetry.org`), unexpanded shell variables (`${NGINX_IMAGE}`), archive
+filenames (`node-v22.23.2-linux-x64.tar.gz`).
+
+### `USAGE_DRIFT` is 0 because it is near-unreachable, not because usage is clean
+
+3507 of 3904 inventory rows resolve to the single evidence token `declared`, which appears in
+no conflict rule. The `static-link` / `dynamic-link` tokens are defined and used in two rules
+but the inventory never emits them — so the largest non-blank `usage_method` in the sheet
+(`Dynamic Linking`, 1422 rows) has nothing to compare against.
+
+The approved sheet is the other half of the problem: 1519 `usage_method` cells are blank, 698
+say "Other", and 3219 `vendored` cells are blank — including every package where this repo
+holds hard vendoring evidence (`abseil-cpp`, `boringssl`, `jsoncpp`, `libyuv` under
+`services/vios`). Filling `vendored` and `usage_method` in the next OSRB submission is what
+switches this check on.
+
+### Matching gaps that produce findings in both directions
+
+- 28 approved rows carry prose where a package identifier belongs — `minio-cpp (client)`,
+  `libpaho-mqttpp and libpaho-mqtt`, `Google Guava`. The vendored `minio` C tree in
+  `services/vios` is reported `NOT_APPROVED` even though the sheet holds a row for it, and
+  that is the single row in the tree where `USAGE_DRIFT` could have engaged.
+- Versions containing `~` (78 approved rows, ordinary Ubuntu/Debian versions like
+  `14.2.0-4ubuntu2~24.04.1`) are treated as unresolved ranges and bypass the version check —
+  those rows are judged on package and licence only.
+- Package names fold `-`, `_` and `.` together across every ecosystem, because `approved.csv`
+  has no language column. Nothing collides in the current baseline, but an npm `uuid` and a
+  Debian `uuid` inside one module would.
+
+### `APPROVED_NOT_PRESENT` is 2325 rows and is informational
+
+Dominated by `rt-vlm` (1129) and `rt-embed` (579). Some are genuinely stale approvals; many
+are apt packages a container inherits from a base image that this inventory does not expand.
+Do not read it as "2325 approvals to withdraw" until the base-image side is enumerated.

@@ -308,35 +308,6 @@ jobs:
           }
           exit 1
 
-      # The ratchet's reference point. Compares the merge base's COMMITTED
-      # inventory against the same approved baseline, so the gate below can tell
-      # "this branch introduced it" from "it was already there". Uses the
-      # committed inventory.csv rather than regenerating at the base ref: it is
-      # the artifact the drift check already forces to be current, and
-      # regenerating costs a second full tree walk for a number we only compare.
-      #
-      # continue-on-error, and the counts default to 0 downstream: if the base
-      # has no inventory.csv yet (the first PR after this lands, or a cherry-pick
-      # onto an older branch) the ratchet degrades to an absolute gate rather
-      # than silently passing everything.
-      - name: Baseline drift at the merge base
-        id: compare_base
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          if ! git show "${BASE_SHA}:.github/osrb/inventory.csv" > base-inventory.csv 2>/dev/null; then
-            echo "No committed inventory at ${BASE_SHA}; ratchet falls back to absolute counts."
-            exit 0
-          fi
-          python .github/osrb/osrb_compare.py \
-            --inventory base-inventory.csv \
-            --approved .github/osrb/approved.csv \
-            --output base-compliance.csv \
-            --summary base-compliance.md \
-            --github-output "$GITHUB_OUTPUT"
-        env:
-          BASE_SHA: ${{ steps.ctx.outputs.base }}
-
       - name: Compare the inventory against the OSRB-approved baseline
         id: compare
         run: |
@@ -380,78 +351,57 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # RATCHET, not an absolute gate. At the time this landed the tree already
-      # held 1717 NOT_APPROVED, 86 VERSION_DRIFT and 3 LICENSE_DRIFT rows -
-      # pre-existing drift that no individual author introduced. Failing on the
-      # absolute count would paint every pull request red on day one, and a
-      # check that is always red is a check everyone learns to ignore. So this
-      # compares against the count recorded at the merge-base and fails only on
-      # an INCREASE: what your branch adds is yours to answer for, the backlog
-      # is not.
+      # REPORT-ONLY, deliberately, and this is not timidity.
       #
-      # The backlog is still reported in full in the step summary and the
-      # uploaded CSV, so it stays visible and can be burned down deliberately.
-      # Flip RATCHET_MODE to "absolute" once the counts reach zero.
+      # A ratchet was implemented here and removed, because adversarial review
+      # found it unsound in four independent ways:
+      #   1. `steps.ctx.outputs.base` was a CROSS-JOB reference (ctx lives in
+      #      the osrb-scan job), so BASE_SHA was always "" - and
+      #      `git show ":path"` with an empty rev does not fail, it reads the
+      #      INDEX. Base counts became byte-identical to head counts and the
+      #      gate could never fire.
+      #   2. The baseline was computed against the PR's OWN approved.csv, so
+      #      gutting the approved list raised both sides equally and stayed
+      #      green. The trust anchor was un-gated by construction.
+      #   3. Counts net out: remove one NOT_APPROVED row, add another, and a
+      #      brand-new GPL-3.0 dependency merges green. Gating has to compare
+      #      finding IDENTITIES, not totals.
+      #   4. `owning_module()` falls back to the first path segment, and any
+      #      module in neither MODULE_MAP nor UNSUBMITTED lands in the ungated
+      #      MODULE_UNSUBMITTED bucket - so a dependency added under a new
+      #      directory raised no gated count at all.
       #
-      # MODULE_UNSUBMITTED and APPROVED_NOT_PRESENT never fail, in either mode.
-      # Both describe the state of the OSRB record rather than anything a pull
-      # request did: a module OSRB has never received cannot be un-rejected by
-      # this branch, and an approved row no longer in the tree is at worst a
-      # stale approval.
-      - name: Fail when this branch increases drift from the approved baseline
+      # Separately, the signal is not yet clean enough to gate on: 1350 of the
+      # 1717 NOT_APPROVED rows are services/ui, whose entire approved baseline
+      # is two PR-delta rows. That is one missing OSRB submission reported 1350
+      # times, not 1350 findings.
+      #
+      # So this reports and never fails. The delta gate in the osrb-scan job
+      # above still blocks - a dependency change a PR actually introduces is
+      # caught there. Turning this into a gate needs, in order: identity-based
+      # comparison against the merge base, CODEOWNERS on approved.csv and
+      # module_map.py, a real verdict for unknown modules, and the services/ui
+      # submission. Tracked in .github/osrb/README.md.
+      - name: Report drift from the approved baseline
         if: always() && steps.compare.outcome == 'success'
         env:
           NOT_APPROVED: ${{ steps.compare.outputs.not_approved }}
           VERSION_DRIFT: ${{ steps.compare.outputs.version_drift }}
           LICENSE_DRIFT: ${{ steps.compare.outputs.license_drift }}
           USAGE_DRIFT: ${{ steps.compare.outputs.usage_drift }}
-          BASE_NOT_APPROVED: ${{ steps.compare_base.outputs.not_approved }}
-          BASE_VERSION_DRIFT: ${{ steps.compare_base.outputs.version_drift }}
-          BASE_LICENSE_DRIFT: ${{ steps.compare_base.outputs.license_drift }}
-          BASE_USAGE_DRIFT: ${{ steps.compare_base.outputs.usage_drift }}
           GUIDE_URL: ${{ github.server_url }}/${{ github.repository }}/blob/develop/.github/osrb/README.md
         run: |
           set -uo pipefail
-          status=0
-          for entry in "NOT_APPROVED=${NOT_APPROVED:-0}" "VERSION_DRIFT=${VERSION_DRIFT:-0}" \
-                       "LICENSE_DRIFT=${LICENSE_DRIFT:-0}" "USAGE_DRIFT=${USAGE_DRIFT:-0}"; do
-            verdict="${entry%%=*}"
-            count="${entry#*=}"
-            base_var="BASE_${verdict}"
-            base="${!base_var:-0}"
-            [[ -z "${base}" ]] && base=0
-            if [[ -z "${count}" || "${count}" == "0" ]]; then
-              continue
-            fi
-            if [[ "${count}" -le "${base}" ]]; then
-              printf '%s: %s row(s), baseline %s - not increased by this branch.\n' \
-                "${verdict}" "${count}" "${base}"
-              continue
-            fi
-            added=$(( count - base ))
-            case "${verdict}" in
-              NOT_APPROVED)
-                detail="in a module OSRB has reviewed, but no approved row covers this package" ;;
-              VERSION_DRIFT)
-                detail="approved, but at a different version than the tree ships" ;;
-              LICENSE_DRIFT)
-                detail="the licence in the tree is not the licence OSRB approved" ;;
-              USAGE_DRIFT)
-                detail="package and version are approved, but not for this distribution/usage method" ;;
-              *)
-                detail="not covered by the approved baseline" ;;
-            esac
-            {
-              printf '::error title=OSRB %s::' "${verdict}"
-              printf 'This branch adds %s row(s) where %s ' "${added}" "${detail}"
-              printf '(now %s, was %s at the merge base). ' "${count}" "${base}"
-              printf 'Only the increase is yours to clear. See %s\n' "${GUIDE_URL}"
-            }
-            status=1
-          done
-          if [[ -n "${USAGE_DRIFT:-}" && "${USAGE_DRIFT:-0}" != "0" ]]; then
-            echo "USAGE_DRIFT is not a version or licence problem. OSRB approves a component"
-            echo "FOR A USE: the same library dynamically linked and vendored-and-modified are"
-            echo "two different approvals, and this tree is using one it does not hold."
-          fi
-          exit "${status}"
+          {
+            echo "### OSRB approved-baseline comparison (report-only)"
+            echo
+            echo "| verdict | rows |"
+            echo "| --- | --- |"
+            echo "| NOT_APPROVED | ${NOT_APPROVED:-0} |"
+            echo "| VERSION_DRIFT | ${VERSION_DRIFT:-0} |"
+            echo "| LICENSE_DRIFT | ${LICENSE_DRIFT:-0} |"
+            echo "| USAGE_DRIFT | ${USAGE_DRIFT:-0} |"
+            echo
+            echo "This check does not fail. See ${GUIDE_URL} for what each verdict means"
+            echo "and what has to be true before it can gate."
+          } >> "$GITHUB_STEP_SUMMARY"

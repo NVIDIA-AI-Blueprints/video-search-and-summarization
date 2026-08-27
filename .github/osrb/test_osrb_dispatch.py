@@ -222,50 +222,40 @@ class DispatchTests(unittest.TestCase):
         everyone forever, which is how a gate stops being read.
         """
         workflow = SCAN_WORKFLOW.read_text()
-        gate = workflow.split(
-            "- name: Fail when this branch increases drift from the approved baseline", 1
-        )[1]
+        gate = workflow.split("- name: Report drift from the approved baseline", 1)[1]
         for verdict in ("NOT_APPROVED", "VERSION_DRIFT", "LICENSE_DRIFT", "USAGE_DRIFT"):
             self.assertIn(f"steps.compare.outputs.{verdict.lower()}", gate, verdict)
         for reported_only in ("module_unsubmitted", "approved_not_present"):
             self.assertNotIn(f"steps.compare.outputs.{reported_only}", gate, reported_only)
 
-    def test_state_gate_is_a_ratchet_not_an_absolute_count(self) -> None:
-        """It must compare against the merge base, not against zero.
+    def test_state_comparison_cannot_fail_the_job(self) -> None:
+        """It reports; it must not gate. A gate that cannot fail is worse.
 
-        When this landed the tree already held 1717 NOT_APPROVED, 81
-        VERSION_DRIFT and 4 LICENSE_DRIFT rows. An absolute gate would be red on
-        every pull request from day one for drift nobody in that PR introduced,
-        and a permanently red check teaches people to merge past it. Only an
-        increase over the merge base is the author's to answer for.
+        A ratchet was implemented here and removed after review found four
+        independent ways it could never fire -- a cross-job `steps.ctx`
+        reference that resolved to "" (and `git show ":path"` reads the INDEX
+        rather than failing), a baseline computed from the PR's own
+        approved.csv, count-netting that let a new GPL-3.0 package in as long
+        as another finding was removed, and an ungated catch-all bucket for
+        unknown modules. Until identity-based comparison replaces it, this step
+        must not pretend to gate.
         """
         workflow = SCAN_WORKFLOW.read_text()
-        self.assertIn("id: compare_base", workflow)
-        gate = workflow.split(
-            "- name: Fail when this branch increases drift from the approved baseline", 1
-        )[1]
-        for verdict in ("NOT_APPROVED", "VERSION_DRIFT", "LICENSE_DRIFT", "USAGE_DRIFT"):
-            self.assertIn(f"BASE_{verdict}", gate, verdict)
-        # the comparison itself, not just the variables being in scope
-        self.assertIn('"${count}" -le "${base}"', gate)
-
-    def test_ratchet_falls_back_to_absolute_when_the_base_has_no_inventory(self) -> None:
-        """A missing baseline must not wave everything through.
-
-        The first PR after this lands, and any cherry-pick onto a branch that
-        predates inventory.csv, has no committed baseline to compare against.
-        The counts then default to 0, which turns the ratchet back into an
-        absolute gate -- strict, not permissive. Getting this backwards would
-        make the gate silently pass every drift on exactly the branches least
-        likely to be reviewed carefully.
-        """
-        workflow = SCAN_WORKFLOW.read_text()
-        base_step = workflow.split("id: compare_base", 1)[1].split("- name:", 1)[0]
-        self.assertIn("continue-on-error: true", base_step)
-        gate = workflow.split(
-            "- name: Fail when this branch increases drift from the approved baseline", 1
-        )[1]
-        self.assertIn('base="${!base_var:-0}"', gate)
+        step = workflow.split("- name: Report drift from the approved baseline", 1)[1]
+        step = step.split("- name:", 1)[0]
+        self.assertNotIn("exit 1", step)
+        self.assertNotIn("status=1", step)
+        self.assertNotIn("::error", step)
+        # and the dead reference that caused the bug must not come back.
+        # Comment lines are stripped first: the postmortem above names the bad
+        # expression on purpose, and matching it there would make this test
+        # fail for documenting the very thing it guards against.
+        self.assertNotIn("compare_base", workflow)
+        job_two = workflow.split("dependency-inventory:", 1)[1]
+        live = "\n".join(
+            line for line in job_two.splitlines() if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn("steps.ctx.outputs", live)
 
     def test_inventory_drift_gate_prints_the_refresh_command(self) -> None:
         """The error has to carry the fix; a diff alone leaves the reader guessing."""
