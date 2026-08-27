@@ -539,7 +539,27 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           title={vssChatConfig('sidebar').title}
           theme={theme === 'dark' ? 'dark' : 'light'}
           onAnswer={(answer: string) => {
+            // Feature tabs still receive the prose answer.
             handleSidebarAnswerCompleteWithContent(answer);
+            // Search results reach the Search tab out of band. The existing
+            // pipeline expects the whole Search API payload embedded in the
+            // reply text, which would mean the model transcribing every hit
+            // (DECISIONS.md 2.5). Instead the adapter keeps the last result and
+            // the payload is handed over directly, in the shape the tab's
+            // parser already understands.
+            void (async () => {
+              try {
+                const r = await fetch('/api/vss-chat?surface=sidebar');
+                if (!r.ok) return;
+                const last = await r.json();
+                if (!last?.data?.length) return;
+                handleSidebarAnswerCompleteWithContent(
+                  JSON.stringify({ data: last.data }),
+                );
+              } catch {
+                // Non-fatal: the chat answer has already been delivered.
+              }
+            })();
           }}
           onSubmit={() => handleSidebarMessageSubmitted()}
         />

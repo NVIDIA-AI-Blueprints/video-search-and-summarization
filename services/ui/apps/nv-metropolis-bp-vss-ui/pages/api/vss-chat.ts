@@ -33,6 +33,25 @@ const backendFor = (surface: string): string | undefined => {
 export const config = { api: { bodyParser: { sizeLimit: '5mb' } } };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // GET returns the most recent search result from the adapter, so the Search
+  // tab can render hits that never passed through the model's reply text.
+  if (req.method === 'GET') {
+    const base = (backendFor(String(req.query.surface ?? 'sidebar')) || '').replace(
+      /\/chat\/stream$/,
+      '',
+    );
+    try {
+      const upstream = await fetch(`${base}/v1/search/last`);
+      res.status(upstream.status).json(await upstream.json());
+    } catch (err) {
+      res.status(502).json({
+        error: 'could not read last search result',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'method not allowed' });
     return;
