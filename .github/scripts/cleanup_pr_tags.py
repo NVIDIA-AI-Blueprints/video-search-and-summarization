@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Delete a merged/closed PR's ``pr-<N>-*`` candidate images from GHCR.
 
-Candidate tags are build scaffolding: ``pr-<N>-<sha12>`` immutable candidates and
-the ``pr-<N>-latest`` alias. Once the PR closes they can never be rebuilt or
+Candidate tags are build scaffolding: ``pr-<N>-<sha12>`` immutable candidates,
+the ``pr-<N>-latest`` alias, and the two optional suffixes those carry — the
+inventory's ``tag_suffix`` variant marker (``pr-<N>-latest-sbsa``) and the
+per-architecture staging tag the native build publishes before merging the
+multiarch manifest (``pr-<N>-<sha12>-amd64``, ``…-sbsa-arm64``). Once the PR closes they can never be rebuilt or
 referenced, so retaining them only grows the package indefinitely. ``develop-*``
 tags are the opposite — they are the derivable coordinate set and are kept
 forever.
@@ -54,6 +57,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Callable
 
@@ -61,9 +65,65 @@ API_ROOT = "https://api.github.com"
 Requester = Callable[[str, str], object]
 
 
-def pr_tag_pattern(pr_number: int) -> re.Pattern[str]:
-    """Tags owned by this PR: ``pr-<N>-<sha12>`` and ``pr-<N>-latest``."""
-    return re.compile(rf"^pr-{pr_number}-(?:[0-9a-f]{{12}}|latest)$")
+def tag_variants(inventory: dict) -> tuple[list[str], list[str]]:
+    """``(tag_suffixes, platform_suffixes)`` a candidate tag may legitimately carry.
+
+    Both are read from the inventory rather than written as a literal list, so
+    a new variant or platform is covered the day it is added instead of leaking
+    until somebody notices.
+    """
+    images = inventory.get("images") or []
+    suffixes = sorted(
+        {
+            (item.get("tag_suffix") or "").lstrip("-")
+            for item in images
+            if item.get("ghcr_build")
+        }
+        - {""}
+    )
+    platforms = sorted(
+        {
+            platform.rsplit("/", 1)[-1]
+            for item in images
+            if item.get("ghcr_build")
+            for platform in (item.get("platforms") or [])
+        }
+    )
+    return suffixes, platforms
+
+
+def pr_tag_pattern(
+    pr_number: int,
+    tag_suffixes: Sequence[str] = (),
+    platform_suffixes: Sequence[str] = (),
+) -> re.Pattern[str]:
+    """Tags owned by this PR.
+
+    The base shapes are ``pr-<N>-<sha12>`` and ``pr-<N>-latest``. Two optional
+    suffixes ride on top, and neither was matched here — which is why 929 of
+    1886 ``pr-*`` tags in GHCR were unreachable by this cleanup:
+
+    * ``tag_suffix`` from the inventory, e.g. ``pr-1885-latest-sbsa``.
+      ``container_build_plan`` appends it to candidate, content AND alias tags,
+      so it can follow ``latest`` as well as a SHA. This is the large class:
+      879 of the 929.
+    * the platform suffix the native build appends while staging one
+      architecture at a time, e.g. ``pr-1885-fc5a4cbe98bf-amd64`` — and both
+      together, ``…-sbsa-arm64``.
+
+    Both are ENUMERATED from the inventory, never a wildcard. This pattern
+    decides tag ownership and ownership decides deletion: a version is
+    deletable only when every tag on it is ours. A loose pattern would let a
+    foreign tag read as owned and take a live image with it, which is
+    unrecoverable without a rebuild. A missed shape only leaks storage. Those
+    costs are not symmetric, so the pattern stays narrow.
+    """
+    optional = ""
+    if tag_suffixes:
+        optional += "(?:-(?:" + "|".join(re.escape(s) for s in tag_suffixes) + "))?"
+    if platform_suffixes:
+        optional += "(?:-(?:" + "|".join(re.escape(p) for p in platform_suffixes) + "))?"
+    return re.compile(rf"^pr-{pr_number}-(?:[0-9a-f]{{12}}|latest){optional}$")
 
 
 def is_deletable(tags: list[str], pattern: re.Pattern[str]) -> tuple[bool, str]:
@@ -154,6 +214,8 @@ def plan_deletions(
     package: str,
     pr_number: int,
     requester: Requester = _request,
+    tag_suffixes: Sequence[str] = (),
+    platform_suffixes: Sequence[str] = (),
 ) -> tuple[list[tuple[int, str]], list[tuple[str, str]]]:
     """Return ``(to_delete, skipped)`` for one package.
 
@@ -162,7 +224,7 @@ def plan_deletions(
     versions = iter_versions(org, package, requester)
     if not versions:
         return [], []
-    pattern = pr_tag_pattern(pr_number)
+    pattern = pr_tag_pattern(pr_number, tag_suffixes, platform_suffixes)
     to_delete: list[tuple[int, str]] = []
     skipped: list[tuple[str, str]] = []
     for version in versions:
@@ -184,12 +246,14 @@ def plan_detach(
     package: str,
     pr_number: int,
     requester: Requester = _request,
+    tag_suffixes: Sequence[str] = (),
+    platform_suffixes: Sequence[str] = (),
 ) -> list[str]:
     """Return this PR's tags that sit on versions the delete pass must keep."""
     versions = iter_versions(org, package, requester)
     if not versions:
         return []
-    pattern = pr_tag_pattern(pr_number)
+    pattern = pr_tag_pattern(pr_number, tag_suffixes, platform_suffixes)
     tags: list[str] = []
     for version in versions:
         version_tags = (
@@ -199,12 +263,22 @@ def plan_detach(
     return sorted(set(tags))
 
 
-def emit_detach_plan(org: str, packages: list[str], pr_number: int) -> int:
+def emit_detach_plan(
+    org: str,
+    packages: list[str],
+    pr_number: int,
+    tag_suffixes: Sequence[str] = (),
+    platform_suffixes: Sequence[str] = (),
+) -> int:
     """Print ``<package> <tag>`` pairs for the workflow to retag. Never fails."""
     pairs = 0
     for package in packages:
         try:
-            tags = plan_detach(org, package, pr_number)
+            tags = plan_detach(
+                org, package, pr_number,
+                tag_suffixes=tag_suffixes,
+                platform_suffixes=platform_suffixes,
+            )
         except urllib.error.HTTPError as exc:
             print(f"[pr-tags] {package}: SKIP (HTTP {exc.code})", file=sys.stderr)
             continue
@@ -237,16 +311,26 @@ def main() -> int:
 
     inventory = json.loads(args.inventory.read_text())
     packages = ghcr_packages(inventory)
+    # Variant and platform suffixes come from the same inventory as the package
+    # list, so the shapes this cleanup owns always match the shapes the build
+    # publishes.
+    tag_suffixes, platform_suffixes = tag_variants(inventory)
 
     if args.emit_detach_plan:
-        return emit_detach_plan(args.org, packages, args.pr)
+        return emit_detach_plan(
+            args.org, packages, args.pr, tag_suffixes, platform_suffixes
+        )
 
     print(f"[pr-tags] PR #{args.pr}: scanning {len(packages)} GHCR packages")
 
     deleted = kept = 0
     for package in packages:
         try:
-            to_delete, skipped = plan_deletions(args.org, package, args.pr)
+            to_delete, skipped = plan_deletions(
+                args.org, package, args.pr,
+                tag_suffixes=tag_suffixes,
+                platform_suffixes=platform_suffixes,
+            )
         except urllib.error.HTTPError as exc:
             # Never fail the workflow over cleanup: a retained tag is harmless.
             print(f"[pr-tags] {package}: SKIP (HTTP {exc.code})")

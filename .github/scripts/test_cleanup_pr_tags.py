@@ -18,6 +18,7 @@ from cleanup_pr_tags import (  # noqa: E402
     plan_deletions,
     plan_detach,
     pr_tag_pattern,
+    tag_variants,
 )
 
 SHA = "abc123abc123"
@@ -210,6 +211,100 @@ class PlanDetachTest(unittest.TestCase):
             plan_detach("NVIDIA-AI-Blueprints", "vss/absent", 1234, lambda *_: None), []
         )
 
+
+
+class TagVariantTest(unittest.TestCase):
+    """Variant and platform suffixes must be owned, and nothing else.
+
+    929 of 1886 ``pr-*`` tags in GHCR were unreachable by this cleanup because
+    the pattern knew about neither. The large class was ``-sbsa`` (879), not
+    the architecture suffixes -- so a fix aimed only at ``-amd64``/``-arm64``
+    would have recovered a twentieth of the leak.
+    """
+
+    SUFFIXES = ("sbsa",)
+    PLATFORMS = ("amd64", "arm64")
+
+    def pattern(self, pr=1234):
+        return pr_tag_pattern(pr, self.SUFFIXES, self.PLATFORMS)
+
+    def test_owns_every_shape_the_build_publishes(self):
+        for tag in (
+            "pr-1234-abc123abc123",
+            "pr-1234-latest",
+            "pr-1234-abc123abc123-amd64",
+            "pr-1234-abc123abc123-arm64",
+            "pr-1234-abc123abc123-sbsa",
+            "pr-1234-latest-sbsa",
+            "pr-1234-abc123abc123-sbsa-arm64",
+        ):
+            self.assertRegex(tag, self.pattern(), tag)
+
+    def test_never_owns_a_foreign_tag(self):
+        # The asymmetry that governs this pattern: claiming a foreign tag can
+        # delete a live develop image, which needs a rebuild to recover. Missing
+        # a shape only leaks storage. So over-claiming must be impossible.
+        for tag in (
+            "pr-9999-abc123abc123",            # another PR
+            "pr-9999-abc123abc123-amd64",
+            "pr-12345-abc123abc123",           # prefix overlap with 1234
+            "develop-abc123abc123",
+            "develop-abc123abc123-amd64",
+            "develop-latest",
+            "tree-" + "a" * 40,
+            "tree-" + "a" * 40 + "-sbsa",
+            "latest",
+            "xpr-1234-abc123abc123",
+        ):
+            self.assertIsNone(self.pattern().fullmatch(tag), tag)
+
+    def test_rejects_suffixes_the_inventory_does_not_declare(self):
+        # Enumerated, not wildcarded. An unknown platform or a trailing extra
+        # segment is somebody else's tag until the inventory says otherwise.
+        for tag in (
+            "pr-1234-abc123abc123-x86",
+            "pr-1234-abc123abc123-riscv64",
+            "pr-1234-abc123abc123-sbsa-amd64-extra",
+            "pr-1234-abc123abc12",             # 11 hex, not 12
+        ):
+            self.assertIsNone(self.pattern().fullmatch(tag), tag)
+
+    def test_default_arguments_keep_the_narrow_behaviour(self):
+        # A caller that passes no variants must not become more aggressive.
+        narrow = pr_tag_pattern(1234)
+        self.assertRegex("pr-1234-abc123abc123", narrow)
+        self.assertIsNone(narrow.fullmatch("pr-1234-abc123abc123-amd64"))
+
+    def test_variants_are_read_from_the_inventory(self):
+        inventory = {
+            "images": [
+                {"name": "a", "ghcr_build": True,
+                 "platforms": ["linux/amd64", "linux/arm64"]},
+                {"name": "b", "ghcr_build": True, "tag_suffix": "-sbsa",
+                 "platforms": ["linux/arm64"]},
+                # not a GHCR build: must not contribute a suffix
+                {"name": "c", "tag_suffix": "-ignored",
+                 "platforms": ["linux/s390x"]},
+            ]
+        }
+        suffixes, platforms = tag_variants(inventory)
+        self.assertEqual(suffixes, ["sbsa"])
+        self.assertEqual(platforms, ["amd64", "arm64"])
+
+    def test_a_staging_tag_alone_makes_its_version_deletable(self):
+        # Before the fix this version was kept forever: its only tag read as
+        # foreign, so is_deletable refused it.
+        deletable, _ = is_deletable(
+            ["pr-1234-abc123abc123-amd64"], self.pattern()
+        )
+        self.assertTrue(deletable)
+
+    def test_a_staging_tag_beside_a_develop_tag_is_still_kept(self):
+        # Widening ownership must not weaken the shared-digest rule.
+        deletable, reason = is_deletable(
+            ["pr-1234-abc123abc123-amd64", "develop-def456def456"], self.pattern()
+        )
+        self.assertFalse(deletable, reason)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
