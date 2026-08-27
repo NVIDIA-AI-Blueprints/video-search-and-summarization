@@ -29,6 +29,8 @@ defaults until a preferences tier exists.
 
 from __future__ import annotations
 
+import secrets
+import time
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
@@ -38,13 +40,16 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
-from . import config as config_mod
-from . import params as params_mod
-from .exits import Exit
-from .group import Action
-from .group import CommandGroup
-from .group import Context
-from .group import Result
+from vss_cli import config as config_mod
+from vss_cli import memory as memory_mod
+from vss_cli import params as params_mod
+from vss_cli.exits import Exit
+from vss_cli.group import Action
+from vss_cli.group import CommandGroup
+from vss_cli.group import Context
+from vss_cli.group import InvalidInput
+from vss_cli.group import Result
+from vss_cli.group import _exit_for
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -53,6 +58,10 @@ if TYPE_CHECKING:
 
     from vss_core.critic import CriticAgent
     from vss_core.vlm import OpenAIVLMAnalyzer
+
+#: Job ids stay ``search-<ULID>`` (design §5.2/§7.2).
+_JOB_DOMAIN = "search"
+_CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 #: Index families the deployment reports, mapped to the runtime field that
 #: consumes them. Discovered rather than declared -- `vss configure` reads
@@ -218,6 +227,28 @@ class SearchTuning(BaseModel):
     )
 
 
+class SearchPersistOptions(BaseModel):
+    """Optional unified-memory persistence for ``vss search run``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    no_persist: bool = Field(False, description="Skip persistence for this search.")
+    write_memory_note: bool | None = Field(
+        None,
+        description="Override whether this persisted result is written to the configured Markdown cache.",
+    )
+
+
+def _ulid() -> str:
+    """A lexicographically sortable 26-char ULID (48-bit time + 80-bit random)."""
+    value = (int(time.time() * 1000) & ((1 << 48) - 1)) << 80 | secrets.randbits(80)
+    return "".join(_CROCKFORD32[(value >> shift) & 0x1F] for shift in range(125, -1, -5))
+
+
+def _mint_job_id() -> str:
+    return f"{_JOB_DOMAIN}-{_ulid()}"
+
+
 def _deployment_or_raise() -> config_mod.Deployment:
     """The recorded deployment, or a ConfigError the root maps to exit 4."""
     return config_mod.load()
@@ -374,10 +405,15 @@ class SearchGroup(CommandGroup):
             requires=frozenset({"elasticsearch", "rtvi_cv"}),
         ),
     )
-    extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SearchTuning))
+    extra_params: ClassVar[Sequence[click.Parameter]] = (
+        *params_mod.options_from_model(SearchTuning),
+        *params_mod.options_from_model(SearchPersistOptions),
+    )
 
     def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:
         import asyncio
+
+        import click
 
         from vss_core.search_core.host import VSSSearch
 
@@ -407,6 +443,89 @@ class SearchGroup(CommandGroup):
 
         SearchInput(**payload).validate_semantics()
 
+        persist_options = SearchPersistOptions(
+            **{k: v for k, v in ctx.extra.items() if k in SearchPersistOptions.model_fields}
+        )
+        from vss_cli.memory_policy import MemoryPolicyInputError
+        from vss_cli.memory_policy import resolve_memory_policy
+
+        try:
+            policy = resolve_memory_policy(
+                deployment,
+                no_persist=persist_options.no_persist,
+                note_override=persist_options.write_memory_note,
+            )
+        except MemoryPolicyInputError as error:
+            raise InvalidInput(str(error)) from error
+        want_persist = policy.persist
+
+        memory: memory_mod.Memory | None = None
+        if want_persist:
+            memory = self.memory(ctx)
+
+        from vss_core.memory.adapters import utc_now_iso
+
+        job_id = _mint_job_id()
+        created_at = utc_now_iso()
+        input_data = _search_memory_input(action=action, payload=payload, inputs=inputs)
+        persist_error: str | None = None
+        submitted = False
+        asset_id = input_data.sensors[0].id if input_data.sensors else None
+
+        def outcome(
+            response: dict[str, Any],
+            code: Exit,
+            *,
+            status: str,
+            record: str,
+            persisted_override: bool | None = None,
+        ) -> Result:
+            response["record"] = record
+            persisted = bool(response.get("persisted", False)) if persisted_override is None else persisted_override
+            return Result(
+                body=response,
+                exit=code,
+                job_id=job_id,
+                extra={"marker": {"asset_id": asset_id, "status": status, "persisted": persisted}},
+            )
+
+        if memory is not None:
+            from .memory_adapter import SearchAdapter
+
+            try:
+                memory.service.upsert(
+                    SearchAdapter().submitted_record(job_id=job_id, created_at=created_at, input_data=input_data)
+                )
+                submitted = True
+            except memory_mod.write_failures() as error:
+                click.echo(f"vss: unified memory is not writable, searching without it ({error})", err=True)
+                persist_error = str(error)
+                memory = None
+
+        def close(status: str, message: str) -> str:
+            if memory is None or not submitted:
+                return "absent"
+            from vss_cli.persistence import mark_terminal
+
+            from .memory_adapter import SearchAdapter
+
+            if mark_terminal(
+                memory,
+                SearchAdapter(),
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status=status,
+                message=message,
+            ):
+                return "closed"
+            click.echo(
+                f"vss: could not record job {job_id} as {status} in unified memory, "
+                "so `status` still reports it submitted",
+                err=True,
+            )
+            return "stale"
+
         async def _go() -> Any:
             critic, vlm = await _critic_from(deployment)
             try:
@@ -416,11 +535,185 @@ class SearchGroup(CommandGroup):
                 if vlm is not None:
                     await vlm.aclose()
 
-        output = asyncio.run(_go())
+        try:
+            output = asyncio.run(_go())
+        except Exception as error:
+            code = _exit_for(error) or Exit.ERROR
+            record = close("failed", str(error))
+            click.echo(f"vss: search failed: {error}", err=True)
+            return outcome(
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "persisted": record == "closed",
+                    "error": str(error),
+                },
+                code,
+                status="failed",
+                record=record,
+            )
+        # Preserve the library stdout contract — never mutate SearchOutput for persistence.
         body = output.model_dump() if hasattr(output, "model_dump") else output
-        return Result(body=body, exit=Exit.SUCCESS)
+
+        persist_meta: dict[str, Any] | None = None
+        if memory is not None:
+            unpersistable: tuple[type[BaseException], ...] = (
+                ValueError,
+                RuntimeError,
+                *memory_mod.write_failures(),
+            )
+            try:
+                bundle = _search_terminal_bundle(
+                    job_id=job_id,
+                    created_at=created_at,
+                    input_data=input_data,
+                    output=output,
+                    search_mode=action,
+                )
+                result = memory.service.upsert_bundle(bundle)
+                persist_meta = result.to_dict()
+                if not result.ok:
+                    stored = memory.service.get(job_id, reconcile=False)
+                    record = (
+                        close("partial", f"persistence incomplete: {persist_meta}")
+                        if stored.job.status in {"submitted", "running"}
+                        else "closed"
+                    )
+                    return outcome(
+                        {
+                            "job_id": job_id,
+                            "data": body.get("data") if isinstance(body, dict) else body,
+                            "search_messages": body.get("search_messages", []) if isinstance(body, dict) else [],
+                            "persisted": False,
+                            "persistence": persist_meta,
+                        },
+                        Exit.PARTIAL,
+                        status="partial",
+                        record=record,
+                    )
+            except unpersistable as error:
+                persist_error = str(error)
+                click.echo(f"vss: search succeeded but memory persistence failed ({error})", err=True)
+                return outcome(
+                    {
+                        "job_id": job_id,
+                        "data": body.get("data") if isinstance(body, dict) else body,
+                        "search_messages": body.get("search_messages", []) if isinstance(body, dict) else [],
+                        "persisted": False,
+                        "persistence_error": persist_error,
+                    },
+                    Exit.PARTIAL,
+                    status="partial",
+                    record=close("partial", persist_error),
+                )
+
+        response: dict[str, Any]
+        if isinstance(body, dict):
+            response = dict(body)
+        else:
+            response = {"data": body}
+        response["job_id"] = job_id
+        if persist_meta is not None:
+            response["persisted"] = True
+            response["persistence"] = persist_meta
+        elif persist_error is not None:
+            response["persisted"] = False
+            response["persistence_error"] = persist_error
+        elif not want_persist or memory is None:
+            response["persisted"] = False
+        if persist_error is not None:
+            return outcome(response, Exit.PARTIAL, status="partial", record="absent")
+        record = "closed" if persist_meta is not None else "absent"
+        if policy.write_note and persist_meta is not None and memory is not None:
+            try:
+                from vss_cli import memory_notes
+
+                parent = memory.service.get(job_id, reconcile=False)
+                note = memory_notes.write(parent, deployment)
+                response["memory_note"] = {"written": note.written, "path": note.path}
+            except Exception as error:
+                click.echo(f"vss: search succeeded but Markdown memory-note write failed ({error})", err=True)
+                response["memory_note"] = {"written": False, "error": str(error)}
+                return outcome(
+                    response,
+                    Exit.PARTIAL,
+                    status="completed",
+                    record=record,
+                    persisted_override=True,
+                )
+        return outcome(response, Exit.SUCCESS, status="completed", record=record)
+
+
+def _search_memory_input(*, action: str, payload: dict[str, Any], inputs: BaseModel) -> Any:
+    from .memory_adapter import SearchAdapter
+
+    sensors = [{"id": name} for name in getattr(inputs, "video_sources", []) or []]
+    window = None
+    start = getattr(inputs, "timestamp_start", None)
+    end = getattr(inputs, "timestamp_end", None)
+    if start and end:
+        window = {"start": {"timestamp": start}, "end": {"timestamp": end}}
+    params = {
+        k: v for k, v in payload.items() if k not in {"query", "video_sources", "timestamp_start", "timestamp_end"}
+    }
+    params["search_mode"] = action
+    query = getattr(inputs, "query", None) or getattr(inputs, "description", None)
+    # Each search mode has its own input model, so read the mode-specific
+    # fields off the base type rather than narrowing to every variant.
+    attributes = getattr(inputs, "attributes", None)
+    object_ids = getattr(inputs, "object_ids", None)
+    if query is None and attributes:
+        query = ", ".join(attributes)
+    if query is None and object_ids:
+        query = f"object_ids={list(object_ids)}"
+    return SearchAdapter.build_input(query=query, sensors=sensors or None, window=window, params=params)
+
+
+def _search_terminal_bundle(
+    *,
+    job_id: str,
+    created_at: str,
+    input_data: Any,
+    output: Any,
+    search_mode: str,
+) -> Any:
+    from .memory_adapter import SearchAdapter
+
+    rows = []
+    results = getattr(output, "results", None) or getattr(output, "data", None) or []
+    for item in results:
+        if hasattr(item, "model_dump"):
+            row = item.model_dump()
+        elif isinstance(item, dict):
+            row = dict(item)
+        else:
+            continue
+        # Translate SearchResult field names at the adapter boundary only.
+        if "screenshot_url" in row and "media_url" not in row:
+            row["media_url"] = row["screenshot_url"]
+        if "similarity" in row and "score" not in row:
+            row["score"] = row["similarity"]
+        rows.append(row)
+    answer = f"Found {len(rows)} matching video segments."
+    return SearchAdapter().terminal_bundle(
+        job_id=job_id,
+        created_at=created_at,
+        status="completed",
+        input_data=input_data,
+        answer=answer,
+        results=rows,
+        ext={"search_mode": search_mode, "result_count": len(rows)},
+    )
 
 
 SEARCH = SearchGroup()
 
-__all__ = ["SEARCH", "AttributeInput", "EmbedInput", "FusionInput", "ObjectInput", "SearchGroup"]
+__all__ = [
+    "SEARCH",
+    "AttributeInput",
+    "EmbedInput",
+    "FusionInput",
+    "ObjectInput",
+    "SearchGroup",
+    "SearchPersistOptions",
+]
