@@ -585,23 +585,57 @@ class ParserRoutingTest(unittest.TestCase):
 
 
 class InventoryAtRefTest(unittest.TestCase):
-    def test_missing_blob_is_normal_and_duplicates_collapse(self) -> None:
+    def test_missing_blob_is_normal_and_duplicates_collapse_within_a_module(self) -> None:
+        """Same image, same module, two Dockerfiles -> one row. Missing blob -> skipped.
+
+        This originally asserted that `a/Dockerfile` and `b/Dockerfile` collapse
+        to a single row. They do not, and should not: they are different
+        modules, and OSRB approves per component. The old expectation was the
+        bug -- it dropped 87 of 450 rows on the real tree. Collapsing is correct
+        only WITHIN one module, which is what this now checks.
+        """
         blobs = {
-            "a/Dockerfile": b"FROM alpine:3.24.1\n",
-            "b/Dockerfile": b"FROM alpine:3.24.1\n",
+            "services/a/docker/Dockerfile": b"FROM alpine:3.24.1\n",
+            "services/a/docker/build.Dockerfile": b"FROM alpine:3.24.1\n",
         }
 
         def read(_ref: str, path: str) -> bytes | None:
             return blobs.get(path)
 
         inventory = osrb_sources.inventory_at_ref(
-            "HEAD", read, ["a/Dockerfile", "b/Dockerfile", "c/Dockerfile"]
+            "HEAD",
+            read,
+            [
+                "services/a/docker/Dockerfile",
+                "services/a/docker/build.Dockerfile",
+                "services/a/docker/missing.Dockerfile",
+            ],
         )
 
         self.assertEqual(1, len(inventory))
         row = next(iter(inventory.values()))
         # Sorted order makes the surviving citation deterministic.
-        self.assertEqual("a/Dockerfile#L1", row["source_file"])
+        self.assertEqual("services/a/docker/Dockerfile#L1", row["source_file"])
+
+    def test_the_same_image_in_two_modules_stays_two_rows(self) -> None:
+        """The counterpart: two components pulling one image are two approvals."""
+        blobs = {
+            "services/a/Dockerfile": b"FROM alpine:3.24.1\n",
+            "services/b/Dockerfile": b"FROM alpine:3.24.1\n",
+        }
+
+        def read(_ref: str, path: str) -> bytes | None:
+            return blobs.get(path)
+
+        inventory = osrb_sources.inventory_at_ref(
+            "HEAD", read, ["services/a/Dockerfile", "services/b/Dockerfile"]
+        )
+
+        self.assertEqual(2, len(inventory))
+        self.assertEqual(
+            {"services/a", "services/b"},
+            {row["module"] for row in inventory.values()},
+        )
 
     def test_a_parser_that_raises_produces_an_uncovered_row_not_an_exception(self) -> None:
         # One malformed file must not take the gate down for every other PR in
@@ -765,6 +799,50 @@ class RealRepositoryTreeTest(unittest.TestCase):
         guessed = [row for row in rows if row["new_license"] or row["risk"] != "Unknown"]
         self.assertEqual([], guessed)
 
+
+
+class RowKeyKeepsModuleTest(unittest.TestCase):
+    """A dependency used by two modules is two rows, not one.
+
+    OSRB approves per component, so `wheel` pip-installed into four images is
+    four things to approve. The key here originally omitted `module`, so the
+    first module parsed won and the rest vanished with nothing reporting a
+    dropped duplicate -- 87 of 450 rows on the real tree, across 54 packages.
+    Because the downstream diff in osrb_scan IS module-aware, the same omission
+    also meant a dependency newly adopted by a second module produced no diff
+    row at all: it looked unchanged.
+    """
+
+    def _row(self, module, package="wheel", version="0.45.1"):
+        return {
+            "source_kind": osrb_sources.KIND_CONTAINER,
+            "language": "Python",
+            "package": package,
+            "new_version": version,
+            "module": module,
+        }
+
+    def test_same_package_in_two_modules_has_two_keys(self) -> None:
+        a = osrb_sources._row_key(self._row("services/agent"))
+        b = osrb_sources._row_key(self._row("services/alert"))
+        self.assertNotEqual(a, b)
+
+    def test_same_package_in_the_same_module_still_dedupes(self) -> None:
+        # Two Dockerfiles in one component installing the same pinned package
+        # is one thing to approve, and must not double-report.
+        a = osrb_sources._row_key(self._row("services/agent"))
+        b = osrb_sources._row_key(self._row("services/agent"))
+        self.assertEqual(a, b)
+
+    def test_module_is_actually_part_of_the_key(self) -> None:
+        self.assertIn("services/agent", osrb_sources._row_key(self._row("services/agent")))
+
+    def test_a_row_without_module_does_not_raise(self) -> None:
+        # osrb_sources rows always carry module today, but the key is called on
+        # rows from several parsers; a KeyError here would take down the gate.
+        row = self._row("services/agent")
+        del row["module"]
+        self.assertEqual(osrb_sources._row_key(row)[-1], "")
 
 if __name__ == "__main__":
     unittest.main()

@@ -1310,8 +1310,26 @@ def parser_for(path: str) -> tuple[str, Parser] | None:
     return None
 
 
-def _row_key(row: dict[str, str]) -> tuple[str, str, str, str]:
-    return (row["source_kind"], row["language"], row["package"], row["new_version"])
+def _row_key(row: dict[str, str]) -> tuple[str, str, str, str, str]:
+    """Identity of a source-side row, INCLUDING the owning module.
+
+    Module is in the key because OSRB approves per component: `wheel` installed
+    into four different images is four things to approve, not one. Without it
+    the first module parsed wins and the rest silently vanish -- measured at 87
+    of 450 rows on this tree, across 54 packages used by more than one module,
+    and the loser is invisible because nothing reports a dropped duplicate.
+
+    The consumer downstream (osrb_scan.diff_source_rows) is module-aware, so a
+    module-blind key here also meant a dependency newly used by a second module
+    produced no diff row at all.
+    """
+    return (
+        row["source_kind"],
+        row["language"],
+        row["package"],
+        row["new_version"],
+        row.get("module", ""),
+    )
 
 
 def inventory_at_ref(
