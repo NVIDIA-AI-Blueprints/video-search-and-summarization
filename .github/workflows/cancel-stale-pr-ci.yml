@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# PR CI runs on copy-pr-bot `pull-request/<N>` pushes, not on the source PR
+# event. Concurrency in those workflows only fires when the *mirror* moves.
+# A rebase of the source PR otherwise leaves the previous mirror SHA running
+# until the next `/ok to test`.
+#
+# This workflow is cancel-only. It does not start CI and does not execute
+# PR code: `pull_request_target` with a base-ref checkout (the default SHA)
+# and no credentials.
+
+name: Cancel Stale PR CI
+
+on:
+  pull_request_target:
+    types: [synchronize, closed]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: cancel-stale-pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  cancel:
+    name: Cancel superseded mirror runs
+    if: github.event.pull_request.head.ref != format('pull-request/{0}', github.event.pull_request.number)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Base/default SHA of this trusted workflow — never the PR head.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Cancel in-flight pull-request/N runs whose tree is stale
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_CLOSED: ${{ github.event.action == 'closed' }}
+        run: python3 .github/scripts/cancel_stale_pr_ci.py
