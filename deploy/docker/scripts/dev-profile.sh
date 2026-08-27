@@ -1063,6 +1063,18 @@ function process_args() {
               echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
             fi
             ((_all_good++))
+          else
+            # A valid model id still needs sizing for the selected hardware and
+            # mode; without it compose fails later on a missing env_file. The
+            # implicit path is covered by the edge auto-selection below, but an
+            # explicit --llm bypasses that, so check the resolved file here.
+            _hw_suffix=""
+            [[ "${llm_mode}" == "local_shared" ]] && _hw_suffix="-shared"
+            _hw_env="${deployment_directory}/services/nim/$(get_llm_slug "${llm}")/hw-${hardware_profile}${_hw_suffix}.env"
+            if [[ ! -f "${_hw_env}" ]]; then
+              echo "[ERROR] ${llm} has no sizing for ${hardware_profile} in ${llm_mode} mode ($(basename "${_hw_env}") not found). Choose a model that supports this hardware, or pass --use-remote-llm."
+              ((_all_good++))
+            fi
           fi
         fi
         if contains_element "llm-model-type" "${options_provided[@]}"; then

@@ -680,6 +680,25 @@ function process_args() {
         echo "[ERROR] VLM_ENDPOINT_URL must be set when --use-remote-vlm is passed"
         ((_all_good++))
       fi
+      # Validate a locally-served --llm here rather than in state_up: the main
+      # path runs state_down first, so a bad name would otherwise destroy a
+      # healthy deployment before reporting the error. Remote endpoints serve
+      # arbitrary ids, so skip the allowlist when LLM_MODE resolves to remote.
+      if [[ -n "${llm}" ]] && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
+        local _pa_dir _pa_llm_mode
+        _pa_dir="${deployment_directory}/$(deployment_rel_path "${deployment}")"
+        _pa_llm_mode="$(get_env_value_from_files "LLM_MODE" "${_pa_dir}/.env" "${_pa_dir}/overrides.env")"
+        if [[ "${_pa_llm_mode:-local}" != "remote" ]] && [[ -z "$(get_llm_slug "${llm}")" ]]; then
+          local _pa_removed
+          _pa_removed="$(get_removed_llm_message "${llm}")"
+          if [[ -n "${_pa_removed}" ]]; then
+            echo "[ERROR] ${_pa_removed}"
+          else
+            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+          fi
+          ((_all_good++))
+        fi
+      fi
     fi
 
     if [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
@@ -868,20 +887,10 @@ function state_up() {
         set_env_var "LLM_NAME" "${llm}"
         set_env_var "LLM_NAME_SLUG" "none"
       else
-        local _llm_slug
-        _llm_slug="$(get_llm_slug "${llm}")"
-        if [[ -z "${_llm_slug}" ]]; then
-          local _removed_llm
-          _removed_llm="$(get_removed_llm_message "${llm}")"
-          if [[ -n "${_removed_llm}" ]]; then
-            echo "[ERROR] ${_removed_llm}"
-          else
-            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
-          fi
-          exit 1
-        fi
+        # Already validated in process_args, which runs before state_down so an
+        # invalid name cannot tear down a healthy deployment first.
         set_env_var "LLM_NAME" "${llm}"
-        set_env_var "LLM_NAME_SLUG" "${_llm_slug}"
+        set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
       fi
     fi
     if [[ "${_vlm_mode}" == "remote" ]] && [[ -n "${vlm_base_url}" ]]; then
