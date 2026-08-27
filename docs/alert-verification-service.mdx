@@ -935,6 +935,16 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 | `prompt.override_prompts_on_start` | `true` | Override stored prompts with config file on startup. |
 | `prompt.default_system_prompt` | `You are a helpful assistant.` | System prompt used when an alert config has none of its own. A stored `system_prompt` always wins; set to `""` to send no system message. |
 
+<Note>
+The shipped `default_system_prompt` only guarantees that a system role is
+present — it carries no verification framing of its own (no yes/no contract, no
+domain guidance). Deployments that rely on it for more than one alert type
+should override it with something verifier-oriented, or set `system` per alert
+type. Note also that the opt-out is global: with a default configured, an
+individual alert type cannot ask for no system message; clearing its
+`system_prompt` puts it back on the default.
+</Note>
+
 ### Logging Configuration
 
 | Parameter | Default | Description |

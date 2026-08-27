@@ -28,6 +28,20 @@ from handlers.alert_config import normalize_alert_type
 from handlers.prompt_handler.alert_type_config_loader import VlmParams
 
 
+def _validate_system_prompt(v: Optional[str]) -> Optional[str]:
+    """Strip padding and treat a blank system prompt as unset.
+
+    Unlike ``prompt``, a blank value is not a client error here — the field is
+    optional, so "" and "   " are both reasonable ways to say "I do not want to
+    set one". Normalizing to ``None`` at ingress makes that mean the same thing
+    as omitting it: the service default applies at inference time. Storing the
+    blank verbatim instead would round-trip padding to the VLM.
+    """
+    if v is None:
+        return None
+    return v.strip() or None
+
+
 def _validate_alert_type(v: str) -> str:
     if not v.replace('_', '').replace('-', '').replace(' ', '').isalnum():
         raise ValueError(
@@ -55,6 +69,10 @@ class AlertConfigRequest(BaseModel):
         if not v:
             raise ValueError('Prompt cannot be empty')
         return v
+
+    @validator('system_prompt')
+    def validate_system_prompt(cls, v):
+        return _validate_system_prompt(v)
 
     class Config:
         extra = "forbid"
@@ -89,6 +107,10 @@ class AlertConfigUpdateRequest(BaseModel):
             if not v:
                 raise ValueError('Prompt cannot be empty')
         return v
+
+    @validator('system_prompt')
+    def validate_system_prompt(cls, v):
+        return _validate_system_prompt(v)
 
     class Config:
         extra = "forbid"
