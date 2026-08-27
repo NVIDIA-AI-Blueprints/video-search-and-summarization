@@ -23,6 +23,14 @@ services:
     container_name: vss-rtvi-embed
     user: "1001:1001"
     profiles: ["rtvi-embed"]
+    # Wait for the Kafka broker health-check when it is part of the active
+    # profiles (e.g. the search profile). `required: false` keeps the
+    # standalone rtvi-embed profile deployable without a broker. Matches the
+    # rtvi-vlm service convention.
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
     env_file:
       - .env
     deploy:
