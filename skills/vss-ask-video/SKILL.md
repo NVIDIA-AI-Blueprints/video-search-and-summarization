@@ -103,7 +103,7 @@ already serving. At runtime it needs:
 ### Endpoint resolution (Kubernetes vs Docker)
 
 Resolve public endpoints once when operating against a deployed VSS stack. Follow
-[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+[`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md).
 `VSS_ENDPOINT` is accepted as a legacy alias for `VSS_PUBLIC_URL`.
 
 ```bash

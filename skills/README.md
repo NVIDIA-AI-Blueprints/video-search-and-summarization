@@ -50,7 +50,7 @@ host, not inside VSS pods. Supply one public Ingress origin as
 `vss.<ip>.nip.io` for **base**, **lvs**, and **alerts**, `vss-search.<ip>.nip.io`
 for **search**). Canonical variable mapping, Docker fallbacks, and the
 no-port-forward rule live in
-[`vss-build-vision-agent/references/deployment_resolution.md`](vss-build-vision-agent/references/deployment_resolution.md).
+[`vss-build-vision-ai/references/deployment_resolution.md`](vss-build-vision-ai/references/deployment_resolution.md).
 Base quickstart operate uses `/vst` (VIOS) and Prefix `/v1` (RT-VLM) on that
 origin for `vss-manage-video-io-storage`, `vss-ask-video`, and
 `vss-generate-video-report` Mode A. LVS operate uses Exact `/v1/ready` and

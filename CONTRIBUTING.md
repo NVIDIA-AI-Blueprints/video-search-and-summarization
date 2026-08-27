@@ -152,6 +152,7 @@ The repository ships with a `.pre-commit-config.yaml` at the root that runs the 
 - `ruff format --check` — mirrors the CI `Lint (Python)` job
 - `mypy src/agent/` — mirrors the CI `Type Check (mypy)` job
 - TruffleHog secret scan
+- Files >5 MiB under `services/`, `libs/`, or `tools/` must be Git LFS 
 
 Install the hooks once after cloning the repo:
 

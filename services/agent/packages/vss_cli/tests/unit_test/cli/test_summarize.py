@@ -14,6 +14,7 @@ import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import cast
 
 from click.testing import CliRunner
 import httpx
@@ -21,11 +22,11 @@ import pytest
 
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
-from vss_cli import summarize_group
 from vss_cli.exits import Exit
-from vss_cli.summarize_group import SUMMARIZE
-from vss_cli.summarize_group import SummarizeInput
-from vss_cli.summarize_group import SummarizeOptions
+from vss_cli.summarize import group as summarize_group
+from vss_cli.summarize.group import SUMMARIZE
+from vss_cli.summarize.group import SummarizeInput
+from vss_cli.summarize.group import SummarizeOptions
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core.memory import InMemoryStore
 from vss_core.memory import MemoryService
@@ -60,7 +61,11 @@ def _deployment(
     }
     if services is not None:
         recorded = services
-    return config_mod.Deployment(base_url=BASE_URL, services=recorded)
+    return config_mod.Deployment(
+        base_url=BASE_URL,
+        services=recorded,
+        memory=config_mod.MemoryConfig(),
+    )
 
 
 @pytest.fixture
@@ -195,10 +200,23 @@ def _store(memory: memory_mod.Memory) -> _Store:
 
 
 def _persisted(memory: memory_mod.Memory) -> dict[str, Any]:
-    """The one record the run wrote, as it would come back from `get`."""
+    """The one parent record the run wrote, as it would come back from `get`."""
     records = memory.service.list_jobs()
     assert len(records) == 1, records
     return records[0].model_dump_memory()
+
+
+def _persisted_event_children(memory: memory_mod.Memory) -> list[dict[str, Any]]:
+    """The parent's ``event`` child records, oldest event first."""
+    from vss_core.memory.store import MemoryQuery
+
+    parent = _persisted(memory)
+    children = memory.service.query(MemoryQuery(job_id=parent["job"]["job_id"], record_type="event", limit=100))
+    ordered = sorted(
+        children,
+        key=lambda item: item.input.window.start.timestamp if item.input and item.input.window else item.job.created_at,
+    )
+    return [child.model_dump_memory() for child in ordered]
 
 
 #: LVS requires model, scenario and events on every request. The model is
@@ -214,6 +232,40 @@ def _steered(argv: tuple[str, ...]) -> list[str]:
 
 def _run(*argv: str) -> Any:
     return CliRunner().invoke(SUMMARIZE.cli(), ["run", *_steered(argv)])
+
+
+def _configure_markdown(
+    deployment: config_mod.Deployment,
+    workspace: Path,
+    *,
+    default: bool = False,
+    persist: bool = True,
+) -> None:
+    config_mod.save(
+        config_mod.Deployment(
+            base_url=deployment.base_url,
+            services=deployment.services,
+            written_at=deployment.written_at,
+            memory=config_mod.MemoryConfig(
+                persist_by_default=persist,
+                markdown=config_mod.MarkdownMemoryConfig(
+                    enabled=True,
+                    workspace=str(workspace),
+                    write_by_default=default,
+                ),
+            ),
+        )
+    )
+
+
+def _body(result: Any) -> dict[str, Any]:
+    """The paid-for result is the first compact JSON line."""
+    return cast("dict[str, Any]", json.loads(result.stdout.splitlines()[0]))
+
+
+def _marker(result: Any) -> dict[str, Any]:
+    """The SDD completion callback is always the final compact JSON line."""
+    return cast("dict[str, Any]", json.loads(result.stdout.splitlines()[-1]))
 
 
 def _run_via_root(*argv: str) -> int:
@@ -266,15 +318,51 @@ def test_endpoint_flags_are_gone() -> None:
     per-call deployment discovery the config layer replaced.
     """
     flags = _run_flags()
-    for gone in ("--backend-url", "--es-endpoint", "--embedding-endpoint", "--embedding-model"):
+    for gone in ("--backend-url", "--es-endpoint", "--embedding-endpoint", "--embedding-model", "--memory-index"):
         assert gone not in flags
 
 
 def test_persistence_options_are_not_request_fields() -> None:
     """They configure the job, not the VLM call, so they must not reach the payload."""
-    assert {"persist", "video_id", "media_source"} <= set(SummarizeOptions.model_fields)
-    assert not {"persist", "video_id", "media_source"} & set(SummarizeInput.model_fields)
-    assert {"--persist", "--no-persist", "--video-id"} <= _run_flags()
+    assert {"no_persist", "video_id", "media_source"} <= set(SummarizeOptions.model_fields)
+    assert not {"no_persist", "video_id", "media_source"} & set(SummarizeInput.model_fields)
+    assert {"--no-persist", "--video-id", "--write-memory-note", "--no-write-memory-note"} <= _run_flags()
+    assert "--persist" not in _run_flags()
+
+
+def test_write_memory_note_with_no_persist_exits_two_before_summarize(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: pytest.fail("summarization ran"))
+    result = _run("--id", "v1", "--no-persist", "--write-memory-note")
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "--write-memory-note" in result.output
+    assert "--no-persist" in result.output
+
+
+def test_explicit_note_requires_configured_markdown(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: pytest.fail("summarization ran"))
+    assert _run_via_root("--id", "v1", "--write-memory-note") == int(Exit.CONFIGURATION)
+    assert "vss configure memory --markdown" in capsys.readouterr().err
+
+
+def test_explicit_note_cannot_override_static_persistence_off(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, persist=False)
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: pytest.fail("summarization ran"))
+    result = _run("--id", "v1", "--write-memory-note")
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "static persistence" in result.output
 
 
 # --------------------------------------------------------------------------
@@ -376,9 +464,22 @@ def test_run_posts_to_the_deployments_lvs_route(
     result = _run("--id", "v1", "--no-persist")
     assert result.exit_code == 0, result.output
     assert seen["url"] == f"{BASE_URL}/lvs/v1/summarize"
-    body = json.loads(result.output)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["job_id"].startswith("summarize-")
+
+
+def test_pretty_output_still_ends_with_one_compact_marker(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _capture_post(monkeypatch)
+    result = _run("--id", "v1", "--no-persist", "--pretty")
+    assert result.exit_code == 0, result.output
+    marker = json.loads(result.stdout.splitlines()[-1])
+    assert marker["event"] == "vss_job_completed"
+    assert marker["group"] == "summary"
+    assert marker["asset_id"] == "v1"
+    assert marker["persisted"] is False
 
 
 def test_model_defaults_to_what_lvs_reports(configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -491,7 +592,7 @@ def test_no_persist_skips_the_memory_write(
     result = _run("--id", "v1", "--no-persist")
     assert result.exit_code == 0
     assert _store(memory).statuses == []
-    assert "persist" not in json.loads(result.output)
+    assert "persist" not in _body(result)
 
 
 def test_persist_writes_one_unified_memory_record(
@@ -507,7 +608,7 @@ def test_persist_writes_one_unified_memory_record(
     result = _run("--id", "v1")
     assert result.exit_code == 0, result.output
 
-    body = json.loads(result.output)
+    body = _body(result)
     record = _persisted(memory)
     assert record["schema"] == "nv.vss.memory/1.0"
     assert record["job"]["group"] == "summary"
@@ -515,7 +616,110 @@ def test_persist_writes_one_unified_memory_record(
     assert record["job"]["status"] == "completed"
     assert record["input"]["sensors"][0]["id"] == "v1"
     assert record["output"]["answer"] == "a forklift crosses the aisle"
-    assert body["persist"] == {"status": "complete", "index": memory.index, "group": "summary", "events": 0}
+    assert body["persist"] == {
+        "status": "complete",
+        "index": memory.index,
+        "group": "summary",
+        "events": 0,
+        "requested": 1,
+        "expected": 1,
+        "written": 1,
+        "collapsed": 0,
+    }
+
+
+def test_explicit_note_opt_in_writes_openclaw_daily_note(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace)
+    _capture_post(monkeypatch)
+
+    result = _run("--id", "v1", "--write-memory-note")
+    assert result.exit_code == 0, result.output
+    body = _body(result)
+    assert body["memory_note"]["written"] is True
+    path = workspace / body["memory_note"]["path"]
+    assert path.name.endswith("-vss.md")
+    text = path.read_text(encoding="utf-8")
+    assert body["job_id"] in text
+    assert "a forklift crosses the aisle" in text
+
+
+def test_default_note_writing_can_be_explicitly_opted_out(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, default=True)
+    _capture_post(monkeypatch)
+    written = _run("--id", "v1")
+    assert written.exit_code == 0
+    note_path = workspace / _body(written)["memory_note"]["path"]
+    original = note_path.read_text(encoding="utf-8")
+
+    skipped = _run("--id", "v2", "--no-write-memory-note")
+    assert skipped.exit_code == 0, skipped.output
+    assert "memory_note" not in _body(skipped)
+    assert note_path.read_text(encoding="utf-8") == original
+
+
+def test_markdown_failure_keeps_summary_and_authoritative_persistence(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+    tmp_path: Path,
+) -> None:
+    from vss_cli import memory_notes
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, default=True)
+    calls = 0
+
+    def post(*_args: Any, **_kwargs: Any) -> _Response:
+        nonlocal calls
+        calls += 1
+        return _Response()
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(memory_notes, "write", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")))
+
+    result = _run("--id", "v1")
+    assert result.exit_code == int(Exit.PARTIAL), result.output
+    assert calls == 1
+    body = _body(result)
+    assert body["summary"]["id"] == "cmpl-1"
+    assert body["persist"]["status"] == "complete"
+    assert body["memory_note"]["written"] is False
+    assert "disk full" in body["memory_note"]["error"]
+    assert _marker(result)["persisted"] is True
+
+
+def test_elasticsearch_failure_prevents_markdown_write(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from vss_cli import memory_notes
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _configure_markdown(configured, workspace, default=True)
+    _capture_post(monkeypatch)
+    _memory(monkeypatch, _Store(fail_on="completed"))
+    monkeypatch.setattr(memory_notes, "write", lambda *_args, **_kwargs: pytest.fail("note write attempted"))
+
+    result = _run("--id", "v1")
+    assert result.exit_code == int(Exit.PARTIAL), result.output
+    assert _body(result)["persist"]["status"] == "failed"
 
 
 def test_the_record_exists_before_the_summary_does(
@@ -565,10 +769,49 @@ def test_structured_output_becomes_answer_and_events(
 
     record = _persisted(memory)
     assert record["output"]["answer"] == "a forklift crosses"
-    # The adapter normalizes each row by promoting its time to `timestamp`,
-    # which is the field windowed recall filters on.
-    assert record["output"]["ext"]["events"] == [{**event, "timestamp": event["start_time"]}]
-    assert json.loads(result.output)["persist"]["events"] == 1
+    # Events are child records now, never a nested collection on the parent.
+    assert "events" not in record.get("output", {}).get("ext", {})
+    assert record["output"]["ext"]["event_count"] == 1
+    (child,) = _persisted_event_children(memory)
+    assert child["job"]["record_type"] == "event"
+    assert child["output"]["answer"] == "forklift enters"
+    assert child["output"]["ext"]["event_type"] == "forklift"
+    assert child["input"]["window"]["start"]["timestamp"] == "2025-01-01T00:00:00Z"
+    assert child["input"]["window"]["end"]["timestamp"] == "2025-01-01T00:00:10Z"
+    body = _body(result)
+    assert body["persist"]["events"] == 1
+    assert body["persist"]["written"] == 2  # parent + one child
+
+
+def test_colliding_events_report_partial_and_keep_summary(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+) -> None:
+    duplicate = {
+        "event_id": "evt-duplicate",
+        "start_time": "2025-01-01T00:00:00.000Z",
+        "end_time": "2025-01-01T00:00:10.000Z",
+        "type": "forklift",
+        "description": "same event twice",
+    }
+    structured = {"video_summary": "a forklift crosses", "events": [duplicate, duplicate]}
+    _capture_post(monkeypatch, _Response(_completion(structured)))
+
+    result = _run("--id", "v1")
+
+    assert result.exit_code == int(Exit.PARTIAL), result.output
+    body = _body(result)
+    marker = _marker(result)
+    assert body["summary"]["id"] == "cmpl-1"
+    assert body["persist"]["status"] == "failed"
+    assert "'requested': 3" in body["persist"]["error"]
+    assert "'collapsed': 1" in body["persist"]["error"]
+    assert marker["status"] == "partial"
+    assert marker["persisted"] is False
+    parent = memory.service.get(body["job_id"], reconcile=False)
+    assert parent.job.status == "partial"
+    assert len(_persisted_event_children(memory)) == 1
 
 
 def test_epoch_event_times_become_instants(
@@ -587,10 +830,9 @@ def test_epoch_event_times_become_instants(
     result = _run("--id", "v1", "--creation-time", "2025-01-01T00:00:00Z")
     assert result.exit_code == 0, result.output
 
-    (event,) = _persisted(memory)["output"]["ext"]["events"]
-    assert event["start_time"] == "2025-01-01T00:00:00Z"
-    assert event["end_time"] == "2025-01-01T00:02:00Z"
-    assert event["timestamp"] == "2025-01-01T00:00:00Z"
+    (child,) = _persisted_event_children(memory)
+    assert child["input"]["window"]["start"]["timestamp"] == "2025-01-01T00:00:00Z"
+    assert child["input"]["window"]["end"]["timestamp"] == "2025-01-01T00:02:00Z"
 
 
 def test_offsets_are_anchored_to_the_creation_time(
@@ -606,9 +848,9 @@ def test_offsets_are_anchored_to_the_creation_time(
     result = _run("--id", "v1", "--creation-time", "2025-01-01T00:00:00Z")
     assert result.exit_code == 0, result.output
 
-    (event,) = _persisted(memory)["output"]["ext"]["events"]
-    assert event["start_time"] == "2025-01-01T00:00:00Z"
-    assert event["end_time"] == "2025-01-01T00:00:30.500000Z"
+    (child,) = _persisted_event_children(memory)
+    assert child["input"]["window"]["start"]["timestamp"] == "2025-01-01T00:00:00Z"
+    assert child["input"]["window"]["end"]["timestamp"] == "2025-01-01T00:00:30.500000Z"
 
 
 def test_offsets_without_a_creation_time_name_the_flag_that_fixes_it(
@@ -624,7 +866,7 @@ def test_offsets_without_a_creation_time_name_the_flag_that_fixes_it(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    body = json.loads(result.stdout)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert "--creation-time" in body["persist"]["error"]
 
@@ -643,7 +885,7 @@ def test_events_without_a_timestamp_cost_the_write_not_the_summary(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    body = json.loads(result.stdout)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert "timestamp" in body["persist"]["error"]
 
@@ -673,7 +915,7 @@ def test_failed_write_is_partial_and_keeps_the_summary(
     result = _run("--id", "v1")
     assert result.exit_code == int(Exit.PARTIAL), result.output
 
-    body = json.loads(result.output)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
     # The close landed, so the job reads `partial` rather than still running.
@@ -695,10 +937,13 @@ def test_a_partial_that_could_not_be_closed_says_so(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    marker = json.loads(result.stdout)
-    assert marker["summary"]["id"] == "cmpl-1"
-    assert marker["persist"]["status"] == "failed"
-    assert marker["record"] == "stale"
+    body = _body(result)
+    marker = _marker(result)
+    assert body["summary"]["id"] == "cmpl-1"
+    assert body["persist"]["status"] == "failed"
+    assert body["record"] == "stale"
+    assert marker["persisted"] is False
+    assert marker["exit_hint"] == int(Exit.PARTIAL)
     assert "still reports it submitted" in result.stderr
 
 
@@ -718,7 +963,7 @@ def test_a_store_that_refuses_the_first_write_still_summarizes(
     assert result.exit_code == int(Exit.PARTIAL), result.output
     assert seen, "the summarization must still have been requested"
 
-    body = json.loads(result.stdout)
+    body = _body(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
     # Nothing was ever written, so there is no record to be stale about.
@@ -739,7 +984,7 @@ def test_a_status_rejection_is_a_persist_failure_not_a_crash(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.PARTIAL), result.output
-    assert "405" in json.loads(result.stdout)["persist"]["error"]
+    assert "405" in _body(result)["persist"]["error"]
 
 
 def test_unreachable_memory_fails_before_summarizing(
@@ -844,10 +1089,14 @@ def test_a_timeout_puts_its_handle_on_stdout(
     result = _run("--id", "v1")
     assert result.exit_code == int(Exit.TIMEOUT), result.output
 
-    marker = json.loads(result.stdout)
+    body = _body(result)
+    marker = _marker(result)
     assert marker["status"] == "timeout"
-    assert marker["record"] == "closed"
     assert marker["job_id"] == _store(memory).upsert_ids[0]
+    assert marker["event"] == "vss_job_timeout"
+    assert marker["persisted"] is True
+    assert marker["exit_hint"] == int(Exit.TIMEOUT)
+    assert body["record"] == "closed"
 
 
 @pytest.mark.parametrize(
@@ -878,10 +1127,13 @@ def test_a_backend_failure_puts_its_handle_on_stdout(
     result = _run("--id", "v1")
     assert result.exit_code == int(expected), result.output
 
-    marker = json.loads(result.stdout)
+    body = _body(result)
+    marker = _marker(result)
     assert marker["status"] == "failed"
-    assert marker["record"] == "closed"
     assert marker["job_id"] == _store(memory).upsert_ids[0]
+    assert marker["event"] == "vss_job_failed"
+    assert marker["persisted"] is True
+    assert body["record"] == "closed"
     assert result.stderr.strip(), "a failure must still diagnose itself on stderr"
 
 
@@ -930,7 +1182,7 @@ def test_a_close_that_loses_a_race_is_retried_before_it_is_given_up(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "closed"
+    assert _body(result)["record"] == "closed"
     assert store.attempts == 2, "one failure must not be final"
     assert _persisted(memory)["job"]["status"] == "timeout"
 
@@ -947,7 +1199,7 @@ def test_the_retry_budget_is_bounded(configured: config_mod.Deployment, monkeypa
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "stale"
+    assert _body(result)["record"] == "stale"
     assert store.attempts == summarize_group._TERMINAL_WRITE_ATTEMPTS
 
 
@@ -965,7 +1217,7 @@ def test_a_record_that_could_not_be_closed_says_so(
     result = _run("--id", "v1")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "stale"
+    assert _body(result)["record"] == "stale"
     assert "still reports it submitted" in result.stderr
 
 
@@ -977,7 +1229,50 @@ def test_a_timeout_without_persistence_claims_no_record(
     result = _run("--id", "v1", "--no-persist")
 
     assert result.exit_code == int(Exit.TIMEOUT), result.output
-    assert json.loads(result.stdout)["record"] == "absent"
+    assert _body(result)["record"] == "absent"
+
+
+@pytest.mark.parametrize(
+    "memory_config",
+    [
+        None,
+        config_mod.MemoryConfig(enabled=False, persist_by_default=False),
+        config_mod.MemoryConfig(enabled=True, persist_by_default=False),
+    ],
+)
+def test_static_policy_can_make_summarize_stdout_only(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory_config: config_mod.MemoryConfig | None,
+) -> None:
+    config_mod.save(
+        config_mod.Deployment(
+            base_url=configured.base_url,
+            services=configured.services,
+            memory=memory_config,
+            written_at=configured.written_at,
+        )
+    )
+    _capture_post(monkeypatch)
+    monkeypatch.setattr(memory_mod, "build", lambda *_args, **_kwargs: pytest.fail("memory initialized"))
+
+    result = _run("--id", "v1")
+    assert result.exit_code == int(Exit.SUCCESS), result.output
+    assert _body(result)["record"] == "absent"
+    assert _marker(result)["persisted"] is False
+
+
+def test_summarize_no_persist_never_initializes_memory(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _capture_post(monkeypatch)
+    monkeypatch.setattr(memory_mod, "build", lambda *_args, **_kwargs: pytest.fail("memory initialized"))
+
+    result = _run("--id", "v1", "--no-persist")
+    assert result.exit_code == int(Exit.SUCCESS), result.output
+    assert _body(result)["record"] == "absent"
+    assert _marker(result)["persisted"] is False
 
 
 @pytest.mark.parametrize(("argv", "worth"), [((), "closed"), (("--no-persist",), "absent")])
@@ -999,7 +1294,7 @@ def test_success_says_what_the_handle_is_worth_too(
     result = _run("--id", "v1", *argv)
 
     assert result.exit_code == int(Exit.SUCCESS), result.output
-    assert json.loads(result.stdout)["record"] == worth
+    assert _body(result)["record"] == worth
 
 
 # --------------------------------------------------------------------------
@@ -1016,13 +1311,34 @@ def test_get_returns_the_record_run_persisted(
 ) -> None:
     """run and get are two ends of one index -- the payoff of persisting."""
     _capture_post(monkeypatch)
-    job_id = json.loads(_run("--id", "v1").output)["job_id"]
+    job_id = _body(_run("--id", "v1"))["job_id"]
 
     result = _read("get", "--job-id", job_id)
     assert result.exit_code == 0, result.output
     record = json.loads(result.output)
     assert record["job"]["job_id"] == job_id
     assert record["output"]["answer"] == "a forklift crosses the aisle"
+    assert record["children"] == []
+
+
+def test_get_hydrates_event_children_in_time_order(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
+) -> None:
+    structured = {
+        "video_summary": "two events",
+        "events": [
+            {"start_time": 20, "end_time": 30, "description": "second"},
+            {"start_time": 0, "end_time": 10, "description": "first"},
+        ],
+    }
+    _capture_post(monkeypatch, _Response(_completion(structured)))
+    job_id = _body(_run("--id", "v1", "--creation-time", "2025-01-01T00:00:00Z"))["job_id"]
+
+    result = _read("get", "--job-id", job_id)
+    assert result.exit_code == 0, result.output
+    record = json.loads(result.output)
+    assert [child["output"]["answer"] for child in record["children"]] == ["first", "second"]
+    assert all(child["job"]["record_type"] == "event" for child in record["children"])
 
 
 def test_status_reports_the_lifecycle_state(
@@ -1060,7 +1376,7 @@ def test_another_groups_job_is_not_this_groups_to_return(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
     """`summarize get` must not hand back a search job that shares the index."""
-    from vss_core.memory import SearchAdapter
+    from vss_cli.search.memory_adapter import SearchAdapter
 
     foreign = SearchAdapter().submitted_record(
         job_id="search-01",

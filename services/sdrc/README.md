@@ -452,6 +452,8 @@ In Helm / VSS profiles, the controller is typically exposed on port `5003` (mapp
 
 `config.yml` is the primary runtime configuration. It is mounted into the container and its path is pointed to by `WDM_WORKLOADS_CONFIG`. Each top-level key is a **workload block**; SDRC starts one coordinator per enabled block.
 
+An optional top-level `defaults:` block sets pod-wide parameters shared across all workloads (e.g. `WDM_XDS_GRPC_ADS_ENABLED`). Per-workload entries override `defaults:` values. `true` wins for boolean flags — if any workload or `defaults:` sets a flag to `true`, the pod-wide value is `true`.
+
 **Reference config included with the service** (`config.yml`):
 
 ```yaml
@@ -598,6 +600,8 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `ENVOY_REQUEST_TIMEOUT` | `5` | Envoy upstream request timeout in seconds. |
 | `WDM_XDS_USE_POD_DNS` | `True` | Prefer pod DNS names in xDS cluster endpoints. |
 | `WDM_XDS_USE_IP_ADDRESS` | `False` | Use pod IPs instead of DNS in xDS endpoints. |
+| `WDM_XDS_GRPC_ADS_ENABLED` | `False` (VSS default: `true`) | Enable gRPC Aggregated Discovery Service (ADS) server instead of REST polling. Required for multi-workload mode; Envoy connects to `GRPC_XDS_PORT` for combined CDS/RDS updates. All VSS compose and Helm profiles set this to `true`. |
+| `GRPC_XDS_PORT` | `4001` | Port for the gRPC ADS server when `WDM_XDS_GRPC_ADS_ENABLED` is true. |
 
 #### Startup, preload, and recovery
 
