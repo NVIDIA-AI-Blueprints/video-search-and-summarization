@@ -149,7 +149,6 @@ class TestConstruction:
             ('"  padded  "', "padded"),
             ('"   "', ""),
             ('""', ""),
-            ("~", ""),
         ],
     )
     def test_the_configured_default_is_normalized(self, value, expected):
@@ -164,6 +163,10 @@ class TestConstruction:
             # they would sail through the resolver's truthiness check and turn
             # the fallback off, which looks identical to not having the feature.
             "false", "0", "[]", "{}",
+            # Both spellings of null, including the valueless key someone leaves
+            # behind mid-edit or a Helm value that rendered to nothing. "" is
+            # the way to ask for no system message; this is not it.
+            "~", "null", "",
         ],
     )
     def test_a_non_string_default_fails_startup(self, value):
@@ -171,6 +174,19 @@ class TestConstruction:
         falsy, disables the fallback the default exists to provide."""
         with pytest.raises(RuntimeError, match="default_system_prompt must be a string"):
             make_manager(f"prompt:\n  default_system_prompt: {value}\n")
+
+    def test_omitting_the_key_is_not_the_same_as_nulling_it(self):
+        """An absent key is the normal case and keeps the service default; only
+        a key that is present and empty is the ambiguous one worth rejecting."""
+        assert make_manager("prompt:\n  override_prompts_on_start: false\n").default_system_prompt == (
+            DEFAULT_SYSTEM_PROMPT
+        )
+
+    def test_disabling_the_default_is_logged(self, caplog):
+        with caplog.at_level("WARNING"):
+            make_manager('prompt:\n  default_system_prompt: ""\n')
+
+        assert "will be sent none" in caplog.text
 
     def test_empty_config_file_is_tolerated(self):
         assert make_manager("") is not None
@@ -357,11 +373,13 @@ class TestDefaultSystemPrompt:
         [
             'prompt:\n  default_system_prompt: ""\n',
             'prompt:\n  default_system_prompt: "   "\n',
-            "prompt:\n  default_system_prompt:\n",
         ],
     )
     def test_an_empty_configured_default_sends_no_system_prompt(self, store, config_yaml):
-        """The escape hatch for deployments that want the role left unset."""
+        """The escape hatch for deployments that want the role left unset.
+
+        An empty string only — a valueless key fails startup instead, so the
+        hatch cannot be opened by accident."""
         manager = make_manager(config_yaml, store=store)
         store.get.return_value = {"prompt": "Ask something."}
 

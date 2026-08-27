@@ -933,7 +933,7 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 | `alert_type_config_file` | `alert_type_config.json` | Path to alert type configuration file. |
 | `prompt.prefer_payload_prompt` | `false` | Prefer prompts from alert payload over stored prompts. |
 | `prompt.override_prompts_on_start` | `true` | Override stored prompts with config file on startup. |
-| `prompt.default_system_prompt` | `You are a helpful assistant.` | System prompt used when an alert config has none of its own. A stored `system_prompt` always wins; set to `""` to send no system message. |
+| `prompt.default_system_prompt` | `You are a helpful assistant.` | System prompt used when an alert config has none of its own. A stored `system_prompt` always wins; set to `""` to send no system message. A present-but-empty value (`default_system_prompt:` with nothing after it) fails startup rather than being read as `""`; remove the key to keep the default. |
 
 <Note>
 The shipped `default_system_prompt` only guarantees that a system role is
