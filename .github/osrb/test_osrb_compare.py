@@ -790,7 +790,18 @@ class RealBaselineTest(unittest.TestCase):
         # Take real rows off the sheet, feed them back as if the repo held
         # exactly them, and require APPROVED. Anything else is a false
         # positive by construction.
-        sample = [row for row in self.rows if row["repo_modules"] and row["version"]][:400]
+        # Excludes inline-addition rows on purpose. Those are packages someone
+        # added in a bug comment, and a module whose ONLY approvals are inline
+        # is reported MODULE_UNSUBMITTED by design -- the two @img/sharp rows
+        # under services/ui are exactly that, and feeding them here would
+        # assert the behaviour this comparator deliberately does not have.
+        sample = [
+            row
+            for row in self.rows
+            if row["repo_modules"]
+            and row["version"]
+            and row.get("provenance", "submission") != "inline-addition"
+        ][:400]
         index = compare_mod.ApprovedIndex(self.rows)
         for row in sample:
             module = module_map.split_repo_modules(row["repo_modules"])[0]
@@ -808,6 +819,38 @@ class RealBaselineTest(unittest.TestCase):
             self.assertEqual(
                 verdict, "APPROVED", f"{row['package']} {row['version']} in {module}"
             )
+
+
+    def test_an_inline_only_module_reports_unsubmitted_not_approved(self) -> None:
+        """The counterpart, asserted against the real baseline.
+
+        services/ui holds two approved rows, both inline additions from a bug
+        comment against 2157 resolved npm packages. Treating that as an OSRB
+        submission reported 1350 packages as individually NOT_APPROVED and
+        buried every other module's findings. It is one missing submission.
+        """
+        index = compare_mod.ApprovedIndex(self.rows)
+        self.assertTrue(index.is_inline_only("services/ui"))
+
+        verdict = compare_mod.classify(
+            inventory_row(
+                package="@img/sharp-freebsd-wasm32",
+                version="0.35.3",
+                license="Apache-2.0",
+                module="services/ui",
+                source_kind="lockfile",
+                source_file="services/ui/package-lock.json",
+            ),
+            index,
+        )
+        self.assertEqual(verdict["verdict"], "MODULE_UNSUBMITTED")
+        self.assertIn("no OSRB submission", verdict["notes"])
+
+    def test_a_genuinely_submitted_module_is_not_inline_only(self) -> None:
+        # Guard against the check being so broad it swallows real submissions.
+        index = compare_mod.ApprovedIndex(self.rows)
+        for module in ("services/agent", "services/vios", "services/rtvi/rt-vlm"):
+            self.assertFalse(index.is_inline_only(module), module)
 
 
 if __name__ == "__main__":

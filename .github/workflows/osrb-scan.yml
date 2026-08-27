@@ -317,6 +317,7 @@ jobs:
             --approved .github/osrb/approved.csv \
             --output osrb-compliance.csv \
             --summary osrb-compliance.md \
+            --submissions osrb-submissions \
             --github-output "$GITHUB_OUTPUT"
 
       # A SEPARATE artifact on purpose. The `license-diff` artifact in Job 1 is
@@ -331,6 +332,7 @@ jobs:
           path: |
             osrb-compliance.csv
             osrb-compliance.md
+            osrb-submissions/
           if-no-files-found: warn
 
       - name: Write step summary

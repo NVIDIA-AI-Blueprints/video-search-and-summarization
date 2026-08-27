@@ -76,6 +76,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import pathlib
 import csv
 import re
 import sys
@@ -871,11 +872,29 @@ class ApprovedIndex:
                 self.by_module_package[(module, key_package)].append(row)
         self.modules = {module for module, _ in self.by_module_package}
 
+        # Modules whose every approved row is an inline addition from a bug
+        # comment rather than an OSRB submission. `provenance` is derived in
+        # the approved.csv generator from the upstream sheet tab; a module here
+        # has a record in name only. Absent column -> everything counts as a
+        # submission, so an older baseline degrades to the previous behaviour
+        # rather than silently reclassifying every module as unsubmitted.
+        per_module: dict[str, set[str]] = collections.defaultdict(set)
+        for row in rows:
+            for module in split_repo_modules(row.get("repo_modules", "")):
+                per_module[module].add(row.get("provenance", "submission") or "submission")
+        self.inline_only_modules = {
+            module for module, kinds in per_module.items() if kinds == {"inline-addition"}
+        }
+
     def candidates(self, module: str, package: str) -> list[dict[str, str]]:
         return self.by_module_package.get((module, canonical_package(package)), [])
 
     def has_module(self, module: str) -> bool:
         return module in self.modules
+
+    def is_inline_only(self, module: str) -> bool:
+        """True when this module's only approvals are inline bug-comment additions."""
+        return module in self.inline_only_modules
 
 
 # ---------------------------------------------------------------------------
@@ -997,6 +1016,27 @@ def classify(
     """
     module = row.get("module", "")
     evidence = evidence_for(row)
+
+    if approved.is_inline_only(module):
+        # The module has approved rows, but every one of them came from an
+        # inline addition in a bug comment rather than an OSRB submission. That
+        # is not a reviewed dependency tree, and treating it as one turns a
+        # single missing submission into a per-package pile: services/ui has two
+        # inline @img/sharp rows against 2157 resolved npm packages, which
+        # reported as 1350 individual NOT_APPROVED findings and buried every
+        # other verdict in the report.
+        #
+        # Report it once, at module level, pointing at the actual action.
+        return _output_row(
+            VERDICT_MODULE_UNSUBMITTED,
+            row,
+            None,
+            evidence,
+            f"{module!r} has no OSRB submission -- its only approved rows are "
+            "inline additions from a bug comment, not a reviewed dependency "
+            "tree. File an OSRB submission for the module rather than chasing "
+            "this package",
+        )
 
     scope = unsubmitted_scope(module, row.get("source_file", ""))
     if scope:
@@ -1343,12 +1383,59 @@ def _log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+
+def write_submission_packs(rows: list[dict[str, str]], directory: str) -> list[tuple[str, int]]:
+    """One CSV per unsubmitted module, ready to attach to an OSRB bug.
+
+    Reporting that a module has no OSRB record is only half an answer; the
+    other half is the list of what would be in the submission, and that list is
+    exactly the MODULE_UNSUBMITTED rows for that module. Writing them out turns
+    "services/ui has no submission" from a research task into an attachment.
+
+    Filename is the module path with "/" replaced, because a module path is not
+    a filename and silently creating nested directories would scatter the packs.
+    """
+    out_dir = pathlib.Path(directory)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    by_module: dict[str, list[dict[str, str]]] = collections.defaultdict(list)
+    for row in rows:
+        if row.get("verdict") == VERDICT_MODULE_UNSUBMITTED:
+            by_module[row.get("module", "")].append(row)
+
+    written = []
+    for module, module_rows in sorted(by_module.items()):
+        safe = module.replace("/", "__").replace("<", "").replace(">", "") or "root"
+        path = out_dir / f"osrb-submission-{safe}.csv"
+        fields = ["package", "version", "license", "module", "usage_evidence",
+                  "source_kind", "source_file", "notes"]
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer_ = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+            writer_.writeheader()
+            writer_.writerows(
+                sorted(module_rows, key=lambda r: (r.get("package", "").lower(),
+                                                   r.get("version", "")))
+            )
+        written.append((str(path), len(module_rows)))
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--inventory", required=True, help="inventory CSV to judge")
     parser.add_argument("--approved", required=True, help="OSRB approved baseline CSV")
     parser.add_argument("--output", default="osrb-compliance.csv")
     parser.add_argument("--summary", default="osrb-compliance.md")
+    parser.add_argument(
+        "--submissions",
+        default=None,
+        metavar="DIR",
+        help=(
+            "write one submission-ready CSV per MODULE_UNSUBMITTED module. "
+            "The rows OSRB needs to review a module ARE the findings for it, "
+            "so emit them in a form that can be attached to a bug instead of "
+            "leaving someone to reconstruct the list by filtering."
+        ),
+    )
     parser.add_argument(
         "--github-output",
         default=None,
@@ -1413,6 +1500,11 @@ def main(argv: list[str] | None = None) -> int:
     for verdict in VERDICTS:
         _log(f"{verdict}: {counts[verdict]}")
     _log(f"wrote {args.output} and {args.summary}")
+    if args.submissions:
+        packs = write_submission_packs(rows, args.submissions)
+        for path, count in packs:
+            print(f"submission pack: {path} ({count} packages)", file=sys.stderr)
+
     return 0
 
 

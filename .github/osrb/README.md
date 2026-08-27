@@ -162,14 +162,39 @@ CODEOWNERS on the baseline (**done** — `approved.csv` and `module_map.py` now 
 The **delta** gate in the `osrb-scan` job is unaffected and still blocks: a dependency change
 a pull request actually introduces is caught there.
 
-### `NOT_APPROVED` is 1717 rows and roughly four fifths of it is one problem
+### `services/ui` has no OSRB submission (fixed in reporting, open in substance)
 
-1350 of them are `services/ui`, whose entire approved baseline is two PR-delta rows for
-`@img/sharp-*`. That is one missing OSRB submission reported 1350 times, not 1350 findings.
-`MODULE_UNSUBMITTED` does not absorb it because the module has 2 > 0 approved rows. A further
-~50 are extraction artifacts that can never match: URL hostnames
-(`install.python-poetry.org`), unexpanded shell variables (`${NGINX_IMAGE}`), archive
-filenames (`node-v22.23.2-linux-x64.tar.gz`).
+Verified against the source sheet, not assumed. `react`, `next`, `chart.js`, `tailwindcss`,
+`@radix-ui/*` and `@datadog/browser-rum` appear **nowhere** in the 3877-row baseline, under
+any module. All 16 upstream sheet tabs are accounted for and none is a UI dependency review
+(`oss_licenses_v2_1`, the plausible candidate, is VIOS apt packages). The only two
+`AGENT_UI_GITHUB` rows are `@img/sharp-freebsd-wasm32` and `@img/sharp-webcontainers-wasm32`,
+both added inline in a bug comment.
+
+Three numbers that should agree:
+
+| source | packages |
+|---|---|
+| `services/ui/package-lock.json` resolves | 2157 |
+| `services/ui/LICENSE-3rd-party.txt` lists | 86 |
+| OSRB approved baseline holds | 2 |
+
+`approved.csv` therefore carries a `provenance` column (`submission` or `inline-addition`,
+derived from the upstream tab and carrying no ticket or name). A module whose approvals are
+**all** inline additions is reported once as `MODULE_UNSUBMITTED` rather than as one
+`NOT_APPROVED` per package — `AGENT_UI_GITHUB` is the only such module in the baseline. That
+took `NOT_APPROVED` from 1717 to 431 and stopped `services/ui` burying every other module.
+
+Filing the submission is a human step. `--submissions DIR` writes a ready-to-attach CSV per
+unsubmitted module so it is an attachment rather than a research task; CI publishes them in
+the `osrb-compliance` artifact. 14 packs today, largest first: `services/ui` 1354,
+`services/vios` (unsubmitted subtrees) 706, `services/sdrc` 96,
+`services/configurators/vss-configurator` 67, `services/alert` 29, `.github` 27,
+`services/rtvi/rt-cv` 26, `deploy` 19.
+
+Roughly 50 remaining `NOT_APPROVED` rows are extraction artifacts that can never match: URL
+hostnames (`install.python-poetry.org`), unexpanded shell variables (`${NGINX_IMAGE}`),
+archive filenames (`node-v22.23.2-linux-x64.tar.gz`).
 
 ### `USAGE_DRIFT` is 0 because it is near-unreachable, not because usage is clean
 
