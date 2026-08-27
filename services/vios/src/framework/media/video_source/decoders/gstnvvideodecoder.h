@@ -140,7 +140,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         int createSwDecodePipeline ();
         void setQuality(const std::string&, const std::string& quality);
         void setQuality(const std::string&, const std::string& quality, int width, int height);
-        void removeConsumer(const std::string&);
+        /* A pooled decoder can have a viewer which has acquired ownership but
+         * has not yet attached its sink. In that short interval the pool
+         * removes a departing sink without stopping frame delivery. All
+         * ordinary callers retain the existing stop-on-last-consumer behavior. */
+        void removeConsumer(const std::string&, bool stopWhenUnused = true);
         std::map<std::string, std::shared_ptr<VideoSinkInfo>, std::less<>> getWebrtcBroacasterList() { return m_videoSinkList; }
         bool isCreated() { return (m_pipeline != nullptr); }
         void setError() { m_error = true; };

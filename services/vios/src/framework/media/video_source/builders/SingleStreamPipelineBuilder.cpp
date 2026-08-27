@@ -593,7 +593,10 @@ void SingleStreamPipelineBuilder::startPipeline()
 
 void SingleStreamPipelineBuilder::stopPipeline()
 {
-    if (m_decoder) {
+    // Pooled decoders are released in destroyPipeline(). Removing their sink
+    // here bypasses DecoderPool ownership accounting and can stop a decoder
+    // while another acquired viewer is still attaching its consumer chain.
+    if (m_decoder && !m_pooledDecoder) {
         m_decoder->removeConsumer(m_config.getPeerId());
     } else if (m_nativeStreamProducer) {
         m_nativeStreamProducer->removeConsumer(m_config.getPeerId());
