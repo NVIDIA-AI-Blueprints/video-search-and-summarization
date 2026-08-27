@@ -303,7 +303,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
                       << " viewers=" << session->viewerIds.size() << endl;
             return result;
         }
-        if (m_sessionsByStream.size() >= m_maxSessions)
+        if (activeSessionCount() >= m_maxSessions)
         {
             result.error = "Maximum number of live DASH sessions reached";
             return result;
@@ -541,13 +541,33 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
             return result;
         }
 
+        bool overCapacity = false;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_replaySessionsByToken[session->streamToken] = session;
-            m_sessionsByToken[session->streamToken] = session;
-            result.viewerId = generate_uuid();
-            session->viewerIds.insert(result.viewerId);
-            m_sessionsByViewer[result.viewerId] = session;
+        /* The check made before this pipeline was built is only a cheap early
+         * refusal: building happens without the lock, so any number of starts
+         * can pass it together and arrive here. The admitting decision is this
+         * one, taken with the lock that inserts. */
+            if (activeSessionCount() >= m_maxSessions)
+            {
+                overCapacity = true;
+            }
+            else
+            {
+                m_replaySessionsByToken[session->streamToken] = session;
+                m_sessionsByToken[session->streamToken] = session;
+                result.viewerId = generate_uuid();
+                session->viewerIds.insert(result.viewerId);
+                m_sessionsByViewer[result.viewerId] = session;
+            }
+        }
+        if (overCapacity)
+        {
+            // Outside the lock: tearing a pipeline down can block, and nothing
+            // else may start while it does.
+            destroySession(session);
+            result.error = "Maximum number of live DASH sessions reached";
+            return result;
         }
         result.success = true;
         result.streamId = streamId;
@@ -567,23 +587,43 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
     StreamMonitor::getInstance()->registerDataCallback(registrationUrl, session->packager);
 
     std::shared_ptr<Session> redundantSession;
+    bool overCapacity = false;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         // A concurrent starter may have created the stream while this pipeline was initialized.
         const auto concurrent = m_sessionsByStream.find(streamId);
         if (concurrent != m_sessionsByStream.end())
         {
+            // Joining one that already exists adds no pipeline, so the cap does
+            // not apply: this viewer costs nothing beyond an entry in a map.
             redundantSession = session;
             session = concurrent->second;
+        }
+        /* The check made before this pipeline was built is only a cheap early
+         * refusal: building happens without the lock, so any number of starts
+         * can pass it together and arrive here. The admitting decision is this
+         * one, taken with the lock that inserts. */
+        else if (activeSessionCount() >= m_maxSessions)
+        {
+            overCapacity = true;
         }
         else
         {
             m_sessionsByStream[streamId] = session;
             m_sessionsByToken[session->streamToken] = session;
         }
-        result.viewerId = generate_uuid();
-        session->viewerIds.insert(result.viewerId);
-        m_sessionsByViewer[result.viewerId] = session;
+        if (!overCapacity)
+        {
+            result.viewerId = generate_uuid();
+            session->viewerIds.insert(result.viewerId);
+            m_sessionsByViewer[result.viewerId] = session;
+        }
+    }
+    if (overCapacity)
+    {
+        destroySession(session);
+        result.error = "Maximum number of live DASH sessions reached";
+        return result;
     }
     if (redundantSession)
     {
@@ -620,7 +660,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     }
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_sessionsByStream.size() + m_replaySessionsByToken.size() >= m_maxSessions)
+        if (activeSessionCount() >= m_maxSessions)
         {
             result.error = "Maximum number of DASH sessions reached";
             return result;
@@ -764,13 +804,31 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         return result;
     }
 
+    bool overCapacity = false;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_replaySessionsByToken[session->streamToken] = session;
-        m_sessionsByToken[session->streamToken] = session;
-        result.viewerId = generate_uuid();
-        session->viewerIds.insert(result.viewerId);
-        m_sessionsByViewer[result.viewerId] = session;
+        /* The check made before this pipeline was built is only a cheap early
+         * refusal: building happens without the lock, so any number of starts
+         * can pass it together and arrive here. The admitting decision is this
+         * one, taken with the lock that inserts. */
+        if (activeSessionCount() >= m_maxSessions)
+        {
+            overCapacity = true;
+        }
+        else
+        {
+            m_replaySessionsByToken[session->streamToken] = session;
+            m_sessionsByToken[session->streamToken] = session;
+            result.viewerId = generate_uuid();
+            session->viewerIds.insert(result.viewerId);
+            m_sessionsByViewer[result.viewerId] = session;
+        }
+    }
+    if (overCapacity)
+    {
+        destroySession(session);
+        result.error = "Maximum number of DASH sessions reached";
+        return result;
     }
 
     result.success = true;
@@ -983,6 +1041,11 @@ Json::Value dashSessionInfoToJson(const DashSessionInfo& info)
         }
     }
     return entry;
+}
+
+size_t DashSessionManager::activeSessionCount() const
+{
+    return m_sessionsByStream.size() + m_replaySessionsByToken.size();
 }
 
 std::vector<DashSessionInfo> DashSessionManager::query(const std::string& viewerId,
