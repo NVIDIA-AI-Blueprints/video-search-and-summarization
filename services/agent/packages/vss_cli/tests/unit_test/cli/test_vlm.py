@@ -326,3 +326,27 @@ def test_help_has_only_negative_persistence_override() -> None:
     assert result.exit_code == 0
     assert "--no-persist" in result.output
     assert "--persist" not in result.output.replace("--no-persist", "")
+
+
+def test_production_analyzer_passes_in_cluster_clip_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _FakeVST:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["vst"] = kwargs
+
+    class _FakeAnalyzer:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["analyzer"] = kwargs
+
+    monkeypatch.setattr("vss_core.vios.VSTClient", _FakeVST)
+    monkeypatch.setattr("vss_core.vlm.OpenAIVLMAnalyzer", _FakeAnalyzer)
+
+    from vss_cli.vlm.runner import _production_analyzer
+
+    analyzer, model = _production_analyzer(_deployment(), 30)
+
+    assert model == "test-vlm"
+    assert analyzer is not None
+    assert captured["analyzer"]["video_url_scope"] == "internal"
+    assert captured["analyzer"]["media_mode"] == "video_url"
