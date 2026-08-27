@@ -72,7 +72,7 @@ skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 | `search` | Natural-language search across video archives using embeddings |
 | `lvs` | Summarization of long recordings via chunking + dense-caption aggregation |
 | `alerts` | Real-time perception → behavior analytics → VLM alert verification |
-| `mc-tracking` | Multi-camera 3D person/forklift tracking with BEV fusion and behavior analytics (no agent/LLM/VLM) |
+| `mc-tracking` | Multi-camera 3D person/forklift tracking with BEV fusion, appearance-based ReID, and behavior analytics (no agent/LLM/VLM) |
 | `warehouse` / `edge` | Industry example stacks and edge-device deployments |
 
 ---

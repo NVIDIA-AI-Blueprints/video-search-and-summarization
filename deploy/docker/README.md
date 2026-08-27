@@ -129,8 +129,9 @@ preview the commands and generated environment without starting containers.
 - Docker uses one canonical RTVI CV startup entrypoint: `services/rtvi/rtvi-cv/ds-start.sh`.
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
-- **`mc-tracking` is the documented exception** and keeps its dedicated `ds-start-mc-tracking.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search, mc-tracking) and **warehouse RT-CV profiles** (2D, 3D) runs as phase 0 of the perception startup script (`ds-start.sh` / mc-tracking's `ds-start-mc-tracking.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+- **`mc-tracking` is the documented exception** and keeps its dedicated `ds-start-mc-tracking.sh` command override (invoked with `--tracker-reid`, since this profile runs appearance-based ReID).
+- Model acquisition for **developer profiles** (alerts, search, mc-tracking) and **warehouse RT-CV profiles** (2D, 3D) runs as phase 0 of the perception startup script (`ds-start.sh` / mc-tracking's `ds-start-mc-tracking.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service for detection/pose models. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+- **ReID/embedding assets are the exception to that rule**: `mc-tracking` runs a one-shot `reid-embed-init-mc-tracking` container that populates `$VSS_DATA_DIR/models/reid` (CLIP-ReID tracker ONNX + SigLIP2) before the ReID service and perception start. See the MC-Tracking section below.
 
 ### Direct Compose usage and data directories
 
@@ -364,7 +365,7 @@ Compose profiles for warehouse slices are defined in
 
 ## MC-Tracking developer profile
 
-The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under **`developer-profiles/dev-profile-mc-tracking/`** and is deployed and torn down with direct Compose commands. Full reference (service table, hardware profiles, debugging) is in [`skills/vss-deploy-profile/references/mc-tracking.md`](../../skills/vss-deploy-profile/references/mc-tracking.md).
+The **`mc-tracking`** developer profile (multi-camera 3D tracking with appearance-based ReID) lives under **`developer-profiles/dev-profile-mc-tracking/`** and is deployed and torn down with direct Compose commands. Full reference (service table, ReID pipeline, hardware profiles, debugging) is in [`skills/vss-deploy-profile/references/mc-tracking.md`](../../skills/vss-deploy-profile/references/mc-tracking.md).
 
 1. **Sample video data**
 
@@ -388,6 +389,8 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
 
    Models download automatically on first perception start via `models-download.json` (`DS_MODEL_DOWNLOAD=auto`, the default) — ensure `NGC_CLI_API_KEY` is set and `$VSS_DATA_DIR/models` exists and is writable before first deploy.
 
+   ReID assets are handled separately by the one-shot `reid-embed-init-mc-tracking` container, which writes `$VSS_DATA_DIR/models/reid` (SigLIP2 from NGC, plus a CLIP-ReID ONNX exported on the GPU). The CLIP-ReID checkpoint is fetched from Google Drive, so this step needs outbound internet beyond NGC; pre-stage the files to skip it. On a cold start, `reid-embed` can take several minutes to report ready (its healthcheck allows a 300s start period) and perception waits for it.
+
 2. **Edit deployment overrides**
 
    Keep stable profile defaults in **`developer-profiles/dev-profile-mc-tracking/.env`**. Update **`developer-profiles/dev-profile-mc-tracking/overrides.env`** directly for the target machine:
@@ -395,8 +398,9 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
    - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
    - **`VSS_DATA_DIR`**: extracted `vss-warehouse-app-data` directory (step 1)
    - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
-   - **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse and BodyPose3DNet model packages
+   - **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse, BodyPose3DNet, and SigLIP2 (`nvidia/tao/siglip_v2`) model packages
    - **`HARDWARE_PROFILE`**, **`STREAM_TYPE`** (`kafka` or `redis`), and **`COMPOSE_PROFILES`** — keep `STREAM_TYPE` and `COMPOSE_PROFILES` aligned (`COMPOSE_PROFILES_MC_TRACKING_KAFKA`/`_REDIS` and their `_MINIMAL`/`_PLAYBACK` variants)
+   - **`REID_SERVICE_PORT`** / **`REID_SERVICE_HOST_PORT`**: both `8088` by default. `REID_SERVICE_PORT` is propagated into the tracker's `ReIDService` config by `bp-configurator`, so change it here rather than in the tracker config file
 
 3. **Start the stack**
 
