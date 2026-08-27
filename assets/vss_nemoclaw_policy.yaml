@@ -238,6 +238,24 @@ network_policies:
           - 172.17.0.0/16
           - 172.18.0.0/16
           - 172.20.0.0/16
+      # BYO agent adapter: skills index, per-skill fetch, and archive search
+      # over HTTP (tools/vss-agent-adapter). Without this the sandbox cannot
+      # reach it and every call fails as policy_denied.
+      - host: host.openshell.internal
+        port: 9098
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      # Second adapter instance (e.g. AGENT_BACKEND=hermes) on its own port.
+      - host: host.openshell.internal
+        port: 9097
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
       - host: host.openshell.internal
         port: 18789
         access: full
