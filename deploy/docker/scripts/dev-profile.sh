@@ -923,8 +923,10 @@ function process_args() {
         if [[ "${_vlm_is_remote}" -eq 0 ]]; then
           vlm_device_id="${hardware_device_id}"
         fi
-        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" && [[ "${llm}" != "nvidia/nvidia-nemotron-nano-9b-v2" ]]; then
-          echo "[ERROR] GB300 search supports only the local LLM nvidia/nvidia-nemotron-nano-9b-v2"
+        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
+          && [[ "${llm}" != "nvidia/nvidia-nemotron-nano-9b-v2" ]] \
+          && [[ "${llm}" != "nvidia/nemotron-3.5-lightning-30b-a3b" ]]; then
+          echo "[ERROR] GB300 search supports only the local LLMs nvidia/nvidia-nemotron-nano-9b-v2 and nvidia/nemotron-3.5-lightning-30b-a3b"
           ((_all_good++))
         fi
       fi
@@ -1491,11 +1493,17 @@ function state_up() {
     set_env_var "LLM_NAME" "${llm}"
     set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
   fi
-  # The Nemotron NIM image is not available for the validated GB300 SBSA host.
-  # Select the optional BF16 DLFW service while preserving NIM elsewhere.
+  # Nano 9B v2's NIM image has no SBSA build for the validated GB300 host, so
+  # search on GB300 falls back to the BF16 DLFW vLLM service. Nemotron 3.5
+  # Lightning publishes an arm64 manifest and runs as a NIM there, so let it
+  # through instead of forcing every GB300 search deployment onto Nano 9B v2.
   if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" == "GB300" ]] && [[ "${llm_mode}" != "remote" ]]; then
-    set_env_var "LLM_NAME" "nvidia/nvidia-nemotron-nano-9b-v2"
-    set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm"
+    local _gb300_llm_slug
+    _gb300_llm_slug="$(get_env_value "${_generated_env}" "LLM_NAME_SLUG")"
+    if [[ "${_gb300_llm_slug}" != "nemotron-3.5-lightning-30b-a3b" ]]; then
+      set_env_var "LLM_NAME" "nvidia/nvidia-nemotron-nano-9b-v2"
+      set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm"
+    fi
   fi
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
