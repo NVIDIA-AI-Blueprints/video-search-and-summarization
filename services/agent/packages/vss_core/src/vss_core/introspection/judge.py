@@ -12,7 +12,6 @@ import httpx
 from pydantic import ValidationError
 
 from vss_core._foundation.errors import ConfigurationError
-from vss_core.introspection.models import GroundedGap
 from vss_core.introspection.models import IntrospectionSettings
 from vss_core.introspection.models import SufficiencyDecision
 from vss_core.introspection.models import VLMEvidence
@@ -76,7 +75,7 @@ class OpenAIIntrospectionClient:
         query: str,
         memory_evidence: list[UnifiedMemoryRecord],
         vlm_evidence: list[VLMEvidence],
-        unresolved_gaps: list[GroundedGap],
+        unresolved_gaps: list[str],
     ) -> str:
         """Produce a final answer from supplied evidence without another judge pass."""
         prompt = _synthesis_prompt(query, memory_evidence, vlm_evidence, unresolved_gaps)
@@ -161,18 +160,17 @@ def _synthesis_prompt(
     query: str,
     memory_evidence: list[UnifiedMemoryRecord],
     vlm_evidence: list[VLMEvidence],
-    unresolved_gaps: list[GroundedGap],
+    unresolved_gaps: list[str],
 ) -> str:
     memory_payload = [record.model_dump_memory() for record in memory_evidence]
     vlm_payload = [item.model_dump(mode="json") for item in vlm_evidence]
-    gap_payload = [item.model_dump(mode="json") for item in unresolved_gaps]
     return (
         "Answer the query using only the supplied memory and VLM evidence. Clearly qualify uncertainty represented "
         "by unresolved gaps. Return plain text only.\n"
         f"QUERY:\n{query}\n"
         f"MEMORY_EVIDENCE:\n{json.dumps(memory_payload, separators=(',', ':'))}\n"
         f"VLM_EVIDENCE:\n{json.dumps(vlm_payload, separators=(',', ':'))}\n"
-        f"UNRESOLVED_GAPS:\n{json.dumps(gap_payload, separators=(',', ':'))}"
+        f"UNRESOLVED_GAPS:\n{json.dumps(unresolved_gaps, separators=(',', ':'))}"
     )
 
 

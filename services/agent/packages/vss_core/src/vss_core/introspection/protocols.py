@@ -9,7 +9,6 @@ from typing import Protocol
 from typing import runtime_checkable
 
 if TYPE_CHECKING:
-    from vss_core.introspection.models import GroundedGap
     from vss_core.introspection.models import SufficiencyDecision
     from vss_core.introspection.models import VLMEvidence
     from vss_core.memory.models import UnifiedMemoryRecord
@@ -28,7 +27,7 @@ class AnswerSynthesizer(Protocol):
         query: str,
         memory_evidence: list[UnifiedMemoryRecord],
         vlm_evidence: list[VLMEvidence],
-        unresolved_gaps: list[GroundedGap],
+        unresolved_gaps: list[str],
     ) -> str: ...
 
 

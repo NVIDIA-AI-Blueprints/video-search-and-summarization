@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import UTC
 from datetime import datetime
 from typing import Any
+from typing import Literal
 from typing import Self
 
 from pydantic import BaseModel
@@ -15,6 +16,8 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 
+from vss_core.memory.models import MemoryGroup  # noqa: TC001 - Pydantic resolves this model at runtime.
+from vss_core.memory.models import RecordType  # noqa: TC001 - Pydantic resolves this model at runtime.
 from vss_core.memory.models import UnifiedMemoryRecord  # noqa: TC001 - Pydantic resolves this model at runtime.
 
 
@@ -118,14 +121,14 @@ class SufficiencyDecision(_StrictModel):
 class VLMEvidence(_StrictModel):
     """Text evidence returned by a grounded introspection VLM query."""
 
+    job_id: str
+    persisted: bool
     sensor: str
     start_time: str
     end_time: str
-    prompt: str
-    intent: str
-    content: str
+    answer: str
 
-    @field_validator("sensor", "prompt", "intent", "content", mode="after")
+    @field_validator("job_id", "sensor", "answer", mode="after")
     @classmethod
     def _require_text(cls, value: str, info: Any) -> str:
         return _nonempty(value, info.field_name)
@@ -157,26 +160,69 @@ class IntrospectionRequest(_StrictModel):
     """Input to a bounded memory introspection workflow."""
 
     query: str
-    records: list[UnifiedMemoryRecord]
+    sensor: str | None = None
+    job_id: str | None = None
+    record_id: str | None = None
+    record_type: RecordType | None = None
+    group: MemoryGroup | None = None
+    start_time: str | None = None
+    end_time: str | None = None
 
-    @field_validator("query", mode="after")
+    @field_validator("query", "sensor", "job_id", "record_id", mode="after")
     @classmethod
-    def _require_query(cls, value: str) -> str:
-        return _nonempty(value, "query")
+    def _require_nonempty_selector(cls, value: str | None, info: Any) -> str | None:
+        if value is None:
+            return None
+        return _nonempty(value, info.field_name)
+
+    @field_validator("start_time", "end_time", mode="after")
+    @classmethod
+    def _require_utc_window(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parse_utc_instant(value)
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _paired_ordered_window(self) -> Self:
+        if (self.start_time is None) != (self.end_time is None):
+            raise ValueError("start_time and end_time must be provided together")
+        if (
+            self.start_time is not None
+            and self.end_time is not None
+            and parse_utc_instant(self.start_time) > parse_utc_instant(self.end_time)
+        ):
+            raise ValueError("start_time must be before or equal to end_time")
+        return self
+
+
+class MemoryEvidence(_StrictModel):
+    """Stable public identity for one memory record used in synthesis."""
+
+    record_id: str
+    job_id: str
+
+    @field_validator("record_id", "job_id", mode="after")
+    @classmethod
+    def _require_identity(cls, value: str, info: Any) -> str:
+        return _nonempty(value, info.field_name)
 
 
 class IntrospectionResult(_StrictModel):
-    """Final text answer and the evidence used to produce it."""
+    """Strict stdout-safe result of one bounded introspection workflow."""
 
-    answer: str
-    decision: SufficiencyDecision
-    memory_evidence: list[UnifiedMemoryRecord] = Field(default_factory=list)
+    status: Literal["completed", "partial", "no_memory"]
+    sufficient_from_memory: bool
+    answer: str | None
+    memory_evidence: list[MemoryEvidence] = Field(default_factory=list)
     vlm_evidence: list[VLMEvidence] = Field(default_factory=list)
-    unresolved_gaps: list[GroundedGap] = Field(default_factory=list)
+    unresolved_gaps: list[str] = Field(default_factory=list)
 
     @field_validator("answer", mode="after")
     @classmethod
-    def _require_answer(cls, value: str) -> str:
+    def _require_answer(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         return _nonempty(value, "answer")
 
 
@@ -212,6 +258,7 @@ __all__ = [
     "IntrospectionRequest",
     "IntrospectionResult",
     "IntrospectionSettings",
+    "MemoryEvidence",
     "SufficiencyDecision",
     "VLMEvidence",
     "parse_utc_instant",

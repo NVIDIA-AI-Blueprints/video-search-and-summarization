@@ -146,12 +146,12 @@ def test_decision_does_not_fill_missing_approved_fields() -> None:
 )
 def test_vlm_evidence_validation(updates: dict[str, object]) -> None:
     payload: dict[str, object] = {
+        "job_id": "vlm-1",
+        "persisted": True,
         "sensor": "camera-east",
         "start_time": "2026-08-26T12:00:10Z",
         "end_time": "2026-08-26T12:00:20Z",
-        "prompt": "Was the person carrying a package?",
-        "intent": "introspection",
-        "content": "A person carried a small box.",
+        "answer": "A person carried a small box.",
     }
     payload.update(updates)
     with pytest.raises(ValidationError):
@@ -325,12 +325,12 @@ async def test_synthesize_uses_supplied_evidence_only() -> None:
     )
     evidence = VLMEvidence.model_validate(
         {
+            "job_id": "vlm-1",
+            "persisted": True,
             "sensor": "camera-east",
             "start_time": "2026-08-26T12:00:10Z",
             "end_time": "2026-08-26T12:00:20Z",
-            "prompt": "Was the person carrying a package?",
-            "intent": "introspection",
-            "content": "A person carried a small box.",
+            "answer": "A person carried a small box.",
         }
     )
     try:
@@ -338,7 +338,7 @@ async def test_synthesize_uses_supplied_evidence_only() -> None:
             query="What happened?",
             memory_evidence=[_record()],
             vlm_evidence=[evidence],
-            unresolved_gaps=[GroundedGap.model_validate(_gap())],
+            unresolved_gaps=["package color remains unknown"],
         )
     finally:
         await client.aclose()

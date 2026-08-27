@@ -16,10 +16,12 @@ __all__ = [
     "IntrospectionSettings",
     "IntrospectionVLMRunner",
     "InvalidJudgeResponseError",
+    "MemoryEvidence",
     "OpenAIIntrospectionClient",
     "SufficiencyDecision",
     "SufficiencyJudge",
     "VLMEvidence",
+    "introspect",
 ]
 
 _LAZY_EXPORTS = {
@@ -27,6 +29,7 @@ _LAZY_EXPORTS = {
     "IntrospectionRequest": ".models",
     "IntrospectionResult": ".models",
     "IntrospectionSettings": ".models",
+    "MemoryEvidence": ".models",
     "SufficiencyDecision": ".models",
     "VLMEvidence": ".models",
     "AnswerSynthesizer": ".protocols",
@@ -34,6 +37,7 @@ _LAZY_EXPORTS = {
     "SufficiencyJudge": ".protocols",
     "InvalidJudgeResponseError": ".judge",
     "OpenAIIntrospectionClient": ".judge",
+    "introspect": ".orchestrator",
 }
 
 if TYPE_CHECKING:
@@ -43,8 +47,10 @@ if TYPE_CHECKING:
     from .models import IntrospectionRequest
     from .models import IntrospectionResult
     from .models import IntrospectionSettings
+    from .models import MemoryEvidence
     from .models import SufficiencyDecision
     from .models import VLMEvidence
+    from .orchestrator import introspect
     from .protocols import AnswerSynthesizer
     from .protocols import IntrospectionVLMRunner
     from .protocols import SufficiencyJudge
