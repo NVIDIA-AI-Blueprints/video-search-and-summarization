@@ -15,30 +15,40 @@ function useConversationId(supplied?: string): string {
   return ref.current;
 }
 
-const StepList: React.FC<{ steps: ChatStep[] }> = ({ steps }) => {
-  const [open, setOpen] = useState(false);
+const StepList: React.FC<{ steps: ChatStep[]; streaming?: boolean }> = ({ steps, streaming }) => {
+  // Open while the agent is working, so progress is visible the way the
+  // toolkit UI showed it; collapses once the answer lands so finished steps do
+  // not bury it. An explicit click wins over that default either way.
+  const [manual, setManual] = useState<boolean | null>(null);
+  const open = manual ?? !!streaming;
   if (!steps.length) return null;
-  const active = steps.some((s) => s.status === 'in_progress');
+
   return (
     <div className="vss-chat-steps">
       <button
         type="button"
         className="vss-chat-steps-toggle"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setManual(!open)}
         aria-expanded={open}
       >
-        {open ? '▾' : '▸'} {steps.length} step{steps.length === 1 ? '' : 's'}
-        {active ? ' — running…' : ''}
+        <span>{open ? '▾' : '▸'}</span>
+        <span>
+          Intermediate steps ({steps.length})
+          {streaming ? ' — running' : ''}
+        </span>
       </button>
       {open && (
-        <ol className="vss-chat-steps-list">
+        <ul className="vss-chat-steps-list">
           {steps.map((s) => (
             <li key={s.id} data-status={s.status}>
-              <code>{s.name}</code>
+              <span>
+                <span className="vss-chat-step-dot" />
+                <span className="vss-chat-step-name">{s.name}</span>
+              </span>
               {s.payload ? <pre>{s.payload}</pre> : null}
             </li>
           ))}
-        </ol>
+        </ul>
       )}
     </div>
   );
@@ -46,7 +56,9 @@ const StepList: React.FC<{ steps: ChatStep[] }> = ({ steps }) => {
 
 const Message: React.FC<{ message: ChatMessage; showSteps: boolean }> = ({ message, showSteps }) => (
   <div className={`vss-chat-msg vss-chat-msg-${message.role}`} data-streaming={!!message.streaming}>
-    {showSteps && message.steps?.length ? <StepList steps={message.steps} /> : null}
+    {showSteps && message.steps?.length ? (
+      <StepList steps={message.steps} streaming={message.streaming} />
+    ) : null}
     {message.error ? (
       <div className="vss-chat-error">⚠ {message.error}</div>
     ) : message.role === 'assistant' ? (
