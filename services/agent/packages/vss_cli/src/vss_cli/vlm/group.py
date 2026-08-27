@@ -1,0 +1,422 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""``vss vlm`` on the fixed verb grammar.
+
+Visual question-answering (VQA) over video in a single bounded synchronous
+call: ask a question, get an answer, persist the result to unified memory.
+
+Unlike ``vss summarize``, ``vss vlm run`` is a **point call** (SDD §3.3). The
+lifecycle record is written once with a terminal status; there is no
+``submitted`` intermediate. One call produces one answer -- never routes to the
+summarize pipeline and never re-enters a long-running job.
+
+Media reaches the VLM one of two ways (VLM-1 / VLM-2):
+
+* **Path B** (default): ``--sensor <name> [--start-time T --end-time T]``.
+  VIOS resolves the sensor to a clip URL and the VLM receives that URL. No
+  video bytes cross the CLI; the VLM fetches the clip from VIOS directly.
+* **Path A** (escape hatch): ``--media-url <url>``. A pre-resolved handle --
+  any HTTP/HTTPS URL -- is sent directly as ``video_url``. Add ``--use-base64``
+  to read a local file and send it as base64-encoded bytes instead.
+
+The VLM endpoint is the deployment's ``rt_vlm`` service (discovered by
+``vss configure``), called via the OpenAI-compatible ``/v1/chat/completions``
+API. The model defaults to whatever ``vss configure`` recorded for ``rt_vlm``.
+
+Intent (VLM-6) classifies what this call is for: ``qa`` (default), ``critic``,
+``report``, or ``introspection``. Stored in ``output.ext.intent`` and available
+to harness routing (NFR-5) without the CLI implementing the routing itself.
+
+Persistence (VLM-5) stores ``output.answer``, ``output.ext`` (model, intent,
+completion_id) and ``output.handles.media_urls``. Opt out with ``--no-persist``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import secrets
+import time
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import ClassVar
+from typing import Literal
+
+import click
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
+from pydantic import model_validator
+
+from vss_cli import config as config_mod
+from vss_cli import memory as memory_mod
+from vss_cli import params as params_mod
+from vss_cli.exits import Exit
+from vss_cli.group import CommandGroup
+from vss_cli.group import Context
+from vss_cli.group import InvalidInput
+from vss_cli.group import Result
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from vss_core.memory.models import MemoryInput
+
+_JOB_DOMAIN = "vlm"
+_CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_COMPLETIONS_PATH = "/v1/chat/completions"
+
+
+def _ulid() -> str:
+    value = (int(time.time() * 1000) & ((1 << 48) - 1)) << 80 | secrets.randbits(80)
+    return "".join(_CROCKFORD32[(value >> shift) & 0x1F] for shift in range(125, -1, -5))
+
+
+def _mint_job_id() -> str:
+    return f"{_JOB_DOMAIN}-{_ulid()}"
+
+
+def _default_model(deployment: config_mod.Deployment) -> str:
+    """The model the deployment's RT-VLM reports serving, or a ConfigError."""
+    service = deployment.services.get("rt_vlm")
+    if service and service.models:
+        return service.models[0]
+    raise config_mod.ConfigError(
+        f"deployment at {deployment.base_url} reports no RT-VLM model, so --model cannot be defaulted. "
+        f"Pass --model explicitly, or re-run `vss configure --base-url {deployment.base_url}`."
+    )
+
+
+def _extract_answer(completion: dict[str, Any]) -> str:
+    """Pull the text answer out of an OpenAI-style completion."""
+    try:
+        content = completion["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("VLM response has no choices[0].message.content") from exc
+    if not isinstance(content, str):
+        raise ValueError(f"VLM response content is not a string: {type(content).__name__}")
+    return content
+
+
+class VlmInput(BaseModel):
+    """Ask a visual question about video and persist the answer to unified memory.
+
+    Exactly one media source is required:
+
+    * ``--sensor <name>`` to pull a clip from VIOS (optionally windowed with
+      ``--start-time`` / ``--end-time``).
+    * ``--media-url <url>`` to send an already-resolved HTTP/HTTPS handle.
+
+    ``--prompt`` is the only other required field. Everything else defaults.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(..., max_length=512_000, description="Visual question to answer.")
+    sensor: str | None = Field(
+        None,
+        description="VIOS sensor name. Resolves to a clip URL that the VLM fetches directly (Path B).",
+    )
+    start_time: str | None = Field(
+        None,
+        description="Clip window start, ISO-8601 UTC. Only valid with --sensor.",
+    )
+    end_time: str | None = Field(
+        None,
+        description="Clip window end, ISO-8601 UTC. Only valid with --sensor.",
+    )
+    media_url: str | None = Field(
+        None,
+        description="Pre-resolved HTTP/HTTPS video URL (Path A). Mutually exclusive with --sensor.",
+    )
+    intent: Literal["critic", "report", "qa", "introspection"] | None = Field(
+        None,
+        description="Semantic intent of this call. Stored in memory; used by harness routing (NFR-5).",
+    )
+    model: str | None = Field(
+        None,
+        max_length=1024,
+        description="VLM model name. Defaults to whatever the deployment's RT-VLM reports.",
+    )
+    timeout: int = Field(
+        30,
+        ge=1,
+        le=3600,
+        description="HTTP timeout for the VLM call, in seconds.",
+    )
+    max_tokens: int | None = Field(None, ge=1, le=1_000_000, description="Maximum tokens to generate.")
+    temperature: float | None = Field(None, ge=0.0, le=1.0, description="Sampling temperature.")
+
+    @model_validator(mode="after")
+    def _validate_media_source(self) -> VlmInput:
+        has_sensor = bool(self.sensor)
+        has_url = bool(self.media_url)
+        if has_sensor == has_url:
+            raise ValueError("exactly one of --sensor or --media-url is required")
+        if not has_sensor and (self.start_time or self.end_time):
+            raise ValueError("--start-time / --end-time require --sensor")
+        return self
+
+
+class VlmOptions(BaseModel):
+    """Job and transport options. Not sent to the VLM backend."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    no_persist: bool = Field(False, description="Skip writing the answer to unified memory.")
+    use_base64: bool = Field(
+        False,
+        description=(
+            "Read the --media-url value as a local file path and send its bytes as base64. "
+            "Path A escape hatch when VIOS is not available."
+        ),
+    )
+
+
+def _resolve_vios_clip(deployment: config_mod.Deployment, sensor: str, start_time: str | None, end_time: str | None) -> str:
+    """Resolve a VIOS sensor to a clip URL using the same path as ``vss vios clip``."""
+    from vss_core import vios
+
+    origin = deployment.base_url.rstrip("/")
+
+    async def _fetch() -> str:
+        ref = await vios.resolve_sensor(origin, sensor)
+        segments = await vios.recorded_segments(origin, ref.stream_id)
+        start, end = vios.resolve_window(segments, start_time, end_time, ref.kind)
+        url = await vios.get_video_clip_url(
+            stream_id=ref.stream_id,
+            start_time=start,
+            end_time=end,
+            vst_internal_url=origin,
+        )
+        url = vios.normalise_media_url(url, origin)
+        await vios.warm_media_url(url)
+        return url
+
+    return asyncio.run(_fetch())
+
+
+def _build_vlm_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    max_tokens: int | None,
+    temperature: float | None,
+    use_base64: bool,
+) -> dict[str, Any]:
+    """Build an OpenAI-compatible /v1/chat/completions payload."""
+    if use_base64:
+        with open(media_url, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode()
+        video_content: dict[str, Any] = {
+            "type": "video_url",
+            "video_url": {"url": f"data:video/mp4;base64,{b64}"},
+        }
+    else:
+        video_content = {"type": "video_url", "video_url": {"url": media_url}}
+
+    request: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    video_content,
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
+    }
+    if max_tokens is not None:
+        request["max_tokens"] = max_tokens
+    if temperature is not None:
+        request["temperature"] = temperature
+    return request
+
+
+class VlmGroup(CommandGroup):
+    """Ask a visual question about video and persist the answer to memory."""
+
+    name: ClassVar[str] = "vlm"
+    summary: ClassVar[str] = "Ask a visual question about video"
+
+    Input: ClassVar[type[BaseModel] | None] = VlmInput
+    requires: ClassVar[frozenset[str]] = frozenset({"rt_vlm"})
+    extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(VlmOptions))
+
+    def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:  # noqa: ARG002
+        import httpx
+
+        if not isinstance(inputs, VlmInput):  # pragma: no cover
+            raise TypeError(f"expected VlmInput, got {type(inputs).__name__}")
+
+        deployment = ctx.deployment or config_mod.load()
+        options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
+
+        model = inputs.model or _default_model(deployment)
+        job_id = _mint_job_id()
+
+        # Resolve the media URL.
+        media_url: str
+        resolved_start: str | None = inputs.start_time
+        resolved_end: str | None = inputs.end_time
+        if inputs.sensor:
+            # Path B: fetch a clip from VIOS.
+            try:
+                media_url = _resolve_vios_clip(deployment, inputs.sensor, inputs.start_time, inputs.end_time)
+            except Exception as exc:
+                raise InvalidInput(f"VIOS clip resolution failed: {exc}") from exc
+        else:
+            # Path A: use the caller-supplied URL (or local file with --use-base64).
+            media_url = inputs.media_url  # type: ignore[assignment]
+
+        from .memory_adapter import VlmAdapter
+
+        from vss_core.memory.adapters import utc_now_iso
+
+        adapter = VlmAdapter()
+        created_at = utc_now_iso()
+
+        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout}
+        if inputs.max_tokens is not None:
+            model_params["max_tokens"] = inputs.max_tokens
+        if inputs.temperature is not None:
+            model_params["temperature"] = inputs.temperature
+
+        input_data: MemoryInput = adapter.build_input(
+            prompt=inputs.prompt,
+            sensor=inputs.sensor,
+            start_time=resolved_start,
+            end_time=resolved_end,
+            media_url=media_url if not inputs.sensor else None,
+            intent=inputs.intent,
+            model_params=model_params,
+        )
+
+        memory = self.memory(ctx) if not options.no_persist else None
+
+        # Build and send the VLM request.
+        request_payload = _build_vlm_request(
+            prompt=inputs.prompt,
+            media_url=media_url,
+            model=model,
+            max_tokens=inputs.max_tokens,
+            temperature=inputs.temperature,
+            use_base64=options.use_base64,
+        )
+
+        vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
+        try:
+            response = httpx.post(vlm_url, json=request_payload, timeout=float(inputs.timeout))
+        except httpx.TimeoutException:
+            detail = f"VLM call timed out after {inputs.timeout}s"
+            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="timeout", message=detail)
+            click.echo(f"vss: {detail} (job {job_id})", err=True)
+            return Result(body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id)
+        except httpx.HTTPError as exc:
+            detail = str(exc)
+            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            click.echo(f"vss: RT-VLM unreachable at {vlm_url}: {exc}", err=True)
+            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=Exit.BACKEND_UNREACHABLE, job_id=job_id)
+
+        if response.status_code >= 400:
+            detail = f"HTTP {response.status_code}"
+            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            code = Exit.BACKEND_UNREACHABLE if response.status_code >= 500 else Exit.INVALID_INPUT
+            click.echo(f"vss: VLM backend error {detail}: {response.text[:500]}", err=True)
+            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=code, job_id=job_id)
+
+        try:
+            completion = response.json()
+        except ValueError:
+            detail = "VLM response was not valid JSON"
+            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            click.echo(f"vss: {detail}", err=True)
+            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=Exit.BACKEND_UNREACHABLE, job_id=job_id)
+
+        try:
+            answer = _extract_answer(completion)
+        except ValueError as exc:
+            detail = str(exc)
+            _write_terminal(memory, adapter, job_id=job_id, created_at=created_at, input_data=input_data, status="failed", message=detail)
+            click.echo(f"vss: {detail}", err=True)
+            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=Exit.BACKEND_UNREACHABLE, job_id=job_id)
+
+        completion_id: str | None = completion.get("id")
+        body: dict[str, Any] = {
+            "job_id": job_id,
+            "status": "completed",
+            "answer": answer,
+            "model": completion.get("model") or model,
+        }
+        if inputs.intent:
+            body["intent"] = inputs.intent
+
+        # Point call: write the terminal record once.
+        if memory is None:
+            body["persisted"] = False
+            return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+
+        output = adapter.build_output(
+            answer=answer,
+            model=completion.get("model") or model,
+            media_url=media_url,
+            intent=inputs.intent,
+            completion_id=completion_id,
+        )
+        terminal = adapter.terminal_record(
+            job_id=job_id,
+            created_at=created_at,
+            status="completed",
+            input_data=input_data,
+            output=output,
+        )
+        persist_error: str | None = None
+        try:
+            memory.service.upsert(terminal)
+        except memory_mod.write_failures() as exc:
+            persist_error = str(exc)
+            click.echo(f"vss: unified memory write failed ({exc})", err=True)
+
+        if persist_error:
+            body["persisted"] = False
+            body["persist_error"] = persist_error
+            return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
+
+        body["persisted"] = True
+        body["memory_index"] = memory.index
+        return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+
+
+def _write_terminal(
+    memory: Any,
+    adapter: Any,
+    *,
+    job_id: str,
+    created_at: str,
+    input_data: Any,
+    status: str,
+    message: str,
+) -> None:
+    """Best-effort terminal write on failure paths."""
+    if memory is None:
+        return
+    from vss_core.memory.models import MemoryError
+
+    record = adapter.terminal_record(
+        job_id=job_id,
+        created_at=created_at,
+        status=status,
+        input_data=input_data,
+        error=MemoryError(code=status, message=message),
+    )
+    try:
+        memory.service.upsert(record)
+    except Exception:
+        pass
+
+
+VLM = VlmGroup()
+
+__all__ = ["VLM", "VlmGroup", "VlmInput", "VlmOptions"]
