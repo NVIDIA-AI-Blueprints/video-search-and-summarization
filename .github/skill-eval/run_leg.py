@@ -619,6 +619,77 @@ def _loose_gpu_match(want: str, have: str) -> bool:
     return want_tokens.issubset(have_tokens) or want in have
 
 
+# How many refusals a leg absorbs before reporting the last one. The pool is
+# small and `remaining_candidates()` already ends the loop when every eligible
+# box has refused; this only bounds a fleet that refuses indefinitely.
+_MAX_BOX_REJECTIONS = 4
+
+_CATALOG_GPU_COUNTS: dict[str, int] | None = None
+
+
+def _catalog_gpu_counts() -> dict[str, int]:
+    """`{instance_type: gpu_count}` from `brev search gpu --json`, cached.
+
+    `brev ls --json` carries no gpu_count -- only {name, gpu, instance_type,
+    status} -- which is why fleet naming became the stand-in. The catalog is
+    the same source `envs/brev_env.py` consults before it falls back to a live
+    nvidia-smi count, so filtering on it here rejects an undersized box while
+    it is still a candidate rather than after it has been locked.
+
+    Returns `{}` when the catalog is unavailable. Callers MUST treat an absent
+    SKU as "not disqualifying": a catalog outage that filtered everything out
+    would turn a slow schedule into a hard blocker.
+    """
+    global _CATALOG_GPU_COUNTS
+    if _CATALOG_GPU_COUNTS is not None:
+        return _CATALOG_GPU_COUNTS
+    counts: dict[str, int] = {}
+    try:
+        proc = subprocess.run(
+            ["brev", "search", "gpu", "--json"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode == 0:
+            for row in _parse_brev_json(proc.stdout):
+                sku = row.get("type")
+                try:
+                    count = int(row.get("gpu_count", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if sku:
+                    counts[sku] = count
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        print(f"[run-leg] brev search gpu failed: {exc}", flush=True)
+    if not counts:
+        # Do not cache an outage: this process can live for hours, and a
+        # single transient `brev search` failure would otherwise blind
+        # scheduling for the rest of the leg.
+        print("[run-leg] gpu catalog unavailable; managed box sizes unknown "
+              "this round (brev_env still validates the pick)", flush=True)
+        return {}
+    _CATALOG_GPU_COUNTS = counts
+    return counts
+
+
+def _instance_gpu_count(inst: dict) -> int | None:
+    """Best available gpu_count for a pool box, or None when unknown.
+
+    Registered nodes are named by the operator to the fleet convention, so the
+    name is what there is. Managed instances carry a catalog SKU, which is
+    authoritative; their names are only a convention and can go stale when a
+    box is resized.
+    """
+    if inst.get("_registered"):
+        # Operator-controlled names, and the only signal these nodes carry.
+        return _name_gpu_count_hint(inst.get("name") or "")
+    # Managed: the catalog SKU is authoritative and the name is not -- a
+    # resized box keeps its old name. An unlisted SKU stays unknown rather
+    # than falling back to the name, so a catalog gap can never filter the
+    # fleet down to nothing; brev_env validates the pick, and a refusal is
+    # now recoverable.
+    return _catalog_gpu_counts().get(inst.get("instance_type") or "")
+
+
 def _name_gpu_count_hint(name: str) -> int | None:
     """Fleet-naming gpu_count hint: `*-1g*` → 1, `*-2g*` → 2 (AGENTS.md
     pool convention). None when the name encodes nothing."""
@@ -658,9 +729,13 @@ def pool_candidates(
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
             continue
-        if inst.get("_registered") and required_count > 0:
-            count_hint = _name_gpu_count_hint(name)
-            if count_hint is not None and count_hint < required_count:
+        if required_count > 0:
+            # Applies to managed instances too, not just registered nodes.
+            # Skipping them here is what let a `*-1g-*` box be locked for a
+            # 2-GPU spec and then rejected by brev_env, killing the leg
+            # before it ran a trial. An unknown count never disqualifies.
+            known_count = _instance_gpu_count(inst)
+            if known_count is not None and known_count < required_count:
                 continue
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
@@ -687,6 +762,74 @@ def pool_candidates(
         return (0 if registered else 1, exact, name.lower())
 
     return [name for name, _ in sorted(candidates, key=sort_key)]
+
+
+def attempt_lock_timeout(
+    base: int, work_deadline: float | None, reserve: int
+) -> int:
+    """Lock budget for one attempt: `base`, capped by what the leg has left.
+
+    Reads the clock itself rather than taking `now`: `work_deadline` is on the
+    monotonic clock, and a caller that passed `time.time()` instead would
+    silently collapse every attempt to the floor -- the first one too, not
+    just retries. `reserve` keeps room for one complete Harbor invocation.
+    """
+    if work_deadline is None:
+        return base
+    remaining = int(work_deadline - time.monotonic() - reserve)
+    return max(1, min(base, remaining))
+
+
+# brev_env refuses a box it considers unsuitable for the task's hardware.
+# Matched against Harbor's structured `exception_info`, never against log or
+# transcript text: eval agents quote these very sentences while diagnosing a
+# failure, and a transcript match would discard a healthy box and hide the
+# real result behind a retry.
+_BOX_REFUSAL_MARKERS = (
+    "GPU(s) (live nvidia-smi); task requires at least",
+    "does not meet task",
+)
+
+
+def box_rejected_for_capacity(results_root: Path, since: float) -> str | None:
+    """The refusal message if this leg's box was refused, else None.
+
+    Three conditions, all required, so an ordinary failed trial can never be
+    mistaken for a refusal:
+
+    * the finding comes from `result.json`'s `exception_info` -- structured
+      output Harbor writes, not something an agent can print;
+    * the trial recorded no `agent_execution`, i.e. nothing ever ran;
+    * the file was written since `since`, so a refusal from an earlier
+      attempt in the same results tree cannot re-trigger a retry.
+    """
+    import json as _json
+
+    try:
+        paths = [
+            q for q in results_root.rglob("result.json")
+            if q.is_file() and q.stat().st_mtime >= since
+        ]
+    except OSError:
+        return None
+    for q in paths:
+        try:
+            payload = _json.loads(q.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        info = payload.get("exception_info")
+        if not info:
+            continue
+        # A trial that reached the agent is a real result, whatever it says.
+        if payload.get("agent_execution") or payload.get("agent_result"):
+            continue
+        text = info if isinstance(info, str) else _json.dumps(info)
+        for marker in _BOX_REFUSAL_MARKERS:
+            if marker in text:
+                return " ".join(text.split())[:240]
+    return None
 
 
 @contextlib.contextmanager
@@ -1511,32 +1654,86 @@ def main(argv: list[str] | None = None) -> int:
         # phase the log most needed to name reported the wrong thing.
         outer_phase = leg_timing.current_phase()
         leg_timing.set_phase("lock-wait")
+        # A box refused by brev_env is not a failed trial -- nothing ran. Drop
+        # it and take the next candidate instead of reporting the leg dead,
+        # which is what turned one mis-sized box into a red leg. Bounded:
+        # each attempt costs a lock wait, and a fleet that refuses every box
+        # is an operator problem the log should name rather than a loop.
+        rejected: set[str] = set()
+        attempt_timeout = effective_lock_timeout
         try:
-            with hold_pool_lock(
-                candidates_fn, args.lock_dir, effective_lock_timeout
-            ) as instance:
-                lock_acquired = True
-                leg_timing.record_phase(
-                    "lock-wait", lock_wait_started, leg_timing.leg_elapsed()
+            for attempt in range(_MAX_BOX_REJECTIONS + 1):
+                def remaining_candidates() -> list[str]:
+                    return [n for n in candidates_fn() if n not in rejected]
+
+                # Nothing left to try: say so now. Handing an empty list to
+                # hold_pool_lock would burn the whole lock timeout waiting for
+                # a box that has already been ruled out -- and with a pinned
+                # instance, one refusal always lands here.
+                if rejected and not remaining_candidates():
+                    raise LegDeadlineError(
+                        "every eligible box refused this task's hardware "
+                        f"requirement: {', '.join(sorted(rejected))}"
+                    )
+                # Each retry costs another lock wait, so spend only what is
+                # left of the leg rather than the full timeout again.
+                attempt_timeout = attempt_lock_timeout(
+                    effective_lock_timeout, work_deadline, required
                 )
-                # The wait is over the moment the lock is held; the Harbor
-                # phases below set their own labels.
-                leg_timing.set_phase(outer_phase)
-                return run_invocations(
-                    invocations,
-                    instance,
-                    args.results_root,
-                    args.scratch,
-                    args.spec_stem,
-                    args.platform,
-                    args.harbor_timeout_sec,
-                    work_deadline,
-                )
+                with hold_pool_lock(
+                    remaining_candidates, args.lock_dir, attempt_timeout
+                ) as instance:
+                    lock_acquired = True
+                    leg_timing.record_phase(
+                        "lock-wait", lock_wait_started, leg_timing.leg_elapsed()
+                    )
+                    # The wait is over the moment the lock is held; the Harbor
+                    # phases below set their own labels.
+                    leg_timing.set_phase(outer_phase)
+                    dispatch_started = time.time()
+                    rc = run_invocations(
+                        invocations,
+                        instance,
+                        args.results_root,
+                        args.scratch,
+                        args.spec_stem,
+                        args.platform,
+                        args.harbor_timeout_sec,
+                        work_deadline,
+                    )
+                    if rc == 0:
+                        return rc
+                    refusal = box_rejected_for_capacity(
+                        args.results_root, dispatch_started
+                    )
+                    if not refusal:
+                        # A real result. Report it.
+                        return rc
+                    rejected.add(instance)
+                    print(
+                        f"[run-leg] {instance} refused this task and ran no "
+                        f"trial ({refusal})",
+                        flush=True,
+                    )
+                    if attempt == _MAX_BOX_REJECTIONS:
+                        # Out of attempts; the refusal is the honest outcome.
+                        return rc
+                    print(
+                        f"[run-leg] trying another box "
+                        f"({attempt + 1}/{_MAX_BOX_REJECTIONS})", flush=True,
+                    )
+                # Re-enter the lock wait for the next candidate.
+                lock_wait_started = leg_timing.leg_elapsed()
+                lock_acquired = False
+                leg_timing.set_phase("lock-wait")
         except LockTimeoutError:
             leg_timing.record_phase(
                 "lock-wait-timeout", lock_wait_started, leg_timing.leg_elapsed()
             )
-            if effective_lock_timeout < args.lock_timeout_sec:
+            # The budget that actually expired, which a retry may have
+            # shortened -- comparing the original would report a trimmed
+            # retry wait as whole-leg deadline exhaustion.
+            if attempt_timeout < args.lock_timeout_sec:
                 raise LegDeadlineError(
                     "whole-leg deadline expired while reserving room for Harbor"
                 )
