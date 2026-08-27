@@ -227,3 +227,51 @@ switches this check on.
 Dominated by `rt-vlm` (1129) and `rt-embed` (579). Some are genuinely stale approvals; many
 are apt packages a container inherits from a base image that this inventory does not expand.
 Do not read it as "2325 approvals to withdraw" until the base-image side is enumerated.
+
+## Files
+
+| file | what it is |
+|---|---|
+| `approved.csv` | 3877 rows from the consolidated OSRB sheet + 62 recovered from bug comments. `provenance` says which; `evidence` cites the comment. |
+| `conditions.csv` | 25 rows OSRB **refused** (2) or approved **conditionally** (23). Not approvals — kept separate so they cannot be read as one. |
+| `inventory.csv` | the repo's own dependency state, regenerated deterministically |
+| `module_map.py` | OSRB module labels → repo paths, plus path aliases and the submitted-but-no-package-list set |
+
+### Why the bug comments had to be merged in
+
+The consolidated sheet is not the complete approval record. It was built from 14 upstream
+sheets, and approvals granted only in a bug comment never reached it. Comment #1 requests
+approval for seven packages in the Alerts Microservice and comment #2 grants it — yet
+`services/alert` had no row in the sheet at all. Reading all 117 comments recovered 62
+approvals, 23 conditions and 2 refusals.
+
+Three states now exist where there used to be two, because collapsing them misleads:
+
+- **never submitted** (`UNSUBMITTED`) — file a new OSRB bug
+- **submitted, package list not recovered** (`SUBMITTED_NO_PACKAGE_LIST`) — recover the list;
+  do **not** file a new bug
+- **submitted under a different path** (`SUBMITTED_PATH_ALIASES`) — nothing to do; the tree
+  moved after submission. This alone was 895 false rows.
+
+### The permissive green-gate
+
+Most of this tree is MIT/Apache/BSD/ISC, and reporting those as "unapproved" buries the rows
+that carry real risk. A package whose licence matches the repo's **own** permissive list —
+`PERMISSIVE_LICENSE_PATTERNS` in `.github/scripts/check_python_licenses.py`, the same list the
+`check_python_licenses.sh` pre-commit hook enforces — is reported `PERMISSIVE_AUTOCLEARED` and
+kept out of the review comment.
+
+Deliberate limits:
+
+- it **only** downgrades verdicts meaning "no approval row found". It cannot touch
+  `VERSION_DRIFT` or `LICENSE_DRIFT`: those are disagreements with an approval that exists,
+  and a licence label does not answer them.
+- composites (`MIT AND GPL-2.0-or-later`) and `UNKNOWN` are refused. Exact match only.
+- `license_denylist.txt` wins — those wheels misrepresent their own metadata, so clearing them
+  on that metadata is the failure the denylist exists to stop.
+- if the import fails it clears **nothing**, so a broken import makes the report noisier, never
+  quieter.
+
+Effect: rows needing human review went from 2878 to 616, with zero permissive rows remaining.
+546 of the 616 are `UNKNOWN` licence — a resolution gap, not a risk finding, and now the
+largest remaining lever.

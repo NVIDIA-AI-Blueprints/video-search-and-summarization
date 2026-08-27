@@ -79,14 +79,29 @@ MODULE_MAP = {
 
 # Repo modules with NO OSRB approval record of any kind. Recorded explicitly so
 # "not approved" for these reads as "never submitted", not "rejected".
+# NOTE: entries here must NOT also be reachable via SUBMITTED_PATH_ALIASES.
+# A module that OSRB reviewed under its old path is submitted, whatever the tree
+# calls it now; listing it here would restore the 895-row false report.
 UNSUBMITTED = [
-    "services/sdrc", "services/alert", "services/rtvi/rt-cv",
-    "services/configurators/vss-configurator", "services/configurators/vss-rt-config-adaptor",
-    "services/vios/ui/vios-ui", "services/vios/ui/streaming-lib",
-    "libs/nvschema", "skills/benchmarking", "skills/vss-manage-alerts",
-    "skills/vss-build-vision-ai", "skills/vss-deploy-profile",
-    ".github", "docs", "docs/smartcity-docs", "fern", "<root>",
-    "deploy/helm/services/monitoring", "deploy/docker/services/infra",
+    # Verified against all 117 comments of the OSRB bug: no submission of any
+    # kind. "File a new OSRB bug" is the correct advice for these and only
+    # these. Modules whose submission exists but whose package list could not
+    # be recovered live in SUBMITTED_NO_PACKAGE_LIST instead, and modules that
+    # moved after submission live in SUBMITTED_PATH_ALIASES -- conflating any
+    # of the three sends someone to redo work OSRB already did.
+    #
+    # services/alert is deliberately absent: comments #1-2 approve seven
+    # packages for it, and those rows are now in approved.csv.
+    "skills/vss-manage-alerts",
+    "skills/vss-build-vision-ai",
+    "skills/vss-deploy-profile",
+    ".github",
+    "docs",
+    "docs/smartcity-docs",
+    "fern",
+    "<root>",
+    "deploy/helm/services/monitoring",
+    "deploy/docker/services/infra",
 ]
 
 # Separator inside the derived `repo_modules` column. A comma would collide
@@ -154,3 +169,68 @@ def check_repo_modules_column(rows: list[dict[str, str]]) -> list[str]:
                 f"repo_modules={actual} but MODULE_MAP says {expected}"
             )
     return complaints
+
+
+# Paths OSRB was given, mapped to where the code actually landed.
+#
+# Three modules reported as "no OSRB record" purely because the repo moved after
+# submission. That is 895 rows of false MODULE_UNSUBMITTED - the largest single
+# source of noise in the comparison, and the most misleading, because it tells a
+# reader to file a new OSRB bug for something OSRB has already reviewed.
+#
+# Keyed on the path as written in the OSRB submission, because that is the
+# string the approval record is anchored to. Verified against the bug comments
+# and the commit that moved each one.
+SUBMITTED_PATH_ALIASES = {
+    # comment #40 submitted PR #1045's requirements.txt under this name; commit
+    # 6d04ddf7d landed the identical 10-package skill under skills/benchmarking/.
+    "skills/vss-benchmark-lvs": ["skills/benchmarking"],
+    # comment #41 gives the planned paths under services/analytics/; both
+    # configurators shipped under services/configurators/ instead.
+    "services/analytics/vss-configurator": ["services/configurators/vss-configurator"],
+    "services/analytics/vss-rt-config-adaptor": [
+        "services/configurators/vss-rt-config-adaptor"
+    ],
+    # comment #85 submits "VIOS UI ... services/vios/ui" as one component; the
+    # tree splits it into two packages, and owning_module reports them apart.
+    "services/vios/ui": ["services/vios/ui/vios-ui", "services/vios/ui/streaming-lib"],
+}
+
+
+def resolve_submitted_path(path: str) -> list[str]:
+    """Repo modules covered by an OSRB submission recorded at `path`."""
+    return SUBMITTED_PATH_ALIASES.get(path.rstrip("/"), [])
+
+
+def aliased_modules() -> set[str]:
+    """Every repo module reachable through an alias, for unsubmitted checks."""
+    return {m for targets in SUBMITTED_PATH_ALIASES.values() for m in targets}
+
+
+# Modules OSRB has a record for, where the package list could not be recovered
+# in machine-readable form.
+#
+# This is a THIRD state and collapsing it either way misleads a reader.
+# "Never submitted" tells them to file a new OSRB bug for work OSRB already did.
+# "Approved" claims an assurance nobody has, because no package list was ever
+# reduced to rows. What is true is narrower: a submission exists, and this
+# baseline cannot say what it covered.
+#
+# Each entry cites the bug comment that carries the submission, so the record can
+# be found without guessing. Move an entry out of here the moment its package
+# list lands in approved.csv.
+SUBMITTED_NO_PACKAGE_LIST = {
+    "services/sdrc": "comment-58",
+    "services/rtvi/rt-cv": "comment-15",
+    # comment #103 submits this as Batch 2 and comment #95 attaches a live
+    # condition: preserve Google's attribution for the bundled protobuf files in
+    # a NOTICE, or do not bundle them. The repo bundles
+    # libs/nvschema/protobuf/struct.proto WITH Google's copyright header and
+    # ships no NOTICE file, so the condition is currently half met.
+    "libs/nvschema": "comment-103 (condition in comment-95: protobuf NOTICE)",
+}
+
+
+def submission_reference(module: str) -> str:
+    """The bug comment carrying this module's submission, or ""."""
+    return SUBMITTED_NO_PACKAGE_LIST.get(module, "")

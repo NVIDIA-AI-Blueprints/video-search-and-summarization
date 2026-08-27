@@ -87,13 +87,33 @@ def inventory_row(
     }
 
 
-def verdict_of(inventory: dict[str, str], approved: list[dict[str, str]]) -> str:
+def verdict_of(
+    inventory: dict[str, str],
+    approved: list[dict[str, str]],
+    *,
+    licence_gate: bool = False,
+) -> str:
+    """Verdict with the permissive green-gate OFF by default.
+
+    These helpers exist for tests of the module / package / version gates, and
+    the fixtures use MIT. With the gate on, every one of those tests would come
+    back PERMISSIVE_AUTOCLEARED and pass for the wrong reason -- the gate they
+    name would go untested while staying green. Tests of the green-gate itself
+    pass `licence_gate=True`.
+    """
     index = compare_mod.ApprovedIndex(approved)
-    return compare_mod.classify(inventory, index)["verdict"]
+    return compare_mod.classify(inventory, index, apply_licence_gate=licence_gate)["verdict"]
 
 
-def judge(inventory: dict[str, str], approved: list[dict[str, str]]) -> dict[str, str]:
-    return compare_mod.classify(inventory, compare_mod.ApprovedIndex(approved))
+def judge(
+    inventory: dict[str, str],
+    approved: list[dict[str, str]],
+    *,
+    licence_gate: bool = False,
+) -> dict[str, str]:
+    return compare_mod.classify(
+        inventory, compare_mod.ApprovedIndex(approved), apply_licence_gate=licence_gate
+    )
 
 
 class MatchingTest(unittest.TestCase):
@@ -501,32 +521,31 @@ class ModuleTest(unittest.TestCase):
         # The distinction decides whether someone files a new OSRB bug or
         # chases an existing one, so it must survive even when the package
         # would otherwise look like an ordinary miss.
-        row = judge(inventory_row(module="services/sdrc"), [approved_row()])
+        row = judge(inventory_row(module=".github"), [approved_row()])
         self.assertEqual(row["verdict"], "MODULE_UNSUBMITTED")
         self.assertIn("new OSRB bug", row["notes"])
 
     def test_unsubmitted_wins_even_when_a_package_name_matches_elsewhere(self) -> None:
         approved = [approved_row(package="demo")]
         self.assertEqual(
-            verdict_of(inventory_row(package="demo", module="libs/nvschema"), approved),
+            verdict_of(inventory_row(package="demo", module="skills/vss-manage-alerts"), approved),
             "MODULE_UNSUBMITTED",
         )
 
     def test_an_unsubmitted_subtree_beats_its_submitted_parent_module(self) -> None:
-        # services/vios IS submitted (325 approved rows) but
-        # services/vios/ui/vios-ui is on the unsubmitted list, and ownership
-        # rounds the second to the first. Matching on the module name alone
-        # put 734 VIOS-UI rows into NOT_APPROVED, pointing every reader at an
-        # OSRB bug about a different piece of software.
+        # deploy IS submitted, but deploy/docker/services/infra is on the
+        # unsubmitted list and ownership rounds the second to the first.
+        # Matching on the module name alone sends infra rows into NOT_APPROVED,
+        # pointing the reader at an OSRB record about different software.
         row = judge(
             inventory_row(
-                module="services/vios",
-                source_file="services/vios/ui/vios-ui/package-lock.json",
+                module="deploy",
+                source_file="deploy/docker/services/infra/compose.yml",
             ),
-            [approved_row(module="VIOS_VST_V2.1 [main package]", repo_modules="services/vios")],
+            [approved_row(module="DEPLOY", repo_modules="deploy")],
         )
         self.assertEqual(row["verdict"], "MODULE_UNSUBMITTED")
-        self.assertIn("services/vios/ui/vios-ui", row["notes"])
+        self.assertIn("deploy/docker/services/infra", row["notes"])
 
     def test_the_submitted_part_of_that_module_is_still_compared(self) -> None:
         # The subtree rule must not swallow the module it sits in.
@@ -543,7 +562,7 @@ class ModuleTest(unittest.TestCase):
         # a name-only check silently ignores them. Pin the behaviour that
         # rescues them.
         for module, path in [
-            ("services/vios", "services/vios/ui/streaming-lib/package-lock.json"),
+            ("services/vios", "skills/vss-manage-alerts/scripts/requirements.txt"),
             ("deploy", "deploy/docker/services/infra/docker-compose.yml"),
             ("deploy", "deploy/helm/services/monitoring/Chart.yaml"),
             ("docs", "docs/smartcity-docs/package.json"),
@@ -553,20 +572,21 @@ class ModuleTest(unittest.TestCase):
 
     def test_a_multi_path_citation_needs_every_path_unsubmitted(self) -> None:
         # The inventory merges every file that declares a package into one
-        # `;`-joined cell. A package used by the unsubmitted VIOS UI *and* the
-        # submitted VIOS backend still has to be judged against the backend's
-        # approvals.
+        # `;`-joined cell. A package used by the unsubmitted deploy infra subtree
+        # *and* by submitted deploy content still has to be judged against
+        # deploy's approvals -- otherwise one unsubmitted citation would exempt
+        # a package the rest of the module genuinely ships.
         both = (
-            "services/vios/ui/vios-ui/package-lock.json;services/vios/src/package-lock.json"
+            "deploy/docker/services/infra/compose.yml;deploy/docker/services/vss/compose.yml"
         )
-        self.assertEqual(compare_mod.unsubmitted_scope("services/vios", both), "")
-        only_ui = (
-            "services/vios/ui/vios-ui/package-lock.json;"
-            "services/vios/ui/streaming-lib/package-lock.json"
+        self.assertEqual(compare_mod.unsubmitted_scope("deploy", both), "")
+        only_infra = (
+            "deploy/docker/services/infra/compose.yml;"
+            "deploy/docker/services/infra/Dockerfiles/elastic-init.Dockerfile"
         )
         self.assertEqual(
-            compare_mod.unsubmitted_scope("services/vios", only_ui),
-            "services/vios/ui/vios-ui",
+            compare_mod.unsubmitted_scope("deploy", only_infra),
+            "deploy/docker/services/infra",
         )
 
     def test_a_module_in_neither_list_says_where_the_fix_goes(self) -> None:
@@ -744,23 +764,56 @@ class RealBaselineTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.rows = compare_mod.load_approved(APPROVED_CSV)
+        # Two populations with different invariants. Sheet rows are keyed by the
+        # OSRB module LABEL ("AGENT", "RTVI_VLM_GHCR") and must resolve through
+        # MODULE_MAP. Bug-comment rows are keyed by a repo path already, because
+        # a comment names the component the way a person says it, not the way
+        # the consolidated sheet spells it. Asserting the label invariant over
+        # both would fail on rows that are perfectly well formed.
+        cls.sheet_rows = [
+            r for r in cls.rows
+            if r.get("provenance", "submission") in {"submission", "inline-addition"}
+        ]
+        cls.bug_rows = [
+            r for r in cls.rows if r.get("provenance", "") == "bug-comment"
+        ]
 
     def test_baseline_is_the_expected_size(self) -> None:
-        self.assertEqual(len(self.rows), 3877)
+        self.assertEqual(len(self.sheet_rows), 3877, "consolidated sheet")
+        self.assertEqual(len(self.bug_rows), 62, "recovered from bug comments")
+        self.assertEqual(len(self.rows), 3939)
 
     def test_every_osrb_label_maps_to_repo_modules(self) -> None:
         self.assertEqual(
-            module_map.unmapped_osrb_modules([row["module"] for row in self.rows]),
+            module_map.unmapped_osrb_modules([row["module"] for row in self.sheet_rows]),
             [],
             "an unmapped label makes its approvals unreachable, inflating NOT_APPROVED",
         )
 
     def test_derived_column_agrees_with_the_module_map(self) -> None:
-        self.assertEqual(module_map.check_repo_modules_column(self.rows), [])
+        self.assertEqual(module_map.check_repo_modules_column(self.sheet_rows), [])
 
     def test_every_row_lands_under_at_least_one_repo_module(self) -> None:
         index = compare_mod.ApprovedIndex(self.rows)
         self.assertEqual(index.rows_without_module, [])
+
+    def test_every_bug_comment_row_names_a_real_repo_module(self) -> None:
+        """The invariant for the recovered population.
+
+        A bug-comment approval with no repo_modules matches nothing and is
+        therefore an approval we recovered and then threw away -- worse than not
+        recovering it, because the row's presence implies coverage it does not
+        give. 31 of the first 87 extracted rows were in that state.
+        """
+        orphans = [r["package"] for r in self.bug_rows if not (r.get("repo_modules") or "").strip()]
+        self.assertEqual(orphans, [], "bug-comment approvals that match no module")
+
+    def test_every_bug_comment_row_cites_its_evidence(self) -> None:
+        # Without the comment number an approval cannot be re-checked against
+        # the bug, which is the only thing making it auditable at all.
+        missing = [r["package"] for r in self.bug_rows
+                   if not r.get("evidence", "").startswith("comment-")]
+        self.assertEqual(missing, [])
 
     def test_the_known_data_quality_defects_are_neutralised(self) -> None:
         broken = [row for row in self.rows if row["usage_method"] == "0.0"]
@@ -842,6 +895,11 @@ class RealBaselineTest(unittest.TestCase):
                 source_file="services/ui/package-lock.json",
             ),
             index,
+            # Module classification is the subject here. Apache-2.0 is on the
+            # permissive allowlist, so with the green-gate on this row would
+            # come back PERMISSIVE_AUTOCLEARED and the assertion below would be
+            # testing the licence path, not the module path.
+            apply_licence_gate=False,
         )
         self.assertEqual(verdict["verdict"], "MODULE_UNSUBMITTED")
         self.assertIn("no OSRB submission", verdict["notes"])
@@ -852,6 +910,81 @@ class RealBaselineTest(unittest.TestCase):
         for module in ("services/agent", "services/vios", "services/rtvi/rt-vlm"):
             self.assertFalse(index.is_inline_only(module), module)
 
+
+
+class PermissiveGreenGateTest(unittest.TestCase):
+    """The green-gate: what it clears, and — more importantly — what it must not.
+
+    Its whole justification is noise reduction. If it over-clears it stops being
+    a noise filter and becomes a way to lose findings, which is worse than the
+    noise it was added to remove.
+    """
+
+    def test_it_reuses_the_repo_permissive_list_rather_than_a_private_copy(self) -> None:
+        # A second list would drift from the one check_python_licenses.sh
+        # enforces on every commit, and the two gates would start disagreeing
+        # about the same package.
+        self.assertGreater(len(compare_mod.PERMISSIVE_LICENSE_PATTERNS), 20)
+
+    def test_a_permissive_licence_clears_a_missing_approval(self) -> None:
+        self.assertEqual(
+            verdict_of(inventory_row(license="MIT"), [], licence_gate=True),
+            "PERMISSIVE_AUTOCLEARED",
+        )
+
+    def test_a_copyleft_licence_is_never_cleared(self) -> None:
+        for licence in ("GPL-3.0-only", "AGPL-3.0", "SSPL-1.0", "Elastic-2.0",
+                        "LGPL-3.0-or-later", "NVIDIA Proprietary"):
+            self.assertNotEqual(
+                verdict_of(inventory_row(license=licence), [], licence_gate=True),
+                "PERMISSIVE_AUTOCLEARED",
+                licence,
+            )
+
+    def test_a_composite_expression_is_never_cleared(self) -> None:
+        # "MIT AND GPL-2.0-or-later" contains a permissive operand and is not
+        # permissive. Clearing on a substring match is how a GPL obligation
+        # disappears from the report.
+        for licence in ("MIT AND GPL-2.0-or-later", "Apache-2.0 AND LGPL-3.0-or-later",
+                        "RSALv2 OR SSPL-1.0 OR AGPL-3.0", "GPL-2.0-or-later OR AFL-2.1"):
+            self.assertFalse(compare_mod.is_permissive(licence), licence)
+
+    def test_an_unknown_licence_is_never_cleared(self) -> None:
+        # Absence of evidence is not permissiveness, and these are exactly the
+        # rows most worth a human's time.
+        for licence in ("", "UNKNOWN", "NOASSERTION", "see-license-text"):
+            self.assertFalse(compare_mod.is_permissive(licence), repr(licence))
+
+    def test_it_cannot_clear_a_drift_verdict(self) -> None:
+        # VERSION_DRIFT and LICENSE_DRIFT are disagreements with an approval
+        # that EXISTS. A licence label does not answer them, and letting it
+        # would silently retire a real contradiction.
+        for verdict in ("VERSION_DRIFT", "LICENSE_DRIFT", "USAGE_DRIFT"):
+            self.assertNotIn(verdict, compare_mod._CLEARABLE_BY_LICENCE)
+
+    def test_version_drift_survives_a_permissive_licence(self) -> None:
+        approved = [approved_row(package="demo", version="9.9.9", license="MIT")]
+        self.assertEqual(
+            verdict_of(inventory_row(package="demo", version="1.0.0", license="MIT"),
+                       approved, licence_gate=True),
+            "VERSION_DRIFT",
+        )
+
+    def test_the_original_verdict_is_recorded_in_the_notes(self) -> None:
+        # A cleared row must still say what it was, or the backlog becomes
+        # invisible the moment it is filtered out of the report.
+        row = judge(inventory_row(license="MIT"), [], licence_gate=True)
+        self.assertIn("NOT_APPROVED", row["notes"])
+        self.assertIn("MIT", row["notes"])
+
+    def test_a_denylisted_package_is_never_cleared(self) -> None:
+        # license_denylist.txt exists for wheels whose metadata misrepresents
+        # the shipped terms; clearing them on that same metadata is the exact
+        # failure the denylist was written to stop.
+        if not compare_mod.DENYLISTED:
+            self.skipTest("denylist is empty in this tree")
+        name = sorted(compare_mod.DENYLISTED)[0]
+        self.assertFalse(compare_mod.is_permissive("MIT", name))
 
 if __name__ == "__main__":
     unittest.main()

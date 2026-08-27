@@ -83,7 +83,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# .github/scripts holds check_python_licenses.py, whose PERMISSIVE_LICENSE_PATTERNS
+# is the repo's single definition of "permissive" and is already enforced by the
+# check_python_licenses.sh pre-commit hook. Importing it keeps one list; copying
+# it would let the pre-commit gate and this gate drift apart on the same package.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
+import module_map  # noqa: E402
 from module_map import (  # noqa: E402
     SUBMITTED_MODULES,
     UNSUBMITTED_SET,
@@ -104,16 +110,22 @@ VERDICT_LICENSE_DRIFT = "LICENSE_DRIFT"
 VERDICT_USAGE_DRIFT = "USAGE_DRIFT"
 VERDICT_NOT_APPROVED = "NOT_APPROVED"
 VERDICT_MODULE_UNSUBMITTED = "MODULE_UNSUBMITTED"
+VERDICT_SUBMITTED_LIST_UNKNOWN = "SUBMITTED_LIST_UNKNOWN"
+VERDICT_PERMISSIVE_AUTOCLEARED = "PERMISSIVE_AUTOCLEARED"
+VERDICT_OSRB_REFUSED = "OSRB_REFUSED"
+VERDICT_OSRB_CONDITIONAL = "OSRB_CONDITIONAL"
 VERDICT_APPROVED_NOT_PRESENT = "APPROVED_NOT_PRESENT"
 
 # Report order, worst first. Also the order counts appear in the summary.
 VERDICTS = [
     VERDICT_NOT_APPROVED,
     VERDICT_MODULE_UNSUBMITTED,
+    VERDICT_SUBMITTED_LIST_UNKNOWN,
     VERDICT_VERSION_DRIFT,
     VERDICT_LICENSE_DRIFT,
     VERDICT_USAGE_DRIFT,
     VERDICT_APPROVED_NOT_PRESENT,
+    VERDICT_PERMISSIVE_AUTOCLEARED,
     VERDICT_APPROVED,
 ]
 
@@ -125,6 +137,7 @@ FINDING_VERDICTS = frozenset(
     {
         VERDICT_NOT_APPROVED,
         VERDICT_MODULE_UNSUBMITTED,
+        VERDICT_SUBMITTED_LIST_UNKNOWN,
         VERDICT_VERSION_DRIFT,
         VERDICT_LICENSE_DRIFT,
         VERDICT_USAGE_DRIFT,
@@ -864,6 +877,14 @@ class ApprovedIndex:
         self.rows_without_module: list[dict[str, str]] = []
         for row in rows:
             modules = split_repo_modules(row.get("repo_modules", ""))
+            # An approval recorded against the path OSRB was GIVEN still covers
+            # the code after the tree moved it. Without this, three renamed
+            # modules report as though OSRB had never seen them -- 895 rows
+            # telling a reader to file a bug for work already done.
+            expanded = list(modules)
+            for module in modules + [row.get("module", "")]:
+                expanded.extend(module_map.resolve_submitted_path(module or ""))
+            modules = sorted({m for m in expanded if m})
             if not modules:
                 self.rows_without_module.append(row)
                 continue
@@ -882,8 +903,16 @@ class ApprovedIndex:
         for row in rows:
             for module in split_repo_modules(row.get("repo_modules", "")):
                 per_module[module].add(row.get("provenance", "submission") or "submission")
+        # A module counts as submitted only if at least one approval came from a
+        # SUBMISSION -- a reviewed dependency tree filed with OSRB. Inline
+        # additions and one-off bug-comment approvals are individual packages
+        # someone cleared in passing; a handful of them is not a review of the
+        # module. services/ui is the case that matters: two @img/sharp packages
+        # cleared in a comment, against 2157 resolved npm packages. Keying on
+        # "inline-only" broke the moment those two were also recovered from the
+        # bug, even though nothing about the module's coverage changed.
         self.inline_only_modules = {
-            module for module, kinds in per_module.items() if kinds == {"inline-addition"}
+            module for module, kinds in per_module.items() if "submission" not in kinds
         }
 
     def candidates(self, module: str, package: str) -> list[dict[str, str]]:
@@ -893,7 +922,7 @@ class ApprovedIndex:
         return module in self.modules
 
     def is_inline_only(self, module: str) -> bool:
-        """True when this module's only approvals are inline bug-comment additions."""
+        """True when no approval for this module came from an OSRB submission."""
         return module in self.inline_only_modules
 
 
@@ -947,6 +976,191 @@ def unsubmitted_scope(module: str, source_file: str) -> str:
         covered.append(match)
     return covered[0]
 
+
+
+# ---------------------------------------------------------------------------
+# Permissive green-gate
+# ---------------------------------------------------------------------------
+
+# Reuse the repo's OWN permissive list rather than writing a second one.
+# `.github/scripts/check_python_licenses.py` already encodes which licences
+# this project treats as permissive, it is enforced by the
+# `check_python_licenses.sh` pre-commit hook, and every entry carries the
+# reasoning for why it is on the list. A private copy here would drift from it
+# silently and the two gates would start disagreeing about the same package.
+try:
+    from check_python_licenses import (  # noqa: E402
+        COMPILED_ALLOWLIST as PERMISSIVE_LICENSE_RE,
+        PERMISSIVE_LICENSE_PATTERNS,
+    )
+except ImportError:  # pragma: no cover - exercised when scripts/ is absent
+    # Fail CLOSED: with no patterns nothing is auto-cleared, so a broken import
+    # makes the report noisier, never quieter. The reverse would hide packages.
+    PERMISSIVE_LICENSE_PATTERNS = []
+    PERMISSIVE_LICENSE_RE = None
+
+
+def _denylisted_packages() -> set[str]:
+    """Packages the repo explicitly refuses regardless of declared licence.
+
+    `license_denylist.txt` exists for wheels whose metadata MISREPRESENTS the
+    terms in the shipped LICENSE text. A denylisted package must never be
+    green-gated on the strength of the label that is itself the problem.
+    """
+    path = (
+        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "license_denylist.txt"
+    )
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return set()
+    return {
+        canonical_package(line.split("#", 1)[0].strip())
+        for line in lines
+        if line.split("#", 1)[0].strip()
+    }
+
+
+DENYLISTED = _denylisted_packages()
+
+
+def is_permissive(license_text: str, package: str = "") -> bool:
+    """True when the licence matches the repo's permissive list EXACTLY.
+
+    Exact match on a single licence label, deliberately. A composite
+    expression like "MIT AND GPL-2.0-or-later" contains a permissive operand
+    and is not permissive, so anything carrying AND/OR/WITH is refused here and
+    goes to a human. Same for an empty or UNKNOWN licence: absence of evidence
+    is not permissiveness, and auto-clearing it would hide exactly the rows
+    most worth reading.
+    """
+    if PERMISSIVE_LICENSE_RE is None:
+        return False
+    if package and canonical_package(package) in DENYLISTED:
+        return False
+    text = (license_text or "").strip().strip('"')
+    if not text or text.upper() in {"UNKNOWN", "NOASSERTION", "SEE-LICENSE-TEXT"}:
+        return False
+    if re.search(r"\b(AND|OR|WITH)\b", text):
+        return False
+    return bool(PERMISSIVE_LICENSE_RE.match(text))
+
+
+# Verdicts that mean "no approval row was found for this package". Those are
+# the only ones a permissive licence may clear: a licence label cannot answer a
+# VERSION_DRIFT or a LICENSE_DRIFT, which are disagreements with an approval
+# that already exists.
+_CLEARABLE_BY_LICENCE = {
+    VERDICT_NOT_APPROVED,
+    VERDICT_MODULE_UNSUBMITTED,
+    VERDICT_SUBMITTED_LIST_UNKNOWN,
+}
+
+
+def load_conditions(path: str) -> list[dict[str, str]]:
+    """Refusals and conditional approvals recovered from the OSRB bug comments.
+
+    Kept out of approved.csv on purpose: a refusal is not an approval, and one
+    file holding both invites exactly the wrong read. Missing file is not an
+    error -- the comparison still works, it just cannot warn.
+    """
+    try:
+        with open(path, newline="", encoding="utf-8") as handle:
+            return list(csv.DictReader(handle))
+    except OSError:
+        return []
+
+
+def conditions_for(
+    conditions: list[dict[str, str]], package: str, module: str
+) -> list[dict[str, str]]:
+    """Conditions that apply to this package in this module.
+
+    A condition with no module applies everywhere: several are blanket
+    positions ("dev-only dependencies are not shipped") and scoping them to a
+    module would silently drop them.
+    """
+    key = canonical_package(package)
+    out = []
+    for row in conditions:
+        if canonical_package(row.get("package", "")) != key:
+            continue
+        mods = split_repo_modules(row.get("repo_modules", ""))
+        if not mods or module in mods:
+            out.append(row)
+    return out
+
+
+def condition_rows(
+    inventory: list[dict[str, str]], conditions: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """One row per shipped package that OSRB refused or conditioned.
+
+    This is the highest-severity output the comparison produces. A package OSRB
+    explicitly refused, still present in the tree, is worse than an unapproved
+    one: somebody looked at it and said no. `mkl` and `tbb` are the live
+    example -- "NOT cleared by OSRB, requires BU attorney confirmation" -- and
+    they ship in rt-embed and rt-vlm today.
+    """
+    rows = []
+
+    # Module-level first. A refusal does not always name a package: the two on
+    # this bug refuse a SOURCE batch ("the source still advertises proprietary
+    # licensing in the service metadata"), so package matching finds nothing and
+    # the most serious finding in the whole comparison would silently not
+    # appear. Report those against the module instead.
+    modules_present = {item.get("module", "") for item in inventory}
+    for cond in conditions:
+        if cond.get("decision") != "refused":
+            continue
+        mods = split_repo_modules(cond.get("repo_modules", ""))
+        matched = [m for m in mods if m in modules_present]
+        if not matched:
+            continue
+        for module in matched:
+            rows.append(
+                _output_row(
+                    VERDICT_OSRB_REFUSED,
+                    {
+                        "package": cond.get("package", "")[:80],
+                        "version": cond.get("version", ""),
+                        "license": cond.get("license", ""),
+                        "module": module,
+                        "source_kind": "osrb-bug",
+                        "source_file": "",
+                        "usage_evidence": "",
+                    },
+                    None,
+                    set(),
+                    f"{cond.get('evidence', '')}: OSRB REFUSED this batch. "
+                    + (cond.get("condition") or cond.get("quote") or "").strip()[:340],
+                )
+            )
+
+    for item in inventory:
+        for cond in conditions_for(
+            conditions, item.get("package", ""), item.get("module", "")
+        ):
+            if cond.get("decision") == "refused" and split_repo_modules(
+                cond.get("repo_modules", "")
+            ):
+                continue  # already reported at module level above
+            verdict = (
+                VERDICT_OSRB_REFUSED
+                if cond.get("decision") == "refused"
+                else VERDICT_OSRB_CONDITIONAL
+            )
+            rows.append(
+                _output_row(
+                    verdict,
+                    item,
+                    None,
+                    evidence_for(item),
+                    f"{cond.get('evidence', '')}: "
+                    + (cond.get("condition") or cond.get("quote") or "").strip()[:400],
+                )
+            )
+    return rows
 
 def _output_row(
     verdict: str,
@@ -1007,6 +1221,49 @@ def classify(
     row: dict[str, str],
     approved: ApprovedIndex,
     seen: Normalisations | None = None,
+    *,
+    apply_licence_gate: bool = True,
+) -> dict[str, str]:
+    """Public entry point: classify, then apply the permissive green-gate.
+
+    The green-gate exists because the raw comparison is dominated by packages
+    nobody needs to look at. The overwhelming majority of this tree is MIT,
+    Apache-2.0, BSD and ISC -- licences this repo already treats as permissive
+    in `.github/scripts/check_python_licenses.py`, enforced on every commit by
+    the check_python_licenses.sh hook. Reporting them to OSRB as "unapproved"
+    buries the handful of rows that carry actual risk.
+
+    It only ever downgrades a verdict that means "no approval row was found".
+    It cannot touch VERSION_DRIFT or LICENSE_DRIFT: those are disagreements
+    with an approval that exists, and a licence label does not answer them.
+    """
+    verdict = _classify_uncleared(row, approved, seen)
+    # `apply_licence_gate=False` is for tests of the module / package / version
+    # gates. A permissive licence short-circuits all of them, so without this a
+    # MIT fixture would silently assert the licence path instead of the path the
+    # test was written for -- and the test would keep passing while the gate it
+    # names went untested.
+    if not apply_licence_gate:
+        return verdict
+    if verdict["verdict"] not in _CLEARABLE_BY_LICENCE:
+        return verdict
+    licence = row.get("license", "")
+    if not is_permissive(licence, row.get("package", "")):
+        return verdict
+    verdict = dict(verdict)
+    verdict["notes"] = (
+        f"permissive licence ({licence}) on the repo's own allowlist in "
+        ".github/scripts/check_python_licenses.py; not escalated. Original "
+        f"verdict was {verdict['verdict']}"
+    )
+    verdict["verdict"] = VERDICT_PERMISSIVE_AUTOCLEARED
+    return verdict
+
+
+def _classify_uncleared(
+    row: dict[str, str],
+    approved: ApprovedIndex,
+    seen: Normalisations | None = None,
 ) -> dict[str, str]:
     """One inventory row -> one verdict, at the first gate that fails.
 
@@ -1016,6 +1273,24 @@ def classify(
     """
     module = row.get("module", "")
     evidence = evidence_for(row)
+
+
+    reference = module_map.submission_reference(module)
+    if reference:
+        # A third state, and collapsing it either way misleads. Calling it
+        # unsubmitted sends someone to redo a submission OSRB already has;
+        # calling it approved claims an assurance nobody holds, because no
+        # package list was ever reduced to rows. Say exactly what is true.
+        return _output_row(
+            VERDICT_SUBMITTED_LIST_UNKNOWN,
+            row,
+            None,
+            evidence,
+            f"{module!r} has an OSRB submission ({reference}) but its package "
+            "list is not in this baseline, so this package could not be checked "
+            "against it. Do not file a new bug; recover the list into "
+            "approved.csv",
+        )
 
     if approved.is_inline_only(module):
         # The module has approved rows, but every one of them came from an
@@ -1305,6 +1580,14 @@ def write_summary(
     ]
     meanings = {
         VERDICT_NOT_APPROVED: "in the repo, no approved row for it in this module",
+        VERDICT_SUBMITTED_LIST_UNKNOWN: (
+            "module has an OSRB submission but its package list is not in this "
+            "baseline — recover the list, do not file a new bug"
+        ),
+        VERDICT_PERMISSIVE_AUTOCLEARED: (
+            "no approval row found, but the licence is on the repo's own "
+            "permissive allowlist — not escalated"
+        ),
         VERDICT_MODULE_UNSUBMITTED: "module has no OSRB record at all — "
         "never submitted, **not** rejected",
         VERDICT_VERSION_DRIFT: "package approved for this module at another version",
@@ -1426,6 +1709,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", default="osrb-compliance.csv")
     parser.add_argument("--summary", default="osrb-compliance.md")
     parser.add_argument(
+        "--conditions",
+        default=None,
+        help=(
+            "conditions.csv: refusals and conditional approvals recovered from "
+            "the OSRB bug. A refused package still in the tree is the most "
+            "serious thing this tool can find."
+        ),
+    )
+    parser.add_argument(
         "--submissions",
         default=None,
         metavar="DIR",
@@ -1480,6 +1772,17 @@ def main(argv: list[str] | None = None) -> int:
 
     seen = normalisation_census(approved_rows)
     rows = compare(inventory, index)
+    # Prepended, not appended: a refusal is the first thing a reader must see,
+    # and CSV order is what the summary and the PR comment inherit.
+    if args.conditions:
+        flagged = condition_rows(inventory, load_conditions(args.conditions))
+        if flagged:
+            print(
+                f"[osrb-compare] {len(flagged)} shipped package(s) carry an OSRB "
+                "refusal or condition",
+                file=sys.stderr,
+            )
+        rows = flagged + rows
     counts = count_verdicts(rows)
 
     write_csv(rows, args.output)

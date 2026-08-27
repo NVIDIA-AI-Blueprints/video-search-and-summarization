@@ -315,6 +315,7 @@ jobs:
           python .github/osrb/osrb_compare.py \
             --inventory .github/osrb/inventory.csv \
             --approved .github/osrb/approved.csv \
+            --conditions .github/osrb/conditions.csv \
             --output osrb-compliance.csv \
             --summary osrb-compliance.md \
             --submissions osrb-submissions \
