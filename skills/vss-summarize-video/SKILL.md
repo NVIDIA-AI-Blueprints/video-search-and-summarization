@@ -41,8 +41,9 @@ Load these files only as directed:
   before executing the recorded-video workflow. It contains the exact
   readiness, VIOS preparation, single-run summarize, and VLM fallback commands.
 - [`references/cli_usage.md`](references/cli_usage.md): load before Stage 4.
-  `vss summarize run` issues the summarize request and persists the result;
-  this reference has its flags, exit codes, output shape, and read verbs.
+  `vss summarize run` issues the summarize request and applies the operator's
+  configured memory policy; this reference has its flags, exit codes, output
+  shape, and read verbs.
 - [`references/video-summarization-api.md`](references/video-summarization-api.md):
   load before constructing a live LVS operation **by hand** — a direct API
   question, or the approved VLM fallback. Follow its **Runtime OpenAPI
@@ -290,16 +291,20 @@ specific settings.
 ### Stage 4: Submit Once Through the CLI
 
 Load the CLI reference. `vss summarize run` issues the summarize request on both
-Docker and Kubernetes, and persists the result to unified memory. Do not build a
-`/v1/summarize` payload by hand, and do not fetch `/openapi.json` to construct
-one — the CLI owns the request shape, and `vss configure` owns the endpoint.
+Docker and Kubernetes, and persists only when static memory policy enables it.
+Do not build a `/v1/summarize` payload by hand, and do not fetch
+`/openapi.json` to construct one — the CLI owns the request shape,
+`vss configure` owns the endpoint, and `vss configure memory` owns persistence.
 
 Use the invocation in the end-to-end reference. It passes the fresh VIOS URL
 from Stage 2, the exact HITL values from Stage 3, `--chunk-duration 10`, and
 `--seed 1`; repeat `--event` per event and add `--object-of-interest` only when
 the caller provided objects. Pass no endpoint flag.
 
-Persistence is on by default and needs two values:
+Do not pass `--persist` or `--memory-index`; those per-request controls do not
+exist. The standard workflow also does not pass `--no-persist`, so the
+operator's configured persistence default applies. When persistence is enabled,
+the record needs two values:
 
 - `--video-id`, required alongside `--url`. Use the recording's VIOS **sensor**
   id — from `sensor/list`, or from the `sensorId` an upload returns — never the
@@ -324,12 +329,12 @@ code, is what says whether a job was created.
 
 | exit | meaning | action |
 |---|---|---|
-| 0 | summarized and persisted | present the result |
+| 0 | summarized; persistence followed configured policy | present the result and report `persisted` truthfully |
 | 2 | a flag the CLI refused, before anything was submitted | fix the call, then run once |
 | 2 | LVS rejected the request it was sent; the marker names a job closed as failed | report the failure with that `job_id` |
 | 3 | LVS unreachable or returned 5xx | report it with the marker's `job_id` |
-| 4 | nothing configured, or `lvs`/`elasticsearch` not routed | no job, no marker — `vss configure`, then run once |
-| 6 | summary produced, persistence failed | present the summary; report it unpersisted |
+| 4 | deployment configuration is missing, or an explicit Markdown note lacks static sink configuration | no job, no marker — run the remediation command from stderr |
+| 6 | summary produced; Elasticsearch or Markdown cache write failed | present the summary; report ES and Markdown outcomes separately |
 | 7 | timed out | reconcile with `vss summarize get --job-id`; do not re-run |
 
 Exits 6 and 7 both mean the summarization already happened. Never repeat the run
@@ -341,15 +346,15 @@ request. Once a job exists, every outcome names its `job_id`; use it rather than
 re-running. A call refused before a job exists names
 nothing, which is why empty stdout is the test.
 
-The marker's `persist` object is the report on the write: `status` is `complete`
-with the index it landed in and how many events went with it, and exit 6 says the
-summary survived but the write did not. Alongside it on every marker, `record`
-says what the `job_id` is worth to a later read — `closed`, `absent` when nothing
-was persisted, or `stale` when the record still reads `submitted` and `status`
-would therefore call the job running. Do not read the record back to confirm
-it, and never read Elasticsearch directly — recalling memory is a separate
-skill's job. The one read that belongs here is reconciling an exit 7, whose
-outcome is genuinely unknown until `vss summarize get --job-id <job_id>` answers.
+The completion marker's `persisted` boolean is the authoritative Elasticsearch
+outcome. The result body includes `persist` only when persistence was attempted
+and reports its index and event count; optional Markdown status is separate
+under `memory_note`. `record` says what the `job_id` is worth to a later read:
+`closed`, `absent` when policy skipped persistence, or `stale` when a submitted
+record could not be closed. Do not read the record back to confirm it, and never
+read Elasticsearch directly — recalling memory is a separate skill's job. The
+one read that belongs here is reconciling an exit 7, whose outcome is genuinely
+unknown until `vss summarize get --job-id <job_id>` answers.
 
 If `video_summary` and `events` are empty, inspect the same payload's
 `summary.usage.total_chunks_processed`. A positive integer confirms processing;
@@ -388,9 +393,10 @@ JSON string in `summary.choices[0].message.content` while preserving
 service order. Preserve every returned field and the full `description`; use a
 per-event list if a table would truncate text.
 
-Close with the job's identity: the `job_id` and whether the record persisted.
-State the summary is unpersisted whenever `persist.status` is not `complete`,
-including the exit-6 case, instead of implying it was stored.
+Close with the job's identity: the `job_id`, the completion marker's
+`persisted` value, and any separate `memory_note` result. An absent `persist`
+object with `persisted=false` means static policy chose stdout-only execution,
+not a failure.
 
 For VLM, render `choices[0].message.content` verbatim. For Cosmos output, omit
 the `<think>...</think>` block and show the answer. Do not add emojis or
@@ -404,8 +410,8 @@ re-voice either backend's content.
 | Readiness stdout is empty | Use the HTTP status; a 200 body may be empty. |
 | Summary and events are empty | Inspect saved `summary.usage.total_chunks_processed`; do not retry. |
 | `vss` not found | Keep `--extra cli` and verify `VSS_REPO_ROOT`; never install globally. |
-| Run exits 4 | `vss configure --base-url <ingress origin>`; `:38111` routes no memory. |
-| Run exits 6 | Persistence failed. Present the summary; do not re-run the job. |
+| Run exits 4 | Follow stderr: configure the deployment, or configure the Markdown sink requested explicitly. |
+| Run exits 6 | A post-operation memory write failed. Present the summary and separate ES/Markdown status; do not re-run. |
 | Run exits 7 | Timed out. `vss summarize get --job-id <id>`; do not re-run. |
 | VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
 | K8s `/openapi.json` looks like Agent | Expected — do not use it as LVS schema. |

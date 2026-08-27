@@ -226,7 +226,9 @@ if [ ! -s "$SUMMARIZE_OUT" ]; then
   echo "no job was created (exit $SUMMARIZE_EXIT): fix the call or run vss configure, then run once"
   return 1 2>/dev/null || exit 1
 fi
-JOB_ID=$(tail -1 "$SUMMARIZE_OUT" | jq -er '.job_id')
+SUMMARIZE_RESULT=$(sed -n '1p' "$SUMMARIZE_OUT")
+COMPLETION_MARKER=$(tail -1 "$SUMMARIZE_OUT")
+JOB_ID=$(printf '%s\n' "$COMPLETION_MARKER" | jq -er '.job_id')
 echo "exit=$SUMMARIZE_EXIT job=$JOB_ID"
 
 # Only exits 0 and 6 carry a summary. Every other marker reports status,
@@ -234,14 +236,14 @@ echo "exit=$SUMMARIZE_EXIT job=$JOB_ID"
 # rather than parsing a summary that is not there.
 case "$SUMMARIZE_EXIT" in
   0) ;;
-  6) echo "summary produced, persistence failed — present it as unpersisted" ;;
+  6) echo "summary produced; an ES or Markdown write failed — present the result and both memory outcomes" ;;
   7)
-    tail -1 "$SUMMARIZE_OUT" | jq -e '{job_id, status, record}'
+    printf '%s\n' "$COMPLETION_MARKER" | jq -e '{job_id, status, persisted}'
     echo "timed out — reconcile once: ${VSS[*]} summarize get --job-id $JOB_ID"
     return 1 2>/dev/null || exit 1
     ;;
   *)
-    tail -1 "$SUMMARIZE_OUT" | jq -e '{job_id, status, record, error}'
+    printf '%s\n' "$COMPLETION_MARKER" | jq -e '{job_id, status, persisted}'
     echo "summarize failed (exit $SUMMARIZE_EXIT, job $JOB_ID)"
     echo "the marker means it was submitted: report this job, do not resubmit it"
     return 1 2>/dev/null || exit 1
@@ -249,17 +251,19 @@ case "$SUMMARIZE_EXIT" in
 esac
 
 # The LVS envelope is nested under .summary, otherwise unchanged.
-tail -1 "$SUMMARIZE_OUT" | jq -e '{
+printf '%s\n' "$SUMMARIZE_RESULT" | jq -e '{
   usage: (.summary.usage // {}),
   result: (.summary.choices[0].message.content | fromjson | {video_summary, events})
 }'
 ```
 
-The same marker reports the write, so nothing needs to be read back:
+The result and completion marker report separate memory outcomes, so nothing
+needs to be read back:
 
 ```bash
-# status `complete`, the index it landed in, and how many events went with it.
-tail -1 "$SUMMARIZE_OUT" | jq -e '.persist'
+# `.persist` is absent when static policy selected stdout-only execution.
+printf '%s\n' "$SUMMARIZE_RESULT" | jq '{persist: (.persist // null), memory_note: (.memory_note // null)}'
+printf '%s\n' "$COMPLETION_MARKER" | jq '{job_id, status, persisted, exit_hint}'
 ```
 
 For any failure, inspect `$SUMMARIZE_OUT`, the stderr diagnostic, and service

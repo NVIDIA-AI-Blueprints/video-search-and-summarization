@@ -148,9 +148,14 @@ def _exit_for(exc: Exception) -> Exit | None:
         "VIOSInvalidInputError": Exit.INVALID_INPUT,
         "VIOSNotFoundError": Exit.NOT_FOUND,
         "VIOSTimeoutError": Exit.TIMEOUT,
+        "NestedCollectionError": Exit.INVALID_INPUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
         "MemoryNotFoundError": Exit.NOT_FOUND,
         "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,
+        # A stored document that will not decode is a real failure with nothing
+        # for the caller to correct, so it keeps exit 1 -- but as a sentence
+        # naming the document, not the pydantic traceback it would be unmapped.
+        "MemoryDecodeError": Exit.ERROR,
         "ConfigurationError": Exit.CONFIGURATION,
         "NoFinalResultError": Exit.PARTIAL,
         # The store translates connection and transport trouble, but a status
@@ -292,7 +297,7 @@ class CommandGroup(ABC):
         the same process.
         """
         if ctx.memory is None:
-            ctx.memory = memory_mod.build(ctx.deployment, index=ctx.extra.get("memory_index"))
+            ctx.memory = memory_mod.build(ctx.deployment)
         return ctx.memory
 
     def status(self, job_id: str, ctx: Context) -> Result:
@@ -359,7 +364,7 @@ class CommandGroup(ABC):
                     # say). That is equally the caller's error, same exit 2.
                     raise InvalidInput(_format_validation(exc)) from exc
 
-            emit(guarded(dispatch), ctx)
+            emit(guarded(dispatch), ctx, marker_group=owner.name)
 
         return click.Command(
             name=action.name,
@@ -380,14 +385,13 @@ class CommandGroup(ABC):
         owner = self
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
+            ctx = context_from(values)
             emit(guarded(lambda: fn(values["job_id"], ctx)), ctx)
 
         return click.Command(
             name=verb,
             params=[
                 click.Option(["--job-id"], required=True),
-                memory_mod.index_option(),
                 *params_mod.shared_options(),
             ],
             callback=callback,
@@ -424,13 +428,13 @@ class CommandGroup(ABC):
         )
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
+            ctx = context_from(values)
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
             emit(guarded(lambda: owner.list(selected, ctx)), ctx)
 
         return click.Command(
             name="list",
-            params=[*filters, memory_mod.index_option(), *params_mod.shared_options()],
+            params=[*filters, *params_mod.shared_options()],
             callback=callback,
             short_help=f"List recent {owner.name} jobs, including in-flight.",
         )
@@ -464,21 +468,44 @@ def context_from(values: dict[str, Any]) -> Context:
     )
 
 
-def _memory_context(values: dict[str, Any]) -> Context:
-    """A Context for the read verbs, carrying the index they read from."""
-    ctx = context_from(values)
-    if values.get("memory_index"):
-        ctx.extra["memory_index"] = values["memory_index"]
-    return ctx
+def _completion_marker(result: Result, group: str) -> dict[str, Any]:
+    """Build the compact, group-agnostic completion callback from one result."""
+    marker_data = result.extra.get("marker")
+    data = marker_data if isinstance(marker_data, dict) else {}
+    status = str(data.get("status") or "completed")
+    if status == "timeout":
+        event = "vss_job_timeout"
+    elif status == "failed":
+        event = "vss_job_failed"
+    else:
+        event = "vss_job_completed"
+    return {
+        "event": event,
+        "group": memory_mod.group_token(group),
+        "job_id": result.job_id,
+        "asset_id": data.get("asset_id"),
+        "status": status,
+        "persisted": bool(data.get("persisted", False)),
+        "exit_hint": int(result.exit),
+    }
 
 
-def emit(result: Result, ctx: Context) -> None:
-    """Render a Result and carry its exit code out through Click."""
+def emit(result: Result, ctx: Context, *, marker_group: str | None = None) -> None:
+    """Render a Result, append the §7.2 marker, and carry its exit code."""
     import json
 
     if result.body is not None:
         pretty = bool(ctx.pretty)
         text = json.dumps(result.body, indent=2 if pretty else None, default=str)
+        click.echo(text)
+    if marker_group is not None and result.job_id:
+        marker = _completion_marker(result, marker_group)
+        text = json.dumps(marker, separators=(",", ":"), default=str)
+        if len(text.encode("utf-8")) > 1024:
+            marker["asset_id"] = None
+            text = json.dumps(marker, separators=(",", ":"), default=str)
+        if len(text.encode("utf-8")) > 1024:  # pragma: no cover - fixed fields are bounded
+            raise ValueError("completion marker exceeds 1 KB")
         click.echo(text)
     if result.exit != Exit.SUCCESS:
         raise SystemExit(int(result.exit))
