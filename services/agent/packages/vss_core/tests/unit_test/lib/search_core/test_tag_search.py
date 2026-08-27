@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from vss_core.search_core import TagSearch
-from vss_core.search_core.errors import InvalidInputError
 from vss_core.search_core.models.tag_search import TagSearchInput
 from vss_core.vios import VSTError
 
@@ -143,9 +142,14 @@ async def test_no_video_sources_searches_the_configured_index_family() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unknown_video_source_is_rejected() -> None:
-    with pytest.raises(InvalidInputError, match="Unknown video source"):
-        await TagSearch(es=_Es([]), vst=_Vst()).run(TagSearchInput(query="forklift", video_sources=["missing camera"]))
+async def test_unknown_video_source_is_kept_literal_not_rejected() -> None:
+    # Parity with embed/attribute: an unknown source is kept literal (the derived
+    # default_<id> index and identity filter won't match → empty result), not an
+    # input error.
+    out = await TagSearch(es=_Es([]), vst=_Vst()).run(
+        TagSearchInput(query="forklift", video_sources=["missing camera"])
+    )
+    assert out.results == []
 
 
 @pytest.mark.asyncio

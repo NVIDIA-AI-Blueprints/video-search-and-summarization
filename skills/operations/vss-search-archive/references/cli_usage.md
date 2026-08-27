@@ -44,18 +44,20 @@ vss configure check                         # re-probe; exit 3 if a route went a
 `~/.vss/config.json` is written 0600 and holds no credentials. Re-run
 `configure` after any deployment change.
 
-## The four paths
+## The five paths
 
 | command | fields | services required |
 |---|---|---|
 | `run embed` | `--query` | Elasticsearch, RT-Embed |
 | `run attribute` | `--attribute` (repeatable) | Elasticsearch, RT-CV |
-| `run fusion` | `--query` + `--attribute` | Elasticsearch, RT-Embed, RT-CV |
+| `run tag` | `--query` + `--video-source` (repeatable, required) | Elasticsearch, VST |
+| `run fusion` | `--query` + `--video-source` (repeatable, required) + optional `--attribute` / `--description` / `--min-cosine-similarity` | Elasticsearch, RT-Embed, VST (RT-CV optional) |
 | `run object` | `--object-id` (repeatable) | Elasticsearch, RT-CV |
 
 Each path accepts only its own fields. `run embed` has no `--attribute`;
-`run attribute` and `run object` have no `--query`. A path whose services are
-absent exits 4 naming them, before any request.
+`run attribute` and `run object` have no `--query`; `run tag` has no
+`--attribute`. A path whose services are absent exits 4 naming them, before any
+request.
 
 ## Query controls
 
@@ -70,27 +72,30 @@ run embed --query "red forklift" --source-type video_file --top-k 10
 run embed --query "person at entrance" --video-source entrance-camera \
   --timestamp-start "2025-01-01T14:00:00" --timestamp-end "2025-01-01T15:00:00"
 
-# Fusion
-run fusion --query "person in white jacket running" --attribute "white jacket"
+# Tag-only (BM25 over VLM tag documents)
+run tag --query "forklift loading pallet" --source-type video_file \
+  --video-source warehouse_sample --top-k 10
+
+# Fusion (tag + embed + optional attribute)
+run fusion --query "person in white jacket running" --attribute "white jacket" \
+  --source-type video_file --video-source warehouse_sample
 ```
 
-`--source-type` selects the index partition for a media kind from a fixed
-uploads anchor (never a discovered index): `video_file` targets that anchor and
-`rtsp` targets everything else, so `rtsp` returns only live-stream documents and
-`video_file` only uploaded-file documents, whether scoped to a `--video-source`
-or run unscoped, and regardless of ingestion order (stream-first, upload-first,
-or mixed).
-
-`--video-source` is matched **literally** against the index — the CLI does no
-name↔id resolution or VST validation, so an unknown source silently returns
-nothing (not an error). Validating a named source is the skill's job (SKILL.md
-step 2), not the CLI's.
+`--video-source` is matched **literally** against the index for `embed`,
+`attribute`, and `object` — the CLI does no name↔id resolution or VST
+validation, so an unknown source silently returns nothing (not an error). For
+`tag` and `fusion`, the CLI resolves each source name to its VST sensor ID;
+an unresolved source is an input error (exit 2), never silently broadened.
+Validating a named source against `vss vios list` is the skill's job (SKILL.md
+step 2) either way.
 
 ## Retrieval tuning
 
-`--fusion-method weighted_linear|rrf|rrf_with_attribute_rank`, `--w-embed`,
-`--w-attribute`, `--rrf-k`, `--rrf-w`, `--top-percent-filter`,
-`--embed-confidence-threshold`, `--min-cosine-similarity`.
+`--fusion-method weighted_rrf|rrf`, `--w-tag`, `--w-embed`, `--w-attribute`,
+`--rrf-k`, `--rrf-w`, `--top-percent-filter`,
+`--embed-confidence-threshold`, `--min-cosine-similarity`. At least one
+provider weight must be positive; library defaults are `w_tag=0.45`,
+`w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`.
 
 `--no-merge-adjacent` reports raw retrieval windows. By default contiguous
 same-sensor windows merge into one result whose score is the mean of the merged
@@ -131,4 +136,9 @@ Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
 `vss search run` is read-only. For upload, registration, deletion, or
-repair, use the agent-backed mutation workflows in the parent skill.
+repair, use the agent-backed mutation workflows in the parent skill. For **VLM
+tag ingestion**, use the headless direct-REST fan-out in
+`vss-manage-video-io-storage` `references/provision-vios-source.md` (the
+controlled JSON-tag `generate_captions` leg); on a build that fronts RT-VLM at
+`/rtvi-vlm` it is drivable from any host that reaches the origin, otherwise
+loopback-only on the deploy host.

@@ -50,19 +50,24 @@ deploys, the routes each consumer of the origin needs:
 | Consumer of the origin | Routes to retain (for deployed backends) |
 |---|---|
 | Human **browse** | `/kibana`, `/vst`, `/storage`, `/video-analytics-api`, and (combined only) `/alert-bridge` |
-| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
+| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm` (tagging builds only; see note below), and `/api` when an agent ships |
 
 The operate set is the read-path subset of what `vss configure` probes to resolve
 a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
 headless build **must** carry it — post-#1469 `vss search run` takes no endpoints,
-so a build missing these routes is **unqueryable from the host CLI** (no
 ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
 make it queryable — an ingestion/indexing-only build that requests no read surface
-prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`, but RT-VLM is
-host-port resolved and deliberately **not** fronted here — it records `absent`,
-which is expected and harmless because no read path consumes it. Do not add the
-route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
-through HAProxy.
+prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`. For a build
+that resolves the VLM **tagging** capability, front RT-VLM at `/rtvi-vlm` so the
+controlled `generate_captions` tagging leg can be driven from any host that reaches
+the origin, not only the deploy host's loopback. This is a conscious tradeoff: it
+re-exposes RT-VLM's SSE-generation and stream/file-mutation endpoints through
+HAProxy, so the origin's host-allowlist is the only boundary — front RT-VLM only
+when the build needs remote-driven tagging, and never on an unauthenticated origin.
+A side effect is that `vss configure` then records `rt_vlm` present, which
+activates the search CLI's fail-open critic (retrieval is unaffected). A build
+that uses RT-VLM only for Critic verification (no tagging leg) keeps it
+loopback-only and records `absent`, as before.
 
 - **Curated (patch).** Write the trimmed config to `patches/haproxy.cfg`, beside
   the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the
@@ -179,6 +184,11 @@ backend bk_rtvi_cv_strip
     http-request replace-path ^/rtvi-cv$ /
     server s1 "${RTVI_CV_SERVICE_HOST}:${RTVI_CV_SERVICE_PORT}" check resolvers docker init-addr none
 
+backend bk_rtvi_vlm_strip
+    http-request replace-path ^/rtvi-vlm/(.*) /\1
+    http-request replace-path ^/rtvi-vlm$ /
+    server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
+
 frontend fe_http
     bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
 
@@ -232,14 +242,18 @@ frontend fe_http
     acl p_rtvi_cv path_beg /rtvi-cv/
     use_backend bk_rtvi_cv_strip if h_main p_rtvi_cv
 
+    acl p_rtvi_vlm path /rtvi-vlm
+    acl p_rtvi_vlm path_beg /rtvi-vlm/
+    use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
+
     # Landing + catch-all: only the bare origin bounces to Kibana (no UI in
     # headless); every other unmatched path 404s, so `vss configure` probes for
     # unrouted services (agent, rt-vlm) record absent instead of following a
-    # redirect to Kibana's 200. HAProxy runs all http-request rules before any
+    # unrouted services (agent, and rt-vlm on non-tagging builds) record absent instead of following a
     # use_backend, so p_routed must exclude the kept routes from the 404 (drop
     # any whose backend the build does not deploy).
     acl p_root path /
-    acl p_routed path_beg /kibana /vst /storage /video-analytics-api /alert-bridge /elasticsearch /rtvi-embed /rtvi-cv
+    acl p_routed path_beg /kibana /vst /storage /video-analytics-api /alert-bridge /elasticsearch /rtvi-embed /rtvi-cv /rtvi-vlm
     acl p_routed path_reg ^/[^/]+:[0-9]+/vst(/|$)
     http-request redirect location /kibana/ code 302 if h_main p_root
     http-request deny deny_status 404 if h_main !p_root !p_routed
@@ -252,7 +266,7 @@ frontend fe_http
 | `HAPROXY_HOST_PORT`, `HAPROXY_PORT`, `HAPROXY_BIND_ADDR` | Publish and bind the proxy origin. |
 | `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT`, `EXTERNAL_IP`, `HOST_IP` | Host-header allowlist — required, or every request 404s. |
 | `KIBANA_SERVICE_HOST`, `KIBANA_PORT`, `VST_INGRESS_SERVICE_HOST`, `VST_PORT`, `BEHAVIOR_ANALYTICS_SERVICE_HOST`, `VIDEO_ANALYTICS_API_SERVICE_HOST`, `ALERT_BRIDGE_SERVICE_HOST` (+ ports) | Per-backend browse targets; Docker-DNS defaults suit the shipped service keys. |
-| `ELASTICSEARCH_SERVICE_HOST`/`_PORT`, `RTVI_EMBED_SERVICE_HOST`/`_PORT`, `RTVI_CV_SERVICE_HOST`/`_PORT` | Per-backend operate targets (`vss configure` route-set); add for the backends the build deploys. |
+| `ELASTICSEARCH_SERVICE_HOST`/`_PORT`, `RTVI_EMBED_SERVICE_HOST`/`_PORT`, `RTVI_CV_SERVICE_HOST`/`_PORT`, `RTVI_VLM_SERVICE_HOST`/`_PORT` | Per-backend operate targets (`vss configure` route-set); add for the backends the build deploys. |
 
 ## Sources
 

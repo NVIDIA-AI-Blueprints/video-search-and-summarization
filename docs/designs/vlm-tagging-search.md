@@ -235,8 +235,8 @@ TagSearchResultItem
 
 Search modes are `tag`, `embed`, `attribute`, `fusion`, and `object`. Tag and fusion requests may omit
 `video_sources`; this searches the configured `default_*` family for the requested source type. When sources are
-provided, every source must resolve successfully. An unresolved source is an input error and must not silently broaden
-the query.
+provided, each is resolved to its canonical sensor ID when known and kept literal otherwise (parity with
+`embed`/`attribute`); an unresolved source yields an empty result — narrowed, never silently broadened.
 
 For each request:
 

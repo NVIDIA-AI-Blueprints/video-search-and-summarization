@@ -12,7 +12,6 @@ import click
 from click.testing import CliRunner
 from pydantic import BaseModel
 from pydantic import Field
-from pydantic import ValidationError
 import pytest
 
 from vss_cli import config as config_mod
@@ -116,11 +115,11 @@ def test_search_group_exposes_tag_and_configurable_union_fusion() -> None:
     assert set(fusion_option.type.choices) == {"weighted_rrf", "rrf"}
 
 
-def test_tag_and_fusion_cli_inputs_require_a_source() -> None:
-    with pytest.raises(ValidationError):
-        TagInput(query="forklift")  # type: ignore[call-arg]
-    with pytest.raises(ValidationError):
-        FusionInput(query="forklift")  # type: ignore[call-arg]
+def test_tag_and_fusion_cli_inputs_match_embed_source_parity() -> None:
+    # Parity with embed/attribute: --video-source is optional (defaults to empty),
+    # not required. A source-less tag/fusion search queries the default_* family.
+    assert TagInput(query="forklift").video_sources == []
+    assert FusionInput(query="forklift").video_sources == []
     assert TagInput(query="forklift", video_sources=["dock camera"]).video_sources == ["dock camera"]
     assert FusionInput(query="forklift", video_sources=["dock camera"]).attributes == []
 

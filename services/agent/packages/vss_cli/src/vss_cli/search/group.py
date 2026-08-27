@@ -136,27 +136,26 @@ class AttributeInput(_Common):
 
 
 class TagInput(_Common):
-    """BM25 keyword retrieval over indexed RT-VLM tags and descriptions."""
+    """BM25 keyword retrieval over indexed RT-VLM tags and descriptions.
+
+    ``video_sources`` is inherited from ``_Common`` (optional, repeatable) for
+    parity with ``embed``/``attribute``: a source-less tag search queries the
+    ``default_*`` family; an unknown source yields an empty result, not an error.
+    """
 
     query: str = Field(..., description="Keyword or phrase to match against VLM tag documents.")
-    video_sources: list[str] = Field(
-        ...,
-        min_length=1,
-        description="Registered source name or ID to search; repeatable and required.",
-        json_schema_extra={"cli_flag": "--video-source"},
-    )
 
 
 class FusionInput(_Common):
-    """Candidate-union fusion across VLM tags, video embeddings, and optional attributes."""
+    """Candidate-union fusion across VLM tags, video embeddings, and optional attributes.
+
+    ``video_sources`` is inherited from ``_Common`` (optional, repeatable) for
+    parity with ``embed``/``attribute``: a source-less fusion search queries the
+    ``default_*`` and ``mdx-embed-filtered-*`` families; an unknown source yields
+    an empty result, not an error.
+    """
 
     query: str = Field(..., description="Visual query for the embedding leg.")
-    video_sources: list[str] = Field(
-        ...,
-        min_length=1,
-        description="Registered source name or ID to search; repeatable and required.",
-        json_schema_extra={"cli_flag": "--video-source"},
-    )
     description: str | None = Field(None, description="Free-text description accompanying the query.")
     attributes: list[str] = Field(
         default_factory=list,

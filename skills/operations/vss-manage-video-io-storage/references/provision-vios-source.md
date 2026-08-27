@@ -97,8 +97,11 @@ each endpoint by the vantage that uses it:
 
 - **Calls you make from the deploy host** — VIOS/VST, NvStreamer, RT-CV, RT-Embed,
   RT-VLM — use `http://localhost:<resolved-port>`, the same loopback the readiness
-  checks use. RT-VLM has no ingress route, so loopback (`http://localhost:${RTVI_VLM_PORT:-8018}`)
-  is its only form — identical to every other consumer here, not an exception.
+  checks use. On a build that fronts RT-VLM at `/rtvi-vlm` for the tagging leg, the
+  origin URL (`http://<origin>/rtvi-vlm`) is also valid — use it to drive the tagging
+  leg from a remote host; loopback (`http://localhost:${RTVI_VLM_PORT:-8018}`) remains
+  the lower-latency choice from the deploy host. On a non-tagging build, RT-VLM has no
+  ingress route, so loopback is its only form — identical to every other consumer here.
 - **URLs a service consumes** — the synthetic RTSP from NvStreamer and the VIOS
   live proxy handed to the consumers — are host-reachable `$HOST_IP` URLs produced
   by those services: **read** them, don't build them. VIOS assigns the RTSP port
@@ -203,6 +206,14 @@ POST http://localhost:<rt-vlm-port>/v1/streams/add    # RTSP: feed the VIOS live
 # prompt. Controlled JSON-tag prompt + response_format json_object + temperature 0 +
 # 5s chunks. RT-VLM does NOT read the x-stream-id header — carry identity in the body
 # (id / sensor_name for VOD, streams[].id for RTSP). See the shared-id + upload-date rules.
+#
+# ⚠️ This leg is the ONLY one that produces searchable tag documents. The dense-captioning
+# leg above uses a free-form prose prompt; its output lands in the SAME default_<streamId>
+# index but is REJECTED by the tag reader (it is not the {"tags":[...],"description":"..."}
+# JSON contract), so `vss search run tag` returns 0 valid hits (every document malformed).
+# Same endpoint, same Kafka topic (mdx-vlm-captions), same index — ONLY the prompt differs.
+# For tag search, always use the controlled JSON-tag prompt below, never the dense-captioning
+# prompt.
 #   Upload (VOD): one finite call, then delete the temporary asset —
 TAG_PROMPT='Analyze only this video interval. Return JSON only with exactly two fields: "tags", an array of concise visible concepts, actions, objects, and events; and "description", one concise factual sentence. Do not infer facts that are not visible.'
 curl -s -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \

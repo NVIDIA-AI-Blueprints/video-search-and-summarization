@@ -29,7 +29,6 @@ from vss_core.vios import VSTError
 from vss_core.vios import map_timestamp_to_timeline
 
 from ..errors import BackendUnreachableError
-from ..errors import InvalidInputError
 from ..models.tag_search import TagSearchInput
 from ..models.tag_search import TagSearchOutput
 from ..models.tag_search import TagSearchResultItem
@@ -150,16 +149,20 @@ class TagSearch:
     def _resolve_source_ids(video_sources: list[str], name_to_id: dict[str, str]) -> list[str]:
         known_ids = set(name_to_id.values())
         resolved: list[str] = []
-        unknown: list[str] = []
         for raw_source in video_sources:
             source = raw_source.strip()
-            source_id = name_to_id.get(source, source if source in known_ids else "")
-            if not source_id:
-                unknown.append(source)
-            elif source_id not in resolved:
+            if source in name_to_id:
+                source_id = name_to_id[source]
+            elif source in known_ids:
+                source_id = source
+            else:
+                # Parity with embed/attribute: an unresolved source is kept
+                # literal rather than rejected. The derived ``default_<id>``
+                # index and the ES identity filter won't match, so the result
+                # is empty — narrowed, never silently broadened.
+                source_id = source
+            if source_id not in resolved:
                 resolved.append(source_id)
-        if unknown:
-            raise InvalidInputError(f"Unknown video source(s): {', '.join(sorted(unknown))}")
         return resolved
 
     def _resolve_search_index(self, source_ids: list[str]) -> str:
