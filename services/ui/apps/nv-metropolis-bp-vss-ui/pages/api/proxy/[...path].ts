@@ -36,6 +36,21 @@ const HOP_BY_HOP = new Set([
   'content-length',
 ]);
 
+/**
+ * Headers that must not be forwarded to the ingress.
+ *
+ * This is the whole point of the proxy: haproxy challenges any request carrying
+ * CF-Connecting-IP, since that marks traffic arriving via Cloudflare. When the
+ * UI is reached through a tunnel the browser's request has those headers, and
+ * blindly forwarding them makes this server-to-server call look like public
+ * traffic and get a 401 -- which surfaces in the browser as a basic-auth prompt
+ * and "Failed to fetch streams: 401".
+ *
+ * Forwarded/X-Forwarded-* go too, for the same reason.
+ */
+const isProxyOnlyHeader = (name: string) =>
+  name.startsWith('cf-') || name.startsWith('x-forwarded-') || name === 'forwarded';
+
 async function readBody(req: NextApiRequest): Promise<Buffer | undefined> {
   if (req.method === 'GET' || req.method === 'HEAD') return undefined;
   const chunks: Buffer[] = [];
@@ -50,7 +65,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers)) {
-    if (!HOP_BY_HOP.has(k.toLowerCase()) && typeof v === 'string') headers[k] = v;
+    const key = k.toLowerCase();
+    if (!HOP_BY_HOP.has(key) && !isProxyOnlyHeader(key) && typeof v === 'string') {
+      headers[k] = v;
+    }
   }
 
   let upstream: Response;
