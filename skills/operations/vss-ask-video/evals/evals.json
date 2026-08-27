@@ -3,9 +3,79 @@
     "id": "ask-video-routing",
     "question": "What skills can I use to ask a question about a video?",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "vss-ask-video is the skill for asking a question about a video; in response to this request the agent should identify and load it.",
+    "ground_truth": "vss-ask-video selects hot context, stored memory, memory introspection, or an exact-window VLM job.",
     "expected_behavior": [
-      "Loads (activates) the vss-ask-video skill in response to the question."
+      "Loads vss-ask-video and describes its memory-first routing policy."
+    ]
+  },
+  {
+    "id": "ask-video-hot-context",
+    "question": "The prior answer said the forklift crossed at 10:14 UTC. When did it cross?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Answer 10:14 UTC directly from hot conversation context.",
+    "expected_behavior": [
+      "Answers directly from current conversation evidence.",
+      "Does not invoke vss memory or vss vlm."
+    ]
+  },
+  {
+    "id": "ask-video-memory-get",
+    "question": "Show me the stored summary from job sum-01JXYZ.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Read the exact stored parent with vss memory get.",
+    "expected_behavior": [
+      "Runs vss memory get --job-id sum-01JXYZ.",
+      "Does not invoke memory introspect, vss vlm run, or direct chat/completions."
+    ]
+  },
+  {
+    "id": "ask-video-memory-query",
+    "question": "Find stored forklift results for dock_cam.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Discover stored records with vss memory query.",
+    "expected_behavior": [
+      "Runs vss memory query with forklift text and dock_cam sensor scope.",
+      "Does not invoke memory introspect or vss vlm run."
+    ]
+  },
+  {
+    "id": "ask-video-introspect",
+    "question": "Was anyone missing PPE on warehouse_safety_0001? Use any past VSS analysis that may exist.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Ask bounded VSS memory introspection first.",
+    "expected_behavior": [
+      "Runs vss memory introspect with the question and warehouse_safety_0001 sensor.",
+      "Does not call chat/completions directly."
+    ]
+  },
+  {
+    "id": "ask-video-direct-vlm",
+    "question": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a hard hat?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Use one vss vlm run for the exact sensor and UTC window.",
+    "expected_behavior": [
+      "Runs vss vlm run with dock_cam, both exact timestamps, and the user's question.",
+      "Does not run memory introspect or direct chat/completions."
+    ]
+  },
+  {
+    "id": "ask-video-no-memory-with-window",
+    "question": "Memory introspection returned no_memory. Trusted context gives dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z. Freshly answer the same question.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Escalate once to vss vlm run because exact grounded media scope exists.",
+    "expected_behavior": [
+      "Runs one vss vlm run for exactly the supplied sensor/window.",
+      "Does not broaden or invent a window."
+    ]
+  },
+  {
+    "id": "ask-video-no-memory-without-window",
+    "question": "Memory introspection returned no_memory for whether a forklift entered last week; no exact sensor or UTC window is known.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Explain that no matching memory/window exists and request grounded scope.",
+    "expected_behavior": [
+      "Explains that no matching memory was found and asks for an exact recorded sensor/window.",
+      "Does not invoke vss vlm run or a standalone local-file fallback."
     ]
   }
 ]
