@@ -54,8 +54,8 @@ gpuProfiles:
       # Pinned so the container cannot auto-select a profile that does not fit:
       # it advertises the >=66 GB BF16 profile as runnable on cards that cannot hold it.
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"  # vllm-int4-tp1-pp1-32.0
-      NIM_KVCACHE_PERCENT: "0.3"
-      NIM_GPU_MEM_FRACTION: "0.3"
+      NIM_KVCACHE_PERCENT: "0.8"
+      NIM_GPU_MEM_FRACTION: "0.8"
       NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
@@ -72,8 +72,8 @@ gpuProfiles:
       # Pinned so the container cannot auto-select a profile that does not fit:
       # it advertises the >=66 GB BF16 profile as runnable on cards that cannot hold it.
       NIM_MODEL_PROFILE: "920207996e4ec77b396e25f4e360ac80331a67dcae0fec428803f556afe1d47c"  # vllm-nvfp4-tp1-pp1-30.0
-      NIM_KVCACHE_PERCENT: "0.3"
-      NIM_GPU_MEM_FRACTION: "0.3"
+      NIM_KVCACHE_PERCENT: "0.8"
+      NIM_GPU_MEM_FRACTION: "0.8"
       NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
@@ -89,6 +89,8 @@ gpuProfiles:
       # Pinned so the container cannot auto-select a profile that does not fit:
       # it advertises the >=66 GB BF16 profile as runnable on cards that cannot hold it.
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"  # vllm-int4-tp1-pp1-32.0
+      NIM_KVCACHE_PERCENT: "0.8"
+      NIM_GPU_MEM_FRACTION: "0.8"
       NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.8"
@@ -118,8 +120,8 @@ gpuProfiles:
       # Pinned so the container cannot auto-select a profile that does not fit:
       # it advertises the >=66 GB BF16 profile as runnable on cards that cannot hold it.
       NIM_MODEL_PROFILE: "920207996e4ec77b396e25f4e360ac80331a67dcae0fec428803f556afe1d47c"  # vllm-nvfp4-tp1-pp1-30.0
-      NIM_KVCACHE_PERCENT: "0.3"
-      NIM_GPU_MEM_FRACTION: "0.3"
+      NIM_KVCACHE_PERCENT: "0.4"
+      NIM_GPU_MEM_FRACTION: "0.4"
       NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
