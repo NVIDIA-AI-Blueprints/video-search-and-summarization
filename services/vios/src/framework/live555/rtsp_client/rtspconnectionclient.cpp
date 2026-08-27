@@ -406,7 +406,7 @@ void RTSPConnection::RTSPClientConnection::doPauseResume(uint64_t* resume_time_i
 		envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalTimeoutTask);
 		m_resumeTime = seek_value;
 		LOG(info) << "Seek (absolute) -> PAUSE then PLAY(Range) to time: " << m_resumeTime << endl;
-		this->sendPauseCommand(*m_session, continueAfterPAUSE, m_authenticator);
+		this->sendPauseCommand(*m_session, continueAfterPAUSE, m_authenticator.get());
 	}
 	else if (action == "rewind" || action == "fast_forward")
 	{
@@ -594,7 +594,7 @@ void RTSPConnection::RTSPClientConnection::continueAfterPAUSE(int resultCode, ch
 		{
 			// PAUSE has completed; now reposition and resume with the new Range.
 			LOG(info) << "Seek (absolute) PLAY(Range) after pause to time: " << m_resumeTime << endl;
-			this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator);
+			this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator.get());
 		}
 		else
 		{
