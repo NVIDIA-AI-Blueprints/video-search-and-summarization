@@ -7,7 +7,8 @@
       "streamId": "{{event.camera_id}}"
     },
     "query_params": {
-      "change": "{{event.change}}"
+      "change": "{{event.change}}",
+      "bdd_sensor_id": "{{event.camera_id}}"
     },
     "timeout_ms": 5000,
     "retry": {
