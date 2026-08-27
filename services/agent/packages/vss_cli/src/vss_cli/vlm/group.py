@@ -147,6 +147,15 @@ class VlmInput(BaseModel):
     )
     max_tokens: int | None = Field(None, ge=1, le=1_000_000, description="Maximum tokens to generate.")
     temperature: float | None = Field(None, ge=0.0, le=1.0, description="Sampling temperature.")
+    num_frames: int = Field(
+        8,
+        ge=1,
+        le=256,
+        description=(
+            "Frame-sampling budget sent to RT-VLM as num_frames_per_second_or_fixed_frames_chunk. "
+            "RT-VLM defaults this to 0 (opening frame only) when absent, so the CLI always includes it."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_media_source(self) -> VlmInput:
@@ -215,6 +224,7 @@ def _build_vlm_request(
     max_tokens: int | None,
     temperature: float | None,
     use_base64: bool,
+    num_frames: int,
 ) -> dict[str, Any]:
     """Build an OpenAI-compatible /v1/chat/completions payload."""
     if use_base64:
@@ -238,6 +248,7 @@ def _build_vlm_request(
                 ],
             }
         ],
+        "num_frames_per_second_or_fixed_frames_chunk": num_frames,
     }
     if max_tokens is not None:
         request["max_tokens"] = max_tokens
@@ -321,6 +332,7 @@ class VlmGroup(CommandGroup):
             max_tokens=inputs.max_tokens,
             temperature=inputs.temperature,
             use_base64=options.use_base64,
+            num_frames=inputs.num_frames,
         )
 
         vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH

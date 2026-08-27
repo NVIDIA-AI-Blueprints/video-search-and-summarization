@@ -321,6 +321,7 @@ def test_cli_help_shows_required_flags() -> None:
     assert "--intent" in result.output
     assert "--no-persist" in result.output
     assert "--use-base64" in result.output
+    assert "--num-frames" in result.output
 
 
 def test_cli_mutually_exclusive_sensor_url(
@@ -388,6 +389,54 @@ def test_cli_intent_stored_in_body(
     assert result.exit_code == 0, result.output
     body = json.loads(result.output.splitlines()[0])
     assert body.get("intent") == "report"
+
+
+def test_run_request_carries_num_frames(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4", num_frames=16)
+    group.run("", inputs, ctx)
+
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 16
+
+
+def test_run_request_num_frames_default(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    group.run("", inputs, ctx)
+
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 8
 
 
 def test_use_base64_with_sensor_is_invalid(
