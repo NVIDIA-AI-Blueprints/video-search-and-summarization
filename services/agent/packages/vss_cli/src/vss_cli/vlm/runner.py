@@ -57,7 +57,7 @@ class VLMJobRequest(BaseModel):
     start_time: str = Field(min_length=1)
     end_time: str = Field(min_length=1)
     prompt: str = Field(min_length=1, max_length=512_000)
-    intent: Literal["video-qa", "introspection/internal"] = "video-qa"
+    intent: Literal["video-qa", "introspection"] = "video-qa"
 
     @field_validator("sensor", "prompt")
     @classmethod
