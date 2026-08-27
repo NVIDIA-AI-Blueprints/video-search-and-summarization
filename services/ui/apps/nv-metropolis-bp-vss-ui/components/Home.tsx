@@ -92,6 +92,34 @@ interface TabConfig {
 
 // Dynamic component imports based on configuration
 // These are loaded at runtime only if the corresponding tab is enabled
+// Replacement chat surface. Rendered instead of the toolkit's chat when
+// NEXT_PUBLIC_USE_VSS_CHAT is 'true', so the two can be compared in place
+// before the toolkit dependency is dropped for licensing reasons.
+const VssChatPanel = dynamic(
+  () => import('@nv-metropolis-bp-vss-ui/chat').then((mod) => mod.ChatPanel),
+  { ssr: false },
+);
+
+const readEnv = (key: string) => env(key) || process.env[key] || '';
+
+const vssChatEnabled = () => readEnv('NEXT_PUBLIC_USE_VSS_CHAT') === 'true';
+
+/**
+ * Chat endpoint + title for a surface.
+ *
+ * The URL is this app's own proxy rather than the configured backend: the panel
+ * fetches from the browser, and the agent adapter listens on a host-private
+ * port a browser cannot reach. pages/api/vss-chat.ts resolves the real target
+ * server-side from the same NEXT_PUBLIC_* values as before.
+ */
+const vssChatConfig = (surface: 'main' | 'sidebar') => {
+  const prefix = surface === 'sidebar' ? 'NEXT_PUBLIC_SIDEBAR_CHAT_' : 'NEXT_PUBLIC_';
+  return {
+    url: `/api/vss-chat?surface=${surface}`,
+    title: readEnv(`${prefix}WORKFLOW`) || readEnv('NEXT_PUBLIC_WORKFLOW') || 'Chat',
+  };
+};
+
 const dynamicComponents = {
   NemoAgentToolkitApp: dynamic(() => 
     import('@nemo-agent-toolkit/ui').then(mod => mod.NemoAgentToolkitApp).catch((error) => {
@@ -502,7 +530,20 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   }, [visibleTabs, setActiveTab]);
 
   const renderAppSidebarChat = React.useCallback(
-    () => (
+    () =>
+      vssChatEnabled() ? (
+        // The bridge callbacks are what feed answers to the search/alerts tabs
+        // and clear stale results on submit, so they are preserved verbatim.
+        <VssChatPanel
+          endpoint={{ url: vssChatConfig('sidebar').url }}
+          title={vssChatConfig('sidebar').title}
+          theme={theme === 'dark' ? 'dark' : 'light'}
+          onAnswer={(answer: string) => {
+            handleSidebarAnswerCompleteWithContent(answer);
+          }}
+          onSubmit={() => handleSidebarMessageSubmitted()}
+        />
+      ) : (
       <RuntimeConfigProvider value={sidebarRuntimeConfig}>
         <SidebarNemoAgentToolkitApp
           theme={theme}
@@ -522,7 +563,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
         />
       </RuntimeConfigProvider>
-    ),
+      ),
     [
       theme,
       handleThemeChange,
@@ -634,6 +675,22 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     }
 
     // Main Chat tab: use default env (no RuntimeConfigProvider = getWorkflowName() reads NEXT_PUBLIC_WORKFLOW)
+    if (componentName === 'NemoAgentToolkitApp' && vssChatEnabled()) {
+      return (
+        <div
+          key={tabConfig.id}
+          className="absolute inset-0 flex flex-col overflow-hidden"
+          style={{ display: isActive ? 'flex' : 'none' }}
+        >
+          <VssChatPanel
+            endpoint={{ url: vssChatConfig('main').url }}
+            title={vssChatConfig('main').title}
+            theme={theme === 'dark' ? 'dark' : 'light'}
+          />
+        </div>
+      );
+    }
+
     if (componentName === 'NemoAgentToolkitApp') {
       return (
         <div 
