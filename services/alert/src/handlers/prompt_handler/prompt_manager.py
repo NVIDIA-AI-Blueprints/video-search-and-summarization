@@ -58,6 +58,11 @@ class PromptManager:
         self.prefer_payload_prompt = bool(prompt_cfg.get('prefer_payload_prompt', False))
         self.override_prompts_on_start = bool(prompt_cfg.get("override_prompts_on_start", False))
         self.default_system_prompt = self._read_default_system_prompt(prompt_cfg)
+        if not self.default_system_prompt:
+            self.logger.warning(
+                'prompt.default_system_prompt is empty; alert types without a '
+                'system prompt of their own will be sent none'
+            )
 
         # Share a single alert-config store across the process. The
         # factory returns an in-process store when persistence is
@@ -88,17 +93,22 @@ class PromptManager:
         YAML will hand back an int, list or dict here as readily as a string,
         and neither outcome is one an operator would notice: a truthy
         non-string reaches the VLM as invalid message content, while a falsy
-        one silently turns the fallback off — the failure the default exists to
-        prevent. An empty or whitespace-only value is the supported way to ask
-        for no system message.
+        one turns the fallback off — the failure the default exists to prevent.
+
+        ``null`` is rejected with the rest of them, and that includes the
+        valueless ``default_system_prompt:`` YAML parses as null. Turning the
+        default off is supported, but ``""`` is the one way to ask for it: a
+        key someone left empty, or a Helm value that rendered to nothing,
+        reads as an accident, and guessing "no system message" from it would
+        disable the feature exactly where nobody is looking. Omitting the key
+        entirely is the other normal case and keeps ``DEFAULT_SYSTEM_PROMPT``.
         """
         value = prompt_cfg.get('default_system_prompt', DEFAULT_SYSTEM_PROMPT)
-        if value is None:
-            return ''
         if not isinstance(value, str):
             raise RuntimeError(
                 f"prompt.default_system_prompt must be a string, got "
-                f"{type(value).__name__} ({value!r}). Use \"\" to send no system prompt."
+                f"{type(value).__name__} ({value!r}). Use \"\" to send no "
+                f"system prompt, or remove the key to keep the service default."
             )
         return value.strip()
 
