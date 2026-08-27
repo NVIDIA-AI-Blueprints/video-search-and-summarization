@@ -33,25 +33,25 @@ metadata:
   annotations:
     haproxy.org/path-rewrite: |
       /vios/(.*) /vst/\1
-      /vios /vst
+      ^/vios$ /vst
       /storage/(.*) /vst/storage/\1
-      /storage /vst/storage
+      ^/storage$ /vst/storage
       /vios/storage/(.*) /vst/storage/\1
-      /vios/storage /vst/storage
+      ^/vios/storage$ /vst/storage
       /va-mcp/(.*) /\1
-      /va-mcp /
+      ^/va-mcp$ /
       /alert-bridge/(.*) /\1
-      /alert-bridge /
+      ^/alert-bridge$ /
       /alerts/(.*) /\1
-      /alerts /
+      ^/alerts$ /
       /video-analytics-api/(.*) /\1
-      /video-analytics-api /
+      ^/video-analytics-api$ /
       /elasticsearch/(.*) /\1
-      /elasticsearch /
+      ^/elasticsearch$ /
       /rtvi-cv/(.*) /\1
-      /rtvi-cv /
+      ^/rtvi-cv$ /
       /phoenix/(.*) /\1
-      /phoenix /
+      ^/phoenix$ /
 spec:
   ingressClassName: haproxy
   rules:

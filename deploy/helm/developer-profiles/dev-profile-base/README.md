@@ -261,7 +261,7 @@ The chart can create a single Kubernetes **`Ingress`** (**`templates/vss-ingress
 
 - **`Ingress`** name **`<release>-vss-ingress`** in the release namespace.
 - **`spec.ingressClassName`**: from **`vssIngress.ingressClassName`** (default **`haproxy`**).
-- Path rules from the [canonical route table](../../services/common/README.md): **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`**, **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`** → **vss-agent**; **`/vst`** and **`/storage`** → **vss-vios-ingress**; **`/rtvi-vlm`** → RT-VLM; **`/phoenix`** → Phoenix; optional second host **`phoenix.<main-host>`** → Phoenix.
+- Path rules from the [canonical route table](../../services/common/README.md): **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`**, **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`** → **vss-agent**; **`/vst`**, **`/vios`** and **`/storage`** → **vss-vios-ingress**; **`/rtvi-vlm`** → RT-VLM; **`/phoenix`** → Phoenix; optional second host **`phoenix.<main-host>`** → Phoenix.
 - RT-VLM is reached at **`<host>/rtvi-vlm/v1`**. It is no longer published at the origin root (**`<host>/v1`**), so a client no longer has to know which profile answered to find it.
 
 After install, confirm the **`Ingress`** exists (replace **`<NAMESPACE>`** with your release namespace):
