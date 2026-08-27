@@ -128,10 +128,17 @@ class VlmInput(BaseModel):
     )
     media_url: str | None = Field(
         None,
-        description="Pre-resolved HTTP/HTTPS video URL (Path A). Mutually exclusive with --sensor.",
+        description="Pre-resolved HTTP/HTTPS video URL (Path A). Mutually exclusive with --sensor and --file.",
     )
-    intent: Literal["critic", "report", "qa", "introspection"] | None = Field(
+    file: str | None = Field(
         None,
+        description=(
+            "Path to a local video file (Path A). The file is read and sent as base64-encoded bytes. "
+            "Mutually exclusive with --sensor and --media-url."
+        ),
+    )
+    intent: Literal["critic", "report", "qa", "introspection"] = Field(
+        "qa",
         description="Semantic intent of this call. Stored in memory; used by harness routing (NFR-5).",
     )
     model: str | None = Field(
@@ -161,8 +168,10 @@ class VlmInput(BaseModel):
     def _validate_media_source(self) -> VlmInput:
         has_sensor = bool(self.sensor)
         has_url = bool(self.media_url)
-        if has_sensor == has_url:
-            raise ValueError("exactly one of --sensor or --media-url is required")
+        has_file = bool(self.file)
+        sources_count = sum([has_sensor, has_url, has_file])
+        if sources_count != 1:
+            raise ValueError("exactly one of --sensor, --media-url, or --file is required")
         if not has_sensor and (self.start_time or self.end_time):
             raise ValueError("--start-time / --end-time require --sensor")
         return self
@@ -228,8 +237,11 @@ def _build_vlm_request(
 ) -> dict[str, Any]:
     """Build an OpenAI-compatible /v1/chat/completions payload."""
     if use_base64:
-        with open(media_url, "rb") as fh:
-            b64 = base64.b64encode(fh.read()).decode()
+        try:
+            with open(media_url, "rb") as fh:
+                b64 = base64.b64encode(fh.read()).decode()
+        except OSError as exc:
+            raise InvalidInput(f"cannot read local file {media_url!r}: {exc}") from exc
         video_content: dict[str, Any] = {
             "type": "video_url",
             "video_url": {"url": f"data:video/mp4;base64,{b64}"},
@@ -277,7 +289,7 @@ class VlmGroup(CommandGroup):
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
         if options.use_base64 and inputs.sensor:
-            raise InvalidInput("--use-base64 requires --media-url; it cannot be combined with --sensor")
+            raise InvalidInput("--use-base64 cannot be combined with --sensor")
 
         model = inputs.model or _default_model(deployment)
         job_id = _mint_job_id()
@@ -287,16 +299,21 @@ class VlmGroup(CommandGroup):
         resolved_start: str | None = inputs.start_time
         resolved_end: str | None = inputs.end_time
         if inputs.sensor:
-            # Path B: fetch a clip from VIOS. Capture the effective bounds VIOS resolved,
-            # which may extend beyond the CLI inputs when only one bound was supplied.
-            try:
-                media_url, resolved_start, resolved_end = _resolve_vios_clip(
-                    deployment, inputs.sensor, inputs.start_time, inputs.end_time
+            # Path B: fetch a clip from VIOS. Let typed VIOS exceptions propagate so
+            # guarded() maps them to the correct exit codes (3/5/7).
+            if "vst" not in (deployment.services or {}):
+                raise config_mod.ConfigError(
+                    "--sensor requires the `vst` service in the deployment. "
+                    "Re-run `vss configure --base-url <URL>`."
                 )
-            except Exception as exc:
-                raise InvalidInput(f"VIOS clip resolution failed: {exc}") from exc
+            media_url, resolved_start, resolved_end = _resolve_vios_clip(
+                deployment, inputs.sensor, inputs.start_time, inputs.end_time
+            )
+        elif inputs.file:
+            # Path A (file): local file path read and sent as base64-encoded bytes.
+            media_url = inputs.file
         else:
-            # Path A: use the caller-supplied URL (or local file with --use-base64).
+            # Path A (url): pre-resolved HTTP/HTTPS handle passed directly to the VLM.
             media_url = inputs.media_url  # type: ignore[assignment]
 
         from vss_core.memory.adapters import utc_now_iso
@@ -306,7 +323,7 @@ class VlmGroup(CommandGroup):
         adapter = VlmAdapter()
         created_at = utc_now_iso()
 
-        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout}
+        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout, "num_frames": inputs.num_frames}
         if inputs.max_tokens is not None:
             model_params["max_tokens"] = inputs.max_tokens
         if inputs.temperature is not None:
@@ -331,7 +348,7 @@ class VlmGroup(CommandGroup):
             model=model,
             max_tokens=inputs.max_tokens,
             temperature=inputs.temperature,
-            use_base64=options.use_base64,
+            use_base64=options.use_base64 or bool(inputs.file),
             num_frames=inputs.num_frames,
         )
 
@@ -431,8 +448,7 @@ class VlmGroup(CommandGroup):
             "answer": answer,
             "model": completion.get("model") or model,
         }
-        if inputs.intent:
-            body["intent"] = inputs.intent
+        body["intent"] = inputs.intent
 
         # Point call: write the terminal record once.
         if memory is None:

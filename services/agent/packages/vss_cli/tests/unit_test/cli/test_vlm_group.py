@@ -44,6 +44,7 @@ def _deployment(*, rt_vlm_models: list[str] | None = None) -> config_mod.Deploym
         base_url=BASE_URL,
         services={
             "rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=models),
+            "vst": config_mod.Service(url=f"{BASE_URL}/vst"),
             "elasticsearch": config_mod.Service(url=f"{BASE_URL}/elasticsearch"),
         },
         memory=config_mod.MemoryConfig(),
@@ -101,6 +102,12 @@ def test_vlm_input_requires_exactly_one_source() -> None:
     with pytest.raises(Exception, match="exactly one"):
         VlmInput(prompt="What?", sensor="cam1", media_url="http://h/clip.mp4")
 
+    with pytest.raises(Exception, match="exactly one"):
+        VlmInput(prompt="What?", sensor="cam1", file="/tmp/v.mp4")
+
+    with pytest.raises(Exception, match="exactly one"):
+        VlmInput(prompt="What?", media_url="http://h/v.mp4", file="/tmp/v.mp4")
+
 
 def test_vlm_input_start_end_require_sensor() -> None:
     with pytest.raises(Exception, match="start-time"):
@@ -117,6 +124,18 @@ def test_vlm_input_valid_url_path() -> None:
     inp = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
     assert inp.media_url == "http://h/clip.mp4"
     assert inp.sensor is None
+
+
+def test_vlm_input_valid_file_path() -> None:
+    inp = VlmInput(prompt="What?", file="/home/user/video.mp4")
+    assert inp.file == "/home/user/video.mp4"
+    assert inp.sensor is None
+    assert inp.media_url is None
+
+
+def test_intent_defaults_to_qa() -> None:
+    inp = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    assert inp.intent == "qa"
 
 
 def test_vlm_options_defaults() -> None:
@@ -318,6 +337,7 @@ def test_cli_help_shows_required_flags() -> None:
     assert "--prompt" in result.output
     assert "--sensor" in result.output
     assert "--media-url" in result.output
+    assert "--file" in result.output
     assert "--intent" in result.output
     assert "--no-persist" in result.output
     assert "--use-base64" in result.output
@@ -454,6 +474,107 @@ def test_use_base64_with_sensor_is_invalid(
         ["run", "--prompt", "What?", "--sensor", "cam1", "--use-base64"],
     )
     assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_run_file_source_uses_base64(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """--file implies base64 encoding; payload must carry data: URI."""
+    video_bytes = b"\x00\x01\x02video"
+    video_file = tmp_path / "clip.mp4"
+    video_file.write_bytes(video_bytes)
+
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", file=str(video_file))
+    group.run("", inputs, ctx)
+
+    content = captured["json"]["messages"][0]["content"]
+    video_part = next(c for c in content if c.get("type") == "video_url")
+    assert video_part["video_url"]["url"].startswith("data:video/mp4;base64,")
+
+
+def test_run_file_not_found_exits_invalid_input(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A nonexistent --file path must exit INVALID_INPUT (2), not ERROR (1)."""
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--file", "/no/such/file.mp4", "--no-persist"],
+    )
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_vios_backend_error_exits_backend_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """VSTError (BackendUnreachableError subclass) must produce exit code 3."""
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={
+            "rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["cosmos-reason1-7b"]),
+            "vst": config_mod.Service(url=f"{BASE_URL}/vst"),
+        },
+        memory=config_mod.MemoryConfig(),
+    )
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(deployment)
+
+    runner = CliRunner()
+    result = runner.invoke(VLM.cli(), ["run", "--prompt", "What?", "--sensor", "cam1", "--no-persist"])
+    assert result.exit_code == int(Exit.BACKEND_UNREACHABLE)
+
+
+def test_num_frames_in_model_params(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """num_frames must be persisted in model_params in the memory record."""
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4", num_frames=12)
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    records = store.service.list_jobs()
+    assert records
+    assert records[0].input.params is not None
+    assert records[0].input.params.get("num_frames") == 12
 
 
 def test_sensor_path_uses_resolved_window_bounds(
