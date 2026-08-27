@@ -1106,6 +1106,7 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
     proc: subprocess.Popen | None = None
     pgid: int | None = None
     pending_signal: int | None = None
+    harbor_rc: int | None = None
     cleanup_started = False
     previous_handlers: dict[signal.Signals, object] = {}
 
@@ -1171,6 +1172,11 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                         cleanup_started = True
                         return rc
                     cleanup_started = True
+                    # Harbor finished on its own; only its transports linger.
+                    # Remember the real result: if the bounded cleanup below
+                    # reaps them, the trial stands and this is housekeeping,
+                    # not a timeout.
+                    harbor_rc = rc
                     outcome = 124
                     reason = (
                         "Harbor exited while detached transport groups remained: "
@@ -1201,6 +1207,18 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                 "preserving primary outcome",
                 flush=True,
             )
+        elif harbor_rc is not None:
+            # Harbor completed and the strays are now gone. Reporting 124
+            # here discards a finished trial -- and because rc == 124 also
+            # writes skip markers, it takes every later step of a multi-step
+            # spec with it. A step that scored 1.0 was recorded as a timeout
+            # and its successors never ran.
+            print(
+                f"[run-leg] detached transports reaped; keeping Harbor's "
+                f"result rc={harbor_rc}",
+                flush=True,
+            )
+            return harbor_rc
         return outcome
     finally:
         for sig, previous in previous_handlers.items():
