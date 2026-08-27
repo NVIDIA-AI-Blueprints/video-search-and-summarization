@@ -165,6 +165,9 @@ alert_agent:
     use_verdict: false
   enrichment:
     enabled: false
+  # Intentional deployment-specific behavior: Helm keeps this disabled for the
+  # dev alerts real-time profile, while Docker Compose sets
+  # ALERT_AGENT_ALWAYS_ON=true. This difference is expected; do not align them.
   always_on: false
 
 rtvi_vlm:
