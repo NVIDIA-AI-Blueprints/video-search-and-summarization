@@ -74,6 +74,9 @@ from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.postprocessing import POSTPROCESSING_FEEDBACK_MARKER
 from vss_agents.agents.postprocessing import PostprocessingConfig
 from vss_agents.agents.postprocessing import PostprocessingNode
+from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
+from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_TOOL_NAME
+from vss_agents.tools.lvs_config_media import user_requested_caption_generation
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.utils.asyncmixin import AsyncMixin
@@ -966,12 +969,32 @@ class TopAgent(AsyncMixin):
                             content=f"Tool '{tool_call['name']}' not found",
                         )
 
-                    logger.info(f"Executing tool/sub-agent: {tool_call['name']}")
                     tool_response: Any = None
 
                     # Check if this is a sub-agent that we should call natively for streaming
                     tool_name = tool_call["name"]
                     is_subagent = tool_name in self.subagent_names
+
+                    # Caption HITL (lvs_config_media) is allowed only on an explicit user
+                    # request. Summarize/report not_configured must stop in chat instead.
+                    if tool_name == LVS_CONFIG_MEDIA_TOOL_NAME:
+                        user_text = (
+                            _get_content_text(state.current_message) if state.current_message is not None else ""
+                        )
+                        if not user_requested_caption_generation(user_text):
+                            logger.warning(
+                                "Blocked %s: current user message is not an explicit caption-generation request",
+                                tool_name,
+                            )
+                            if not state.final_answer:
+                                state.final_answer = LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
+                            return ToolMessage(
+                                name=tool_name,
+                                tool_call_id=tool_call["id"],
+                                content=LVS_CONFIG_MEDIA_BLOCKED_MESSAGE,
+                            )
+
+                    logger.info(f"Executing tool/sub-agent: {tool_name}")
 
                     # Build tool args once, filtering None values and injecting request options when supported.
                     tool_args = {k: v for k, v in tool_call["args"].items() if v is not None}

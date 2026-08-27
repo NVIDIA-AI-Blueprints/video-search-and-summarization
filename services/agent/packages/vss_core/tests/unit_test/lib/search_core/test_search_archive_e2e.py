@@ -287,7 +287,8 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     )
 
     assert result.returncode == 0, result.stderr
-    payload = _only_json_object(result.stdout)
+    payload, marker = _result_and_marker(result.stdout)
+    _assert_search_marker(marker, persisted=False)
     assert payload["data"] == [
         {
             "video_name": "warehouse_clip.mp4",
@@ -350,7 +351,8 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     )
 
     assert result.returncode == 0, result.stderr
-    payload = _only_json_object(result.stdout)
+    payload, marker = _result_and_marker(result.stdout)
+    _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["object_ids"] == ["42"]
     assert "critic_result" not in payload["data"][0]
     assert payload["data"][0]["verification"]["result"] == "confirmed"
@@ -377,7 +379,8 @@ def test_search_archive_cli_without_vlm_returns_unverified_hits(
     )
 
     assert result.returncode == 0, result.stderr
-    payload = _only_json_object(result.stdout)
+    payload, marker = _result_and_marker(result.stdout)
+    _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["verification"] == {
         "result": "unverified",
         "criteria_met": None,
@@ -401,7 +404,8 @@ def test_search_archive_cli_unreachable_vlm_probes_once_and_returns_unverified_h
     )
 
     assert result.returncode == 0, result.stderr
-    payload = _only_json_object(result.stdout)
+    payload, marker = _result_and_marker(result.stdout)
+    _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["verification"]["result"] == "unverified"
     assert len(mock_services.requests_for("/v1/models")) == 1
     assert mock_services.requests_for("/v1/chat/completions") == []
@@ -425,7 +429,8 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
     )
 
     assert result.returncode == 0, result.stderr
-    payload = _only_json_object(result.stdout)
+    payload, marker = _result_and_marker(result.stdout)
+    _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["object_ids"] == ["42"]
     assert _single(mock_services.requests_for("/v1/generate_text_embeddings")).body["text_input"] == [
         "person in a white jacket climbing a ladder"
@@ -452,7 +457,8 @@ def test_search_archive_cli_object_id_path_skips_query_embedding(
     )
 
     assert result.returncode == 0, result.stderr
-    payload = _only_json_object(result.stdout)
+    payload, marker = _result_and_marker(result.stdout)
+    _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["object_ids"] == ["42"]
     assert mock_services.requests_for("/v1/generate_text_embeddings") == []
     behavior_searches = mock_services.requests_ending_with("/_search")
@@ -674,10 +680,19 @@ def _json_lines(stdout: str) -> list[dict[str, Any]]:
     return [json.loads(line) for line in stdout.splitlines() if line.strip().startswith("{")]
 
 
-def _only_json_object(stdout: str) -> dict[str, Any]:
+def _result_and_marker(stdout: str) -> tuple[dict[str, Any], dict[str, Any]]:
     lines = _json_lines(stdout)
-    assert len(lines) == 1
-    return lines[0]
+    assert len(lines) == 2
+    return lines[0], lines[-1]
+
+
+def _assert_search_marker(marker: dict[str, Any], *, persisted: bool) -> None:
+    assert marker["event"] == "vss_job_completed"
+    assert marker["group"] == "search"
+    assert marker["job_id"].startswith("search-")
+    assert marker["status"] == "completed"
+    assert marker["persisted"] is persisted
+    assert marker["exit_hint"] == 0
 
 
 def _single(items: list[_RecordedRequest]) -> _RecordedRequest:

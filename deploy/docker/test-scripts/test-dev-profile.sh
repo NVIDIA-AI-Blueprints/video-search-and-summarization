@@ -1233,7 +1233,7 @@ for _profile in base lvs search alerts; do
       _expected_stable_keys=(MODE VSS_RT_CV_TAG)
       ;;
     alerts)
-      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE VSS_RT_CV_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
+      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE VSS_RT_CV_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
       _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=()
       ;;
@@ -1530,6 +1530,20 @@ run_dry_run_up_and_check_generated_env "generated.env LVS defaults to Nemotron 3
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
+run_dry_run_up_and_check_generated_env "generated.env Base GB300 overlay selects ARM64 LLM and SBSA RT-VLM" "base" \
+ -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
+  "HARDWARE_PROFILE" "GB300" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
+  "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
+
+run_dry_run_up_and_check_generated_env "generated.env Base defaults to Nemotron 3.5 Lightning on H100" "base" \
+ -i 127.0.0.1 -H H100 -d -- \
+  "HARDWARE_PROFILE" "H100" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
+  "RTVI_VLM_IMAGE_TAG" '"3.3.0-26.08.2"'
+
 for _nemotron_3_5_env in \
   "${REPO_ROOT}"/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-*.env; do
   if grep -Fq -- "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder" "${_nemotron_3_5_env}"; then
@@ -1540,7 +1554,6 @@ for _nemotron_3_5_env in \
     ((TESTS_FAILED++)) || true
   fi
 done
-
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
 # DGX-SPARK (and IGX-THOR) are only valid for base and alerts

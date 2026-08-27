@@ -310,7 +310,7 @@ docker build \
   -t vss-configurator .
 ```
 
-The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidian/distroless/python:3.13-v4.0.5`**.
+The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidia/distroless/python:3.13-v4.1.1`**. Python and distroless versions are `ARG`s at the top of `docker/Dockerfile` (`PYTHON_VERSION`, `DISTROLESS_IMG`, `DISTROLESS_TAG`).
 
 **Legal requirements (container distribution):**
 
@@ -477,6 +477,7 @@ services:
 | **VMS Integration** | | |
 | `CALL_SENSOR_ADD_API` | `true` | Enable sensor registration with VMS |
 | `VST_CAMERA_ADD_ENDPOINT` | `http://vms-vms-svc:30000/api/v1/sensor/add` | VMS camera registration endpoint |
+| `VST_CAMERA_ADD_TIMEOUT` | `15` | Request timeout in seconds for VMS sensor registration; keep this above expected ingress/VST cold-add latency so client timeouts do not create 499s while VST continues processing |
 | **Message Broker Configuration** | | |
 | `MESSAGE_BROKER_TYPE` | `kafka` | Message broker type: `kafka` or `redis` |
 | `SEND_CONFIG_TO_SDR` | `true` | Send sensor configuration events to message broker |
@@ -633,7 +634,7 @@ Status for NVStreamer/VMS video upload (for init-container polling).
 |------|--------|
 | Build context | monorepo root (`.`) |
 | Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` |
-| Runtime base | `nvcr.io/nvidian/distroless/python:3.13-v4.0.5` |
+| Runtime base | `nvcr.io/nvidia/distroless/python:3.13-v4.1.1` (`DISTROLESS_IMG`:`DISTROLESS_TAG`) |
 | Entrypoint | `python entrypoint.py` (no shell in image) |
 | Working directory | `/usr/src/app` |
 | Python deps | `PYTHONPATH=/usr/src/app/site-packages` |

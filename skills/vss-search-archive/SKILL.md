@@ -73,7 +73,7 @@ In a persisted multi-step workflow, reuse the origin recorded by the prepared
 deployment as above. Do not repeat public-origin selection, edit routing, or
 redeploy merely because the next agent turn did not inherit shell variables.
 
-See [deployment resolution](../vss-build-vision-agent/references/deployment_resolution.md)
+See [deployment resolution](../vss-build-vision-ai/references/deployment_resolution.md)
 for the deployment-owned `VSS_PUBLIC_URL` contract. On Kubernetes, never use
 port-forwarding, Service DNS, NodePorts, or a guessed Helm release. Routes not
 exposed through the Ingress are recorded as absent and a search path needing

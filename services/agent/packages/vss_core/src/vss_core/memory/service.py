@@ -18,6 +18,7 @@ from .backends.in_memory import InMemoryStore
 from .models import PENDING_STATUSES
 from .models import TERMINAL_STATUSES
 from .models import UnifiedMemoryRecord
+from .models import forbidden_ext_collections
 from .store import JobFilters
 from .store import MemoryQuery
 from .store import MemoryStore
@@ -40,6 +41,24 @@ class MemoryNotFoundError(LookupError):
     """Raised when a requested job/asset/event handle is absent from memory."""
 
 
+class NestedCollectionError(ValueError):
+    """A record being written nests a child-owned collection in ``output.ext``.
+
+    The rule is a write-side invariant, enforced here rather than on the model
+    so it cannot reach the read path: earlier versions nested ``events`` in the
+    parent, and validating that shape on load would make their documents
+    unreadable rather than merely unwritable.
+    """
+
+
+def _reject_nested_collections(record: UnifiedMemoryRecord) -> None:
+    forbidden = forbidden_ext_collections(record)
+    if forbidden:
+        raise NestedCollectionError(
+            f"output.ext must not contain complete nested collections {forbidden}; persist those as child records"
+        )
+
+
 @dataclass(frozen=True)
 class PersistFailure:
     """One failed write within a multi-record persistence attempt."""
@@ -55,18 +74,26 @@ class PersistFailure:
 class PersistResult:
     """Outcome of persisting a :class:`RecordBundle` (or equivalent)."""
 
+    requested: int
     expected: int
     written: int
     failed: list[PersistFailure] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return self.written == self.expected and not self.failed
+        return self.requested == self.expected == self.written and not self.failed
+
+    @property
+    def collapsed(self) -> int:
+        """Number of requested records that shared another record's storage id."""
+        return self.requested - self.expected
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "requested": self.requested,
             "expected": self.expected,
             "written": self.written,
+            "collapsed": self.collapsed,
             "failed": [
                 {
                     **(
@@ -157,6 +184,7 @@ class MemoryService:
         return self._store
 
     def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
+        _reject_nested_collections(record)
         return self._store.upsert(record)
 
     def upsert_bundle(self, bundle: RecordBundle) -> PersistResult:
@@ -171,9 +199,10 @@ class MemoryService:
         children that actually persisted, so job reads do not advertise a
         complete result set that record queries cannot return.
 
-        ``expected`` / ``written`` count **distinct** storage ids (not upsert
-        call sites). Two children that collide on ``record_id`` share one
-        storage document; both calls succeed, but only one id is written.
+        ``requested`` counts upsert call sites. ``expected`` / ``written`` count
+        **distinct** storage ids. Two children that collide on ``record_id``
+        share one storage document; both calls succeed, but only one id is
+        expected and written, so :attr:`PersistResult.ok` remains false.
 
         Callers must still return the paid-for operation result when persistence
         is incomplete. Use :attr:`PersistResult.ok` / :meth:`PersistResult.to_dict`
@@ -182,6 +211,12 @@ class MemoryService:
         failed: list[PersistFailure] = []
         written_ids: set[str] = set()
         records = bundle.all_records
+        requested = len(records)
+        # A bundle that nests its own children is the adapter's bug, not a
+        # backend failure, so it raises here instead of being reported as a
+        # partial write that a caller would be told to retry.
+        for record in records:
+            _reject_nested_collections(record)
         expected = len({storage_id_for(record) for record in records})
         # Last successful upsert per storage id — collisions overwrite in place.
         written_children_by_id: dict[str, UnifiedMemoryRecord] = {}
@@ -210,7 +245,12 @@ class MemoryService:
                         is_parent=False,
                     )
                 )
-            return PersistResult(expected=expected, written=len(written_ids), failed=failed)
+            return PersistResult(
+                requested=requested,
+                expected=expected,
+                written=len(written_ids),
+                failed=failed,
+            )
 
         for child in bundle.children:
             child_storage_id = storage_id_for(child)
@@ -251,7 +291,12 @@ class MemoryService:
                         )
                     )
 
-        return PersistResult(expected=expected, written=len(written_ids), failed=failed)
+        return PersistResult(
+            requested=requested,
+            expected=expected,
+            written=len(written_ids),
+            failed=failed,
+        )
 
     def get(
         self,
@@ -307,7 +352,6 @@ class MemoryService:
         end_time: str | None = None,
         anchor_event_id: str | None = None,
         direction: str | None = None,
-        window: str | None = None,
         match: str | None = None,
         limit: int = 50,
         record_types: tuple[str, ...] = ("event", "incident", "search_hit"),
@@ -317,9 +361,6 @@ class MemoryService:
         Does **not** scan nested ``output.ext.events|incidents|results``.
         Temporal filtering uses child ``input.window`` (event time).
         """
-        if window is not None:
-            raise ValueError("events(window=...) is not implemented yet (SDD §2.1); omit the duration bound")
-
         collected: list[dict[str, Any]] = []
         for record_type in record_types:
             query = MemoryQuery(

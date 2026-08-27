@@ -631,9 +631,8 @@ nims:
         nvidia.com/gpu: "1"
 
 # Optional monitoring subchart (Kubernetes port of services/monitoring compose).
-# Off by default here so bare `helm install` (no -f values-lvs.yaml) doesn't add
-# a monitoring DaemonSet. values-lvs.yaml turns dcgm-exporter on to match the
-# LVS compose profile's dcgm-exporter opt-in.
+# Keep it off by default because the NVIDIA GPU Operator commonly provides
+# dcgm-exporter. Enable both monitoring.enabled and the desired component.
 monitoring:
   enabled: false
   prometheus:

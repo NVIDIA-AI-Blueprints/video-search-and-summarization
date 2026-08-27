@@ -89,11 +89,12 @@ PREAMBLE = (
     "the deployment, or call VLM/RT-VLM inference endpoints such as "
     "/v1/chat/completions or /v1/generate_captions directly. Empty choices, "
     "video_summary, or events are results to report, not reasons to retry. "
-    "The final stdout line is the completion marker: read the job_id and the "
-    "persist object from it, and report that job id. Do not read the record "
-    "back to prove the write landed -- the marker reports it, and recalling "
-    "memory is a different skill's job. Render video_summary and every event "
-    "description verbatim and in full."
+    "Read the operation result from the first stdout JSON document and the "
+    "completion marker from the final stdout line: the result carries the "
+    "persist object, while the marker carries job_id and persisted. Report that "
+    "job id. Do not read the record back to prove the write landed -- those "
+    "two documents report it, and recalling memory is a different skill's job. "
+    "Render video_summary and every event description verbatim and in full."
 )
 
 
