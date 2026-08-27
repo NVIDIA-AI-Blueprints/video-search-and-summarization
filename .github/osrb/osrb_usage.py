@@ -56,7 +56,7 @@ Comparison is per MODULE, and that is the point
 OSRB reviews per shipped artifact. A row whose package is declared by some
 other module says so in ``notes`` rather than being suppressed.
 
-Public API (see .github/scripts CONTRACT):
+Public API (see the CONTRACT note in osrb_scan.py):
     python_imports(data) / js_imports(data) / c_includes(data)
     jvm_ruby_imports(data, lang)
     DISTRIBUTION_ALIASES
@@ -74,7 +74,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
-# CI runs these scripts as plain files (`python .github/scripts/osrb_scan.py`),
+# CI runs these scripts as plain files (`python .github/osrb/osrb_scan.py`),
 # and the unit tests load them by path with importlib, so neither entry point
 # leaves this directory importable by name. Adding it explicitly is what lets
 # the risk model and the module-ownership rule live in exactly one place.

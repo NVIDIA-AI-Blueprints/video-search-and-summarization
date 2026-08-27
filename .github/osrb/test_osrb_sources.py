@@ -14,7 +14,7 @@ behind three levels of ``${VAR:-default}``, a Chart.yaml whose only
 
 Run directly:
 
-    python3 .github/scripts/test_osrb_sources.py
+    python3 .github/osrb/test_osrb_sources.py
 """
 
 from __future__ import annotations

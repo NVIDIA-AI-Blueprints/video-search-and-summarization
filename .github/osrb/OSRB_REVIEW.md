@@ -1,13 +1,21 @@
 # OSRB Scan and OSRB Review
 
-Dependency-related pull requests receive two related GitHub checks:
+Dependency-related pull requests receive three related GitHub checks:
 
 1. **OSRB Scan (dependency inventory)** creates the public package-change
-   overview and complete CSV.
-2. **OSRB Review** evaluates changes that may require approval and publishes the
+   overview and complete CSV. It answers *what did this pull request change?*
+2. **OSRB Scan (approved-state comparison)** rebuilds the whole dependency
+   inventory from the tree and holds it against the OSRB-approved baseline. It
+   answers *does this repository, as it stands, match what OSRB approved?*
+3. **OSRB Review** evaluates changes that may require approval and publishes the
    final result.
 
-Both checks run automatically. Do not manually edit the generated PR comment.
+The first two are complementary, not redundant. Check 1 is blind to anything
+already wrong in the tree — it only ever sees a diff. Check 2 is blind to who
+changed it or when, and will stay red for drift you did not introduce until
+someone clears it.
+
+All three run automatically. Do not manually edit the generated PR comment.
 
 > **Transitional on `develop`.** The OSRB Scan still **fails** when the diff is
 > non-empty, and that failure is still a real signal — get OSRB approval for the
@@ -25,7 +33,7 @@ interchangeable — two of them block, and the fix is different for each.
 | Class | Blocks? | What it means | What you do |
 |---|---|---|---|
 | Package change (`added` / `removed` / `updated`) | Blocks when it needs OSRB attention | A dependency entered, left, or changed version or license in a manifest or lockfile the scanner reads. | Get OSRB approval for a new dependency, a license change, or a license the scanner could not resolve. Same-license bumps and removals are recorded but need nothing. |
-| `UNCOVERED_SOURCE` | **Blocks** | Your PR touches a file that carries third-party software, and the scanner has no parser for it. Nothing in that file was inventoried, so the report is incomplete and nobody can see what is missing. | **Do not ask OSRB to approve this — there is nothing to approve yet.** Teach the scanner: extend `is_dependency_file` in `.github/scripts/osrb_scan.py`, add or extend the parser, and cover it in `.github/scripts/test_osrb_scan.py`. If the file genuinely carries no third-party dependency, exclude it there with a comment saying why. Ask a maintainer if it is not your area. |
+| `UNCOVERED_SOURCE` | **Blocks** | Your PR touches a file that carries third-party software, and the scanner has no parser for it. Nothing in that file was inventoried, so the report is incomplete and nobody can see what is missing. | **Do not ask OSRB to approve this — there is nothing to approve yet.** Teach the scanner: extend `is_dependency_file` in `.github/osrb/osrb_scan.py`, add or extend the parser, and cover it in `.github/osrb/test_osrb_scan.py`. If the file genuinely carries no third-party dependency, exclude it there with a comment saying why. Ask a maintainer if it is not your area. |
 | `USED_UNDECLARED` | Never | Source code imports something that no manifest in the owning module declares. | Nothing is required to merge. Usually the package is reaching you transitively, the import name differs from the distribution name, or the code is vendored. Declare it when the gap is real and yours to fix. |
 
 ### The use-side pass is report-only
@@ -36,6 +44,37 @@ added to the OSRB review total, and never fail the check. Treat them as a
 to-do list, not a gate. If one is a false positive, say so in the PR — it is a
 scanner bug worth fixing, not a merge blocker.
 
+## The approved-state comparison
+
+`inventory.csv` is a committed, generated file: the complete list of what this
+tree contains. `approved.csv` is a point-in-time copy of the OSRB-approved
+baseline. The comparison joins them and gives every row a verdict.
+
+Four verdicts fail the check — `NOT_APPROVED`, `VERSION_DRIFT`, `LICENSE_DRIFT`
+and `USAGE_DRIFT`. Two are reported without failing — `MODULE_UNSUBMITTED` and
+`APPROVED_NOT_PRESENT` — because both describe the state of the OSRB record
+rather than anything your pull request did.
+
+`USAGE_DRIFT` is the one worth reading twice. **OSRB approves a component for a
+particular use.** The package, its version and its licence can all match the
+baseline and the row is still a finding, because the approval on record is for
+dynamic linking and the tree now vendors the source, or for a build-time
+dependency that now ships in a container. Restore the approved distribution and
+usage method, or take the new use to OSRB.
+
+If the job says `inventory.csv` is stale, regenerate and commit it in the same
+pull request as the dependency change:
+
+```bash
+python3 .github/osrb/osrb_inventory.py \
+  --ref HEAD \
+  --previous .github/osrb/inventory.csv \
+  --output .github/osrb/inventory.csv
+```
+
+The full verdict table, and what `approved.csv` does and does not prove, are in
+[`.github/osrb/README.md`](README.md).
+
 ## What developers should do
 
 ### The OSRB Scan reports no reviewable changes
@@ -43,6 +82,15 @@ scanner bug worth fixing, not a merge blocker.
 No OSRB action is required. Continue with the normal code and CODEOWNERS review.
 Same-license version updates and dependency removals remain in the complete CSV
 for traceability, but do not require OSRB re-engagement.
+
+### The approved-state comparison fails
+
+Read the failing verdict, not just the count — the four blocking verdicts ask
+for four different things, and only `NOT_APPROVED` is "get this approved". See
+the table in [`.github/osrb/README.md`](README.md). If the verdict disagrees
+with an OSRB approval you know exists, say so in the pull request and raise it
+with the OSRB owner: `approved.csv` is a copy, and the private OSRB record is
+authoritative. Do not paste that record into the public pull request.
 
 ### OSRB Review is running
 

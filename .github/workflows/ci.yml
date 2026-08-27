@@ -549,8 +549,8 @@ jobs:
             packages/vss_cli/src/vss_cli
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
-          uv run --no-sync python ../../.github/scripts/test_osrb_scan.py
-          uv run --no-sync python ../../.github/scripts/test_osrb_summary.py
+          uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
+          uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
           rm -rf dist
           uv build --package nvidia-vss-core
           uv build --package nvidia-vss-cli
@@ -1547,7 +1547,22 @@ jobs:
           persist-credentials: false
 
       - name: Unit-test the OSRB dispatch boundary
-        run: python3 .github/scripts/test_osrb_dispatch.py
+        run: python3 .github/osrb/test_osrb_dispatch.py
+
+      # The source- and use-side passes need the working tree, so they run
+      # here rather than in the artifact-based package job alongside
+      # test_osrb_scan.py / test_osrb_summary.py.
+      - name: Unit-test the OSRB source and use-side passes
+        run: |
+          python3 .github/osrb/test_osrb_sources.py
+          python3 .github/osrb/test_osrb_usage.py
+
+      # The state pipeline: reads the whole tree and the committed
+      # baseline, so it needs the checkout too.
+      - name: Unit-test the OSRB approved-state comparison
+        run: |
+          python3 .github/osrb/test_osrb_inventory.py
+          python3 .github/osrb/test_osrb_compare.py
 
   # ---------------------------------------------------------------------------
   # Job 13: Trigger downstream pipeline and poll it to completion

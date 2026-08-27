@@ -325,9 +325,9 @@ def render_summary(rows: list[dict[str, str]], output: TextIO) -> dict[str, int]
         print(
             "An OSRB approval cannot clear this — there is nothing to approve yet. Fix it "
             "by teaching the scanner: extend `is_dependency_file` in "
-            "`.github/scripts/osrb_scan.py` so the path is recognised, add or extend the "
+            "`.github/osrb/osrb_scan.py` so the path is recognised, add or extend the "
             "parser that turns it into rows, and cover it in "
-            "`.github/scripts/test_osrb_scan.py`. If the file genuinely carries no "
+            "`.github/osrb/test_osrb_scan.py`. If the file genuinely carries no "
             "third-party dependency, exclude it there and say why in a comment.",
             file=output,
         )

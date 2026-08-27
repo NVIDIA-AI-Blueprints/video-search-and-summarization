@@ -14,9 +14,13 @@ from pathlib import Path
 from unittest import mock
 
 DIRECTORY = Path(__file__).parent
+# The OSRB tooling lives in .github/osrb. The generic downstream-pipeline
+# helpers it dispatches through are shared with other workflows and stayed
+# in .github/scripts, so the two directories are named separately here.
+SCRIPTS = DIRECTORY.parent / "scripts"
 WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-review.yml"
 SCAN_WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-scan.yml"
-DEVELOPER_GUIDE = DIRECTORY.parent / "OSRB_REVIEW.md"
+DEVELOPER_GUIDE = DIRECTORY / "OSRB_REVIEW.md"
 
 
 def load_python(name: str, path: Path):
@@ -28,7 +32,7 @@ def load_python(name: str, path: Path):
     return module
 
 
-trigger = load_python("trigger_downstream", DIRECTORY / "trigger_downstream_pipeline.py")
+trigger = load_python("trigger_downstream", SCRIPTS / "trigger_downstream_pipeline.py")
 check = load_python("osrb_check", DIRECTORY / "osrb_check.py")
 
 
@@ -59,7 +63,7 @@ class DispatchTests(unittest.TestCase):
         repo = "NVIDIA-AI-Blueprints/video-search-and-summarization"
         self.assertEqual(
             check.guide_url(repo),
-            f"https://github.com/{repo}/blob/main/.github/OSRB_REVIEW.md",
+            f"https://github.com/{repo}/blob/main/.github/osrb/OSRB_REVIEW.md",
         )
         self.assertIn(
             "[How to respond to this check]",
@@ -118,7 +122,7 @@ class DispatchTests(unittest.TestCase):
 
     def test_dispatch_job_wiring_is_exercised_in_ci(self) -> None:
         self.assertIn(
-            "python3 .github/scripts/test_osrb_dispatch.py",
+            "python3 .github/osrb/test_osrb_dispatch.py",
             (DIRECTORY.parent / "workflows" / "ci.yml").read_text(),
         )
 
@@ -133,7 +137,7 @@ class DispatchTests(unittest.TestCase):
         required: set[str] = set()
         for helper in ("trigger_downstream_pipeline.py", "poll-downstream-pipeline.py"):
             required.update(
-                re.findall(r'require_env\(\s*"([A-Z0-9_]+)"', (DIRECTORY / helper).read_text())
+                re.findall(r'require_env\(\s*"([A-Z0-9_]+)"', (SCRIPTS / helper).read_text())
             )
         missing = sorted(name for name in required if name not in workflow)
         self.assertEqual(missing, [], f"workflow never sets {missing}")
@@ -183,6 +187,97 @@ class DispatchTests(unittest.TestCase):
             for part in trigger[0].split("[", 1)[1].rsplit("]", 1)[0].split(",")
         }
         self.assertIn(scan_name, accepted, (scan_name, accepted))
+
+    def test_every_osrb_test_file_is_run_by_ci(self) -> None:
+        """A test nobody runs is worse than no test: it reads as coverage.
+
+        Enumerated from the directory rather than a hard-coded list, so a new
+        test_*.py added here has to be wired into ci.yml to land.
+        """
+        ci = (DIRECTORY.parent / "workflows" / "ci.yml").read_text()
+        missing = sorted(
+            path.name
+            for path in DIRECTORY.glob("test_*.py")
+            if f".github/osrb/{path.name}" not in ci
+        )
+        self.assertEqual(missing, [], f"ci.yml never runs {missing}")
+
+    def test_state_job_uploads_a_separate_artifact(self) -> None:
+        """Compliance files must not join the artifact the GitLab job fetches.
+
+        The private pipeline downloads `license-diff` and reads what is in it.
+        Folding the state report into that artifact changes the payload of a
+        consumer this repository cannot see or test.
+        """
+        workflow = SCAN_WORKFLOW.read_text()
+        self.assertIn("name: osrb-compliance\n", workflow)
+        license_upload = workflow.split("name: license-diff\n", 1)[1].split("- name:", 1)[0]
+        self.assertNotIn("osrb-compliance", license_upload)
+
+    def test_state_job_fails_on_drift_and_only_on_drift(self) -> None:
+        """MODULE_UNSUBMITTED / APPROVED_NOT_PRESENT are pre-existing state.
+
+        They describe the OSRB record, not what this pull request did, so a
+        contributor cannot clear them. Gating on either makes the check red for
+        everyone forever, which is how a gate stops being read.
+        """
+        workflow = SCAN_WORKFLOW.read_text()
+        gate = workflow.split(
+            "- name: Fail when this branch increases drift from the approved baseline", 1
+        )[1]
+        for verdict in ("NOT_APPROVED", "VERSION_DRIFT", "LICENSE_DRIFT", "USAGE_DRIFT"):
+            self.assertIn(f"steps.compare.outputs.{verdict.lower()}", gate, verdict)
+        for reported_only in ("module_unsubmitted", "approved_not_present"):
+            self.assertNotIn(f"steps.compare.outputs.{reported_only}", gate, reported_only)
+
+    def test_state_gate_is_a_ratchet_not_an_absolute_count(self) -> None:
+        """It must compare against the merge base, not against zero.
+
+        When this landed the tree already held 1717 NOT_APPROVED, 81
+        VERSION_DRIFT and 4 LICENSE_DRIFT rows. An absolute gate would be red on
+        every pull request from day one for drift nobody in that PR introduced,
+        and a permanently red check teaches people to merge past it. Only an
+        increase over the merge base is the author's to answer for.
+        """
+        workflow = SCAN_WORKFLOW.read_text()
+        self.assertIn("id: compare_base", workflow)
+        gate = workflow.split(
+            "- name: Fail when this branch increases drift from the approved baseline", 1
+        )[1]
+        for verdict in ("NOT_APPROVED", "VERSION_DRIFT", "LICENSE_DRIFT", "USAGE_DRIFT"):
+            self.assertIn(f"BASE_{verdict}", gate, verdict)
+        # the comparison itself, not just the variables being in scope
+        self.assertIn('"${count}" -le "${base}"', gate)
+
+    def test_ratchet_falls_back_to_absolute_when_the_base_has_no_inventory(self) -> None:
+        """A missing baseline must not wave everything through.
+
+        The first PR after this lands, and any cherry-pick onto a branch that
+        predates inventory.csv, has no committed baseline to compare against.
+        The counts then default to 0, which turns the ratchet back into an
+        absolute gate -- strict, not permissive. Getting this backwards would
+        make the gate silently pass every drift on exactly the branches least
+        likely to be reviewed carefully.
+        """
+        workflow = SCAN_WORKFLOW.read_text()
+        base_step = workflow.split("id: compare_base", 1)[1].split("- name:", 1)[0]
+        self.assertIn("continue-on-error: true", base_step)
+        gate = workflow.split(
+            "- name: Fail when this branch increases drift from the approved baseline", 1
+        )[1]
+        self.assertIn('base="${!base_var:-0}"', gate)
+
+    def test_inventory_drift_gate_prints_the_refresh_command(self) -> None:
+        """The error has to carry the fix; a diff alone leaves the reader guessing."""
+        workflow = SCAN_WORKFLOW.read_text()
+        gate = workflow.split("- name: Fail when the committed inventory is stale", 1)[1]
+        gate = gate.split("- name:", 1)[0]
+        self.assertIn("osrb_inventory.py", gate)
+        # --previous is what makes the refresh reproduce the committed file.
+        # An instruction that omits it sends the contributor round the loop
+        # again with a diff that never converges.
+        self.assertIn("--previous ", gate)
+        self.assertIn("--output .github/osrb/inventory.csv", gate)
 
     def test_scan_keeps_the_artifact_and_csv_names_the_private_pipeline_reads(self) -> None:
         """The GitLab OSRB job fetches these by name; a rename fails open.

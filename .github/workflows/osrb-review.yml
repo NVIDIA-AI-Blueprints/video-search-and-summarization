@@ -77,7 +77,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 .github/scripts/osrb_check.py start \
+          python3 .github/osrb/osrb_check.py start \
             --repo "$REPO" \
             --sha "$HEAD_SHA" \
             --run-url "$LICENSE_RUN_URL" \
@@ -108,7 +108,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 .github/scripts/osrb_check.py skip \
+          python3 .github/osrb/osrb_check.py skip \
             --repo "$REPO" \
             --sha "$HEAD_SHA" \
             --run-url "$LICENSE_RUN_URL" \
@@ -177,7 +177,7 @@ jobs:
           else
             summary="This change needs attention. Read the automated PR review and linked OSRB Scan, then correct the dependency or work with the OSRB owner before pushing an update."
           fi
-          python3 .github/scripts/osrb_check.py complete \
+          python3 .github/osrb/osrb_check.py complete \
             --repo "$REPO" \
             --sha "$HEAD_SHA" \
             --run-url "$LICENSE_RUN_URL" \

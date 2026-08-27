@@ -56,6 +56,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# compose_image_golden.py is shared with the container-image workflows and
+# stayed in .github/scripts when the OSRB tooling moved to .github/osrb.
+# Reaching for it is the point: resolve_nested is the repo's one reader of
+# Compose `extends`/`include`, and a second copy here would drift from it.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from compose_image_golden import resolve_nested  # noqa: E402
 from osrb_scan import license_risk, make_row, owning_module  # noqa: E402

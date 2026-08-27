@@ -108,9 +108,18 @@ side is the one that matters.
 |---|---|
 | workflow `License Diff` | `OSRB Scan` |
 | check `License Diff (OSRB CSV)` | `OSRB Scan (dependency inventory)` |
-| `.github/scripts/license_diff_csv.py` | `.github/scripts/osrb_scan.py` |
-| `.github/scripts/license_diff_summary.py` | `.github/scripts/osrb_summary.py` |
+| `.github/scripts/license_diff_csv.py` | `.github/osrb/osrb_scan.py` |
+| `.github/scripts/license_diff_summary.py` | `.github/osrb/osrb_summary.py` |
 | fails on `review_rows` | fails on `review_rows` **or** `uncovered_rows` |
+| OSRB scripts under `.github/scripts` | all OSRB tooling under `.github/osrb` |
+| (delta pipeline only) | plus a state pipeline: `osrb_inventory.py` → `osrb_compare.py` vs `approved.csv` |
+
+The directory move is in-repo only and nothing outside reads those paths, but it does
+reach three places a grep for `osrb` misses: `osrb_sources.py` imports
+`compose_image_golden` from `.github/scripts` (which did **not** move, because the
+container-image workflows share it), `test_osrb_dispatch.py` loads the downstream
+pipeline helpers from the same place, and `osrb_check.py` publishes a link to
+`OSRB_REVIEW.md` by path. All three are covered by tests.
 
 `review_rows` keeps exactly the meaning it had before, so any consumer of it — including the
 private OSRB pipeline — sees no change in behaviour. `uncovered_rows` is new and reports a

@@ -714,7 +714,7 @@ def blocks_merge(row: dict[str, str]) -> bool:
 
     So this is not a regression (nothing parsed prose before either), but it is
     a real gap, and the honest fix is to widen CODEOWNERS rather than to fail
-    the scan on a file no parser can read. Tracked in OSRB_SCAN_MIGRATION.md.
+    the scan on a file no parser can read. Tracked in .github/osrb/MIGRATION.md.
 
     Everything else stays blocking. That is the point of the change: a manifest
     the scanner cannot read must stop the PR, because the alternative is the
