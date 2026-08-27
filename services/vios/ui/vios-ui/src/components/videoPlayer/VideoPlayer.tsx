@@ -46,6 +46,7 @@ import StreamManager, {
     WebRTCIssue,
     WebRTCNetworkScores,
     DashPhase,
+    DashStream,
 } from 'vst-streaming-lib';
 import RangePickerDialog from '../../features/rangePickerDialog/RangePickerDialog';
 import LOG from '../../utils/misc/Logger';
@@ -558,7 +559,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
         };
         // Stream setup intentionally restarts only when the selected live delivery protocol changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deliveryProtocol]);
 
     // Effect for fetching live stream configuration
@@ -1099,24 +1099,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         try {
             if (streamType === StreamType.Replay) {
-                // For replay streams, first query the current timestamp
-                if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current) {
-                    enqueueSnackbar('Stream not ready', { variant: 'error' });
-                    return;
+                /* Both transports answer the same question - what moment is
+                 * being shown - but only WebRTC answers it per peer. A DASH
+                 * session has no peerId, so it is asked by stream instead. */
+                let timestamp: number | undefined;
+                if (deliveryProtocol === 'dash') {
+                    const sessions = await DashStream.querySessions(config.streamRecorderEndpoint, {
+                        replay: true,
+                        streamId: sensor.streamId || sensor.sensorId,
+                    });
+                    /* Several viewers can share one recording; any of them is
+                     * close enough for a snapshot, which is already approximate
+                     * because a player runs behind what the server published. */
+                    const session = sessions.find(
+                        (entry) => entry.streamId === (sensor.streamId || sensor.sensorId),
+                    ) ?? sessions[0];
+                    /* A re-encoded recording is stamped by the encoder, so the
+                     * server cannot say what moment its frames depict and sends
+                     * no ts. It still reports how far it has travelled, and by
+                     * then this player knows where the recording actually
+                     * begins - the epoch this session was opened with is a
+                     * "from the start" request, not a real time. */
+                    timestamp = session?.ts
+                        ?? (startTimeMs.current !== null && session?.positionMs !== undefined
+                            ? startTimeMs.current + session.positionMs
+                            : undefined);
+                } else {
+                    // For replay streams, first query the current timestamp
+                    if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current) {
+                        enqueueSnackbar('Stream not ready', { variant: 'error' });
+                        return;
+                    }
+
+                    const queryEndpoint = `${config.streamRecorderEndpoint}/api/v1/replay/stream/query?peerid=${inboundPeerIDRef.current}&mediaSessionId=${inboundMediaSessionIDRef.current}&metadata=false`;
+
+                    const queryResponse = await nvAxios.get(queryEndpoint, {
+                        headers: { streamId: sensor.streamId || sensor.sensorId },
+                    });
+                    timestamp = queryResponse.data.ts;
                 }
 
-                const queryEndpoint = `${config.streamRecorderEndpoint}/api/v1/replay/stream/query?peerid=${inboundPeerIDRef.current}&mediaSessionId=${inboundMediaSessionIDRef.current}&metadata=false`;
-
-                const queryResponse = await nvAxios.get(queryEndpoint, {
-                    headers: { streamId: sensor.streamId || sensor.sensorId },
-                });
-
-                if (!queryResponse.data.ts) {
+                if (!timestamp) {
                     enqueueSnackbar('Invalid timestamp received from stream query', { variant: 'error' });
                     return;
                 }
 
-                const timestamp = queryResponse.data.ts;
                 const utcDateTime = moment(timestamp).toISOString();
                 const endpoint = `${config.streamRecorderEndpoint}/api/v1/replay/stream/${sensor.streamId}/picture?startTime=${utcDateTime}`;
 
