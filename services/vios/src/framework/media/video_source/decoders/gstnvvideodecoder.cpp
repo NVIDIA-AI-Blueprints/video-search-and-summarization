@@ -3943,6 +3943,9 @@ VmsErrorCode GstNvVideoDecoder::seekMmsVodPlayback(const std::string& action, co
 
     // Re-anchor the frame gate before the re-PLAY so any residual pre-seek frames
     // are dropped and only frames at/after the target are delivered downstream.
+    // Keep the previous values so they can be restored if the re-PLAY is refused.
+    const int64_t prevEpochStartTime = m_epochStartTime.load();
+    const int64_t prevLastFramePtsMs = m_lastFramePtsMs.load();
     m_epochStartTime = targetEpochMs;
     m_lastFramePtsMs = 0;
 
@@ -3950,8 +3953,16 @@ VmsErrorCode GstNvVideoDecoder::seekMmsVodPlayback(const std::string& action, co
     {
         LOG(error) << "seekMmsVodPlayback: producer seek failed (no active RTSP session?) for peer="
                    << m_peerid << endl;
-        /* The re-PLAY was not issued, so no post-seek frame will arrive to clear
-        ** the guard; clear it now so the next seek is not wrongly rejected. */
+        /* The re-PLAY was not issued, so the stream keeps delivering frames from the
+        ** OLD position. Roll the gate back to the pre-seek state: leaving it armed at
+        ** a target that was never requested would drop those live frames as stale and
+        ** make getAbsPosition() report a position we never sought to, until the
+        ** fail-open drop counter expires. Also clear the in-progress guard, since no
+        ** post-seek frame will arrive to clear it. */
+        m_epochStartTime = prevEpochStartTime;
+        m_lastFramePtsMs = prevLastFramePtsMs;
+        m_awaitTargetFrameAfterSeek.store(false);
+        m_staleFrameDropCount.store(0);
         m_mmsSeekInProgress.store(false);
         return VmsErrorCode::VMSInternalError;
     }
