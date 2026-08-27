@@ -109,6 +109,7 @@ ReID:
   # [Output Postprocessing]
   addFeatureNormalization: 1       # If reid feature is not normalized in network, adding normalization on output so each reid feature has l2 norm equal to 1
   minVisibility4GalleryUpdate: 0.6 # Add ReID embedding to the gallery only if the visibility is not lower than this
+  minVisibility4ReidOutput: 0.1
 
   # [Paths and Names]
   onnxFile: "/opt/storage/reid/reid_model.onnx" # NVIDIA TAO model path
@@ -118,6 +119,8 @@ ReID:
 ReIDService:
   reidServiceType: 1
   debugVerboseLevel: 1
+  minVisibility4ReidServiceQuery: 0.2
+  maxClusterVariance: 0.0003
   serviceAddress: "reid-embed"
   servicePort: 8088
   operateOnClassIds: [0]
