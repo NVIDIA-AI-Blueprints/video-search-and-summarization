@@ -427,6 +427,11 @@ run_negative_test "up without --profile" 1 up
 NGC_CLI_API_KEY= run_negative_test "up without ngc key (no env)" 1 up -p base
 run_negative_test "invalid profile" 1 up -p invalid
 run_negative_test "invalid hardware-profile" 1 up -p base -H INVALID
+# --llm validation: a removed model, an unknown model, and a valid model whose
+# sizing does not cover the selected hardware must all fail before any teardown.
+run_negative_test "llm removed from the blueprint is rejected" 1 up -p base -i 127.0.0.1 --llm openai/gpt-oss-20b -d
+run_negative_test "llm unknown id is rejected" 1 up -p base -i 127.0.0.1 --llm typo/not-a-model -d
+run_negative_test "llm without sizing for the hardware is rejected" 1 up -p base -i 127.0.0.1 -H H100 --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
 _mock_nvidia_smi_dir="$(mktemp -d)"
