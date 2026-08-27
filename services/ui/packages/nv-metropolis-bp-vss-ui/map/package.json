@@ -28,21 +28,21 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "jsdom": "27.0.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "jsdom": "27.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@swc/cli": "^0.8.0",
-    "@swc/core": "^1.13.19",
-    "@testing-library/jest-dom": "^6.1.4",
+    "@swc/cli": "^0.8.1",
+    "@swc/core": "^1.16.1",
+    "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^30.0.0",
-    "@types/react": "18.0.28",
-    "@types/react-dom": "18.0.11",
-    "jest": "^30.3.0",
-    "jest-environment-jsdom": "^30.3.0",
-    "ts-jest": "^29.4.9",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "ts-jest": "^29.4.12",
     "typescript": "4.9.5"
   },
   "peerDependencies": {

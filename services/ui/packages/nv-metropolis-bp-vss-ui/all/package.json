@@ -30,16 +30,16 @@
     "@nv-metropolis-bp-vss-ui/map": "*",
     "@nv-metropolis-bp-vss-ui/search": "*",
     "@nv-metropolis-bp-vss-ui/video-management": "*",
-    "jsdom": "27.0.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "jsdom": "27.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@swc/cli": "^0.8.0",
-    "jest-environment-jsdom": "^30.3.0",
-    "@swc/core": "^1.13.19",
-    "@types/react": "18.0.28",
-    "@types/react-dom": "18.0.11",
+    "@swc/cli": "^0.8.1",
+    "jest-environment-jsdom": "^30.4.1",
+    "@swc/core": "^1.16.1",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
     "typescript": "4.9.5"
   },
   "peerDependencies": {
