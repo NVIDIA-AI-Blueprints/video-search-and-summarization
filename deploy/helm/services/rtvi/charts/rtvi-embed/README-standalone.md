@@ -179,15 +179,37 @@ Do **not** leave **`waitForKafka.enabled: true`** while **`messageBus`** or **`e
 
 ---
 
-## 7. Uninstall and clean PVC / data
+## 7. Optional decoded-frame IPC consumer
 
-### 7.1 Uninstall Helm release
+For live RTSP streams, configure the Embed consumer with a compatible RTVI CV
+producer's socket directory:
+
+```yaml
+ipcFrameCopy: true
+ipcSocketHostPath: /path/on/the/kubernetes-node/cv-ipc-sockets
+ipcSocketDir: /run/rtvi-ipc
+ipcSocketTemplate: nvds_ipc_{camera_id}.sock
+```
+
+The chart mounts `ipcSocketHostPath` as an existing `hostPath` directory at
+`ipcSocketDir`; it does not create the directory, configure RTVI CV, or enforce
+pod co-location. Schedule the producer and Embed on the same node, make the
+directory accessible to Embed's UID/GID `1001`, and use matching camera IDs.
+Send the stream processing request to both RTVI CV (the producer) and RTVI
+Embed (the consumer) with the same camera ID. IPC applies only to live RTSP
+video.
+
+---
+
+## 8. Uninstall and clean PVC / data
+
+### 8.1 Uninstall Helm release
 
 ```bash
 helm uninstall "${RELEASE}" --namespace "${NAMESPACE}"
 ```
 
-### 7.2 Remove model cache PVCs (optional, for a full data wipe)
+### 8.2 Remove model cache PVCs (optional, for a full data wipe)
 
 Default PVC names:
 
@@ -205,13 +227,13 @@ If the PVC name differs (prefix / override), list first:
 kubectl get pvc -n "${NAMESPACE}" | grep rtvi-embed
 ```
 
-### 7.3 Remove secrets (optional)
+### 8.3 Remove secrets (optional)
 
 ```bash
 kubectl delete secret hf-token-secret -n "${NAMESPACE}" --ignore-not-found
 ```
 
-### 7.4 Remove the namespace (optional, destructive)
+### 8.4 Remove the namespace (optional, destructive)
 
 ```bash
 kubectl delete namespace "${NAMESPACE}"

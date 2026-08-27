@@ -26,6 +26,7 @@
 | `MESSAGE_BUS`, `MESSAGE_BUS_TOPIC`, `ERROR_BUS`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding event and error publishing (see note below). |
 | `RTVI_EMBED_HF_CACHE`, `NGC_MODEL_CACHE`, `HF_TOKEN`, `NGC_API_KEY` | Configure model caches and credentials. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
+| `RTVI_EMBED_IPC_FRAME_COPY`, `RTVI_EMBED_IPC_SOCKET_HOST_DIR`, `RTVI_EMBED_IPC_SOCKET_DIR`, `RTVI_EMBED_IPC_SOCKET_TEMPLATE` | Enable live-stream decoded-frame IPC and configure the shared producer socket directory. |
 
 ## Kafka output contract
 
@@ -46,7 +47,10 @@ already defaults to `vision-embed-errors`, so only the bus toggle needs setting)
 
 RT-Embed has a fixed footprint determined primarily by its model, stream count,
 workers, and batch size. Prefer a dedicated device; share only when the measured
-combined budget fits. See `../sizing.md` for placement resolution and benchmark
+combined budget fits. For decoded-frame IPC, Embed must be co-located with the
+compatible RTVI CV producer on the same host and mount the producer socket
+directory. Send the stream processing request to both CV and Embed with the
+same camera ID. See `../sizing.md` for placement resolution and benchmark
 stream ceilings.
 
 ## Sources
