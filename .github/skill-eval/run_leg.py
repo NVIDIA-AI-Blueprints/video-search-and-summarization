@@ -339,6 +339,7 @@ def build_harbor_command(
             "-a", "agents.openclaw_unified_memory:UnifiedMemoryOpenClaw",
             "--model", model,
             "--ak", "session_to_trajectory=true",
+            "--ak", "thinking=off",
         ]
     else:
         raise ValueError(

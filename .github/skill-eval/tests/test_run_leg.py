@@ -191,6 +191,35 @@ class HarborCommand(unittest.TestCase):
         self.assertNotIn("--ak", cmd)
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
+    def test_build_command_openclaw_disables_unsupported_thinking(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/benchmark"),
+            include_task_name="step-1",
+            chain_key="benchmark_rtxpro6000bw",
+        )
+
+        cmd = run_leg.build_harbor_command(
+            invocation,
+            Path("/tmp/results"),
+            "openai/gpt-5.6-sol",
+            "",
+            "openclaw",
+        )
+
+        self.assertEqual(
+            cmd[cmd.index("-a") + 1],
+            "agents.openclaw_unified_memory:UnifiedMemoryOpenClaw",
+        )
+        agent_kwargs = [
+            cmd[index + 1]
+            for index, value in enumerate(cmd)
+            if value == "--ak"
+        ]
+        self.assertEqual(
+            agent_kwargs,
+            ["session_to_trajectory=true", "thinking=off"],
+        )
+
     def test_build_command_rejects_unknown_agent(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
