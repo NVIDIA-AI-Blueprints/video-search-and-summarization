@@ -269,7 +269,7 @@ class BrevEnvironment(BaseEnvironment):
         # archive step just below (move-not-delete, for forensic SSH access).
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
-            "sudo rm -rf /logs/artifacts /logs/verifier && "
+            "sudo rm -rf /logs/artifacts /logs/verifier /skills && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "

@@ -124,5 +124,35 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         calls = await self._run_start_for("step-10")
         self.assertEqual(calls, set(), "step-10 must skip all destructive prep")
 
+    async def test_every_task_clears_staged_skills_before_upload(self):
+        tmp = Path(tempfile.mkdtemp())
+        env_dir = tmp / "step-3" / "environment"
+        env_dir.mkdir(parents=True)
+        env = brev_env.BrevEnvironment()
+        env.environment_dir = env_dir
+        env._instance_name = "vss-eval-test"
+        commands: list[str] = []
+
+        async def record_exec(_instance, command, **_kwargs):
+            commands.append(command)
+            return _async_ok()
+
+        with mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
+             mock.patch.object(brev_env, "_find_brev_instance",
+                               new=mock.AsyncMock(return_value={"name": "vss-eval-test"})), \
+             mock.patch.object(brev_env, "_check_instance_matches",
+                               new=mock.AsyncMock(return_value=None)), \
+             mock.patch.object(brev_env, "_check_live_resources",
+                               new=mock.AsyncMock(return_value=None)), \
+             mock.patch.object(brev_env, "_run_brev_exec",
+                               new=mock.AsyncMock(side_effect=record_exec)):
+            await env.start(force_build=False)
+
+        self.assertTrue(
+            any("rm -rf /logs/artifacts /logs/verifier /skills" in cmd
+                for cmd in commands),
+            "every warm-worker task must remove stale staged skills",
+        )
+
 if __name__ == "__main__":
     unittest.main()
