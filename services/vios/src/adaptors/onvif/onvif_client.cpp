@@ -1370,12 +1370,20 @@ int OnvifClient::getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Val
     RecordingSearchScope scope;
     scope.includedSources.push_back(sensor->id);
 
-    time_t nowSec = time(nullptr);
+    // Anchor the search window ahead of the host clock. The window runs BACKWARD
+    // from the anchor, so anchoring exactly at the host "now" silently drops any
+    // recording newer than that -- which happens whenever the VMS clock runs ahead
+    // of this host (the same host/device clock skew the ONVIF UsernameToken offset
+    // cache exists to absorb). The margin only widens the window forward, so it can
+    // add results but never remove any. The lookback is extended by the same margin
+    // to keep the backward reach unchanged.
+    const long long searchForwardMarginSec = 24LL * 3600;   // 1 day of tolerated skew
+    time_t nowSec = time(nullptr) + (time_t)searchForwardMarginSec;
     struct tm tmNow{};
     gmtime_r(&nowSec, &tmNow);
     char nowBuf[32] = {0};
     strftime(nowBuf, sizeof(nowBuf), "%Y-%m-%dT%H:%M:%SZ", &tmNow);
-    const long long lookbackMs = 3650LL * 24 * 3600 * 1000; // ~10 years, wide enough for any retention
+    const long long lookbackMs = (3650LL * 24 * 3600 + searchForwardMarginSec) * 1000; // ~10 years, wide enough for any retention
 
     // filter: boolean(//tt:Track),anchortime,maxduration,maxmatches,startindex,endindex
     string filter = "boolean(//tt:Track)," + string(nowBuf) + "," +
