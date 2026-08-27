@@ -60,10 +60,15 @@ from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
 from utils.media_file_info import MediaFileInfo
 from vlm_pipeline.errors import format_cuda_oom_error
+from vlm_pipeline.ipc_frame_source import (
+    DEFAULT_IPC_META_DESERIALIZATION_LIB,
+    resolve_ipc_socket_path,
+)
 
 gi.require_version("Gst", "1.0")
+gi.require_version("GstVideo", "1.0")
 
-from gi.repository import GLib, Gst  # noqa: E402
+from gi.repository import GLib, Gst, GstVideo  # noqa: E402
 
 Gst.init(None)
 
@@ -99,6 +104,18 @@ if force_sw_av1:
         logger.warning("FORCE_SW_AV1_DECODER is set but av1dec element not found")
 
 UNTRACKED_OBJECT_ID = 0xFFFFFFFFFFFFFFFF
+_STANDARD_SEI_META_API_TYPE = None
+
+
+class _GstVideoSEIUserDataUnregisteredMeta(ctypes.Structure):
+    _fields_ = [
+        ("flags", ctypes.c_uint),
+        ("_padding", ctypes.c_uint),
+        ("info", ctypes.c_void_p),
+        ("uuid", ctypes.c_ubyte * 16),
+        ("data", ctypes.c_void_p),
+        ("size", ctypes.c_size_t),
+    ]
 
 
 def _set_gst_property_if_supported(element, property_name, value):
@@ -114,6 +131,49 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if raw_value is None or raw_value == "":
         return default
     return raw_value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _standard_sei_meta_api_type():
+    global _STANDARD_SEI_META_API_TYPE
+    if _STANDARD_SEI_META_API_TYPE is None:
+        _STANDARD_SEI_META_API_TYPE = GstVideo.video_sei_user_data_unregistered_meta_api_get_type()
+    return _STANDARD_SEI_META_API_TYPE
+
+
+def _parse_sei_json_payload(payload, size: Optional[int] = None):
+    if payload is None:
+        return None
+    if isinstance(payload, int) and size:
+        payload = ctypes.string_at(payload, size)
+    elif not isinstance(payload, bytes):
+        try:
+            payload = bytes(payload)
+        except TypeError:
+            return None
+    payload = payload[:size] if size is not None else payload
+    text = payload.rstrip(b"\x00").decode("utf-8", errors="ignore").strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end >= start:
+        text = text[start : end + 1]
+    return json.loads(text) if text else None
+
+
+def _get_buffer_sei_data(buffer):
+    """Read standard GstVideo SEI meta first, then legacy DeepStream metadata."""
+    standard_meta = buffer.get_meta(_standard_sei_meta_api_type())
+    if standard_meta:
+        data, size = getattr(standard_meta, "data", None), getattr(standard_meta, "size", None)
+        if data is None or size is None:
+            pointer = hash(standard_meta)
+            if pointer:
+                meta = _GstVideoSEIUserDataUnregisteredMeta.from_address(pointer)
+                data, size = meta.data, meta.size
+        return _parse_sei_json_payload(data, size), "gst_video_user_data_unregistered_meta"
+    if HAVE_SEI_META_LIB:
+        meta = gst_video_sei_meta.gst_buffer_get_video_sei_meta(hash(buffer))
+        if meta:
+            return _parse_sei_json_payload(meta.sei_metadata_ptr), "nvds_video_sei_meta"
+    return None, None
 
 
 def _cuda_oom_recovery_enabled() -> bool:
@@ -620,6 +680,7 @@ class VideoFileFrameGetter:
         self._previous_frame_height = 0
         self._last_frame_pts = 0
         self._uridecodebin = None
+        self._nvunixfdsrc = None
         self._adecodebin = None
         self._idecodebin = None
         self._vdecodebin = None
@@ -1273,13 +1334,14 @@ class VideoFileFrameGetter:
     ):
         # Construct DeepStream pipeline for decoding
         # For raw frames as tensor:
-        # uridecodebin -> probe (frame selector) -> nvvideconvert -> appsink
+        # uridecodebin/nvunixfdsrc -> probe (frame selector) -> nvvideoconvert -> appsink
         #     -> frame pre-processing -> add to cache
         # For jpeg images:
         # uridecodebin -> probe (frame selector) -> nvjpegenc -> appsink -> add to cache
         # For audio: uridecodebin -> probe -> audioconvert ->
         # resample -> asr -> appsink -> add text_to cache
         self._is_live = file_or_rtsp.startswith("rtsp://")
+        use_ipc_live_source = self._is_live and self._ipc_frame_copy_enabled
         pipeline = self._pipeline if create_source_elems_only else Gst.Pipeline()
 
         # Reset per-file GOP tracking state.
@@ -1411,7 +1473,31 @@ class VideoFileFrameGetter:
                 logger.info("Audio stream found.")
 
         uridecodebin = None
-        if self._is_live:
+        nvunixfdsrc = None
+        if use_ipc_live_source and create_source_elems_only:
+            logger.warning("IPC frame copy is ignored for source-only pipeline creation")
+            use_ipc_live_source = False
+        if use_ipc_live_source and self._enable_audio:
+            raise RuntimeError("Decoded-frame IPC does not support audio capture in this pipeline")
+        if use_ipc_live_source:
+            nvunixfdsrc = Gst.ElementFactory.make("nvunixfdsrc")
+            if nvunixfdsrc is None:
+                raise RuntimeError("Decoded-frame IPC is enabled but GStreamer element 'nvunixfdsrc' is unavailable")
+            nvunixfdsrc.set_property("socket-path", self._ipc_socket_path)
+            _set_gst_property_if_supported(nvunixfdsrc, "gpu-id", self._gpu_id)
+            _set_gst_property_if_supported(nvunixfdsrc, "buffer-timestamp-copy", True)
+            if self._ipc_meta_deserialization_lib:
+                _set_gst_property_if_supported(
+                    nvunixfdsrc, "meta-deserialization-lib", self._ipc_meta_deserialization_lib
+                )
+            pipeline.add(nvunixfdsrc)
+            self._nvunixfdsrc = nvunixfdsrc
+            logger.info(
+                "Using IPC decoded-frame source for stream %s at %s",
+                self._ipc_stream_identity or self._live_stream_request_id,
+                self._ipc_socket_path,
+            )
+        elif self._is_live:
             uridecodebin = Gst.ElementFactory.make("uridecodebin")
             uridecodebin.set_property("uri", file_or_rtsp)
             pipeline.add(uridecodebin)
@@ -1522,6 +1608,8 @@ class VideoFileFrameGetter:
 
         self._q1 = Gst.ElementFactory.make("queue")
         pipeline.add(self._q1)
+        if nvunixfdsrc:
+            nvunixfdsrc.link(self._q1)
 
         qvideoconvert = Gst.ElementFactory.make("queue")
         pipeline.add(qvideoconvert)
@@ -1730,22 +1818,13 @@ class VideoFileFrameGetter:
             self._last_frame_pts = buffer.pts
 
             if self._is_live:
-                buffer_address = hash(buffer)
-                if HAVE_SEI_META_LIB:
-                    video_sei_meta = gst_video_sei_meta.gst_buffer_get_video_sei_meta(
-                        buffer_address
-                    )
-                else:
-                    video_sei_meta = None
-
-                if video_sei_meta:
-                    try:
-                        sei_data = json.loads(video_sei_meta.sei_metadata_ptr)
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse SEI metadata JSON: {e}")
-                        sei_data = None
-
-                    if sei_data and "sim_time" in sei_data:
+                try:
+                    sei_data, _ = _get_buffer_sei_data(buffer)
+                except json.JSONDecodeError as exc:
+                    logger.warning("Failed to parse SEI metadata JSON: %s", exc)
+                    sei_data = None
+                if sei_data:
+                    if "sim_time" in sei_data:
                         sim_time = sei_data["sim_time"]
                         if isinstance(sim_time, (int, float)):
                             original_pts = buffer.pts
@@ -1780,12 +1859,8 @@ class VideoFileFrameGetter:
                             self._audio_end_cv.wait(1)
 
                 with self._live_stream_frame_selectors_lock:
-                    if video_sei_meta:
-                        try:
-                            self._sei_data = json.loads(video_sei_meta.sei_metadata_ptr)
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"Failed to parse SEI metadata JSON: {e}")
-                            self._sei_data = None
+                    if sei_data:
+                        self._sei_data = sei_data
 
                         if self._sei_data and self._sei_base_time is None:
                             if "timestamp" in self._sei_data:
@@ -2411,6 +2486,7 @@ class VideoFileFrameGetter:
         self._adecodebin = None
         self._idecodebin = None
         self._uridecodebin = None
+        self._nvunixfdsrc = None
         self._filesrc = None
         self._parsebin = None
         self._rtspsrc = None
@@ -2969,6 +3045,10 @@ class VideoFileFrameGetter:
         enable_audio=False,
         use_vlm_audio=False,
         live_stream_id="",
+        live_stream_identity="",
+        ipc_frame_copy_enabled: bool | None = None,
+        ipc_socket_dir: str | None = None,
+        ipc_socket_template: str | None = None,
         on_stream_error_callback: Optional[Callable[[str, str, int], None]] = None,
     ):
         if self._pipeline:
@@ -2994,6 +3074,30 @@ class VideoFileFrameGetter:
             self._live_stream_request_id = live_stream_id
         else:
             self._live_stream_request_id = str(uuid.uuid4())
+        self._ipc_stream_identity = live_stream_identity or live_stream_id or self._live_stream_request_id
+        self._ipc_frame_copy_enabled = (
+            _env_bool("RTVI_IPC_FRAME_COPY", False)
+            if ipc_frame_copy_enabled is None
+            else ipc_frame_copy_enabled
+        )
+        self._ipc_socket_path = (
+            resolve_ipc_socket_path(
+                self._ipc_stream_identity,
+                socket_dir=ipc_socket_dir,
+                socket_template=ipc_socket_template,
+            )
+            if self._ipc_frame_copy_enabled
+            else ""
+        )
+        self._ipc_meta_deserialization_lib = (
+            DEFAULT_IPC_META_DESERIALIZATION_LIB if self._ipc_frame_copy_enabled else ""
+        )
+        if self._ipc_frame_copy_enabled:
+            logger.info(
+                "IPC frame copy enabled for live stream %s via %s",
+                self._ipc_stream_identity,
+                self._ipc_socket_path,
+            )
         # Rerun the pipeline if it runs into errors like disconnection
         # Stop if pipeline stops with EOS
         while not self._stop_stream:
@@ -3159,14 +3263,23 @@ class VideoFileFrameGetter:
             # https://discourse.gstreamer.org/t/gstreamer-1-16-3-setting-rtsp-pipeline-to-null/538/11
             # TODO: Try latest GStreamer version for any fixes
             logger.debug("pipe teardown: unlink_source : %s", self._last_stream_id)
-            if self._tee is not None:
-                self._uridecodebin.unlink(self._tee)
-            else:
-                self._uridecodebin.unlink(self._q1)
+            source_elem = self._nvunixfdsrc or self._uridecodebin
+            if source_elem is not None:
+                try:
+                    if self._tee is not None:
+                        source_elem.unlink(self._tee)
+                    else:
+                        source_elem.unlink(self._q1)
+                except Exception as ex:
+                    logger.debug("Source unlink during teardown failed: %s", ex)
 
-            if self._audio_q1 is not None:
+            if self._audio_q1 is not None and self._uridecodebin is not None:
                 self._uridecodebin.unlink(self._audio_q1)
-            self._pipeline.remove(self._uridecodebin)
+            if source_elem is not None:
+                try:
+                    self._pipeline.remove(source_elem)
+                except Exception as ex:
+                    logger.debug("Source removal during teardown failed: %s", ex)
 
             # logger.debug(f"pipe teardown: to READY : {self._last_stream_id}")
             # self._pipeline.set_state(Gst.State.READY)
@@ -3178,6 +3291,8 @@ class VideoFileFrameGetter:
             # reliably and leaves RTSP source elements alive across Phase 2 probes.
             if self._rtspsrc:
                 self._set_element_null(self._rtspsrc, "RTSP source")
+            if self._nvunixfdsrc:
+                self._set_element_null(self._nvunixfdsrc, "IPC nvunixfd source")
             if self._uridecodebin:
                 self._set_element_null(self._uridecodebin, "URI decodebin")
             logger.debug("pipe teardown: done : %s", self._last_stream_id)

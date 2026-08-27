@@ -256,6 +256,18 @@ start_rtvi_server() {
     if [ ! -z "$MODEL_REPOSITORY_SCRIPT_PATH" ]; then
         EXTRA_ARGS+=" --model-repository-script-path $MODEL_REPOSITORY_SCRIPT_PATH"
     fi
+    ipc_frame_copy=$(echo "${RTVI_IPC_FRAME_COPY:-false}" | tr '[:upper:]' '[:lower:]')
+    ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-}"
+    ipc_socket_template="${RTVI_IPC_SOCKET_TEMPLATE:-}"
+    if [ "$ipc_frame_copy" = "true" ] || [ "$ipc_frame_copy" = "1" ] || [ "$ipc_frame_copy" = "yes" ] || [ "$ipc_frame_copy" = "on" ]; then
+        EXTRA_ARGS+=" --ipc-frame-copy"
+        if [ -n "$ipc_socket_dir" ]; then
+            EXTRA_ARGS+=" --ipc-socket-dir $ipc_socket_dir"
+        fi
+        if [ -n "$ipc_socket_template" ]; then
+            EXTRA_ARGS+=" --ipc-socket-template $ipc_socket_template"
+        fi
+    fi
 
     # Generated-message output bus configuration.
     if [ ! -z "$MESSAGE_BUS" ]; then
