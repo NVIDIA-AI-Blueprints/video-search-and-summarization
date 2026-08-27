@@ -32,17 +32,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  vss-behavior-analytics-playback-mc-tracking:
-    extends:
-      file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
-      service: vss-behavior-analytics-base
-    profiles: ["vss-behavior-analytics-playback-mc-tracking"]
-    volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-      - $VSS_DATA_DIR/playback/warehouse_20x20_playback.txt:/opt/mdx/playback/warehouse_20x20_playback.txt
-    container_name: vss-behavior-analytics-playback-mc-tracking
-    command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_20x20_playback.txt
-
   bp-configurator-mc-tracking-init:
     extends:
       file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml

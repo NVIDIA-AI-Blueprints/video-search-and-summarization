@@ -368,23 +368,30 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
 
 1. **Sample video data**
 
-   Sample videos come from the `vss-warehouse-app-data` NGC resource:
+   Sample videos come from the `vss-mc-tracking-app-data` NGC resource (dedicated to this profile — do not use the `vss-warehouse-app-data` resource here):
 
    ```bash
    ngc \
       registry \
       resource \
       download-version \
-      nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+      nv-metropolis-dev/vss-developer/vss-mc-tracking-app-data:3.3.0-08262026
 
-   # OR manually download the tar file from NGC:
-   # https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
+   # OR manually download the zip file from NGC:
+   # https://catalog.ngc.nvidia.com/orgs/nv-metropolis-dev/teams/vss-developer/resources/vss-mc-tracking-app-data?version=3.3.0-08262026
 
-   cd vss-warehouse-app-data_v3.2.0
-   tar -xvf vss-warehouse-app-data.tar.gz
+   cd vss-mc-tracking-app-data_v3.3.0-08262026
+   unzip vss-mc-tracking-app-data.zip
+
+   # Prepare the writable model destination used by ds-start phase-0 download
+   sudo mkdir -p /path/to/vss-mc-tracking-app-data/models
+   sudo chmod 0777 /path/to/vss-mc-tracking-app-data/models
+
+   # This is the path to the data directory. It is set in the developer-profiles/dev-profile-mc-tracking/overrides.env file for VSS_DATA_DIR.
+   #VSS_DATA_DIR="/path/to/vss-mc-tracking-app-data"
    ```
 
-   Point `VSS_DATA_DIR` at the extracted directory (step 2). Calibration/camInfo/imagery for the default dataset are self-contained in-repo under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/` — no separate calibration download needed.
+   Point `VSS_DATA_DIR` at the extracted directory (containing `videos/nv-warehouse-4cams/` and a pre-populated `data_log/`). Calibration/camInfo/imagery for the default dataset are self-contained in-repo under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/nv-warehouse-4cams/` — no separate calibration download needed.
 
    Models download automatically on first perception start via `models-download.json` (`DS_MODEL_DOWNLOAD=auto`, the default) — ensure `NGC_CLI_API_KEY` is set and `$VSS_DATA_DIR/models` exists and is writable before first deploy.
 
@@ -393,10 +400,10 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
    Keep stable profile defaults in **`developer-profiles/dev-profile-mc-tracking/.env`**. Update **`developer-profiles/dev-profile-mc-tracking/overrides.env`** directly for the target machine:
 
    - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
-   - **`VSS_DATA_DIR`**: extracted `vss-warehouse-app-data` directory (step 1)
+   - **`VSS_DATA_DIR`**: extracted `vss-mc-tracking-app-data` directory (step 1)
    - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
    - **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse and BodyPose3DNet model packages
-   - **`HARDWARE_PROFILE`**, **`STREAM_TYPE`** (`kafka` or `redis`), and **`COMPOSE_PROFILES`** — keep `STREAM_TYPE` and `COMPOSE_PROFILES` aligned (`COMPOSE_PROFILES_MC_TRACKING_KAFKA`/`_REDIS` and their `_MINIMAL`/`_PLAYBACK` variants)
+   - **`HARDWARE_PROFILE`**, **`STREAM_TYPE`** (`kafka` or `redis`), and **`COMPOSE_PROFILES`** — keep `STREAM_TYPE` and `COMPOSE_PROFILES` aligned (`COMPOSE_PROFILES_MC_TRACKING_KAFKA`/`_REDIS` and their `_MINIMAL` variants)
 
 3. **Start the stack**
 
@@ -438,7 +445,7 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
    bash scripts/cleanup_all_datalog.sh -e developer-profiles/dev-profile-mc-tracking/overrides.env
    ```
 
-   This deletes calibration output and VST/nvstreamer runtime data by default (matching `cleanup_all_datalog.sh`'s defaults) — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` / `$VSS_DATA_DIR/playback/` (sample media) — those aren't removed by this script for any profile.
+   This deletes calibration output and VST/nvstreamer runtime data by default (matching `cleanup_all_datalog.sh`'s defaults) — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` (sample media) — those aren't removed by this script for any profile.
 
 ---
 

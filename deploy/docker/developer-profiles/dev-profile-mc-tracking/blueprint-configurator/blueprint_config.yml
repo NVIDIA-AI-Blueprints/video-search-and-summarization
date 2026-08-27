@@ -85,7 +85,7 @@ commons:
         error_message: "When HARDWARE_PROFILE is DGX-SPARK, PERCEPTION_TAG must contain 'sbsa'"
 
       - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "warehouse-4cams-20mx20m-synthetic"
+        when_equals: "nv-warehouse-4cams"
         validate_conditions:
           and:
             - variable: MODE
@@ -185,7 +185,6 @@ commons:
 # ========================================================================================================
 # HARDWARE PROFILES
 # ========================================================================================================
-# RTXPRO4500BW intentionally has no mc-tracking entry below.
 
 H100:
   mc-tracking:
