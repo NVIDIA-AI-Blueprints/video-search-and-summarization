@@ -168,7 +168,14 @@ The upstream perf guide doesn't publish a single GB number — it publishes per-
 
 ## Worked example — LLM + RT-Embed on GPU 1
 
-Default layout, Nano 9B v2 LLM + Cosmos-Embed1 on GPU 1.
+Default layout, Nemotron 3.5 Lightning 30B A3B LLM + Cosmos-Embed1 on GPU 1.
+
+Note: `hw-H100-shared.env` pins `NIM_MODEL_PROFILE` to the INT4 tp1 profile
+(`vllm-int4-tp1-pp1-32.0`, requires >=32 GB). Raising the LLM's share below only
+buys KV cache — the weights already fit. vLLM also requires
+`free_memory >= NIM_GPU_MEM_FRACTION x total_memory` and does *not* subtract
+memory held by other processes, so the fraction must stay under whatever RT-Embed
+and the rest of the stack leave free.
 
 **RT-Embed budget rule of thumb: 10 GB.** Cosmos-Embed1 weights are ~2 GB (1 B params at FP16); the rest is per-stream activation buffers, decoder workers, and Triton/ONNX runtime overhead. 10 GB is a comfortable budget for `NUM_STREAMS=16` on any GPU. Reserve those 10 GB and give the LLM the rest, leaving the standard 15% framework headroom.
 
