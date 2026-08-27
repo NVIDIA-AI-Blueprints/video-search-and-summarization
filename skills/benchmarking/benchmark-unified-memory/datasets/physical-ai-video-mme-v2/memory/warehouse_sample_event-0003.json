@@ -1,0 +1,40 @@
+{
+  "schema": "nv.vss.memory/1.0",
+  "job": {
+    "job_id": "summary:b0d71467-9698-4966-9f87-661f939cfc58",
+    "record_id": "event:b0d71467-9698-4966-9f87-661f939cfc58:0003",
+    "record_type": "event",
+    "group": "summary",
+    "operation": "run",
+    "status": "completed",
+    "created_at": "2026-08-26T18:46:25Z"
+  },
+  "input": {
+    "sensors": [
+      {
+        "id": "warehouse_sample",
+        "type": "vst",
+        "info": {
+          "source": "vst",
+          "stream_id": "bc8f9efc-16d0-48a0-81b4-e25ee61d2ea0",
+          "name": "warehouse_sample.mp4"
+        }
+      }
+    ],
+    "window": {
+      "start": {
+        "timestamp": "2025-01-01T00:00:00Z"
+      },
+      "end": {
+        "timestamp": "2025-01-01T00:00:50Z"
+      }
+    }
+  },
+  "output": {
+    "answer": "A group of workers in high-visibility yellow vests or jackets and helmets are engaged in organizing, inspecting, and moving items within a large warehouse featuring tall green metal storage racks labeled C, D, E, and F. Activities include standing near pallets (E and F), handling cardboard boxes in aisle D, and navigating between racks in aisles C and D while avoiding obstacles. The scene emphasizes coordinated tasks in a restricted-area environment.",
+    "ext": {
+      "source_event_id": 3,
+      "event_type": "restricted-area activity"
+    }
+  }
+}

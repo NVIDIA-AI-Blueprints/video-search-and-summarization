@@ -1,0 +1,40 @@
+{
+  "schema": "nv.vss.memory/1.0",
+  "job": {
+    "job_id": "summary:b0d71467-9698-4966-9f87-661f939cfc58",
+    "record_id": "event:b0d71467-9698-4966-9f87-661f939cfc58:0006",
+    "record_type": "event",
+    "group": "summary",
+    "operation": "run",
+    "status": "completed",
+    "created_at": "2026-08-26T18:46:25Z"
+  },
+  "input": {
+    "sensors": [
+      {
+        "id": "warehouse_sample",
+        "type": "vst",
+        "info": {
+          "source": "vst",
+          "stream_id": "bc8f9efc-16d0-48a0-81b4-e25ee61d2ea0",
+          "name": "warehouse_sample.mp4"
+        }
+      }
+    ],
+    "window": {
+      "start": {
+        "timestamp": "2025-01-01T00:02:20Z"
+      },
+      "end": {
+        "timestamp": "2025-01-01T00:03:30Z"
+      }
+    }
+  },
+  "output": {
+    "answer": "Workers in yellow hard hats and high-visibility vests, as well as individuals in white shirts and dark pants, are present near a restricted area cordoned off with yellow caution tape and orange traffic cones between aisles C and E. The zone may extend to D and F in some sections and contains stacked cardboard boxes and pallets. Workers are observed standing, holding caution tape, or monitoring the area, with some positioned behind storage racks or near the perimeter marked by cones.",
+    "ext": {
+      "source_event_id": 6,
+      "event_type": "restricted-area activity"
+    }
+  }
+}

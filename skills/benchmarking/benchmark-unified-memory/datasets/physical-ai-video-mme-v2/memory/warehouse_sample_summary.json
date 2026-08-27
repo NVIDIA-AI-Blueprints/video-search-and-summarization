@@ -67,50 +67,6 @@
       },
       "event_count": 6,
       "total_events": 6,
-      "events": [
-        {
-          "id": 1,
-          "start_time": "2025-01-01T00:00:00Z",
-          "end_time": "2025-01-01T00:02:10Z",
-          "type": "restricted-area activity",
-          "description": "A person in a plaid shirt and jeans walks through the aisle between metal shelving units labeled C, D, E, and F, carrying a small object. Workers in yellow hard hats and high-visibility vests are present near orange traffic cones and yellow caution tape stretched across the aisle between storage racks labeled C and D (and possibly C and E), indicating a restricted area. The presence of multiple workers suggests coordinated activity within the zone."
-        },
-        {
-          "id": 2,
-          "start_time": "2025-01-01T00:00:00Z",
-          "end_time": "2025-01-01T00:02:10Z",
-          "type": "forklift activity",
-          "description": "A yellow forklift is parked near shelf unit F on the right side of the aisle, adjacent to stacked cardboard boxes, remaining stationary. Simultaneously, a forklift operator wearing a yellow hard hat maneuvers another forklift through the aisle, navigating past stacked pallets and boxes while maintaining a safe distance from the marked restricted zone."
-        },
-        {
-          "id": 3,
-          "start_time": "2025-01-01T00:00:00Z",
-          "end_time": "2025-01-01T00:00:50Z",
-          "type": "restricted-area activity",
-          "description": "A group of workers in high-visibility yellow vests or jackets and helmets are engaged in organizing, inspecting, and moving items within a large warehouse featuring tall green metal storage racks labeled C, D, E, and F. Activities include standing near pallets (E and F), handling cardboard boxes in aisle D, and navigating between racks in aisles C and D while avoiding obstacles. The scene emphasizes coordinated tasks in a restricted-area environment."
-        },
-        {
-          "id": 4,
-          "start_time": "2025-01-01T00:01:00Z",
-          "end_time": "2025-01-01T00:01:40Z",
-          "type": "restricted-area activity",
-          "description": "A person wearing a high-visibility yellow jacket (and possibly a white hard hat) is observed near a pallet rack aisle marked with signs C, D, E, and F, managing inventory. Additionally, a yellow high-visibility jacket is displayed on a black stand near pallet F, indicating a designated storage area."
-        },
-        {
-          "id": 5,
-          "start_time": "2025-01-01T00:01:50Z",
-          "end_time": "2025-01-01T00:02:10Z",
-          "type": "restricted-area activity",
-          "description": "A restricted-area activity involves workers in yellow hard hats and high-visibility vests operating near aisles C through F. Yellow caution tape cordoned off part of the area between aisles C and D, with orange traffic cones placed on the floor to mark hazards. One worker near aisle C holds a black object beside green-labeled shelving, while another near aisle F is partially obscured by stacked cardboard boxes. A separate worker near aisle D bends to adjust or inspect an item on the ground, with pallets marked with green labels positioned beside them. The space features tall metal shelving units filled with boxes and pallets, emphasizing the cordoned-off work zone."
-        },
-        {
-          "id": 6,
-          "start_time": "2025-01-01T00:02:20Z",
-          "end_time": "2025-01-01T00:03:30Z",
-          "type": "restricted-area activity",
-          "description": "Workers in yellow hard hats and high-visibility vests, as well as individuals in white shirts and dark pants, are present near a restricted area cordoned off with yellow caution tape and orange traffic cones between aisles C and E. The zone may extend to D and F in some sections and contains stacked cardboard boxes and pallets. Workers are observed standing, holding caution tape, or monitoring the area, with some positioned behind storage racks or near the perimeter marked by cones."
-        }
-      ],
       "uuids": [
         "11ea660f-d364-4246-9181-47afd6229264"
       ],

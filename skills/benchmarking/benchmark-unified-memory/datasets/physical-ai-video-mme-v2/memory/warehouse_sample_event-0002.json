@@ -1,0 +1,40 @@
+{
+  "schema": "nv.vss.memory/1.0",
+  "job": {
+    "job_id": "summary:b0d71467-9698-4966-9f87-661f939cfc58",
+    "record_id": "event:b0d71467-9698-4966-9f87-661f939cfc58:0002",
+    "record_type": "event",
+    "group": "summary",
+    "operation": "run",
+    "status": "completed",
+    "created_at": "2026-08-26T18:46:25Z"
+  },
+  "input": {
+    "sensors": [
+      {
+        "id": "warehouse_sample",
+        "type": "vst",
+        "info": {
+          "source": "vst",
+          "stream_id": "bc8f9efc-16d0-48a0-81b4-e25ee61d2ea0",
+          "name": "warehouse_sample.mp4"
+        }
+      }
+    ],
+    "window": {
+      "start": {
+        "timestamp": "2025-01-01T00:00:00Z"
+      },
+      "end": {
+        "timestamp": "2025-01-01T00:02:10Z"
+      }
+    }
+  },
+  "output": {
+    "answer": "A yellow forklift is parked near shelf unit F on the right side of the aisle, adjacent to stacked cardboard boxes, remaining stationary. Simultaneously, a forklift operator wearing a yellow hard hat maneuvers another forklift through the aisle, navigating past stacked pallets and boxes while maintaining a safe distance from the marked restricted zone.",
+    "ext": {
+      "source_event_id": 2,
+      "event_type": "forklift activity"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "nv.vss.memory/1.0",
+  "job": {
+    "job_id": "summary:d0f1d526-1082-43be-ba82-cc3ee3efce20",
+    "record_id": "event:d0f1d526-1082-43be-ba82-cc3ee3efce20:0004",
+    "record_type": "event",
+    "group": "summary",
+    "operation": "run",
+    "status": "completed",
+    "created_at": "2026-08-26T20:20:14Z"
+  },
+  "input": {
+    "sensors": [
+      {
+        "id": "sample-sim-traffic",
+        "type": "vst",
+        "info": {
+          "source": "vst",
+          "stream_id": "c84a65a8-d400-4ada-aca1-4d7a26cc4961",
+          "name": "sample-sim-traffic.mp4"
+        }
+      }
+    ],
+    "window": {
+      "start": {
+        "timestamp": "2025-01-01T00:00:00Z"
+      },
+      "end": {
+        "timestamp": "2025-01-01T00:01:40Z"
+      }
+    }
+  },
+  "output": {
+    "answer": "A dark-colored SUV navigates a roundabout, accompanied by a white truck and a smaller passenger car entering or exiting. A bright yellow sedan stands out due to its color. Nearby, a black police car with flashing red and blue lights drives through the roundabout, following a yellow taxi and a red SUV. On the left side of the intersection, a black truck is positioned near a stop sign, while a yellow school bus is visible on the right side, both stationary or moving slowly.",
+    "ext": {
+      "source_event_id": 4,
+      "event_type": "notable types of vehicles"
+    }
+  }
+}

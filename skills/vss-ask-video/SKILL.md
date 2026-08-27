@@ -81,12 +81,17 @@ Use this route when the question starts with `Regarding video <video-id> in memo
 3. If the summary is insufficient, retrieve the full record into this task's `$TMPDIR`:
    ```bash
    VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-   uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev --extra cli \
-     python ~/.openclaw/skills/vss-ask-video/scripts/memory_access/get.py \
-     --record-id '<authoritative_record_id>' \
-     --output "$TMPDIR/authoritative-memory.json" \
-     --es-endpoint '<deployed-memory-elasticsearch-endpoint>' \
-     --memory-index '<deployed-memory-index>'
+   VSS=(
+     uv run
+     --project "$VSS_REPO_ROOT/services/agent"
+     --no-dev
+     --extra cli
+     vss
+   )
+   "${VSS[@]}" memory get \
+     --job-id '<authoritative_record_id>' \
+     --pretty \
+     > "$TMPDIR/authoritative-memory.json"
    ```
    If the full record is sufficient, answer from it.
 4. Only if the full record is still insufficient, pass that exact file to visual introspection:

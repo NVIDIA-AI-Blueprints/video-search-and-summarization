@@ -1,0 +1,40 @@
+{
+  "schema": "nv.vss.memory/1.0",
+  "job": {
+    "job_id": "summary:b0d71467-9698-4966-9f87-661f939cfc58",
+    "record_id": "event:b0d71467-9698-4966-9f87-661f939cfc58:0004",
+    "record_type": "event",
+    "group": "summary",
+    "operation": "run",
+    "status": "completed",
+    "created_at": "2026-08-26T18:46:25Z"
+  },
+  "input": {
+    "sensors": [
+      {
+        "id": "warehouse_sample",
+        "type": "vst",
+        "info": {
+          "source": "vst",
+          "stream_id": "bc8f9efc-16d0-48a0-81b4-e25ee61d2ea0",
+          "name": "warehouse_sample.mp4"
+        }
+      }
+    ],
+    "window": {
+      "start": {
+        "timestamp": "2025-01-01T00:01:00Z"
+      },
+      "end": {
+        "timestamp": "2025-01-01T00:01:40Z"
+      }
+    }
+  },
+  "output": {
+    "answer": "A person wearing a high-visibility yellow jacket (and possibly a white hard hat) is observed near a pallet rack aisle marked with signs C, D, E, and F, managing inventory. Additionally, a yellow high-visibility jacket is displayed on a black stand near pallet F, indicating a designated storage area.",
+    "ext": {
+      "source_event_id": 4,
+      "event_type": "restricted-area activity"
+    }
+  }
+}
