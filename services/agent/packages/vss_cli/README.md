@@ -62,10 +62,11 @@ vss configure check    # re-probe; exit 3 if a route disappeared
 |-------|-----------|-------|
 | `vss search` | Fused archive search over ES + the embedding NIM | `run`, `status`, `get`, `list` |
 | `vss summarize` | VLM summarization of stored video | `run`, `status`, `get`, `list` |
+| `vss vlm` | One VLM answer from a recorded sensor window | `run`, `status`, `get`, `list` |
 | `vss vios` | Media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
 | `vss configure` | Resolve and record a deployment | `show`, `check` |
 
-`search` and `summarize` are **job groups**: every run mints a `job_id`, and the
+`search`, `summarize`, and `vlm` are **job groups**: every run mints a `job_id`, and the
 result stays retrievable by that id. `vios` is **not** — it resolves handles and
 mints URLs, so it has no job verbs. See [AGENTS.md](AGENTS.md#the-two-shapes).
 

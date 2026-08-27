@@ -8,10 +8,14 @@ helpers) and the command group owns the translation from its backend's shapes.
 ``vss vlm run`` is a **point call** — one bounded synchronous inference. The
 lifecycle is simpler than ``vss summarize``: no submitted/running intermediate
 states are needed. Exactly one record is written, with a terminal status.
+
+``VLMAdapter`` is the runner/introspection shape: a fully resolved sensor window
+with stream identity. The CLI point-call uses ``VlmAdapter``.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from vss_core.memory.adapters import LifecycleAdapter
@@ -28,10 +32,10 @@ def _time_window(start_time: str | None, end_time: str | None) -> TimeWindow | N
     if not start_time:
         return None
     from datetime import UTC
-    from datetime import datetime
+    from datetime import datetime as datetime_cls
 
     def _parse(value: str) -> TimestampPoint:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+        dt = datetime_cls.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
         return TimestampPoint(timestamp=dt)
 
     return TimeWindow(
@@ -91,4 +95,55 @@ class VlmAdapter(LifecycleAdapter):
         return MemoryOutput(answer=answer, handles=handles, ext=ext)
 
 
-__all__ = ["VlmAdapter"]
+class VLMAdapter(LifecycleAdapter):
+    """Parent adapter for the shared ``run_vlm_job`` runner (group ``vlm``)."""
+
+    group: MemoryGroup = "vlm"
+
+    @staticmethod
+    def build_input(
+        *,
+        prompt: str,
+        intent: str,
+        sensor_name: str,
+        sensor_type: str,
+        sensor_id: str,
+        stream_id: str,
+        start_time: str,
+        end_time: str,
+        params: dict[str, Any],
+    ) -> MemoryInput:
+        return MemoryInput(
+            query=prompt,
+            intent=intent,
+            sensors=[
+                SensorInfo(
+                    id=sensor_name,
+                    type=sensor_type,
+                    info={"sensor_id": sensor_id, "stream_id": stream_id},
+                )
+            ],
+            window=TimeWindow(
+                start=TimestampPoint(timestamp=datetime.fromisoformat(start_time.replace("Z", "+00:00"))),
+                end=TimestampPoint(timestamp=datetime.fromisoformat(end_time.replace("Z", "+00:00"))),
+            ),
+            params=params,
+        )
+
+    @staticmethod
+    def build_output(
+        *,
+        answer: str,
+        model: str,
+        media_urls: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> MemoryOutput:
+        ext = {"model": model, **(metadata or {})}
+        return MemoryOutput(
+            answer=answer,
+            handles=OutputHandles(media_urls=media_urls) if media_urls else None,
+            ext=ext,
+        )
+
+
+__all__ = ["VLMAdapter", "VlmAdapter"]
