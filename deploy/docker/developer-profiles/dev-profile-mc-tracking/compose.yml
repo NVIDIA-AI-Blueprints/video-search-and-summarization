@@ -261,11 +261,11 @@ services:
       - PYTHONUNBUFFERED=1
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:${REID_SERVICE_PORT:-8088}/health/live"]
-      interval: 60s
-      timeout: 3s
+      test: ["CMD", "curl", "-fsS", "http://localhost:${REID_SERVICE_PORT:-8088}/health/ready"]
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 300s
     deploy:
       resources:
         reservations:
