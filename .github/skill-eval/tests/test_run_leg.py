@@ -500,6 +500,64 @@ class RunCommand(unittest.TestCase):
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
         cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
 
+    def test_reaped_strays_do_not_turn_a_finished_trial_into_a_timeout(self):
+        """Harbor finished; only its transports lingered, and cleanup won.
+
+        Returning 124 here discarded a completed trial -- and because rc==124
+        also writes skip markers, it took every later step of a multi-step
+        spec with it. IN-1 scored reward 1.0 on step 1 and still reported
+        `0/1 specs passed`, steps 2-4 `not-run`.
+        """
+        proc = mock.Mock(pid=4321)
+        proc.wait.return_value = 0
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(
+                run_leg, "_registered_transport_groups", return_value=[999]
+            ),
+            mock.patch.object(
+                run_leg, "_cancel_process_tree", return_value=True
+            ) as cancel_tree,
+        ):
+            rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
+
+        self.assertEqual(rc, 0)
+        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
+
+    def test_unreaped_strays_still_report_a_timeout(self):
+        """The case the 124 exists for: descendants may still touch the box."""
+        proc = mock.Mock(pid=4321)
+        proc.wait.return_value = 0
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(
+                run_leg, "_registered_transport_groups", return_value=[999]
+            ),
+            mock.patch.object(
+                run_leg, "_cancel_process_tree", return_value=False
+            ),
+        ):
+            rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
+
+        self.assertEqual(rc, 124)
+
+    def test_a_real_harbor_failure_is_still_reported(self):
+        """A nonzero Harbor rc survives the stray-transport path unchanged."""
+        proc = mock.Mock(pid=4321)
+        proc.wait.return_value = 3
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(
+                run_leg, "_registered_transport_groups", return_value=[999]
+            ),
+            mock.patch.object(
+                run_leg, "_cancel_process_tree", return_value=True
+            ),
+        ):
+            rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
+
+        self.assertEqual(rc, 3)
+
     def test_signal_during_post_wait_group_scan_still_cleans_child_tree(self):
         proc = mock.Mock(pid=4321)
         proc.wait.return_value = 0
@@ -711,6 +769,54 @@ class RunInvocations(unittest.TestCase):
 
         self.assertEqual(rc, 124)
         run.assert_called_once()
+
+    def test_passing_step_lets_the_chain_continue(self):
+        """reward 1.0 and rc 0 must run step 2 and write no skip markers.
+
+        This is the downstream half of the stray-transport fix: when a
+        finished trial was reported as 124, this path wrote skip markers and
+        returned, so a step that scored 1.0 took the rest of the spec down
+        with it.
+        """
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path("/tmp/datasets/spec"),
+                include_task_name=f"step-{index}",
+                chain_key="spec_rtx",
+                step_index=index,
+                step_count=2,
+            )
+            for index in (1, 2)
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scratch = root / "scratch"
+            with (
+                mock.patch.dict(run_leg.os.environ, self.ENV, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ),
+                mock.patch.object(run_leg, "run_command", return_value=0) as run,
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(
+                    run_leg, "write_skip_markers"
+                ) as skip_markers,
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    scratch,
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(run.call_count, 2)
+        skip_markers.assert_not_called()
 
     def test_chain_timeout_writes_skip_markers_before_stopping(self):
         invocations = [
