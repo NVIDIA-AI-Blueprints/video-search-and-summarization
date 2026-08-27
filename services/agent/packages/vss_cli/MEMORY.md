@@ -52,6 +52,12 @@ recall, `events` for temporal child-record recall, and `upsert` for explicit
 record writes. Identity, status, sensor, time-window, text, and result-limit
 flags remain dynamic.
 
+Memory records use the human-readable VIOS sensor name in
+`input.sensors[].id`; internal sensor UUIDs, stream IDs, and video IDs remain
+under `input.sensors[].info`. Sensor filters also match older records that
+stored the readable name as `input.sensors[].info.name`. Text queries rank by
+relevance before recency, while queries without text remain newest-first.
+
 Accepted job groups are `summary`, `search`, `alert`, and `vlm`. `media` is
 not a job group because VIOS does not mint job IDs or memory completion
 records.

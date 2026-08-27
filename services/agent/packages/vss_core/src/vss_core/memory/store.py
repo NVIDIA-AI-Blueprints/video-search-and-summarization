@@ -113,6 +113,8 @@ def is_parent_storage_id(storage_id: str) -> bool:
 class MemoryQuery:
     """Free-form / filtered query over persisted unified-memory records.
 
+    ``sensor_id`` names a VIOS sensor. Backends also match legacy records that
+    stored that name in ``input.sensors[].info.name``.
     ``since`` / ``until`` filter on ``job.created_at`` when ``time_field`` is
     ``\"created_at\"`` (default), or on child event windows when
     ``time_field=\"window\"`` (``input.window.start`` / ``end`` overlap).

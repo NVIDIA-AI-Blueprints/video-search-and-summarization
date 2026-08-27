@@ -17,7 +17,10 @@ def _sensor_match(record: UnifiedMemoryRecord, sensor_id: str | None) -> bool:
     if not sensor_id:
         return True
     sensors = (record.input.sensors if record.input is not None else None) or []
-    return any(sensor.id == sensor_id for sensor in sensors)
+    return any(
+        sensor.id == sensor_id or (sensor.info is not None and sensor.info.get("name") == sensor_id)
+        for sensor in sensors
+    )
 
 
 def _time_in_range(value: datetime, since: datetime | None, until: datetime | None) -> bool:
@@ -89,6 +92,12 @@ def _matches_query(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
     return True
 
 
+def _text_score(record: UnifiedMemoryRecord, text: str) -> int:
+    """Simple relevance score for parity with Elasticsearch ``_score`` ordering."""
+    needle = text.casefold()
+    return sum(haystack.casefold().count(needle) for haystack in _text_haystacks(record))
+
+
 def _matches_filters(record: UnifiedMemoryRecord, filters: JobFilters) -> bool:
     if record.job.is_child:
         return False
@@ -134,7 +143,10 @@ class InMemoryStore:
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         matched = [record for record in self._records.values() if _matches_query(record, query)]
-        matched.sort(key=_sort_key, reverse=True)
+        if query.text:
+            matched.sort(key=lambda record: (_text_score(record, query.text or ""), _sort_key(record)), reverse=True)
+        else:
+            matched.sort(key=_sort_key, reverse=True)
         return matched[: max(query.limit, 0)]
 
     def list_jobs(self, filters: JobFilters) -> list[UnifiedMemoryRecord]:

@@ -231,7 +231,24 @@ def test_build_search_body_parent_filters() -> None:
     bool_query = body["query"]["bool"]
     assert {"exists": {"field": "job.record_id"}} in bool_query["must_not"]
     assert {"term": {"job.group.keyword": "search"}} in bool_query["filter"]
-    assert {"term": {"input.sensors.id.keyword": "cam-1"}} in bool_query["filter"]
+    assert {
+        "bool": {
+            "should": [
+                {"term": {"input.sensors.id.keyword": "cam-1"}},
+                {"term": {"input.sensors.info.name.keyword": "cam-1"}},
+            ],
+            "minimum_should_match": 1,
+        }
+    } in bool_query["filter"]
+    assert body["sort"][0] == {"_score": {"order": "desc"}}
+
+
+def test_build_search_body_without_text_sorts_only_by_recency() -> None:
+    body = ElasticsearchMemoryStore._build_search_body(sensor_id="cam-1")
+    assert body["sort"] == [
+        {"job.updated_at": {"order": "desc", "missing": "_last"}},
+        {"job.created_at": {"order": "desc"}},
+    ]
 
 
 def test_build_search_body_child_window_filters() -> None:
