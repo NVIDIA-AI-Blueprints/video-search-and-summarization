@@ -1561,6 +1561,18 @@ for _nemotron_3_5_env in \
   fi
 done
 
+# H100 shared-GPU: the LLM gets NIM_GPU_MEM_FRACTION=0.5 while co-located with RT-Embed
+# (search) or RT-VLM (base/LVS), so the INT4 tp1 profile must stay pinned — bf16-tp1
+# needs 66 GB and nvfp4 is Blackwell-only.
+_nemotron_3_5_h100_shared="${REPO_ROOT}/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env"
+if grep -Fq "NIM_MODEL_PROFILE=2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4" "${_nemotron_3_5_h100_shared}"; then
+  echo "PASS: hw-H100-shared.env pins the Nemotron 3.5 INT4 tp1 profile"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: hw-H100-shared.env does not pin the Nemotron 3.5 INT4 tp1 profile"
+  ((TESTS_FAILED++)) || true
+fi
+
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
 # DGX-SPARK (and IGX-THOR) are only valid for base and alerts
 for _profile in base alerts; do
