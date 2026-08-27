@@ -5,7 +5,7 @@ ARG PYTHON_VERSION=3.12
 ARG TAG=v3.5.2
 ARG RUN_VERSION=3.14
 ARG RUN_TAG=v4.0.9
-ARG IMG=nvcr.io/nvidian/distroless/python:${PYTHON_VERSION}-${TAG}
+ARG IMG=nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}-${TAG}
 ############################################################################################
 # Create base container
 ############################################################################################
