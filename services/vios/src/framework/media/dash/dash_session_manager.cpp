@@ -129,9 +129,40 @@ double parseFrameRate(const std::string& value, double fallback)
  *
  * Falls back to the configured duration when the interval is not known yet,
  * which is the behaviour every session had before it was measured. */
-unsigned segmentDurationFor(const std::string& govLength, const std::string& frameRate,
-                            unsigned configured)
+/* A session that re-encodes does not inherit the source's keyframe interval:
+ * the encoder is told its own, so the segments it can actually produce are that
+ * long and no longer.  Sizing them from the camera instead advertises segments
+ * the media does not contain - a 250 picture source re-encoded at one second
+ * was published as nine second segments, and a player that must hold a whole
+ * segment before it can show any of it froze for ten seconds at a time with ten
+ * seconds already buffered. */
+unsigned encoderSegmentSeconds(const std::string& frameRate, unsigned configured)
 {
+    const int interval = GET_CONFIG().webrtc_out_set_idr_interval > 0
+                             ? GET_CONFIG().webrtc_out_set_idr_interval
+                             : GET_CONFIG().webrtc_out_set_iframe_interval;
+    const double rate = parseFrameRate(frameRate, 0.0);
+    if (interval <= 0 || rate <= 0.0)
+    {
+        return configured;
+    }
+    const double seconds = static_cast<double>(interval) / rate;
+    if (seconds <= 0.0 || seconds > 60.0)
+    {
+        return configured;
+    }
+    // Never below one second: a sub-second grid multiplies requests per stream
+    // for no benefit a viewer can see.
+    return static_cast<unsigned>(std::max(1.0, std::ceil(seconds)));
+}
+
+unsigned segmentDurationFor(const std::string& govLength, const std::string& frameRate,
+                            unsigned configured, bool reEncodes)
+{
+    if (reEncodes)
+    {
+        return encoderSegmentSeconds(frameRate, configured);
+    }
     const unsigned pictures = parsePositive(govLength, 0);
     const double rate = parseFrameRate(frameRate, 0.0);
     if (pictures == 0 || rate <= 0.0)
@@ -393,9 +424,12 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         std::lock_guard<std::mutex> lock(m_mutex);
         packagerConfig.streamToken = createStreamToken(streamId);
         packagerConfig.outputRoot = m_outputRoot;
+        /* An overlay draws, a composite arranges and a transcode converts:
+         * each of them ends at an encoder, so each publishes the encoder's
+         * keyframe interval rather than the camera's. */
         packagerConfig.targetDurationSeconds = segmentDurationFor(
             stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
-            m_targetDuration);
+            m_targetDuration, overlayRequested || compositeRequested || transcodeRequired);
         packagerConfig.playlistLength = m_playlistLength;
         packagerConfig.enableAac = enableAac;
         packagerConfig.audioSampleRate = parsePositive(stream->settings.audioEncoderValues.sample_rate, 48000);
@@ -688,9 +722,12 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         // of one recording must not share an output directory.
         packagerConfig.streamToken = createStreamToken(streamId) + "-" + generate_uuid();
         packagerConfig.outputRoot = m_outputRoot;
+        /* Republishing keeps the recording's own keyframes, so the recording
+         * decides.  Drawing or converting ends at an encoder, so the encoder
+         * decides. */
         packagerConfig.targetDurationSeconds = segmentDurationFor(
             stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
-            m_targetDuration);
+            m_targetDuration, dashOverlayRequested(overlay) || transcodeRequired);
         packagerConfig.playlistLength = m_playlistLength;
         // Recordings are selected by whole file, so the first one usually starts
         // before the requested window; the packager drops what precedes it.
