@@ -30,9 +30,6 @@ general:
       rtvi_cv_base_url: ${RTVI_CV_BASE_URL}
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
-      vlm_tagging_base_url: ${RTVI_VLM_BASE_URL}
-      vlm_tagging_model: ${VLM_NAME}
-      vlm_tagging_chunk_duration: 5
       # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
       enable_audio: ${ENABLE_AUDIO:-false}
     endpoints:
@@ -74,7 +71,6 @@ functions:
     _type: search
     embed_search_tool: embed_search
     attribute_search_tool: attribute_search
-    tag_search_tool: tag_search
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true
     critic_agent: critic_agent
@@ -84,14 +80,11 @@ functions:
     vst_external_url: ${VST_EXTERNAL_URL}
     embed_confidence_threshold: 0.1
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
-    fusion_method: weighted_rrf
-    w_tag: 0.45
 
   search_agent:
     _type: search_agent
     embed_search_tool: embed_search
     attribute_search_tool: attribute_search
-    tag_search_tool: tag_search
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true
     vst_internal_url: ${VST_INTERNAL_URL}
@@ -101,8 +94,6 @@ functions:
     search_max_iterations: 1
     default_max_results: 10
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
-    fusion_method: weighted_rrf
-    w_tag: 0.45
 
   vst_video_clip:
     _type: vst.video_clip
@@ -117,14 +108,6 @@ functions:
     cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
     es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
     es_index: ${ELASTIC_SEARCH_INDEX}
-    vst_external_url: ${VST_EXTERNAL_URL}
-    vst_internal_url: ${VST_INTERNAL_URL}
-    default_max_results: 100
-
-  tag_search:
-    _type: tag_search
-    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
-    tag_index: default_*
     vst_external_url: ${VST_EXTERNAL_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
     default_max_results: 100

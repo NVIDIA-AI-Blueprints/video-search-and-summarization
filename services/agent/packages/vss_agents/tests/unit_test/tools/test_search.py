@@ -33,9 +33,7 @@ from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
 from vss_agents.tools.search import _resolve_video_sources_for_search
-from vss_agents.tools.search import _run_tag_enabled_fusion
 from vss_agents.tools.search import decompose_query
-from vss_agents.tools.search import execute_core_search_wrapper
 
 
 class TestResolveVideoSourcesForSearch:
@@ -117,7 +115,6 @@ class TestSearchConfig:
         assert config.fusion_method == "rrf"
         assert config.w_attribute == 0.55
         assert config.w_embed == 0.35
-        assert config.w_tag == 0.45
         assert config.rrf_k == 60
         assert config.rrf_w == 0.5
 
@@ -148,117 +145,6 @@ class TestSearchConfig:
         assert config.fusion_method == "rrf"
         assert config.rrf_k == 100
         assert config.rrf_w == 0.7
-
-
-@pytest.mark.asyncio
-async def test_tag_fusion_uses_candidate_union() -> None:
-    embed_search = MagicMock()
-    embed_search.ainvoke = AsyncMock(
-        return_value={
-            "results": [
-                {
-                    "video_name": "clip",
-                    "description": "embedding hit",
-                    "start_time": "2025-01-01T00:00:00Z",
-                    "end_time": "2025-01-01T00:00:05Z",
-                    "sensor_id": "sensor-1",
-                    "screenshot_url": "http://vst/embed",
-                    "similarity_score": 0.9,
-                }
-            ]
-        }
-    )
-    tag_search = MagicMock()
-    tag_search.ainvoke = AsyncMock(
-        return_value={
-            "results": [
-                {
-                    "video_name": "clip",
-                    "description": "tag overlap",
-                    "start_time": "2025-01-01T00:00:01Z",
-                    "end_time": "2025-01-01T00:00:04Z",
-                    "sensor_id": "sensor-1",
-                    "screenshot_url": "http://vst/tag-overlap",
-                    "lexical_score": 8.0,
-                    "tags": ["forklift"],
-                },
-                {
-                    "video_name": "clip",
-                    "description": "tag-only hit",
-                    "start_time": "2025-01-01T00:01:00Z",
-                    "end_time": "2025-01-01T00:01:05Z",
-                    "sensor_id": "sensor-1",
-                    "screenshot_url": "http://vst/tag-only",
-                    "lexical_score": 7.0,
-                    "tags": ["forklift"],
-                },
-            ]
-        }
-    )
-    config = SearchConfig(
-        embed_search_tool="embed_search",
-        tag_search_tool="tag_search",
-        agent_mode_llm="gpt-4o",
-        vst_internal_url="http://vst",
-        fusion_method="weighted_rrf",
-    )
-
-    results = await _run_tag_enabled_fusion(
-        search_input=SearchInput(
-            query="forklift",
-            source_type="video_file",
-            video_sources=["clip"],
-            agent_mode=False,
-        ),
-        query_input_json='{"params":{},"source_type":"video_file"}',
-        embed_search=embed_search,
-        tag_search_fn=tag_search,
-        attribute_search_fn=None,
-        builder=MagicMock(),
-        config=config,
-        attributes=[],
-        top_k=10,
-        search_messages=[],
-    )
-
-    assert [result.start_time for result in results] == [
-        "2025-01-01T00:00:00Z",
-        "2025-01-01T00:01:00Z",
-    ]
-    assert results[0].similarity > results[1].similarity
-
-
-@pytest.mark.asyncio
-async def test_source_less_ui_search_still_runs_tag_fusion() -> None:
-    embed_search = MagicMock()
-    embed_search.ainvoke = AsyncMock(return_value={"results": []})
-    tag_search = MagicMock()
-    tag_search.ainvoke = AsyncMock(return_value={"results": []})
-    config = SearchConfig(
-        embed_search_tool="embed_search",
-        tag_search_tool="tag_search",
-        agent_mode_llm="gpt-4o",
-        vst_internal_url="http://vst",
-        fusion_method="weighted_rrf",
-    )
-
-    output = await execute_core_search_wrapper(
-        search_input=SearchInput(
-            query="forklift",
-            source_type="video_file",
-            agent_mode=False,
-            use_critic=False,
-        ),
-        embed_search=embed_search,
-        agent_llm=None,
-        config=config,
-        builder=MagicMock(),
-        tag_search_fn=tag_search,
-    )
-
-    assert output.data == []
-    tag_search.ainvoke.assert_awaited_once()
-    assert tag_search.ainvoke.await_args.args[0]["video_sources"] is None
 
 
 class TestSearchInput:

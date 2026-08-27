@@ -22,16 +22,17 @@ See the License for the specific language governing permissions and limitations 
 | Phase 1 | RTSP and uploaded-video tagging, BM25 keyword retrieval, and configurable fusion |
 | Phase 2 | Semantic retrieval over real tag/caption embeddings |
 | Search boundary | Retrieval and fusion live in `vss_core.search_core` |
-| Ingestion boundary | Existing Agent uploaded-video and RTSP lifecycle routes orchestrate the existing RT-VLM |
+| Ingestion boundary | The headless VIOS fan-out recipe drives the existing RT-VLM directly over REST (no agent tier, no `vss_core` ingestion code) |
 | Source baseline | `origin/develop@a2907d5aa`, 2026-08-18 |
 
 ## Summary
 
-Phase 1 makes RT-VLM output searchable for both RTSP streams and uploaded videos. The existing Agent ingestion routes
-start and stop tagging on the existing RT-VLM deployment. RT-VLM publishes generated chunks to its existing
+Phase 1 makes RT-VLM output searchable for both RTSP streams and uploaded videos. In a headless (no-agent) build the
+VIOS source-provisioning recipe starts (and on RTSP, stops) tagging on the existing RT-VLM deployment by direct REST,
+as a third fan-out leg alongside RT-CV and RT-Embed. RT-VLM publishes generated chunks to its existing
 `mdx-vlm-captions` Kafka topic. Without changing RT-VLM or Logstash, the existing LVS pipeline writes each raw caption
-to `default_<streamId>`. The Agent consumes the HTTP or SSE response to supervise the job and validate completion; it
-does not write tag documents to Elasticsearch.
+to `default_<streamId>`. The recipe fires `POST /v1/generate_captions` with a controlled JSON-tag prompt and does not
+write tag documents to Elasticsearch; persistence is Kafka and Logstash's job.
 
 Search adds BM25 retrieval over the indexed VLM text and fuses its ranked candidates with the existing video-embedding
 and optional attribute results. Video sources are optional. When supplied, Search resolves them to canonical sensor
@@ -45,7 +46,7 @@ placeholder vector for index compatibility; real tag/caption embeddings are Phas
 
 - Generate controlled, chunk-level tags for RTSP streams and uploaded videos.
 - Reuse the existing RT-VLM deployment for tagging and verification.
-- Reuse the existing Agent-managed upload-complete and RTSP add/delete lifecycle.
+- Reuse the existing headless VIOS source-provisioning fan-out (the same recipe that drives RT-CV and RT-Embed).
 - Reuse RT-VLM's existing Kafka and Logstash persistence path.
 - Support source-scoped BM25 tag search in `vss_core.search_core`.
 - Fuse tag, video-embedding, and optional attribute candidate sets without dropping single-provider results.
@@ -65,10 +66,12 @@ placeholder vector for index compatibility; real tag/caption embeddings are Phas
 ## Current state
 
 - The Search profile already deploys RT-VLM for Critic verification and `video_understanding`.
-- Uploaded-video completion already resolves the VST timeline and playable URL, then calls RT-CV and RT-Embed.
-- RTSP add/delete already owns the VST, RT-CV, and RT-Embed lifecycle with admission checks and rollback.
+- The headless VIOS source-provisioning recipe already registers one source and fans it out to RT-CV and RT-Embed by
+  direct REST; tagging is an additional fan-out leg on the same recipe.
+- RTSP add/delete in the recipe already owns the VST, RT-CV, and RT-Embed lifecycle; the tagging leg extends add and
+  delete to RT-VLM.
 - RT-VLM Kafka enablement is process-wide and cannot distinguish tagging from interactive verification per request.
-- The Search profile already provides the Agent with RT-VLM and Elasticsearch endpoints.
+- The Search profile already deploys RT-VLM and Elasticsearch; the read side (`vss search tag`/`fusion`) queries them.
 - Existing video semantic search uses real RT-Embed vectors in `mdx-embed-filtered-*`.
 - Phase 1 tag documents do not contain or query a vector.
 
@@ -76,11 +79,10 @@ placeholder vector for index compatibility; real tag/caption embeddings are Phas
 
 ```mermaid
 flowchart LR
-    UI["Agent UI"] --> VST["VST media and sensor lifecycle"]
-    UI --> Agent["Existing Agent ingestion routes"]
-    Agent -->|"upload complete or RTSP add/delete"| VST
-    Agent -->|"controlled generate_captions request"| VLM["Existing RT-VLM"]
-    VLM -->|"HTTP response or live SSE"| Validate["vss_core TagIngestor\nsupervise and validate"]
+    Op["Operator / provision recipe"] --> VST["VST media and sensor lifecycle"]
+    Op -->|"register source + fan-out"| Fanout["Headless VIOS fan-out\n(RT-CV, RT-Embed, RT-VLM tagging)"]
+    Fanout --> VST
+    Fanout -->|"controlled generate_captions request"| VLM["Existing RT-VLM"]
     VLM -->|"mdx-vlm-captions"| Kafka["Kafka"]
     Kafka --> Logstash["Existing LVS Logstash"]
     Logstash --> TagIndex["Elasticsearch\ndefault_<streamId>"]
@@ -97,46 +99,50 @@ flowchart LR
     Fusion --> Results["Ranked intervals"]
 ```
 
-RT-CV and RT-Embed retain their current lifecycle orchestration. VLM tagging is an additional Agent-managed step and
-uses a distinct `vlm_tagging_base_url`; the existing `rtvi_vlm_base_url` keeps its LVS-only meaning.
+RT-CV and RT-Embed retain their current fan-out legs. VLM tagging is an additional fan-out leg on the same headless
+provision recipe (direct REST to RT-VLM); it is not agent-managed and carries no `vss_core` ingestion code. Tagging uses
+a controlled JSON-tag prompt and the same RT-VLM deployment as Critic/verification.
 
-## Agent ingestion contract
+## Headless ingestion contract
 
-The Agent routes preserve the current ownership model:
+Tagging is a fan-out leg on the headless VIOS source-provisioning recipe (`vss-manage-video-io-storage` →
+`references/provision-vios-source.md`), symmetric to the RT-CV and RT-Embed legs. There is no agent tier and no
+`vss_core` ingestion code; the recipe drives RT-VLM by direct REST and Kafka/Logstash own persistence. The shared-id
+rule (key every consumer on the one VIOS `sensorId`) and the upload-date rule (`creation_time` required for VOD,
+omitted for RTSP) carry over unchanged from the existing recipe.
 
-| Agent event | VLM tagging behavior |
+| Recipe step | VLM tagging behavior |
 | --- | --- |
-| Uploaded video `/complete` | Resolve timeline and VST HTTP URL, run finite caption generation, and validate completion while RT-VLM publishes chunks |
-| RTSP `/add` | Register the VST RTSP URL with RT-VLM, require caption-stream HTTP admission, and retain an Agent SSE consumer |
-| RTSP `/delete` | Cancel the Agent consumer and stop/delete the stream in RT-VLM before removing the VST source |
+| Upload (VOD) | After VIOS `PUT /storage/file` + timeline resolve, `POST /v1/generate_captions` with the VIOS HTTP clip URL, then `DELETE /v1/files/{id}` to release the temporary asset |
+| RTSP `/add` | After `POST /vst/api/v1/sensor/add` + live-proxy resolve, `POST /v1/streams/add` then `POST /v1/generate_captions` (SSE); open, confirm HTTP 200, close |
+| RTSP `/delete` | `DELETE /v1/generate_captions/{id}` then `DELETE /v1/streams/delete/{id}`, before removing the VIOS source |
 
 ### RTSP
 
-For RTSP, the Agent starts the existing RT-VLM stream path with:
+For RTSP, the recipe registers the existing RT-VLM stream path with:
 
-- the RT-VLM stream ID and `sensor_name` set to the canonical VST sensor ID;
-- the VST-provided RTSP URL;
+- the RT-VLM stream `id` and `sensor_name` set to the canonical VST sensor ID;
+- the VIOS live-proxy RTSP URL (read from `GET /sensor/streams`, never constructed);
 - the controlled tag prompt;
 - five-second chunks;
-- `response_format_type=json_object` and `temperature=0`; and
-- Agent-side response validation while Kafka and Logstash persist the chunks.
+- `response_format={"type":"json_object"}` and `temperature=0`; and
+- `stream=true` with `Accept: text/event-stream` — open, confirm HTTP 200 (admission), then close; the server keeps
+  captioning and publishing to Kafka after disconnect.
 
-The request is successful only after the Agent's RTSP `/add` flow receives the RT-VLM caption stream's HTTP response.
-The Agent's RTSP `/delete` flow stops caption generation and removes the registered RT-VLM stream using the same
-sensor ID.
+Teardown stops caption generation and removes the registered RT-VLM stream using the same sensor ID.
 
 ### Uploaded video
 
-For an uploaded video, the Agent:
+For an uploaded video, the recipe:
 
-1. reuses the VST storage URL and timeline already resolved by upload completion;
+1. reuses the VIOS storage URL and timeline already resolved by the upload step;
 2. calls `POST /v1/generate_captions` with that URL, the VST sensor ID, the same synthetic
    `2025-01-01T00:00:00Z` search origin used by RT-Embed, the controlled prompt,
    five-second chunks, JSON response format, and temperature `0`; and
-3. validates the finite `chunk_responses` result while Kafka and Logstash persist the chunks; and
+3. lets the finite `chunk_responses` result return while Kafka and Logstash persist the chunks; and
 4. removes the temporary RT-VLM file asset.
 
-RT-VLM fetches the VST URL server-side. Media bytes do not pass through the Agent or `vss_core`.
+RT-VLM fetches the VIOS URL server-side. Media bytes do not pass through the recipe.
 
 ## One RT-VLM deployment and default indexing
 
@@ -309,9 +315,9 @@ Adding score-based fusion is deferred until every provider has a validated norma
 | Workstream | Deliverables | Exit gate |
 | --- | --- | --- |
 | 1. Contracts | Freeze identity, timestamp, prompt, and tag JSON contracts | Representative RT-VLM responses and indexed documents are approved for both source types |
-| 2. Library ingestion | Add controlled RT-VLM request and response validation to `vss_core.search_core` while leaving persistence to Kafka and Logstash | Uploaded and live tagging requests complete without an Agent Elasticsearch write |
-| 3. RTSP tagging | Extend existing Agent add/delete orchestration to register RT-VLM, require SSE admission, retain the consumer, and stop it on delete | Add starts tags and remove stops them while existing RT-CV/RT-Embed behavior remains intact |
-| 4. Uploaded-video tagging | Extend existing upload completion to call finite caption generation using its resolved VST URL and timeline | A completed upload produces full-timeline tags without proxying media bytes |
+| 2. Recipe fan-out | Add the RT-VLM tagging fan-out leg to the headless VIOS provision recipe (`provision-vios-source.md`); persistence stays with Kafka and Logstash | Uploaded and live tagging requests complete via direct REST with no Elasticsearch write from the caller |
+| 3. RTSP tagging | Extend the recipe's RTSP add/delete fan-out to register RT-VLM, require SSE admission (open, confirm 200, close), and stop/delete on teardown | Add starts tags and remove stops them while existing RT-CV/RT-Embed legs remain intact |
+| 4. Uploaded-video tagging | Extend the recipe's upload fan-out to call finite caption generation using the resolved VIOS storage URL and timeline | A completed upload produces full-timeline tags without proxying media bytes |
 | 5. Index validation | Verify RT-VLM caption publication and existing `default_<streamId>` routing | Each valid tag chunk is queryable from its source-specific index through the existing Kafka/Logstash path |
 | 6. Library retrieval | Add tag models, BM25 query, optional source resolution, time filters, VST result enrichment, and public facade registration in `vss_core.search_core` | Scoped search returns only selected-source intervals; source-less search covers the configured index family |
 | 7. Fusion | Implement union alignment and method dispatch for `weighted_rrf` and `rrf`; expose all weights and `rrf_k` through runtime and CLI | Tests prove method selection, weight changes, multi-provider promotion, and single-provider survival |
@@ -319,7 +325,7 @@ Adding score-based fusion is deferred until every provider has a validated norma
 
 ## Acceptance criteria
 
-- Existing Agent ingestion routes invoke RT-VLM for both RTSP and uploaded videos.
+- The headless VIOS provision recipe invokes RT-VLM for both RTSP and uploaded videos.
 - The existing RT-VLM deployment handles both tagging and verification.
 - A tagging request publishes `raw_events` chunks through RT-VLM's configured message bus and existing Logstash path.
 - Equivalent Critic, `video_understanding`, and `vss-ask-video` requests produce no tag records.
@@ -332,7 +338,7 @@ Adding score-based fusion is deferred until every provider has a validated norma
 - Operators can select `weighted_rrf` or `rrf` and change every fusion weight without modifying code.
 - Tag-only, embed-only, and attribute-only candidates survive fusion; multi-provider candidates are promoted.
 - One provider outage yields partial results with degradation metadata; cancellation propagates.
-- The Agent performs no direct Elasticsearch tag write.
+- No caller (recipe or CLI) performs a direct Elasticsearch tag write; Kafka and Logstash own persistence.
 - Existing embed, attribute, object, Critic, and `video_understanding` behavior remains regression-free.
 
 ## Required validation before implementation completion
@@ -360,6 +366,6 @@ Adding score-based fusion is deferred until every provider has a validated norma
 - `services/rtvi/rt-vlm/src/api_models/live_stream.py`
 - `services/rtvi/rt-vlm/src/server/rtvi_vlm_server.py`
 - `services/rtvi/rt-vlm/src/server/rtvi_stream_handler.py`
-- `services/agent/packages/vss_core/src/vss_core/search_core`
-- `services/agent/packages/vss_agents/src/vss_agents/api/video_ingest.py`
-- `services/agent/packages/vss_agents/src/vss_agents/api/rtsp_ingest.py`
+- `skills/vss-manage-video-io-storage/references/provision-vios-source.md` (headless fan-out recipe)
+- `skills/vss-build-vision-ai/references/profiles/search.md` (search profile fan-out set)
+- `services/agent/packages/vss_core/src/vss_core/search_core` (read side: TagSearch, fusion)

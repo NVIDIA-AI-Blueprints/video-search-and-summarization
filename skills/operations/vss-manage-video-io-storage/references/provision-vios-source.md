@@ -50,29 +50,40 @@ source — and each consumer below is provisioned **only if the build resolved i
 Read the owner contracts for the authoritative keys:
 
 | Consumer | Provision when the build resolves… | Owner |
-|---|---|---|
+| --- | --- | --- |
 | **VIOS source** (`/sensor/add` or `/storage/file`) | always — the mandatory base | this skill (`api-reference.md`, `nvstreamer-api-reference.md`) |
 | **RT-CV** `/stream/add` | detection / tracking / attribute perception (also the base a CV-verification alert runs off) | `vss-deploy-detection-tracking-2d` |
 | **RT-Embed** `generate_video_embeddings` | chunk/video embeddings (retrieval / search) | `vss-deploy-video-embedding` |
-| **RT-VLM** (`/v1/files` or `/v1/streams/add`) | real-time VLM **dense captioning** (captions/incidents), and only when the build has **no Alert Bridge** — see the bridge carve-out below | `vss-deploy-dense-captioning` |
+| **RT-VLM** dense captioning (`/v1/files` or `/v1/streams/add` + `/v1/generate_captions`, free-form prompt) | real-time VLM **dense captioning** (captions/incidents), and only when the build has **no Alert Bridge** — see the bridge carve-out below | `vss-deploy-dense-captioning` |
+| **RT-VLM** tagging (`/v1/generate_captions` with a controlled JSON-tag prompt) | BM25 tag-search indexing for **search** builds (captions → `mdx-vlm-captions` → Logstash → `default_<streamId>`); **independent of the Alert Bridge** — see the tagging leg below | `vss-deploy-dense-captioning` + `vss-search-archive` |
 
 Provision **any subset** off the single VIOS source — RT-CV for detection,
-RT-Embed for embeddings, RT-VLM for dense captioning — in any combination,
-including **RT-VLM alone** (VIOS + RT-VLM, no CV or embeddings). No consumer is a
-prerequisite for another. **Behavior-Analytics is never provisioned here**: it
-consumes Kafka (`mdx-raw` / `mdx-embed`), so enabling its workers is config, not a
-source call. The fan-out set is exactly `{RT-CV, RT-Embed, RT-VLM}`.
+RT-Embed for embeddings, RT-VLM for dense captioning and/or tagging — in any
+combination, including **RT-VLM alone** (VIOS + RT-VLM, no CV or embeddings). No
+consumer is a prerequisite for another. **Behavior-Analytics is never provisioned
+here**: it consumes Kafka (`mdx-raw` / `mdx-embed`), so enabling its workers is
+config, not a source call. The fan-out set is exactly `{RT-CV, RT-Embed, RT-VLM
+(dense captioning and/or tagging)}`.
 
 Both feed origins — upload and live — reach every consumer; the origin only
 changes which source URL a consumer gets (Step 1) and, for RT-VLM, which endpoint
-you call (Step 2). **RT-VLM's direct fan-out here is dense captioning only.** When
-the build carries an **Alert Bridge** (alerts `2d_vlm` realtime or `2d_cv`
-verification), RT-VLM is bridge-driven: the rule is created via `vss-manage-alerts`
-`POST :9080/api/v1/realtime` (per-sensor `live_stream_url`), and the bridge wires
-`rtvi-vlm` itself. Do **not** also call `rtvi-vlm` directly for those builds — a
-direct `/v1/streams/add` bypasses rule persistence and is a failure even if the
-stream goes live. That orchestration is owned by `vss-manage-alerts`, not this
-recipe.
+you call (Step 2). RT-VLM has **two independent direct fan-out legs** here:
+
+- **Dense captioning** — a free-form `generate_captions` prompt for
+  captions/incidents. **SKIP this leg when the build carries an Alert Bridge**
+  (alerts `2d_vlm` realtime or `2d_cv` verification): RT-VLM is then bridge-driven,
+  the rule is created via `vss-manage-alerts` `POST :9080/api/v1/realtime`
+  (per-sensor `live_stream_url`), and the bridge wires `rtvi-vlm` itself. Do **not**
+  also call `rtvi-vlm` directly for dense captioning on those builds — a direct
+  `/v1/streams/add` bypasses rule persistence and is a failure even if the stream
+  goes live. That orchestration is owned by `vss-manage-alerts`, not this recipe.
+- **Tagging** — a *controlled* `generate_captions` request (JSON-tag prompt,
+  `response_format={"type":"json_object"}`, `temperature=0`, 5s chunks) that feeds
+  BM25 tag search. This leg is **independent of the Alert Bridge**: it owns search
+  indexing, not alert verification, and coexists with a bridge. Provision it when
+  the build resolves **search** (RT-CV + RT-Embed + RT-VLM). The same single
+  `rtvi-vlm` deployment serves both legs; tagging is just a different prompt on
+  the same `POST /v1/generate_captions` endpoint, so it needs no second service.
 
 ## Endpoints are injected by the caller — never hard-code ports
 
@@ -186,6 +197,27 @@ POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-
 POST http://localhost:<rt-vlm-port>/v1/files          # uploaded (VOD): multipart form only — -F purpose=vision -F media_type=video -F url=<vios-storage-url> -F creation_time=<upload-anchor> → file_id (a JSON body 422s; url is a form field; omit creation_time and captions land in a …-1970-01-01 index)
 POST http://localhost:<rt-vlm-port>/v1/streams/add    # RTSP: feed the VIOS live-proxy URL
 #   then POST .../v1/generate_captions with the returned file_id/stream_id
+
+# RT-VLM tagging — the search-indexing leg (provision when the build resolves search).
+# Independent of the Alert Bridge carve-out above; same rtvi-vlm deployment, different
+# prompt. Controlled JSON-tag prompt + response_format json_object + temperature 0 +
+# 5s chunks. RT-VLM does NOT read the x-stream-id header — carry identity in the body
+# (id / sensor_name for VOD, streams[].id for RTSP). See the shared-id + upload-date rules.
+#   Upload (VOD): one finite call, then delete the temporary asset —
+TAG_PROMPT='Analyze only this video interval. Return JSON only with exactly two fields: "tags", an array of concise visible concepts, actions, objects, and events; and "description", one concise factual sentence. Do not infer facts that are not visible.'
+curl -s -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
+  -H "Content-Type: application/json" \
+  -d "{\"id\":\"<sensorId>\",\"model\":\"<resolved-vlm-model>\",\"url\":\"<vios-storage-url>\",\"creation_time\":\"<upload-anchor>\",\"prompt\":\"$TAG_PROMPT\",\"response_format\":{\"type\":\"json_object\"},\"temperature\":0,\"chunk_duration\":5,\"stream\":false}"
+#   then release the temporary RT-VLM file asset:
+curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>"
+#   Live (RTSP): register, then fire-and-verify (open, confirm 200, CLOSE) —
+curl -s -X POST "http://localhost:<rt-vlm-port>/v1/streams/add" \
+  -H "Content-Type: application/json" \
+  -d "{\"streams\":[{\"liveStreamUrl\":\"<vios-url>\",\"id\":\"<sensorId>\",\"sensor_name\":\"<source-name>\"}]}"
+curl -N -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
+  -H "Content-Type: application/json" -H "Accept: text/event-stream" \
+  -d "{\"id\":\"<sensorId>\",\"model\":\"<resolved-vlm-model>\",\"prompt\":\"$TAG_PROMPT\",\"response_format\":{\"type\":\"json_object\"},\"temperature\":0,\"chunk_duration\":5,\"stream\":true}"
+#   stop with:  DELETE /v1/generate_captions/<sensorId>  then  DELETE /v1/streams/delete/<sensorId>
 ```
 
 Exact payloads and field lists live in the operating contracts — do not restate
@@ -193,7 +225,9 @@ them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
 `vss-deploy-video-embedding` `rest-api.md`; VIOS/NvStreamer this skill's
 [`integrate-vios-service.md`](integrate-vios-service.md) +
 [`nvstreamer-api-reference.md`](nvstreamer-api-reference.md); RT-VLM
-`vss-deploy-dense-captioning` `integrate-rt-vlm.md`.
+`vss-deploy-dense-captioning` `integrate-rt-vlm.md`. The controlled tag-prompt
+contract and the `default_<streamId>` indexing path are specified in
+[`../../../docs/designs/vlm-tagging-search.md`](../../../docs/designs/vlm-tagging-search.md).
 
 ## The shared-id rule
 
@@ -210,6 +244,7 @@ or sensor-scoped query can reach.
 ## The upload-date rule
 
 `creation_time`/`timestamp` is **upload-only**:
+
 - VIOS anchors an untimed upload at `2025-01-01T00:00:00.000Z`; pin
   `timestamp=2025-01-01T00:00:00.000Z` to state that anchor;
 - pass that anchor as `creation_time` on **every** upload consumer — RT-CV

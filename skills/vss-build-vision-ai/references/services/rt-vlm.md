@@ -35,7 +35,7 @@ prefix and replacing `/` and `:` with `_`. Take both values from the same row â€
 a mismatch makes consumers fail with `400 BadParameters: No such model`.
 
 | Model | `VLM_NAME` | `RTVI_VLM_MODEL_PATH` |
-|---|---|---|
+| --- | --- | --- |
 | CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
 | CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
@@ -106,7 +106,26 @@ path. For the
 integrated path, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` and
 the `http://rtvi-vlm:8000` endpoint (a consumer's `VLM_BASE_URL`) are invariant
 across BF16 and FP8; a consumer owns that URL but never inherits it from the
+xp_ across BF16 and FP8; a consumer owns that URL but never inherits it from the
 variant profile.
+
+### Tagging vs. dense captioning (one deployment, two legs)
+
+The single `rtvi-vlm` deployment serves two independent headless fan-out legs that
+differ only in the `POST /v1/generate_captions` prompt â€” no second service is
+deployed. **Dense captioning** uses a free-form prompt for captions/incidents and
+is skipped when an Alert Bridge owns verification (see
+`vss-manage-video-io-storage` `provision-vios-source.md`). **VLM tagging** uses a
+controlled JSON-tag prompt (`response_format={"type":"json_object"}`,
+`temperature=0`, 5s chunks) whose output feeds BM25 tag search: RT-VLM publishes
+to its existing `mdx-vlm-captions` topic, the existing LVS Logstash pipeline
+writes each chunk to `default_<streamId>`, and the read side
+(`vss_core.search_core` `TagSearch`/fusion, exposed via `vss search tag`/`fusion`)
+queries it. Tagging is independent of the Alert Bridge (it owns search indexing,
+not alert verification) and is provisioned for search builds. RT-VLM, Kafka,
+Logstash, and Elasticsearch are unchanged by design. See
+[`docs/designs/vlm-tagging-search.md`](../../../../docs/designs/vlm-tagging-search.md)
+for the contract.
 
 ## Configuration knobs
 

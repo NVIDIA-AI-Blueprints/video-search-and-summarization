@@ -54,9 +54,6 @@ from vss_agents.utils.reasoning_utils import get_thinking_tag
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
 from vss_agents.utils.time_measure import TimeMeasure
-from vss_core.search_core import fuse_ranked_union
-from vss_core.search_core.models import SearchResult as CoreSearchResult
-from vss_core.search_core.models import TagSearchOutput
 
 logger = logging.getLogger(__name__)
 
@@ -824,151 +821,6 @@ def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchRes
 # Uses async generator pattern for real-time streaming support
 
 
-def _to_core_search_result(result: "SearchResult") -> CoreSearchResult:
-    return CoreSearchResult(
-        video_name=result.video_name,
-        description=result.description,
-        start_time=result.start_time,
-        end_time=result.end_time,
-        sensor_id=result.sensor_id,
-        screenshot_url=result.screenshot_url,
-        similarity=result.similarity,
-        object_ids=result.object_ids,
-    )
-
-
-def _from_core_search_result(result: CoreSearchResult) -> "SearchResult":
-    return SearchResult(
-        video_name=result.video_name,
-        description=result.description,
-        start_time=result.start_time,
-        end_time=result.end_time,
-        sensor_id=result.sensor_id,
-        screenshot_url=result.screenshot_url,
-        similarity=result.similarity,
-        object_ids=result.object_ids,
-    )
-
-
-async def _run_tag_enabled_fusion(
-    *,
-    search_input: "SearchInput",
-    query_input_json: str,
-    embed_search: Any,
-    tag_search_fn: Any,
-    attribute_search_fn: Any | None,
-    builder: Builder,
-    config: Any,
-    attributes: list[str],
-    top_k: int,
-    search_messages: list[str],
-) -> list["SearchResult"]:
-    """Retrieve independent provider candidates and fuse their ranked union."""
-
-    async def _embed_provider() -> list[SearchResult]:
-        raw_output = await embed_search.ainvoke(query_input_json)
-        if isinstance(raw_output, str):
-            output = EmbedSearchOutput.model_validate_json(raw_output)
-        elif isinstance(raw_output, EmbedSearchOutput):
-            output = raw_output
-        else:
-            output = EmbedSearchOutput.model_validate(raw_output)
-        return [
-            SearchResult(
-                video_name=item.video_name,
-                description=item.description,
-                start_time=item.start_time,
-                end_time=item.end_time,
-                sensor_id=item.sensor_id,
-                screenshot_url=item.screenshot_url,
-                similarity=item.similarity_score,
-            )
-            for item in output.results
-            if item.video_name
-        ]
-
-    async def _tag_provider() -> list[SearchResult]:
-        raw_output = await tag_search_fn.ainvoke(
-            {
-                "query": search_input.query,
-                "source_type": search_input.source_type,
-                "video_sources": search_input.video_sources,
-                "timestamp_start": search_input.timestamp_start,
-                "timestamp_end": search_input.timestamp_end,
-                "top_k": min(top_k, 1000),
-            }
-        )
-        if isinstance(raw_output, str):
-            output = TagSearchOutput.model_validate_json(raw_output)
-        elif isinstance(raw_output, TagSearchOutput):
-            output = raw_output
-        else:
-            output = TagSearchOutput.model_validate(raw_output)
-        if output.malformed_documents:
-            search_messages.append(
-                f"Skipped {output.malformed_documents} malformed VLM tag "
-                f"document{'s' if output.malformed_documents != 1 else ''}."
-            )
-        return [
-            SearchResult(
-                video_name=item.video_name,
-                description=item.description,
-                start_time=item.start_time,
-                end_time=item.end_time,
-                sensor_id=item.sensor_id,
-                screenshot_url=item.screenshot_url,
-                similarity=item.lexical_score,
-            )
-            for item in output.results
-            if item.video_name
-        ]
-
-    providers = ["embed", "tag"]
-    calls: list[Any] = [_embed_provider(), _tag_provider()]
-    if attributes and config.attribute_search_tool:
-        resolved_attribute_search = attribute_search_fn
-        if resolved_attribute_search is None:
-            resolved_attribute_search = await builder.get_function(config.attribute_search_tool)
-        providers.append("attribute")
-        calls.append(
-            _run_attribute_only_search(
-                attribute_list=attributes,
-                search_input=search_input,
-                attribute_search_fn=resolved_attribute_search,
-                top_k=top_k,
-                min_similarity=0.0,
-            )
-        )
-
-    outcomes = await asyncio.gather(*calls, return_exceptions=True)
-    provider_results: dict[str, list[CoreSearchResult]] = {}
-    for provider, outcome in zip(providers, outcomes, strict=True):
-        if isinstance(outcome, BaseException):
-            if not isinstance(outcome, Exception):
-                raise outcome
-            logger.warning("%s search provider degraded: %s", provider, outcome)
-            search_messages.append(f"{provider.capitalize()} provider degraded: {outcome}")
-            continue
-        provider_results[provider] = [_to_core_search_result(result) for result in outcome]
-
-    if not provider_results:
-        raise RuntimeError("All search providers failed")
-
-    configured_method = getattr(config, "fusion_method", "rrf")
-    union_method = "rrf" if configured_method == "rrf" else "weighted_rrf"
-    fused = fuse_ranked_union(
-        provider_results,
-        method=union_method,
-        weights={
-            "embed": getattr(config, "w_embed", 0.35),
-            "tag": getattr(config, "w_tag", 0.45),
-            "attribute": getattr(config, "w_attribute", 0.55),
-        },
-        rrf_k=getattr(config, "rrf_k", 60),
-    )
-    return [_from_core_search_result(result) for result in fused]
-
-
 async def execute_core_search(
     search_input: "SearchInput",
     embed_search: Any,  # Function reference for embed search
@@ -978,7 +830,6 @@ async def execute_core_search(
     attribute_search_fn: Any
     | None = None,  # Function reference for attribute search (can be loaded from builder if None)
     critic_agent: Any | None = None,  # Optional critic agent
-    tag_search_fn: Any | None = None,  # Optional VLM tag search
 ) -> AsyncGenerator[Union[AgentMessageChunk, "SearchOutput"]]:
     """
     Core search execution logic shared by search.py and search_agent.py.
@@ -1266,29 +1117,11 @@ async def execute_core_search(
         query_params["top_k"] = str(top_k)
 
         query_input_json = json.dumps({"params": query_params, "source_type": search_input.source_type})
-        # When VLM tags are configured, use candidate-union fusion across tags,
-        # embeddings, and optional attributes. A source-less request searches
-        # the configured tag-index family; explicit sources narrow it to their
-        # exact per-stream indexes.
-        if tag_search_fn is not None:
-            search_results = await _run_tag_enabled_fusion(
-                search_input=search_input,
-                query_input_json=query_input_json,
-                embed_search=embed_search,
-                tag_search_fn=tag_search_fn,
-                attribute_search_fn=attribute_search_fn,
-                builder=builder,
-                config=config,
-                attributes=attribute_list,
-                top_k=top_k,
-                search_messages=search_messages,
-            )
         # PATH 1: Attribute-only search (attribute_list not empty AND is_attribute_only=True)
-        elif is_attribute_only and attribute_list and config.attribute_search_tool:
-            logger.debug(
-                f"is_attribute_only: {is_attribute_only}, attribute_list: {attribute_list}, "
-                f"config.attribute_search_tool: {config.attribute_search_tool}"
-            )
+        logger.debug(
+            f"is_attribute_only: {is_attribute_only}, attribute_list: {attribute_list}, config.attribute_search_tool: {config.attribute_search_tool}"
+        )
+        if is_attribute_only and attribute_list and config.attribute_search_tool:
             logger.info("EXECUTION PATH: Attribute-only search (no embed, append mode)")
 
             yield AgentMessageChunk(
@@ -1595,7 +1428,6 @@ async def execute_core_search_wrapper(
     builder: Builder,
     attribute_search_fn: Any | None = None,
     critic_agent: Any | None = None,
-    tag_search_fn: Any | None = None,
 ) -> "SearchOutput":
     """
     Wrapper for execute_core_search that collects all progress updates and returns only the final result.
@@ -1609,7 +1441,6 @@ async def execute_core_search_wrapper(
         builder=builder,
         attribute_search_fn=attribute_search_fn,
         critic_agent=critic_agent,
-        tag_search_fn=tag_search_fn,
     ):
         if isinstance(update, SearchOutput):
             return update
@@ -1629,11 +1460,6 @@ class SearchConfig(FunctionBaseConfig, name="search"):
     attribute_search_tool: FunctionRef | None = Field(
         default=None,
         description="Optional: The function reference of the attribute search tool. Used for fusion reranking when use_attribute_search is enabled.",
-    )
-
-    tag_search_tool: FunctionRef | None = Field(
-        default=None,
-        description="Optional BM25 search over VLM-generated tags",
     )
 
     embed_confidence_threshold: float = Field(
@@ -1686,12 +1512,9 @@ class SearchConfig(FunctionBaseConfig, name="search"):
         Note, high max iterations can run for a long time. Default is 1.""",
     )
 
-    fusion_method: Literal["weighted_linear", "weighted_rrf", "rrf"] = Field(
+    fusion_method: Literal["weighted_linear", "rrf"] = Field(
         default="rrf",
-        description=(
-            "Fusion method: 'weighted_linear' for legacy score fusion, 'rrf' for equal-weight reciprocal rank "
-            "fusion, or 'weighted_rrf' for configured provider weights"
-        ),
+        description="Fusion method: 'weighted_linear' for weighted linear fusion, 'rrf' for Reciprocal Rank Fusion",
     )
 
     w_attribute: float = Field(
@@ -1703,8 +1526,6 @@ class SearchConfig(FunctionBaseConfig, name="search"):
         default=0.35,
         description="Weight for embed score in weighted linear fusion (default: 0.35)",
     )
-
-    w_tag: float = Field(default=0.45, ge=0.0, description="VLM tag rank weight for candidate-union fusion")
 
     rrf_k: int = Field(
         default=60,
@@ -1849,7 +1670,6 @@ class SearchOutput(BaseModel):
 @register_function(config_type=SearchConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
     embed_search = await _builder.get_function(config.embed_search_tool)
-    tag_search_fn = await _builder.get_function(config.tag_search_tool) if config.tag_search_tool else None
 
     agent_llm = None
     if config.agent_mode_prompt:
@@ -1878,7 +1698,6 @@ async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[Func
             builder=_builder,
             attribute_search_fn=None,  # Will be loaded from config if needed
             critic_agent=critic_agent,
-            tag_search_fn=tag_search_fn,
         )
 
     def _str_input_converter(input: str) -> SearchInput:

@@ -27,15 +27,18 @@ recording status.
 Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snapshots, and storage. Use when asked to: add a camera, add an RTSP stream, list sensors, show configured sensors/cameras/streams, check stream status, get a snapshot, download a clip, upload a video file, or manage video storage. Query the VIOS API directly using curl — do not navigate the UI.
 
 **Upload routing rule:**
+
 - If the user asks to "upload `<file>.mp4` to VIOS", "upload a video file", or otherwise means storing a local video as a VIOS file-backed sensor, use the direct VIOS API: `PUT /vst/api/v1/storage/file/{filename}` from [`references/api-reference.md`](references/api-reference.md) Section 8.
 - Use NvStreamer only when the user explicitly needs a live/synthetic RTSP camera feed, asks for NvStreamer, or asks to retrieve an RTSP URL.
 - Do not substitute the NvStreamer upload -> RTSP URL -> VIOS `/sensor/add` handoff for a plain VIOS MP4 upload request.
 
 **Provisioning + fan-out routing rule:**
-- To register a source and fan it into the perception consumers a build deployed (RT-CV / RT-Embed / RT-VLM) when **no agent tier is present** — e.g. a `vss-build-vision-ai` headless `_builds/<name>` deployment — follow [`references/provision-vios-source.md`](references/provision-vios-source.md) (headless, direct REST; endpoint-parameterized).
+
+- To register a source and fan it into the perception consumers a build deployed (RT-CV / RT-Embed / RT-VLM) when **no agent tier is present** — e.g. a `vss-build-vision-ai` headless `_builds/<name>` deployment — follow [`references/provision-vios-source.md`](references/provision-vios-source.md) (headless, direct REST; endpoint-parameterized). The recipe fans a source out to RT-CV (detection), RT-Embed (embeddings), and RT-VLM; RT-VLM carries **two independent legs** — dense captioning (free-form prompt) and **VLM tagging** (a controlled JSON-tag prompt that feeds BM25 tag search via `mdx-vlm-captions` → Logstash → `default_<streamId>`). Tagging is provisioned for search builds and is independent of the Alert-Bridge carve-out that governs the dense-captioning leg.
 - If an agent `/api` tier **is** present, provisioning is agent-owned: defer to `vss-search-archive` (search ingestion) or `vss-manage-alerts` (alert rules), not this recipe.
 
 **Do NOT use this skill for:**
+
 - VLM inference or ad-hoc visual Q&A about a clip — use `vss-ask-video`.
 - Semantic search across the archive — use `vss-search-archive`.
 - **Agent-backed** ingestion for search (full-stack, `/api` agent tier present) — use `vss-search-archive`. (Headless, no-agent provisioning *is* this skill — see the routing rule above.)
@@ -48,7 +51,7 @@ Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snap
 This skill bundles five reference files under `references/`. Read whichever applies to the task in front of you:
 
 | File | Purpose | Audience |
-|---|---|---|
+| --- | --- | --- |
 | [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this when invoking any VIOS API operation.** | Operational users + this skill itself |
 | [`references/provision-vios-source.md`](references/provision-vios-source.md) | The **headless (no-agent) write path** — register one VIOS source and fan it out by direct REST to only the consumers a build resolved (RT-CV / RT-Embed / RT-VLM), driven from the retried VIOS live-proxy URL; carries the upload `creation_time` rule, idempotency, and teardown, and defers exact consumer payloads to the deploy-* owner skills. Endpoint-parameterized: the caller injects the loopback consumer URLs. **Read this when provisioning a source into a headless build, or fanning an already-registered source into its perception consumers.** | Runtime operators, `vss-build-vision-ai` callers |
 | [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md) | The **NvStreamer REST API reference** — version, sensor list/info/status/streams, the three upload methods (PUT v2 / PUT v1 / POST multipart) with the `nvstreamer-*` custom headers, delete, snapshots (frame-indexed live, timestamp-indexed storage), storage info, filesystem scan. NvStreamer (`vss-vios-nvstreamer`, the streamer-adaptor variant of `launch_vst`) is **brought up by the same profiles that bring VIOS up** — `dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles. See `integrate-vios-service.md § Topology B` for the deployment side. **Read this when serving test / sample videos as synthetic RTSP, retrieving the RTSP URL NvStreamer generated for a file, or driving the canonical NvStreamer → VIOS handoff** (upload to NvStreamer → read RTSP URL → register that URL with VIOS via `/sensor/add`). | Operational users + skill authors composing the upload → RTSP URL → VIOS `/sensor/add` flow |
@@ -84,6 +87,7 @@ deployment runbook
 hands off to the full-stack `/vss-deploy-profile` skill. Before doing any work:
 
 1. **Probe VIOS:**
+
    ```bash
    curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null
    ```
@@ -127,19 +131,24 @@ current routing contract (direct vs SDRC; SDR/Envoy removed in PR #711) live in
 the API reference)
 
 **Endpoint Resolution:**
+
 - For Kubernetes, require `VSS_PUBLIC_URL` and use its `/vst` Ingress route.
 - For Docker Compose, use `http://${HOST_IP}:30888/vst`.
 - Do not discover or guess Kubernetes Service names, NodePorts, release names,
   or node IPs, and do not start a port-forward.
 
 **Availability Check:**
+
 - Before making any API call, verify that the VST backend is reachable via the VSS deployment endpoint:
+
   ```bash
   curl -sf --connect-timeout 5 "${VSS_VIOS_URL}/api/v1/sensor/version"
   ```
+
 - If the backend is unavailable (non-zero exit code or connection error), fail gracefully and report the error to the user. See the **Deployment prerequisite** section above for the deploy-or-stop branch.
 
 **Fallback:**
+
 - If endpoint information is unavailable, ask for `VSS_PUBLIC_URL` for
   Kubernetes or `HOST_IP` for Docker Compose.
 
@@ -148,10 +157,12 @@ the API reference)
 **Auth:** Optional. Most deployments run without auth. If a `401` is returned, retry with `-H "Authorization: Bearer <token>"` and ask the user for the token.
 
 **Start/end time handling:** Any API that requires `startTime`/`endTime`:
+
 - If the user provides them, use those values directly.
 - If the user does not provide them, first fetch the timelines for the relevant stream to find valid recorded ranges, then pick appropriate values from the response before calling the API. Never fabricate timestamps.
 
 **Resolving sensorId / streamId:** If the user has not provided a sensorId or streamId, look it up automatically using one of:
+
 - `GET /sensor/list` — lists all sensors with their `sensorId`
 - `GET /sensor/{sensorId}/streams` — lists streams for a specific sensor with their `streamId`
 - `GET /sensor/streams` — lists all streams across all sensors
@@ -165,7 +176,7 @@ If a sensor has only one stream, `sensorId` and `streamId` are equal and can be 
 ## Service Map
 
 | Capability | URL prefix | Authoritative reference |
-|---|---|---|
+| --- | --- | --- |
 | Version / health check | `/vst/api/v1/sensor/version` | `references/api-reference.md` |
 | Sensor list / info / status / add / delete | `/vst/api/v1/sensor/` | `references/api-reference.md` |
 | Sensor streams | `/vst/api/v1/sensor/streams`, `/vst/api/v1/sensor/{id}/streams` | `references/api-reference.md` |
@@ -211,21 +222,29 @@ For integration- and deployment-time questions about how VIOS interacts with oth
 When the user has a sensor name or IP but needs a clip or snapshot:
 
 0. Verify VST is reachable (see Setup — Availability Check):
+
    ```bash
    curl -sf --connect-timeout 5 "${VSS_VIOS_URL}/api/v1/sensor/version"
    ```
+
 1. List sensors to find `sensorId`:
+
    ```bash
    curl -s "${VSS_VIOS_URL}/api/v1/sensor/list" | jq .
    ```
+
 2. Get streams for that sensor to find `streamId` (prefer `isMain: true`):
+
    ```bash
    curl -s "${VSS_VIOS_URL}/api/v1/sensor/<sensorId>/streams" | jq .
    ```
+
 3. Check timelines to confirm a recording exists in the requested range:
+
    ```bash
    curl -s "${VSS_VIOS_URL}/api/v1/storage/<streamId>/timelines" | jq .
    ```
+
 4. Download clip or snapshot using the `streamId`. Prefer the **binary direct endpoints** (`/storage/file/<streamId>?startTime=...&endTime=...`, `/replay/stream/<streamId>/picture?startTime=...`, `/storage/stream/<streamId>/picture?startTime=...`) over the `/url` JSON envelope variants — see `references/integrate-vios-service.md § Known Integration Constraints` Finding 8 (the `/url` variants return double-`http://` URLs in 3.2.0 and require client-side stripping).
 
 ---
@@ -239,6 +258,7 @@ When the user has a sensor name or IP but needs a clip or snapshot:
 **Success with boolean:** Some endpoints return `true` on success (e.g. `DELETE /sensor/{sensorId}`).
 
 **Error:** JSON object with `error_code` and `error_message`:
+
 ```json
 {
   "error_code": "VMSInternalError",
@@ -257,6 +277,7 @@ If you see double-`http://` prefixes in `imageUrl` or `videoUrl` fields on `/url
 ## Examples
 
 Example operation prompts:
+
 - "List the active VIOS sensors and show their stream status."
 - "Upload this sample video to VIOS and return the generated stream id."
 - "Download a two-second clip from this sensor's recording timeline."
