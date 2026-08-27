@@ -24,6 +24,15 @@
 # without it each variant would also inherit the nvstreamer-base guard profile,
 # and selecting nvstreamer-base would start all of them at once.
 services:
+  # Profile-neutral NVStreamer service for new developer profiles. It inherits
+  # the shared default configuration and video mount from nvstreamer-base;
+  # existing profile-specific variants below remain unchanged.
+  nvstreamer:
+    extends:
+      file: base.yml
+      service: nvstreamer-base
+    profiles: !override ["nvstreamer"]
+
   nvstreamer-2d:
     extends:
       file: base.yml
