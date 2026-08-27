@@ -312,6 +312,8 @@ async def test_synthesize_uses_supplied_evidence_only() -> None:
         prompt = body["messages"][0]["content"]
         assert "camera-east" in prompt
         assert "A person carried a small box." in prompt
+        assert "An unresolved gap is unknown" in prompt
+        assert "never turn missing evidence into a positive or negative claim" in prompt
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": " A person carried a small box. "}}]},

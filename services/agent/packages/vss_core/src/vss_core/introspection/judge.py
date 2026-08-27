@@ -165,8 +165,10 @@ def _synthesis_prompt(
     memory_payload = [record.model_dump_memory() for record in memory_evidence]
     vlm_payload = [item.model_dump(mode="json") for item in vlm_evidence]
     return (
-        "Answer the query using only the supplied memory and VLM evidence. Clearly qualify uncertainty represented "
-        "by unresolved gaps. Return plain text only.\n"
+        "Answer the query using only facts explicitly stated in the supplied memory and VLM evidence. "
+        "An unresolved gap is unknown: never turn missing evidence into a positive or negative claim. "
+        "Clearly state what cannot be confirmed; if no evidence directly supports an answer, say it cannot be "
+        "determined. Return plain text only.\n"
         f"QUERY:\n{query}\n"
         f"MEMORY_EVIDENCE:\n{json.dumps(memory_payload, separators=(',', ':'))}\n"
         f"VLM_EVIDENCE:\n{json.dumps(vlm_payload, separators=(',', ':'))}\n"
