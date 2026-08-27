@@ -53,7 +53,7 @@
         "Kafka end offsets for `mdx-raw`, `mdx-embed`, and `mdx-embed-filtered` are recorded before and after processing; all three increase.",
         "Elasticsearch contains both detection documents and embedding documents attributable to the processed media.",
         "No duplicate Kafka or Elasticsearch stack is deployed.",
-        "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted, and the final response reports the Foundation, delta, changed knobs, readiness, playback, Kafka offsets, and Elasticsearch evidence."
+        "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified or deleted by the agent: no hand edits, and no patch pointing at that tree. The SDRC containers the shipped graph starts write through their own declared mounts — `services/infra/sdrc/log`, `services/infra/sdrc/.wdm-env`, and the `config.yml` / `docker_cluster_config-*.json` rendered under `${SDR_CONTROLLER_CONFIG_PATH}` — and those writes are deployment doing its job. Anything else appearing under that tree still fails, a data directory above all: `VSS_DATA_DIR` must point outside the repository, so `deploy/docker/data-dir/` is a wrongly chosen path, not an exempt artifact. The final response reports the Foundation, delta, changed knobs, readiness, playback, Kafka offsets, and Elasticsearch evidence."
       ]
     }
   ]
