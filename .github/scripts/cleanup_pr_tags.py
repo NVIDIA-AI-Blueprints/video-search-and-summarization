@@ -118,12 +118,26 @@ def pr_tag_pattern(
     unrecoverable without a rebuild. A missed shape only leaks storage. Those
     costs are not symmetric, so the pattern stays narrow.
     """
-    optional = ""
-    if tag_suffixes:
-        optional += "(?:-(?:" + "|".join(re.escape(s) for s in tag_suffixes) + "))?"
-    if platform_suffixes:
-        optional += "(?:-(?:" + "|".join(re.escape(p) for p in platform_suffixes) + "))?"
-    return re.compile(rf"^pr-{pr_number}-(?:[0-9a-f]{{12}}|latest){optional}$")
+    variant = (
+        "(?:-(?:" + "|".join(re.escape(s) for s in tag_suffixes) + "))?"
+        if tag_suffixes
+        else ""
+    )
+    platform = (
+        "(?:-(?:" + "|".join(re.escape(p) for p in platform_suffixes) + "))?"
+        if platform_suffixes
+        else ""
+    )
+    # The platform suffix follows a SHA candidate only. A moving alias is
+    # advanced onto the MERGED manifest, never onto a per-architecture staging
+    # image, so `pr-<N>-latest-amd64` is not a shape this repository can
+    # produce -- confirmed against GHCR, zero such tags exist. Accepting it
+    # would widen ownership past the build's own grammar for no gain, and the
+    # whole argument for enumerating these suffixes is that ownership must not
+    # outrun what the build actually publishes.
+    return re.compile(
+        rf"^pr-{pr_number}-(?:latest{variant}|[0-9a-f]{{12}}{variant}{platform})$"
+    )
 
 
 def is_deletable(tags: list[str], pattern: re.Pattern[str]) -> tuple[bool, str]:

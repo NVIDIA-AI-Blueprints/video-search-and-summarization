@@ -258,6 +258,26 @@ class TagVariantTest(unittest.TestCase):
         ):
             self.assertIsNone(self.pattern().fullmatch(tag), tag)
 
+    def test_platform_suffix_only_follows_a_sha_candidate(self):
+        """`pr-<N>-latest-amd64` is not a shape this repository can produce.
+
+        A moving alias is advanced onto the MERGED manifest, never onto a
+        per-architecture staging image -- confirmed against GHCR, where zero
+        `latest-<arch>` tags exist. Owning it would widen deletion past the
+        build's own grammar for no gain, and the entire argument for
+        enumerating these suffixes is that ownership must not outrun what the
+        build actually publishes. Raised by review on #1894.
+        """
+        for tag in (
+            "pr-1234-latest-amd64",
+            "pr-1234-latest-arm64",
+            "pr-1234-latest-sbsa-arm64",
+        ):
+            self.assertIsNone(self.pattern().fullmatch(tag), tag)
+
+        # the variant suffix DOES follow latest, and must keep working
+        self.assertRegex("pr-1234-latest-sbsa", self.pattern())
+
     def test_rejects_suffixes_the_inventory_does_not_declare(self):
         # Enumerated, not wildcarded. An unknown platform or a trailing extra
         # segment is somebody else's tag until the inventory says otherwise.
