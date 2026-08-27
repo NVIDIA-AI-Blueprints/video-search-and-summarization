@@ -26,7 +26,7 @@
     },
     {
       "name": "Download and ingest benchmark videos",
-      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download the NVIDIA dataset named `vss-devx-base` with `nvdataset` into `$TMPDIR/videos`, preserving its video filenames. Ingest only these two particular videos `vss-sample-warehouse-4min.mp4` and `vss-sample-sim-traffic.mp4` into VIOS, with their filename stem as the sensor name.",
+      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download and extract the pinned NGC resource `nvidia/vss-developer/dev-profile-sample-data:3.2.0` into `$TMPDIR/videos`. Ingest only `warehouse_sample.mp4` and `sample-sim-traffic.mp4` into VIOS, using each filename stem as its sensor name.",
       "checks": [
         "Every video ID required by the benchmark Parquet exists as a downloaded video filename stem under `$TMPDIR/videos`.",
         "Every required video ID exists as a VIOS video sensor name."

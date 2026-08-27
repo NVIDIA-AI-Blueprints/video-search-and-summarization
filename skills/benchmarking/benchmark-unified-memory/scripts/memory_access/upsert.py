@@ -65,10 +65,17 @@ def validate_unique_job_ids(records: Sequence[UnifiedMemoryRecord]) -> None:
 
 
 def persist_records(service: Any, records: Sequence[UnifiedMemoryRecord]) -> dict[str, PersistedMemory]:
-    """Persist records idempotently and correlate results by projection job_id."""
+    """Persist exact frozen records and correlate results by projection job_id.
+
+    The fixtures intentionally preserve the authoritative legacy summary shape,
+    including nested event evidence.  Current ``MemoryService.upsert`` rejects
+    that read-compatible shape in favor of parent/child writes, so this temporary
+    benchmark bridge writes through the configured VSS store until the memory CLI
+    owns fixture import and migration.
+    """
     persisted: dict[str, PersistedMemory] = {}
     for record in records:
-        value = service.upsert(record)
+        value = service.store.upsert(record)
         job_id = projection_job_id(value)
         persisted[job_id] = PersistedMemory(job_id, value.job.job_id, value)
     return persisted

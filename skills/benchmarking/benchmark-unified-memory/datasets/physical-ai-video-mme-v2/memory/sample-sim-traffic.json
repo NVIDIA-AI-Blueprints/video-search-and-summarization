@@ -12,12 +12,12 @@
     "intent": "traffic monitoring",
     "sensors": [
       {
-        "id": "vss-sample-sim-traffic",
+        "id": "sample-sim-traffic",
         "type": "vst",
         "info": {
           "source": "vst",
           "stream_id": "c84a65a8-d400-4ada-aca1-4d7a26cc4961",
-          "name": "vss-sample-sim-traffic.mp4"
+          "name": "sample-sim-traffic.mp4"
         }
       }
     ],
@@ -180,8 +180,8 @@
       "job_id": "lvs-d0f1d526-1082-43be-ba82-cc3ee3efce20",
       "videos": [
         {
-          "video_id": "vss-sample-sim-traffic",
-          "vios_sensor": "vss-sample-sim-traffic"
+          "video_id": "sample-sim-traffic",
+          "vios_sensor": "sample-sim-traffic"
         }
       ]
     }

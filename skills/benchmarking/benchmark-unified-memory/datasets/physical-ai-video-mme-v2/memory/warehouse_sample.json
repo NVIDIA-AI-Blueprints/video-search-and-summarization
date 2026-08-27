@@ -12,12 +12,12 @@
     "intent": "warehouse safety monitoring",
     "sensors": [
       {
-        "id": "vss-sample-warehouse-4min",
+        "id": "warehouse_sample",
         "type": "vst",
         "info": {
           "source": "vst",
           "stream_id": "bc8f9efc-16d0-48a0-81b4-e25ee61d2ea0",
-          "name": "vss-sample-warehouse-4min.mp4"
+          "name": "warehouse_sample.mp4"
         }
       }
     ],
@@ -117,8 +117,8 @@
       "job_id": "lvs-b0d71467-9698-4966-9f87-661f939cfc58",
       "videos": [
         {
-          "video_id": "vss-sample-warehouse-4min",
-          "vios_sensor": "vss-sample-warehouse-4min"
+          "video_id": "warehouse_sample",
+          "vios_sensor": "warehouse_sample"
         }
       ]
     }

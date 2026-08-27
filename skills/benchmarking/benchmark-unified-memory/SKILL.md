@@ -9,13 +9,28 @@ Follow the setup query exactly. This skill supplies deterministic setup scripts;
 
 ## Video setup
 
-1. Download the named NVIDIA dataset with `nvdataset` into `$TMPDIR/videos`. Preserve each video filename. For example, if named `vss-devx-base`:
+1. Download and extract the pinned NGC video fixture into `$TMPDIR/videos`:
+
 ```bash
-nvdataset download \
-  vss-devx-base \
-  $TMPDIR/videos/vss-devx-base-data \
-  --snapshot-name base-eval-v26.04.3 \
-  --yes
+VIDEO_DIR="${TMPDIR:?}/videos"
+mkdir -p "${VIDEO_DIR}"
+cd "${VIDEO_DIR}"
+
+ngc registry resource download-version \
+  nvidia/vss-developer/dev-profile-sample-data:3.2.0 \
+  --org nvidia \
+  --team vss-developer
+
+tar -xzf \
+  dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz \
+  --strip-components=1
+```
+
+This produces:
+
+```text
+$TMPDIR/videos/warehouse_sample.mp4
+$TMPDIR/videos/sample-sim-traffic.mp4
 ```
 
 2. For every required video, use its filename stem as the VIOS sensor name and ingest it with the project-local `vss vios add` CLI.
@@ -38,4 +53,3 @@ uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev --extra cli \
 ```
 
 The initializer validates all inputs first, persists all authoritative records, verifies every readback by actual record ID, and only then writes job-named Markdown projections. It is safe to retry because authoritative IDs are assigned before persistence.
-
