@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from vss_core._foundation.time import iso8601_to_datetime
 from vss_core.memory.backends.elasticsearch import ElasticsearchMemoryStore
 from vss_core.memory.models import SCHEMA_ID
@@ -83,7 +85,7 @@ class _FakeES:
 
     def search(self, *, index: str, body: dict[str, Any]) -> dict[str, Any]:
         self.last_body = body
-        hits = [{"_source": doc} for doc in self.docs.values()]
+        hits = [{"_id": doc_id, "_source": doc} for doc_id, doc in self.docs.items()]
         return {"hits": {"hits": hits}}
 
     def close(self) -> None:
@@ -152,6 +154,65 @@ def test_elasticsearch_list_before_anything_is_ingested_is_empty() -> None:
     store = ElasticsearchMemoryStore(endpoint="http://unused", client=_NoIndex())
     assert store.list_jobs(JobFilters()) == []
     assert store.query(MemoryQuery(group="summary")) == []
+
+
+def test_reads_load_documents_written_before_children_existed() -> None:
+    """A parent nesting ``output.ext.events`` predates child records but still reads.
+
+    Earlier versions wrote the events inline. Rejecting that shape on load
+    would not merely refuse the one document -- ``list``/``query`` page over
+    whole result sets, so a single old job made every read fail.
+    """
+    client = _FakeES()
+    client.docs["legacy-1"] = {
+        "schema": SCHEMA_ID,
+        "job": {
+            "job_id": "legacy-1",
+            "group": "summary",
+            "operation": "run",
+            "status": "completed",
+            "created_at": "2026-07-22T12:00:00Z",
+        },
+        "output": {"answer": "done", "ext": {"events": [{"id": "evt-1"}], "event_count": 1}},
+    }
+    store = ElasticsearchMemoryStore(endpoint="http://unused", client=client)
+
+    got = store.get("legacy-1")
+    assert got is not None
+    assert got.output is not None
+    assert got.output.ext is not None
+    assert got.output.ext["events"] == [{"id": "evt-1"}]
+    assert [record.job.job_id for record in store.list_jobs(JobFilters())] == ["legacy-1"]
+
+
+def test_undecodable_document_is_named_rather_than_raised_as_validation() -> None:
+    """A document that will not load names itself, so the caller can go find it.
+
+    Pydantic's own error is a ``ValueError``, which callers map to "your input
+    was malformed" -- the wrong diagnosis for a record already in the store.
+    """
+    from vss_core.memory.store import MemoryDecodeError
+
+    client = _FakeES()
+    client.docs["broken-1"] = {
+        "schema": SCHEMA_ID,
+        "job": {
+            "job_id": "broken-1",
+            "group": "summary",
+            "operation": "run",
+            "status": "completed",
+            "created_at": "2026-07-22T12:00:00Z",
+        },
+        "output": {"answer": "done", "unknown_field": True},
+    }
+    store = ElasticsearchMemoryStore(endpoint="http://unused", client=client)
+
+    for read in (lambda: store.get("broken-1"), lambda: store.list_jobs(JobFilters())):
+        with pytest.raises(MemoryDecodeError) as caught:
+            read()
+        assert caught.value.storage_id == "broken-1"
+        assert "broken-1" in str(caught.value)
+        assert not isinstance(caught.value, ValueError)
 
 
 def test_build_search_body_parent_filters() -> None:

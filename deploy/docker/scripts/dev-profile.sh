@@ -106,6 +106,7 @@ function host_has_detected_hardware_profile() {
   done < <(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)
   return 1
 }
+
 # Maps requested hardware_profile (CLI/env) to the same canonical type used by get_detected_hardware_profile.
 # AGX-THOR and IGX-THOR both map to THOR; all other profiles map to themselves.
 function get_canonical_hardware_profile() {
@@ -1575,7 +1576,7 @@ function state_up() {
       sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
       # Uncomment the commented line for this key when value contains sbsa
       sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (DGX-SPARK): ${_key}"
+      echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
   # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
@@ -1584,7 +1585,6 @@ function state_up() {
     set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
     echo "[INFO] Selected SBSA RT-VLM image for GB300"
   fi
-
 
   echo "[INFO] Generated environment file: ${_generated_env}"
 

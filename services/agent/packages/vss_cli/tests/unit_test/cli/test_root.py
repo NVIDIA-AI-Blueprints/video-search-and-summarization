@@ -57,7 +57,14 @@ def test_search_mode_flag_is_gone(capsys: pytest.CaptureFixture[str]) -> None:
 def test_actions_carry_no_deployment_or_endpoint_flags(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["search", "run", "fusion", "--help"]) == 0
     out = capsys.readouterr().out
-    for gone in ("--es-endpoint", "--cosmos-embed-endpoint", "--video-embed-index", "--deployment", "--kube-context"):
+    for gone in (
+        "--es-endpoint",
+        "--cosmos-embed-endpoint",
+        "--video-embed-index",
+        "--memory-index",
+        "--deployment",
+        "--kube-context",
+    ):
         assert gone not in out, gone
 
 
