@@ -1995,7 +1995,7 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
         if (!m_startTime.empty())
         {
             m_epochStartTime = getEpocTimeInMS(m_startTime);
-            LOG(info) << "epoch start time: " << m_epochStartTime << endl;
+            LOG(info) << "epoch start time: " << m_epochStartTime.load() << endl;
         }
         if (!m_endTime.empty())
         {
@@ -2011,7 +2011,7 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
         {
             /* Use 3-frame offset, in case exact time is not present */
             m_epochEndTime = m_epochStartTime + ((1000 / m_frameRate) * 3);
-            LOG(info) << "epochTime: " << m_epochStartTime << ", IsoStartTime:" << m_startTime << ", m_epochEndTime:" << m_epochEndTime <<  endl;
+            LOG(info) << "epochTime: " << m_epochStartTime.load() << ", IsoStartTime:" << m_startTime << ", m_epochEndTime:" << m_epochEndTime <<  endl;
         }
 
         /* Get list of files alongwith its associated timestamps */
@@ -2077,7 +2077,7 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
                 const int64_t last_frame_time = file_end_time - frame_duration_ms;
                 if (m_epochStartTime > last_frame_time && m_epochStartTime <= file_end_time)
                 {
-                    LOG(info) << "Image capture: requested time " << m_epochStartTime
+                    LOG(info) << "Image capture: requested time " << m_epochStartTime.load()
                               << " lies within the last frame of " << last_file.m_filePath
                               << " (file ends at " << file_end_time << "), clamping to "
                               << last_frame_time << endl;
@@ -2102,7 +2102,7 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
             if (!m_startTime.empty())
             {
                 m_epochStartTime = getEpocTimeInMS(m_startTime);
-                LOG(info) << "epoch start time: " << m_epochStartTime << endl;
+                LOG(info) << "epoch start time: " << m_epochStartTime.load() << endl;
             }
             if (!m_endTime.empty())
             {
@@ -2113,7 +2113,7 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
             {
                 /* Use 3-frame offset, in case exact time is not present */
                 m_epochEndTime = m_epochStartTime + ((1000 / m_frameRate) * 3);
-                LOG(info) << "epochTime: " << m_epochStartTime << ", IsoTime:" << m_startTime << endl;
+                LOG(info) << "epochTime: " << m_epochStartTime.load() << ", IsoTime:" << m_startTime << endl;
             }
         }
         m_recordedPlayback = false;
@@ -3550,7 +3550,7 @@ GstFlowReturn GstNvVideoDecoder::processJpegImageFromSink(GstElement *appsink)
 	        }
             // Direct PTS matching: the picture is the first decoded frame
             // whose PTS is at or after the requested epoch time.
-            LOG(info) << "onFrame buf_time: " << buf_time << " epochStartTime: " << m_epochStartTime << endl;
+            LOG(info) << "onFrame buf_time: " << buf_time << " epochStartTime: " << m_epochStartTime.load() << endl;
             if (buf_time < m_epochStartTime)
             {
                 goto exit_func;
