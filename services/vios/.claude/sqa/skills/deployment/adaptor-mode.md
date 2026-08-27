@@ -72,7 +72,16 @@ Set `enabled: true` ONLY on the entry whose `name` matches `VST_ADAPTOR`. All ot
 }
 ```
 
-> **Heads-up — known dead variables in `compose.env`:** `ADAPTOR_IP`, `ADAPTOR_USER`, `ADAPTOR_PASSWORD`, `AI_BRIDGE_ENDPOINT` (around lines 84-87) are **not referenced by any container or script** in the current standalone deploy. The live values are only the ones inside `adaptor_config.json`. Keep them in sync if you set both (to avoid drifting documentation), but the JSON is the only thing actually consumed.
+> **Credential precedence — `compose.env` overrides the JSON.** `compose.env` carries `ADAPTOR_IP`, `ADAPTOR_USER`, `ADAPTOR_PASSWORD`, `ADAPTOR_PORT` (in the SENSOR service block, blank by default). They are passed to the `sensor-ms` container by `docker-compose.yaml` and read in `adaptor_loader.cpp` (`loadAdaptor()`), where **each non-empty value replaces the matching field from `adaptor_config.json`**. So:
+>
+> - All four blank (the default) → `adaptor_config.json` is authoritative. This is the normal path.
+> - Any one set → that field wins, regardless of what the JSON says.
+>
+> Both sources are valid; just do not set them in both places with different values, or the JSON will look authoritative while the env silently wins. If you are debugging "I set the IP but it is connecting somewhere else", check `compose.env` first.
+>
+> Only `sensor-ms` consumes these. The `streamprocessing` build does not include the `sensor_management` module, so adding them to that service has no effect.
+>
+> `AI_BRIDGE_ENDPOINT` is not referenced by any container or script in the current standalone deploy.
 
 > **Credentials hygiene:** `adaptor_config.json` contains a plaintext password when configured for `mms`. Treat the file as a secret — do not commit it, or add it to `.gitignore` / `git update-index --skip-worktree`.
 
@@ -116,6 +125,12 @@ Interpret the result:
   2. **User did not provide creds** — ask once:
      > *"The `<adaptor>` adaptor needs `<missing fields>` to talk to the VMS. They aren't set in `adaptor_config.json`. Please provide them (e.g. `ip=10.127.52.104 user=onvifuser01 password=…`), or paste the values you'd like written. I'll update `adaptor_config.json` after you confirm."*
   3. **User wants to set them manually** — point them at `configs/adaptor_config.json` and offer to re-run the deploy after they save the file.
+
+  Either destination works, since a non-empty `compose.env` value overrides the JSON field (see the precedence note in Step 2):
+  - **`adaptor_config.json`** — the default. Follow the write procedure below.
+  - **`compose.env`** (`ADAPTOR_IP` / `ADAPTOR_USER` / `ADAPTOR_PASSWORD` / `ADAPTOR_PORT`) — keeps creds out of the JSON and in one deployment-level file. Same consent rule and the same plaintext-secret hygiene applies; `compose.env` is also tracked, so do not commit a filled-in value.
+
+  Whichever you pick, write to **one** of them only — filling in both invites the drift described in Step 2.
 
 ### Writing creds back into adaptor_config.json (only after explicit user consent)
 
