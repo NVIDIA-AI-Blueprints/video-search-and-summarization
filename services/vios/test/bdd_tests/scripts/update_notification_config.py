@@ -71,11 +71,14 @@ def build_desired_requests(bdd_config: Dict[str, Any]) -> Dict[str, List[Dict[st
             "method": receiver["method"],
             **json.loads(json.dumps(defaults)),
         }
-        # A case may override the shared defaults (e.g. receiver-specific
-        # static query_params) or carry per-request extras.
+        # A case extends the shared headers and query parameters with
+        # receiver-specific values, or carries other per-request extras.
         for key in ("headers", "query_params", "camera_type", "body", "user_defined_metadata"):
             if key in receiver:
-                request[key] = receiver[key]
+                if key in ("headers", "query_params"):
+                    request[key] = {**request.get(key, {}), **receiver[key]}
+                else:
+                    request[key] = receiver[key]
         desired.setdefault(receiver["event_group"], []).append(request)
     return desired
 
@@ -122,9 +125,6 @@ def apply(bdd_config: Dict[str, Any], notification_config: Dict[str, Any]) -> Li
             summary.append(f"updated item {group['id']} ({event_group})")
         item["enabled"] = True
         item["camera_status_change"] = event_group
-        # The in-process BDD receiver does not verify signatures; an unresolved
-        # {{secrets.*}} placeholder only adds a failure path.
-        item.pop("auth", None)
         sync_item_requests(item, desired_requests.get(event_group, []), base_url)
         summary.append(
             f"  {group['id']}: {len(item['request'])} receivers "

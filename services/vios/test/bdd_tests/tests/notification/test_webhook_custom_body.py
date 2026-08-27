@@ -43,6 +43,12 @@ scenarios("../../features/notification/webhook_custom_body.feature")
 BDD_CONFIG_FILE = (
     Path(__file__).resolve().parent.parent.parent / "data" / "webhook_bdd_config.json"
 )
+BDD_SENSOR_QUERY_PARAM = "bdd_sensor_id"
+
+
+def _matches_bdd_sensor(request: CapturedWebhookRequest, sensor_id: str) -> bool:
+    """Return whether a BDD receiver request belongs to this scenario's sensor."""
+    return request.query.get(BDD_SENSOR_QUERY_PARAM) == [sensor_id]
 
 
 @pytest.fixture(scope="session")
@@ -67,7 +73,11 @@ def _wait_for_default_notification(
     timeout = notification_test_params["delivery_timeout_sec"]
 
     def matches(request: CapturedWebhookRequest) -> bool:
-        if request.path != path or not isinstance(request.json_body, dict):
+        if (
+            request.path != path
+            or not _matches_bdd_sensor(request, context.sensor_id)
+            or not isinstance(request.json_body, dict)
+        ):
             return False
         event = request.json_body.get("event")
         return (
@@ -149,6 +159,7 @@ def _assert_valid_cases_delivered(
                 predicate=lambda captured, case=case: (
                     captured.path == case["path"]
                     and captured.method == case["method"]
+                    and _matches_bdd_sensor(captured, context.sensor_id)
                 ),
                 start_sequence=context.receiver_cursor,
                 timeout=timeout,
@@ -238,7 +249,10 @@ def invalid_custom_bodies_are_not_delivered(
     timeout = notification_test_params["filter_absence_timeout_sec"]
     try:
         request = webhook_receiver.wait_for(
-            predicate=lambda captured: captured.path in invalid_paths,
+            predicate=lambda captured: (
+                captured.path in invalid_paths
+                and _matches_bdd_sensor(captured, context.sensor_id)
+            ),
             start_sequence=context.receiver_cursor,
             timeout=timeout,
         )
