@@ -221,6 +221,11 @@ jobs:
           platforms: ${{ matrix.platforms }}
           build-args: ${{ matrix.build_args }}
           push: true
+          # BuildKit's default SLSA/SBOM attestations show up in GHCR as
+          # unknown/unknown OS/Arch rows and break some docker/containerd pulls.
+          # Image provenance here is the com.nvidia.vss.* labels, not these.
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           # Publish the content-addressed alias too so a later build of the same
@@ -426,6 +431,10 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: ${{ matrix.build_args }}
           push: true
+          # See the standard multiarch build-push step: skip index-attached
+          # attestations so GHCR does not list unknown/unknown platforms.
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.arch }}
           tags: ${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}
