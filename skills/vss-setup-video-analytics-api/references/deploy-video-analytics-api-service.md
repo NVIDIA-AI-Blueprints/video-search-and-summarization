@@ -50,7 +50,7 @@ The base compose already mounts the config from the services directory:
 services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
 ```
 
-This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when you have a local Kafka broker running. If Kafka is absent, the server can still start once Elasticsearch is healthy, but Kafka-dependent endpoints will fail until a broker becomes reachable. Use Option A or a custom config with `kafka.brokers: []` for a quiet broker-less deployment.
+This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when a local Kafka broker is running and contains `mdx-notification`, `mdx-amr`, and at least one topic matching `mdx-rtls*`. With brokers configured, the server waits for those topics before it listens. Use Option A or a custom config with `kafka.brokers: []` for a broker-less deployment.
 
 No compose change needed — this is the default:
 
@@ -109,14 +109,14 @@ If you don't need image upload endpoints, you can drop this mount — the contai
 
 ### Elasticsearch (required)
 
-The server pings Elasticsearch on startup. If ES is unreachable, the server logs `[APP ERROR] Server initialization failed` and exits. The `restart: always` policy in the base compose brings it back, so `docker ps` may show a `Restarting (N)` loop until ES is reachable.
+The server pings Elasticsearch on startup, then waits for the `insertion-timestamp-pipeline`. It does not bind port 8081 or make `/livez` available until both are ready. An open Elasticsearch port or a healthy cluster alone does not prove that the custom ingest pipeline exists.
 
 Make sure the `elasticsearch.node` in your config matches the running ES instance. With `network_mode: "host"`, ES must also be on the host network.
 
-If you need to bring up Elasticsearch too, use the infra compose:
+If you need to bring up Elasticsearch too, start the database and its initializer together:
 
 ```bash
-docker compose -f services/infra/compose.yml up -d elasticsearch
+docker compose -f services/infra/compose.yml up -d elasticsearch elasticsearch-init-container
 ```
 
 Wait for ES to be healthy before starting the API:
@@ -125,22 +125,22 @@ Wait for ES to be healthy before starting the API:
 curl -sf http://localhost:9200/_cluster/health
 ```
 
-### Kafka (optional)
+### Kafka (optional only when disabled)
 
-Kafka is **optional**. If `kafka.brokers` is empty or null in the config, the server skips Kafka entirely — no error, no retry loop.
+Kafka is optional only when `kafka.brokers` is empty or null in the config; then the server skips Kafka entirely.
 
 When brokers are configured and reachable, the API gains:
 - **Dynamic config** — produces/consumes config update notifications on `mdx-notification` (Kafka key `behavior-analytics-config`). This is how the UI pushes config changes to `behavior-analytics` through the API.
 - **Dynamic calibration** — produces calibration update notifications on `mdx-notification` (Kafka key `calibration`).
 - **RTLS / AMR** — consumes real-time location and AMR messages from `mdx-rtls` / `mdx-amr` topics and exposes them via REST.
 
-If brokers are configured but unreachable, the server still starts (ES must be up), but Kafka-dependent endpoints will fail. If you want the API to run broker-less without Kafka connection errors, set `kafka.brokers` to an empty array (`[]`) or `null`.
+If brokers are configured, the server waits before listening until it can list topics and finds `mdx-notification`, `mdx-amr`, and at least one topic matching `^mdx-rtls.*`. Its logs identify the missing topic or failed topic-list request on each retry. If you want the API to run broker-less, set `kafka.brokers` to an empty array (`[]`) or `null`.
 
 ---
 
 ## How profiles use this service
 
-The common `services/compose.yml` includes one shared `vss-video-analytics-api` service. Profiles activate it by adding the same key to `COMPOSE_PROFILES`; its container name and service-shipped config mount are common to every profile. The API retries Elasticsearch initialization itself, and Kafka is optional, so the service can also be started from its Compose file alone.
+The common `services/compose.yml` includes one shared `vss-video-analytics-api` service. Profiles activate it by adding the same key to `COMPOSE_PROFILES`; its container name and service-shipped config mount are common to every profile. The API has no Compose `depends_on` on broker-health-check or the Elasticsearch initializer: it owns its readiness loop and becomes live only after the prerequisites above are satisfied.
 ---
 
 ## REST API endpoints
@@ -162,7 +162,7 @@ The server auto-discovers controllers from `src/app/controllers/rest-apis/` and 
 | `/tracker` | Cross-sensor tracking: unique object counts and locations, full unique-object records with constituent behaviors, behavior locations matched to a global object, and last RTLS / AMR source record. |
 | `/clustering` | Retrieves sampled behavior clusters for a sensor and time range (`/clustering/behavior`); adds a label to a behavior cluster (`/clustering/add-label`). |
 
-The server must initialize against Elasticsearch before `/livez` can return healthy. Data-query endpoints also need matching Elasticsearch indices and data. Endpoints that publish notifications (config, calibration) or expose RTLS / AMR streams also require Kafka.
+The server must initialize against Elasticsearch, `insertion-timestamp-pipeline`, and any configured Kafka topics before `/livez` can return healthy. Data-query endpoints also need matching Elasticsearch indices and data. Endpoints that publish notifications (config, calibration) or expose RTLS / AMR streams also require Kafka.
 
 ---
 
@@ -199,13 +199,13 @@ Verify the health endpoint:
 curl -sf http://localhost:8081/livez && echo "OK" || echo "DOWN"
 ```
 
-If Elasticsearch is not yet up, you'll see:
+While the ingest pipeline is absent, the API emits:
 
 ```
-{"timestamp":"...","level":"error","message":"[ELASTICSEARCH RETRY] attempt=1"}
+{"message":"[ELASTICSEARCH] Ingest pipeline is not present.","pipelineId":"insertion-timestamp-pipeline"}
 ```
 
-The process retries until ES is reachable, up to the configured `elasticsearch.retries` count. If retries are exhausted, the app exits and `restart: always` starts a fresh cycle. This is expected when you bring up the API before ES; otherwise start ES and the next restart cycle will connect.
+The API checks once per second until the pipeline exists, then performs the same loop for configured Kafka requirements. This is expected when the API starts before its infrastructure; wait for `/livez` rather than treating the container's running state or Elasticsearch port 9200 as API readiness.
 
 ## Teardown
 
@@ -221,11 +221,12 @@ For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` te
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `[APP ERROR] Server initialization failed` on startup | Elasticsearch unreachable. The server pings ES during bootstrap; if it fails, the server exits. | Check `elasticsearch.node` in your config matches the running ES instance. Verify with `curl -sf http://localhost:9200/_cluster/health`. |
+| API never exposes `/livez`; logs say `Ingest pipeline is not present` | Elasticsearch is reachable but `insertion-timestamp-pipeline` has not been created. | Start or repair `elasticsearch-init-container`; verify with `curl -sf http://localhost:9200/_ingest/pipeline/insertion-timestamp-pipeline`. |
+| API never exposes `/livez`; logs say `Required Kafka topics are not present` | Kafka is enabled but one or more requirements are absent. | Create `mdx-notification`, `mdx-amr`, and a topic matching `mdx-rtls*`, or disable Kafka with `kafka.brokers: []`. |
 | `[INPUT ERROR] Invalid path for bootstrap config file.` | The `--config` path doesn't exist inside the container. | Verify the volume mount target matches the `--config` flag path. Use an absolute path. |
 | Compose tries to mount `/data_log/vss_video_analytics_api` from the filesystem root | `$VSS_DATA_DIR` is unset while the default data-log bind mount is still present. | Export `VSS_DATA_DIR` to a writable host path and create `$VSS_DATA_DIR/data_log/vss_video_analytics_api`, or remove the `/web-api-app/files` mount if image uploads are not needed. |
 | `EADDRINUSE` | Port 8081 (or your configured port) is already in use. | Check with `ss -tlnp | grep :8081`. Stop the conflicting process or change `server.port` in the config. |
-| Container alive but Kafka-dependent endpoints return errors | Kafka brokers configured but unreachable. | Verify brokers are reachable: `nc -zv <broker-host> <broker-port>`. Check `kafka.brokers` is a proper array of `"host:port"` strings. |
+| Container is running but port 8081 is unavailable | API is waiting for its Elasticsearch pipeline or configured Kafka requirements. | Read container logs for the missing readiness requirement; `/livez` returns 200 only after all gates pass. |
 | `/livez` returns 200 but data endpoints return empty results | Elasticsearch indices don't exist or have no data. | Check indices: `curl -s http://localhost:9200/_cat/indices?v \| grep mdx`. If empty, the upstream pipeline (behavior-analytics, perception) hasn't produced data yet. |
 | Config update via POST `/config` times out | The ACK from behavior-analytics didn't arrive within `configStatusTimeoutMs`. | Check that behavior-analytics is running and consuming from `mdx-notification`. Check the `configStatusTimeoutMs` value (default `30000`ms). |
 | Image won't run `docker exec -it ... sh` | Runtime is a **Node** image (`nvcr.io/nvidia/distroless/node:22-v4.0.7`) — no shell, but the `node` binary is present. | Use `docker logs <container>` for runtime output. To print a bind-mounted file (e.g. bootstrap config), use `docker exec <container> node -e '...'` — see below. Prefer reading the host-side mount path when the file is volume-bound. |
