@@ -180,7 +180,7 @@ schema (that path is Agent on stock Ingress).
 | Service | Base URL |
 |---|---|
 | LVS | `${VIDEO_SUMMARIZATION_URL}` (K8s: `${VSS_PUBLIC_URL}`; Docker: `http://${HOST_IP}:38111`) |
-| VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: public origin; Docker: `:8018`) |
+| VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: the `/rtvi-vlm` mount; Docker: `:8018`) |
 | VIOS | `${VST_API_BASE}` |
 
 Strip a trailing `/v1` from the VLM base because this skill appends it. Do not

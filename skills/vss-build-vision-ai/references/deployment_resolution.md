@@ -309,8 +309,9 @@ AGENT_URL="${VSS_PUBLIC_URL%/}"
 VSS_VIOS_URL="${AGENT_URL}/vst"
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 # Resolve VLM_ENDPOINT only with the probe-before-adopt flow above.
-# LVS client base is the origin (no /v1 suffix); ignore Docker-derived values:
-LVS_BACKEND_URL="${AGENT_URL}"
+# LVS client base is the /lvs mount (no /v1 suffix) — the bare origin is the
+# UI catch-all; ignore Docker-derived values:
+LVS_BACKEND_URL="${AGENT_URL}/lvs"
 # Alerts — force public prefixes; ignore leftover Docker :9080 / :9901:
 ALERT_BRIDGE_URL="${AGENT_URL}/alert-bridge"
 VA_MCP_URL="${AGENT_URL}/va-mcp"

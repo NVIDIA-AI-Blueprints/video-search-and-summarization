@@ -20,8 +20,8 @@ deployment-specific:
 ```bash
 # Docker Compose (default)
 export BASE_URL="${LVS_BACKEND_URL:-http://localhost:38111}"
-# Kubernetes operate — origin only (skill appends /v1/ready and /v1/summarize)
-# export BASE_URL="${VSS_PUBLIC_URL%/}"
+# Kubernetes operate — the /lvs mount (skill appends /v1/ready and /v1/summarize)
+# export BASE_URL="${VSS_PUBLIC_URL%/}/lvs"
 ```
 
 ## Runtime OpenAPI Discovery
