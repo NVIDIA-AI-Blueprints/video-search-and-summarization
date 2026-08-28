@@ -93,9 +93,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `RTVI_EMBED_RTSP_RECONNECTION_WINDOW` | Maps to `RTVI_RTSP_RECONNECTION_WINDOW` (seconds). | `60` | No |
 | `RTVI_EMBED_RTSP_RECONNECTION_MAX_ATTEMPTS` | Maps to `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS`. | `10` | No |
 | `RTVI_EMBED_IPC_FRAME_COPY` | Maps to `RTVI_IPC_FRAME_COPY`; consume decoded frames from a compatible CV producer for live streams. | `false` | No |
-| `RTVI_EMBED_IPC_SOCKET_DIR` | Maps to `RTVI_IPC_SOCKET_DIR`, the consumer's socket mount path. | `/run/rtvi-ipc` | No |
-| `RTVI_EMBED_IPC_SOCKET_TEMPLATE` | Maps to `RTVI_IPC_SOCKET_TEMPLATE`; must include `{camera_id}`, `{sensor_id}`, or `{stream_id}`. | `nvds_ipc_{camera_id}.sock` | No |
-| `RTVI_EMBED_IPC_SOCKET_HOST_DIR` | Host producer-socket directory mounted at `RTVI_EMBED_IPC_SOCKET_DIR`. | (unset; mount skipped) | No |
+| `RTVI_EMBED_IPC_SOCKET_HOST_DIR` | Host producer-socket directory mounted at the fixed `/run/rtvi-ipc` path. | (unset; mount skipped) | No |
 | `RTVI_EMBED_ENABLE_OTEL_MONITORING` | Maps to `ENABLE_OTEL_MONITORING`. | `false` | No |
 | `RTVI_EMBED_OTEL_RESOURCE_ATTRIBUTES` | Maps to `OTEL_RESOURCE_ATTRIBUTES`. | (unset) | No |
 | `RTVI_EMBED_OTEL_TRACES_EXPORTER` | Maps to `OTEL_TRACES_EXPORTER`. | `otlp` | No |

@@ -75,8 +75,9 @@ Selection rules:
 - For direct endpoint calls, use the API reference and reuse deployment context
   only when the service is not already running.
 - Decoded-frame IPC requires a compatible RTVI CV producer on the same host, a
-  shared socket directory accessible to UID/GID `1001`, and matching camera ID
-  and socket template. IPC camera, sensor, and stream IDs must be non-empty and
+  shared socket directory accessible to UID/GID `1001`, and a matching camera
+  ID. The consumer uses the fixed `/run/rtvi-ipc/nvds_ipc_{camera_id}.sock`
+  socket contract. IPC camera, sensor, and stream IDs must be non-empty and
   contain only ASCII letters, digits, `.`, `_`, and `-`; standard UUIDs are
   valid. It applies only to live RTSP processing.
 - If the request mixes deployment and BYOM, load BYOM first to establish model

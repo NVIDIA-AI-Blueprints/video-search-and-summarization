@@ -59,8 +59,6 @@ services:
       RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_EMBED_RTSP_RECONNECTION_WINDOW:-60}"
       RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_EMBED_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
       RTVI_IPC_FRAME_COPY: "${RTVI_EMBED_IPC_FRAME_COPY:-false}"
-      RTVI_IPC_SOCKET_DIR: "${RTVI_EMBED_IPC_SOCKET_DIR:-/run/rtvi-ipc}"
-      RTVI_IPC_SOCKET_TEMPLATE: "${RTVI_EMBED_IPC_SOCKET_TEMPLATE:-nvds_ipc_{camera_id}.sock}"
       ENABLE_OTEL_MONITORING: "${RTVI_EMBED_ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
       OTEL_RESOURCE_ATTRIBUTES: "${RTVI_EMBED_OTEL_RESOURCE_ATTRIBUTES:-}"
       OTEL_TRACES_EXPORTER: "${RTVI_EMBED_OTEL_TRACES_EXPORTER:-otlp}"
@@ -95,7 +93,7 @@ services:
       - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_LOG_DIR:-/dummy}${RTVI_EMBED_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
-      - "${RTVI_EMBED_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_EMBED_IPC_SOCKET_HOST_DIR:+:${RTVI_EMBED_IPC_SOCKET_DIR:-/run/rtvi-ipc}}"
+      - "${RTVI_EMBED_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_EMBED_IPC_SOCKET_HOST_DIR:+:/run/rtvi-ipc}"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - ${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
       - rtvi-triton-model-repo:/tmp/triton_model_repo

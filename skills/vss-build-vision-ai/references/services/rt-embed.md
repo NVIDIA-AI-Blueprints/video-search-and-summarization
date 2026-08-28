@@ -26,7 +26,7 @@
 | `MESSAGE_BUS`, `MESSAGE_BUS_TOPIC`, `ERROR_BUS`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding event and error publishing (see note below). |
 | `RTVI_EMBED_HF_CACHE`, `NGC_MODEL_CACHE`, `HF_TOKEN`, `NGC_API_KEY` | Configure model caches and credentials. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
-| `RTVI_EMBED_IPC_FRAME_COPY`, `RTVI_EMBED_IPC_SOCKET_HOST_DIR`, `RTVI_EMBED_IPC_SOCKET_DIR`, `RTVI_EMBED_IPC_SOCKET_TEMPLATE` | Enable live-stream decoded-frame IPC and configure the shared producer socket directory. |
+| `RTVI_EMBED_IPC_FRAME_COPY`, `RTVI_EMBED_IPC_SOCKET_HOST_DIR` | Enable live-stream decoded-frame IPC and mount the shared producer socket directory at fixed `/run/rtvi-ipc`; Embed resolves `nvds_ipc_{camera_id}.sock`. |
 
 ## Kafka output contract
 

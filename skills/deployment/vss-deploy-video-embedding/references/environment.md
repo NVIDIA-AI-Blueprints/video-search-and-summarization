@@ -30,8 +30,6 @@ Several host-side variables map to differently named container variables. The Co
 | `RTVI_EMBED_RTSP_RECONNECTION_WINDOW` | `RTVI_RTSP_RECONNECTION_WINDOW` | `60` |
 | `RTVI_EMBED_RTSP_RECONNECTION_MAX_ATTEMPTS` | `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | `10` |
 | `RTVI_EMBED_IPC_FRAME_COPY` | `RTVI_IPC_FRAME_COPY` | `false` |
-| `RTVI_EMBED_IPC_SOCKET_DIR` | `RTVI_IPC_SOCKET_DIR` | `/run/rtvi-ipc` |
-| `RTVI_EMBED_IPC_SOCKET_TEMPLATE` | `RTVI_IPC_SOCKET_TEMPLATE` | `nvds_ipc_{camera_id}.sock` |
 | `RTVI_EMBED_ENABLE_OTEL_MONITORING` | `ENABLE_OTEL_MONITORING` | `false` |
 | `RTVI_EMBED_OTEL_RESOURCE_ATTRIBUTES` | `OTEL_RESOURCE_ATTRIBUTES` | (unset) |
 | `RTVI_EMBED_OTEL_TRACES_EXPORTER` | `OTEL_TRACES_EXPORTER` | `otlp` |
@@ -42,7 +40,7 @@ Several host-side variables map to differently named container variables. The Co
 | `RTVI_EMBED_HF_CACHE` | volume source for `/tmp/huggingface` | `rtvi-hf-cache` (named) |
 | `NGC_MODEL_CACHE` | volume source for the NGC cache | `rtvi-ngc-model-cache` (named) |
 | `RTVI_EMBED_LOG_DIR` | optional host bind for `/opt/nvidia/rtvi/log/rtvi/` | (unset; mount is skipped) |
-| `RTVI_EMBED_IPC_SOCKET_HOST_DIR` | When set, bind-mounts the producer socket directory at `RTVI_EMBED_IPC_SOCKET_DIR`. | (unset; mount is skipped) |
+| `RTVI_EMBED_IPC_SOCKET_HOST_DIR` | When set, bind-mounts the producer socket directory at fixed `/run/rtvi-ipc`. | (unset; mount is skipped) |
 | `ASSET_STORAGE_DIR` | optional host bind for `/tmp/assets` | (unset; mount is skipped) |
 
 ## Direct (No-Rename) Container Variables
@@ -109,10 +107,11 @@ RTVI CV `nvunixfd` producer instead of creating an RTSP decode pipeline. This is
 for live RTSP streams only. CV and Embed must run on the same host, use the same
 camera ID, and share a socket directory accessible to container UID/GID `1001`.
 Set `RTVI_EMBED_IPC_SOCKET_HOST_DIR` to that producer directory; Compose mounts
-it at `RTVI_EMBED_IPC_SOCKET_DIR` (default `/run/rtvi-ipc`). Send the stream
-processing request to both RTVI CV (producer) and Embed (consumer) with the
-same camera ID. IPC camera, sensor, and stream IDs must be non-empty and use
-only ASCII letters, digits, `.`, `_`, and `-`; standard UUIDs are valid.
+it at fixed `/run/rtvi-ipc`, where Embed resolves `nvds_ipc_{camera_id}.sock`.
+Send the stream processing request to both RTVI CV (producer) and Embed
+(consumer) with the same camera ID. IPC camera, sensor, and stream IDs must be
+non-empty and use only ASCII letters, digits, `.`, `_`, and `-`; standard UUIDs
+are valid.
 
 ## OpenTelemetry Defaults
 

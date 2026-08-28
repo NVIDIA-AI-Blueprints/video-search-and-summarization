@@ -187,14 +187,13 @@ producer's socket directory:
 ```yaml
 ipcFrameCopy: true
 ipcSocketHostPath: /path/on/the/kubernetes-node/cv-ipc-sockets
-ipcSocketDir: /run/rtvi-ipc
-ipcSocketTemplate: nvds_ipc_{camera_id}.sock
 ```
 
-The chart mounts `ipcSocketHostPath` as an existing `hostPath` directory at
-`ipcSocketDir`; it does not create the directory, configure RTVI CV, or enforce
-pod co-location. Schedule the producer and Embed on the same node, make the
-directory accessible to Embed's UID/GID `1001`, and use matching camera IDs.
+The chart mounts `ipcSocketHostPath` as an existing `hostPath` directory at the
+fixed `/run/rtvi-ipc` path; Embed resolves sockets as `nvds_ipc_{camera_id}.sock`.
+It does not create the directory, configure RTVI CV, or enforce pod co-location.
+Schedule the producer and Embed on the same node, make the directory accessible
+to Embed's UID/GID `1001`, and use matching camera IDs.
 Send the stream processing request to both RTVI CV (the producer) and RTVI
 Embed (the consumer) with the same camera ID. IPC applies only to live RTSP
 video. IPC camera, sensor, and stream IDs must be non-empty and use only ASCII
