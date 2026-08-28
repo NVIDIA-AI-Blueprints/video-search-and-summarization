@@ -10,7 +10,9 @@ otherwise keep running.
 GitHub only publishes a step's ``GITHUB_OUTPUT`` when that step finishes.
 The trigger also fsyncs a handoff file. If cancel hits after GitLab has
 created the pipeline but before the id is on disk, cleanup lists recent
-pipelines on the recorded ref whose variables match the recorded SHA.
+pipelines on the recorded ref and matches this trigger attempt's own
+correlation token — never the ref/SHA pair, which a concurrent run of the
+same commit would also carry.
 """
 from __future__ import annotations
 
@@ -35,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from trigger_downstream_pipeline import add_mask  # noqa: E402
 from trigger_downstream_pipeline import api_base_url  # noqa: E402
 from trigger_downstream_pipeline import connection_error_detail  # noqa: E402
+from trigger_downstream_pipeline import CORRELATION_VARIABLE  # noqa: E402
 from trigger_downstream_pipeline import emit_error  # noqa: E402
 from trigger_downstream_pipeline import handoff_path  # noqa: E402
 from trigger_downstream_pipeline import require_env  # noqa: E402
@@ -148,13 +151,21 @@ def created_at_is_recent(created_at: str, started_at: str, slack_seconds: int = 
     return created >= started - timedelta(seconds=slack_seconds)
 
 
-def pipeline_variables_match(
-    variables: list[Any], variable_name: str, commit_sha: str
-) -> bool:
+def pipeline_variables_match(variables: list[Any], correlation_id: str) -> bool:
+    """Match only this trigger attempt's own correlation token.
+
+    Matching on ref + submodule SHA alone would also match a concurrent
+    run of the same commit and cancel work this job does not own.
+    """
+    if not correlation_id:
+        return False
     for item in variables:
         if not isinstance(item, dict):
             continue
-        if item.get("key") == variable_name and str(item.get("value") or "") == commit_sha:
+        if (
+            item.get("key") == CORRELATION_VARIABLE
+            and str(item.get("value") or "") == correlation_id
+        ):
             return True
     return False
 
@@ -163,8 +174,7 @@ def matching_pipeline_ids(
     pipelines: list[Any],
     variables_by_id: dict[int, list[Any]],
     *,
-    variable_name: str,
-    commit_sha: str,
+    correlation_id: str,
     started_at: str,
 ) -> list[int]:
     found: list[int] = []
@@ -176,9 +186,7 @@ def matching_pipeline_ids(
             continue
         if not created_at_is_recent(str(pipe.get("created_at") or ""), started_at):
             continue
-        if pipeline_variables_match(
-            variables_by_id.get(pid) or [], variable_name, commit_sha
-        ):
+        if pipeline_variables_match(variables_by_id.get(pid) or [], correlation_id):
             found.append(pid)
     return found
 
@@ -250,8 +258,7 @@ def discover_matching_pipeline_ids(
     *,
     project: str,
     ref: str,
-    variable_name: str,
-    commit_sha: str,
+    correlation_id: str,
     started_at: str,
     open_func: Any = urlopen,
 ) -> list[int]:
@@ -267,8 +274,7 @@ def discover_matching_pipeline_ids(
     return matching_pipeline_ids(
         pipelines,
         variables_by_id,
-        variable_name=variable_name,
-        commit_sha=commit_sha,
+        correlation_id=correlation_id,
         started_at=started_at,
     )
 
@@ -287,20 +293,20 @@ def main() -> int:
     if pipeline_id.isdigit():
         ids = [int(pipeline_id)]
     else:
-        commit_sha = handoff.get("commit_sha", "")
-        variable_name = handoff.get("variable_name", "")
+        correlation_id = handoff.get("correlation_id", "")
         ref = handoff.get("ref", "") or os.environ.get("DOWNSTREAM_REF", "").strip()
         started_at = handoff.get("trigger_started_at", "")
         project = encode_project(
             project_id=int(project_id) if project_id.isdigit() else None,
             project_path=project_path,
         ) if (project_id.isdigit() or project_path) else ""
-        if not (commit_sha and variable_name and ref and started_at and project):
+        if not (correlation_id and ref and started_at and project):
             print("No downstream pipeline id; trigger never published one")
             return 0
+        add_mask(correlation_id)
         print(
             "Pipeline id missing after cancel; searching recent GitLab "
-            f"pipelines on {ref} for {variable_name}"
+            f"pipelines on {ref} for this run's correlation token"
         )
         attempts = int(os.environ.get("DOWNSTREAM_CANCEL_SEARCH_ATTEMPTS", "3"))
         delay = float(os.environ.get("DOWNSTREAM_CANCEL_SEARCH_SECONDS", "2"))
@@ -310,8 +316,7 @@ def main() -> int:
                 token,
                 project=project,
                 ref=ref,
-                variable_name=variable_name,
-                commit_sha=commit_sha,
+                correlation_id=correlation_id,
                 started_at=started_at,
             )
             if ids:

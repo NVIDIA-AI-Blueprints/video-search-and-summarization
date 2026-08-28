@@ -113,33 +113,57 @@ class HandoffTest(unittest.TestCase):
 
 
 class SearchFallbackTest(unittest.TestCase):
-    def test_matches_recent_pipeline_with_the_recorded_sha(self):
+    def test_matches_this_runs_correlation_token(self):
         pipelines = [
             {"id": 10, "created_at": "2026-08-28T08:12:30Z"},
             {"id": 11, "created_at": "2026-08-28T07:00:00Z"},
         ]
         variables = {
-            10: [{"key": "VSS_SUBMODULE_HASH", "value": "abc"}],
-            11: [{"key": "VSS_SUBMODULE_HASH", "value": "abc"}],
+            10: [{"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-aaa"}],
+            11: [{"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-aaa"}],
         }
         self.assertEqual(
             module.matching_pipeline_ids(
                 pipelines,
                 variables,
-                variable_name="VSS_SUBMODULE_HASH",
-                commit_sha="abc",
+                correlation_id="gh-1-1-aaa",
                 started_at="2026-08-28T08:12:00Z",
             ),
             [10],
         )
 
-    def test_ignores_pipelines_for_a_different_sha(self):
+    def test_leaves_a_concurrent_run_on_the_same_sha_alone(self):
+        """Two runs share ref + VSS_SUBMODULE_HASH; only ours may be cancelled."""
+        pipelines = [
+            {"id": 20, "created_at": "2026-08-28T08:12:30Z"},
+            {"id": 21, "created_at": "2026-08-28T08:12:31Z"},
+        ]
+        variables = {
+            20: [
+                {"key": "VSS_SUBMODULE_HASH", "value": "abc"},
+                {"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-mine"},
+            ],
+            21: [
+                {"key": "VSS_SUBMODULE_HASH", "value": "abc"},
+                {"key": module.CORRELATION_VARIABLE, "value": "gh-2-1-theirs"},
+            ],
+        }
+        self.assertEqual(
+            module.matching_pipeline_ids(
+                pipelines,
+                variables,
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+            ),
+            [20],
+        )
+
+    def test_no_correlation_token_cancels_nothing(self):
         self.assertEqual(
             module.matching_pipeline_ids(
                 [{"id": 10, "created_at": "2026-08-28T08:12:30Z"}],
-                {10: [{"key": "VSS_SUBMODULE_HASH", "value": "other"}]},
-                variable_name="VSS_SUBMODULE_HASH",
-                commit_sha="abc",
+                {10: [{"key": "VSS_SUBMODULE_HASH", "value": "abc"}]},
+                correlation_id="",
                 started_at="2026-08-28T08:12:00Z",
             ),
             [],

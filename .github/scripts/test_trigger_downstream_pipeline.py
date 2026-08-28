@@ -109,6 +109,43 @@ class ExtraPipelineVariablesTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 module.resolve_branches()
 
+    def test_correlation_id_is_unique_per_trigger_attempt(self):
+        with mock.patch.dict(
+            os.environ,
+            {"GITHUB_RUN_ID": "42", "GITHUB_RUN_ATTEMPT": "2"},
+            clear=False,
+        ):
+            first = module.new_correlation_id()
+            second = module.new_correlation_id()
+        self.assertTrue(first.startswith("gh-42-2-"))
+        self.assertNotEqual(first, second)
+
+    def test_correlation_id_is_sent_as_a_pipeline_variable(self):
+        payload = module.pipeline_request_data(
+            ref="main",
+            variable_name="VSS_SUBMODULE_HASH",
+            commit_sha="a" * 40,
+            target_branch="develop",
+            compare_branch="pull-request/1906",
+            correlation_id="gh-42-2-abc",
+        )
+        parsed = parse_qs(payload.decode())
+        self.assertIn(module.CORRELATION_VARIABLE, parsed["variables[][key]"])
+        self.assertIn("gh-42-2-abc", parsed["variables[][value]"])
+
+    def test_extra_variables_cannot_forge_the_correlation_token(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DOWNSTREAM_EXTRA_VARIABLES_JSON": json.dumps(
+                    {module.CORRELATION_VARIABLE: "forged"}
+                )
+            },
+            clear=True,
+        ):
+            with self.assertRaises(SystemExit):
+                module.extra_pipeline_variables()
+
     def test_persist_handoff_writes_ids_before_step_outputs_would_publish(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "handoff.json"

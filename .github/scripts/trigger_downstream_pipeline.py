@@ -8,6 +8,7 @@ import re
 import socket
 import ssl
 import sys
+import uuid
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -21,6 +22,7 @@ from urllib.parse import urlencode
 from urllib.request import Request
 from urllib.request import urlopen
 
+CORRELATION_VARIABLE = "VSS_TRIGGER_CORRELATION_ID"
 LAUNCHABLE_NOTEBOOK_PATH = "deploy/docker/scripts/deploy_vss_launchable.ipynb"
 LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE = "BREV_LAUNCHABLE_NOTEBOOK_TESTS"
 CHANGED_FILE_FIELDS = ("added", "modified")
@@ -162,6 +164,7 @@ def trigger_pipeline(
     target_branch: str,
     compare_branch: str,
     extra_variables: dict[str, str] | None = None,
+    correlation_id: str = "",
 ) -> dict[str, Any]:
     payload = pipeline_request_data(
         ref=ref,
@@ -170,6 +173,7 @@ def trigger_pipeline(
         target_branch=target_branch,
         compare_branch=compare_branch,
         extra_variables=extra_variables,
+        correlation_id=correlation_id,
     )
     response = request_json(
         "Pipeline trigger",
@@ -191,6 +195,7 @@ def pipeline_request_data(
     target_branch: str,
     compare_branch: str,
     extra_variables: dict[str, str] | None = None,
+    correlation_id: str = "",
 ) -> bytes:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
@@ -201,6 +206,13 @@ def pipeline_request_data(
         ("variables[][key]", "VSS_COMPARE_BRANCH"),
         ("variables[][value]", compare_branch),
     ]
+    if correlation_id:
+        payload_pairs.extend(
+            [
+                ("variables[][key]", CORRELATION_VARIABLE),
+                ("variables[][value]", correlation_id),
+            ]
+        )
     for key, value in (extra_variables or {}).items():
         payload_pairs.extend(
             [
@@ -397,6 +409,13 @@ def write_output(key: str, value: str) -> None:
 DEFAULT_HANDOFF_PATH = ".ci/downstream-pipeline.json"
 
 
+def new_correlation_id() -> str:
+    """One-off token identifying a single trigger attempt."""
+    run_id = os.environ.get("GITHUB_RUN_ID", "local").strip() or "local"
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1").strip() or "1"
+    return f"gh-{run_id}-{attempt}-{uuid.uuid4().hex}"
+
+
 def handoff_path() -> str:
     return os.environ.get("DOWNSTREAM_HANDOFF_PATH", DEFAULT_HANDOFF_PATH).strip() or (
         DEFAULT_HANDOFF_PATH
@@ -459,6 +478,7 @@ def extra_pipeline_variables() -> dict[str, str]:
         ),
         "VSS_TARGET_BRANCH",
         "VSS_COMPARE_BRANCH",
+        CORRELATION_VARIABLE,
     }
     overlap = reserved.intersection(payload)
     if overlap:
@@ -527,11 +547,16 @@ def main() -> int:
             return 0
 
         project_id = fetch_project_id(base_url, token, project_path)
+        # Identifies this trigger attempt alone, so a cancel that races the
+        # POST response cannot match a concurrent run's pipeline on the same
+        # ref and submodule SHA.
+        correlation_id = new_correlation_id()
         persist_handoff(
             project_id=project_id,
             ref=ref,
             commit_sha=commit_sha,
             variable_name=variable_name,
+            correlation_id=correlation_id,
             trigger_started_at=datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
             ),
@@ -546,6 +571,7 @@ def main() -> int:
             target_branch,
             compare_branch,
             extra_variables,
+            correlation_id,
         )
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
