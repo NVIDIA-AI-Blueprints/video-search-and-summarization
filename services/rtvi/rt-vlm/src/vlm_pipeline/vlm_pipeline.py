@@ -66,6 +66,10 @@ BUILTIN_MODEL_CLASSES = {
 # Location to download and cache NGC models
 NGC_MODEL_CACHE = os.environ.get("NGC_MODEL_CACHE") or "/opt/nvidia/rtvi/.rtvi/ngc_model_cache/"
 DEFAULT_DECODE_MAX_ATTEMPTS = 2
+FAST_IMAGE_ASSET_CHUNK_DECODE_ENV = "RTVI_FAST_IMAGE_ASSET_CHUNK_DECODE"
+STRICT_FIXED_FRAME_CHUNK_DECODE_ENV = "RTVI_STRICT_FIXED_FRAME_CHUNK_DECODE"
+VLM_QUEUE_MAXSIZE_ENV = "RTVI_VLM_QUEUE_MAXSIZE"
+IMAGE_ASSET_EXTENSIONS = frozenset((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
 
 
 def _decode_max_attempts() -> int:
@@ -88,6 +92,134 @@ def _reuse_file_decoder_pipeline() -> bool:
         "no",
         "off",
     )
+
+
+def _strict_fixed_frame_chunk_decode_enabled() -> bool:
+    return os.environ.get(STRICT_FIXED_FRAME_CHUNK_DECODE_ENV, "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _vlm_queue_maxsize(num_gpus: int) -> int:
+    default = 128 * num_gpus
+    raw_value = os.environ.get(VLM_QUEUE_MAXSIZE_ENV)
+    if raw_value is None:
+        return default
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r; using default %d",
+            VLM_QUEUE_MAXSIZE_ENV,
+            raw_value,
+            default,
+        )
+        return default
+
+
+def _fast_image_asset_chunk_decode_enabled() -> bool:
+    return os.environ.get(FAST_IMAGE_ASSET_CHUNK_DECODE_ENV, "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _split_local_image_asset_paths(chunk_file: str) -> Optional[list[str]]:
+    """Return local image paths represented by a chunk file, or None when ineligible."""
+    if not chunk_file or "://" in chunk_file:
+        return None
+
+    paths = [path for path in chunk_file.split(";") if path]
+    if not paths:
+        return None
+
+    for path in paths:
+        if os.path.splitext(path)[1].lower() not in IMAGE_ASSET_EXTENSIONS:
+            return None
+        if not os.path.isfile(path):
+            return None
+    return paths
+
+
+def _required_file_chunk_frame_count(
+    chunk: ChunkInfo,
+    requested_frame_count: float | int | None,
+    use_fps_for_chunking: bool,
+) -> int:
+    if (
+        not _strict_fixed_frame_chunk_decode_enabled()
+        or use_fps_for_chunking
+        or not requested_frame_count
+        or chunk.chunk_type != "video"
+    ):
+        return 1
+
+    try:
+        requested = int(requested_frame_count)
+    except (TypeError, ValueError):
+        return 1
+
+    if requested <= 1:
+        return 1
+
+    try:
+        from .video_file_frame_getter import DefaultFrameSelector
+
+        if requested == DefaultFrameSelector.ALL_FRAMES:
+            return 1
+    except Exception:
+        pass
+
+    return requested
+
+
+def _try_decode_image_asset_chunk(
+    chunk: ChunkInfo,
+    frame_width: int = 0,
+    frame_height: int = 0,
+    enable_audio: bool = False,
+    enable_jpeg_tensors: bool = False,
+) -> Optional[tuple[torch.Tensor, list[float], list, None]]:
+    """Fast-path uploaded image chunks without constructing a video decoder pipeline."""
+    if (
+        not _fast_image_asset_chunk_decode_enabled()
+        or enable_audio
+        or enable_jpeg_tensors
+        or chunk.chunk_type != "video"
+    ):
+        return None
+
+    image_paths = _split_local_image_asset_paths(chunk.file)
+    if image_paths is None:
+        return None
+
+    try:
+        import numpy as np
+        from PIL import Image
+
+        resampling = getattr(getattr(Image, "Resampling", Image), "BILINEAR")
+        arrays = []
+        for image_path in image_paths:
+            with Image.open(image_path) as image:
+                image = image.convert("RGB")
+                if frame_width and frame_height:
+                    image = image.resize((frame_width, frame_height), resampling)
+                arrays.append(np.asarray(image, dtype=np.uint8).copy())
+        if not arrays:
+            return None
+        frames = torch.from_numpy(np.stack(arrays, axis=0))
+        # Static image assets arrive as one-frame files with PTS 0 in the generic
+        # decoder. Preserve that contract so timestamp prompt behavior stays stable.
+        frame_times = [0.0] * len(arrays)
+        return frames, frame_times, [], None
+    except Exception:
+        logger.warning("Fast image asset chunk decode failed for %s", chunk, exc_info=True)
+        return None
 
 
 class VlmModelType(Enum):
@@ -470,9 +602,65 @@ class DecoderProcess(ProcessBase):
                 use_fps_for_chunking=self._use_fps_for_chunking,
             )
 
+        min_required_frames = _required_file_chunk_frame_count(
+            chunk,
+            num_frames_per_second_or_fixed_frames_chunk or self._nfrms,
+            (
+                use_fps_for_chunking
+                if num_frames_per_second_or_fixed_frames_chunk
+                else self._use_fps_for_chunking
+            ),
+        )
+
         enable_audio = vlm_query.enable_audio
         vlm_input_width = vlm_query.vlm_input_width
         vlm_input_height = vlm_query.vlm_input_height
+
+        fast_decoded = _try_decode_image_asset_chunk(
+            chunk,
+            frame_width=vlm_input_width or self._width,
+            frame_height=vlm_input_height or self._height,
+            enable_audio=enable_audio,
+            enable_jpeg_tensors=self._enable_jpeg_tensors,
+        )
+        if fast_decoded is not None:
+            frames, frame_times, audio_frames, error = fast_decoded
+            if len(frames) < min_required_frames:
+                nvtx.end_range(nvtx_decode_start)
+                self._fgetters.append(fgetter)
+                return {
+                    "chunk": chunk,
+                    "error": (
+                        f"Decode error: decoded {len(frames)} frame(s), "
+                        f"required at least {min_required_frames}"
+                    ),
+                    "error_status_code": 500,
+                    "decode_retry_count": 0,
+                    **kwargs,
+                }
+            nvtx.end_range(nvtx_decode_start)
+            self._fgetters.append(fgetter)
+            decode_end_time = time.time()
+            logger.log(
+                LOG_STATUS_LEVEL,
+                "Chunk (%s) decoded via fast image asset path, frames=%d",
+                chunk,
+                len(frames),
+            )
+            return {
+                "chunk": chunk,
+                "frames": frames,
+                "error": error,
+                "error_status_code": 500,
+                "frame_times": frame_times,
+                "audio_frames": audio_frames,
+                "audio_transcript": [],
+                "decode_start_time": decode_start_time,
+                "decode_end_time": decode_end_time,
+                "decode_retry_count": 0,
+                "is_live_stream": False,
+                **kwargs,
+            }
 
         frames = []
         frame_times = []
@@ -501,7 +689,7 @@ class DecoderProcess(ProcessBase):
                 audio_frames = []
                 break
             decoded_frame_count = len(frames)
-            if not error and decoded_frame_count >= self._minframes:
+            if not error and decoded_frame_count >= min_required_frames:
                 break
             if is_cuda_oom_error(error):
                 error_status_code = CUDA_OOM_STATUS_CODE
@@ -509,7 +697,7 @@ class DecoderProcess(ProcessBase):
             if not error:
                 error = (
                     f"decoded {decoded_frame_count} frame(s), "
-                    f"required at least {self._minframes}"
+                    f"required at least {min_required_frames}"
                 )
             if attempt + 1 >= decode_max_attempts:
                 break
@@ -573,7 +761,7 @@ class DecoderProcess(ProcessBase):
 
         error_msg = f"Decode error: {error}" if error else None
 
-        if len(frames) >= self._minframes:
+        if not error_msg and len(frames) >= min_required_frames:
             return {
                 "chunk": chunk,
                 "frames": frames,
@@ -1615,10 +1803,9 @@ class VlmPipeline:
         logger.info(f"Have peer access: {have_peer_access}")
 
         if have_peer_access:
-            # Match the Python pipeline's global 128-request transport queue.
-            # CUDA-IPC producers independently keep only one decoder-window of
-            # queued chunks on device and spill the rest to host memory.
-            self._vlm_q = mp_ctx.Queue(maxsize=(128 * self._args.num_gpus))
+            vlm_queue_maxsize = _vlm_queue_maxsize(self._args.num_gpus)
+            logger.info("VLM queue maxsize set to %d", vlm_queue_maxsize)
+            self._vlm_q = mp_ctx.Queue(maxsize=vlm_queue_maxsize)
             self._vlm_q_lock = mp_ctx.Lock()
         else:
             self._vlm_q = None
@@ -2593,7 +2780,7 @@ class VlmPipeline:
             "--ipc-socket-template",
             type=str,
             default="nvds_ipc_{camera_id}.sock",
-            help="Socket filename template. Supports {camera_id}, {sensor_id}, and {stream_id}.",
+            help="Socket filename template; must include {camera_id}, {sensor_id}, or {stream_id}.",
         )
 
 
