@@ -1,7 +1,7 @@
 import { IconFileExport, IconSettings } from '@tabler/icons-react';
 import { useContext, useState } from 'react';
 
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'next-i18next/pages';
 import { isQueryProcessing } from '@/utils/app/queryProcessing';
 
 import HomeContext from '@/pages/api/home/home.context';

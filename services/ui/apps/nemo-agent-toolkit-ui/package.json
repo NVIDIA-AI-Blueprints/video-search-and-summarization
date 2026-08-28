@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build && cp -r .next/static .next/standalone/apps/nemo-agent-toolkit-ui/.next/ && cp -r public .next/standalone/apps/nemo-agent-toolkit-ui/",
+    "build": "next build --webpack && cp -r .next/static .next/standalone/apps/nemo-agent-toolkit-ui/.next/ && cp -r public .next/standalone/apps/nemo-agent-toolkit-ui/ && cp next-i18next.config.js .next/standalone/apps/nemo-agent-toolkit-ui/",
     "start": "node .next/standalone/apps/nemo-agent-toolkit-ui/server.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next && rm -rf node_modules",
@@ -18,25 +18,25 @@
     "common": "*",
     "@nemo-agent-toolkit/ui": "0.1.1",
     "jsdom": "27.4.0",
-    "next": "15.5.24",
-    "next-i18next": "^13.3.0",
+    "next": "16.3.3",
+    "next-i18next": "^16.0.11",
     "next-runtime-env": "^1.8.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-hot-toast": "^2.6.0",
     "react-query": "^3.39.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/react": "^16.3.3",
     "@types/jest": "^30.0.0",
-    "@types/node": "18.19.130",
-    "@types/react": "18.3.31",
-    "@types/react-dom": "18.3.7",
+    "@types/node": "22.18.12",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
     "identity-obj-proxy": "^3.0.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "ts-jest": "^29.4.12",
-    "typescript": "4.9.5"
+    "typescript": "5.9.3"
   }
 }

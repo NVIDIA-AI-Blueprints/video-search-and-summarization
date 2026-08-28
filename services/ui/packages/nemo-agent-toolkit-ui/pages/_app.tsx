@@ -1,7 +1,7 @@
 import { Toaster } from 'react-hot-toast';
 import { QueryClient, QueryClientProvider } from 'react-query';
 
-import { appWithTranslation } from 'next-i18next';
+import { appWithTranslation } from 'next-i18next/pages';
 import type { AppProps } from 'next/app';
 import { Inter } from 'next/font/google';
 
