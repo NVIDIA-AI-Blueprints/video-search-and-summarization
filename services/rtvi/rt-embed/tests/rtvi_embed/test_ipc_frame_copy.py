@@ -36,6 +36,9 @@ def test_resolve_ipc_socket_path_accepts_supported_identity_templates(template):
         ("nvds_ipc.sock", "must include"),
         ("nvds_ipc_{unknown}.sock", "unsupported placeholder"),
         ("nvds_ipc_{{camera_id}}.sock", "must include"),
+        ("nvds_ipc_{camera_id:.0}.sock", "cannot use format specifications or conversions"),
+        ("nvds_ipc_{camera_id:.3}.sock", "cannot use format specifications or conversions"),
+        ("nvds_ipc_{camera_id!r}.sock", "cannot use format specifications or conversions"),
     ],
 )
 def test_resolve_ipc_socket_path_rejects_identity_free_or_unknown_templates(template, message):

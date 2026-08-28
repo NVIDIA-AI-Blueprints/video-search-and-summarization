@@ -22,12 +22,17 @@ def sanitize_ipc_socket_token(value: str) -> str:
 
 
 def validate_ipc_socket_template(value: str) -> str:
-    """Validate that a socket template includes supported identity fields."""
+    """Validate that a socket template includes unmodified supported identity fields."""
     try:
-        fields = {field_name for _, field_name, _, _ in Formatter().parse(value) if field_name is not None}
+        field_specs = [
+            (field_name, format_spec, conversion)
+            for _, field_name, format_spec, conversion in Formatter().parse(value)
+            if field_name is not None
+        ]
     except ValueError as exc:
         raise ValueError("IPC socket template is invalid") from exc
 
+    fields = {field_name for field_name, _, _ in field_specs}
     unsupported_fields = fields - _IPC_TEMPLATE_FIELDS
     if unsupported_fields:
         raise ValueError(
@@ -35,6 +40,8 @@ def validate_ipc_socket_template(value: str) -> str:
         )
     if not fields:
         raise ValueError("IPC socket template must include {camera_id}, {sensor_id}, or {stream_id}")
+    if any(format_spec or conversion for _, format_spec, conversion in field_specs):
+        raise ValueError("IPC socket template identity placeholders cannot use format specifications or conversions")
     return value
 
 
