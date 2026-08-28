@@ -14,7 +14,8 @@ pipelines on the recorded ref and matches this trigger attempt's own
 correlation token — never the ref/SHA pair, which a concurrent run of the
 same commit would also carry. A sibling pipeline that finishes or 404s
 while its variables are fetched is skipped so discovery can still reach
-this run's pipeline.
+this run's pipeline. Transient 5xx or connection errors while listing
+pipelines are retried; they do not abort the search on the first blip.
 """
 from __future__ import annotations
 
@@ -52,6 +53,13 @@ ACTIVE_PIPELINE_STATUSES = (
     "running",
     "scheduled",
 )
+
+# Listing/discovery should retry these rather than abort the outer search loop.
+TRANSIENT_HTTP = frozenset({408, 429, 500, 502, 503, 504})
+
+
+class GitLabTransientError(Exception):
+    """GitLab was unreachable or returned a transient error; retry discovery."""
 
 
 def cancel_pipeline(
@@ -202,6 +210,7 @@ def gitlab_json(
     open_func: Any = urlopen,
     ignore_http: frozenset[int] | None = None,
     skip_connection_errors: bool = False,
+    retryable: bool = False,
 ) -> Any:
     request = Request(
         url,
@@ -218,11 +227,20 @@ def gitlab_json(
     except HTTPError as exc:
         if ignore_http and exc.code in ignore_http:
             return []
+        if retryable and exc.code in TRANSIENT_HTTP:
+            raise GitLabTransientError(
+                f"GitLab request failed with status {exc.code}"
+            ) from exc
         emit_error(f"GitLab request failed with status {exc.code}")
         raise SystemExit(1) from exc
     except (URLError, ContentTooShortError) as exc:
         if skip_connection_errors:
             return []
+        if retryable:
+            raise GitLabTransientError(
+                "GitLab request failed due to a connection error: "
+                + connection_error_detail(exc)
+            ) from exc
         emit_error(
             "GitLab request failed due to a connection error: "
             + connection_error_detail(exc)
@@ -251,7 +269,7 @@ def list_ref_pipelines(
             f"{base_url}/projects/{project}/pipelines"
             f"?ref={quoted_ref}&status={status}&per_page=20&order_by=id&sort=desc"
         )
-        payload = gitlab_json(url, token, open_func=open_func)
+        payload = gitlab_json(url, token, open_func=open_func, retryable=True)
         if isinstance(payload, list):
             found.extend(payload)
     return found
@@ -316,6 +334,50 @@ def discover_matching_pipeline_ids(
     )
 
 
+def search_matching_pipeline_ids(
+    base_url: str,
+    token: str,
+    *,
+    project: str,
+    ref: str,
+    correlation_id: str,
+    started_at: str,
+    attempts: int,
+    delay: float,
+    open_func: Any = urlopen,
+    sleep: Any = time.sleep,
+) -> list[int]:
+    """Retry discovery on transient GitLab errors; fail if they never clear."""
+    last_transient: GitLabTransientError | None = None
+    ids: list[int] = []
+    total = max(1, attempts)
+    for attempt in range(total):
+        try:
+            ids = discover_matching_pipeline_ids(
+                base_url,
+                token,
+                project=project,
+                ref=ref,
+                correlation_id=correlation_id,
+                started_at=started_at,
+                open_func=open_func,
+            )
+            last_transient = None
+        except GitLabTransientError as exc:
+            last_transient = exc
+            ids = []
+        if ids:
+            return ids
+        if attempt + 1 < total and delay > 0:
+            sleep(delay)
+    if last_transient is not None:
+        emit_error(
+            "GitLab listing failed after retries: " + str(last_transient)
+        )
+        raise SystemExit(1) from last_transient
+    return []
+
+
 def main() -> int:
     raw_url = require_env("DOWNSTREAM_CI_URL")
     token = require_env("DOWNSTREAM_CI_TOKEN")
@@ -347,19 +409,16 @@ def main() -> int:
         )
         attempts = int(os.environ.get("DOWNSTREAM_CANCEL_SEARCH_ATTEMPTS", "3"))
         delay = float(os.environ.get("DOWNSTREAM_CANCEL_SEARCH_SECONDS", "2"))
-        for attempt in range(max(1, attempts)):
-            ids = discover_matching_pipeline_ids(
-                base_url,
-                token,
-                project=project,
-                ref=ref,
-                correlation_id=correlation_id,
-                started_at=started_at,
-            )
-            if ids:
-                break
-            if attempt + 1 < max(1, attempts) and delay > 0:
-                time.sleep(delay)
+        ids = search_matching_pipeline_ids(
+            base_url,
+            token,
+            project=project,
+            ref=ref,
+            correlation_id=correlation_id,
+            started_at=started_at,
+            attempts=attempts,
+            delay=delay,
+        )
         if not ids:
             print("No matching live downstream pipeline found")
             return 0

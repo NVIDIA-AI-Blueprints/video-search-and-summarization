@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 from urllib.error import HTTPError
+from urllib.error import URLError
 
 SCRIPT = Path(__file__).with_name("cancel_downstream_pipeline.py")
 SPEC = importlib.util.spec_from_file_location("cancel_downstream_pipeline", SCRIPT)
@@ -256,6 +257,99 @@ class SearchFallbackTest(unittest.TestCase):
                 "token",
                 "1",
                 10,
+                open_func=open_func,
+            )
+
+    def test_listing_503_is_retried_then_finds_ours(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        waves = {"n": 0}
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                if "status=created" in url:
+                    waves["n"] += 1
+                    if waves["n"] == 1:
+                        raise HTTPError(
+                            url,
+                            503,
+                            "Service Unavailable",
+                            hdrs=None,  # type: ignore[arg-type]
+                            fp=io.BytesIO(b"{}"),
+                        )
+                    return JsonResponse([])
+                if "status=running" in url:
+                    return JsonResponse(
+                        [{"id": 11, "created_at": "2026-08-28T08:12:31Z"}]
+                    )
+                return JsonResponse([])
+            if url.endswith("/pipelines/11/variables"):
+                return JsonResponse(
+                    [{"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-mine"}]
+                )
+            raise AssertionError(url)
+
+        self.assertEqual(
+            module.search_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                attempts=3,
+                delay=0,
+                open_func=open_func,
+            ),
+            [11],
+        )
+        self.assertEqual(waves["n"], 2)
+
+    def test_listing_5xx_exhausted_fails_cleanup(self):
+        def open_func(req):
+            raise HTTPError(
+                req.full_url,
+                502,
+                "Bad Gateway",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=io.BytesIO(b"{}"),
+            )
+
+        with self.assertRaises(SystemExit):
+            module.search_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                attempts=2,
+                delay=0,
+                open_func=open_func,
+            )
+
+    def test_listing_connection_error_is_retryable(self):
+        def open_func(_req):
+            raise URLError("temporary failure")
+
+        with self.assertRaises(module.GitLabTransientError):
+            module.list_ref_pipelines(
+                "https://gitlab.example/api/v4",
+                "token",
+                "1",
+                "main",
                 open_func=open_func,
             )
 
