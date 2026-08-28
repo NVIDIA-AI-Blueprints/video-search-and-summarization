@@ -353,6 +353,158 @@ class SearchFallbackTest(unittest.TestCase):
                 open_func=open_func,
             )
 
+    def test_variables_503_is_retried_then_finds_ours(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        reads = {"n": 0}
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                if "status=running" in url:
+                    return JsonResponse(
+                        [{"id": 11, "created_at": "2026-08-28T08:12:31Z"}]
+                    )
+                return JsonResponse([])
+            if url.endswith("/pipelines/11/variables"):
+                reads["n"] += 1
+                if reads["n"] == 1:
+                    raise HTTPError(
+                        url,
+                        503,
+                        "Service Unavailable",
+                        hdrs=None,  # type: ignore[arg-type]
+                        fp=io.BytesIO(b"{}"),
+                    )
+                return JsonResponse(
+                    [{"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-mine"}]
+                )
+            raise AssertionError(url)
+
+        self.assertEqual(
+            module.search_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                attempts=3,
+                delay=0,
+                open_func=open_func,
+            ),
+            [11],
+        )
+        self.assertEqual(reads["n"], 2)
+
+    def test_variables_5xx_exhausted_fails_cleanup(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                if "status=running" in url:
+                    return JsonResponse(
+                        [{"id": 11, "created_at": "2026-08-28T08:12:31Z"}]
+                    )
+                return JsonResponse([])
+            if url.endswith("/pipelines/11/variables"):
+                raise HTTPError(
+                    url,
+                    502,
+                    "Bad Gateway",
+                    hdrs=None,  # type: ignore[arg-type]
+                    fp=io.BytesIO(b"{}"),
+                )
+            raise AssertionError(url)
+
+        with self.assertRaises(SystemExit):
+            module.search_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                attempts=2,
+                delay=0,
+                open_func=open_func,
+            )
+
+    def test_sibling_variables_5xx_does_not_hide_ours(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                if "status=running" in url:
+                    return JsonResponse(
+                        [
+                            {"id": 10, "created_at": "2026-08-28T08:12:30Z"},
+                            {"id": 11, "created_at": "2026-08-28T08:12:31Z"},
+                        ]
+                    )
+                return JsonResponse([])
+            if url.endswith("/pipelines/10/variables"):
+                raise HTTPError(
+                    url,
+                    503,
+                    "Service Unavailable",
+                    hdrs=None,  # type: ignore[arg-type]
+                    fp=io.BytesIO(b"{}"),
+                )
+            if url.endswith("/pipelines/11/variables"):
+                return JsonResponse(
+                    [{"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-mine"}]
+                )
+            raise AssertionError(url)
+
+        self.assertEqual(
+            module.discover_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                open_func=open_func,
+            ),
+            [11],
+        )
+
 
 class WorkflowWiringTest(unittest.TestCase):
     def test_ci_cancels_downstream_when_the_github_job_is_cancelled(self):

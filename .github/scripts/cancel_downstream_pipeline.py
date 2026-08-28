@@ -15,7 +15,8 @@ correlation token — never the ref/SHA pair, which a concurrent run of the
 same commit would also carry. A sibling pipeline that finishes or 404s
 while its variables are fetched is skipped so discovery can still reach
 this run's pipeline. Transient 5xx or connection errors while listing
-pipelines are retried; they do not abort the search on the first blip.
+pipelines or reading their variables are retried; they do not abort the
+search on the first blip, and they do not count as a successful miss.
 """
 from __future__ import annotations
 
@@ -275,12 +276,10 @@ def list_ref_pipelines(
     return found
 
 
-# HTTP statuses that mean "this candidate is gone or temporarily unreadable".
-# 401/403 are not included: a token that cannot read variables must fail
-# cleanup, not look like "no matching pipeline".
-CANDIDATE_SKIP_HTTP = frozenset(
-    {400, 404, 408, 409, 410, 422, 429, 500, 502, 503, 504}
-)
+# HTTP statuses that mean this listed pipeline is gone, not "try again".
+# 401/403 still abort. Transient 5xx/429/connection errors retry discovery
+# so an empty variable list is not mistaken for "no matching pipeline".
+CANDIDATE_GONE_HTTP = frozenset({400, 404, 409, 410, 422})
 
 
 def fetch_pipeline_variables(
@@ -290,19 +289,18 @@ def fetch_pipeline_variables(
     pipeline_id: int,
     open_func: Any = urlopen,
 ) -> list[Any]:
-    """Variables for one pipeline, or empty if that candidate cannot be inspected.
+    """Variables for one pipeline, or empty if that candidate is gone.
 
-    Discovery lists several live pipelines. One of them finishing (or a
-    transient 5xx) before ``/variables`` returns must not abort the search
-    for this run's correlation token.
+    A 404 on a sibling must not abort the search. A 5xx or connection error
+    is retryable so this run's token is not treated as a successful miss.
     """
     url = f"{base_url}/projects/{project}/pipelines/{pipeline_id}/variables"
     payload = gitlab_json(
         url,
         token,
         open_func=open_func,
-        ignore_http=CANDIDATE_SKIP_HTTP,
-        skip_connection_errors=True,
+        ignore_http=CANDIDATE_GONE_HTTP,
+        retryable=True,
     )
     return payload if isinstance(payload, list) else []
 
@@ -319,19 +317,29 @@ def discover_matching_pipeline_ids(
 ) -> list[int]:
     pipelines = list_ref_pipelines(base_url, token, project, ref, open_func)
     variables_by_id: dict[int, list[Any]] = {}
+    transient: GitLabTransientError | None = None
     for pipe in pipelines:
         if not isinstance(pipe, dict) or not isinstance(pipe.get("id"), int):
             continue
         pid = int(pipe["id"])
-        variables_by_id[pid] = fetch_pipeline_variables(
-            base_url, token, project, pid, open_func=open_func
-        )
-    return matching_pipeline_ids(
+        try:
+            variables_by_id[pid] = fetch_pipeline_variables(
+                base_url, token, project, pid, open_func=open_func
+            )
+        except GitLabTransientError as exc:
+            transient = exc
+            variables_by_id[pid] = []
+    found = matching_pipeline_ids(
         pipelines,
         variables_by_id,
         correlation_id=correlation_id,
         started_at=started_at,
     )
+    if found:
+        return found
+    if transient is not None:
+        raise transient
+    return []
 
 
 def search_matching_pipeline_ids(
@@ -372,7 +380,7 @@ def search_matching_pipeline_ids(
             sleep(delay)
     if last_transient is not None:
         emit_error(
-            "GitLab listing failed after retries: " + str(last_transient)
+            "GitLab discovery failed after retries: " + str(last_transient)
         )
         raise SystemExit(1) from last_transient
     return []
