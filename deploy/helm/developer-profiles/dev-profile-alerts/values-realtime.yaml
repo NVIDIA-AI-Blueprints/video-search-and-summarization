@@ -62,6 +62,8 @@ agent:
 
 vss-agent-ui:
   appSubtitle: "Vision (Alerts - VLM)"
+  alertsRealtimeEnabled: true
+  alertsCvVerificationEnabled: false
 
 analytics:
   enabled: true

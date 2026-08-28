@@ -41,6 +41,11 @@ Two modes, each with a **single values file** — use only one `-f` when install
 | `values-verification.yaml` | Verification |
 | `values-realtime.yaml` | Real-time |
 
+The mode files also set **Manage Alerts** editors:
+verification keeps **both Real-time Alerts and CV Alerts Verification**, while
+real-time shows **Real-time Alerts** only. Set both `vss-agent-ui.alertsRealtimeEnabled` and
+`vss-agent-ui.alertsCvVerificationEnabled` to `false` to hide Manage Alerts.
+
 ## GPU requirements
 
 With default **`values.yaml`** and the mode values files, the stack requests **4 GPUs** for verification and **3 GPUs** for real-time (`nvidia.com/gpu: 1` each). These defaults enable the local Nemotron NIM; **RTVI-VLM** loads its own VLM checkpoint by default, so the Cosmos NIM is not listed unless you explicitly enable a shared VLM NIM. Pod names include the Helm release name and a replica hash; below lists the **workload** you will see in `kubectl get pods`.
