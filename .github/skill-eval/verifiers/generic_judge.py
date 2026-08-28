@@ -45,6 +45,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -513,6 +514,62 @@ def _run_checks(checks: list[str], traj_path: str | None,
     return results
 
 
+# --- secret redaction -------------------------------------------------------
+#
+# Everything this process emits leaves the box: stdout is captured as
+# `verifier/test-stdout.txt`, the details file is `verifier/judge.json`, both
+# land in the public run artifact, and leg_report.py renders the details into
+# the PR comment. A judge that proved "the agent printed NGC_CLI_API_KEY" by
+# quoting the key published a live credential through all three (PR #1647 run
+# 32535909071). The runner-side redact_secrets.py guards those boundaries
+# with TruffleHog as well, but this copy runs inside the verifier container
+# where that module and scanner do not exist, so it stays self-contained.
+#
+# Two layers, because they fail differently:
+#  * the `nvapi-` token shape — the load-bearing layer here. Agent-side
+#    secrets are NOT in this container's env, so only their shape gives
+#    them away when the judge quotes trajectory text.
+#  * exact values of secret-named env vars — whatever this process itself
+#    holds (the verifier env carries the judge's own API key).
+
+_REDACTED = "[REDACTED]"
+_NVAPI = re.compile(r"nvapi-[A-Za-z0-9_-]{16,}")
+# Component match, not substring: NGC_CLI_API_KEY yes, KEYCLOAK_URL no.
+_SECRET_ENV_NAME = re.compile(
+    r"(^|_)(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|CREDENTIALS)(_|$)", re.IGNORECASE)
+# Below this length a value is a flag ("true", "1"), not a credential;
+# masking it would shred rationale text. Heuristic, not a guarantee.
+_MIN_SECRET_LEN = 8
+
+
+def _scrub_secrets(text: str) -> str:
+    """Mask secret values and secret-shaped tokens in judge-visible text."""
+    # Longest first, so a secret containing another leaves no usable tail.
+    values = sorted(
+        (v for k, v in os.environ.items()
+         if _SECRET_ENV_NAME.search(k) and v and len(v) >= _MIN_SECRET_LEN),
+        key=len, reverse=True)
+    for value in values:
+        if value in text:
+            text = text.replace(value, _REDACTED)
+    return _NVAPI.sub(f"nvapi-{_REDACTED}", text)
+
+
+def _scrub_tree(obj):
+    """Apply `_scrub_secrets` to every string — values AND dict keys.
+
+    Judge output is weakly typed; a structured `matched` value can carry a
+    credential anywhere, including as a key.
+    """
+    if isinstance(obj, str):
+        return _scrub_secrets(obj)
+    if isinstance(obj, list):
+        return [_scrub_tree(x) for x in obj]
+    if isinstance(obj, dict):
+        return {_scrub_tree(k): _scrub_tree(v) for k, v in obj.items()}
+    return obj
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True,
@@ -538,7 +595,7 @@ def main() -> int:
     checks = expect.get("checks") or []
     traj_path = locate_trajectory()
 
-    print(f"=== Step {args.step}/{len(expects)}: {expect.get('query', '')[:120]} ===")
+    print(_scrub_secrets(f"=== Step {args.step}/{len(expects)}: {expect.get('query', '')[:120]} ==="))
     if traj_path:
         print(f"(trajectory: {traj_path})")
     else:
@@ -550,9 +607,9 @@ def main() -> int:
     passed = 0
     for check, result in zip(checks, results):
         ok = bool(result["pass"])
-        print(f"{'PASS' if ok else 'FAIL'}: {check}")
+        print(_scrub_secrets(f"{'PASS' if ok else 'FAIL'}: {check}"))
         if result.get("rationale"):
-            print(f"  {result['rationale']}")
+            print(_scrub_secrets(f"  {result['rationale']}"))
         if ok:
             passed += 1
 
@@ -561,7 +618,10 @@ def main() -> int:
 
     Path(args.reward_file).parent.mkdir(parents=True, exist_ok=True)
     Path(args.reward_file).write_text(f"{reward}")
-    Path(args.details_file).write_text(json.dumps({
+    # Scrubbed as one object at the boundary: the query and check strings
+    # come from the spec, but specs quote command examples, and the checks
+    # list is judge-written free text either way.
+    Path(args.details_file).write_text(json.dumps(_scrub_tree({
         "spec": args.spec,
         "step": args.step,
         "query": expect.get("query"),
@@ -571,7 +631,7 @@ def main() -> int:
         "trajectory_path": traj_path,
         "trajectory_found": bool(traj_path),
         "checks": results,
-    }, indent=2))
+    }), indent=2))
 
     print(f"\n=== Results: {passed} passed, {total - passed} failed (of {total}) ===")
     return 0

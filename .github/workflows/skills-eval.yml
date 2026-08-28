@@ -323,6 +323,18 @@ jobs:
           # overwrite each other's archive before upload — each leg then
           # uploads whichever sibling wrote last. The slug makes the path
           # unique per (skill,spec,platform).
+          # Redact secrets from the tree before packing: TruffleHog
+          # (--no-verification, scan -> replace -> quarantine -> verify) plus
+          # builtin nvapi-/env-value layers (redact_secrets.py). The verifier
+          # files stay in the tarball because the report consumes them, and a
+          # judge explaining "the agent printed the key" by quoting it would
+          # otherwise ship the credential (PR #1647 run 32535909071), exactly
+          # as agent/ trajectories once did (PR #516). leg_report.py runs the
+          # same gate before the PR comment renders; this one covers the
+          # artifact for legs that never reached a report. Fail closed: a
+          # scanner failure exits nonzero, the step stops before tar, and
+          # the upload finds nothing — an unscanned tree does not publish.
+          python3 .github/skill-eval/redact_secrets.py --tree "$LEG_RESULTS"
           LEG_TARBALL="/tmp/skills-eval-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
           RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
