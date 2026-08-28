@@ -1907,11 +1907,11 @@ for _env in \
 done
 
 # Search vss-agent config validates RTVI_CV_ENDPOINT at startup; compose must export it.
-if grep -q "RTVI_CV_ENDPOINT: \${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:\${RTVI_CV_PORT:-9000}}" "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
-  echo "PASS: vss-agent compose exports RTVI_CV_ENDPOINT for search config"
+if grep -Fq 'RTVI_CV_ENDPOINT: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/rtvi-cv' "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
+  echo "PASS: vss-agent compose routes RTVI_CV_ENDPOINT through the gateway"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: vss-agent compose should export RTVI_CV_ENDPOINT for search config"
+  echo "FAIL: vss-agent compose should route RTVI_CV_ENDPOINT through the gateway"
   ((TESTS_FAILED++)) || true
 fi
 
