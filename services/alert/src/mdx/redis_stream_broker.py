@@ -19,22 +19,27 @@ Peer of :mod:`mdx.kafka_message_broker`: owns connection handling and the
 raw XADD / XREADGROUP / XACK calls so the source and sink modules only deal
 with Alert payload semantics.
 
-Wire format is the MDX stream envelope used by every other Redis Streams
-producer and consumer in this repository (behavior-analytics, VIOS,
+Wire format on **publish** is the MDX stream envelope used by every other Redis
+Streams producer and consumer in this repository (behavior-analytics, VIOS,
 rt-cv-bev-fusion, the Logstash ``redis_stream`` input plugin)::
 
-    XADD <stream> MAXLEN ~ <n> * key <sensorId> value <payload> headers <json>
+    XADD <stream> * key <sensorId> value <payload> headers <json>
 
 ``value`` carries the payload — protobuf bytes for the MDX schema streams.
 Sticking to this envelope is what lets Alert MS read the incident and alert
 streams that behavior-analytics writes, and lets Logstash read the
 VLM-enhanced streams Alert MS writes.
+
+On **read** two formats have to be decoded, and which field holds the event
+body is a fixed contract rather than a guess — see
+:data:`PAYLOAD_FIELD_PRECEDENCE`.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -51,8 +56,17 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 6379
-DEFAULT_MAXLEN = 10000
+#: Trimming is **off** unless an operator asks for it. The streams Alert MS
+#: publishes to belong to the deployment, not to Alert MS, and a MAXLEN on every
+#: XADD makes normal successful output delete a customer's older entries — a
+#: retention decision this service is in no position to make on their behalf.
+#: Set ``redis.maxlen`` to opt in.
+DEFAULT_MAXLEN = 0
 DEFAULT_SOCKET_TIMEOUT = 30
+#: How long an entry must sit unacknowledged in another consumer's pending list
+#: before this one may claim it. Longer than any single VLM verification so a
+#: working consumer is never raced for its own work.
+DEFAULT_RECLAIM_MIN_IDLE_MS = 300_000
 
 #: Publish retries attempted before a payload is dropped. A redisStream sink has
 #: no second destination, so an XADD lost to a broker blip is an already-verified
@@ -66,10 +80,34 @@ KEY_FIELD = b"key"
 PAYLOAD_FIELD = b"value"
 HEADERS_FIELD = b"headers"
 
-#: Alternate payload fields accepted on the read path only. ``metadata`` is the
-#: RT-VLM default (``REDIS_PAYLOAD_KEY``); ``data`` and ``payload`` were used by
-#: the pre-MDX Alert Redis prototype. Publishing always uses ``value``.
-FALLBACK_PAYLOAD_FIELDS: Tuple[bytes, ...] = (b"metadata", b"data", b"payload")
+#: Ordered field precedence for locating the event body on the read path.
+#: Publishing always uses ``value``.
+#:
+#: Two envelope formats reach this source, and both have to decode to the same
+#: answer every time:
+#:
+#: 1. the **MDX envelope** — ``key`` / ``value`` / ``headers`` — where ``value``
+#:    holds the body. This is what behavior-analytics and VIOS publish.
+#: 2. the **JSON envelope** — ``data`` / ``timestamp`` / ``metadata`` — where
+#:    ``data`` holds the body and ``metadata`` is a sidecar of attributes
+#:    describing it. This is what RT-VLM and the pre-MDX Alert Redis prototype
+#:    publish.
+#:
+#: ``metadata`` is accepted because it is RT-VLM's ``REDIS_PAYLOAD_KEY``
+#: default, but it is deliberately **last**: an entry carrying both ``data`` and
+#: ``metadata`` has a body *and* a sidecar, and reading the sidecar as the event
+#: yields a payload that decodes but describes nothing the pipeline can verify.
+#: Precedence rather than first-match-wins is what makes that unambiguous.
+PAYLOAD_FIELD_PRECEDENCE: Tuple[bytes, ...] = (
+    PAYLOAD_FIELD,
+    b"data",
+    b"payload",
+    b"metadata",
+)
+
+#: Retained for callers that imported the previous name. Same contract, minus
+#: the canonical ``value`` field which is tried first regardless.
+FALLBACK_PAYLOAD_FIELDS: Tuple[bytes, ...] = PAYLOAD_FIELD_PRECEDENCE[1:]
 
 
 def resolve_redis_config(
@@ -100,6 +138,81 @@ def resolve_redis_config(
     return merged
 
 
+def _resolve_secret(cfg: Dict[str, Any], name: str) -> Optional[str]:
+    """Read a credential from a file or environment variable before the config.
+
+    A customer-managed Redis needs a password, and the only place the plain
+    ``redis.password`` key can come from is the rendered service config — which
+    is a ConfigMap in Helm and a bind-mounted file in Compose, neither of which
+    is a secret. ``<name>_file`` reads a mounted Secret and ``<name>_env`` reads
+    an injected environment variable, so the credential never has to appear in
+    non-secret configuration.
+
+    Precedence is file, then environment, then the inline value. The inline key
+    still works — existing deployments and local runs depend on it — but it is
+    last so adding a Secret to one overrides it without also having to blank it.
+    """
+    path = cfg.get(f"{name}_file")
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                # Trailing newline: `kubectl create secret --from-literal` and
+                # `echo > file` both add one, and Redis would reject it as part
+                # of the password.
+                secret = handle.read().strip()
+            if secret:
+                return secret
+            logger.warning("Redis %s_file '%s' is empty; falling back", name, path)
+        except OSError as exc:
+            logger.error("Could not read Redis %s_file '%s': %s", name, path, exc)
+
+    env_name = cfg.get(f"{name}_env")
+    if env_name:
+        secret = (os.environ.get(str(env_name)) or "").strip()
+        if secret:
+            return secret
+        logger.warning(
+            "Redis %s_env names '%s' but it is unset or empty; falling back",
+            name, env_name,
+        )
+
+    return cfg.get(name) or None
+
+
+def _resolve_tls_options(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the redis-py TLS keyword arguments, or ``{}`` when TLS is off.
+
+    Verification is on by default once TLS is enabled: an encrypted connection
+    that does not check the certificate protects against nothing an operator who
+    asked for TLS was worried about. ``ssl_cert_reqs: none`` is available for a
+    self-signed development instance and says so in the config rather than being
+    the silent default.
+    """
+    if not bool(cfg.get("ssl") or cfg.get("tls")):
+        return {}
+
+    options: Dict[str, Any] = {
+        "ssl": True,
+        "ssl_cert_reqs": str(cfg.get("ssl_cert_reqs") or "required").lower(),
+    }
+    for key in ("ssl_ca_certs", "ssl_ca_path", "ssl_certfile", "ssl_keyfile"):
+        value = cfg.get(key)
+        if value:
+            options[key] = value
+    if options["ssl_cert_reqs"] != "none" and not (
+        options.get("ssl_ca_certs") or options.get("ssl_ca_path")
+    ):
+        # Not an error: the system trust store is the right source for a
+        # publicly-issued certificate. Worth saying, because a private CA that
+        # was configured but not mounted fails at connect with a bare
+        # verification error that does not name the missing setting.
+        logger.info(
+            "Redis TLS is enabled with certificate verification and no "
+            "ssl_ca_certs; the system trust store will be used"
+        )
+    return options
+
+
 def message_id_to_epoch_ms(message_id: Any) -> Optional[int]:
     """Extract the millisecond timestamp encoded in a Redis stream entry ID.
 
@@ -120,6 +233,10 @@ def message_id_to_epoch_ms(message_id: Any) -> Optional[int]:
 def extract_envelope(fields: Dict[Any, Any]) -> Tuple[Optional[bytes], Optional[bytes], Dict[str, Any]]:
     """Split a stream entry's field map into ``(payload, key, headers)``.
 
+    The body is located by walking :data:`PAYLOAD_FIELD_PRECEDENCE` in order, so
+    an entry carrying several candidate fields always decodes the same one. See
+    that constant for why the order is what it is.
+
     Tolerates both ``bytes`` and ``str`` field names so the helper works
     whether or not the caller enabled ``decode_responses``.
     """
@@ -132,12 +249,11 @@ def extract_envelope(fields: Dict[Any, Any]) -> Tuple[Optional[bytes], Optional[
             name = name.encode("utf-8")
         normalized[name] = value
 
-    payload = normalized.get(PAYLOAD_FIELD)
-    if payload is None:
-        for candidate in FALLBACK_PAYLOAD_FIELDS:
-            if candidate in normalized:
-                payload = normalized[candidate]
-                break
+    payload = None
+    for candidate in PAYLOAD_FIELD_PRECEDENCE:
+        if normalized.get(candidate) is not None:
+            payload = normalized[candidate]
+            break
 
     if isinstance(payload, str):
         payload = payload.encode("utf-8")
@@ -175,8 +291,9 @@ class RedisStreamBroker:
         self.host: str = cfg.get("host") or DEFAULT_HOST
         self.port: int = int(cfg.get("port") or DEFAULT_PORT)
         self.db: int = int(cfg.get("db") or 0)
-        self.password: Optional[str] = cfg.get("password") or None
+        self.password: Optional[str] = _resolve_secret(cfg, "password")
         self.username: Optional[str] = cfg.get("username") or None
+        self.tls: Dict[str, Any] = _resolve_tls_options(cfg)
         self.maxlen: Optional[int] = self._coerce_maxlen(cfg.get("maxlen", DEFAULT_MAXLEN))
         self.approximate_trim: bool = bool(cfg.get("approximate_trim", True))
         self._socket_timeout = cfg.get("socket_timeout", DEFAULT_SOCKET_TIMEOUT)
@@ -185,18 +302,57 @@ class RedisStreamBroker:
         self.publish_retry_backoff: float = self._coerce_backoff(
             cfg.get("publish_retry_backoff", DEFAULT_PUBLISH_RETRY_BACKOFF)
         )
+        self.reclaim_min_idle_ms: int = self._coerce_idle_ms(
+            cfg.get("reclaim_min_idle_time", DEFAULT_RECLAIM_MIN_IDLE_MS)
+        )
         self._client: Optional[redis.Redis] = None
         self._ensured_groups: set = set()
+        # None until the first command runs. Distinguishes "not tried yet" from
+        # "tried and failed", which readiness needs: an unreachable broker
+        # returns the same empty entry list as an idle stream, so without this
+        # the source cannot tell the two apart and reports healthy either way.
+        self._connection_ok: Optional[bool] = None
         self.logger = logging.getLogger(self.__class__.__name__)
+
+    @property
+    def connection_healthy(self) -> Optional[bool]:
+        """Whether the last Redis command succeeded; ``None`` before the first."""
+        return self._connection_ok
+
+    def _mark_connection(self, ok: bool) -> None:
+        """Record the outcome of a command so readiness can read it.
+
+        Logged only on a transition, because the consume loop calls this on
+        every poll and a per-poll line would bury the change of state in it.
+        """
+        if self._connection_ok is ok:
+            return
+        if ok:
+            self.logger.info("Redis at %s:%s is reachable", self.host, self.port)
+        self._connection_ok = ok
 
     @staticmethod
     def _coerce_maxlen(value: Any) -> Optional[int]:
-        """Return a positive MAXLEN cap, or ``None`` to disable trimming."""
+        """Return a positive MAXLEN cap, or ``None`` to leave the stream untrimmed.
+
+        Anything non-positive or unparseable means no trimming: the failure mode
+        of guessing a cap is deleting a customer's records, and the failure mode
+        of not trimming is a stream that grows until they set a policy on it.
+        """
         try:
             maxlen = int(value)
         except (TypeError, ValueError):
-            return DEFAULT_MAXLEN
+            return None
         return maxlen if maxlen > 0 else None
+
+    @staticmethod
+    def _coerce_idle_ms(value: Any) -> int:
+        """Return a non-negative reclaim idle threshold in milliseconds."""
+        try:
+            idle = int(value)
+        except (TypeError, ValueError):
+            return DEFAULT_RECLAIM_MIN_IDLE_MS
+        return max(idle, 0)
 
     @staticmethod
     def _coerce_retries(value: Any) -> int:
@@ -240,10 +396,15 @@ class RedisStreamBroker:
                 socket_timeout=self._socket_timeout,
                 socket_connect_timeout=self._socket_connect_timeout,
                 retry_on_timeout=True,
+                **self.tls,
             )
             self.logger.info(
-                "Redis Streams client configured for %s:%s (db=%s)",
+                "Redis Streams client configured for %s:%s (db=%s, tls=%s, "
+                "auth=%s, trim=%s)",
                 self.host, self.port, self.db,
+                "on" if self.tls else "off",
+                "on" if self.password else "off",
+                self.maxlen if self.maxlen else "off",
             )
         return self._client
 
@@ -267,9 +428,11 @@ class RedisStreamBroker:
         """Verify connectivity. Returns ``False`` instead of raising."""
         try:
             self.client.ping()
+            self._mark_connection(True)
             return True
         except Exception as exc:
             self.logger.error("Redis ping failed for %s:%s: %s", self.host, self.port, exc)
+            self._mark_connection(False)
             self._reset_client()
             return False
 
@@ -288,13 +451,16 @@ class RedisStreamBroker:
         except redis.exceptions.ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 self.logger.error("Failed to create consumer group '%s' on '%s': %s", group, stream, exc)
+                self._mark_connection(False)
                 return False
             self.logger.debug("Consumer group '%s' already exists on '%s'", group, stream)
         except redis.exceptions.RedisError as exc:
             self.logger.error("Redis unavailable while creating group '%s' on '%s': %s", group, stream, exc)
+            self._mark_connection(False)
             self._reset_client()
             return False
 
+        self._mark_connection(True)
         self._ensured_groups.add(cache_key)
         return True
 
@@ -331,24 +497,33 @@ class RedisStreamBroker:
             )
         except redis.exceptions.ConnectionError as exc:
             self.logger.error("Redis connection lost while reading streams %s: %s", stream_list, exc)
+            self._mark_connection(False)
             self._reset_client()
             return []
         except redis.exceptions.TimeoutError:
+            # A blocking read that expires with nothing to hand back is the
+            # normal idle case, not a broken connection.
             self.logger.debug("Redis read timed out with no new entries")
+            self._mark_connection(True)
             return []
         except redis.exceptions.ResponseError as exc:
             # NOGROUP means the stream or group vanished (e.g. FLUSHDB); drop
-            # the cache so the next poll recreates it.
+            # the cache so the next poll recreates it. The connection itself is
+            # fine, so it does not count against health.
             if "NOGROUP" in str(exc):
                 self.logger.warning("Consumer group missing on read, will recreate: %s", exc)
                 self._ensured_groups.clear()
+                self._mark_connection(True)
             else:
                 self.logger.error("Redis rejected XREADGROUP on %s: %s", stream_list, exc)
+                self._mark_connection(False)
             return []
         except redis.exceptions.RedisError as exc:
             self.logger.error("Redis error while reading streams %s: %s", stream_list, exc)
+            self._mark_connection(False)
             return []
 
+        self._mark_connection(True)
         entries: List[Tuple[str, bytes, Dict[Any, Any]]] = []
         for stream_name, messages in response or []:
             if isinstance(stream_name, (bytes, bytearray)):
@@ -363,12 +538,91 @@ class RedisStreamBroker:
             return
         try:
             self.client.xack(stream, group, *message_ids)
+            self._mark_connection(True)
         except redis.exceptions.ConnectionError as exc:
             self.logger.error("Redis connection lost while acking %s entries on '%s': %s",
                               len(message_ids), stream, exc)
+            self._mark_connection(False)
             self._reset_client()
         except redis.exceptions.RedisError as exc:
             self.logger.error("Failed to ack %s entries on '%s': %s", len(message_ids), stream, exc)
+            self._mark_connection(False)
+
+    def claim_stale(
+        self,
+        stream: str,
+        group: str,
+        consumer: str,
+        count: int,
+        min_idle_ms: Optional[int] = None,
+    ) -> List[Tuple[str, bytes, Dict[Any, Any]]]:
+        """Take over entries another consumer read but never acknowledged.
+
+        ``XREADGROUP ... >`` only ever returns entries no one has seen. An entry
+        delivered to a consumer that then died stays in that consumer's pending
+        list forever: it is neither redelivered nor visible to a replacement,
+        so without this pass a replica lost mid-batch strands its work with no
+        upper bound. ``XAUTOCLAIM`` is the reclaim, gated on ``min_idle_ms`` so
+        a consumer that is merely slow is not raced for entries it still owns.
+
+        Returns:
+            The claimed entries in the same ``(stream, message_id, fields)``
+            shape as :meth:`read_group`, so the caller decodes them by one path.
+            Empty when nothing is stale or the broker is unreachable.
+        """
+        idle = self.reclaim_min_idle_ms if min_idle_ms is None else max(int(min_idle_ms), 0)
+        try:
+            response = self.client.xautoclaim(
+                name=stream,
+                groupname=group,
+                consumername=consumer,
+                min_idle_time=idle,
+                start_id="0-0",
+                count=count,
+            )
+        except redis.exceptions.ConnectionError as exc:
+            self.logger.error("Redis connection lost while reclaiming on '%s': %s", stream, exc)
+            self._mark_connection(False)
+            self._reset_client()
+            return []
+        except redis.exceptions.ResponseError as exc:
+            # NOGROUP here means the same thing it means on read. Older servers
+            # (< 6.2) have no XAUTOCLAIM at all and answer "unknown command";
+            # that is a deployment fact, not a fault, so it must not be able to
+            # flap the health signal on every poll.
+            message = str(exc)
+            if "NOGROUP" in message:
+                self._ensured_groups.clear()
+            else:
+                self.logger.warning(
+                    "Redis rejected XAUTOCLAIM on '%s'; stale entries will not be "
+                    "reclaimed: %s", stream, exc,
+                )
+            self._mark_connection(True)
+            return []
+        except redis.exceptions.RedisError as exc:
+            self.logger.error("Redis error while reclaiming on '%s': %s", stream, exc)
+            self._mark_connection(False)
+            return []
+
+        self._mark_connection(True)
+        # Redis 6.2 answers (cursor, entries); 7.0 added a third element listing
+        # ids that no longer exist. Index rather than unpack so one server
+        # version is not a TypeError on the consume path.
+        messages = response[1] if isinstance(response, (list, tuple)) and len(response) > 1 else []
+        entries: List[Tuple[str, bytes, Dict[Any, Any]]] = []
+        for message_id, fields in messages or []:
+            # XAUTOCLAIM reports tombstoned ids as (id, None) on some versions;
+            # they carry nothing to process but must still be acked, which the
+            # caller does from the id.
+            entries.append((stream, message_id, fields or {}))
+        if entries:
+            self.logger.warning(
+                "Reclaimed %d entry(ies) on '%s' left pending for more than %dms "
+                "by another consumer in group '%s'",
+                len(entries), stream, idle, group,
+            )
+        return entries
 
     def add(
         self,
@@ -385,10 +639,15 @@ class RedisStreamBroker:
         it to us again. Retries are deliberately few — the caller runs on the
         consume path and the source has already acked.
 
+        Trimming is applied only when ``maxlen`` is configured; see
+        :data:`DEFAULT_MAXLEN` for why it is off by default.
+
         Returns:
             The generated entry ID, or ``None`` if every attempt failed. A
             ``None`` return means the payload was dropped and is counted under
             ``alert_bridge_redis_publish_failures_total{outcome="dropped"}``.
+            Callers that have no second destination must treat it as an error
+            rather than a completed write.
         """
         if isinstance(key, str):
             key = key.encode("utf-8")
@@ -415,6 +674,7 @@ class RedisStreamBroker:
                 # connection warrants rebuilding the client before retrying.
                 if isinstance(exc, redis.exceptions.ConnectionError):
                     self._reset_client()
+                self._mark_connection(False)
                 if attempt < attempts:
                     self.logger.warning(
                         "Redis write to '%s' failed (attempt %d/%d), retrying: %s",
@@ -430,6 +690,7 @@ class RedisStreamBroker:
                 )
                 return None
 
+            self._mark_connection(True)
             if attempt > 1:
                 self._record_publish_failure("recovered")
                 self.logger.warning(

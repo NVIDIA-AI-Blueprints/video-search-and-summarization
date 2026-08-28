@@ -268,6 +268,117 @@ class TestRedisStreamFailureHandling:
         assert broker_cls.call_args.args[0]["host"] == "other"
 
 
+class TestRedisStreamStartupCheck:
+    """Per-write retries are bounded and cannot ride out a wrong host or a
+    Redis that is not running. Without a check at construction the service
+    starts cleanly and then discards every verdict it produces until Redis
+    appears — a deployment that looks healthy and delivers nothing.
+    """
+
+    def test_construction_pings_redis(self):
+        with patch(
+            "mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker"
+        ) as broker_cls:
+            VLMEnhancedRedisStreamSink.from_config(REDIS_CONFIG)
+        broker_cls.return_value.ping.assert_called_once()
+
+    def test_an_unreachable_redis_fails_the_start(self):
+        with patch(
+            "mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker"
+        ) as broker_cls:
+            broker_cls.return_value.ping.return_value = False
+            broker_cls.return_value.host = "nope"
+            broker_cls.return_value.port = 6379
+            with pytest.raises(ConnectionError, match="nope:6379"):
+                VLMEnhancedRedisStreamSink.from_config(REDIS_CONFIG)
+
+    def test_the_error_names_the_setting_that_would_change_it(self):
+        with patch(
+            "mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker"
+        ) as broker_cls:
+            broker_cls.return_value.ping.return_value = False
+            with pytest.raises(ConnectionError, match="vlm_enhanced_sink.type"):
+                VLMEnhancedRedisStreamSink.from_config(REDIS_CONFIG)
+
+
+class TestRedisStreamDropAccounting:
+    """A log line is not alertable. Redis is the only destination for this
+    sink, so an exhausted write is a verdict the VLM already paid to produce
+    and which no longer exists anywhere — that needs a counter and it needs to
+    move readiness, not just leave a message for whoever reads the logs.
+    """
+
+    def test_an_exhausted_write_is_counted_as_a_lost_verdict(self, protobuf):
+        sink = make_redis_sink()
+        sink._broker.add.return_value = None
+        with patch("metrics.recorder.inc_terminal_publish_dropped") as dropped:
+            sink.publish_success(dict(INCIDENT), "prompt", None, {})
+        dropped.assert_called_once_with("redis_stream", "incident")
+
+    def test_a_dropped_alert_is_counted_under_its_own_kind(self, protobuf):
+        sink = make_redis_sink()
+        sink._broker.add.return_value = None
+        with patch("metrics.recorder.inc_terminal_publish_dropped") as dropped:
+            sink.publish_success(dict(ALERT), "prompt", None, {})
+        dropped.assert_called_once_with("redis_stream", "alert")
+
+    def test_a_serialization_failure_is_counted_too(self, protobuf):
+        """The verdict is just as gone as when the write failed."""
+        incident_converter, _ = protobuf
+        incident_converter.side_effect = RuntimeError("bad document")
+        sink = make_redis_sink()
+        with patch("metrics.recorder.inc_terminal_publish_dropped") as dropped:
+            sink.publish_success(dict(INCIDENT), "prompt", None, {})
+        dropped.assert_called_once_with("redis_stream", "incident")
+
+    def test_a_successful_write_counts_nothing(self, protobuf):
+        sink = make_redis_sink()
+        with patch("metrics.recorder.inc_terminal_publish_dropped") as dropped:
+            sink.publish_success(dict(INCIDENT), "prompt", None, {})
+        dropped.assert_not_called()
+
+    def test_a_failing_metrics_backend_cannot_break_the_publish_path(self, protobuf):
+        sink = make_redis_sink()
+        sink._broker.add.return_value = None
+        with patch(
+            "metrics.recorder.inc_terminal_publish_dropped",
+            side_effect=RuntimeError("registry gone"),
+        ):
+            sink.publish_success(dict(INCIDENT), "prompt", None, {})
+
+
+class TestTerminalSinkHealth:
+    """Readiness has to see a terminal sink that cannot deliver. The source is
+    still consuming happily in that state, so nothing else in the pipeline
+    would report it.
+    """
+
+    def test_a_reachable_sink_is_healthy(self):
+        sink = make_redis_sink()
+        sink._broker.connection_healthy = True
+        assert sink.is_healthy() is True
+
+    def test_an_unreachable_sink_is_unhealthy(self):
+        sink = make_redis_sink()
+        sink._broker.connection_healthy = False
+        assert sink.is_healthy() is False
+
+    def test_nothing_published_yet_counts_as_healthy(self):
+        """The constructor already pinged, and an idle deployment must not look
+        broken just because it has had nothing to publish."""
+        sink = make_redis_sink()
+        sink._broker.connection_healthy = None
+        assert sink.is_healthy() is True
+
+    def test_the_transport_label_identifies_the_sink_in_metrics(self):
+        assert make_redis_sink().transport_label == "redis_stream"
+
+    def test_sinks_without_a_remote_dependency_are_always_healthy(self):
+        """The default on the base class, so adding a sink does not silently
+        make the pipeline unready."""
+        assert VLMEnhancedConsoleSink().is_healthy() is True
+
+
 class TestConsoleSink:
     def test_a_verdict_is_rendered_to_the_log(self, caplog):
         sink = VLMEnhancedConsoleSink()

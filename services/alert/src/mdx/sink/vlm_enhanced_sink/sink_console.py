@@ -33,6 +33,8 @@ from .sink_base import VLMEnhancedSink
 class VLMEnhancedConsoleSink(VLMEnhancedSink):
     """Renders VLM-verified events to the log instead of a datastore."""
 
+    transport_label = "console"
+
     def __init__(
         self,
         pretty: bool = True,

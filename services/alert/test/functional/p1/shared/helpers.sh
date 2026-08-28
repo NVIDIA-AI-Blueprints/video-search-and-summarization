@@ -84,6 +84,63 @@ redis_available() {
     nc -z "$REDIS_HOST" "$REDIS_PORT" 2>/dev/null
 }
 
+# Gate a redisStream test on Redis being there, and decide what its absence
+# means. Call as: require_redis "<test name>" || exit $?
+#
+# Redis is optional infrastructure, so a developer on a host without it should
+# not see red. But a suite that reports success when the transport under test
+# was never exercised proves nothing, and there was no way to demand otherwise:
+# the skip was unconditional, so a CI job where Redis silently failed to start
+# passed with every redisStream test skipped. REDIS_REQUIRED=1 turns the skip
+# into a failure, and CI sets it.
+require_redis() {
+    local test_name="${1:-redisStream test}"
+    if redis_available; then
+        print_status "ok" "Redis reachable at $REDIS_HOST:$REDIS_PORT"
+        return 0
+    fi
+    if [ "${REDIS_REQUIRED:-0}" = "1" ]; then
+        print_status "fail" \
+            "FAIL: $test_name needs Redis on $REDIS_HOST:$REDIS_PORT and REDIS_REQUIRED=1 is set"
+        return 1
+    fi
+    print_status "info" \
+        "SKIP: no Redis on $REDIS_HOST:$REDIS_PORT (set REDIS_REQUIRED=1 to fail instead)"
+    return "${EXIT_SKIP:-66}"
+}
+
+# Publish an alert (Behavior) into a Redis Stream as a JSON payload.
+#
+# The two envelope formats are a real interop contract: the MDX envelope keeps
+# the body in `value`, while RT-VLM and the pre-MDX prototype use a `data` /
+# `metadata` JSON envelope. `--envelope json` publishes the latter, so the
+# source's field precedence is exercised by a producer rather than only by a
+# unit test.
+# Usage: produce_alert_redis REPO_ROOT STREAM PAYLOAD ID_SUFFIX [--envelope json]
+produce_alert_redis() {
+    local repo_root="$1" stream="$2" payload="$3" id_suffix="$4"
+    shift 4
+    local pid_dir="${PID_DIR:-/tmp/alert_agent_p1_functional}"
+    local patched="$pid_dir/.patched_redis_alert_$(basename "$payload")_$$"
+
+    patch_timestamps "$payload" "$patched"
+    python3 "$repo_root/test/protobuf/produce_incident_redis_stream.py" \
+        --host "$REDIS_HOST" --port "$REDIS_PORT" --stream "$stream" \
+        --payload "$patched" --id-suffix "$id_suffix" --json "$@"
+    local rc=$?
+    rm -f "$patched"
+    return $rc
+}
+
+# XPENDING count for a group, or 0 when the stream or group is absent.
+# An un-acked entry is replayed on every restart, so this is how a test proves
+# the ack lifecycle actually completed rather than merely not erroring.
+redis_pending_count() {
+    local stream="$1" group="$2"
+    docker exec "$REDIS_CONTAINER" redis-cli XPENDING "$stream" "$group" 2>/dev/null \
+        | head -1 | tr -d '\r' || echo 0
+}
+
 # Publish an Incident protobuf into a Redis Stream using the MDX envelope,
 # mirroring produce_incident() but for the redisStream source.
 # Usage: produce_incident_redis REPO_ROOT STREAM PAYLOAD ID_SUFFIX [--json]
@@ -137,25 +194,56 @@ client = redis.Redis(
 )
 sensor_id = os.environ["SENSOR_ID"]
 
+def as_document(payload):
+    """Decode an entry body to a dict, whichever shape it is in.
+
+    Three shapes reach here: JSON text, an Incident protobuf, and a Behavior
+    protobuf — the last one because the alert route publishes Behavior, so a
+    poller that only tried Incident could not see an alert at all and would
+    report a timeout instead of the wrong-schema bug it actually hit.
+    """
+    try:
+        return json.loads(payload)
+    except (ValueError, UnicodeDecodeError):
+        pass
+
+    from mdx.protobuf import Behavior, Incident
+
+    incident = Incident()
+    try:
+        incident.ParseFromString(payload)
+        if incident.sensorId:
+            return {
+                "kind": "incident",
+                "sensorId": incident.sensorId,
+                "category": incident.category,
+                "info": dict(incident.info),
+            }
+    except Exception:
+        pass
+
+    behavior = Behavior()
+    try:
+        behavior.ParseFromString(payload)
+    except Exception:
+        return None
+    return {
+        "kind": "alert",
+        "sensorId": behavior.sensor.id,
+        "eventType": behavior.event.type,
+        "info": dict(behavior.info),
+    }
+
+
 for _entry_id, fields in client.xrange(os.environ["STREAM"]) or []:
     payload, _key, _headers = extract_envelope(fields)
     if payload is None:
         continue
-    try:
-        document = json.loads(payload)
-    except (ValueError, UnicodeDecodeError):
-        from mdx.protobuf import Incident
-        incident = Incident()
-        try:
-            incident.ParseFromString(payload)
-        except Exception:
-            continue
-        document = {
-            "sensorId": incident.sensorId,
-            "category": incident.category,
-            "info": dict(incident.info),
-        }
-    if sensor_id in str(document.get("sensorId", "")):
+    document = as_document(payload)
+    if not document:
+        continue
+    found = str(document.get("sensorId") or (document.get("sensor") or {}).get("id") or "")
+    if sensor_id in found:
         print(json.dumps(document))
         break
 PYEOF

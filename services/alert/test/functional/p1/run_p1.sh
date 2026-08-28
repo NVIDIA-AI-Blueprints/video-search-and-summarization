@@ -25,6 +25,13 @@ export PID_DIR="${PID_DIR:-/tmp/alert_agent_p1_functional}"
 export ES_HOST="${ES_HOST:-http://127.0.0.1:9200}"
 export BOOTSTRAP="${BOOTSTRAP:-127.0.0.1:9092}"
 export TOPIC="${TOPIC:-mdx-incidents}"
+# A test whose optional infrastructure is absent exits with this instead of 0,
+# so a skipped transport is reported as skipped rather than counted as a pass.
+export EXIT_SKIP=66
+# Set to 1 to turn those skips into failures. CI should, so a run where Redis
+# silently failed to start cannot report all-green with every redisStream test
+# quietly skipped.
+export REDIS_REQUIRED="${REDIS_REQUIRED:-0}"
 
 # Colors
 RED='\033[0;31m'
@@ -435,6 +442,13 @@ phase_run_tests() {
             print_status "ok" "$test_name: PASS"
             pass=$((pass + 1))
             results+=("PASS  $test_name")
+        elif [ $exit_code -eq "$EXIT_SKIP" ]; then
+            # Distinct from PASS on purpose. A skip used to exit 0, so a run
+            # where optional infrastructure never came up reported all-green
+            # with the transport under test never exercised.
+            print_status "info" "$test_name: SKIP"
+            skip=$((skip + 1))
+            results+=("SKIP  $test_name")
         else
             print_status "fail" "$test_name: FAIL (exit $exit_code)"
             fail=$((fail + 1))
@@ -450,12 +464,18 @@ phase_run_tests() {
     for r in "${results[@]}"; do
         if [[ "$r" == PASS* ]]; then
             echo -e "  ${GREEN}$r${NC}"
+        elif [[ "$r" == SKIP* ]]; then
+            echo -e "  ${YELLOW}$r${NC}"
         else
             echo -e "  ${RED}$r${NC}"
         fi
     done
     echo ""
-    echo "  Passed: $pass  Failed: $fail"
+    echo "  Passed: $pass  Failed: $fail  Skipped: $skip"
+    if [ "$skip" -gt 0 ]; then
+        echo "  ($skip skipped for missing optional infrastructure; set"
+        echo "   REDIS_REQUIRED=1 to make the redisStream tests fail instead)"
+    fi
 
     if [ "$fail" -gt 0 ]; then
         return 1

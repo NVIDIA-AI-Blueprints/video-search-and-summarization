@@ -151,6 +151,294 @@ class TestConfiguration:
         assert str(__import__("os").getpid()) in source.consumer_name
 
 
+class TestStreamKindValidation:
+    """The stream key names the event kind, and the kind selects the decode
+    schema: anything that is not ``incident`` is decoded as a Behavior. So a
+    typo in a stream key does not fail — it silently decodes every incident on
+    that stream with the wrong schema and publishes it to the wrong place.
+    Rejecting the key at construction is what turns that into an error an
+    operator sees at boot instead of a mis-routing nobody sees at all.
+    """
+
+    @pytest.mark.parametrize("kind", ["incident", "alert", "anomaly"])
+    def test_supported_kinds_are_accepted(self, kind):
+        config = {
+            "event_bridge": {
+                "redis_source": {"streams": {kind: "s"}, "consumer_group": "g"}
+            }
+        }
+        assert make_source(config).stream_to_kind == {"s": kind}
+
+    def test_a_typo_in_a_stream_key_is_rejected_at_construction(self):
+        config = {
+            "event_bridge": {
+                "redis_source": {
+                    "streams": {"incidents": "mdx-incidents"},
+                    "consumer_group": "g",
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="unsupported key 'incidents'"):
+            make_source(config)
+
+    def test_the_error_names_the_kinds_that_would_have_worked(self):
+        """A rejection an operator cannot act on is only marginally better than
+        the silent mis-decode it replaced."""
+        config = {
+            "event_bridge": {
+                "redis_source": {"streams": {"warning": "s"}, "consumer_group": "g"}
+            }
+        }
+        with pytest.raises(ValueError, match="incident, alert, anomaly"):
+            make_source(config)
+
+    def test_heartbeat_is_exempt_because_it_is_never_decoded_as_an_event(self):
+        config = {
+            "event_bridge": {
+                "redis_source": {
+                    "streams": {"incident": "i", "heartbeat": "hb"},
+                    "consumer_group": "g",
+                }
+            }
+        }
+        source = make_source(config)
+        assert source.heartbeat_stream == "hb"
+        assert "hb" not in source.stream_to_kind
+
+
+class TestAckLifecycle:
+    """An entry acked before it is examined is unrecoverable: it is out of the
+    pending list and ``XREADGROUP >`` will never offer it again, so any path
+    that fails to reach acceptance loses the event silently. These tests pin
+    that every ack follows a decision about the entry.
+    """
+
+    def test_an_accepted_entry_is_acked(self):
+        source = make_source()
+        source.broker.read_group.return_value = [
+            ("mdx-incidents", b"1-0", envelope(b"\x08\x01"))
+        ]
+        source.read_data()
+        assert source.broker.ack.call_args.args[2] == [b"1-0"]
+
+    def test_nothing_is_acked_when_the_read_returns_nothing(self):
+        source = make_source()
+        source.broker.read_group.return_value = []
+        source.read_data()
+        source.broker.ack.assert_not_called()
+
+    def test_an_entry_is_not_acked_before_its_payload_is_examined(self):
+        """The ordering guarantee, asserted directly: the ack call must not
+        have happened at the point the envelope is being extracted."""
+        source = make_source()
+        source.broker.read_group.return_value = [
+            ("mdx-incidents", b"1-0", envelope(b"\x08\x01"))
+        ]
+        with patch("mdx.source.source_redis_stream.extract_envelope") as extract:
+            def assert_not_yet_acked(fields):
+                source.broker.ack.assert_not_called()
+                return b"\x08\x01", b"sensor-1", {}
+
+            extract.side_effect = assert_not_yet_acked
+            source.read_data()
+        source.broker.ack.assert_called_once()
+
+    def test_a_decode_failure_mid_batch_does_not_ack_the_untouched_entries(self):
+        """A crash partway through must leave the entries it never reached in
+        the pending list, where the reclaim pass can still find them."""
+        source = make_source()
+        source.broker.read_group.return_value = [
+            ("mdx-incidents", b"1-0", envelope(b"\x08\x01")),
+            ("mdx-incidents", b"1-1", envelope(b"\x08\x02")),
+        ]
+        with patch(
+            "mdx.source.source_redis_stream.record_key_alignment",
+            side_effect=[None, RuntimeError("boom")],
+        ):
+            with pytest.raises(RuntimeError):
+                source.read_data()
+        source.broker.ack.assert_not_called()
+
+    def test_every_entry_in_a_mixed_batch_reaches_a_decision(self):
+        """Accepted, payloadless and unmapped entries all have to be acked, or
+        the ones that were not become permanent redelivery."""
+        source = make_source()
+        source.broker.read_group.return_value = [
+            ("mdx-incidents", b"1-0", envelope(b"\x08\x01")),
+            ("mdx-incidents", b"1-1", {b"headers": b"{}"}),
+            ("surprise", b"3-0", envelope(b"\x08\x03")),
+        ]
+        source.read_data()
+        acked = {
+            call.args[0]: call.args[2] for call in source.broker.ack.call_args_list
+        }
+        assert acked == {"mdx-incidents": [b"1-0", b"1-1"], "surprise": [b"3-0"]}
+
+
+class TestReclaimStalePendingEntries:
+    """``XREADGROUP ... >`` only returns entries no one has seen.
+
+    An entry delivered to a replica that then died stays in that replica's
+    pending list forever — never redelivered, never visible to its
+    replacement — so without a reclaim pass a consumer lost mid-batch strands
+    its work with no upper bound.
+    """
+
+    def test_an_idle_poll_sweeps_for_stranded_entries(self):
+        source = make_source()
+        source.broker.read_group.return_value = []
+        source.broker.claim_stale.return_value = []
+        source.read_data()
+        claimed = {call.kwargs["stream"] for call in source.broker.claim_stale.call_args_list}
+        assert claimed == {"mdx-incidents", "mdx-alerts"}
+
+    def test_reclaimed_entries_are_decoded_by_the_same_path_as_new_ones(self):
+        source = make_source()
+        source.broker.read_group.return_value = []
+        source.broker.claim_stale.side_effect = lambda stream, **_: (
+            [(stream, b"1-0", envelope(b"\x08\x01"))] if stream == "mdx-incidents" else []
+        )
+        batches = source.read_data()
+        assert len(batches) == 1
+        assert batches[0]["kind"] == "incident"
+        assert batches[0]["messages"] == [(b"sensor-1", b"\x08\x01", 1)]
+
+    def test_reclaimed_entries_are_acked_so_they_do_not_cycle(self):
+        source = make_source()
+        source.broker.read_group.return_value = []
+        source.broker.claim_stale.side_effect = lambda stream, **_: (
+            [(stream, b"1-0", envelope(b"\x08\x01"))] if stream == "mdx-incidents" else []
+        )
+        source.read_data()
+        source.broker.ack.assert_called_once_with(
+            "mdx-incidents", "alert-bridge-vlm-group", [b"1-0"]
+        )
+
+    def test_a_productive_poll_skips_the_sweep(self):
+        """Reclaimed entries are by definition not urgent; an XAUTOCLAIM per
+        stream on every poll would be hot-path cost for no benefit."""
+        source = make_source()
+        source.broker.read_group.return_value = [
+            ("mdx-incidents", b"1-0", envelope(b"\x08\x01"))
+        ]
+        source.read_data()
+        source.broker.claim_stale.assert_not_called()
+
+    def test_the_sweep_is_throttled_between_idle_polls(self):
+        source = make_source()
+        source.broker.read_group.return_value = []
+        source.broker.claim_stale.return_value = []
+        source.read_data()
+        first = source.broker.claim_stale.call_count
+        source.read_data()
+        assert source.broker.claim_stale.call_count == first
+
+    def test_the_sweep_runs_again_once_the_interval_has_passed(self):
+        source = make_source()
+        source.broker.read_group.return_value = []
+        source.broker.claim_stale.return_value = []
+        source.read_data()
+        first = source.broker.claim_stale.call_count
+        source._last_reclaim_at -= source._reclaim_interval + 1
+        source.read_data()
+        assert source.broker.claim_stale.call_count > first
+
+    def test_the_interval_is_configurable(self):
+        config = {
+            "event_bridge": {
+                "redis_source": {
+                    "streams": {"incident": "i"},
+                    "consumer_group": "g",
+                    "consumer_config": {"reclaim_interval": 5.0},
+                }
+            }
+        }
+        assert make_source(config)._reclaim_interval == 5.0
+
+    def test_the_sweep_can_be_disabled(self):
+        config = {
+            "event_bridge": {
+                "redis_source": {
+                    "streams": {"incident": "i"},
+                    "consumer_group": "g",
+                    "consumer_config": {"reclaim_interval": 0},
+                }
+            }
+        }
+        source = make_source(config)
+        source.broker.read_group.return_value = []
+        source.read_data()
+        source.broker.claim_stale.assert_not_called()
+
+
+class TestReadiness:
+    """An unreachable Redis returns the same empty entry list as an idle
+    stream. Without this the process publishes itself ready and ``/health``
+    answers 200 while nothing is being consumed at all.
+    """
+
+    def test_a_healthy_source_is_ready(self):
+        source = make_source()
+        source.broker.connection_healthy = True
+        assert source.is_ready() is True
+
+    def test_an_unreachable_broker_is_not_ready(self):
+        source = make_source()
+        source.broker.connection_healthy = False
+        assert source.is_ready() is False
+
+    def test_a_missing_consumer_group_is_not_ready(self):
+        source = make_source()
+        source.broker.connection_healthy = True
+        source._groups_ready = False
+        assert source.is_ready() is False
+
+    def test_readiness_before_the_first_command_is_not_held_against_it(self):
+        """``None`` means no command has run yet, which is startup, not an
+        outage — reporting not-ready there would fail every cold start."""
+        source = make_source()
+        source.broker.connection_healthy = None
+        assert source.is_ready() is True
+
+    def test_a_failed_read_flips_readiness(self):
+        source = make_source()
+        source.broker.connection_healthy = True
+        source.broker.ensure_group.return_value = False
+        with patch("mdx.source.source_redis_stream.time.sleep"):
+            source.read_data()
+        assert source.is_ready() is False
+
+    def test_await_ready_returns_true_once_redis_answers(self):
+        source = make_source()
+        source.broker.ping.return_value = True
+        source.broker.ensure_group.return_value = True
+        assert source.await_ready(timeout=1.0) is True
+
+    def test_await_ready_retries_until_redis_comes_up(self):
+        source = make_source()
+        source.broker.ping.side_effect = [False, False, True]
+        source.broker.ensure_group.return_value = True
+        with patch("mdx.source.source_redis_stream.time.sleep"):
+            assert source.await_ready(timeout=30.0) is True
+        assert source.broker.ping.call_count == 3
+
+    def test_await_ready_gives_up_so_a_bad_endpoint_fails_the_start(self):
+        """The caller turns this into a failed start, so a deployment pointed
+        at a Redis that is not there fails visibly instead of idling."""
+        source = make_source()
+        source.broker.ping.return_value = False
+        with patch("mdx.source.source_redis_stream.time.sleep"):
+            assert source.await_ready(timeout=0.0) is False
+
+    def test_await_ready_fails_when_the_group_cannot_be_created(self):
+        """Reachable but unusable — a WRONGTYPE key on the stream name, say."""
+        source = make_source()
+        source.broker.ping.return_value = True
+        source.broker.ensure_group.return_value = False
+        with patch("mdx.source.source_redis_stream.time.sleep"):
+            assert source.await_ready(timeout=0.0) is False
+
+
 class TestReadDataProtobuf:
     def test_protobuf_entries_become_kafka_style_tuples(self):
         """Emitting the Kafka tuple shape routes these through the existing
@@ -275,10 +563,27 @@ class TestReadDataResilience:
             source.read_data()
         drop.assert_called_once_with("redis_stream", "no_payload")
 
-    def test_an_unmapped_stream_falls_back_to_the_unknown_kind(self):
+    def test_an_entry_from_an_unmapped_stream_is_dropped_not_guessed(self):
+        """The stream key is what selects the decode schema.
+
+        An entry from a stream with no configured kind — reachable once the
+        reclaim pass can hand back entries from a stream since removed from the
+        config — used to be labelled ``unknown``, which decodes as a Behavior.
+        That routes an incident through the wrong protobuf schema and publishes
+        it to the alert stream without raising anything. Dropping it and
+        counting the drop is the only honest answer, and it is still acked so
+        the entry cannot strand the consumer.
+        """
         source = make_source()
         source.broker.read_group.return_value = [("surprise", b"1-0", envelope(b"\x08\x01"))]
-        assert source.read_data()[0]["kind"] == "unknown"
+
+        with patch("mdx.source.source_redis_stream.record_source_drop") as drop:
+            assert source.read_data() == []
+
+        drop.assert_called_once_with("redis_stream", "unmapped_kind")
+        source.broker.ack.assert_called_once_with(
+            "surprise", "alert-bridge-vlm-group", [b"1-0"]
+        )
 
     def test_an_unreachable_broker_backs_off_instead_of_spinning(self):
         source = make_source()

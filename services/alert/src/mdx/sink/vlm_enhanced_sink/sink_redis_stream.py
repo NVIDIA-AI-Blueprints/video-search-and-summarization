@@ -45,6 +45,8 @@ DEFAULT_ALERT_STREAM = "mdx-vlm-alerts"
 class VLMEnhancedRedisStreamSink(VLMEnhancedSink):
     """Publishes VLM-verified events to per-kind Redis Streams."""
 
+    transport_label = "redis_stream"
+
     def __init__(
         self,
         broker: RedisStreamBroker,
@@ -90,6 +92,19 @@ class VLMEnhancedRedisStreamSink(VLMEnhancedSink):
         }
 
         broker = RedisStreamBroker(resolve_redis_config(config, override=connection))
+
+        # Fail fast, the same way the event-bridge Redis sink does. Per-write
+        # retries are bounded and cannot ride out a wrong host or a Redis that
+        # is not running, so without this check the service starts cleanly and
+        # then discards every verdict it produces until Redis appears — a
+        # deployment that looks healthy and delivers nothing.
+        if not broker.ping():
+            raise ConnectionError(
+                f"Unable to reach Redis at {broker.host}:{broker.port} for the "
+                f"VLM-enhanced sink; check the redis connection settings or "
+                f"select a different vlm_enhanced_sink.type"
+            )
+
         return cls(
             broker=broker,
             incident_route=incident_route,
@@ -97,6 +112,15 @@ class VLMEnhancedRedisStreamSink(VLMEnhancedSink):
             category_mapping=category_mapping,
             alert_config_store=alert_config_store,
         )
+
+    def is_healthy(self) -> bool:
+        """Whether the last Redis command succeeded.
+
+        ``None`` (nothing attempted yet) counts as healthy: the constructor
+        already pinged, and reporting unready before the first publish would
+        make an idle deployment look broken.
+        """
+        return self._broker.connection_healthy is not False
 
     def _store_success(
         self,
@@ -170,7 +194,11 @@ class VLMEnhancedRedisStreamSink(VLMEnhancedSink):
             entry_id = self._broker.add(stream, self._serialize(route, document), key=key)
             if entry_id is None:
                 # Redis is the only destination for a redisStream sink, so this
-                # discards a verdict the VLM already paid to produce.
+                # discards a verdict the VLM already paid to produce. Counted as
+                # a lost verdict rather than only a failed write, and the sink's
+                # health now reads unhealthy so pipeline readiness reports the
+                # degradation instead of leaving it to whoever reads the logs.
+                self._record_drop(event_kind)
                 self._logger.error(
                     "Dropped VLM-enhanced %s: Redis stream write failed after retries",
                     event_kind,
@@ -179,9 +207,18 @@ class VLMEnhancedRedisStreamSink(VLMEnhancedSink):
                 return
             log_enriched_event(self._logger, "RedisStream", document.get("id"), document)
         except Exception:
+            self._record_drop(event_kind)
             self._logger.error(
                 "Failed to publish VLM-enhanced event to Redis Stream",
                 extra={"incident_id": document.get("id"), "stream": stream},
                 exc_info=True,
             )
             return
+
+    def _record_drop(self, event_kind: str) -> None:
+        """Count a verdict that never reached its stream. Never raises."""
+        try:
+            from metrics.recorder import inc_terminal_publish_dropped
+            inc_terminal_publish_dropped(self.transport_label, event_kind)
+        except Exception:  # pragma: no cover - metrics must never break publish
+            pass

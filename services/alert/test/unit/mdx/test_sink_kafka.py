@@ -99,6 +99,40 @@ class TestConstruction:
         assert sink.producer is broker_cls.return_value.get_producer.return_value
 
 
+class TestTheProducerIsNotOpenedUntilItIsUsed:
+    """``sinkType`` defaults to kafka, so a deployment that selects Redis for
+    everything it actually uses still constructs this sink. Connecting at
+    construction meant a librdkafka producer opening a connection to a broker
+    that is not in the deployment at all, retrying in the background for the
+    life of the process.
+    """
+
+    def test_construction_does_not_open_a_producer(self):
+        with patch("mdx.sink.sink_kafka.KafkaMessageBroker") as broker_cls:
+            KafkaSink(NEW_CONFIG)
+        broker_cls.return_value.get_producer.assert_not_called()
+
+    def test_the_first_use_opens_it(self):
+        with patch("mdx.sink.sink_kafka.KafkaMessageBroker") as broker_cls:
+            sink = KafkaSink(NEW_CONFIG)
+            sink.producer
+        broker_cls.return_value.get_producer.assert_called_once()
+
+    def test_it_is_opened_once_and_reused(self):
+        with patch("mdx.sink.sink_kafka.KafkaMessageBroker") as broker_cls:
+            sink = KafkaSink(NEW_CONFIG)
+            first, second = sink.producer, sink.producer
+        assert first is second
+        broker_cls.return_value.get_producer.assert_called_once()
+
+    def test_a_write_opens_it(self):
+        """The laziness must not change behaviour for a deployment that does
+        publish through this sink."""
+        sink = make_sink()
+        sink.write_data([{"id": "beh-1"}], lambda d: nvSchemaBehavior(id=d["id"]))
+        sink.producer.produce.assert_called_once()
+
+
 class TestWriteData:
     def test_publishes_transformed_protobuf(self, sink):
         item = {"id": "beh-1", "sensor": {"id": "cam-1"}}

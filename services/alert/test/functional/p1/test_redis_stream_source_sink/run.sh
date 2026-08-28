@@ -39,12 +39,9 @@ echo "=== P1: Redis Streams source + Redis Streams sink ==="
 
 mkdir -p "$PID_DIR"
 
-# 0. Redis is optional infrastructure — skip rather than fail when absent.
-if ! redis_available; then
-    print_status "info" "SKIP: no Redis on $REDIS_HOST:$REDIS_PORT"
-    exit 0
-fi
-print_status "ok" "Redis reachable at $REDIS_HOST:$REDIS_PORT"
+# 0. Redis is optional infrastructure, so its absence skips by default and
+#    fails under REDIS_REQUIRED=1 — see require_redis for why both exist.
+require_redis "$TEST_NAME" || exit $?
 
 # 1. Confirm Alert MS actually selected the Redis transports. Without this a
 #    silent fallback to Kafka would make the rest of the test pass for the

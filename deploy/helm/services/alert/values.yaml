@@ -23,6 +23,14 @@ image:
   pullPolicy: IfNotPresent
 replicas: 1
 
+# Rendering refuses replicas > 1 together with eventSourceType: redisStream.
+# A Redis consumer group hands each entry to whichever consumer asks first, so
+# one sensor's events are split across replicas — and dedup, the end-time delta
+# filter and the VLM rate limit are all process-local and assume they are not.
+# Set this true once each replica has its own redis.consumerGroup over disjoint
+# streams, or once alert_agent.event_filters.protect_confirmed_verdicts is on.
+allowMultiReplicaRedisSource: false
+
 # Parameterized from parent / profile. In K8s use service names. Leave "" for release-based defaults.
 # Note: dedup/filter state is in-process and durable state (verdict protection,
 # alert configs) lives in Elasticsearch — the redis settings below are only for
@@ -55,10 +63,27 @@ redis:
   host: ""
   port: 6379
   db: 0
+  # Prefer passwordSecret below: this value is rendered into a ConfigMap, which
+  # is not a secret. Kept for local and development use.
   password: ""
-  # Approximate MAXLEN cap applied when publishing, matching what
-  # vss-behavior-analytics and rt-vlm use.
-  maxlen: 10000
+  # Read the password from a mounted Secret instead. Both keys are required to
+  # take effect; the mount is added to the pod automatically.
+  #   passwordSecret: { name: my-redis-auth, key: password }
+  passwordSecret: {}
+  # TLS for a customer-managed endpoint. Verification is on whenever tls is
+  # enabled; caCertSecret supplies a private CA, and omitting it uses the
+  # image's system trust store. Set certReqs: none only for a self-signed
+  # development instance.
+  tls:
+    enabled: false
+    certReqs: "required"
+    # caCertSecret: { name: my-redis-ca, key: ca.crt }
+    caCertSecret: {}
+  # Approximate MAXLEN cap applied when publishing. Empty or 0 means Alert MS
+  # never trims — the streams belong to your deployment, and trimming on every
+  # publish makes ordinary output delete your older entries. Set a positive
+  # number to opt in, matching what vss-behavior-analytics and rt-vlm use.
+  maxlen: 0
   consumerGroup: "alert-bridge-vlm-group"
 vlmBaseUrl: ""
 vlmName: "nvidia/cosmos3-nano-reasoner"

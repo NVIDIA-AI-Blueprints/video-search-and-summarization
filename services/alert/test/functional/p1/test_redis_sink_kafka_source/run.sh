@@ -39,10 +39,7 @@ echo "=== P1: Kafka source + Redis Streams sink ==="
 
 mkdir -p "$PID_DIR"
 
-if ! redis_available; then
-    print_status "info" "SKIP: no Redis on $REDIS_HOST:$REDIS_PORT"
-    exit 0
-fi
+require_redis "$TEST_NAME" || exit $?
 
 # 1. The source must still be Kafka. If the Redis sink selection leaked into
 #    the source, this catches it before the test times out on an empty stream.

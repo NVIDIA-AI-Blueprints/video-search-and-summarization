@@ -30,9 +30,11 @@ elastic sinks on every event.
 import pytest
 
 from utils.event_utils import (
+    EVENT_KIND_FIELD,
     get_notification_type,
     is_alert,
     normalize_alert_message,
+    stamp_event_kind,
     strip_normalization_fields,
 )
 
@@ -267,3 +269,73 @@ class TestGetNotificationType:
 
     def test_incident_for_non_dict_input(self):
         assert get_notification_type(None) == "incident"
+
+
+class TestStampEventKind:
+    """The source knows the kind; the payload only claims one.
+
+    The kind comes from the stream or topic an entry arrived on, which is
+    deployment configuration. Terminal routing used to read it back out of the
+    payload, so the two could disagree in both directions: a producer that sets
+    ``notification_type`` gets an incident published to the alert stream, and an
+    alert whose nested blocks are absent — so normalization never set the field
+    — gets published to the incident stream. Neither raises.
+    """
+
+    def test_an_alert_is_marked_so_routing_cannot_miss_it(self):
+        stamped = stamp_event_kind({"id": "evt-1"}, "alert")
+        assert stamped[EVENT_KIND_FIELD] == "alert"
+        assert is_alert(stamped) is True
+
+    def test_an_alert_without_nested_blocks_still_routes_as_an_alert(self):
+        """The concrete bug: normalization only sets the field when it finds a
+        nested sensor or analyticsModule block, so a flat Behavior payload used
+        to be published to the incident stream."""
+        assert is_alert({"id": "evt-1"}) is False
+        assert is_alert(stamp_event_kind({"id": "evt-1"}, "alert")) is True
+
+    def test_an_incident_is_not_marked_as_an_alert(self):
+        stamped = stamp_event_kind({"id": "inc-1"}, "incident")
+        assert is_alert(stamped) is False
+
+    def test_a_payload_claiming_to_be_an_alert_on_an_incident_stream_is_corrected(self):
+        """The other direction: the transport's answer wins over the producer's."""
+        stamped = stamp_event_kind({"id": "inc-1", "notification_type": "alert"}, "incident")
+        assert is_alert(stamped) is False
+
+    def test_an_incident_carries_no_kind_field_at_all(self):
+        """Set to the string ``"incident"`` instead of cleared, every published
+        incident document would change shape to fix a bug in the alert
+        direction."""
+        assert EVENT_KIND_FIELD not in stamp_event_kind({"id": "inc-1"}, "incident")
+
+    def test_the_legacy_anomaly_kind_routes_as_an_alert_would(self):
+        """``anomaly`` is the pre-``event_bridge`` spelling and decodes as a
+        Behavior downstream, so it must not be stamped as an incident."""
+        assert stamp_event_kind({"id": "evt-1"}, "anomaly").get(EVENT_KIND_FIELD) is None
+
+    def test_the_kind_is_matched_case_insensitively(self):
+        assert stamp_event_kind({"id": "e"}, "Alert")[EVENT_KIND_FIELD] == "alert"
+
+    def test_the_input_is_not_mutated(self):
+        """The caller may still hold the pre-stamp document — the dedup
+        fingerprint was computed from it."""
+        original = {"id": "evt-1"}
+        stamp_event_kind(original, "alert")
+        assert original == {"id": "evt-1"}
+
+    def test_an_already_correct_document_is_returned_unchanged(self):
+        """No copy when nothing changes, matching normalize_alert_message."""
+        message = {"id": "evt-1", "notification_type": "alert"}
+        assert stamp_event_kind(message, "alert") is message
+
+    def test_an_already_unmarked_incident_is_returned_unchanged(self):
+        message = {"id": "inc-1"}
+        assert stamp_event_kind(message, "incident") is message
+
+    def test_other_fields_survive(self):
+        stamped = stamp_event_kind({"id": "evt-1", "category": "Loitering"}, "alert")
+        assert stamped["category"] == "Loitering"
+
+    def test_a_non_dict_payload_is_passed_through(self):
+        assert stamp_event_kind(None, "alert") is None

@@ -23,6 +23,15 @@ from mdx.source.source_base import SourceBase
 from mdx.source.source_utils import record_key_alignment
 from mdx.stream_message import StreamMessage
 
+# Rebalance accounting reports through the module directly rather than a
+# source_utils helper, because the counter it feeds is Kafka-specific. Guarded
+# so a minimal environment without the metrics package cannot break the consume
+# path.
+try:  # pragma: no cover - exercised indirectly
+    from metrics import recorder as _metrics
+except Exception:  # pragma: no cover
+    _metrics = None
+
 
 class MockKafkaMessage:
     """Mock Kafka message for compatibility with StreamMessage"""

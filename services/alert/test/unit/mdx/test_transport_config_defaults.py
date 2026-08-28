@@ -186,8 +186,11 @@ class TestDeploymentConfigsWithNoRedisEnvironment:
         broker = RedisStreamBroker(resolve_redis_config(config))
         assert broker.port == DEFAULT_PORT
         assert broker.db == 0
-        assert broker.maxlen == DEFAULT_MAXLEN
+        # Null renders to no trimming, which is also the default: Alert MS does
+        # not delete entries from a stream it does not own.
+        assert broker.maxlen is None
         assert broker.password is None
+        assert broker.tls == {}
 
 
 class TestSelectingRedisFromADeploymentConfig:
@@ -241,3 +244,42 @@ class TestSelectingRedisFromADeploymentConfig:
         assert EventBridgeFactory.validate_configuration(config) is True
         built = build_transports(config)
         assert built["redis_source"] and built["kafka_sink"]
+
+
+class TestSecureRedisFromADeploymentConfig(TestSelectingRedisFromADeploymentConfig):
+    """The shipped files have to be able to reach an authenticated TLS endpoint
+    without the password appearing in them.
+
+    Inherits the cases above so the secure rendering is held to the same
+    contract: a customer-managed endpoint must not be a different code path
+    that only the happy configuration is tested against.
+    """
+
+    ENVIRONMENT = dict(
+        TestSelectingRedisFromADeploymentConfig.ENVIRONMENT,
+        REDIS_PASSWORD_FILE="/etc/alert-bridge/redis-auth/password",
+        REDIS_SSL="true",
+        REDIS_SSL_CERT_REQS="required",
+        REDIS_SSL_CA_CERTS="/etc/alert-bridge/redis-ca/ca.crt",
+    )
+
+    def test_tls_is_configured_with_verification_on(self):
+        broker = RedisStreamBroker(resolve_redis_config(self.rendered()))
+        assert broker.tls["ssl"] is True
+        assert broker.tls["ssl_cert_reqs"] == "required"
+        assert broker.tls["ssl_ca_certs"] == "/etc/alert-bridge/redis-ca/ca.crt"
+
+    def test_the_password_is_read_from_the_named_file_not_the_config(self, tmp_path):
+        secret = tmp_path / "password"
+        secret.write_text("from-a-secret\n")
+        config = self.rendered()
+        config["redis"]["password_file"] = str(secret)
+        assert RedisStreamBroker(resolve_redis_config(config)).password == "from-a-secret"
+
+    def test_no_credential_is_written_into_the_rendered_config(self):
+        """The rendered file is a ConfigMap in Helm and a bind mount in
+        Compose. Neither is a secret, so the only thing that may appear here is
+        the path to one."""
+        redis_block = self.rendered()["redis"]
+        assert not (redis_block.get("password") or "")
+        assert redis_block["password_file"].startswith("/")

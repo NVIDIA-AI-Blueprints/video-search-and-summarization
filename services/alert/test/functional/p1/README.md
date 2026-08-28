@@ -52,7 +52,9 @@ These run against simulators with known inputs — not a live deployment.
 | `test_http_ondemand_verification` | POST to `/api/v1/verification/ondemand`: (1) valid request → 202, then result in ES; (2) unknown category → 400; (3) NIM down → 202, then error result | Asynchronous on-demand API contract, background publishing, and VLM fault tolerance |
 | `test_kafka_sink_vlm` | Send incident with `info.video_path`; verify VLM result published to Kafka sink | Base64 encode + VLM + Kafka sink pipeline |
 | `test_redis_stream_source_sink` | Publish an incident into a Redis Stream with the MDX envelope; verify the enhanced result appears on the output stream and input entries are acked | Redis Streams as both source and sink, protobuf wire format, consumer-group acking |
+| `test_redis_stream_alert_json` | Publish an **alert** into `mdx-alerts` in the **JSON envelope** (`data` body + populated `metadata` sidecar); verify the enhanced alert reaches `mdx-vlm-alerts`, did **not** cross-route to the incident stream, and that the input entry survives (trimming is opt-in) | The second wire format and its payload-field precedence; the alert route's schema and stream; the source-derived kind being authoritative; MAXLEN off by default |
 | `test_redis_sink_kafka_source` | Produce to Kafka but publish VLM results to a Redis Stream | Source and sink transports are selected independently |
+| `test_redis_source_elastic_sink` | Consume from a Redis Stream and publish to the default Elasticsearch sink, with `sinkType` left at its kafka default | A Redis source against a non-Redis terminal sink — the likely upgrade shape — plus the startup warning naming split error/terminal transports |
 | `test_console_sink` | Select the console sink for both the event bridge and VLM results; verify the verdict is rendered to the log | Console sink emits processed results and needs no broker |
 | `test_redis_multi_consumer_dedup` | **Negative.** Two Alert MS instances share one Redis consumer group: 12 events for one sensorId split across both (A), a repeated fingerprint escapes in-process dedup and only ES doc-id idempotency collapses it (B), and killing one instance restores correct dedup (C) | Redis consumer groups provide no per-sensor affinity, so in-process dedup needs one replica per group or sensor sharding |
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
@@ -79,6 +81,11 @@ test/functional/p1/
 ```
 
 The orchestrator starts Alert Bridge fresh with each test's `config.yaml` before calling its `run.sh`.
+
+A `run.sh` exits `0` to pass, `$EXIT_SKIP` (66) to skip because optional
+infrastructure is absent, and anything else to fail. Skipping with `0` is what
+let a run report all-green with a transport never exercised, so use the
+`EXIT_SKIP` code and let the orchestrator count it.
 
 ## Flags
 
@@ -449,7 +456,29 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 **Pass:** Enhanced incident found on the output stream and consumed entries were acked.
 **Fail:** AB selected the wrong source, no matching entry within 60s.
-**Skip:** No Redis listening on `127.0.0.1:6379` — Redis is optional infrastructure, so its absence must not fail the suite.
+**Skip:** No Redis listening on `127.0.0.1:6379` — Redis is optional infrastructure, so its absence must not fail the suite. Set `REDIS_REQUIRED=1` to make the skip a failure instead (see [Requiring the Redis transport](#requiring-the-redis-transport)).
+
+---
+
+### test_redis_stream_alert_json
+
+**Purpose:** Cover what the incident test above leaves untested — the alert route, and the second wire format. Both are contracts on their own: the alert route takes a different protobuf schema and a different output stream, and the JSON envelope is what decides whether the payload-field precedence holds against a real producer rather than only a unit test.
+
+**Config:** `event_bridge.sourceType: redisStream`, `sinkType: redisStream`, `vlm_enhanced_sink.type: redisStream` with an `alert` route on `mdx-vlm-alerts`. `redis.maxlen` is left unset so trimming stays off.
+
+**Trigger:** `produce_alert_redis ... --envelope json` publishes a Behavior payload into `mdx-alerts` as `data` / `timestamp` / `metadata`, with `metadata` populated. The payload carries **no** `notification_type`, so its kind is known only from the stream it arrived on — the case that used to be published to the incident stream because terminal routing re-derived the kind from the payload and found nothing.
+
+**Check:**
+1. AB selected the `redisStream` source.
+2. The enhanced alert appears on `mdx-vlm-alerts`, decoded as a Behavior protobuf.
+3. Its `event.type` survived, which proves the body came from `data` rather than the `metadata` sidecar — the sidecar carries no event fields, so a document read from it would be missing them.
+4. Nothing for this sensor appears on `mdx-vlm-incidents`. A cross-route is otherwise silent: both writes succeed.
+5. `XPENDING` on the input stream is 0.
+6. The input stream still holds its entry — trimming is opt-in, and the previous default trimmed on every publish.
+
+**Pass:** All six.
+**Fail:** A blank `event.type` (the sidecar was decoded as the body), the alert on the incident stream (the kind was re-derived from the payload), or a trimmed input stream.
+**Skip:** No Redis, unless `REDIS_REQUIRED=1`.
 
 ---
 
@@ -465,7 +494,23 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 **Pass:** Incident consumed from Kafka and its enhanced result published to Redis.
 **Fail:** AB switched the source to Redis, or nothing appeared on the output stream within 60s.
-**Skip:** No Redis listening on `127.0.0.1:6379`.
+**Skip:** No Redis, unless `REDIS_REQUIRED=1`.
+
+---
+
+### test_redis_source_elastic_sink
+
+**Purpose:** The mirror of the test above, and the shape a real upgrade produces: an existing Elasticsearch-based install swapping only its input transport. Every other `redisStream` test ends in a Redis stream, which leaves this — the most likely deployment — uncovered, and it is where a coupling bug hides, because a source selection that leaked into the sink still "works". The documents just arrive somewhere else.
+
+**Config:** `event_bridge.sourceType: redisStream` with `vlm_enhanced_sink.type: elastic`. `sinkType` is deliberately left unset, so it defaults to kafka — which is what an operator who sets only `sourceType` actually gets.
+
+**Trigger:** One Incident protobuf published into `mdx-incidents` in the MDX envelope.
+
+**Check:** AB selected the `redisStream` source; the startup log names the split between the error-path and terminal transports; the enhanced incident lands in Elasticsearch; `XPENDING` on the input stream is 0. The last one is asserted here as well as in the Redis-to-Redis test because acking is the source's job and must not depend on which sink the verdict reached.
+
+**Pass:** Enhanced incident in Elasticsearch, input entry acked.
+**Fail:** Nothing in Elasticsearch within 60s, or entries left pending.
+**Skip:** No Redis, unless `REDIS_REQUIRED=1`.
 
 ---
 
@@ -660,6 +705,24 @@ Redis also runs as a Docker container, but only so the `redisStream` transport t
 ```bash
 REDIS_IMAGE=redis:7-alpine ./run_p1.sh
 ```
+
+#### Requiring the Redis transport
+
+A skipped test is reported as `SKIP` and exits `66`, distinct from `PASS`. That
+distinction matters: the skip used to exit `0`, so a run where Redis silently
+failed to start reported all-green with the transport under test never
+exercised once — the suite could not tell "the Redis paths work" from "the
+Redis paths were not tried".
+
+Reporting it is not enough where the transport is the thing being validated, so
+`REDIS_REQUIRED=1` turns the skip into a failure:
+
+```bash
+REDIS_REQUIRED=1 ./run_p1.sh          # every redisStream test must run and pass
+```
+
+CI should set it. A developer on a host without Redis should not, and gets the
+skip.
 
 ---
 

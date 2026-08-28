@@ -61,12 +61,23 @@ kafka:
 # Redis connection shared by every Redis Streams component. Only read when a
 # redisStream source or sink is selected below, so these values are inert in the
 # default Kafka deployment. Alert MS does not deploy Redis — point REDIS_HOST at
-# an instance you provide.
+# an instance you provide. REDIS_HOST has no default on purpose: it used to fall
+# back to the bundled `redis` service, so selecting a redisStream transport and
+# forgetting the host silently attached the deployment to the wrong instance.
 redis:
   host: "${REDIS_HOST}"
   port: ${REDIS_PORT}
   db: ${REDIS_DB}
+  # password_file wins over password when both are set: it names a mounted
+  # secret read at connect time, so the credential never enters this file.
   password: "${REDIS_PASSWORD}"
+  password_file: "${REDIS_PASSWORD_FILE}"
+  # Verification is on whenever ssl is true. ssl_ca_certs supplies a private
+  # CA; unset uses the image's system trust store.
+  ssl: ${REDIS_SSL}
+  ssl_cert_reqs: "${REDIS_SSL_CERT_REQS}"
+  ssl_ca_certs: "${REDIS_SSL_CA_CERTS}"
+  # Empty or 0 means Alert MS never trims these streams.
   maxlen: ${REDIS_STREAM_MAXLEN}
 
 #VLM Configuration

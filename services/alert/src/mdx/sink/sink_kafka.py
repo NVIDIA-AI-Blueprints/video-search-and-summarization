@@ -27,7 +27,7 @@ class KafkaSink(SinkBase):
         super().__init__(config)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.kafka_message_broker = KafkaMessageBroker(config)
-        self.producer = self.kafka_message_broker.get_producer()
+        self._producer = None
         
         # Support both legacy and new configuration formats
         if 'event_bridge' in config and 'kafka_sink' in config['event_bridge']:
@@ -38,6 +38,22 @@ class KafkaSink(SinkBase):
             # Legacy configuration
             self.enhanced_anomaly_topic = config['kafka'].get('enhanced_anomaly_topic')
             self.incidents_topic = config['kafka'].get('incidents_topic')
+
+    @property
+    def producer(self):
+        """The Kafka producer, created on first write rather than at construction.
+
+        This sink carries validation-error responses only; VLM-verified results
+        go to the separately-selected ``vlm_enhanced_sink``. A deployment that
+        publishes results to Redis while leaving ``sinkType`` at its ``kafka``
+        default therefore may never write through this sink at all — and
+        connecting eagerly meant it held an open producer against a broker it
+        does not otherwise use, or, in a Redis-only deployment, against one that
+        is not running.
+        """
+        if self._producer is None:
+            self._producer = self.kafka_message_broker.get_producer()
+        return self._producer
 
     def write_data(self, data: List[dict], message_transform_func: Callable[[dict], nvSchemaBehavior]) -> None:
         """

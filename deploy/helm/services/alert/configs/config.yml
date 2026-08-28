@@ -75,12 +75,29 @@ kafka:
 # Connection shared by every Redis Streams component. Only read when a
 # redisStream transport is selected, so it is inert in the default Kafka
 # deployment.
+{{- $redisTls := $redis.tls | default dict }}
 redis:
   host: "{{ $redisHost }}"
   port: {{ $redis.port | default 6379 }}
   db: {{ $redis.db | default 0 }}
   password: "{{ $redis.password | default "" }}"
-  maxlen: {{ $redis.maxlen | default 10000 }}
+{{- if and $redis.passwordSecret $redis.passwordSecret.name $redis.passwordSecret.key }}
+  # This file is a ConfigMap, so the password itself must not be written into
+  # it. The Secret is mounted read-only and read at connect time; password_file
+  # takes precedence over the inline value above.
+  password_file: "/etc/alert-bridge/redis-auth/{{ $redis.passwordSecret.key }}"
+{{- end }}
+{{- if $redisTls.enabled }}
+  ssl: true
+  ssl_cert_reqs: "{{ $redisTls.certReqs | default "required" }}"
+{{- if and $redisTls.caCertSecret $redisTls.caCertSecret.name $redisTls.caCertSecret.key }}
+  ssl_ca_certs: "/etc/alert-bridge/redis-ca/{{ $redisTls.caCertSecret.key }}"
+{{- end }}
+{{- end }}
+  # 0 / absent means Alert MS never trims. The streams belong to the
+  # deployment, and trimming on publish would make ordinary output delete the
+  # deployment's own older entries.
+  maxlen: {{ $redis.maxlen | default 0 }}
 
 vlm:
   base_url: "{{ $vlmUrl | default (printf "http://%s:8000" $cosmosHost) }}/v1"

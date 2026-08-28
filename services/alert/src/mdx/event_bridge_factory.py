@@ -53,6 +53,48 @@ _REQUIRED_SECTIONS = {
     'sink': {REDIS_STREAM: 'redis_sink'},
 }
 
+#: How ``vlm_enhanced_sink.type`` spellings map onto the transports above, for
+#: the split-transport check. ``elastic`` has no event-bridge equivalent and is
+#: therefore absent: an Elasticsearch terminal sink alongside a Kafka error sink
+#: is the default deployment, not a mismatch.
+_VLM_SINK_TO_TRANSPORT = {
+    'kafka': KAFKA,
+    'redisstream': REDIS_STREAM,
+    'redis': REDIS_STREAM,
+    'console': CONSOLE,
+}
+
+
+def _warn_on_split_transports(config: Dict[str, Any], sink_type: Optional[str]) -> None:
+    """Point out an error sink on a different broker than the terminal sink.
+
+    Two sinks are constructed in every deployment: this one, which carries
+    validation-error responses, and ``vlm_enhanced_sink``, which carries
+    verified results. They are selected independently and that is deliberate —
+    results to Redis with errors to Elasticsearch is a reasonable shape.
+
+    What is not reasonable is reaching it by accident. ``sinkType`` defaults to
+    ``kafka``, so an operator who sets only ``vlm_enhanced_sink.type:
+    redisStream`` gets a Kafka error sink they did not ask for, and in a
+    deployment with no Kafka their validation errors go nowhere. Nothing raises,
+    because the two sinks legitimately differ; this is the line that lets an
+    operator see it in the log they are already reading at boot.
+    """
+    configured_vlm = ((config.get('vlm_enhanced_sink') or {}).get('type') or 'elastic')
+    if not isinstance(configured_vlm, str):
+        return
+    key = configured_vlm.strip().lower().replace('_', '').replace('-', '')
+    vlm_transport = _VLM_SINK_TO_TRANSPORT.get(key)
+    if vlm_transport is None or vlm_transport == sink_type:
+        return
+    logger.warning(
+        "Event bridge sink is '%s' but VLM-enhanced results go to '%s'. "
+        "Validation-error responses and verified results will use different "
+        "transports; set event_bridge.sinkType explicitly if that is not "
+        "intended.",
+        sink_type, configured_vlm,
+    )
+
 
 def _configured_transport(config: Dict[str, Any], key: str) -> Any:
     """Read a transport selection, treating a blank value as unset.
@@ -147,6 +189,7 @@ class EventBridgeFactory:
             logger.info(
                 "Creating sink: configured %r resolved to %r", configured, sink_type
             )
+            _warn_on_split_transports(config, sink_type)
 
             if sink_type == KAFKA:
                 from mdx.sink.sink_kafka import KafkaSink

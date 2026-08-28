@@ -22,6 +22,24 @@ metadata:
     app.kubernetes.io/name: vss-alert-bridge
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
+  {{- /* A Redis consumer group hands each entry to whichever consumer asks
+         first, so it does not keep one sensor's events on one replica. Dedup,
+         the end-time delta filter and the VLM rate limit are all process-local
+         and assume it does: split a sensor's cohort across replicas and
+         duplicates reach the VLM with nothing raised anywhere. Kafka has no
+         such problem — partition ownership is the affinity — so this is
+         checked only for the Redis source. Rendering fails rather than warns
+         because the symptom is duplicate VLM spend in production, and a
+         warning at install time is not where anyone would look for it.
+         Set allowMultiReplicaRedisSource: true once each replica has its own
+         consumerGroup over disjoint streams, or once
+         alert_agent.event_filters.protect_confirmed_verdicts is enabled. */}}
+  {{- $srcType := include "vss-alert-bridge.transport" (.Values.eventSourceType | default "kafka") }}
+  {{- if and (eq $srcType "redisstream") (gt (int .Values.replicas) 1) }}
+  {{- if not .Values.allowMultiReplicaRedisSource }}
+  {{- fail (printf "vss-alert-bridge: replicas=%v with eventSourceType=redisStream. A Redis consumer group gives no per-sensor affinity, so process-local dedup, the end-time delta filter and the rate limit will let duplicates through. Use replicas=1, or give each replica its own redis.consumerGroup over disjoint streams and set allowMultiReplicaRedisSource=true." .Values.replicas) }}
+  {{- end }}
+  {{- end }}
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
@@ -150,6 +168,22 @@ spec:
               mountPath: /app/configs/realtime-config.yml
               subPath: realtime-config.yml
               readOnly: true
+            {{- /* Redis credentials and CA come from Secrets rather than the
+                   ConfigMap the rest of the config lives in, so a
+                   customer-managed authenticated TLS endpoint does not require
+                   putting its password in non-secret configuration. */}}
+            {{- $r := .Values.redis | default dict }}
+            {{- $rTls := $r.tls | default dict }}
+            {{- if and $r.passwordSecret $r.passwordSecret.name $r.passwordSecret.key }}
+            - name: redis-auth
+              mountPath: /etc/alert-bridge/redis-auth
+              readOnly: true
+            {{- end }}
+            {{- if and $rTls.enabled $rTls.caCertSecret $rTls.caCertSecret.name $rTls.caCertSecret.key }}
+            - name: redis-ca
+              mountPath: /etc/alert-bridge/redis-ca
+              readOnly: true
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -176,6 +210,24 @@ spec:
             items:
               - key: realtime-config.yml
                 path: realtime-config.yml
+        {{- $rv := .Values.redis | default dict }}
+        {{- $rvTls := $rv.tls | default dict }}
+        {{- if and $rv.passwordSecret $rv.passwordSecret.name $rv.passwordSecret.key }}
+        - name: redis-auth
+          secret:
+            secretName: {{ $rv.passwordSecret.name }}
+            items:
+              - key: {{ $rv.passwordSecret.key }}
+                path: {{ $rv.passwordSecret.key }}
+        {{- end }}
+        {{- if and $rvTls.enabled $rvTls.caCertSecret $rvTls.caCertSecret.name $rvTls.caCertSecret.key }}
+        - name: redis-ca
+          secret:
+            secretName: {{ $rvTls.caCertSecret.name }}
+            items:
+              - key: {{ $rvTls.caCertSecret.key }}
+                path: {{ $rvTls.caCertSecret.key }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

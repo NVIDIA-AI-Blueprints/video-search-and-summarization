@@ -62,12 +62,33 @@ services:
       # Transport for VLM-enhanced results: elastic (default) | kafka | redisStream | console
       ALERT_VLM_SINK_TYPE: ${ALERT_VLM_SINK_TYPE:-elastic}
       ALERT_REDIS_CONSUMER_GROUP: ${ALERT_REDIS_CONSUMER_GROUP:-alert-bridge-vlm-group}
-      # Only read when a redisStream transport is selected.
-      REDIS_HOST: ${REDIS_HOST:-redis}
+      # Only read when a redisStream transport is selected above.
+      #
+      # REDIS_HOST has no default on purpose. It used to default to `redis`,
+      # the bundled infra service, which meant selecting a redisStream
+      # transport and forgetting to set the host silently attached a
+      # deployment to this stack's own development Redis — a working pipeline
+      # pointed at the wrong instance, which is worse than one that does not
+      # start. Unset, the connection is refused at boot and the error names
+      # the address it tried.
+      REDIS_HOST: ${REDIS_HOST:-}
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_DB: ${REDIS_DB:-0}
+      # Prefer REDIS_PASSWORD_FILE for anything but local use: it names a file
+      # (a mounted secret) that is read at connect time, so the credential does
+      # not have to live in the environment or the rendered config.
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      REDIS_STREAM_MAXLEN: ${REDIS_STREAM_MAXLEN:-10000}
+      REDIS_PASSWORD_FILE: ${REDIS_PASSWORD_FILE:-}
+      # TLS for a customer-managed endpoint. Verification is on whenever TLS is
+      # enabled; REDIS_SSL_CA_CERTS supplies a private CA, and leaving it unset
+      # uses the image's system trust store.
+      REDIS_SSL: ${REDIS_SSL:-}
+      REDIS_SSL_CERT_REQS: ${REDIS_SSL_CERT_REQS:-required}
+      REDIS_SSL_CA_CERTS: ${REDIS_SSL_CA_CERTS:-}
+      # 0 means Alert MS never trims. The streams belong to your deployment,
+      # and a MAXLEN on every publish makes ordinary output delete your own
+      # older entries. Set a positive number to opt in.
+      REDIS_STREAM_MAXLEN: ${REDIS_STREAM_MAXLEN:-0}
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro

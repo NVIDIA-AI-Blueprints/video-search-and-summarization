@@ -28,6 +28,8 @@ from utils.schema_util import (
 
 
 class VLMEnhancedKafkaSink(VLMEnhancedSink):
+    transport_label = "kafka"
+
     def __init__(
         self,
         producer: Any,

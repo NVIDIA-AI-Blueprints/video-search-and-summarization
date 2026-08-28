@@ -82,6 +82,16 @@ def main() -> int:
         help="Publish the payload as JSON text instead of protobuf. The source "
              "accepts both encodings; protobuf is what behavior-analytics uses.",
     )
+    parser.add_argument(
+        "--envelope",
+        choices=("mdx", "json"),
+        default="mdx",
+        help="Which stream envelope to wrap the payload in. 'mdx' is "
+             "key/value/headers, what behavior-analytics and VIOS publish. "
+             "'json' is data/timestamp/metadata, what RT-VLM and the pre-MDX "
+             "prototype publish — including a populated 'metadata' sidecar, so "
+             "the source's field precedence is exercised for real.",
+    )
 
     args = parser.parse_args()
 
@@ -95,6 +105,28 @@ def main() -> int:
         else:
             payload = build_incident_proto(data).SerializeToString()
 
+        sensor_id = str(data.get("sensorId") or (data.get("sensor") or {}).get("id") or "")
+
+        if args.envelope == "json":
+            # 'metadata' is deliberately populated and deliberately not the
+            # body. An entry with both must decode 'data'; decoding the sidecar
+            # yields a payload that parses and describes nothing, which is the
+            # ambiguity the precedence contract exists to remove. A test that
+            # sent only 'data' would not notice a regression there.
+            fields = {
+                b"data": payload,
+                b"timestamp": str(data.get("timestamp") or "").encode("utf-8"),
+                b"metadata": json.dumps(
+                    {"sensorId": sensor_id, "producer": "produce_incident_redis_stream"}
+                ).encode("utf-8"),
+            }
+        else:
+            fields = {
+                KEY_FIELD: sensor_id.encode("utf-8"),
+                PAYLOAD_FIELD: payload,
+                HEADERS_FIELD: json.dumps({}),
+            }
+
         client = redis.Redis(
             host=args.host,
             port=args.port,
@@ -102,19 +134,13 @@ def main() -> int:
             password=args.password or None,
             decode_responses=False,
         )
-        entry_id = client.xadd(
-            args.stream,
-            {
-                KEY_FIELD: str(data.get("sensorId", "")).encode("utf-8"),
-                PAYLOAD_FIELD: payload,
-                HEADERS_FIELD: json.dumps({}),
-            },
-        )
+        entry_id = client.xadd(args.stream, fields)
         encoding = "json" if args.json else "protobuf"
         print(
-            f"Published {encoding} incident to stream '{args.stream}' "
-            f"as {entry_id.decode('utf-8') if isinstance(entry_id, bytes) else entry_id} "
-            f"(sensorId={data.get('sensorId')})"
+            f"Published {encoding} payload in the {args.envelope} envelope to "
+            f"stream '{args.stream}' as "
+            f"{entry_id.decode('utf-8') if isinstance(entry_id, bytes) else entry_id} "
+            f"(sensorId={sensor_id})"
         )
         return 0
 

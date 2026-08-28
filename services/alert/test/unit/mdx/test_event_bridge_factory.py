@@ -339,3 +339,68 @@ class TestSelectionIsLegibleInTheLog:
                 EventBridgeFactory.create_sink(config)
         assert "'Console'" in caplog.text
         assert "'console'" in caplog.text
+
+
+class TestSplitTransportsAreCalledOut:
+    """Two sinks are constructed in every deployment: the event bridge sink,
+    which carries validation-error responses, and ``vlm_enhanced_sink``, which
+    carries verified results. They are selected independently and that is
+    deliberate. What is not deliberate is arriving there by accident: because
+    ``sinkType`` defaults to kafka, an operator who sets only
+    ``vlm_enhanced_sink.type: redisStream`` gets a Kafka error sink they never
+    asked for, and in a deployment with no Kafka their validation errors go
+    nowhere at all.
+    """
+
+    @staticmethod
+    def _create(config, caplog):
+        with caplog.at_level("WARNING"):
+            with patch("mdx.sink.sink_console.ConsoleSink"), \
+                 patch("mdx.sink.sink_kafka.KafkaSink"), \
+                 patch("mdx.sink.sink_redis_stream.SinkRedisStream"):
+                EventBridgeFactory.create_sink(config)
+        return caplog.text
+
+    def test_the_default_kafka_error_sink_against_a_redis_result_sink_warns(self, caplog):
+        text = self._create({"vlm_enhanced_sink": {"type": "redisStream"}}, caplog)
+        assert "different" in text and "transports" in text
+
+    def test_the_warning_names_both_transports(self, caplog):
+        text = self._create({"vlm_enhanced_sink": {"type": "redisStream"}}, caplog)
+        assert "kafka" in text and "redisStream" in text
+
+    def test_matching_transports_are_silent(self, caplog):
+        text = self._create(
+            {
+                "event_bridge": {"sinkType": "redisStream"},
+                "vlm_enhanced_sink": {"type": "redisStream"},
+            },
+            caplog,
+        )
+        assert "different" not in text
+
+    def test_alias_spellings_still_count_as_matching(self, caplog):
+        """``redis`` is an accepted alias of ``redisStream``; treating them as
+        different would make the warning noise an operator learns to ignore."""
+        text = self._create(
+            {
+                "event_bridge": {"sinkType": "REDIS_STREAM"},
+                "vlm_enhanced_sink": {"type": "redis"},
+            },
+            caplog,
+        )
+        assert "different" not in text
+
+    def test_an_elastic_result_sink_is_not_a_split_worth_warning_about(self, caplog):
+        """Elasticsearch is the default and is not an event-bridge transport at
+        all, so the pairing is the shipped configuration rather than a mistake."""
+        text = self._create({"vlm_enhanced_sink": {"type": "elastic"}}, caplog)
+        assert "different" not in text
+
+    def test_no_vlm_sink_configured_is_silent(self, caplog):
+        assert "different" not in self._create({}, caplog)
+
+    def test_a_nonsense_vlm_sink_type_does_not_warn_here(self, caplog):
+        """Its own factory rejects it with a better message than this could."""
+        text = self._create({"vlm_enhanced_sink": {"type": "carrier-pigeon"}}, caplog)
+        assert "different" not in text

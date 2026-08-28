@@ -114,6 +114,22 @@ class VLMEnhancedSink(ABC):
         # store is wired or the record predates the field.
         self._category_mapping: Dict[str, str] = category_mapping or {}
 
+    #: Value reported to ``alert_bridge_sink_ready`` and
+    #: ``alert_bridge_terminal_publish_dropped_total``. Closed enum — see
+    #: ``metrics.recorder.TERMINAL_SINK_TRANSPORTS``.
+    transport_label: str = "elastic"
+
+    def is_healthy(self) -> bool:
+        """Whether this sink can currently be written to.
+
+        Folded into pipeline readiness, so a sink that is discarding every
+        verdict makes the process report NOT ready rather than continuing to
+        look identical to a healthy idle one. The default is ``True``: a sink
+        with no connection to lose has nothing to report, and a sink that
+        cannot answer must not be able to fail readiness by omission.
+        """
+        return True
+
     def _resolve_output_category(self, original_category: Optional[str]) -> Optional[str]:
         """Return the configured ``output_category`` for ``original_category``.
 

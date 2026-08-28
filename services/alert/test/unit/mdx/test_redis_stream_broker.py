@@ -37,9 +37,11 @@ import redis
 from mdx.redis_stream_broker import (
     DEFAULT_MAXLEN,
     DEFAULT_PUBLISH_RETRIES,
+    DEFAULT_RECLAIM_MIN_IDLE_MS,
     HEADERS_FIELD,
     KEY_FIELD,
     PAYLOAD_FIELD,
+    PAYLOAD_FIELD_PRECEDENCE,
     RedisStreamBroker,
     extract_envelope,
     message_id_to_epoch_ms,
@@ -125,6 +127,56 @@ class TestExtractEnvelope:
     def test_canonical_value_field_wins_over_fallbacks(self):
         payload, _key, _headers = extract_envelope({PAYLOAD_FIELD: b"canonical", b"data": b"legacy"})
         assert payload == b"canonical"
+
+
+class TestDualFormatPrecedence:
+    """Two envelope formats reach this source and both must decode the same way.
+
+    The MDX envelope puts the body in ``value``; the JSON envelope puts it in
+    ``data`` with ``metadata`` as a sidecar of attributes describing it. An
+    entry carrying both a body and a sidecar therefore has one correct answer,
+    and it is never the sidecar: reading ``metadata`` as the event yields a
+    payload that decodes cleanly but describes nothing the pipeline can verify,
+    which is the failure the fixed precedence exists to prevent.
+    """
+
+    def test_data_wins_over_metadata_on_a_json_envelope(self):
+        payload, _key, _headers = extract_envelope(
+            {b"data": b"the-event", b"metadata": b'{"sensor": "s1"}'}
+        )
+        assert payload == b"the-event"
+
+    def test_payload_wins_over_metadata(self):
+        payload, _key, _headers = extract_envelope({b"payload": b"the-event", b"metadata": b"sidecar"})
+        assert payload == b"the-event"
+
+    def test_metadata_is_still_read_when_it_is_the_only_field(self):
+        """RT-VLM's REDIS_PAYLOAD_KEY default; last resort, not ignored."""
+        payload, _key, _headers = extract_envelope({b"metadata": b"the-event"})
+        assert payload == b"the-event"
+
+    def test_precedence_holds_regardless_of_field_insertion_order(self):
+        """Guards against a first-match-wins regression: dict order must not
+        decide which field is the body."""
+        ordered = extract_envelope({b"data": b"body", b"metadata": b"sidecar"})[0]
+        reversed_ = extract_envelope({b"metadata": b"sidecar", b"data": b"body"})[0]
+        assert ordered == reversed_ == b"body"
+
+    def test_the_full_precedence_chain_is_ordered(self):
+        fields = {
+            PAYLOAD_FIELD: b"mdx",
+            b"data": b"json",
+            b"payload": b"legacy",
+            b"metadata": b"sidecar",
+        }
+        for expected in (b"mdx", b"json", b"legacy", b"sidecar"):
+            assert extract_envelope(fields)[0] == expected
+            fields.pop(next(f for f in PAYLOAD_FIELD_PRECEDENCE if f in fields))
+
+    def test_precedence_starts_with_the_field_publish_uses(self):
+        """The read contract has to begin where the write contract is."""
+        assert PAYLOAD_FIELD_PRECEDENCE[0] == PAYLOAD_FIELD
+        assert PAYLOAD_FIELD_PRECEDENCE[-1] == b"metadata"
 
     def test_missing_payload_returns_none(self):
         payload, key, headers = extract_envelope({b"unrelated": b"x"})
@@ -292,18 +344,25 @@ class TestAdd:
         assert fields[HEADERS_FIELD] == "{}"
         assert fields[KEY_FIELD] == b""
 
-    def test_trims_approximately_by_default(self):
+    def test_does_not_trim_by_default(self):
+        """The stream belongs to the deployment, not to Alert MS.
+
+        A MAXLEN on every XADD makes ordinary successful output delete a
+        customer's older entries, which is a retention decision this service
+        cannot make for them. Trimming is opt-in.
+        """
         broker = make_broker()
         broker.add("s", b"body")
-        assert broker._client.xadd.call_args.kwargs == {
-            "maxlen": DEFAULT_MAXLEN,
-            "approximate": True,
-        }
+        assert broker._client.xadd.call_args.kwargs == {}
+        assert broker.maxlen is None
 
     def test_maxlen_is_configurable(self):
         broker = make_broker({"maxlen": 50})
         broker.add("s", b"body")
-        assert broker._client.xadd.call_args.kwargs["maxlen"] == 50
+        assert broker._client.xadd.call_args.kwargs == {
+            "maxlen": 50,
+            "approximate": True,
+        }
 
     @pytest.mark.parametrize("maxlen", [0, -1])
     def test_non_positive_maxlen_disables_trimming(self, maxlen):
@@ -311,9 +370,12 @@ class TestAdd:
         broker.add("s", b"body")
         assert broker._client.xadd.call_args.kwargs == {}
 
-    def test_unparseable_maxlen_falls_back_to_the_default(self):
+    def test_unparseable_maxlen_leaves_the_stream_untrimmed(self):
+        """Guessing a cap deletes records; declining to trim does not."""
         broker = make_broker({"maxlen": "not-a-number"})
-        assert broker.maxlen == DEFAULT_MAXLEN
+        assert broker.maxlen is None
+        broker.add("s", b"body")
+        assert broker._client.xadd.call_args.kwargs == {}
 
     def test_returns_the_generated_entry_id(self):
         broker = make_broker()
@@ -445,3 +507,272 @@ class TestClientLifecycle:
 
     def test_close_without_a_client_is_a_no_op(self):
         RedisStreamBroker({}).close()
+
+    def test_compose_default_no_longer_points_at_the_bundled_redis(self):
+        """An unset REDIS_HOST must not silently attach to this stack's own
+        development Redis: a pipeline pointed at the wrong instance is worse
+        than one that refuses to start and names the address it tried."""
+        assert RedisStreamBroker({"host": ""}).host == "localhost"
+
+
+class TestCredentialResolution:
+    """A customer-managed Redis needs a password, and the only place the plain
+    ``password`` key can come from is the rendered service config — a ConfigMap
+    in Helm, a bind-mounted file in Compose, neither of them a secret. The
+    indirections below are what let the credential stay out of it.
+    """
+
+    def test_password_file_is_read(self, tmp_path):
+        secret = tmp_path / "redis-password"
+        secret.write_text("from-a-secret")
+        assert RedisStreamBroker({"password_file": str(secret)}).password == "from-a-secret"
+
+    def test_a_trailing_newline_is_stripped(self, tmp_path):
+        """``kubectl create secret --from-literal`` and ``echo >`` both add one,
+        and Redis would reject it as part of the password."""
+        secret = tmp_path / "redis-password"
+        secret.write_text("from-a-secret\n")
+        assert RedisStreamBroker({"password_file": str(secret)}).password == "from-a-secret"
+
+    def test_password_file_wins_over_the_inline_value(self):
+        """Adding a Secret must override the inline key without also having to
+        blank it, or every deployment has to be edited in two places."""
+        with patch("builtins.open", new_callable=MagicMock) as opener:
+            opener.return_value.__enter__.return_value.read.return_value = "from-a-secret"
+            broker = RedisStreamBroker({"password": "inline", "password_file": "/run/secret"})
+        assert broker.password == "from-a-secret"
+
+    def test_password_env_is_read(self):
+        with patch.dict("os.environ", {"MY_REDIS_PW": "from-the-env"}):
+            broker = RedisStreamBroker({"password_env": "MY_REDIS_PW"})
+        assert broker.password == "from-the-env"
+
+    def test_an_unreadable_password_file_falls_back_rather_than_crashing(self):
+        """A missing mount must not take the process down before it can log
+        which file it wanted."""
+        broker = RedisStreamBroker({"password": "inline", "password_file": "/nope/missing"})
+        assert broker.password == "inline"
+
+    def test_an_empty_password_file_falls_back(self, tmp_path):
+        secret = tmp_path / "empty"
+        secret.write_text("\n")
+        assert RedisStreamBroker({"password": "inline", "password_file": str(secret)}).password == "inline"
+
+    def test_an_unset_password_env_falls_back(self):
+        with patch.dict("os.environ", {}, clear=True):
+            broker = RedisStreamBroker({"password": "inline", "password_env": "NOT_SET"})
+        assert broker.password == "inline"
+
+    def test_a_username_enables_redis_acl_auth(self):
+        broker = RedisStreamBroker({"username": "alert-bridge", "password": "pw"})
+        with patch("mdx.redis_stream_broker.redis.Redis") as redis_cls:
+            broker.client
+        assert redis_cls.call_args.kwargs["username"] == "alert-bridge"
+
+    def test_a_blank_username_is_sent_as_none(self):
+        assert RedisStreamBroker({"username": ""}).username is None
+
+
+class TestTlsOptions:
+    def test_tls_is_off_by_default(self):
+        assert RedisStreamBroker({}).tls == {}
+        with patch("mdx.redis_stream_broker.redis.Redis") as redis_cls:
+            RedisStreamBroker({}).client
+        assert "ssl" not in redis_cls.call_args.kwargs
+
+    @pytest.mark.parametrize("key", ["ssl", "tls"])
+    def test_either_spelling_enables_tls(self, key):
+        assert RedisStreamBroker({key: True}).tls["ssl"] is True
+
+    def test_verification_is_on_by_default_once_tls_is_enabled(self):
+        """An encrypted connection that does not check the certificate protects
+        against nothing an operator who asked for TLS was worried about."""
+        assert RedisStreamBroker({"ssl": True}).tls["ssl_cert_reqs"] == "required"
+
+    def test_verification_can_be_relaxed_explicitly(self):
+        """Available for a self-signed development instance, and it says so in
+        the config rather than being the silent default."""
+        assert RedisStreamBroker({"ssl": True, "ssl_cert_reqs": "none"}).tls["ssl_cert_reqs"] == "none"
+
+    def test_a_private_ca_is_passed_through(self):
+        tls = RedisStreamBroker({"ssl": True, "ssl_ca_certs": "/etc/ca.crt"}).tls
+        assert tls["ssl_ca_certs"] == "/etc/ca.crt"
+
+    def test_client_certificates_are_passed_through(self):
+        tls = RedisStreamBroker(
+            {"ssl": True, "ssl_certfile": "/etc/tls.crt", "ssl_keyfile": "/etc/tls.key"}
+        ).tls
+        assert tls["ssl_certfile"] == "/etc/tls.crt"
+        assert tls["ssl_keyfile"] == "/etc/tls.key"
+
+    def test_tls_settings_are_ignored_while_tls_is_off(self):
+        """So a config that pre-stages a CA path does not half-enable TLS."""
+        assert RedisStreamBroker({"ssl_ca_certs": "/etc/ca.crt"}).tls == {}
+
+    def test_tls_options_reach_the_client(self):
+        broker = RedisStreamBroker({"ssl": True, "ssl_ca_certs": "/etc/ca.crt"})
+        with patch("mdx.redis_stream_broker.redis.Redis") as redis_cls:
+            broker.client
+        kwargs = redis_cls.call_args.kwargs
+        assert kwargs["ssl"] is True
+        assert kwargs["ssl_cert_reqs"] == "required"
+        assert kwargs["ssl_ca_certs"] == "/etc/ca.crt"
+
+
+class TestConnectionHealth:
+    """An unreachable broker returns the same empty entry list as an idle
+    stream. Without a health signal the source cannot tell the two apart, and
+    reports ready either way — which is the readiness bug this tracks.
+    """
+
+    def test_health_is_unknown_before_the_first_command(self):
+        assert make_broker().connection_healthy is None
+
+    def test_a_successful_ping_marks_healthy(self):
+        broker = make_broker()
+        broker.ping()
+        assert broker.connection_healthy is True
+
+    def test_a_failed_ping_marks_unhealthy(self):
+        broker = make_broker()
+        broker._client.ping.side_effect = redis.exceptions.ConnectionError("down")
+        broker.ping()
+        assert broker.connection_healthy is False
+
+    def test_an_empty_read_leaves_health_alone(self):
+        """The idle-stream case: nothing to read is not a fault."""
+        broker = make_broker()
+        broker._client.xreadgroup.return_value = []
+        broker.read_group(["s"], "g", "c", 10, 100)
+        assert broker.connection_healthy is True
+
+    def test_a_read_connection_error_marks_unhealthy(self):
+        broker = make_broker()
+        broker._client.xreadgroup.side_effect = redis.exceptions.ConnectionError("down")
+        broker.read_group(["s"], "g", "c", 10, 100)
+        assert broker.connection_healthy is False
+
+    def test_a_read_timeout_does_not_mark_unhealthy(self):
+        """A blocking XREADGROUP that returns nothing within block_ms is the
+        normal idle path, not an outage."""
+        broker = make_broker()
+        broker._client.xreadgroup.side_effect = redis.exceptions.TimeoutError("blocked")
+        broker.read_group(["s"], "g", "c", 10, 100)
+        assert broker.connection_healthy is not False
+
+    def test_recovery_marks_healthy_again(self):
+        broker = make_broker()
+        broker._client.ping.side_effect = redis.exceptions.ConnectionError("down")
+        broker.ping()
+        broker._client = MagicMock(name="recovered")
+        broker.ping()
+        assert broker.connection_healthy is True
+
+    def test_a_failed_publish_marks_unhealthy(self):
+        broker = make_broker({"publish_retry_backoff": 0})
+        broker._client.xadd.side_effect = redis.exceptions.ConnectionError("down")
+        rebuilt = MagicMock(name="rebuilt")
+        rebuilt.xadd.side_effect = redis.exceptions.ConnectionError("still down")
+        with patch("mdx.redis_stream_broker.redis.Redis", return_value=rebuilt):
+            broker.add("s", b"body")
+        assert broker.connection_healthy is False
+
+
+class TestClaimStale:
+    """``XREADGROUP ... >`` only returns entries no one has seen.
+
+    An entry delivered to a consumer that then died stays in that consumer's
+    pending list forever — neither redelivered nor visible to a replacement —
+    so without this pass a replica lost mid-batch strands its work with no
+    upper bound.
+    """
+
+    def test_claims_pending_entries_and_returns_them_in_read_shape(self):
+        broker = make_broker()
+        broker._client.xautoclaim.return_value = (
+            b"0-0",
+            [(b"1-0", {PAYLOAD_FIELD: b"stranded"})],
+        )
+        entries = broker.claim_stale("s", "g", "c1", count=10)
+        assert entries == [("s", b"1-0", {PAYLOAD_FIELD: b"stranded"})]
+
+    def test_the_idle_threshold_keeps_a_slow_consumer_from_being_raced(self):
+        broker = make_broker()
+        broker._client.xautoclaim.return_value = (b"0-0", [])
+        broker.claim_stale("s", "g", "c1", count=10)
+        kwargs = broker._client.xautoclaim.call_args.kwargs
+        assert kwargs["min_idle_time"] == DEFAULT_RECLAIM_MIN_IDLE_MS
+        assert kwargs["start_id"] == "0-0"
+
+    def test_the_idle_threshold_is_configurable(self):
+        broker = make_broker({"reclaim_min_idle_time": 1000})
+        broker._client.xautoclaim.return_value = (b"0-0", [])
+        broker.claim_stale("s", "g", "c1", count=10)
+        assert broker._client.xautoclaim.call_args.kwargs["min_idle_time"] == 1000
+
+    def test_a_per_call_threshold_overrides_the_configured_one(self):
+        broker = make_broker({"reclaim_min_idle_time": 1000})
+        broker._client.xautoclaim.return_value = (b"0-0", [])
+        broker.claim_stale("s", "g", "c1", count=10, min_idle_ms=50)
+        assert broker._client.xautoclaim.call_args.kwargs["min_idle_time"] == 50
+
+    def test_the_redis_7_three_element_response_is_handled(self):
+        """7.0 appends a list of ids that no longer exist; 6.2 does not send
+        it. Indexing rather than unpacking keeps one server version from being
+        a TypeError on the consume path."""
+        broker = make_broker()
+        broker._client.xautoclaim.return_value = (
+            b"0-0",
+            [(b"1-0", {PAYLOAD_FIELD: b"x"})],
+            [b"9-0"],
+        )
+        assert broker.claim_stale("s", "g", "c1", count=10) == [
+            ("s", b"1-0", {PAYLOAD_FIELD: b"x"})
+        ]
+
+    def test_a_tombstoned_entry_is_returned_so_the_caller_can_ack_it(self):
+        """Some versions report a deleted id as ``(id, None)``. It carries
+        nothing to process but still has to leave the pending list."""
+        broker = make_broker()
+        broker._client.xautoclaim.return_value = (b"0-0", [(b"1-0", None)])
+        assert broker.claim_stale("s", "g", "c1", count=10) == [("s", b"1-0", {})]
+
+    def test_nothing_pending_returns_empty(self):
+        broker = make_broker()
+        broker._client.xautoclaim.return_value = (b"0-0", [])
+        assert broker.claim_stale("s", "g", "c1", count=10) == []
+
+    def test_a_server_without_xautoclaim_degrades_quietly(self):
+        """Redis < 6.2 has no such command. That is a deployment fact, not a
+        fault, so it must not be able to flap readiness on every poll."""
+        broker = make_broker()
+        broker.ping()
+        broker._client.xautoclaim.side_effect = redis.exceptions.ResponseError(
+            "unknown command 'XAUTOCLAIM'"
+        )
+        assert broker.claim_stale("s", "g", "c1", count=10) == []
+        assert broker.connection_healthy is True
+
+    def test_nogroup_clears_the_cache_so_the_group_is_recreated(self):
+        broker = make_broker()
+        broker.ensure_group("s", "g")
+        broker._client.xautoclaim.side_effect = redis.exceptions.ResponseError("NOGROUP no such key")
+        assert broker.claim_stale("s", "g", "c1", count=10) == []
+        assert broker._ensured_groups == set()
+
+    def test_a_connection_error_returns_empty_and_forces_reconnect(self):
+        broker = make_broker()
+        broker._client.xautoclaim.side_effect = redis.exceptions.ConnectionError("down")
+        assert broker.claim_stale("s", "g", "c1", count=10) == []
+        assert broker._client is None
+        assert broker.connection_healthy is False
+
+    def test_a_generic_redis_error_returns_empty(self):
+        broker = make_broker()
+        broker._client.xautoclaim.side_effect = redis.exceptions.RedisError("boom")
+        assert broker.claim_stale("s", "g", "c1", count=10) == []
+
+    def test_a_none_response_is_tolerated(self):
+        broker = make_broker()
+        broker._client.xautoclaim.return_value = None
+        assert broker.claim_stale("s", "g", "c1", count=10) == []
