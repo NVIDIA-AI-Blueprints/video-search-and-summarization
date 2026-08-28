@@ -37,7 +37,7 @@ RUN npm install --save ../web-api-core
 RUN npm install
 
 ###################################################
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.11 AS node-deploy
+FROM nvcr.io/nvidia/distroless/node:22-v4.1.2 AS node-deploy
 
 COPY --from=builder --chown=1000:1000 /web-api-core /web-api-core
 COPY --from=builder --chown=1000:1000 /web-api-app /web-api-app
