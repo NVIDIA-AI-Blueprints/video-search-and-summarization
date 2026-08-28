@@ -19,8 +19,6 @@ import {
   IconArrowsUpDown,
   IconArrowUp,
   IconArrowDown,
-  IconBolt,
-  IconShieldCheck,
   IconDeviceFloppy,
   IconAlertCircle,
   IconLoader2,
@@ -58,14 +56,9 @@ type SortDirection = 'asc' | 'desc' | null;
 const KIND_TABS: Array<{
   id: AlertRulesType;
   label: string;
-  icon: React.ReactNode;
 }> = [
-  { id: 'real-time', label: 'Real-time Alerts', icon: <IconBolt size={14} /> },
-  {
-    id: 'verification',
-    label: 'CV Alerts Verification',
-    icon: <IconShieldCheck size={14} />,
-  },
+  { id: 'real-time', label: 'Real-time Alerts' },
+  { id: 'verification', label: 'CV Alerts Verification' },
 ];
 
 const generateDraftId = () =>
@@ -112,7 +105,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
       <div role="tablist" aria-label="Alert kind" className="flex items-end gap-1">
         {enabledKindTabs.map((tab) => {
           const isSelected = activeKind === tab.id;
-          const baseClass = 'flex items-center gap-2 px-4 py-2 text-sm border-b-2 -mb-px';
+          const baseClass = 'flex items-center px-4 py-2 text-sm border-b-2 -mb-px';
           return (
             <button
               key={tab.id}
@@ -131,7 +124,6 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
                     (isDark ? 'text-neutral-400' : 'text-gray-500')
               }`}
             >
-              {tab.icon}
               {tab.label}
             </button>
           );
