@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from metrics import PROMETHEUS_ENABLED
+from persistence.exceptions import PersistenceUnavailableError
 from utils import fleet_state
 import logging
 from datetime import datetime
@@ -68,6 +69,26 @@ _ALERT_CONFIG_INIT_RETRY_BASE_SECONDS = 1.0
 _ALERT_CONFIG_INIT_RETRY_MAX_SECONDS = 8.0
 _RETRYABLE_ES_STATUS_CODES = frozenset({429, 502, 503, 504})
 
+# Imported defensively: the transport package is a dependency of the
+# Elasticsearch client rather than a direct one, so its absence must not stop
+# the service booting -- it only narrows what can be recognised as transient.
+try:  # pragma: no cover - exercised by whichever client version is installed
+    from elastic_transport import (
+        ConnectionError as _ElasticTransportConnectionError,
+        ConnectionTimeout as _ElasticTransportConnectionTimeout,
+    )
+
+    # Both, because ConnectionTimeout is a sibling of ConnectionError rather
+    # than a subclass -- they share only TransportError, which is too broad to
+    # match on: SerializationError sits under it too, and a payload that will
+    # not parse is not going to parse on the next attempt either.
+    _ELASTIC_TRANSPORT_CONNECTION_ERRORS = (
+        _ElasticTransportConnectionError,
+        _ElasticTransportConnectionTimeout,
+    )
+except ImportError:  # pragma: no cover
+    _ELASTIC_TRANSPORT_CONNECTION_ERRORS = ()
+
 
 def _exception_chain(exc: BaseException) -> Iterator[BaseException]:
     """Yield an exception and its explicit/implicit causes once each."""
@@ -88,6 +109,13 @@ def _is_retryable_alert_config_init_error(exc: BaseException) -> bool:
     fail-fast.
     """
     for error in _exception_chain(exc):
+        # The store refuses to build when the backend does not answer its
+        # health check. That is the ordinary state of a dependency still
+        # starting up, and it carries no HTTP status to read, so it has to be
+        # named explicitly or it reads as permanent.
+        if isinstance(error, PersistenceUnavailableError):
+            return True
+
         meta = getattr(error, "meta", None)
         status = getattr(meta, "status", None)
         if status is None:
@@ -99,12 +127,15 @@ def _is_retryable_alert_config_init_error(exc: BaseException) -> bool:
             return True
 
         # elastic-transport connection errors do not inherit Python's
-        # ConnectionError on every supported client version.
-        error_type = type(error)
-        if error_type.__module__.startswith("elastic_transport") and error_type.__name__ in {
-            "ConnectionError",
-            "ConnectionTimeout",
-        }:
+        # ConnectionError on every supported client version, so they are
+        # matched on their own base class rather than by name. Matching names
+        # missed every subclass that carries a different one -- TlsError is a
+        # transport ConnectionError raised while a TLS listener is still
+        # coming up, which is precisely a backend that is not ready yet, and
+        # it was being classified as permanent.
+        if _ELASTIC_TRANSPORT_CONNECTION_ERRORS and isinstance(
+            error, _ELASTIC_TRANSPORT_CONNECTION_ERRORS
+        ):
             return True
 
     return False
@@ -119,7 +150,14 @@ async def _initialise_alert_config_service() -> None:
     attempt = 1
     while True:
         try:
-            _get_service()
+            # Off the event loop: this does synchronous Elasticsearch work --
+            # two pings and a hydrating search -- and on a backend that
+            # is not answering, each is capped only by the client's request
+            # timeout, so seconds each. Run inline it
+            # would stall /health, /ready and every other route for exactly
+            # as long as the retry it is trying to survive, which is the
+            # endpoint everything else gates on.
+            await asyncio.to_thread(_get_service)
             _startup_ready = True
             _startup_error = ""
             logger.info("Alert config service eagerly initialised; service is ready")
