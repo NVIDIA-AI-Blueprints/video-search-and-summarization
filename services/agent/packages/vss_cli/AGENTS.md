@@ -91,9 +91,16 @@ The CLI rejects a bad one locally rather than spending the upload first.
 vss search run "forklift near the loading dock" [--limit N]
 vss search get --job-id <id>
 
-vss summarize run --video-uri <uri> --prompt "..." --timeout <seconds>
+vss summarize run --id <sensor-id> --scenario "..." --event "..." [--event "..."]
+vss summarize run --url <media-url> --video-id <id> --scenario "..." --event "..."
 vss summarize get --job-id <id>
 ```
+
+`--scenario` and at least one `--event` are required: LVS marks `model`, `scenario` and `events`
+mandatory and answers 422 without them. `--model` is optional — it defaults to the model the
+deployment reports serving. Give exactly one source. A `--url` summary needs `--video-id` too
+when memory persistence is on, because a persisted record needs one; the CLI exits 2 before
+spending the summarization rather than after. `--id` carries its own, so it needs neither.
 
 If a preflight fails, report its error and stop. Do not fall back to calling
 Elasticsearch, the embedding NIM, or the agent API directly — a hand-built query
