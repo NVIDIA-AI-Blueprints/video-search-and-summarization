@@ -21,7 +21,9 @@ business rules (timestamps, deep merge, prompt sync) live in
 ``handlers/alert_config/service.py``.
 """
 
+import asyncio
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Union
 
@@ -54,15 +56,56 @@ router = APIRouter(
 )
 
 _service: AlertConfigService = None
+# Guards the check-then-build below. Startup and request handlers both reach
+# it from worker threads, so two builders can genuinely arrive at once.
+# Without the lock both would see None and build a store apiece: wasteful, and
+# whichever finished second would silently replace the one already handed out.
+_service_lock = threading.Lock()
+# Coalesces request-side callers *before* they reach a worker thread. The
+# lock above would serialise them correctly on its own, but they would do
+# that waiting inside asyncio's default executor, which is shared with the
+# realtime and incident services. That pool is min(32, cpu+4) threads -- 8 on
+# a 4-core pod -- so during an Elasticsearch outage a handful of config
+# requests would occupy every slot while blocked on a mutex only one of them
+# can hold, and unrelated endpoints would stall behind them. Waiting here
+# instead costs no thread at all.
+_service_build_lock = asyncio.Lock()
 
 
 def _get_service() -> AlertConfigService:
+    """Build the service if needed. Blocking -- never call this on the loop."""
     global _service
-    if _service is None:
-        app_config = load_config()
-        store = build_alert_config_store(app_config)
-        _service = AlertConfigService(store=store)
+    if _service is not None:
+        return _service
+    with _service_lock:
+        # Re-checked under the lock: another thread may have built it while
+        # this one waited.
+        if _service is None:
+            app_config = load_config()
+            store = build_alert_config_store(app_config)
+            _service = AlertConfigService(store=store)
     return _service
+
+
+async def _get_service_async() -> AlertConfigService:
+    """The accessor request handlers must use.
+
+    Building talks to Elasticsearch synchronously, and while a build is in
+    flight the lock above is held, so calling _get_service directly from a
+    handler would park the event loop -- on the lock if another thread is
+    building, on the backend otherwise. Either way /health stops answering
+    for as long as an unreachable Elasticsearch takes to fail, which is the
+    outage this whole path exists to survive.
+    """
+    # Fast path first: once built, this is a global load, and routing every
+    # request through a worker thread for it would be pure overhead.
+    if _service is not None:
+        return _service
+    async with _service_build_lock:
+        # Re-checked: whoever held the lock has probably just built it.
+        if _service is not None:
+            return _service
+        return await asyncio.to_thread(_get_service)
 
 
 def _ts() -> str:
@@ -137,7 +180,7 @@ def _to_response(data: dict) -> AlertConfigResponse:
 )
 async def create_config(request: AlertConfigRequest) -> Union[AlertConfigResponse, JSONResponse]:
     try:
-        service = _get_service()
+        service = await _get_service_async()
         data = service.create(
             alert_type=request.alert_type,
             prompt=request.prompt,
@@ -171,7 +214,7 @@ async def create_config(request: AlertConfigRequest) -> Union[AlertConfigRespons
 )
 async def list_configs() -> Union[AlertConfigListResponse, JSONResponse]:
     try:
-        service = _get_service()
+        service = await _get_service_async()
         configs = [_to_response(item) for item in service.list_all()]
         return AlertConfigListResponse(status="success", configs=configs, count=len(configs))
     except (PersistenceError, AlertConfigStoreError) as exc:
@@ -197,7 +240,7 @@ async def list_configs() -> Union[AlertConfigListResponse, JSONResponse]:
 )
 async def get_config(alert_type: str) -> Union[AlertConfigResponse, JSONResponse]:
     try:
-        service = _get_service()
+        service = await _get_service_async()
         return _to_response(service.get(alert_type))
     except AlertConfigNotFound as exc:
         return _error(status.HTTP_404_NOT_FOUND, "config_not_found", str(exc))
@@ -227,7 +270,7 @@ async def update_config(
     request: AlertConfigUpdateRequest,
 ) -> Union[AlertConfigResponse, JSONResponse]:
     try:
-        service = _get_service()
+        service = await _get_service_async()
         # Pydantic collapses "field omitted" and "field set to null" to the
         # same value. Use ``model_fields_set`` (or ``__fields_set__`` for
         # Pydantic v1 Config-style models) so we can pass an explicit ``None``
@@ -274,7 +317,7 @@ async def update_config(
 )
 async def delete_config(alert_type: str) -> Union[AlertConfigSuccessResponse, JSONResponse]:
     try:
-        service = _get_service()
+        service = await _get_service_async()
         service.delete(alert_type)
         return AlertConfigSuccessResponse(
             status="success",
