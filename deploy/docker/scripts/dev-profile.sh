@@ -496,9 +496,10 @@ function get_rtvi_vllm_gpu_memory_utilization() {
       # needs it or not, and refuses to start unless free >= fraction x total
       # (it does not subtract other processes), so on search -- where RT-CV and
       # RT-Embed also live on that GPU -- the LLM was then left below its own
-      # fraction and never started. 0.25 still gives RT-VLM ~63 GiB, roughly
-      # double the 32 GiB it runs on today on an 80 GiB H100.
-      GB300) echo "0.25" ;;
+      # fraction and never started. 0.3 still gives RT-VLM ~75 GiB, more than
+      # double the 32 GiB it runs on today on an 80 GiB H100, and leaves ~136 GiB
+      # free against the LLM's 0.30 x 250 = ~75 GiB.
+      GB300) echo "0.3" ;;
       DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
@@ -1645,6 +1646,25 @@ function state_up() {
     if [[ "${_gb300_llm_slug}" != "nemotron-3.5-lightning-30b-a3b" ]]; then
       set_env_var "LLM_NAME" "nvidia/nvidia-nemotron-nano-9b-v2"
       set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm"
+    fi
+  fi
+
+  # A local LLM reads services/nim/<slug>/hw-<HARDWARE_PROFILE>[-shared].env as a
+  # Compose env_file. Not every model ships one for every board -- the edge boards
+  # in particular are only covered by nvidia-nemotron-nano-9b-v2-fp8. A missing
+  # file surfaces as an opaque Compose error after the stack has begun coming up,
+  # so fail here with the actual reason instead.
+  local _llm_slug_final _llm_hw_env _llm_hw_suffix
+  _llm_slug_final="$(get_env_value "${_generated_env}" "LLM_NAME_SLUG")"
+  if [[ "${llm_mode}" != "remote" ]] && [[ -n "${_llm_slug_final}" ]] && [[ "${_llm_slug_final}" != "none" ]]; then
+    _llm_hw_suffix=""
+    [[ "${llm_mode}" == "local_shared" ]] && _llm_hw_suffix="-shared"
+    _llm_hw_env="${deployment_directory}/services/nim/${_llm_slug_final}/hw-${hardware_profile}${_llm_hw_suffix}.env"
+    if [[ ! -f "${_llm_hw_env}" ]]; then
+      echo "[ERROR] LLM '${_llm_slug_final}' has no tuning file for hardware profile '${hardware_profile}' in ${llm_mode} mode."
+      echo "[ERROR] Expected: ${_llm_hw_env}"
+      echo "[ERROR] Choose an LLM that supports this board, or use a remote LLM endpoint."
+      exit 1
     fi
   fi
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
