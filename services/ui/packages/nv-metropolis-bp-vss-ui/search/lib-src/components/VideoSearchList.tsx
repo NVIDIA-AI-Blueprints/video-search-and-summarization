@@ -6,6 +6,39 @@ import { Whisper, Tooltip } from 'rsuite';
 import { SearchData, QueryDataContext } from '../types';
 import { formatTime, parseDateAsLocal } from '../utils/Formatter';
 
+/** How long a card waits for the VST clip request before unlocking Retry. */
+export const SEARCH_CLIP_PLAYBACK_TIMEOUT_MS = 15_000;
+
+function settleWithTimeout<T>(
+  work: Promise<T> | T,
+  timeoutMs: number,
+  timeoutRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      reject(new Error('Search clip playback timed out'));
+    }, timeoutMs);
+    Promise.resolve(work).then(
+      (value) => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        resolve(value);
+      },
+      (error) => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        reject(error);
+      },
+    );
+  });
+}
+
 const AddContextButton: React.FC<{ item: SearchData; onAddContext?: (ctx: QueryDataContext) => void }> = ({ item, onAddContext }) => {
   const [addedState, setAddedState] = useState<'idle' | 'success'>('idle');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -146,30 +179,41 @@ const VideoCard: React.FC<VideoCardProps> = ({
   const [isOpeningVideo, setIsOpeningVideo] = useState(false);
   const [playbackFailed, setPlaybackFailed] = useState(false);
   const isMountedRef = useRef(true);
+  const playAttemptRef = useRef(0);
+  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
     };
   }, []);
 
   // The VST clip request can fail (e.g. no recorded footage for the matched
   // window), in which case the modal never opens. Surface that instead of
-  // silently dropping back to the play icon.
+  // silently dropping back to the play icon. A hung request must also
+  // time out so Play/Retry are not disabled indefinitely.
   const handleOpenVideo = useCallback(async () => {
     if (isOpeningVideo) return;
+    const attempt = ++playAttemptRef.current;
     setIsOpeningVideo(true);
     setPlaybackFailed(false);
     try {
-      const opened = await onPlayVideo(item, showObjectsBbox);
-      if (isMountedRef.current && opened === false) {
-        setPlaybackFailed(true);
-      }
+      const opened = await settleWithTimeout(
+        onPlayVideo(item, showObjectsBbox),
+        SEARCH_CLIP_PLAYBACK_TIMEOUT_MS,
+        playbackTimeoutRef,
+      );
+      if (!isMountedRef.current || attempt !== playAttemptRef.current) return;
+      if (opened === false) setPlaybackFailed(true);
     } catch {
-      if (isMountedRef.current) setPlaybackFailed(true);
+      if (!isMountedRef.current || attempt !== playAttemptRef.current) return;
+      setPlaybackFailed(true);
     } finally {
-      if (isMountedRef.current) setIsOpeningVideo(false);
+      if (isMountedRef.current && attempt === playAttemptRef.current) {
+        setIsOpeningVideo(false);
+      }
     }
   }, [isOpeningVideo, item, onPlayVideo, showObjectsBbox]);
 

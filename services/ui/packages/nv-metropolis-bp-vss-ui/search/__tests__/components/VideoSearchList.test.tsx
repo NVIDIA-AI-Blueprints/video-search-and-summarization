@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { VideoSearchList } from '../../lib-src/components/VideoSearchList';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { SEARCH_CLIP_PLAYBACK_TIMEOUT_MS, VideoSearchList } from '../../lib-src/components/VideoSearchList';
 import { SearchData } from '../../lib-src/types';
 
 jest.mock('@nemo-agent-toolkit/ui');
@@ -210,6 +210,27 @@ describe('VideoSearchList', () => {
 
       resolvePlay(true);
       await waitFor(() => expect(playOverlay).not.toBeDisabled());
+    });
+
+    it('unlocks retry when the clip request never settles', async () => {
+      jest.useFakeTimers();
+      try {
+        renderCard(jest.fn(() => new Promise(() => undefined)));
+
+        const playOverlay = screen.getByTestId('video-play-overlay');
+        fireEvent.click(playOverlay);
+        expect(playOverlay).toBeDisabled();
+
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(SEARCH_CLIP_PLAYBACK_TIMEOUT_MS);
+        });
+
+        expect(await screen.findByTestId('search-playback-notice')).toBeInTheDocument();
+        expect(playOverlay).not.toBeDisabled();
+        expect(screen.getByTestId('search-playback-notice-retry')).not.toBeDisabled();
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 
