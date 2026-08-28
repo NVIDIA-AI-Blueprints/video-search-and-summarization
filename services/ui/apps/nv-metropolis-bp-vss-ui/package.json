@@ -20,6 +20,7 @@
     "@nemo-agent-toolkit/ui": "0.1.1",
     "@nv-metropolis-bp-vss-ui/all": "*",
     "@tabler/icons-react": "^3.46.0",
+    "@tanstack/react-query": "^5.102.8",
     "jsdom": "27.4.0",
     "next": "16.3.3",
     "next-i18next": "^16.0.11",
@@ -27,7 +28,6 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hot-toast": "^2.6.0",
-    "react-query": "^3.39.3",
     "rsuite": "^6.2.4"
   },
   "devDependencies": {

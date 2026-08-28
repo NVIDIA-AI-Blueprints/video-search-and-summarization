@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
+import { useState } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { QueryClient, QueryClientProvider } from 'react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { appWithTranslation } from 'next-i18next/pages';
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
@@ -10,7 +11,7 @@ import 'rsuite/dist/rsuite.min.css';
 import '../styles/rsuite-custom.css';
 
 function App({ Component, pageProps }: AppProps<{}>) {
-  const queryClient = new QueryClient();
+  const [queryClient] = useState(() => new QueryClient());
 
   return (
     <div>
