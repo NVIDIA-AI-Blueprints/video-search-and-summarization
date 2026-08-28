@@ -34,6 +34,9 @@ ngc_cli_api_key="${NGC_CLI_API_KEY:-}"
 nvidia_api_key="${NVIDIA_API_KEY:-}"
 openai_api_key="${OPENAI_API_KEY:-}"
 dry_run="false"
+# Build the VIOS runtime-media packages into a local image instead of installing
+# them on every container start. Env var so CI can set it without a flag.
+prebake_vios_packages="${VSS_VIOS_PREBAKE_PACKAGES:-false}"
 
 # NIM-related defaults
 # LLM configuration
@@ -572,6 +575,9 @@ function usage() {
   echo "  --llm-device-id                  LLM device ID."
   echo "                                   • Not allowed when --use-remote-llm is passed"
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: not accepted"
+  echo "  --prebake-vios-packages          Build the VIOS runtime-media packages into a local image instead of"
+  echo "                                   installing them on every container start. Cuts the VIOS start from"
+  echo "                                   ~100 s to ~0.1 s. The image is built locally and never pushed."
   echo "  --use-remote-llm                 Use remote LLM; requires LLM_ENDPOINT_URL on the host (both are required together)."
   echo "  --llm-model-type                 LLM backend type when --use-remote-llm is passed: nim or openai."
   echo "  --llm-env-file                   Path to LLM env file. Absolute or relative to CWD."
@@ -707,6 +713,11 @@ function process_args() {
         shift
         vlm_device_id="${1}"
         options_provided+=("vlm-device-id")
+        shift
+        ;;
+      --prebake-vios-packages)
+        prebake_vios_packages="true"
+        options_provided+=("prebake-vios-packages")
         shift
         ;;
       --use-remote-llm)
@@ -1386,9 +1397,13 @@ function state_up() {
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
     set_alerts_ui_rule_kinds_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
-    # Alerts VLM mode uses a different explicit service list than CV mode.
-    if [[ "${mode_env}" == "2d_vlm" ]]; then
+    # Real-time: VLM service list + always-on gate. Verification keeps overrides defaults
+    # (COMPOSE_PROFILES_CV, ALERT_AGENT_ALWAYS_ON=false).
+    if [[ "$(get_env_value "${_generated_env}" "MODE")" == "2d_vlm" ]]; then
       set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "true"
+    else
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "false"
     fi
   fi
 
@@ -1687,12 +1702,21 @@ function state_up() {
   # shellcheck disable=SC1091
   source "${deployment_directory}/containers.env"
   set +a
+  # -f disables Compose's default file discovery, so the base file must be named
+  # explicitly alongside any overlay.
+  local compose_files=(-f compose.yml)
+  if [[ "${prebake_vios_packages}" == "true" ]]; then
+    compose_files+=(-f services/vios/streamprocessing/docker-compose.prebaked.yaml)
+    echo "[INFO] Prebaking VIOS runtime-media packages into a local image."
+  fi
+
   echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
   echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
   echo "[INFO] Resolved compose images:"
   (
     cd "${deployment_directory}"
     docker compose \
+      "${compose_files[@]}" \
       --env-file containers.env \
       --env-file "developer-profiles/dev-profile-${profile}/.env" \
       --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
@@ -1713,10 +1737,11 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --pull always --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose ${compose_files[*]} --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --pull always --force-recreate --build"
   else
     if ! (
       cd "${deployment_directory}" && docker compose \
+        "${compose_files[@]}" \
         --env-file containers.env \
         --env-file "developer-profiles/dev-profile-${profile}/.env" \
         --env-file "developer-profiles/dev-profile-${profile}/generated.env" \

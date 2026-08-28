@@ -54,6 +54,8 @@ global:
   # When true (default), vss-vios-sensor uses the same PVC base name as vss-vios-streamprocessing for vst-data / vst-video. Keep aligned with vios.vstStorage.createSharedPvcs.
   createSharedVstPvcs: true
   # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
+  # Keep true. The docker compose alerts profile no longer runs SDRC, but Helm
+  # still does — rationale in the infra.sdrc block below.
   vios:
     useSdrc: true
 
@@ -89,6 +91,28 @@ infra:
       - "--loadmodule"
       - "/usr/local/lib/redis/modules/redistimeseries.so"
       - "/config/redis.conf"
+  # SDRC — KEEP ENABLED FOR HELM. Deliberately diverges from docker compose.
+  #
+  # The compose alerts profile dropped SDRC and now provisions vss-rtvi-cv
+  # directly from VIOS webhooks: deploy/docker/developer-profiles/
+  # dev-profile-alerts/vios/configs/notification_config_2d_cv.json posts
+  # camera_streaming / camera_remove to vss-rtvi-cv:9010/api/v1/stream/add and
+  # /remove. That is sufficient there because compose runs a single fixed
+  # perception container.
+  #
+  # Kubernetes needs SDRC for scaling. It places each stream on one of N
+  # vss-vios-streamprocessing / vss-rtvi-cv replicas, keeps the stream-to-pod
+  # ownership map in Redis, routes client traffic to the owning pod by
+  # stream-ID header through its Envoy, and re-places streams when a pod dies.
+  # A webhook can only POST to one fixed Service address, so every add would
+  # land on whichever replica kube-proxy picked, with nothing tracking which
+  # pod owns a stream, no stream-affinity routing for clients, and no recovery
+  # on pod restart.
+  #
+  # So VIOS webhooks are NOT a substitute for SDRC in this chart. When
+  # reconciling these values against the compose profile, treat the missing
+  # compose SDRC as expected and leave infra.sdrc, global.vios.useSdrc and
+  # vios.vss-vios-sensor.streamProcessorService as they are.
   sdrc:
     enabled: true
     configFilePath: configs/sdrc/config-verification.yml
@@ -188,6 +212,9 @@ vios:
 
   vss-vios-sensor:
     enabled: true
+    # Sensor registers streams through sdrc-controller:10000. Keep as sdrc; do
+    # not repoint at vss-vios-streamprocessing or switch to VIOS webhook
+    # provisioning to match compose (see infra.sdrc above).
     streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -492,13 +519,33 @@ vssIngress:
   enabled: true
   ingressClassName: haproxy
   host: ""
+  # Backend ports for the canonical route table (deploy/helm/services/common).
+  # Every service is mounted at its own name — /va-mcp, /alert-bridge,
+  # /elasticsearch, /rtvi-cv — which are the paths the Docker edge publishes
+  # and `vss configure` records. A service this profile does not deploy is
+  # simply not mounted.
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
   alertBridgePort: 9080
   # Public VA-MCP path: ${VSS_PUBLIC_URL}/va-mcp/mcp → vss-va-mcp:/mcp
   vaMcpPort: 9901
+  # /elasticsearch is mounted whenever infra.elasticsearch is deployed. The edge
+  # guard is on the Elasticsearch Service (infra.elasticsearch.ingressGuard),
+  # not here, so it binds to that one backend. It denies PUT/DELETE,
+  # cluster-admin paths and the two-segment mutating operations, and allows a
+  # PUT to a unified-memory document path — but POST is allowed, so _bulk,
+  # _reindex and /<index>/_doc still reach Elasticsearch, exactly as on the
+  # Docker edge. This is not a read-only endpoint.
+  elasticsearchPort: 9200
+  # RT-CV's Service port in this profile is service.port (9010), not the
+  # httpPort (9000) the search profile publishes — rtvi-cv switches on
+  # profileMode. Keep this in step with rtvi.vss-rtvi-cv.
+  rtviCvPort: 9010
+  rtviEmbedPort: 8000
+  rtviVlmPort: 8000
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)

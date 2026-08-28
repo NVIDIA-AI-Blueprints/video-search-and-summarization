@@ -1,4 +1,7 @@
 dependencies:
+- name: common
+  repository: file://../../services/common
+  version: 3.3.0
 - name: infra
   repository: file://../../services/infra
   version: 3.3.0
@@ -17,5 +20,5 @@ dependencies:
 - name: rtvi
   repository: file://../../services/rtvi
   version: 3.3.0
-digest: sha256:f587eb71f4cd657a67d27c24fa684f1fc0f4b63c4391cddd2144e7f5157ed002
-generated: "2026-08-19T11:18:26.223434+05:30"
+digest: sha256:a2b34ebf8f1a050981dc8a14551bd671e309c2fe3198e6b194b02bc6cd10086d
+generated: "2026-08-26T13:45:58.054769573Z"
