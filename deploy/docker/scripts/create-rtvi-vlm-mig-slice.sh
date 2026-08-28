@@ -2,22 +2,37 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Create one MIG slice for an RTVI-VLM test. This intentionally refuses to
-# repartition a GPU that has compute workloads or existing MIG devices.
+# Create one MIG slice for a Docker Compose RTVI-VLM test, or ask the NVIDIA
+# GPU Operator to configure a Kubernetes node for the Helm chart.
 
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: sudo ./create-rtvi-vlm-mig-slice.sh --gpu <index> [--profile <name>]
+Usage:
+  # Docker Compose: create one slice directly on an otherwise idle host GPU.
+  sudo ./create-rtvi-vlm-mig-slice.sh --gpu <index> [--profile <name>]
 
-Creates exactly one MIG GPU instance and compute instance on an otherwise idle
-GPU, then prints the MIG UUID to use for RT_VLM_DEVICE_ID and
-RTVI_VLM_NVIDIA_VISIBLE_DEVICES.
+  # Kubernetes: have GPU Operator configure every MIG-capable GPU on a node.
+  ./create-rtvi-vlm-mig-slice.sh --kubernetes-node <node> --profile <name>
 
-Default profile: 2g.48gb. This is suitable for the RTX PRO 6000 Blackwell
-server GPU used for the RT-VLM BF16 test. Use `nvidia-smi mig -i <index> -lgip`
-to see the profiles supported by another GPU.
+The Docker Compose form creates exactly one MIG GPU and compute instance, then
+prints the MIG UUID to use for RT_VLM_DEVICE_ID and
+RTVI_VLM_NVIDIA_VISIBLE_DEVICES. It must not be used to reconfigure a GPU
+managed by Kubernetes GPU Operator.
+
+The Kubernetes form changes the node's nvidia.com/mig.config label to
+all-<profile>. GPU Operator then owns the reconfiguration and advertises the
+result as nvidia.com/mig-<profile>. This changes every MIG-capable GPU on the
+node with the Operator's single strategy; cordon/drain and obtain approval for
+the whole node before using it. The Operator must be Ready before this command
+will make the change.
+
+Choose a profile advertised by the node's <node>-mig-config ConfigMap. For
+example, an H100 NVL supports 3g.47gb, which Helm requests as
+nvidia.com/mig-3g.47gb. Use `nvidia-smi mig -i <index> -lgip` for direct-host
+profiles, or `kubectl get configmap -n gpu-operator <node>-mig-config -o yaml`
+for GPU Operator profiles.
 
 The script will not delete existing MIG instances. To restore the full GPU
 after the test, stop all users of the slice and have the host owner remove the
@@ -26,7 +41,8 @@ EOF
 }
 
 gpu_index=""
-profile_name="2g.48gb"
+kubernetes_node=""
+profile_name=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --profile)
       profile_name="${2:-}"
+      shift 2
+      ;;
+    --kubernetes-node)
+      kubernetes_node="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -50,10 +70,61 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$kubernetes_node" ]]; then
+  if [[ -n "$gpu_index" ]]; then
+    echo "ERROR: --gpu and --kubernetes-node are mutually exclusive." >&2
+    exit 2
+  fi
+  if [[ -z "$profile_name" ]]; then
+    echo "ERROR: --profile is required with --kubernetes-node." >&2
+    exit 2
+  fi
+  if ! command -v kubectl >/dev/null 2>&1; then
+    echo "ERROR: kubectl is required for --kubernetes-node." >&2
+    exit 1
+  fi
+
+  if ! kubectl get node "$kubernetes_node" >/dev/null; then
+    echo "ERROR: Kubernetes node '${kubernetes_node}' was not found." >&2
+    exit 1
+  fi
+  if ! kubectl get clusterpolicy cluster-policy -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -qx 'True'; then
+    echo "ERROR: GPU Operator ClusterPolicy is not Ready. Fix GPU Operator before changing MIG configuration." >&2
+    exit 1
+  fi
+  if ! kubectl get configmap -n gpu-operator "${kubernetes_node}-mig-config" -o jsonpath='{.data.config\.yaml}' | grep -Fqx "  all-${profile_name}:"; then
+    echo "ERROR: GPU Operator does not advertise profile '${profile_name}' for node '${kubernetes_node}'." >&2
+    echo "Inspect: kubectl get configmap -n gpu-operator ${kubernetes_node}-mig-config -o yaml" >&2
+    exit 1
+  fi
+
+  cat <<EOF
+WARNING: This asks GPU Operator to repartition every MIG-capable GPU on node
+${kubernetes_node} using the all-${profile_name} geometry. GPU workloads on
+that node will be interrupted while GPU Operator reconfigures it.
+EOF
+  kubectl label node "$kubernetes_node" "nvidia.com/mig.config=all-${profile_name}" --overwrite
+
+  cat <<EOF
+
+GPU Operator reconfiguration requested. Wait for these conditions before Helm:
+  kubectl get node ${kubernetes_node} -o jsonpath='{.metadata.labels.nvidia\\.com/mig\\.config\\.state}{"\\n"}'
+  kubectl get node ${kubernetes_node} -o jsonpath='{.status.allocatable.nvidia\\.com/mig-${profile_name}}{"\\n"}'
+
+Then deploy with this resource name:
+  nvidia.com/mig-${profile_name}
+EOF
+  exit 0
+fi
+
 if [[ ! "$gpu_index" =~ ^[0-9]+$ ]]; then
   echo "ERROR: --gpu must be a numeric GPU index." >&2
   usage >&2
   exit 2
+fi
+
+if [[ -z "$profile_name" ]]; then
+  profile_name="2g.48gb"
 fi
 
 if [[ $EUID -ne 0 ]]; then
