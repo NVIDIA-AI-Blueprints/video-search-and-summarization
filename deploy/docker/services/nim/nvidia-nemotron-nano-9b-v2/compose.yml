@@ -143,6 +143,12 @@ services:
       - vllm.entrypoints.openai.api_server
       - --model
       - nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      # Pinned to the same immutable revision as the tool-call parser fetched
+      # above. --trust-remote-code executes model-repo Python inside this
+      # container, which holds HF_TOKEN, a writable cache and the GPU, so the
+      # model must not float on the repository's default branch.
+      - --revision
+      - 6533e8de2c68e4536bf7c411d7a3ce5734111476
       - --served-model-name
       - nvidia/nvidia-nemotron-nano-9b-v2
       - --trust-remote-code
@@ -211,6 +217,12 @@ services:
       - vllm.entrypoints.openai.api_server
       - --model
       - nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      # Pinned to the same immutable revision as the tool-call parser fetched
+      # above. --trust-remote-code executes model-repo Python inside this
+      # container, which holds HF_TOKEN, a writable cache and the GPU, so the
+      # model must not float on the repository's default branch.
+      - --revision
+      - 6533e8de2c68e4536bf7c411d7a3ce5734111476
       - --served-model-name
       - nvidia/nvidia-nemotron-nano-9b-v2
       - --trust-remote-code

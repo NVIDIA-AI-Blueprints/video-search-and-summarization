@@ -1649,17 +1649,29 @@ function state_up() {
     fi
   fi
 
-  # A local LLM reads services/nim/<slug>/hw-<HARDWARE_PROFILE>[-shared].env as a
+  # A local LLM reads services/nim/<dir>/hw-<HARDWARE_PROFILE>[-shared].env as a
   # Compose env_file. Not every model ships one for every board -- the edge boards
   # in particular are only covered by nvidia-nemotron-nano-9b-v2-fp8. A missing
   # file surfaces as an opaque Compose error after the stack has begun coming up,
   # so fail here with the actual reason instead.
-  local _llm_slug_final _llm_hw_env _llm_hw_suffix
+  #
+  # <dir> is usually LLM_NAME_SLUG, but the slug is a Compose *profile* name and
+  # does not always name a directory: the GB300 BF16 DLFW fallback uses slug
+  # nvidia-nemotron-nano-9b-v2-vllm while its services live in -- and read their
+  # env_file from -- services/nim/nvidia-nemotron-nano-9b-v2. Map the slug to the
+  # owning directory before probing, or this guard rejects the one local LLM
+  # configuration GB300 search actually supports.
+  local _llm_slug_final _llm_hw_env _llm_hw_suffix _llm_nim_dir
   _llm_slug_final="$(get_env_value "${_generated_env}" "LLM_NAME_SLUG")"
   if [[ "${llm_mode}" != "remote" ]] && [[ -n "${_llm_slug_final}" ]] && [[ "${_llm_slug_final}" != "none" ]]; then
     _llm_hw_suffix=""
     [[ "${llm_mode}" == "local_shared" ]] && _llm_hw_suffix="-shared"
-    _llm_hw_env="${deployment_directory}/services/nim/${_llm_slug_final}/hw-${hardware_profile}${_llm_hw_suffix}.env"
+    case "${_llm_slug_final}" in
+      # DLFW vLLM variants ship inside the base model's directory.
+      *-vllm) _llm_nim_dir="${_llm_slug_final%-vllm}" ;;
+      *) _llm_nim_dir="${_llm_slug_final}" ;;
+    esac
+    _llm_hw_env="${deployment_directory}/services/nim/${_llm_nim_dir}/hw-${hardware_profile}${_llm_hw_suffix}.env"
     if [[ ! -f "${_llm_hw_env}" ]]; then
       echo "[ERROR] LLM '${_llm_slug_final}' has no tuning file for hardware profile '${hardware_profile}' in ${llm_mode} mode."
       echo "[ERROR] Expected: ${_llm_hw_env}"
