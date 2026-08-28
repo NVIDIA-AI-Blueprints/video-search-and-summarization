@@ -333,7 +333,8 @@ class VlmGroup(CommandGroup):
             sensor=inputs.sensor,
             start_time=resolved_start,
             end_time=resolved_end,
-            media_url=media_url if not inputs.sensor else None,
+            # Local file paths are machine-specific; omit from the persisted record.
+            media_url=media_url if (not inputs.sensor and not inputs.file) else None,
             intent=inputs.intent,
             model_params=model_params,
         )

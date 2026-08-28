@@ -641,4 +641,9 @@ def test_run_file_source_does_not_persist_local_path(
     assert result.exit == Exit.SUCCESS
     records = store.service.list_jobs()
     assert records, "expected one persisted record"
-    assert records[0].output.handles is None, "local file path must not be stored as output media handle"
+    rec = records[0]
+    assert rec.output.handles is None, "local file path must not be stored as output media handle"
+    # input.params["media_url"] must also be absent — the path is meaningless on other machines
+    assert rec.input.params is None or "media_url" not in (rec.input.params or {}), (
+        "local file path must not be stored in input.params.media_url"
+    )
