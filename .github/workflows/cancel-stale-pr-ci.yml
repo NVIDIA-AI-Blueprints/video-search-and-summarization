@@ -3,8 +3,10 @@
 #
 # PR CI runs on copy-pr-bot `pull-request/<N>` pushes, not on the source PR
 # event. Concurrency in those workflows only fires when the *mirror* moves.
-# A rebase of the source PR otherwise leaves the previous mirror SHA running
-# until the next `/ok to test`.
+# A rebase or new commit on the source PR otherwise leaves the previous
+# mirror SHA running until the next `/ok to test`. Close (merge or
+# abandon) cancels leftover PR runs, including non-required jobs, but
+# not `develop`/`main` delivery CI.
 #
 # This workflow is cancel-only. It does not start CI and does not execute
 # PR code: `pull_request_target` with a base-ref checkout (the default SHA)

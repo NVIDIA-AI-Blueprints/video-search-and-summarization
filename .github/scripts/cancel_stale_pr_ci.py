@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Cancel in-flight CI on ``pull-request/<N>`` after the source PR moves.
+"""Cancel leftover PR CI after the source PR moves or closes.
 
-PR CI is gated on copy-pr-bot updating the mirror (``/ok to test``). Until
-that push, GitHub concurrency cannot see a new run and will not cancel the
-old one. This helper is the source-PR side of that: on synchronize or close,
-cancel mirror runs that are not testing the current source head.
+On synchronize, cancel ``pull-request/<N>`` runs that are not testing the
+current source head. On close (merge or abandon), cancel every remaining
+PR run — required or not — except close-path workflows such as tag cleanup.
 
 copy-pr-bot often pushes a merge of the approved SHA into the PR base, so
 the run's tree is the merge result, not the source-head tree. A current run
@@ -29,6 +28,10 @@ GITHUB_API = "https://api.github.com"
 ACTIVE_STATUSES = frozenset(
     {"in_progress", "pending", "queued", "requested", "waiting"}
 )
+# Close handlers that must finish after merge. Everything else on the PR,
+# required or not, is leftover work.
+PROTECTED_WORKFLOWS = frozenset({"Cancel Stale PR CI", "Cleanup PR Tags"})
+PR_EVENTS = ("pull_request", "pull_request_target")
 
 
 class CancelError(RuntimeError):
@@ -114,19 +117,18 @@ def load_commit(
     return info
 
 
-def list_active_runs(
+def _collect_status_pages(
     repo: str,
-    branch: str,
-    get: Callable[..., Any] = github,
+    extra_query: str,
+    get: Callable[..., Any],
 ) -> list[dict[str, Any]]:
     seen: set[int] = set()
     runs: list[dict[str, Any]] = []
-    quoted = urllib.parse.quote(branch, safe="")
     for status in sorted(ACTIVE_STATUSES):
         page = 1
         while page <= 20:
             path = (
-                f"/actions/runs?branch={quoted}&status={status}"
+                f"/actions/runs?{extra_query}&status={status}"
                 f"&per_page=100&page={page}"
             )
             try:
@@ -146,6 +148,65 @@ def list_active_runs(
             if len(batch) < 100:
                 break
             page += 1
+    return runs
+
+
+def list_active_runs(
+    repo: str,
+    branch: str,
+    get: Callable[..., Any] = github,
+) -> list[dict[str, Any]]:
+    quoted = urllib.parse.quote(branch, safe="")
+    return _collect_status_pages(repo, f"branch={quoted}", get)
+
+
+def list_active_runs_for_event(
+    repo: str,
+    event: str,
+    get: Callable[..., Any] = github,
+) -> list[dict[str, Any]]:
+    quoted = urllib.parse.quote(event, safe="")
+    return _collect_status_pages(repo, f"event={quoted}", get)
+
+
+def run_belongs_to_pr(run: dict[str, Any], pr_number: int) -> bool:
+    for pr in run.get("pull_requests") or []:
+        number = pr.get("number") if isinstance(pr, dict) else None
+        if number == pr_number or str(number) == str(pr_number):
+            return True
+    return str(run.get("head_branch") or "") == f"pull-request/{pr_number}"
+
+
+def collect_runs_to_consider(
+    repo: str,
+    pr_number: int,
+    closed: bool,
+    get: Callable[..., Any] = github,
+) -> list[dict[str, Any]]:
+    """Mirror-branch runs always; on close, also native PR-event runs.
+
+    SonarQube and other optional checks use ``pull_request`` / 
+    ``pull_request_target`` on the contributor branch, not ``pull-request/N``.
+    """
+    branch = f"pull-request/{pr_number}"
+    seen: set[int] = set()
+    runs: list[dict[str, Any]] = []
+    for run in list_active_runs(repo, branch, get):
+        run_id = run.get("id")
+        if isinstance(run_id, int) and run_id not in seen:
+            seen.add(run_id)
+            runs.append(run)
+    if not closed:
+        return runs
+    for event in PR_EVENTS:
+        for run in list_active_runs_for_event(repo, event, get):
+            run_id = run.get("id")
+            if not isinstance(run_id, int) or run_id in seen:
+                continue
+            if not run_belongs_to_pr(run, pr_number):
+                continue
+            seen.add(run_id)
+            runs.append(run)
     return runs
 
 
@@ -181,6 +242,8 @@ def should_cancel_run(
 ) -> bool:
     run_id = run.get("id")
     if this_run_id is not None and run_id == this_run_id:
+        return False
+    if str(run.get("name") or "") in PROTECTED_WORKFLOWS:
         return False
     if run.get("status") not in ACTIVE_STATUSES:
         return False
@@ -234,7 +297,6 @@ def main() -> int:
     closed = os.environ.get("PR_CLOSED", "").strip().lower() in {"1", "true", "yes"}
     this_run_raw = os.environ.get("GITHUB_RUN_ID", "").strip()
     this_run_id = int(this_run_raw) if this_run_raw.isdigit() else None
-    branch = f"pull-request/{pr_number}"
     cache: dict[str, CommitInfo | None] = {}
 
     source_commit = load_commit(repo, source_sha, cache) if source_sha else None
@@ -247,7 +309,8 @@ def main() -> int:
         return 0
 
     cancelled = 0
-    for run in list_active_runs(repo, branch):
+    pr_id = int(pr_number)
+    for run in collect_runs_to_consider(repo, pr_id, closed):
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
@@ -265,7 +328,7 @@ def main() -> int:
         print(f"Cancelling run {run_id} ({run.get('name')}) sha={head_sha[:12]}")
         cancel_run(repo, run_id)
         cancelled += 1
-    print(f"Cancelled {cancelled} stale run(s) on {branch}")
+    print(f"Cancelled {cancelled} leftover run(s) for PR {pr_number}")
     return 0
 
 

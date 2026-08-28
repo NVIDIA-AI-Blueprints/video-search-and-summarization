@@ -282,3 +282,10 @@ jobs:
           POLL_INTERVAL_SECONDS: "30"
           MAX_POLL_DURATION_SECONDS: "2400"
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+      - name: Cancel downstream if this GitHub job was cancelled
+        if: cancelled() && steps.trigger.outputs.pipeline_id != ''
+        env:
+          DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+        run: python3 .github/scripts/cancel_downstream_pipeline.py
