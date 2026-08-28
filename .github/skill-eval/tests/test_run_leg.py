@@ -1170,6 +1170,79 @@ class PoolCandidates(unittest.TestCase):
             "GEFORCE RTX 4090",
         )
         self.assertEqual(run_leg._registered_gpu_hint("vss-eval-mystery"), "")
+        self.assertEqual(run_leg._registered_gpu_hint("SPARK"), "")
+        self.assertEqual(
+            run_leg._registered_gpu_hint("Spark-ba-WiFi"), "GB10"
+        )
+        self.assertEqual(
+            run_leg._registered_gpu_hint("vss-eval-spark-1"), ""
+        )
+        self.assertFalse(run_leg._is_eval_pool_name("Spark-ba-WiFi"))
+        self.assertTrue(
+            run_leg._is_eval_pool_name("Spark-ba-WiFi", registered=True)
+        )
+        self.assertFalse(
+            run_leg._is_eval_pool_name("SPARK", registered=True)
+        )
+        self.assertFalse(
+            run_leg._is_eval_pool_name("H100-VLM", registered=True)
+        )
+
+    def test_spark_registered_node_is_eligible_for_gb10(self):
+        fleet = [
+            {"name": "Spark-ba-WiFi", "status": "RUNNING",
+             "gpu": "GB10", "_registered": True},
+            {"name": "SPARK", "status": "RUNNING",
+             "gpu": "GB10", "_registered": True},
+            {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
+             "gpu": "RTX PRO 6000", "_registered": True},
+        ]
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
+
+        spark = run_leg.pool_candidates(
+            {"gpu_type": "GB10", "gpu_count": 1}
+        )
+        rtx = run_leg.pool_candidates(
+            {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
+        )
+        two_gpu = run_leg.pool_candidates(
+            {"gpu_type": "GB10", "gpu_count": 2}
+        )
+
+        self.assertEqual(spark, ["Spark-ba-WiFi"])
+        self.assertEqual(rtx, ["vss-eval-rtx-2g-VM1b"])
+        self.assertEqual(two_gpu, [])
+        self.assertEqual(
+            run_leg.pool_candidates({"gpu_count": 0}),
+            ["Spark-ba-WiFi", "vss-eval-rtx-2g-VM1b"],
+        )
+
+    def test_pool_snapshot_includes_allowlisted_spark_node(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_brev_instances = lambda: []
+            run_leg._list_registered_nodes = lambda: [
+                {"name": "Spark-ba-WiFi", "status": "Connected"},
+                {"name": "H100-VLM", "status": "Connected"},
+            ]
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "Spark-ba-WiFi"},
+            ):
+                instances = self._orig()
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(
+            [instance["name"] for instance in instances],
+            ["Spark-ba-WiFi"],
+        )
+        self.assertEqual(instances[0]["gpu"], "GB10")
+        self.assertTrue(instances[0]["_registered"])
 
     def test_pool_snapshot_merges_and_normalizes_registered_nodes(self):
         orig_managed = run_leg._list_brev_instances
@@ -1234,28 +1307,23 @@ class PoolCandidates(unittest.TestCase):
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
-            approved = run_leg._registered_pool_allowlist(
+            ask_video = run_leg._registered_pool_allowlist(
                 "vss-ask-video", "base_profile_video_understanding"
             )
-            unapproved = run_leg._registered_pool_allowlist(
+            search = run_leg._registered_pool_allowlist(
                 "vss-deploy-profile", "search"
             )
 
-        self.assertEqual(
-            approved,
-            {
-                "vss-eval-rtx-2g-vm1b",
-                "vss-eval-geforce-rtx4090-vm1",
-                "vss-eval-geforce-rtx4090-vm2",
-            },
-        )
-        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
+        # Capability tables are empty: RTX 4090 routing is opt-in via
+        # spec gpu_type, not a skill/spec allowlist.
+        self.assertEqual(ask_video, {"vss-eval-rtx-2g-vm1b"})
+        self.assertEqual(search, {"vss-eval-rtx-2g-vm1b"})
 
     def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
+        self.assertFalse(run_leg._rtx4090_supports(
             "vss-deploy-profile", "alerts_cv"
         ))
-        self.assertTrue(run_leg._rtx4090_supports(
+        self.assertFalse(run_leg._rtx4090_supports(
             "vss-manage-alerts", "subscriptions_lifecycle"
         ))
         self.assertFalse(run_leg._rtx4090_supports(
@@ -1285,17 +1353,17 @@ class PoolCandidates(unittest.TestCase):
         )
         requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
 
-        approved = run_leg.pool_candidates({
+        ask_video = run_leg.pool_candidates({
             **requirements,
             "skill": "vss-ask-video",
         }, "base_profile_video_understanding")
-        unapproved = run_leg.pool_candidates({
+        dense_captioning = run_leg.pool_candidates({
             **requirements,
             "skill": "vss-deploy-dense-captioning",
         }, "alerts_profile_api")
 
-        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
-        self.assertEqual(unapproved, [])
+        self.assertEqual(ask_video, [])
+        self.assertEqual(dense_captioning, [])
 
     def test_underprovisioned_registered_node_is_filtered(self):
         fleet = [
