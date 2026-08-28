@@ -29,7 +29,7 @@ bounded cross-process staleness may set ``persistence.cache_ttl_seconds``
 import logging
 from typing import Any, Dict
 
-from persistence import create_persistence_store
+from persistence import PersistenceUnavailableError, create_persistence_store
 
 from .base import AlertConfigStoreABC
 from .cached_store import CachedAlertConfigStore
@@ -94,7 +94,13 @@ def build_alert_config_store(
         )
 
     if not persistence.health():
-        raise RuntimeError(
+        # Typed, because a caller has to be able to tell this apart from a
+        # configuration error. A bare RuntimeError carries no cause chain and
+        # no status, so a startup path that classifies transient failures
+        # reads it as permanent and stops retrying -- leaving readiness stuck
+        # at 503 even after Elasticsearch answers. Unreachable is the normal
+        # state of a dependency that has not finished starting.
+        raise PersistenceUnavailableError(
             "Persistence layer enabled but Elasticsearch is unreachable; "
             "refusing to build alert config store with a degraded backend."
         )
