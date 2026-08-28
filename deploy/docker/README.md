@@ -362,9 +362,17 @@ assumption:
 
 | Header | Value | Notes |
 |--------|-------|-------|
-| `Deprecation` | `true` | On `/vst`, `/alert-bridge`, `/lvs` only |
+| `Deprecation` | `@1787702400` | On `/vst`, `/alert-bridge`, `/lvs` only |
 | `Link` | `</vios>; rel="successor-version"` | Per prefix: `/vios`, `/alerts` or `/video-summarization`, so a client can migrate itself |
 | `Sunset` | operator-supplied HTTP-date | **Absent by default** |
+
+`Deprecation` carries a date, not a boolean. RFC 9745 defines the field as an
+Item Structured Field whose value MUST be an RFC 9651 `Date` — `@` followed by
+seconds since the epoch — and a conformant parser discards a value it cannot
+parse, so the `true` of the withdrawn draft would have hidden the signal from
+precisely the clients that implement the spec. `@1787702400` is
+2026-08-26T00:00:00Z, the date these prefixes became deprecated. Unlike
+`Sunset` that is a known fact rather than a forecast.
 
 `Sunset` takes an HTTP-date and 3.4.0 has no release date, so it is emitted
 only when `VSS_GATEWAY_LEGACY_SUNSET` is set — a guessed date is worse than

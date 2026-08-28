@@ -398,7 +398,18 @@ frontend fe_http
     http-request set-var(txn.deprecated_successor) str(/video-summarization) if h_main p_lvs
 
     acl legacy_prefix var(txn.deprecated_successor) -m found
-    http-response set-header Deprecation "true" if legacy_prefix
+    # RFC 9745 makes Deprecation an Item Structured Field whose value MUST be a
+    # Date (RFC 9651 section 3.3.7): `@<seconds since epoch>`. The bare `true`
+    # it replaces came from draft-dalal-deprecation-header, which the RFC
+    # dropped, and a conformant parser discards a field it cannot parse -- so
+    # `true` would have made the signal invisible to exactly the clients that
+    # implement the spec this rule cites.
+    #
+    # Unlike Sunset this date is not a guess. It is the deprecation date, not
+    # the removal date: these prefixes became deprecated when the aliases
+    # shipped, which is a fact already known. @1787702400 is
+    # 2026-08-26T00:00:00Z.
+    http-response set-header Deprecation "@1787702400" if legacy_prefix
     http-response set-header Link "<%[var(txn.deprecated_successor)]>; rel=\"successor-version\"" if legacy_prefix
 
     # Sunset carries an HTTP-date (RFC 8594) and 3.4.0 has no release date yet.
