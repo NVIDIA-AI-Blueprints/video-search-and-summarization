@@ -328,13 +328,17 @@ class VlmGroup(CommandGroup):
         if inputs.temperature is not None:
             model_params["temperature"] = inputs.temperature
 
+        # True for both --file and "--media-url <path> --use-base64": the content
+        # was read from a local file, so the path is machine-specific and must
+        # not be stored as a retrievable memory handle.
+        _use_base64_effective = options.use_base64 or bool(inputs.file)
+
         input_data: MemoryInput = adapter.build_input(
             prompt=inputs.prompt,
             sensor=inputs.sensor,
             start_time=resolved_start,
             end_time=resolved_end,
-            # Local file paths are machine-specific; omit from the persisted record.
-            media_url=media_url if (not inputs.sensor and not inputs.file) else None,
+            media_url=media_url if (not inputs.sensor and not _use_base64_effective) else None,
             intent=inputs.intent,
             model_params=model_params,
         )
@@ -348,7 +352,7 @@ class VlmGroup(CommandGroup):
             model=model,
             max_tokens=inputs.max_tokens,
             temperature=inputs.temperature,
-            use_base64=options.use_base64 or bool(inputs.file),
+            use_base64=_use_base64_effective,
             num_frames=inputs.num_frames,
         )
 
@@ -458,9 +462,7 @@ class VlmGroup(CommandGroup):
         output = adapter.build_output(
             answer=answer,
             model=completion.get("model") or model,
-            # Local file paths are machine-specific; do not persist them as a
-            # retrievable media handle. Sensor and URL sources are stable references.
-            media_url=None if inputs.file else media_url,
+            media_url=None if _use_base64_effective else media_url,
             intent=inputs.intent,
             completion_id=completion_id,
         )

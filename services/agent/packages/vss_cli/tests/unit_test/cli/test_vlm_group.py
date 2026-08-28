@@ -614,16 +614,21 @@ def test_sensor_path_uses_resolved_window_bounds(
     assert rec.input.window.end.timestamp.isoformat().startswith("2025-01-01T00:00:30")
 
 
+def _assert_no_local_path_in_record(records: list[Any], label: str) -> None:
+    assert records, f"expected one persisted record ({label})"
+    rec = records[0]
+    assert rec.output.handles is None, f"{label}: local path must not appear in output handles"
+    assert rec.input.params is None or "media_url" not in (rec.input.params or {}), (
+        f"{label}: local path must not appear in input.params.media_url"
+    )
+
+
 def test_run_file_source_does_not_persist_local_path(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Local file paths must not be stored as output handles.
-
-    A path like /tmp/clip.mp4 is meaningless on any machine other than the
-    caller's, so output.handles must be None when --file is used.
-    """
+    """Local paths must not be stored in memory for --file or --media-url+--use-base64."""
     video_file = tmp_path / "clip.mp4"
     video_file.write_bytes(b"\x00\x01\x02video")
 
@@ -632,18 +637,19 @@ def test_run_file_source_does_not_persist_local_path(
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
 
+    # Case 1: --file
     store = _in_memory(configured)
     ctx = Context(deployment=configured, memory=store)
     group = VlmGroup()
-    inputs = VlmInput(prompt="What?", file=str(video_file))
-    result = group.run("", inputs, ctx)
-
+    result = group.run("", VlmInput(prompt="What?", file=str(video_file)), ctx)
     assert result.exit == Exit.SUCCESS
-    records = store.service.list_jobs()
-    assert records, "expected one persisted record"
-    rec = records[0]
-    assert rec.output.handles is None, "local file path must not be stored as output media handle"
-    # input.params["media_url"] must also be absent — the path is meaningless on other machines
-    assert rec.input.params is None or "media_url" not in (rec.input.params or {}), (
-        "local file path must not be stored in input.params.media_url"
-    )
+    _assert_no_local_path_in_record(store.service.list_jobs(), "--file")
+
+    # Case 2: --media-url <local-path> --use-base64 (backward-compat path)
+    store2 = _in_memory(configured)
+    ctx2 = Context(deployment=configured, memory=store2)
+    ctx2.extra = {"use_base64": True}
+    group2 = VlmGroup()
+    result2 = group2.run("", VlmInput(prompt="What?", media_url=str(video_file)), ctx2)
+    assert result2.exit == Exit.SUCCESS
+    _assert_no_local_path_in_record(store2.service.list_jobs(), "--media-url+--use-base64")
