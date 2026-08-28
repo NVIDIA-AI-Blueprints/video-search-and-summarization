@@ -53,6 +53,10 @@ env:
     value: "all"
   - name: VLM_MODEL_TO_USE
     value: "cosmos-reason3"
+  - name: RTVI_ENFORCE_MODEL_PATH_ALLOWLIST
+    value: "false"
+  - name: RTVI_MODEL_PATH_ALLOWLIST
+    value: ""
   - name: KAFKA_ENABLED
     value: "false"
   - name: KAFKA_INCIDENT_TOPIC
@@ -161,6 +165,8 @@ env:
     value: "false"
   # Required for Nemotron Nano Omni models.
   - name: VLM_TRUST_REMOTE_CODE
+    value: "false"
+  - name: RTVI_ALLOW_UNSAFE_MODEL_CONFIG
     value: "false"
   # EVS pruning rate 0.0-1.0.
   - name: VLM_VIDEO_PRUNING_RATE
