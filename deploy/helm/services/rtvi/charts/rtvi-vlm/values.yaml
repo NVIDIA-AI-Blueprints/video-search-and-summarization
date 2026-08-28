@@ -22,6 +22,10 @@ image:
   tag: "develop-latest"
   pullPolicy: IfNotPresent
 replicas: 1
+# Allow the initial RT-VLM image pull and model startup to complete before
+# Kubernetes reports the Deployment as stalled. Kubernetes defaults this to
+# 600 seconds when it is omitted, which is too short on a cold node.
+progressDeadlineSeconds: 3600
 
 # When true, use shared NIM VLM (nvidia-cosmos3-reasoner) instead of loading model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
 useSharedNim: false
