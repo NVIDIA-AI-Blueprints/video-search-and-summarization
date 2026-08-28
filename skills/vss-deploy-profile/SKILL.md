@@ -37,7 +37,7 @@ Match the user's request to a profile, then load that profile's reference for si
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
 
-**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). All three edge platforms run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service (raw vLLM) on port `30081`; `dev-profile.sh` selects it automatically.
+**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark runs the blueprint default `nemotron-3.5-lightning-30b-a3b` NIM; AGX/IGX Thor, which ship no Lightning sizing files, run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service (raw vLLM). Both publish on port `30081` as `vss-llm-nim`, and `dev-profile.sh` selects automatically.
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
 

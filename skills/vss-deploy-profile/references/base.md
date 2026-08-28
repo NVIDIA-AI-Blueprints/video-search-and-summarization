@@ -325,7 +325,7 @@ services:
 
 Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-base/generated.env` to set `LLM_NAME` / `LLM_NAME_SLUG`. Use the [Tuning workflow](#tuning-workflow) to dial in `--gpu-memory-utilization`.
 
-> **Edge note.** On DGX Spark / Thor, follow [`edge.md`](edge.md) instead. All three edge hardware profiles run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` service — the same DLFW shape shown above — so the LLM stays inside the compose stack and `LLM_MODE` stays local.
+> **Edge note.** On DGX Spark / Thor, follow [`edge.md`](edge.md) instead. AGX/IGX Thor run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` service — the same DLFW shape shown above — while DGX Spark keeps the default Lightning NIM. Either way the LLM stays inside the compose stack and `LLM_MODE` stays local.
 
 ### Picking `--gpu-memory-utilization` quickly
 
@@ -333,10 +333,10 @@ For shared mode, compute it via the formula. As sanity-check defaults / in-tree 
 
 | Co-residency | LLM `--gpu-memory-utilization` | VLM GPU-mem fraction (effective knob per the [stack table](#nim_kvcache_percent--gb-on-common-gpus)) | Source |
 |---|---|---|---|
-| Nemotron 3.5 Lightning + Cosmos3 Reasoner Nano BF16 (shared) | 0.50 | 0.40 | Lightning + Cosmos3 `*-shared.env` |
-| Nano 9B v2 FP8 + RT-VLM on DGX Spark | 0.40 | RT-VLM 0.40 | `edge.md` |
+| Nemotron 3.5 Lightning + Cosmos3 Reasoner Nano BF16 (shared) | 0.30 | 0.40 | Lightning + Cosmos3 `*-shared.env` |
+| Nemotron 3.5 Lightning + RT-VLM on DGX Spark | 0.30 | RT-VLM 0.40 | `edge.md` |
 | Nano 9B v2 FP8 + RT-VLM on Thor | 0.40 | RT-VLM 0.35 | `edge.md` |
-| Qwen3-VL 8B + Nemotron 3.5 Lightning (shared) | 0.50 | 0.40 | Lightning `*-shared.env`, Qwen3 compose command |
+| Qwen3-VL 8B + Nemotron 3.5 Lightning (shared) | 0.30 | 0.40 | Lightning `*-shared.env`, Qwen3 compose command |
 
 Rules of thumb when adding a new model:
 

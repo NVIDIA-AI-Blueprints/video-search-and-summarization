@@ -36,7 +36,7 @@ blueprint default.
 
 The edge local LLM runs on the device's shared/unified memory and is **slow** (on DGX Spark the LLM is the main latency bottleneck). **Before deploying, ask the user:**
 
-> The local edge LLM (Nemotron Nano 9B v2 FP8) runs on the device and is latency-limited. If you have a **remote LLM endpoint** (build.nvidia.com / NVIDIA API catalog, or your own OpenAI-compatible server), using it gives noticeably better latency. Use a remote LLM, or run the local one?
+> The local edge LLM (Nemotron 3.5 Lightning on DGX Spark, Nano 9B v2 FP8 on Thor) runs on the device and is latency-limited. If you have a **remote LLM endpoint** (build.nvidia.com / NVIDIA API catalog, or your own OpenAI-compatible server), using it gives noticeably better latency. Use a remote LLM, or run the local one?
 
 - **Remote (recommended for latency):** the user supplies the endpoint + model. Set `LLM_MODE=remote`, `LLM_NAME_SLUG=none`, `LLM_BASE_URL=<endpoint, no trailing /v1>`, `LLM_NAME=<model the endpoint serves>`, and `NVIDIA_API_KEY=<key>` if required; probe `<endpoint>/v1/models` first (see [`credentials.md`](credentials.md)). Only the LLM goes remote; the VLM still deploys locally per the platform's VLM recipe below.
 - **Local:** proceed with the platform recipe below; expect higher latency.
@@ -48,7 +48,7 @@ The edge local LLM runs on the device's shared/unified memory and is **slow** (o
 | DGX Spark, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
 | AGX Thor / IGX Thor, local LLM | In-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service |
 | Any edge platform, remote-LLM mode | External endpoint; no local LLM needed |
-| Edge platform where 9 B is still too heavy | Standalone small-model vLLM — see [Alternative](#alternative--standalone-small-model-vllm) |
+| Edge platform where even the FP8 9 B build is too heavy | Standalone small-model vLLM — see [Alternative](#alternative--standalone-small-model-vllm) |
 | Non-edge hardware (H100, GB300, L40S, RTX PRO) | Default `nemotron-3.5-lightning-30b-a3b` NIM compose path |
 
 ## Prerequisites
@@ -155,7 +155,7 @@ to fit — for the LLM that means editing `--gpu-memory-utilization` in
 cannot read free memory (common on Thor/Tegra), start at `0.4` and reduce by
 `0.05` after the first `Free … less than desired` abort.
 
-## DGX Spark — in-tree Nano 9B v2 FP8 LLM + integrated RT-VLM
+## DGX Spark — default Nemotron 3.5 Lightning NIM + integrated RT-VLM
 
 There is no standalone container to start: the LLM is a compose service. Add
 these values to `_builds/<name>/override.env`:
@@ -163,8 +163,8 @@ these values to `_builds/<name>/override.env`:
 | Key | Value | Why |
 |---|---|---|
 | `LLM_MODE` | `local_shared` | LLM and RT-VLM share the single unified-memory GPU |
-| `LLM_NAME` | `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | The only in-tree LLM with edge env files |
-| `LLM_NAME_SLUG` | `nvidia-nemotron-nano-9b-v2-fp8` | Selects `llm_<mode>_<slug>` in `COMPOSE_PROFILES` |
+| `LLM_NAME` | `nvidia/nemotron-3.5-lightning-30b-a3b` | Blueprint default; ships `hw-DGX-SPARK*.env` |
+| `LLM_NAME_SLUG` | `nemotron-3.5-lightning-30b-a3b` | Selects `llm_<mode>_<slug>` in `COMPOSE_PROFILES` |
 | `HARDWARE_PROFILE` | `DGX-SPARK` | Selects edge image and runtime defaults |
 | `VLM_MODE` | `local_shared` | Integrated RT-VLM stays on the shared edge GPU |
 | `VLM_NAME` | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | Model ID advertised by the default integrated RT-VLM path |
@@ -176,18 +176,20 @@ these values to `_builds/<name>/override.env`:
 | `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 | `RT_VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 
-`dev-profile.sh` writes the two `LLM_NAME*` values itself on `DGX-SPARK`,
-`AGX-THOR` and `IGX-THOR` when `--llm` is not passed and the LLM is not remote;
+`dev-profile.sh` rewrites the two `LLM_NAME*` values only on `AGX-THOR` and
+`IGX-THOR`; on `DGX-SPARK` the blueprint default already applies. Either way,
 set them by hand only because a build override is written directly.
 
-The `-shared-gpu` variant of the FP8 service runs
-`--gpu-memory-utilization 0.40` and loads `hw-DGX-SPARK-shared.env`; the
-dedicated variant runs `0.85` and loads `hw-DGX-SPARK.env`. Both use an init
-container to fetch the Nemotron tool-call parser from a public Hugging Face
-repo, so no `HF_TOKEN` is involved.
+Both Lightning variants load `NIM_GPU_MEM_FRACTION=0.3` and
+`NIM_MAX_MODEL_LEN=65536` from `hw-DGX-SPARK-shared.env` / `hw-DGX-SPARK.env`,
+and pin the architecture-neutral INT4 profile. Neither needs `HF_TOKEN`. If the
+NIM fails to load on GB10, fall back to
+`--llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, whose `-shared-gpu` variant runs
+`--gpu-memory-utilization 0.40` (dedicated `0.85`) and fetches the Nemotron
+tool-call parser from a public Hugging Face repo.
 
-Use the default agent config — the 9 B model handles clarifying questions, so
-the small-model prompt override is not wanted here:
+Use the default agent config — Lightning handles clarifying questions, so the
+small-model prompt override is not wanted here:
 
 ```text
 VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml
@@ -196,15 +198,14 @@ VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-ag
 Keep the Foundation's `rtvi-vlm` profile key, then follow `SKILL.md` Steps
 7–9 to resolve, validate, and deploy the build.
 
-Validate the LLM once the build is up (raw vLLM, so `/health`, not the NIM's
-`/v1/health/ready`):
+Validate the LLM once the build is up (a NIM, so `/v1/health/ready`):
 
 ```bash
-curl -sf http://localhost:30081/health && echo "LLM ready"
+curl -sf http://localhost:30081/v1/health/ready && echo "LLM ready"
 curl -s http://localhost:30081/v1/models | jq -r '.data[].id'
 ```
 
-Expected model ID is `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`. If `/v1/models`
+Expected model ID is `nvidia/nemotron-3.5-lightning-30b-a3b`. If `/v1/models`
 returns a different ID, use the returned ID as `LLM_NAME` in the build
 override.
 
