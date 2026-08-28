@@ -230,13 +230,19 @@ def _run_openclaw(
 ) -> tuple[dict[str, Any], str]:
     session_id = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid.uuid4().hex}"
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1"
+    # Thinking is ON by default: the agent-under-eval drives multi-step skills
+    # (deploy + configure + verify), and reasoning models (e.g. Nemotron
+    # Lightning) rely on the thinking trace. Running with thinking off makes the
+    # agent drop sub-steps and unfairly handicaps reasoning models. Overridable
+    # via NEMOCLAW_AGENT_THINKING (on|off) for tuning without a code change.
+    thinking = (os.environ.get("NEMOCLAW_AGENT_THINKING") or "on").strip() or "on"
     command = (
         "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
         f"export NO_PROXY={shlex.quote(no_proxy)}; "
         f"export no_proxy={shlex.quote(no_proxy)}; "
         "export NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem; "
         "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
-        "openclaw agent --agent main --thinking off --json "
+        f"openclaw agent --agent main --thinking {shlex.quote(thinking)} --json "
         f"--timeout {int(timeout)} "
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
