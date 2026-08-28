@@ -39,6 +39,7 @@ def test_resolve_ipc_socket_path_accepts_supported_identity_templates(template):
         ("nvds_ipc_{camera_id:.0}.sock", "cannot use format specifications or conversions"),
         ("nvds_ipc_{camera_id:.3}.sock", "cannot use format specifications or conversions"),
         ("nvds_ipc_{camera_id!r}.sock", "cannot use format specifications or conversions"),
+        ("{camera_id}/nvds_ipc.sock", "must not contain path separators"),
     ],
 )
 def test_resolve_ipc_socket_path_rejects_identity_free_or_unknown_templates(template, message):
@@ -76,7 +77,7 @@ def test_resolve_ipc_socket_path_defaults_and_ignores_legacy_environment(monkeyp
     monkeypatch.delenv("RTVI_IPC_SOCKET_DIR", raising=False)
     monkeypatch.delenv("RTVI_IPC_SOCKET_TEMPLATE", raising=False)
     monkeypatch.setenv("RTVI_EMBED_IPC_SOCKET_DIR", "/legacy")
-    assert ipc_frame_source.resolve_ipc_socket_path("camera-1") == "/tmp/nvds_ipc_camera-1.sock"
+    assert ipc_frame_source.resolve_ipc_socket_path("camera-1") == "/run/rtvi-ipc/nvds_ipc_camera-1.sock"
 
 
 def test_select_ipc_stream_identity_prefers_camera_then_sensor_then_asset():

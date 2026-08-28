@@ -6,7 +6,7 @@ import os
 import re
 from string import Formatter
 
-DEFAULT_IPC_SOCKET_DIR = "/tmp"
+DEFAULT_IPC_SOCKET_DIR = "/run/rtvi-ipc"
 DEFAULT_IPC_META_DESERIALIZATION_LIB = ""
 _SAFE_IPC_SOCKET_TOKEN = re.compile(r"[A-Za-z0-9._-]+")
 _IPC_TEMPLATE_FIELDS = frozenset({"camera_id", "sensor_id", "stream_id"})
@@ -23,6 +23,8 @@ def sanitize_ipc_socket_token(value: str) -> str:
 
 def validate_ipc_socket_template(value: str) -> str:
     """Validate that a socket template includes unmodified supported identity fields."""
+    if os.path.basename(value) != value:
+        raise ValueError("IPC socket template must not contain path separators")
     try:
         field_specs = [
             (field_name, format_spec, conversion)
