@@ -1442,6 +1442,12 @@ int OnvifClient::getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Val
         if (iteration >= maxIterations)
         {
             LOG(warning) << "Reached max iterations (" << maxIterations << ")" << endl;
+            // Unlike the normal exit below, the search is still ACTIVE here
+            // (searchState != "Completed"), so the token cannot be left to the
+            // keep-alive expiry: with parallel per-sensor workers that would hold
+            // several live searches open and can hit the VMS search-session limit.
+            // This costs one SOAP round trip on an abnormal path only.
+            clientSession->getNvSoap()->EndSearch(soap, searchToken);
             break;
         }
 
@@ -1456,10 +1462,11 @@ int OnvifClient::getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Val
     LOG(verbose) << "[timelines-timing] sensor:" << sensor->id
               << " GetRecordingSearchResults(" << iteration << " iters)=" << _tlElapsedMs() << "ms" << endl;
 
-    // Skip the blocking EndSearch round-trip: we already have all results, and the
-    // search session auto-expires on the VMS after keepAliveTime. This saves a full
-    // SOAP RTT (~1s) off every timelines call. (EndSearch is still issued on the
-    // error paths above to release the session promptly on failure.)
+    // Normal exit: the search reported "Completed", so the VMS has already finished
+    // it and the token only awaits keepAliveTime expiry. Skip the blocking EndSearch
+    // round-trip here, which saves a full SOAP RTT (~1s) off every timelines call.
+    // EndSearch IS still issued on the two paths that leave a search running: the
+    // GetRecordingSearchResults error path and the maxIterations safety break above.
     LOG(verbose) << "[timelines-timing] sensor:" << sensor->id
               << " total=" << _tlElapsedMs() << "ms (GetRecordingSummary + EndSearch skipped)" << endl;
 
