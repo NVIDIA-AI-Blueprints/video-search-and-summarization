@@ -36,6 +36,24 @@ _SPEC.loader.exec_module(run_leg)
 import leg_timing  # noqa: E402 - must follow the sys.path insert above
 
 
+class OpenClawModel(unittest.TestCase):
+    def test_prefixes_the_complete_anthropic_judge_model_id(self):
+        self.assertEqual(
+            run_leg._openclaw_anthropic_model(
+                "aws/anthropic/bedrock-claude-sonnet-5"
+            ),
+            "anthropic/aws/anthropic/bedrock-claude-sonnet-5",
+        )
+
+    def test_rejects_an_openclaw_prefixed_model(self):
+        with self.assertRaisesRegex(ValueError, "must not include"):
+            run_leg._openclaw_anthropic_model("anthropic/claude-sonnet-4-6")
+
+    def test_rejects_an_empty_model(self):
+        with self.assertRaisesRegex(ValueError, "ANTHROPIC_MODEL not set"):
+            run_leg._openclaw_anthropic_model("")
+
+
 class DiscoverInvocations(unittest.TestCase):
     def test_discover_single_step_invocation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1733,4 +1751,3 @@ class BoxRejectedForCapacity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

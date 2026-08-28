@@ -248,6 +248,17 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
+def _openclaw_anthropic_model(model: str) -> str:
+    """Convert the shared Anthropic model ID to OpenClaw's provider form."""
+    if not model:
+        raise ValueError("ANTHROPIC_MODEL not set")
+    if model.startswith("anthropic/"):
+        raise ValueError(
+            "ANTHROPIC_MODEL must not include the OpenClaw 'anthropic/' prefix"
+        )
+    return f"anthropic/{model}"
+
+
 def validate_harbor_timeout_sec(timeout_sec: int) -> int:
     """Require the outer backstop to leave every Harbor phase recovery room."""
     if timeout_sec <= MIN_HARBOR_BACKSTOP_SEC:
@@ -1472,22 +1483,18 @@ def run_invocations(
         env["OPENAI_API_KEY"] = anthropic_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
     elif agent == "openclaw":
-        model = os.environ.get("OPENCLAW_MODEL", "") or model
-        if not model:
-            print("FATAL: OPENCLAW_MODEL or ANTHROPIC_MODEL must be set", file=sys.stderr)
+        try:
+            model = _openclaw_anthropic_model(model)
+        except ValueError as exc:
+            print(f"FATAL: {exc}", file=sys.stderr)
             return 1
-        if "/" not in model:
-            model = f"anthropic/{model}"
-        provider = model.split("/", 1)[0]
-        prefix = provider.upper().replace("-", "_")
-        required_key = f"{prefix}_API_KEY"
-        required_base = f"{prefix}_BASE_URL"
-        if not env.get(required_key):
-            print(f"FATAL: {required_key} not set for OpenClaw model {model}", file=sys.stderr)
-            return 1
-        if not env.get(required_base):
-            print(f"FATAL: {required_base} not set for OpenClaw model {model}", file=sys.stderr)
-            return 1
+        for required_name in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"):
+            if not env.get(required_name):
+                print(
+                    f"FATAL: {required_name} not set for OpenClaw model {model}",
+                    file=sys.stderr,
+                )
+                return 1
     if not model:
         print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
         return 1
