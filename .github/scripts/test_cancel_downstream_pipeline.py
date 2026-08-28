@@ -13,6 +13,8 @@ from pathlib import Path
 from unittest import mock
 from urllib.error import HTTPError
 from urllib.error import URLError
+from urllib.parse import parse_qs
+from urllib.parse import urlparse
 
 SCRIPT = Path(__file__).with_name("cancel_downstream_pipeline.py")
 SPEC = importlib.util.spec_from_file_location("cancel_downstream_pipeline", SCRIPT)
@@ -584,6 +586,61 @@ class SearchFallbackTest(unittest.TestCase):
                 open_func=open_func,
             ),
             [],
+            )
+
+
+    def test_paginates_past_the_first_twenty_on_a_busy_ref(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                qs = parse_qs(urlparse(url).query)
+                if qs.get("status") != ["running"]:
+                    return JsonResponse([])
+                page = int((qs.get("page") or ["1"])[0])
+                if page == 1:
+                    return JsonResponse(
+                        [
+                            {"id": i, "created_at": "2026-08-28T08:12:00Z"}
+                            for i in range(1, 21)
+                        ]
+                    )
+                if page == 2:
+                    return JsonResponse(
+                        [{"id": 99, "created_at": "2026-08-28T08:12:31Z"}]
+                    )
+                return JsonResponse([])
+            if url.endswith("/pipelines/99/variables"):
+                return JsonResponse(
+                    [{"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-mine"}]
+                )
+            if "/variables" in url:
+                return JsonResponse([])
+            raise AssertionError(url)
+
+        self.assertEqual(
+            module.discover_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                open_func=open_func,
+            ),
+            [99],
         )
 
 

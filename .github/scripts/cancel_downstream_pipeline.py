@@ -256,6 +256,17 @@ def gitlab_json(
         raise SystemExit(1) from exc
 
 
+LIST_PAGE_SIZE = 20
+
+
+def list_page_limit() -> int:
+    raw = os.environ.get("DOWNSTREAM_CANCEL_LIST_PAGES", "10").strip() or "10"
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 10
+
+
 def list_ref_pipelines(
     base_url: str,
     token: str,
@@ -264,15 +275,21 @@ def list_ref_pipelines(
     open_func: Any = urlopen,
 ) -> list[Any]:
     found: list[Any] = []
+    page_limit = list_page_limit()
     for status in ACTIVE_PIPELINE_STATUSES:
         quoted_ref = quote(ref, safe="")
-        url = (
-            f"{base_url}/projects/{project}/pipelines"
-            f"?ref={quoted_ref}&status={status}&per_page=20&order_by=id&sort=desc"
-        )
-        payload = gitlab_json(url, token, open_func=open_func, retryable=True)
-        if isinstance(payload, list):
+        for page in range(1, page_limit + 1):
+            url = (
+                f"{base_url}/projects/{project}/pipelines"
+                f"?ref={quoted_ref}&status={status}"
+                f"&per_page={LIST_PAGE_SIZE}&page={page}&order_by=id&sort=desc"
+            )
+            payload = gitlab_json(url, token, open_func=open_func, retryable=True)
+            if not isinstance(payload, list) or not payload:
+                break
             found.extend(payload)
+            if len(payload) < LIST_PAGE_SIZE:
+                break
     return found
 
 
