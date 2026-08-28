@@ -231,7 +231,7 @@ true
 {{- $rw := $row.rewrite | default "none" }}
 {{- if and $b.service (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{ $row.path }}/(.*) {{ $to }}/\1
+^{{ $row.path }}/(.*) {{ $to }}/\1
 ^{{ $row.path }}$ {{ $to | default "/" }}
 {{- end }}
 {{- end }}
