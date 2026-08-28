@@ -147,6 +147,50 @@ Kept out of this PR deliberately: CODEOWNERS changes who must approve every futu
 those paths, which is an ownership decision for the maintainers, not a side effect of a scanner
 change.
 
+## 7. Follow-up: retire the internal OSRB reviewer
+
+The `triage` job in `osrb-scan.yml` (comment marker `<!-- osrb-triage -->`, agent in
+`.github/osrb/osrb_agent.py`) supersedes the **comment** the private GitLab reviewer posts
+on the same pull requests — the "Hinton" bot in `ci-vss-oss/ci/osrb_review/review.py`,
+marker `<!-- hinton-osrb-review -->`. It does **not** supersede the gate: the OSRB Review
+check that `osrb-review.yml` publishes from the private pipeline's verdict remains the
+compliance gate until the private side is retired.
+
+**The private pipeline keeps running until its trigger is removed in ci-vss-oss, and this
+repository cannot do that.** The reviewer's code is loaded from that repository's standing
+`osrb-review-trigger` branch; the dispatch in `osrb-review.yml` here is only the doorbell.
+Deleting `osrb-review.yml` from this repo would stop *ringing* it, but that removes the
+OSRB Review check entirely — a fail-open, not a retirement. So the OSRB Review check
+remains until ci-vss-oss retires its half, **and that is fine**: the two reviewers coexist
+by design. Their comment markers differ, so neither updates, strands, or overwrites the
+other's comment; a pull request in the transition window simply carries both, and the
+triage comment says explicitly that the OSRB Review check is still the gate.
+
+Retirement steps, in order — 1 and 2 are private-side and cannot be done from here:
+
+1. **Parity period.** Let both run on real pull requests and compare: every package the
+   private reviewer blocks should appear in the triage comment's "OSRB review required"
+   section (the reverse need not hold — the triage agent reads the state comparison too,
+   which the private reviewer never had). Divergences are evidence bugs in `approved.csv`
+   / `conditions.csv` and are worth fixing *before* the private record stops being
+   consulted.
+2. **Remove the trigger in ci-vss-oss** (the `osrb-review-trigger` standing branch / the
+   root-job gate in its `.gitlab-ci.yml`). This is the actual retirement, and it happens
+   in a repository this one cannot see or test.
+3. **In the same window, in this repo:** remove `osrb-review.yml` and `osrb_check.py`.
+   Order matters — once step 2 lands, every dispatch from here fails and the check
+   completes as `failure` on every pull request, so step 3 must follow promptly. Removing
+   them *before* step 2 is the silent fail-open described in § 2.
+4. **Clean up the couplings that existed only for the private consumer**, in this order
+   and only after step 3: the `license-diff` artifact/CSV names in `osrb-scan.yml` may
+   then be renamed (today § 3 forbids it), and the assertions pinning them in
+   `test_osrb_dispatch.py` retired alongside. Update the "supersedes" footer wording in
+   the triage comment, and the OSRB Review references in `OSRB_REVIEW.md` and
+   `README.md`.
+
+Until step 2 happens, treat a red OSRB Review exactly as before — it is the gate; the
+triage comment is the public, checkable explanation of what it is looking at.
+
 ## Verify after merge
 
 ```bash

@@ -31,15 +31,19 @@ Both run from `.github/workflows/osrb-scan.yml`, as two independent jobs.
 | `osrb_compare.py` | State pipeline, part 2. Joins the inventory to `approved.csv` and assigns each row a verdict. |
 | `module_map.py` | Translates OSRB submission labels (`RTVI_VLM+RTVI_EMBED (container 3.2 GA)`) to repo module paths (`services/rtvi/rt-vlm`), and lists the modules OSRB has never received. |
 | `osrb_check.py` | Publishes the **OSRB Review** check run from the private pipeline's verdict. |
+| `osrb_agent.py` | Triage agent: deterministic pre-pass → bounded agent loop → deterministic validator. Writes the `<!-- osrb-triage -->` PR comment. See [the triage agent](#the-triage-agent-osrb_agentpy) below. |
 | `approved.csv` | The OSRB-approved baseline. See below. |
 | `inventory.csv` | The committed, generated inventory of what this tree actually contains. |
 | `OSRB_REVIEW.md` | Contributor-facing guide to both checks. |
-| `MIGRATION.md` | Operator note for the License Diff → OSRB Scan rename. |
+| `MIGRATION.md` | Operator note for the License Diff → OSRB Scan rename, plus the internal-reviewer retirement follow-up. |
 | `test_*.py` | `unittest`, standalone-runnable, stdlib only. CI runs each as a plain script. |
 
 Everything here is **stdlib only**. CI runs plain `python` with no `pip install`, so a
 new import is a pipeline that fails closed on every pull request. `tomllib` is available;
-PyYAML is not, which is why `osrb_sources.py` carries its own narrow YAML reader.
+PyYAML is not, which is why `osrb_sources.py` carries its own narrow YAML reader. The one
+exception is `osrb_agent.py`'s guarded `claude_agent_sdk` import: the `triage` job installs
+the SDK explicitly, and the module still runs `--skip-agent` (deterministic pre-pass and
+comment only) when the SDK or the API key is absent.
 
 ## `approved.csv`
 
@@ -119,6 +123,98 @@ Neither fails the job, on purpose: both describe the state of the OSRB record ra
 anything a pull request did, and a gate that is red for reasons its author cannot clear is
 a gate that gets ignored.
 
+## The triage agent (`osrb_agent.py`)
+
+A third job, `triage`, runs after both pipelines and reads what they produced — the delta
+CSV and the approved-state comparison. It answers the question neither pipeline can: *of
+the rows that need attention, which can be resolved with a citation a reader can check,
+and which genuinely need OSRB?* It posts one PR comment (marker `<!-- osrb-triage -->`,
+updated in place) and, when it resolves UNKNOWN licences, commits the update to
+`inventory.csv` on the PR mirror branch.
+
+### What it supersedes
+
+This agent supersedes the **internal OSRB reviewer's triage comment** — the private
+GitLab bot in `ci-vss-oss/ci/osrb_review` (marker `<!-- hinton-osrb-review -->`). That
+reviewer ran privately because the approval evidence lived in NVBugs and Sheets, and its
+recurring failure modes — INCONCLUSIVE on gateway errors, prompt-too-long, missing
+service-account credentials, evidence-collection errors — all came from that private-side
+dependency. The evidence now lives in this repository (`approved.csv`, `conditions.csv`,
+`inventory.csv`), so the triage runs publicly and every citation is a URL anyone can open.
+
+Supersession covers the *comment*, not the *gate*: the **OSRB Review** check published
+from the private pipeline's verdict remains the compliance gate until ci-vss-oss retires
+it — see `MIGRATION.md` § 7. Until then the two coexist by design; the comment markers
+differ, so neither strands or overwrites the other.
+
+### Three stages, strictly separated
+
+1. **Deterministic pre-pass** — pure functions, unit-tested, no model. Buckets the delta
+   and compliance rows: new dependencies, licence changes on version updates (normalised,
+   so "MIT License" vs "MIT" is not a change), usage drift, new UNKNOWNs,
+   refused/conditional packages touched by this PR, and removals (report-only).
+2. **Agent loop** — `claude-agent-sdk`, model `claude-opus-5` unless `ANTHROPIC_MODEL`
+   overrides it. The agent receives ONLY the new UNKNOWNs and licence changes to
+   research, and researches them against public registries (pypi.org,
+   registry.npmjs.org, api.github.com, upstream LICENSE files). Its work is bounded by
+   `--max-unknowns` (default 25); overflow rows are reported as "not triaged this run",
+   never silently dropped.
+3. **Deterministic validator** — the lesson from the reviewer this replaces: a model
+   cannot be the last word. Before any verdict takes effect, the evidence URL is
+   re-fetched and must actually contain the claimed licence; `permissive` requires an
+   exact match against the repo's own allowlist (composites and UNKNOWN are refused —
+   the same rule as the green-gate); `license_denylist.txt` and `conditions.csv`
+   packages are never auto-cleared; registry seeding follows the same provenance rule
+   as `osrb_seed.py`. An unverifiable verdict is discarded and lands in the
+   "OSRB review required" section, marked as such.
+
+### The trust boundary
+
+**No PR-authored file ever enters the prompt.** The agent's inputs are the CSVs this
+tooling generated and public registries — nothing the PR author wrote. A pull request
+cannot smuggle instructions to the agent through a README, a manifest comment, or a
+LICENSE file in the diff; the worst a malicious registry answer can do is claim a
+licence the validator then fails to verify. The workflow-side half of the boundary: the
+scan runs on the vetted `pull-request/<N>` mirror (copy-pr-bot), and the auto-commit is
+guarded by `validate_inventory_diff`, which restricts the writable surface to the
+`license` and `risk` columns of rows that already existed in `inventory.csv` — any other
+change aborts the commit and is reported instead.
+
+### Failure semantics
+
+Report-only, end to end. Agent or model failure never turns the workflow red: the delta
+gate in the `osrb-scan` job stays the blocking check. A missing `ANTHROPIC_API_KEY`
+degrades to `--skip-agent` (deterministic pre-pass and comment, no research), and the
+comment posts on every path — including validator rejection (exit 2), a truncated agent
+loop (exit 3), and an outright crash, which gets a fallback comment from the workflow.
+The auto-commit only happens on a clean exit 0.
+
+### Running it locally
+
+Produce the two input CSVs, then run the agent:
+
+```bash
+python3 .github/osrb/osrb_scan.py --base-ref origin/develop --head-ref HEAD \
+  --output license-diff.csv
+python3 .github/osrb/osrb_compare.py --inventory .github/osrb/inventory.csv \
+  --approved .github/osrb/approved.csv --conditions .github/osrb/conditions.csv \
+  --output osrb-compliance.csv --summary osrb-compliance.md
+
+python3 .github/osrb/osrb_agent.py \
+  --delta license-diff.csv --compliance osrb-compliance.csv \
+  --inventory .github/osrb/inventory.csv \
+  --approved .github/osrb/approved.csv --conditions .github/osrb/conditions.csv \
+  --comment-out triage-comment.md --verdicts-out triage-verdicts.json \
+  --skip-agent   # drop for the full agent run; needs ANTHROPIC_API_KEY
+```
+
+The guard the workflow runs before committing an inventory update is also a standalone
+mode, useful for checking a hand-edited inventory:
+
+```bash
+python3 .github/osrb/osrb_agent.py --check-inventory-diff old-inventory.csv new-inventory.csv
+```
+
 ## Running the tests
 
 Each test file is standalone and runs the way CI runs it:
@@ -131,6 +227,8 @@ python3 .github/osrb/test_osrb_usage.py
 python3 .github/osrb/test_osrb_inventory.py
 python3 .github/osrb/test_osrb_compare.py
 python3 .github/osrb/test_osrb_dispatch.py
+python3 .github/osrb/test_osrb_seed.py
+python3 .github/osrb/test_osrb_agent.py
 ```
 
 `test_osrb_dispatch.py` also enumerates this directory and fails when a `test_*.py` here is

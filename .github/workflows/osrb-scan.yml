@@ -34,6 +34,10 @@ jobs:
     name: OSRB Scan (dependency inventory)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Consumed by the triage job below: release-branch PRs short-circuit this
+    # job and upload no delta CSV, so triage has nothing to read there.
+    outputs:
+      skip: ${{ steps.ctx.outputs.skip }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -416,3 +420,272 @@ jobs:
             echo "This check does not fail. See ${GUIDE_URL} for what each verdict means"
             echo "and what has to be true before it can gate."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Job 3: the TRIAGE agent. Reads what the two jobs above produced — the delta
+  # CSV and the approved-state comparison — runs .github/osrb/osrb_agent.py
+  # (deterministic pre-pass, bounded agent loop, deterministic validator), and
+  # posts one `<!-- osrb-triage -->` comment on the source PR. It supersedes
+  # the internal OSRB reviewer's comment for triage; the OSRB Review check
+  # stays the compliance gate until ci-vss-oss retires it (MIGRATION.md § 7).
+  #
+  # REPORT-ONLY: every step that can fail for agent/model reasons carries
+  # continue-on-error, so this job never turns the workflow red. The delta
+  # gate in the osrb-scan job above remains the blocking check.
+  #
+  # Trust model, in one place: this workflow runs on the pull-request/<N>
+  # mirror, which copy-pr-bot creates only after a vetted contributor (or an
+  # explicit /ok-to-test) — the code was human-vetted before anything here
+  # executes. The agent itself never reads PR-authored files (its inputs are
+  # the generated CSVs and public registries; see osrb_agent.py's docstring),
+  # and the auto-commit below is guarded by validate_inventory_diff, which
+  # limits the writable surface to the license and risk columns of existing
+  # rows of one file: .github/osrb/inventory.csv.
+  # ---------------------------------------------------------------------------
+  triage:
+    name: OSRB Scan (agent triage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [osrb-scan, dependency-inventory]
+    # `always()` is load-bearing: a red osrb-scan job is exactly the run that
+    # has new dependencies to triage (the delta gate fails on them), and a red
+    # dependency-inventory (stale-inventory gate) still deserves the fallback
+    # comment. Only a cancelled producer (superseded push) or a release-branch
+    # PR (no delta CSV by design) stops this job.
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/heads/pull-request/') &&
+      needs.osrb-scan.outputs.skip != 'true' &&
+      needs.osrb-scan.result != 'cancelled' &&
+      needs.dependency-inventory.result != 'cancelled'
+    permissions:
+      contents: write          # push the guarded inventory.csv commit to the mirror branch
+      pull-requests: write     # post/update the triage comment
+    steps:
+      # persist-credentials:false on purpose. The triage agent takes
+      # PR-authored package names as input and runs a Bash tool, so it is an
+      # injection target; a git token in .git/config would be reachable by a
+      # `cat .git/config` the injection could induce. The agent's Bash is ALSO
+      # gated to registry GETs in osrb_agent.py, but keeping the token out of
+      # this checkout is the belt to that suspenders. The commit step below
+      # re-checks-out WITH a token, in its own step, after the untrusted agent
+      # has finished and produced only data files.
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      # Mirrors helm-sync.yml: pinned floor, explicit step so a transient PyPI
+      # failure surfaces here rather than as an opaque ModuleNotFoundError
+      # inside the agent. osrb_agent.py guards the import and still runs
+      # --skip-agent without it, so even this step is continue-on-error.
+      - name: Install claude-agent-sdk
+        continue-on-error: true
+        run: pip install --quiet 'claude-agent-sdk>=0.0.5'
+
+      # Both downloads read THIS run's artifacts. Either can be missing —
+      # osrb-scan skipped-then-cancelled edge cases, or the drift gate failing
+      # before the comparison ran — and the triage step below handles absence
+      # itself, so the downloads must not fail the job.
+      - name: Download the delta CSV (license-diff artifact)
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: license-diff
+          path: ${{ runner.temp }}/license-diff
+
+      - name: Download the state comparison (osrb-compliance artifact)
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: osrb-compliance
+          path: ${{ runner.temp }}/osrb-compliance
+
+      - name: Run the triage agent
+        id: agent
+        # Agent/model failure must never red the workflow. Exit 2 (validator
+        # rejected agent output) and 3 (max_turns) are fail-safe by contract —
+        # the comment is still written and still gets posted below.
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          # Some Anthropic-compatible proxies reject `context_management`;
+          # harmless on direct Anthropic. Same setting as helm-sync.yml.
+          CLAUDE_CODE_DISABLE_THINKING: "1"
+          DELTA_DIR: ${{ runner.temp }}/license-diff
+          STATE_DIR: ${{ runner.temp }}/osrb-compliance
+        run: |
+          set -euo pipefail
+          # Shell default, not a workflow default: the secret may be unset and
+          # an empty string must not reach the SDK as a model name.
+          export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-opus-5}"
+          if [[ ! -f "${DELTA_DIR}/license-diff.csv" ]]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "No license-diff.csv in this run; nothing to triage."
+            exit 0
+          fi
+          if [[ ! -f "${STATE_DIR}/osrb-compliance.csv" ]]; then
+            # The stale-inventory gate failed before the comparison ran.
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "No osrb-compliance.csv in this run; nothing to triage."
+            exit 0
+          fi
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          # Snapshot the committed inventory so the commit guard below diffs
+          # exactly what the agent changed, not what the PR changed.
+          cp .github/osrb/inventory.csv "${RUNNER_TEMP}/inventory-before.csv"
+          extra=()
+          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+            # Missing key (e.g. not configured yet) must never fail the job:
+            # fall back to the deterministic pre-pass, which still writes the
+            # full comment minus agent verdicts.
+            echo "ANTHROPIC_API_KEY is not set; running the deterministic pre-pass only."
+            extra+=(--skip-agent)
+          fi
+          python3 .github/osrb/osrb_agent.py \
+            --delta "${DELTA_DIR}/license-diff.csv" \
+            --compliance "${STATE_DIR}/osrb-compliance.csv" \
+            --inventory .github/osrb/inventory.csv \
+            --approved .github/osrb/approved.csv \
+            --conditions .github/osrb/conditions.csv \
+            --comment-out triage-comment.md \
+            --verdicts-out triage-verdicts.json \
+            "${extra[@]}"
+
+      # Auto-commit, guarded. The scan runs on the vetted copy-pr-bot mirror
+      # (see the job comment above for the full trust model) and
+      # validate_inventory_diff limits the writable surface to the license and
+      # risk columns of rows that already existed in .github/osrb/inventory.csv.
+      # Commit only on a clean agent exit (0): exit 2/3 mean the validator
+      # rejected something or the loop was cut off, and a partially-validated
+      # inventory must not be pushed.
+      - name: Commit agent-triaged licences to the mirror branch
+        id: commit
+        if: always() && steps.agent.outcome == 'success' && steps.agent.outputs.skipped == 'false'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .github/osrb/inventory.csv; then
+            echo "Inventory unchanged; nothing to commit."
+            exit 0
+          fi
+          # Deterministic guard, script-side and BEFORE any git write. It is
+          # the agent module's own validate_inventory_diff, re-run in a fresh
+          # process (--check-inventory-diff, exit 2 on violation) so the
+          # workflow does not trust the agent process that produced the diff.
+          # Fail-closed: a guard crash aborts the commit exactly like a
+          # violation.
+          if ! python3 .github/osrb/osrb_agent.py \
+            --check-inventory-diff "${RUNNER_TEMP}/inventory-before.csv" .github/osrb/inventory.csv
+          then
+            {
+              echo "### OSRB triage auto-commit aborted"
+              echo
+              echo "validate_inventory_diff rejected the agent's inventory diff;"
+              echo "nothing was committed. See the 'Commit agent-triaged licences' step log."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=OSRB triage commit aborted::validate_inventory_diff rejected the inventory diff; inventory.csv was not committed."
+            exit 1
+          fi
+          n=$(diff "${RUNNER_TEMP}/inventory-before.csv" .github/osrb/inventory.csv | grep -c '^>' || true)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898024+github-actions[bot]@users.noreply.github.com"
+          git add .github/osrb/inventory.csv
+          # `-s` is mandatory (org DCO), same as skill-eval's adapter commit.
+          git commit -s -m "chore(osrb): agent-triaged licences for ${n} new dependencies"
+          # The agent's checkout had persist-credentials:false, so set the push
+          # credential HERE, in the trusted commit step, scoped to this push.
+          # GITHUB_TOKEN is the job's own contents:write token, never exposed to
+          # the agent step.
+          auth=$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "Pushed inventory update (${n} rows) to ${GITHUB_REF_NAME}."
+
+      # The comment posts on EVERY path through this job — agent success,
+      # validator rejection (exit 2/3, comment already written), agent crash,
+      # or missing inputs (fallback body composed here). Same marker-scan
+      # update-in-place pattern as the license-diff comment in job 1; distinct
+      # marker so the two comments never collide, and distinct from the
+      # internal reviewer's `<!-- hinton-osrb-review -->`.
+      - name: Post or update the triage PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AGENT_OUTCOME: ${{ steps.agent.outcome }}
+          AGENT_SKIPPED: ${{ steps.agent.outputs.skipped }}
+        run: |
+          set -euo pipefail
+          pr="${GITHUB_REF##*/pull-request/}"
+          marker='<!-- osrb-triage -->'
+          {
+            echo "$marker"
+            if [[ -f triage-comment.md ]]; then
+              # Strip the marker if osrb_agent.py already embedded it; it is
+              # prepended above so the scan-for-existing-comment always works.
+              grep -vxF "$marker" triage-comment.md || true
+            else
+              # Fail-safe body: the agent crashed before writing its comment,
+              # or this run produced no CSVs to read. Never silent.
+              echo "## OSRB triage"
+              echo
+              if [[ "${AGENT_SKIPPED}" == "true" ]]; then
+                echo "Triage did not run: this run produced no delta/compliance CSV to read (see the jobs above)."
+              else
+                echo "The triage agent failed before producing a report (outcome: ${AGENT_OUTCOME:-unknown})."
+                echo "The delta gate above is unaffected — it remains the blocking check."
+              fi
+              echo
+              echo "Supersedes the internal OSRB reviewer comment for triage; the OSRB Review check remains the compliance gate until ci-vss-oss retires it."
+              echo
+              echo "[GitHub Actions run](${RUN_URL})"
+            fi
+          } > osrb-triage-comment-body.md
+          existing=$(gh api "repos/${REPO}/issues/${pr}/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id")
+          payload=$(jq -Rsn '{body: input}' < osrb-triage-comment-body.md)
+          if [[ -n "$existing" && "$existing" != "null" ]]; then
+            echo "Updating existing comment $existing"
+            echo "$payload" | gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" --input - > /dev/null
+          else
+            echo "Creating new comment on PR #${pr}"
+            echo "$payload" | gh api -X POST "repos/${REPO}/issues/${pr}/comments" --input - > /dev/null
+          fi
+
+      # Fold the triage outputs into the osrb-compliance artifact — NEVER into
+      # `license-diff`, whose payload is fetched by name by the private GitLab
+      # pipeline (see the job 1 upload comment). v4 artifacts are immutable, so
+      # this re-uploads the downloaded contents plus the triage files with
+      # `overwrite`.
+      - name: Stage triage outputs for the compliance artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/osrb-compliance"
+          for f in triage-comment.md triage-verdicts.json; do
+            if [[ -f "$f" ]]; then
+              cp "$f" "${RUNNER_TEMP}/osrb-compliance/"
+            fi
+          done
+
+      - name: Upload triage outputs into the compliance artifact
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: osrb-compliance
+          path: ${{ runner.temp }}/osrb-compliance
+          overwrite: true
+          if-no-files-found: warn

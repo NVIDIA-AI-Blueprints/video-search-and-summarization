@@ -1568,6 +1568,8 @@ jobs:
         run: |
           python3 .github/osrb/test_osrb_inventory.py
           python3 .github/osrb/test_osrb_compare.py
+          python3 .github/osrb/test_osrb_seed.py
+          python3 .github/osrb/test_osrb_agent.py
 
   # ---------------------------------------------------------------------------
   # Job 13: Trigger downstream pipeline and poll it to completion

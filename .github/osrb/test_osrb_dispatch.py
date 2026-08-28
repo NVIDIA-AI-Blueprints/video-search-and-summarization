@@ -304,5 +304,104 @@ class DispatchTests(unittest.TestCase):
         )
 
 
+class TriageWiringTests(unittest.TestCase):
+    """Wiring assertions for the triage job in osrb-scan.yml.
+
+    The triage agent is report-only by contract: the failure modes worth
+    pinning are the silent ones — the job not running exactly when it is
+    needed, an agent error turning the workflow red, the auto-commit widening
+    past one file, or the triage output leaking into the artifact the private
+    GitLab pipeline fetches by name.
+    """
+
+    @staticmethod
+    def _job() -> str:
+        return SCAN_WORKFLOW.read_text().split("\n  triage:", 1)[1]
+
+    @staticmethod
+    def _step(job: str, name: str) -> str:
+        block = job.split(f"- name: {name}", 1)[1]
+        return block.split("- name:", 1)[0]
+
+    def test_triage_needs_both_pipelines_and_survives_their_failure(self) -> None:
+        """A red delta gate is exactly the run with new dependencies to triage.
+
+        Without `always()`, `needs:` skips this job the moment the osrb-scan
+        job fails — which it does, by design, on every PR that adds a
+        dependency. The triage would then only ever run when it has nothing
+        to say.
+        """
+        job = self._job()
+        self.assertIn("needs: [osrb-scan, dependency-inventory]", job)
+        condition = job.split("if: >-", 1)[1].split("permissions:", 1)[0]
+        self.assertIn("always()", condition)
+        # cancelled is different: a superseded push must not post a stale comment.
+        self.assertIn("needs.osrb-scan.result != 'cancelled'", condition)
+        self.assertIn("needs.dependency-inventory.result != 'cancelled'", condition)
+        # release-branch PRs upload no delta CSV, by design (job 1 skips).
+        self.assertIn("needs.osrb-scan.outputs.skip != 'true'", condition)
+
+    def test_agent_and_commit_failures_cannot_red_the_workflow(self) -> None:
+        """Report-only stage: the delta gate stays the blocking check."""
+        job = self._job()
+        for name in (
+            "Install claude-agent-sdk",
+            "Run the triage agent",
+            "Commit agent-triaged licences to the mirror branch",
+        ):
+            self.assertIn("continue-on-error: true", self._step(job, name), name)
+
+    def test_missing_api_key_degrades_to_skip_agent_never_fails(self) -> None:
+        agent = self._step(self._job(), "Run the triage agent")
+        self.assertIn("--skip-agent", agent)
+        # Shell default, because the secret may be unset: an empty env var
+        # must not reach the SDK as a model name.
+        self.assertIn('ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-opus-5}"', agent)
+
+    def test_comment_posts_on_every_path_with_its_own_marker(self) -> None:
+        job = self._job()
+        post = self._step(job, "Post or update the triage PR comment")
+        self.assertIn("if: always()", post)
+        self.assertIn("<!-- osrb-triage -->", post)
+        # and the job 1 comment keeps its marker — the two must never collide.
+        self.assertIn("<!-- license-diff-osrb -->", SCAN_WORKFLOW.read_text())
+        # Comment lines stripped first: the workflow documents the internal
+        # reviewer's marker on purpose; only live code must never scan for it.
+        live = "\n".join(
+            line for line in job.splitlines() if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn("hinton-osrb-review", live)
+
+    def test_auto_commit_is_guarded_and_touches_only_the_inventory(self) -> None:
+        """The writable surface is two columns of one file, checked before git."""
+        commit = self._step(self._job(), "Commit agent-triaged licences to the mirror branch")
+        self.assertEqual(
+            re.findall(r"^\s*git add (.+)$", commit, re.M),
+            [".github/osrb/inventory.csv"],
+        )
+        # The guard runs before anything is staged; a guard failure aborts.
+        self.assertLess(commit.index("--check-inventory-diff"), commit.index("git add"))
+        # DCO + bot identity, same handling as skill-eval's adapter commit.
+        self.assertIn("git commit -s", commit)
+        self.assertIn('git config user.name "github-actions[bot]"', commit)
+        self.assertIn("chore(osrb): agent-triaged licences for", commit)
+        # Only on a clean agent exit: 2/3 mean rejected/truncated output.
+        self.assertIn("steps.agent.outcome == 'success'", commit)
+
+    def test_triage_uploads_join_compliance_never_the_license_diff_artifact(self) -> None:
+        """The private GitLab pipeline fetches `license-diff` by name; its
+        payload must not change. Triage may only download it."""
+        job = self._job()
+        uploads = job.split("uses: actions/upload-artifact")[1:]
+        self.assertEqual(len(uploads), 1, "triage must upload exactly one artifact")
+        upload = uploads[0].split("- name:", 1)[0]
+        self.assertIn("name: osrb-compliance", upload)
+        # v4 artifacts are immutable: without overwrite the second upload of
+        # the run fails and the triage outputs are silently absent.
+        self.assertIn("overwrite: true", upload)
+        for artifact_file in ("triage-comment.md", "triage-verdicts.json"):
+            self.assertIn(artifact_file, job, artifact_file)
+
+
 if __name__ == "__main__":
     unittest.main()
