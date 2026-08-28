@@ -226,6 +226,17 @@ GPU and NVIDIA Container Toolkit or Kubernetes device plugin on the host, then
 obtain the slice UUID or resource name from `nvidia-smi -L` or `kubectl describe
 node <node-name>`. The selected slice must have sufficient memory for the model.
 
+### Supported platforms and validated configuration
+
+MIG availability, the supported profile geometries, and valid co-placement
+combinations are defined by the GPU and its driver. Consult NVIDIA's
+[Supported MIG Profiles](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-mig-profiles.html)
+before partitioning a GPU; do not infer a profile name or instance count from a
+different platform.
+
+RT-VLM has been validated on the 96 GB **NVIDIA RTX PRO 6000 Blackwell Server
+Edition** with two `MIG 2g.48gb` instances on one physical GPU.
+
 ### VSS Docker Compose profiles
 
 For the VSS deployment Compose manifest at
@@ -243,6 +254,10 @@ RTVI_VLM_NVIDIA_VISIBLE_DEVICES="MIG-<uuid-from-nvidia-smi-L>"
 `RTVI_VLM_NVIDIA_VISIBLE_DEVICES` exposes that same device to CUDA and vLLM.
 Inside the container it is CUDA device `0`. Do not set these MIG values for a
 normal full-GPU deployment.
+
+For a multi-instance deployment, run isolated Compose projects or service
+instances and give each service a different MIG UUID. Do not assign multiple MIG
+UUIDs to one single-GPU RT-VLM service.
 
 ### Standalone Docker Compose
 
