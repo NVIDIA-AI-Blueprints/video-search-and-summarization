@@ -37,7 +37,6 @@ not additional operate inputs:
 | `VSS_PUBLIC_URL` | `global.externalHost`, main Ingress host, `AGENT_BASE_URL`, `VSS_AGENT_EXTERNAL_URL`, and deploy-minted `VST_EXTERNAL_URL` when it equals that origin |
 | `VSS_VIOS_URL` | `${VSS_PUBLIC_URL}/vst` |
 | `VST_API_BASE` | `${VSS_VIOS_URL}/api/v1` — all VIOS `curl` targets |
-| `AGENT_URL` | `${VSS_PUBLIC_URL}` for Kubernetes operate skills |
 | `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` on every profile — RT-VLM is mounted at its service name, never at the origin root |
 | `LVS_BACKEND_URL` / `VIDEO_SUMMARIZATION_URL` | `${VSS_PUBLIC_URL}/lvs` on Kubernetes (the mount, **no** `/v1` suffix); Docker Compose remains `http://${HOST_IP}:38111` |
 | `VSS_STREAMER_URL` | Separate streamer Ingress host (`streamer.<ip>.nip.io`); **not** under `/vst`; search (and other NvStreamer-bearing) profiles only |
@@ -54,7 +53,6 @@ Operate skills may derive these values from the deployment output:
 
 ```bash
 VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-AGENT_URL="${AGENT_URL:-${VSS_PUBLIC_URL}}"
 VSS_VIOS_URL="${VSS_VIOS_URL:-${VSS_PUBLIC_URL}/vst}"
 VST_API_BASE="${VST_API_BASE:-${VSS_VIOS_URL}/api/v1}"
 ```
@@ -97,8 +95,8 @@ RT-VLM:
 
 | Capability | Public endpoint |
 |---|---|
-| Agent readiness (K8s) | `GET ${AGENT_URL}/openapi.json` — prefer this over `/health` on Ingress |
-| Agent API / chat | `${AGENT_URL}/api/...`, `/websocket`, `/chat` |
+| Agent readiness (K8s) | `vss configure check` reports the agent group; raw fallback `GET ${VSS_PUBLIC_URL}/api/v1/videos` — the CLI's own agent probe. `/health` and `/openapi.json` are not readiness endpoints |
+| Agent API / chat | `${VSS_PUBLIC_URL}/api/...`, `/websocket`, `/chat` |
 | VIOS list/inspect/clips | `GET ${VST_API_BASE}/sensor/list`, storage `/url`, replay `/picture` |
 | Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` → `GET …/models`, `POST …/chat/completions` |
 | Phoenix (optional) | `${VSS_PUBLIC_URL}/phoenix` |
@@ -121,9 +119,9 @@ adds archive search and a separate NvStreamer host:
 
 | Capability | Public endpoint |
 |---|---|
-| Agent search (operate) | `POST ${AGENT_URL}/generate` with `{"input_message": "..."}` |
-| Agent ingest/delete | `${AGENT_URL}/api/v1/...` |
-| Agent readiness (K8s) | `GET ${AGENT_URL}/openapi.json` — `/health` is not on search Ingress |
+| Agent search (operate) | `POST ${VSS_PUBLIC_URL}/generate` with `{"input_message": "..."}` |
+| Agent ingest/delete | `${VSS_PUBLIC_URL}/api/v1/...` |
+| Agent readiness (K8s) | `vss configure check` reports the agent group; raw fallback `GET ${VSS_PUBLIC_URL}/api/v1/videos` — `/health` is not on search Ingress and `/openapi.json` is not a readiness endpoint |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list` |
 | Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` → `GET …/models`, `POST …/chat/completions` |
 | Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — edge guard denies PUT/DELETE, cluster-admin and two-segment mutating paths; POST still reaches ES |
@@ -152,7 +150,6 @@ profile:
 | RT-VLM models / chat | `GET ${VSS_PUBLIC_URL}/rtvi-vlm/v1/models`, `POST ${VSS_PUBLIC_URL}/rtvi-vlm/v1/chat/completions` |
 | Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — same edge guard as every other profile |
 | VIOS list/inspect/clips | `GET ${VST_API_BASE}/sensor/list`, storage `/url`, … |
-| Agent OpenAPI | `GET ${AGENT_URL}/openapi.json` — **Agent**, not LVS |
 
 Derive the LVS client base as the **mount**, not the origin:
 
@@ -205,7 +202,7 @@ and VA-MCP (path-rewrite strips the public prefix):
 | VA-MCP health | `GET ${VSS_PUBLIC_URL}/va-mcp/health` (rewritten to `/health`; prefer over `/mcp` or `/`) |
 | VA-MCP | `${VSS_PUBLIC_URL}/va-mcp/mcp` (rewritten to `/mcp`) |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list`, … |
-| Agent OpenAPI / generate | `${AGENT_URL}/openapi.json`, `/generate` — **not** for rule CRUD |
+| Agent generate | `POST ${VSS_PUBLIC_URL}/generate` — **not** for rule CRUD |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate `streamer.*` host |
 
 Derive Alert Bridge and VA-MCP from the **public origin** (force; ignore leftover
@@ -245,7 +242,7 @@ VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss)
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN}"
 DEPLOYMENT=$("${VSS[@]}" configure show)
 
-AGENT_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.base_url')
+VSS_ORIGIN=$(printf '%s' "${DEPLOYMENT}" | jq -er '.base_url')
 VSS_VIOS_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.services.vst.url')
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 ES_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.services.elasticsearch.url')
@@ -305,16 +302,16 @@ above:
 
 ```bash
 : "${VSS_PUBLIC_URL:?Provide the public VSS Ingress origin}"
-AGENT_URL="${VSS_PUBLIC_URL%/}"
-VSS_VIOS_URL="${AGENT_URL}/vst"
+VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 # Resolve VLM_ENDPOINT only with the probe-before-adopt flow above.
 # LVS client base is the /lvs mount (no /v1 suffix) — the bare origin is the
 # UI catch-all; ignore Docker-derived values:
-LVS_BACKEND_URL="${AGENT_URL}/lvs"
+LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
 # Alerts — force public prefixes; ignore leftover Docker :9080 / :9901:
-ALERT_BRIDGE_URL="${AGENT_URL}/alert-bridge"
-VA_MCP_URL="${AGENT_URL}/va-mcp"
+ALERT_BRIDGE_URL="${VSS_PUBLIC_URL}/alert-bridge"
+VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 ```
 
 The public Agent, VIOS (`/vst`), and — when the profile deploys them — RT-VLM
