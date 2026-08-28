@@ -21,18 +21,11 @@
 include:
   - path: ${INFRA_DIR}/compose.yml
 
-# Only the MQTT transport is test-only: the deployment has no equivalent,
-# because behaviour analytics is exercised over MQTT solely in this suite.
+# The MQTT broker is the deployment's own mosquitto service, selected through
+# COMPOSE_PROFILES like every other included service. Only the bridge below is
+# test-only: nothing in the deployment forwards MQTT into Kafka, because
+# behaviour analytics is exercised over MQTT solely in this suite.
 services:
-
-  emqx:
-    image: emqx:latest
-    profiles: ["mqtt"]
-    restart: always
-    container_name: mdx-mqtt-emqx
-    volumes:
-      - mdx-emqx-data:/opt/emqx/data
-      - mdx-emqx-log:/opt/emqx/log
 
   mqtt-kafka-bridge:
     build:
@@ -44,21 +37,7 @@ services:
     depends_on:
       - logstash
     environment:
-      MQTT_HOST: emqx
+      MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       KAFKA_BROKERS: kafka:29092
       KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
-
-volumes:
-  mdx-emqx-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: $MDX_DATA_DIR/data_log/emqx/data
-  mdx-emqx-log:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: $MDX_DATA_DIR/data_log/emqx/log

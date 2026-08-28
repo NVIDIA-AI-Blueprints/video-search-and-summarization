@@ -64,8 +64,9 @@ if [[ "$STREAM_TYPE" = "redis" ]]; then
 else
     COMPOSE_PROFILES="$COMPOSE_PROFILES,kafka,kafka-topic-init-container"
 fi
+# mosquitto is the deployment's broker; mqtt selects this suite's own bridge.
 if [[ "$PROFILE2" = "mqtt" ]]; then
-    COMPOSE_PROFILES="$COMPOSE_PROFILES,mqtt"
+    COMPOSE_PROFILES="$COMPOSE_PROFILES,mosquitto,mqtt"
 fi
 
 # Set PLAYBACK_MODE based on profile: '--playback-from-json' for 'smart_city', empty otherwise
