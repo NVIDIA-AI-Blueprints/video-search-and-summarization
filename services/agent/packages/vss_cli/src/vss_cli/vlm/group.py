@@ -303,8 +303,7 @@ class VlmGroup(CommandGroup):
             # guarded() maps them to the correct exit codes (3/5/7).
             if "vst" not in (deployment.services or {}):
                 raise config_mod.ConfigError(
-                    "--sensor requires the `vst` service in the deployment. "
-                    "Re-run `vss configure --base-url <URL>`."
+                    "--sensor requires the `vst` service in the deployment. Re-run `vss configure --base-url <URL>`."
                 )
             media_url, resolved_start, resolved_end = _resolve_vios_clip(
                 deployment, inputs.sensor, inputs.start_time, inputs.end_time
