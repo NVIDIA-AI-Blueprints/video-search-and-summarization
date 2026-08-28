@@ -7,7 +7,7 @@ cameras:
     label: 1   # CARLA segmentation label (e.g., road)
     carla_map: HQ
     fps: 30
-    geo_position: false # if the given position the in lat/long/alt
+    geo_position: false  # if the given position the in lat/long/alt
 
   - id: cam02
     position: [37.369543551595974, -121.96537133501519, 4]
@@ -18,4 +18,4 @@ cameras:
     carla_map: HQ
     fps: 30
     geo_position: true
-
+    
