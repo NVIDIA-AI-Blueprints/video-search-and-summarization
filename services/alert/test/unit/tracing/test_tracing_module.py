@@ -414,6 +414,84 @@ def test_kafka_duplicate_traceparent_starts_fresh():
         "a case-differing duplicate was accepted"
 
 
+def test_a_standalone_stamp_still_starts_the_root_and_the_cursor():
+    """A mark without its partner is still a mark.
+
+    `earliest_stamp` read only the *start* key of each stage pair, and the
+    duration-only cursor was taken only from stages that drew a span -- which
+    needs both marks. An event carrying a standalone `workerAssignedAt`, the
+    shape the REST and on-demand paths produce, therefore started its root at
+    function-entry time and dropped the VST stages entirely rather than merely
+    placing them late.
+    """
+    import time as _time
+    from datetime import datetime, timezone
+    now = _time.time()
+
+    def iso(t):
+        return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+    # The REST/on-demand shape: the Kafka marks are present but empty.
+    assert spans_mod.earliest_stamp(
+        {"kafkaPublishedAt": None, "kafkaConsumedAt": None,
+         "workerAssignedAt": iso(now - 5)}
+    ) is not None, "a standalone workerAssignedAt did not start the root"
+
+    assert spans_mod.earliest_stamp({"taskStartedAt": iso(now - 3)}) is not None, \
+        "a standalone taskStartedAt did not start the root"
+
+    # The clock-skew refusal still applies to the keys that were added.
+    assert spans_mod.earliest_stamp({"taskStartedAt": iso(now + 9999)}) is None, \
+        "a future stamp was accepted"
+    assert spans_mod.earliest_stamp({}) is None
+
+
+def test_a_standalone_stamp_still_gives_the_duration_stages_a_cursor(exporter):
+    """The other half: a stage needs both marks to be drawn, a cursor does not.
+
+    The duration-only VST stages have no absolute timestamps of their own and
+    are placed by walking forward from the last known mark. That mark used to
+    come only from stages that actually drew a span, which needs a complete
+    pair -- so an event with one standalone stamp lost the VST stages outright
+    instead of merely placing them late.
+    """
+    exp, tracer = exporter
+    h = _handle(tracer)
+    h.close(
+        latency={
+            # No pair completes: the Kafka marks are empty, as on the REST path.
+            "timestamps": {"kafkaPublishedAt": None, "kafkaConsumedAt": None,
+                           "workerAssignedAt": "2026-08-24T00:00:02Z"},
+            "getVideoStreamUrlWithOverlay": {"success": True, "duration": 1.5},
+        },
+        message={"info": {"verdict": "confirmed"}},
+    )
+    names = [s.name for s in exp.get_finished_spans()]
+    assert "Kafka Consume Lag" not in names, "a pair was drawn from empty marks"
+    assert "VST Video URL Resolution (overlay)" in names, (
+        f"the VST stage was dropped for want of a cursor; got {names}"
+    )
+
+
+def test_a_future_stamp_does_not_become_the_cursor(exporter):
+    """Clock skew must not place a reconstructed stage ahead of its parent."""
+    import time as _time
+    from datetime import datetime, timezone
+    ahead = datetime.fromtimestamp(_time.time() + 86400, timezone.utc)
+    exp, tracer = exporter
+    h = _handle(tracer)
+    h.close(
+        latency={
+            "timestamps": {"workerAssignedAt": ahead.strftime("%Y-%m-%dT%H:%M:%SZ")},
+            "getVideoStreamUrlWithOverlay": {"success": True, "duration": 1.5},
+        },
+        message={"info": {"verdict": "confirmed"}},
+    )
+    assert "VST Video URL Resolution (overlay)" not in [
+        s.name for s in exp.get_finished_spans()
+    ], "a stamp from the future was accepted as the cursor"
+
+
 def test_inject_is_noop_without_active_span():
     assert ctx_mod.inject_traceparent({}) == {}
 

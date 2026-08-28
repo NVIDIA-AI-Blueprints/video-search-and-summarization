@@ -89,6 +89,18 @@ _DURATION_STAGES: Tuple[Tuple[str, str], ...] = (
     ("VST Video URL Resolution (no overlay)", "getVideoStreamUrlWithoutOverlay"),
 )
 
+# Every absolute mark the pipeline stamps, in order. _TIMESTAMP_STAGES pairs
+# these into spans; this is the flat view, and the two are not interchangeable:
+# a stamp can be present without its partner, and reading only the pair starts
+# meant a standalone workerAssignedAt or taskStartedAt was invisible.
+_ABSOLUTE_STAMPS: Tuple[str, ...] = (
+    "kafkaPublishedAt",
+    "kafkaConsumedAt",
+    "workerAssignedAt",
+    "taskDispatchedAt",
+    "taskStartedAt",
+)
+
 # `latency['timestamps']` accepts both spellings: camelCase is current, snake_case
 # survives in older documents and in-flight events during a rolling deploy.
 _SNAKE = {
@@ -161,12 +173,12 @@ def earliest_stamp(timestamps: Optional[Mapping[str, Any]]) -> Optional[float]:
     if not timestamps:
         return None
     now = time.time()
-    for _, start_key, _ in _TIMESTAMP_STAGES:
+    for key in _ABSOLUTE_STAMPS:
         # Through _timestamp, not timestamps.get: the snake_case fallback is the
         # spelling the sync path uses, and reading the dict directly meant a
         # snake_case event got no start_time and its three pre-entry children
         # rendered left of their own parent again.
-        value = _timestamp(timestamps, start_key)
+        value = _timestamp(timestamps, key)
         if value is not None and value <= now:
             return value
     return None
@@ -268,7 +280,17 @@ def build_historical_children(span, latency: Optional[Mapping[str, Any]], tracer
         # mark, so their start times are accumulated forward. This is a
         # reconstruction, not an independent measurement — a future contributor
         # should not mistake these boundaries for wall-clock marks.
+        #
+        # The cursor comes from the stamps themselves, not only from stages that
+        # emitted a span. A stage needs both its marks to be drawn, so keying the
+        # cursor off `last_absolute` alone meant an event carrying a standalone
+        # workerAssignedAt drew no pair, left the cursor unset, and lost the VST
+        # stages entirely rather than merely placing them late.
         cursor = last_absolute
+        for key in _ABSOLUTE_STAMPS:
+            mark = _timestamp(timestamps, key)
+            if mark is not None and mark <= time.time():
+                cursor = max(cursor or mark, mark)
         for name, key in _DURATION_STAGES:
             entry = latency.get(key)
             if not isinstance(entry, Mapping):
