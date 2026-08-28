@@ -42,13 +42,13 @@ metadata:
     # (see the basePath / rootUrl / routePrefix values) and are not rewritten.
     haproxy.org/path-rewrite: |
 {{- if $analyticsEnabled }}
-      /video-analytics-api/(.*) /\1
+      ^/video-analytics-api/(.*) /\1
 {{- end }}
 {{- if $behaviorEnabled }}
-      /behavior-analytics/(.*) /\1
+      ^/behavior-analytics/(.*) /\1
 {{- end }}
 {{- if $nvstreamerEnabled }}
-      /streamer/(.*) /\1
+      ^/streamer/(.*) /\1
 {{- end }}
       ^/storage/(.*) /vst/storage/\1
       {{- /* /vios aliases /vst and is rewritten onto it, not stripped:
