@@ -122,8 +122,21 @@ The cleaner needs **root**. Gate on sudo the same way the SKILL.md pre-flight do
 if sudo is passwordless, run it; otherwise **do not** run it under automation —
 surface the command and let the user run it once, then resume.
 
+**Pass the Foundation's checked-in env file, not `_builds/<name>/override.env`.**
+The cleaner keys its blueprint-specific cleanup off the env file's *pathname* —
+a `warehouse` build additionally leaves generated VIOS assets
+(`services/vios/configs/{Top.png,calibration.json,labels.txt}`) that are only
+removed when that path contains `industry-profiles/warehouse-operations`.
+`_builds/<name>/override.env` never does, so passing it silently skips them.
+`_builds/` is this skill's own artifact; the cleaner is a shared deploy script,
+so the skill adapts to its interface rather than the reverse.
+
+The build's `VSS_DATA_DIR` / `VSS_APPS_DIR` still have to win over the
+placeholders the checked-in files ship (`/path/to/...`). Export them: the
+cleaner's `load_env()` saves both before sourcing and restores them afterwards,
+so a pre-set value always beats the file's.
+
 ```bash
-# Use the build-specific path and data values that produced resolved.yml.
 BUILD_DIR="$REPO/_builds/<name>"
 ENV_FILE="$BUILD_DIR/override.env"
 [ -f "$ENV_FILE" ] || {
@@ -131,12 +144,33 @@ ENV_FILE="$BUILD_DIR/override.env"
   exit 1
 }
 
+FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$ENV_FILE")"
+case "$FOUNDATION" in
+  warehouse) CLEAN_ENV="$REPO/deploy/docker/industry-profiles/warehouse-operations/.env" ;;
+  *)         CLEAN_ENV="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION/.env" ;;
+esac
+
+# Take the effective paths from the build, stripping any surrounding quotes.
+DATA="$(sed -n 's/^VSS_DATA_DIR=//p' "$ENV_FILE" | tr -d "\"'")"
+APPS="$(sed -n 's/^VSS_APPS_DIR=//p' "$ENV_FILE" | tr -d "\"'")"
+
 # Sudo gate: passwordless sudo → run it; otherwise surface the exact command for
 # the user to run once (don't run privileged cleanup under non-interactive sudo).
+# `sudo env VAR=...` rather than `sudo VAR=...`: sudo's env_reset drops inline
+# assignments unless the sudoers policy grants SETENV.
 if sudo -n true 2>/dev/null; then
-  sudo bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" --env-file "$ENV_FILE"
+  sudo env VSS_DATA_DIR="$DATA" VSS_APPS_DIR="$APPS" \
+    bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" --env-file "$CLEAN_ENV"
 else
   echo "sudo needs a password — run this once and confirm, then resume:"
-  echo "  sudo bash $REPO/deploy/docker/scripts/cleanup_all_datalog.sh --env-file $ENV_FILE"
+  echo "  sudo env VSS_DATA_DIR=$DATA VSS_APPS_DIR=$APPS \\"
+  echo "    bash $REPO/deploy/docker/scripts/cleanup_all_datalog.sh --env-file $CLEAN_ENV"
 fi
 ```
+
+On a `warehouse` build, confirm the blueprint-specific block actually ran — the
+output must include `Deleting warehouse VST config:` lines for the three
+generated assets. Their absence means the wrong env file was passed.
+
+Run this **before** deleting `_builds/<name>/`: the block above reads
+`VSS_DATA_DIR`, `VSS_APPS_DIR` and `FOUNDATION` out of the build override.

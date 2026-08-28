@@ -15,41 +15,23 @@ Never copy or edit the Foundation files. Generate the exact deployment model
 from the root Compose graph, optional changed-service patches, and four ordered
 env layers:
 
-```bash
-REPO="$(git rev-parse --show-toplevel)"
-BUILD_DIR="$REPO/_builds/<name>"
-FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
-FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
+**Run the Resolve block in [`composition.md`](composition.md#resolve) verbatim.**
+It is the single source of truth for this step; do not reconstruct it from
+memory here. It previously existed in two copies and they drifted — this one
+hardcoded a `dev-profile-$FOUNDATION` Foundation directory and omitted the
+warehouse steps entirely, so a `warehouse` build followed to the letter pointed
+at a nonexistent `dev-profile-warehouse/` and baked the `<HOST_IP>` sentinel
+into every rendered stream config.
 
-if command -v uv >/dev/null 2>&1; then
-  VSS_SKILL_PY=(uv run)
-elif python3 - <<'PY' >/dev/null 2>&1
-import yaml
-PY
-then
-  VSS_SKILL_PY=(python3)
-else
-  echo "Install uv or install PyYAML for python3 before normalizing resolved.yml." >&2
-  exit 1
-fi
+What that block does, and why each part matters:
 
-env_args=(
-  --env-file "$REPO/deploy/docker/containers.env"
-  --env-file "$FOUNDATION_DIR/.env"
-  --env-file "$FOUNDATION_DIR/overrides.env"
-  --env-file "$BUILD_DIR/override.env"
-)
-
-docker compose "${env_args[@]}" \
-  -f "$BUILD_DIR/compose.yml" \
-  config --no-consistency > "$BUILD_DIR/resolved.yml"
-
-"${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \
-  "$BUILD_DIR/resolved.yml"
-
-"${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/validate_resolved_yml.py" \
-  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
-```
+| Step | Applies to | Consequence of skipping |
+|---|---|---|
+| Establish `VSS_SKILL_PY` (`uv run`, else `python3`) **before** any script call | every build | a `uv`-less host that passed prerequisites dies on the first helper script |
+| Select `FOUNDATION_DIR` by `case` — `industry-profiles/warehouse-operations` for `warehouse`, `developer-profiles/dev-profile-<F>` otherwise | every build | wrong or missing env layers; `warehouse` has no `dev-profile-` directory |
+| `render_warehouse_configurator_env.py` **before** `docker compose config` | `warehouse` | `bp-configurator-<mode>` reads the checked-in `overrides.env` and bakes `HOST_IP='<HOST_IP>'` |
+| `normalize_resolved_yml.py`, then `validate_resolved_yml.py` | every build | dangling optional deps and stale sentinels reach deployment |
+| `validate_warehouse_env.py` | `warehouse` | `MODE`/`BP_PROFILE`/`FOUNDATION_VARIANT`/dataset/broker mismatches fail at bring-up or silently at runtime |
 
 Write `resolved.yml` with the `>` redirect exactly as shown — see `composition.md`
 for how to keep Compose's stderr out of the file. Act on that stderr rather than

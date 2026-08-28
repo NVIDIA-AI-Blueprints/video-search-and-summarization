@@ -9,8 +9,21 @@ host setup, and deployment procedure are owned by
 `overrides.env` defines further service lists; only the nine below are
 selectable here. Anything else routes to `vss-deploy-profile`.
 
-Prefer expanding the selected variant unchanged. Deltas are permitted but
-floor-guarded — see [`../composition.md`](../composition.md).
+**Warehouse is variant selection, not composition.** Pick the one
+`COMPOSE_PROFILES_WH_*` list that `MODE` + `BP_PROFILE` + size identify, expand
+it verbatim, and deploy it. Do not add, remove or prune service keys, and do not
+treat another Foundation as a starting point: each list is a validated
+combination, and the delta rules in [`../composition.md`](../composition.md)
+apply to developer profiles only. To change the shape of a deployment, select a
+different variant.
+
+This file is self-contained for warehouse. It carries the env layers, build
+artifacts and resolve pipeline below, and shares the rest of the skill's
+machinery by reference: [`../prerequisites.md`](../prerequisites.md),
+[`../credentials.md`](../credentials.md), [`../ngc.md`](../ngc.md),
+[`../data-directory.md`](../data-directory.md),
+[`../readiness.md`](../readiness.md), [`../deployment.md`](../deployment.md) and
+[`../teardown.md`](../teardown.md) all apply unchanged.
 
 ## Capabilities and routing cues
 
@@ -77,11 +90,11 @@ its absence from the service list is not a defect.
 |---|---|
 | `MODE`, `BP_PROFILE`, `STREAM_TYPE` | Select the variant. These three pick the `COMPOSE_PROFILES_WH_*` list; they are not free-form. |
 | `SAMPLE_VIDEO_DATASET`, `NUM_STREAMS` | Must match each other and the variant — see Hard constraints. |
-| `HARDWARE_PROFILE` | Selects perception tuning in `blueprint-configurator/blueprint_config.yml` and LLM NIM sizing. Not validated by Compose; an unrecognized value silently matches no tuning section. |
+| `HARDWARE_PROFILE` | Selects perception tuning in `blueprint-configurator/blueprint_config.yml` and LLM NIM sizing, including the per-mode stream ceiling in [`../sizing.md`](../sizing.md). Not validated by Compose; the configurator only uppercases it, so an unrecognized value (including a spacing or hyphenation variant such as `IGX THOR`) silently matches no tuning section. |
 | `VSS_APPS_DIR`, `VSS_DATA_DIR` | Ship as `/path/to/…` sentinels — always set both. Their closure is listed in [`../composition.md`](../composition.md). |
 | `RT_CV_DEVICE_ID` (0), `RT_VLM_DEVICE_ID` (1), `LLM_DEVICE_ID` (2) | GPU layout. |
 | `LLM_MODE`, `LLM_NAME`, `LLM_NAME_SLUG`, `LLM_BASE_URL` | `bp_wh` + `MODE=2d` only; `none` everywhere else. For `remote`, `LLM_BASE_URL` is the endpoint root **without** a trailing `/v1` — the agent config appends it. |
-| `VLM_MODE`, `VLM_NAME_SLUG` | Keep both `none`. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM path. |
+| `VLM_MODE`, `VLM_NAME_SLUG` | Keep both `none`. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM path, and remote VLM is not wired end to end on the Docker path — see below. |
 | `VSS_RT_CV_TAG` | Must be `sbsa`-tagged when `HARDWARE_PROFILE=DGX-SPARK`. |
 | `BP_CONFIGURATOR_ENV_FILE` | Point at the build's generated `configurator.env`. Without it the configurator reads the checked-in `overrides.env` and bakes the `<HOST_IP>` sentinel — see [`../services/configurator.md`](../services/configurator.md). |
 | `NVSTREAMER_<MODE>_CONFIG_DIR`, `TURN_PUBLIC_HOST` | Easily-missed closure members. `TURN_PUBLIC_HOST` derives from `HOST_IP` only transitively, through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`. |
@@ -103,6 +116,31 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
 | `MODE=3d` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
 
+### Remote VLM is exposed but not wired (Docker path)
+
+`VLM_MODE=remote` looks supported and is not. `blueprint-deploy.sh
+--use-remote-vlm` (2D + `bp_wh` only) sets `VLM_BASE_URL`,
+`RTVI_VLM_ENDPOINT=${VLM_BASE_URL}/v1` and `RTVI_VLM_MODEL_PATH=none`, but it
+never switches the two selectors that decide which backend serves the request:
+
+| Knob | Warehouse default | Remote needs | Set by `--use-remote-vlm`? |
+|---|---|---|---|
+| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | `openai-compat` | no |
+| `VLM_MODEL_TYPE` | `rtvi` | non-`rtvi` | only if `--vlm-model-type` is passed explicitly |
+
+Both live in `industry-profiles/warehouse-operations/overrides.env`. The result
+is a deployment that starts cleanly and keeps routing through the local RT-VLM
+proxy against a model path of `none`. The same backend-selection bug was fixed
+for **Helm only** in
+[NVIDIA-AI-Blueprints/video-search-and-summarization#1501](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/pull/1501);
+the Docker warehouse path was not updated, and no warehouse end-to-end run has
+validated remote VLM — the validated remote configuration is **remote LLM with
+local RT-VLM**, which is unaffected and remains supported.
+
+`scripts/validate_warehouse_env.py` therefore rejects any non-`none` `VLM_MODE`
+or `VLM_NAME_SLUG`. Lift that rule only once the Docker path sets both
+selectors.
+
 ### Calibration is already in the repo
 
 The shipped sample datasets **need no calibration run**. Each carries a
@@ -123,6 +161,120 @@ name. `scripts/validate_warehouse_env.py` fails the build when it is missing.
 
 `import-calibration-output-container-<mode>` (extended lists only) imports
 calibration into the analytics store; it does not produce calibration.
+
+## Build and resolve
+
+### Env layers
+
+Warehouse resolves from the industry-profile directory, not a `dev-profile-*`
+one. Four ordered layers, later overriding earlier:
+
+```text
+deploy/docker/containers.env
+deploy/docker/industry-profiles/warehouse-operations/.env
+deploy/docker/industry-profiles/warehouse-operations/overrides.env
+_builds/<name>/override.env
+```
+
+### Build artifacts
+
+```text
+_builds/<name>/
+├── override.env
+├── compose.yml
+├── configurator.env       # generated, never hand-edited
+└── resolved.yml
+```
+
+`override.env` carries `FOUNDATION=warehouse`, `FOUNDATION_VARIANT=<the
+COMPOSE_PROFILES_WH_* name>`, the expanded literal `COMPOSE_PROFILES` (never a
+`${...}` reference to the baseline), the variant knobs above, and the
+dependent-value closure below. `FOUNDATION_VARIANT` must be the variant `MODE` +
+`BP_PROFILE` select; `scripts/validate_warehouse_env.py` enforces that pairing.
+
+`compose.yml` appends the shared TURN relay overlay that every warehouse
+deployment needs. It is an in-tree shared file, not a build-local patch, so it
+belongs in the include path list:
+
+```yaml
+include:
+  - path:
+      - ../../deploy/docker/compose.yml
+      - ../../deploy/docker/services/infra/compose-no-turn-tcp-relay.yml
+```
+
+`configurator.env` exists because `bp-configurator-<mode>` does **not** read its
+environment through Compose interpolation. It declares
+
+```yaml
+env_file:
+  - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/.../.env}
+  - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/.../overrides.env}
+```
+
+so with those knobs unset it loads the **checked-in** files directly, bypassing
+`--env-file` layering entirely — `override.env` cannot reach it, and the pristine
+`HOST_IP='<HOST_IP>'` sentinel is baked into the container that renders every
+stream and hardware config. Generate the file and point
+`BP_CONFIGURATOR_ENV_FILE` at it from `override.env`. Regenerate it whenever
+`override.env` changes.
+
+### Dependent-value closure
+
+Compose expands each env file as it is read, so a value derived in an earlier
+layer is **not** recomputed when a later layer changes its input. Materialize the
+full closure in `override.env`, and follow references **transitively** — `HOST_IP`
+reaches `TURN_PUBLIC_HOST` only through two hops, so a single-level scan for
+`${HOST_IP}` misses it and the build bakes the sentinel into
+`streamprocessing-ms-<mode>`.
+
+| Change | Also re-materialize |
+|---|---|
+| `HOST_IP` | `EXTERNAL_IP` → `VSS_PUBLIC_HOST` → `TURN_EXTERNAL_IP`, `TURN_PUBLIC_HOST` |
+| `MODE` | `SDR_CONTROLLER_CONFIG_PATH`, `NVSTREAMER_<MODE>_CONFIG_DIR` — both embed the mode |
+| `VSS_APPS_DIR` | `SDR_CONTROLLER_CONFIG_PATH`, `SENSOR_FILE_PATH`, `NVSTREAMER_2D_CONFIG_DIR`, `NVSTREAMER_3D_CONFIG_DIR`, `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` |
+
+`overrides.env` ships `VSS_APPS_DIR` and `VSS_DATA_DIR` as `/path/to/...`
+placeholders — always set both. A missed closure member surfaces as a
+`<HOST_IP>` or `/path/to/deploy/docker` sentinel in `validate_resolved_yml.py`.
+
+### Resolve
+
+Run from the repository root, after the helper-runner preamble in
+[`../composition.md`](../composition.md) sets `VSS_SKILL_PY` and `SCRIPTS`.
+
+```bash
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+FOUNDATION_DIR="$REPO/deploy/docker/industry-profiles/warehouse-operations"
+
+# BEFORE `config`: materialize the configurator's env_file.
+"${VSS_SKILL_PY[@]}" "$SCRIPTS/render_warehouse_configurator_env.py" \
+  "$BUILD_DIR" --repo-root "$REPO"
+
+docker compose \
+  --env-file "$REPO/deploy/docker/containers.env" \
+  --env-file "$FOUNDATION_DIR/.env" \
+  --env-file "$FOUNDATION_DIR/overrides.env" \
+  --env-file "$BUILD_DIR/override.env" \
+  -f "$BUILD_DIR/compose.yml" \
+  config --no-consistency > "$BUILD_DIR/resolved.yml"
+
+"${VSS_SKILL_PY[@]}" "$SCRIPTS/normalize_resolved_yml.py" "$BUILD_DIR/resolved.yml"
+"${VSS_SKILL_PY[@]}" "$SCRIPTS/validate_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
+"${VSS_SKILL_PY[@]}" "$SCRIPTS/validate_warehouse_env.py" \
+  "$BUILD_DIR" --repo-root "$REPO"
+```
+
+Only stdout may reach `resolved.yml` — never merge stderr into it. Deploy the
+resolved file standalone: `config` bakes the env layers in, so pass no
+`--env-file` to `up`, `ps` or `down`.
+
+`validate_warehouse_env.py` enforces what `resolved.yml` structurally cannot:
+`MODE`, `BP_PROFILE`, `HARDWARE_PROFILE` and `SAMPLE_VIDEO_DATASET` appear in no
+service `environment:` block. Its rules fail at bring-up or silently at runtime,
+never at `config` time.
 
 ## Stock readiness checks
 

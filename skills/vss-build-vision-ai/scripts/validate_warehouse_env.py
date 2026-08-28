@@ -21,6 +21,7 @@ import re
 import sys
 from pathlib import Path
 
+
 # (dataset, allowed (mode, bp_profile) pairs, expected NUM_STREAMS)
 DATASETS = {
     "nv-warehouse-4cams": ({("2d", "bp_wh")}, 4),
@@ -37,20 +38,38 @@ DATASETS = {
 MODES = {"2d", "3d"}
 BP_PROFILES = {"bp_wh", "bp_wh_kafka", "bp_wh_redis"}
 
-# The service lists this skill supports. overrides.env defines others; selecting
-# one of those is a routing error, so the check is an allowlist rather than a
-# denylist -- a list added upstream is rejected until it is reviewed here.
-IN_SCOPE_VARIANTS = {
-    "COMPOSE_PROFILES_WH_2D",
-    "COMPOSE_PROFILES_WH_KAFKA_2D",
-    "COMPOSE_PROFILES_WH_REDIS_2D",
-    "COMPOSE_PROFILES_WH_KAFKA_3D",
-    "COMPOSE_PROFILES_WH_REDIS_3D",
-    "COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL",
-    "COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL",
-    "COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL",
-    "COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL",
+# The service lists this skill supports, keyed by the (MODE, BP_PROFILE) pair
+# that selects them. overrides.env defines others; selecting one of those is a
+# routing error, so the check is an allowlist rather than a denylist -- a list
+# added upstream is rejected until it is reviewed here.
+#
+# The pair is load-bearing, not decoration. FOUNDATION_VARIANT records which
+# baseline the build expanded, while MODE/BP_PROFILE/STREAM_TYPE drive the
+# runtime wiring; nothing downstream reconciles them. BP_PROFILE=bp_wh_kafka
+# against the exact COMPOSE_PROFILES_WH_REDIS_2D list resolves cleanly and boots
+# healthy with no kafka service at all, because the redis lists carry no kafka
+# key -- so the mismatch has to fail here.
+VARIANT_MATRIX = {
+    ("2d", "bp_wh"): {"COMPOSE_PROFILES_WH_2D"},
+    ("2d", "bp_wh_kafka"): {
+        "COMPOSE_PROFILES_WH_KAFKA_2D",
+        "COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL",
+    },
+    ("2d", "bp_wh_redis"): {
+        "COMPOSE_PROFILES_WH_REDIS_2D",
+        "COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL",
+    },
+    ("3d", "bp_wh_kafka"): {
+        "COMPOSE_PROFILES_WH_KAFKA_3D",
+        "COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL",
+    },
+    ("3d", "bp_wh_redis"): {
+        "COMPOSE_PROFILES_WH_REDIS_3D",
+        "COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL",
+    },
 }
+
+IN_SCOPE_VARIANTS = {v for variants in VARIANT_MATRIX.values() for v in variants}
 
 # Services every warehouse list carries that no capability names. The
 # forward-closure prune in composition.md must not remove them.
@@ -157,6 +176,20 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
             f"FOUNDATION_VARIANT={variant!r} is not a service list this skill "
             f"supports; use one of {sorted(IN_SCOPE_VARIANTS)}"
         )
+    elif variant and mode in MODES and bp in BP_PROFILES:
+        # In-scope alone is not enough: the variant must be the one this
+        # (MODE, BP_PROFILE) pair selects. A mismatch deploys a coherent list
+        # for the *other* pair -- every container healthy, the broker the
+        # runtime expects absent.
+        allowed = VARIANT_MATRIX.get((mode, bp), set())
+        if variant not in allowed:
+            errors.append(
+                f"FOUNDATION_VARIANT={variant!r} does not match MODE={mode} + "
+                f"BP_PROFILE={bp}, which selects "
+                f"{sorted(allowed) if allowed else 'no supported list'}. "
+                "The mismatched list resolves and boots healthy while wiring a "
+                "different broker than the runtime expects"
+            )
 
     # 1/3. bp_wh is 2d-only.
     if bp == "bp_wh" and mode == "3d":
@@ -206,6 +239,23 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
     if bp in {"bp_wh", "bp_wh_kafka"} and stream_type not in {"", "kafka"}:
         errors.append(f"BP_PROFILE={bp} requires STREAM_TYPE=kafka, got {stream_type!r}")
 
+    # 6b. The selected broker must actually be in the service list. The env
+    # knobs above only state intent; COMPOSE_PROFILES decides what runs. A
+    # kafka-brokered build whose list carries no `kafka` key starts clean and
+    # drops every metadata record on the floor.
+    if profiles and bp in {"bp_wh", "bp_wh_kafka"} and "kafka" not in profiles:
+        errors.append(
+            f"BP_PROFILE={bp} brokers metadata over Kafka, but COMPOSE_PROFILES "
+            "contains no 'kafka' key. Perception publishes to a broker that was "
+            "never deployed: containers stay healthy and no metadata is delivered"
+        )
+    if profiles and bp == "bp_wh_redis" and "kafka" in profiles:
+        warnings.append(
+            "BP_PROFILE=bp_wh_redis brokers metadata over Redis, but "
+            "COMPOSE_PROFILES contains 'kafka'. No redis baseline carries a "
+            "kafka key, so the list does not match the selected variant"
+        )
+
     # 7. Local LLM needs a sizing file for this hardware profile.
     if env.get("LLM_MODE") == "local":
         slug = env.get("LLM_NAME_SLUG", "")
@@ -224,12 +274,33 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
                 f"got MODE={mode!r} + BP_PROFILE={bp!r}"
             )
 
-    # 8. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM.
+    # 8. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM,
+    # and the Docker path does not support pointing that VLM at a remote
+    # endpoint either. `VLM_MODE=remote` is *exposed* -- blueprint-deploy.sh
+    # takes --use-remote-vlm, sets VLM_BASE_URL/RTVI_VLM_ENDPOINT and
+    # RTVI_VLM_MODEL_PATH=none -- but it never switches the two selectors that
+    # decide which backend actually serves the request:
+    #
+    #   RTVI_VLM_MODEL_TO_USE  stays 'cosmos-reason3' (remote needs 'openai-compat')
+    #   VLM_MODEL_TYPE         stays 'rtvi', so the agent keeps routing through
+    #                          the misconfigured local RT-VLM proxy
+    #
+    # Both are set in industry-profiles/warehouse-operations/overrides.env and
+    # neither is touched by --use-remote-vlm. The equivalent backend-selection
+    # bug was fixed for Helm only (NVIDIA-AI-Blueprints/video-search-and-summarization#1501);
+    # the Docker warehouse path was not updated, and no warehouse end-to-end run
+    # has validated remote VLM. Rejecting it here fails fast on a knob that
+    # looks supported and is not. Revisit when the Docker path sets both
+    # selectors -- see references/profiles/warehouse.md.
     for key in ("VLM_MODE", "VLM_NAME_SLUG"):
         if env.get(key, "none") != "none":
             errors.append(
                 f"{key}={env.get(key)!r} must be 'none' on warehouse; "
-                "the blueprint uses the integrated RTVI VLM, not the standalone VLM NIM"
+                "the blueprint uses the integrated RTVI VLM, not the standalone "
+                "VLM NIM, and the Docker warehouse path does not wire a remote "
+                "VLM end to end (RTVI_VLM_MODEL_TO_USE stays 'cosmos-reason3' "
+                "instead of 'openai-compat' and VLM_MODEL_TYPE stays 'rtvi', so "
+                "requests still route through the local RT-VLM proxy)"
             )
 
     # 9. Variant provenance, and the infra floor the prune must not remove.
@@ -242,22 +313,10 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
                 f"FOUNDATION_VARIANT={variant!r} is not defined in "
                 f"{(foundation_dir / 'overrides.env').name}"
             )
-        elif profiles:
-            # Report the delta rather than forbid it -- a delta is expected to
-            # differ from its baseline; that is what makes it a delta.
-            base_keys = {k for k in baseline.split(",") if k}
-            current = set(profiles)
-            added, removed = sorted(current - base_keys), sorted(base_keys - current)
-            if added or removed:
-                warnings.append(
-                    f"COMPOSE_PROFILES differs from {variant}: "
-                    f"+{added or '[]'} -{removed or '[]'}. Expected for a delta; "
-                    "confirm it is intentional for a stock deploy"
-                )
 
-    # 9b. Mode coherence: a key whose mode token contradicts MODE is a defect,
-    # not a delta. This is the one silent-wrong-data-plane failure the floor
-    # check cannot see.
+    # 9b. Mode coherence: a key whose mode token contradicts MODE means the list
+    # was edited or the wrong variant expanded. This is the one
+    # silent-wrong-data-plane failure the other checks cannot see.
     if profiles and mode in MODES:
         mismatched = {}
         for key in profiles:
