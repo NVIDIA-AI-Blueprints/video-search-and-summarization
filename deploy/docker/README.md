@@ -375,6 +375,10 @@ env once the date is known:
 VSS_GATEWAY_LEGACY_SUNSET="Wed, 01 Jul 2026 00:00:00 GMT"
 ```
 
+Leaving it empty (`VSS_GATEWAY_LEGACY_SUNSET=`) is the same as not setting it:
+the header is simply absent. Unset it rather than blanking it if you prefer,
+but neither form can take the gateway down.
+
 Nothing but the headers changes: same status, body, routing and timeouts, so a
 client that works today keeps working. The aliases emit nothing, and neither
 does `/storage` nor the `host:port` `/vst` compat route — both rewrite into

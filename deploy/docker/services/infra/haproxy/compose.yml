@@ -64,8 +64,10 @@ services:
       # /alert-bridge and /lvs prefixes, e.g. "Wed, 01 Jul 2026 00:00:00 GMT".
       # Written with no value on purpose: that passes the variable through only
       # when the operator actually set one, where `${VAR:-}` would define it as
-      # an empty string and emit a blank Sunset. haproxy.cfg.template guards the
-      # rule with `.if defined(...)`, so unset means the header is absent.
+      # an empty string. An empty value is not merely a blank header -- HAProxy
+      # refuses to parse an empty quoted argument and the gateway does not start
+      # -- so haproxy.cfg.template guards the rule on the value being non-empty
+      # rather than on the variable existing.
       VSS_GATEWAY_LEGACY_SUNSET:
       VSS_UI_SERVICE_HOST: ${VSS_UI_SERVICE_HOST:-vss-ui}
       VSS_UI_PORT: ${VSS_UI_PORT:-3000}
