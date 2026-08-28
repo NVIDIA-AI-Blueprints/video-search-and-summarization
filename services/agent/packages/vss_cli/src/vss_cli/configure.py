@@ -23,6 +23,7 @@ from datetime import UTC
 from datetime import datetime
 import json
 from typing import Any
+from typing import NoReturn
 
 import click
 
@@ -98,6 +99,16 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     if not base_url:
         raise click.UsageError("--base-url is required (or use `vss configure show`)")
 
+    # Without a scheme httpx refuses to build the request, so every route comes
+    # back "absent" with an UnsupportedProtocol detail and the summary blames
+    # the ingress -- pointing at the deployment when the fault is the argument.
+    # Assume http and say so, rather than guessing silently or failing on
+    # something whose intent is unambiguous. Checked on "://" and not urlparse:
+    # urlparse reads "localhost:7777" as scheme "localhost", path "7777".
+    if "://" not in base_url:
+        base_url = f"http://{base_url}"
+        click.echo(f"no scheme given, assuming {base_url}", err=True)
+
     services: dict[str, config_mod.Service] = {}
     click.echo(f"probing {base_url}", err=True)
     for name, route in config_mod.INGRESS_SERVICES.items():
@@ -126,6 +137,7 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     deployment = config_mod.Deployment(
         base_url=base_url.rstrip("/"),
         services=services,
+        memory=_configured_memory_or_none(),
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     path = config_mod.save(deployment)
@@ -148,6 +160,165 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         )
 
 
+def _configured_memory_or_none() -> config_mod.MemoryConfig | None:
+    """Preserve valid static memory policy when deployment routes are refreshed."""
+    try:
+        return config_mod.load().memory
+    except config_mod.ConfigError:
+        return None
+
+
+def _memory_config_error(message: str) -> NoReturn:
+    click.echo(f"vss configure memory: configuration error: {message}", err=True)
+    raise SystemExit(int(Exit.CONFIGURATION))
+
+
+def _memory_backend_error(message: str) -> NoReturn:
+    click.echo(f"vss configure memory: backend unreachable: {message}", err=True)
+    raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
+
+
+def _load_memory_deployment() -> config_mod.Deployment:
+    try:
+        return config_mod.load()
+    except config_mod.ConfigError as error:
+        _memory_config_error(str(error))
+        raise AssertionError("unreachable") from error
+
+
+def _require_memory_config(deployment: config_mod.Deployment) -> config_mod.MemoryConfig:
+    memory_config = deployment.memory
+    if memory_config is None:
+        _memory_config_error(
+            "memory is not configured; run `vss configure memory --enable --backend elasticsearch --index vss-memory`"
+        )
+    return memory_config
+
+
+def _check_memory_backend(
+    deployment: config_mod.Deployment,
+    memory_config: config_mod.MemoryConfig,
+    *,
+    timeout: float = _PROBE_TIMEOUT_SECONDS,
+) -> str:
+    """Read Elasticsearch indices without creating or changing records."""
+    import httpx
+
+    endpoint = deployment.endpoint_or_none("elasticsearch")
+    if not endpoint:
+        _memory_config_error(
+            "the configured deployment exposes no Elasticsearch route; "
+            f"run `vss configure --base-url {deployment.base_url}` after exposing Elasticsearch"
+        )
+    try:
+        response = httpx.get(
+            f"{endpoint.rstrip('/')}/_cat/indices?h=index&format=json",
+            timeout=timeout,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as error:
+        _memory_backend_error(
+            f"Elasticsearch at {endpoint} did not answer; check the service, then run `vss configure memory check` ({error})"
+        )
+    return f"Elasticsearch reachable at {endpoint}; authoritative index={memory_config.index}"
+
+
+@configure.group(name="memory", invoke_without_command=True)
+@click.option("--enable/--disable", "enabled", default=None, help="Enable or disable the memory subsystem.")
+@click.option("--backend", default=None, help="Authoritative structured-memory backend (elasticsearch only).")
+@click.option("--index", default=None, help="Authoritative Elasticsearch memory index.")
+@click.option(
+    "--persist-by-default/--no-persist-by-default",
+    default=None,
+    help="Whether job-producing commands persist automatically.",
+)
+@click.option("--markdown/--no-markdown", "markdown_enabled", default=None, help="Enable the Markdown cache sink.")
+@click.option("--harness", default=None, help="Markdown memory harness (openclaw only).")
+@click.option("--workspace", default=None, help="Absolute OpenClaw workspace path.")
+@click.option(
+    "--write-notes-by-default/--no-write-notes-by-default",
+    default=None,
+    help="Whether persisted jobs write compact Markdown notes by default.",
+)
+@click.pass_context
+def configure_memory(
+    ctx: click.Context,
+    enabled: bool | None,
+    backend: str | None,
+    index: str | None,
+    persist_by_default: bool | None,
+    markdown_enabled: bool | None,
+    harness: str | None,
+    workspace: str | None,
+    write_notes_by_default: bool | None,
+) -> None:
+    """Configure static VSS memory infrastructure and persistence policy."""
+    if ctx.invoked_subcommand is not None:
+        return
+    deployment = _load_memory_deployment()
+    current = deployment.memory or config_mod.MemoryConfig()
+    current_markdown = current.markdown
+    candidate = config_mod.MemoryConfig(
+        enabled=current.enabled if enabled is None else enabled,
+        backend=current.backend if backend is None else backend,
+        index=current.index if index is None else index,
+        persist_by_default=current.persist_by_default if persist_by_default is None else persist_by_default,
+        markdown=config_mod.MarkdownMemoryConfig(
+            enabled=current_markdown.enabled if markdown_enabled is None else markdown_enabled,
+            harness=current_markdown.harness if harness is None else harness,
+            workspace=current_markdown.workspace if workspace is None else workspace,
+            write_by_default=current_markdown.write_by_default
+            if write_notes_by_default is None
+            else write_notes_by_default,
+        ),
+    )
+    try:
+        candidate.validate()
+        path = config_mod.save(
+            config_mod.Deployment(
+                base_url=deployment.base_url,
+                services=deployment.services,
+                memory=candidate,
+                written_at=deployment.written_at,
+            )
+        )
+    except config_mod.ConfigError as error:
+        _memory_config_error(str(error))
+    click.echo(f"wrote memory configuration to {path}", err=True)
+
+
+@configure_memory.command(name="show")
+def show_memory() -> None:
+    """Print only the effective static memory configuration."""
+    deployment = _load_memory_deployment()
+    memory_config = _require_memory_config(deployment)
+    click.echo(json.dumps(memory_config.to_json(), indent=2))
+
+
+@configure_memory.command(name="check")
+def check_memory() -> None:
+    """Validate static memory policy and read-only backend reachability."""
+    deployment = _load_memory_deployment()
+    memory_config = _require_memory_config(deployment)
+    try:
+        memory_config.validate()
+    except config_mod.ConfigError as error:
+        _memory_config_error(str(error))
+    if not memory_config.enabled:
+        _memory_config_error("memory is disabled; run `vss configure memory --enable`")
+    click.echo(_check_memory_backend(deployment, memory_config))
+    if memory_config.markdown.enabled:
+        try:
+            from vss_core.memory import OpenClawDailyNoteStore
+
+            OpenClawDailyNoteStore(memory_config.markdown.workspace or "")
+        except (ImportError, ValueError) as error:
+            _memory_config_error(
+                f"Markdown memory workspace is invalid; re-run `vss configure memory --workspace /absolute/path` ({error})"
+            )
+        click.echo(f"OpenClaw Markdown cache enabled at {memory_config.markdown.workspace}/memory/YYYY-MM-DD-vss.md")
+
+
 @configure.command("show")
 def show() -> None:
     """Print the recorded deployment."""
@@ -156,6 +327,39 @@ def show() -> None:
     except config_mod.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(json.dumps(deployment.to_json(), indent=2))
+
+
+def _command_availability(deployment: config_mod.Deployment) -> list[tuple[str, bool, str]]:
+    """Which command groups this deployment can actually serve.
+
+    Requirements are static per action, and what the deployment exposes is
+    already recorded, so this needs no probe. It exists because neither half
+    is useful alone: `configure show` says what you have, `--help` says what a
+    command needs, and nobody wants to do the join by hand.
+    """
+    from . import plugins
+
+    # A group's requirements are unioned across its actions on purpose: a
+    # partially-available group is a trap. `search` reporting "available"
+    # because one retrieval path happens to work invites a caller to use the
+    # group and fail on the path they actually wanted. Available means the
+    # whole surface is.
+    rows: list[tuple[str, bool, str]] = []
+    for ref in plugins.discover():
+        try:
+            spec = plugins.load(ref.name)
+        except Exception:
+            continue
+        requires: set[str] = set()
+        for action in getattr(spec, "actions", ()) or ():
+            requires |= set(getattr(action, "requires", frozenset()))
+        requires |= set(getattr(spec, "requires", frozenset()) or frozenset())
+        # A group declaring nothing -- `configure` itself -- always works.
+        missing = sorted(r for r in requires if not deployment.has(r))
+        rows.append((ref.name, not missing, ", ".join(sorted(requires)) if requires else "-"))
+        if missing:
+            rows[-1] = (ref.name, False, f"needs {', '.join(missing)}")
+    return sorted(rows)
 
 
 @configure.command("check")
@@ -180,6 +384,13 @@ def check() -> None:
         ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
         click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
         stale = stale or not ok
+    rows = _command_availability(deployment)
+    if rows:
+        click.echo("", err=True)
+        click.echo("commands:")
+        for name, ok, detail in rows:
+            click.echo(f"  {name:<14} {'available' if ok else 'unavailable':<12} {detail}")
+
     if stale:
         raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
 

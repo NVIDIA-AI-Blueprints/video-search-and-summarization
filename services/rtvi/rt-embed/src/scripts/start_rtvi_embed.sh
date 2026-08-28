@@ -117,12 +117,6 @@ if [ "$DISABLE_DECODER_REUSE" == "true" ]; then
     echo "Disabling decoder reuse"
 fi
 
-if [ -f /etc/nv_tegra_release ]; then
-    if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
-        export LD_LIBRARY_PATH="/opt/nvidia/via/lib:${LD_LIBRARY_PATH}"
-    fi
-fi
-
 GPU_MEM=0
 if [[ $NUM_GPUS -gt 0 ]]; then
     GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}')
@@ -132,6 +126,15 @@ if [[ $GPU_MEM == *"N/A"* ]]; then
     GPU_MEM=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 fi
 echo "Total GPU memory is $GPU_MEM MiB per GPU"
+
+# Tegra runtime libraries are valid only on Thor/Jetson.  Do not expose them
+# on SBSA: they override the Spark driver libraries used by nvidia-smi.
+if [ -f /etc/nv_tegra_release ]; then
+    export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra:${LD_LIBRARY_PATH}"
+    if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
+        export LD_LIBRARY_PATH="/opt/nvidia/via/lib:${LD_LIBRARY_PATH}"
+    fi
+fi
 
 if [[ $GPU_MEM -le 50000 ]]; then
     if [[ -z "${VLLM_GPU_MEMORY_UTILIZATION}" ]]; then

@@ -65,6 +65,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # GitLab Master rejects regular blobs > 5 MiB. Scoped to services/,
+      # libs/, tools/ (mirror-sync). LFS pointers are small in git and pass.
+      - name: Files >5 MiB under services/ libs/ tools/ must be Git LFS
+        run: bash .github/scripts/check_large_files_lfs.sh --all
+
       # One diff resolution answering several path questions. A second step
       # would have to re-resolve the same base, which is how the two gates
       # drifted apart last time.
@@ -88,8 +93,8 @@ jobs:
           )
 
           # Folders that warrant a downstream acceptance run on their own.
-          # Image sources are absent by design: a container source change
-          # surfaces as trigger-from-new-image once the image is built, and
+          # Image sources are absent by design: a container source change is
+          # already picked up by the per-image source_path check, and
           # containers this repo does not build cannot invalidate a deployed
           # artifact from a source edit alone.
           DOWNSTREAM_TRIGGER_PATHS = ["deploy"]
@@ -475,6 +480,7 @@ jobs:
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
             .github/skill-eval/tests/test_leg_timing.py \
+            .github/skill-eval/tests/test_leg_report.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
@@ -539,7 +545,7 @@ jobs:
             packages/vss_core/src/vss_core/critic \
             packages/vss_core/src/vss_core/search_core \
             packages/vss_core/src/vss_core/vlm \
-            packages/vss_core/src/vss_core/vst \
+            packages/vss_core/src/vss_core/vios \
             packages/vss_cli/src/vss_cli
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
@@ -570,7 +576,7 @@ jobs:
           import vss_core.critic
           import vss_core.search_core
           import vss_core.vlm
-          import vss_core.vst
+          import vss_core.vios
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
           assert "nvidia-vss-core" in installed
@@ -583,7 +589,7 @@ jobs:
           assert importlib.util.find_spec("torch") is None
           assert importlib.util.find_spec("vss_agents") is None
           assert vss_core.critic is not None and vss_core.search_core is not None
-          assert vss_core.vlm is not None and vss_core.vst is not None
+          assert vss_core.vlm is not None and vss_core.vios is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
 
@@ -1467,11 +1473,12 @@ jobs:
 
       - name: Unit-test the downstream GHCR candidate reporter
         run: |
-          python3 .github/scripts/test_update_pr_ghcr_candidates.py
+          python3 .github/scripts/test_github_build_run.py
           python3 .github/scripts/test_prepare_downstream_release_set.py
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
+          python3 .github/scripts/test_cancel_stale_pr_ci.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
@@ -1495,8 +1502,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 140
     outputs:
-      trigger-from-new-image: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
-      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
       run-downstream: ${{ steps.release-set.outputs.run_downstream }}
     permissions:
       actions: read
@@ -1520,16 +1525,8 @@ jobs:
             --attempts 520 \
             --interval-seconds 15 \
             --repo-root . \
-            --before "${{ github.event.before }}" \
-            --release-set-output downstream-release-set.json
+            --before "${{ github.event.before }}"
 
-      - name: Upload downstream release-set handoff
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: downstream-release-set
-          path: downstream-release-set.json
-          if-no-files-found: error
-          retention-days: 1
 
   # ---------------------------------------------------------------------------
   # Job 12: OSRB dispatch wiring
@@ -1616,18 +1613,11 @@ jobs:
           mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
           rm -rf .source-artifact
 
-      - name: Download completed GHCR release set
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: downstream-release-set
-          path: .downstream-release-set
-
       - name: Prepare GHCR release-set handoff
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 .github/scripts/prepare_downstream_release_set.py \
-            --release-set .downstream-release-set/downstream-release-set.json
+          python3 .github/scripts/prepare_downstream_release_set.py
 
       - name: Trigger pipeline
         id: trigger
@@ -1642,9 +1632,3 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400"  # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
-
-      - name: Update PR with downstream-validated GHCR candidates
-        if: startsWith(github.ref_name, 'pull-request/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/update_pr_ghcr_candidates.py

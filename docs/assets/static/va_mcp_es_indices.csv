@@ -1,0 +1,7 @@
+Index Pattern,Description,Key Fields
+incidents-*,Incidents data,"sensorId, timestamp, end, place, category, type, info"
+vlm-incidents-*,VLM-verified incidents,"Same as incidents, info.verdict"
+behavior-*,Object behavior metrics,"speed, direction, distance, timeInterval, sensor.id, place"
+frames-*,Frame data,"sensorId, timestamp, fov (nested: type, count)"
+calibration-*,Sensor and configuration metadata,"calibration.sensors with id, place"
+

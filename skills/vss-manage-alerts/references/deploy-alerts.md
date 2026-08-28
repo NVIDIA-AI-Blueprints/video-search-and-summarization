@@ -1,10 +1,10 @@
 # Deployment Reference: Alert Microservice
 
-Deployment-time contract for the `alert-bridge` microservice (the **Alert Microservice**, formerly "Alert Verification" / "Alert Bridge"; image/container identifiers unchanged — `vss-alert-verification` / `vss-alert-bridge`). Pairs with `integrate-alerts.md`. The component-services allow-list and Step 6.5 patch specifics live in `vss-build-vision-agent/references/patch-alerts.md`.
+Deployment-time contract for the `alert-bridge` microservice (the **Alert Microservice**, formerly "Alert Verification" / "Alert Bridge"; image/container identifiers unchanged — `vss-alert-verification` / `vss-alert-bridge`). Pairs with `integrate-alerts.md`. The component-services allow-list and Step 6.5 patch specifics live in `vss-build-vision-ai/references/patch-alerts.md`.
 
 ## Container Image
 
-> **Source of truth — read it from the compose, do not hardcode.** The `alert-bridge` image is declared **inline** in the `image:` field of the `alert-bridge` service in `deploy/docker/services/alert/compose.yml` — it is **not** parameterized by an env var (there is no `ALERT_*_IMAGE_TAG` in `dev-profile-alerts/.env`). When `build-vision-agent` copies/patches that compose into `<BUILD_DIR>/patched/`, the image string comes along verbatim, so there is nothing to fold into the generated `.env`. To read the current value:
+> **Source of truth — read it from the compose, do not hardcode.** The `alert-bridge` image is declared **inline** in the `image:` field of the `alert-bridge` service in `deploy/docker/services/alert/compose.yml` — it is **not** parameterized by an env var (there is no `ALERT_*_IMAGE_TAG` in `dev-profile-alerts/.env`). When `build-vision-ai` copies/patches that compose into `<BUILD_DIR>/patched/`, the image string comes along verbatim, so there is nothing to fold into the generated `.env`. To read the current value:
 >
 > ```bash
 > # authoritative image:tag for this deployment

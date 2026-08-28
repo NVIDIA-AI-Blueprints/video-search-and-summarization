@@ -11,6 +11,12 @@
       "org": "nvidia",
       "sourcePath": "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx",
       "destPath": "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+    },
+    {
+      "model": "nvidia/tao/reidentificationnet:deployable_v1.0",
+      "org": "nvidia",
+      "sourcePath": "reidentificationnet_vdeployable_v1.0/resnet50_market1501.etlt",
+      "destPath": "rtdetr-its/resnet50_market1501.etlt"
     }
   ]
 }

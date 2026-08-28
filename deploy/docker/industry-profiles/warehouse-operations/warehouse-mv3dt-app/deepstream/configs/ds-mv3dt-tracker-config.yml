@@ -1,4 +1,17 @@
-%YAML:1.0
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 BaseConfig:
   minDetectorConfidence: 0.266
@@ -9,32 +22,52 @@ TargetManagement:
   enableBboxUnClipping: 1
   preserveStreamUpdateOrder: 0
   maxTargetsPerStream: 200
-  minIouDiff4NewTarget: 0.33485659954800495
-  minTrackerConfidence: 0.6019478047482886
+  minIouDiff4NewTarget: 0.3
+  minTrackerConfidence: 0.6
   probationAge: 17
-  maxShadowTrackingAge: 131
+  maxShadowTrackingAge: 150
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
+
+TrajectoryManagement:
+  useUniqueID: 0
+  enableReAssoc: 1
+  minMatchingScore4Overall: 0.95
+  minTrackletMatchingScore: 0.3
+  minMatchingScore4ReidSimilarity: 0
+  matchingScoreWeight4TrackletSimilarity: 0.8
+  matchingScoreWeight4ReidSimilarity: 0
+  minTrajectoryLength4Projection: 34
+  prepLength4TrajectoryProjection: 58
+  trajectoryProjectionLength: 33
+  maxAngle4TrackletMatching: 67
+  minSpeedSimilarity4TrackletMatching: 0.06
+  minBboxSizeSimilarity4TrackletMatching: 0.1
+  maxTrackletMatchingTimeSearchRange: 27
+  trajectoryProjectionProcessNoiseScale: 0.01
+  trajectoryProjectionMeasurementNoiseScale: 100
+  trackletSpacialSearchRegionScale: 0.01
+  reidExtractionInterval: 0
 
 DataAssociator:
   dataAssociatorType: 0
   associationMatcherType: 1
-  minMatchingScore4Overall: 0.5082953005836124
-  minMatchingScore4SizeSimilarity: 0.009643993655030297
-  minMatchingScore4Iou: 0.11557371329518315
-  matchingScoreWeight4SizeSimilarity: 0.5084913673983223
-  matchingScoreWeight4Iou: 0.3494256836722713
-  tentativeDetectorConfidence: 0.7745249596202076
-  minMatchingScore4TentativeIou: 0.42388480686796887
-  minMatchingScore4PeerAssocIou: 0.6955557941537551
+  minMatchingScore4Overall: 0.5
+  minMatchingScore4SizeSimilarity: 0.1
+  minMatchingScore4Iou: 0.25
+  matchingScoreWeight4SizeSimilarity: 0.2
+  matchingScoreWeight4Iou: 0.6
+  tentativeDetectorConfidence: 0.8
+  minMatchingScore4TentativeIou: 0.25
+  minMatchingScore4PeerAssocIou: 0.25
 
 StateEstimator:
   stateEstimatorType: 4
-  processNoiseVar4Loc: 56.29654177092754
-  processNoiseVar4Size: 96.07257407264093
-  processNoiseVar4Vel: 84.56030088053706
-  measurementNoiseVar4Detector: 78.43805173471176
-  measurementNoiseVar4Tracker: 82.2705749896136
+  processNoiseVar4Loc: 56.3
+  processNoiseVar4Size: 96.1
+  processNoiseVar4Vel: 84.6
+  measurementNoiseVar4Detector: 78.4
+  measurementNoiseVar4Tracker: 82.3
 
 PoseEstimator:
   poseEstimatorType: 1
@@ -70,7 +103,7 @@ MultiViewAssociator:
   maxPeerTrackletSize: 30
   recentlyActiveAge: 150
   minCommonFrames4MatchScore: 15
-  minPeerTrackletMatchScore: 0.5
+  minPeerTrackletMatchScore: 0.25
   minPeerVisibility4Fusion: 0.1
   maxPeerToPredDistance4Fusion: 2.0
   maxTrackletMatchingTimeSearchRange: 5

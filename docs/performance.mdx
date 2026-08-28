@@ -1,0 +1,27 @@
+---
+title: "Performance"
+description: ""
+position: 2
+---
+
+This section documents benchmark results for the VSS Real-Time Video Intelligence microservices.
+All benchmarks were measured on VSS 3.2 with validated NVIDIA GPU platforms. Use these numbers
+to size GPU infrastructure for your deployment and to understand the performance trade-offs
+between models, use cases, and GPU platforms.
+
+## Agent Workflows
+
+| Agent Workflow | Page | What Is Measured |  |  |
+| --- | --- | --- | --- | --- |
+| Alert Verification | [performance-alert-verification](/performance-alert-verification) | - End-to-end latency and verified alert throughput for live RTSP alert verification | RT-DETR and GDINO with CR3 across RTX PRO 4500, RTX PRO 6000, DGX H100 SXM, DGX Spark, and AGX Thor | VLM precision (BF16, FP8, NVFP4) and stream-concurrency scaling characteristics |
+| Video Summarization | [performance-lvs](/performance-lvs) | - E2E latency vs. video length (1 min–12 hr) | Burst max concurrency at target avg latency (1, 5, 10 min videos) | CR2-8B FP8 across H100, RTX Pro 6000 SE, and L40S |
+| Search | [performance-search](/performance-search) | - E2E mean and P90 latency vs. concurrent query load (1–50) | Per-stage latency breakdown on H100 and RTX Pro 6000 SE | Video ingestion latency |
+
+## Microservices
+
+| Microservice | Page | What Is Measured |  |  |  |  |
+| --- | --- | --- | --- | --- | --- | --- |
+| Real-Time CV (RT-CV) | [performance-rt-cv](/performance-rt-cv) | - Maximum concurrent 1080p streams per GPU | RT-DETR (Resnet50 and EfficientViT/L2) and Grounding DINO models | Latency-sensitive and throughput-maximizing operating modes |  |  |
+| Real-Time VLM (RT-VLM) | [performance-rt-vlm](/performance-rt-vlm) | - Maximum concurrent streams and chunk latency for live RTSP streams | Total latency and throughput for pre-recorded video file processing | Alerting (OSL=1) and captioning (OSL=100) use cases | Cosmos3 Nano Reasoner via vLLM |  |
+| Real-Time Embedding (RT-Embedding) | [performance-rt-embed](/performance-rt-embed) | - Maximum concurrent streams for live RTSP video embedding | Video and text embedding throughput and latency in request mode | File embedding latency vs. video length | Cosmos-Embed1, FP16, TensorRT |  |
+| VIOS | [performance-vios](/performance-vios) | - RTSP and WebRTC stream profiling (GPU/CPU utilization) | Max concurrent streams per replica on L40 and H100 | Single-stream and concurrent video-download latency (H.264 and H.265) | Single-stream and concurrent picture API latency | RTX PRO 6000 Blackwell benchmarks with and without transcoding |

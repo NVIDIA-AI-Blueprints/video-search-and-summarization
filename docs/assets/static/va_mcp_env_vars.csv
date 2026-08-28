@@ -1,0 +1,4 @@
+Variable,Description
+HOST_IP,Host IP for Elasticsearch
+VSS_ES_PORT,Elasticsearch port
+

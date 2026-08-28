@@ -126,6 +126,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::string getstate(const std::string& peerid);
         bool isPlaying();
         bool getError() { return m_error; }
+        /* True once this decoder has been told to stop delivering frames. The
+         * flag is only cleared by building a pipeline, so a stopped decoder that
+         * is still in the pool would silently drop every frame for a viewer that
+         * attached to it. DecoderPool checks this before handing one out. */
+        [[nodiscard]] bool isStopped() const { return m_stop; }
         void setResolution(int width, int height) override;
         void setDecoderStride(int stride_y, int stride_u, int stride_v) override;
 
@@ -135,7 +140,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         int createSwDecodePipeline ();
         void setQuality(const std::string&, const std::string& quality);
         void setQuality(const std::string&, const std::string& quality, int width, int height);
-        void removeConsumer(const std::string&);
+        /* A pooled decoder can have a viewer which has acquired ownership but
+         * has not yet attached its sink. In that short interval the pool
+         * removes a departing sink without stopping frame delivery. All
+         * ordinary callers retain the existing stop-on-last-consumer behavior. */
+        void removeConsumer(const std::string&, bool stopWhenUnused = true);
         std::map<std::string, std::shared_ptr<VideoSinkInfo>, std::less<>> getWebrtcBroacasterList() { return m_videoSinkList; }
         bool isCreated() { return (m_pipeline != nullptr); }
         void setError() { m_error = true; };
@@ -195,7 +204,14 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         void addFrameTs(int64_t ts);
         void setEOS();
         void setOptions(const std::map<std::string, std::string, std::less<>> &opts);
-        int getVideoSinkListSize() { return m_videoSinkList.size(); }
+        /* Number of viewers currently attached to this decoder. Load bearing:
+         * DecoderPool uses this to decide whether a shared decoder still has
+         * an audience, so it must be read under m_videoSinkLock. */
+        [[nodiscard]] size_t getVideoSinkListSize()
+        {
+            std::lock_guard<std::mutex> lock(m_videoSinkLock);
+            return m_videoSinkList.size();
+        }
         std::vector<VideoFileInfo> getActiveFileList() { return m_fileNameArray; }
 #ifdef UNIT_TEST
         void setPeerid(const string& peer_id);

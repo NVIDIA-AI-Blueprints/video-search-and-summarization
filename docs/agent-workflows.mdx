@@ -1,0 +1,18 @@
+---
+title: "Agent Workflows"
+description: ""
+position: 1
+---
+**Agent workflows** are end-to-end use cases which define how the VSS Agent processes requests and coordinates between microservices. Each workflow is optimized for a specific use case.
+
+These workflows are demonstrated through specific **Developer Profiles**, which are docker compose deployments which demonstrate the assembly of various VSS microservices to fulfill specific agent workflows.
+
+**Available Workflows**
+
+| Workflow | Developer Profile | Description |
+| --- | --- | --- |
+| [Q&A and Report Generation (Quickstart) ](/quickstart) | `base` | Video retrieval, VLM-based Q&A, and report generation on short video clips |
+| [Alert Verification ](/agent-workflow-alert-verification) | `alerts` | Realtime processing of videos using perception (object detection, tracking) and behavior analytics to generate alerts, which are subsequently verified with VLM to reduce false positives |
+| [Real-Time Alert ](/agent-workflow-rt-alert) | `alerts` | Continuous processing of video streams through VLM for anomaly detection |
+| [Video Search ](/agent-workflow-search) | `search` | Natural language search across video archives using video embeddings (alpha) |
+| [Video Summarization ](/agent-workflow-lvs) | `lvs` | Analysis and summarization of extended video recordings through chunking and aggregation of dense captions |

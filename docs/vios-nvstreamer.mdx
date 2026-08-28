@@ -1,0 +1,107 @@
+---
+title: "NVStreamer"
+description: ""
+position: 2
+---
+## Introduction
+
+NVStreamer is an NVIDIA developer software that enables storing and serving of video files that can then be streamed using the RTSP protocol. It is particularly useful for testing with VIOS, as it provides an alternative means to cameras for creating video sources as input to VIOS. Specifically, it provides a mechanism to test specific video files as VIOS inputs. VIOS can be configured to receive RTSP streams as if they were originating from an ONVIF-S camera.
+
+NVStreamer provides an option to either upload the videos from webUI or read the videos from the local file system. The local video files can be mounted inside the NVStreamer container and it will start streaming the video files.
+
+## NVStreamer Dashboard
+
+Open a web browser (we suggest Chrome) and navigate to this address (on the same system or another one on the same network):
+
+**http://[NVStreamer-IP]:31000**
+
+<Note>
+HTTP, (not HTTPS) where [NVStreamer-IP] is the host IP address on the local network (you can use ifconfig on the terminal to verify the IP).
+</Note>
+
+The following UX will open, you can see the all the available video streams and corresponding RTSP URLs like below.
+
+![NVStreamer Dashboard](/assets/images/vios/Nvstreamer-Dashboard.png)
+
+## Uploading Videos to NVStreamer
+
+To upload videos from the web UI:
+
+1. Click on the **Media Upload** tab on the left sidebar.
+2. Drag and drop the videos to upload, or click to select videos from your file system.
+3. Monitor the upload progress - a green progress line will appear at the bottom left.
+4. Once complete, the file name will appear in gray.
+5. An RTSP stream will be automatically created with the file name.
+6. Check the [NVStreamer Dashboard](/vios-nvstreamer#nvstreamer-dashboard) to see the new RTSP stream.
+
+![NVStreamer File Upload](/assets/images/vios/Nvstreamer-Upload.png)
+
+## Streaming Videos from NVStreamer
+
+To stream videos using webRTC:
+
+1. Navigate to the **Streams** tab on the left sidebar.
+2. All uploaded videos will be listed in the [NVStreamer Dashboard](/vios-nvstreamer#nvstreamer-dashboard).
+3. Select the video you want to stream.
+4. The video will begin streaming via webRTC.
+
+![NVStreamer Streams](/assets/images/vios/Nvstreamer-Streams.png)
+
+## Remove Files
+
+To remove files from NVStreamer:
+
+1. Go to the **Management** tab in the UI.
+2. Select the **Delete files** option.
+3. Select the file from the dropdown menu.
+4. Click the **Delete** button.
+
+![NVStreamer Delete File](/assets/images/vios/Nvstreamer-Delete-File.png)
+
+## NVStreamer Configuration
+
+### Configure the UI base path
+
+By default, NVStreamer serves its UI at `http://[NVStreamer-IP]:31000/`, and the UI sends REST API requests without a path prefix, such as `/api/v1/live/streams`. Leave `NVSTREAMER_UI_BASE_PATH` unset or set it to an empty value to preserve this behavior.
+
+To expose the NVStreamer UI and its REST APIs through a reverse proxy at a path prefix, set `NVSTREAMER_UI_BASE_PATH` when the NVStreamer container starts. For example:
+
+```bash
+NVSTREAMER_UI_BASE_PATH=/nvstreamer
+```
+
+With this value, use `http://[NVStreamer-IP]:31000/nvstreamer/` as the public UI URL. The UI prefixes its REST API requests with the same path, for example `/nvstreamer/api/v1/live/streams`.
+
+<Info>
+Configure the reverse proxy to route requests under `/nvstreamer` to NVStreamer and strip that prefix before forwarding them. For example, the public request `/nvstreamer/api/v1/live/streams` must reach NVStreamer as `/api/v1/live/streams`. If the proxy does not perform this routing and prefix removal, the prefixed UI and API requests fail.
+
+This setting applies only to the UI hosted by NVStreamer. It does not change the VIOS UI served through VIOS ingress.
+</Info>
+
+### Synchronize Streaming of Videos
+
+NVStreamer provides a mechanism to synchronize the streaming of videos. This is useful for testing with VIOS, as it provides an alternative means to cameras for creating video sources which are synchronized with each other with respect to time.
+
+To enable synchronized streaming:
+
+1. Set the config parameter `nv_streamer_sync_file_count` to specify the number of files to sync with respect to each other.
+2. Ensure all files to be synced have the same encoding attributes (resolution, frame rate, bitrate, duration).
+3. If files have different encoding attributes, use the following `ffmpeg` commands to standardize them:
+
+   a. Cut the video to make the duration the same:
+
+      ```bash
+      ffmpeg -i input.mp4 -t 10 output.mp4
+      ```
+
+   b. Remove bframes and modify key-intervals:
+
+      ```bash
+      ffmpeg -i input.mp4 -vcodec libx264 -crf 25 -x264opts "bframes=0:keyint=30" output.mp4
+      ```
+
+4. Upload the standardized files to NVStreamer.
+
+### NVStreamer Config Parameters
+
+Following table describes the parameters in NVStreamer config file:

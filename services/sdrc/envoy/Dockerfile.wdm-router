@@ -45,7 +45,7 @@ RUN apt-get update && \
 
 # Install uv via PyPI (avoid ghcr.io — Blossom CI often TLS-timeouts on GitHub Container Registry).
 RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - && \
-    pip3 install --no-cache-dir --timeout 120 "setuptools==78.1.1" "wheel>=0.46.2" "uv==0.11.24"
+    pip3 install --no-cache-dir --timeout 120 "setuptools==78.1.1" "wheel>=0.46.2" "uv==0.11.26"
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends gawk bison gcc make && \
@@ -83,8 +83,8 @@ RUN rm -rf /wdm
 # jinja2 + ruamel.yaml are required at container start by
 # generate_envoy_config_xds_mw.py (run via system python3, not the venv).
 RUN python3 -m pip install --no-cache-dir jinja2==3.1.4 "ruamel.yaml==0.18.6" && \
-    python3 -m pip uninstall -y setuptools wheel pip && \
-    rm -rf /root/.cache/uv /root/.cache/pip
+    python3 -m pip uninstall -y uv setuptools wheel pip && \
+    rm -rf /root/.cache/uv /root/.cache/pip /usr/local/bin/uv /usr/local/bin/uvx
 RUN apt-get remove gawk bison gcc make -y && \
     apt autoremove -y
 

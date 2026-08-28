@@ -19,6 +19,7 @@ from collections.abc import AsyncGenerator
 from enum import StrEnum
 import json
 import logging
+import re
 from typing import Any
 from typing import Literal
 
@@ -46,6 +47,50 @@ logger = logging.getLogger(__name__)
 
 GENERATE_CAPTIONS_ENDPOINT = "/v1/generate_captions"
 CAPTION_GENERATION_STARTED_MESSAGE = "Caption generation started. Please try again later."
+LVS_CONFIG_MEDIA_TOOL_NAME = "lvs_config_media"
+LVS_CONFIG_MEDIA_BLOCKED_MESSAGE = (
+    "lvs_config_media was not executed. Caption generation starts only after the user "
+    'explicitly replies with "start captioning <stream_name>" (or "set up stream" / '
+    '"configure stream"). Surface any not_configured caption prompt and stop; do not '
+    "open HITL on this turn."
+)
+# Phrases that count as an explicit user request to start LVS caption generation.
+_CAPTION_GENERATION_REQUEST_RE = re.compile(
+    r"(?i)\b(?P<trigger>start\s+captioning|set\s+up\s+stream|configure\s+stream)\b",
+)
+# Any of these in the same sentence as the trigger counts as a refusal,
+# including prefix forms and post-trigger retractions
+# ("start captioning CAM_1, but actually don't").
+_CAPTION_GENERATION_NEGATION_RE = re.compile(
+    r"(?i)\b(?:do\s+not|don't|dont|does\s+not|doesn't|doesnt|"
+    r"never|cannot|can't|cant|won't|wont|not)\b",
+)
+
+
+def _sentence_containing(user_text: str, trigger_start: int, trigger_end: int) -> str:
+    """Return the sentence that contains the trigger match."""
+    last_break = -1
+    for index, char in enumerate(user_text[:trigger_start]):
+        if char in ".!?":
+            last_break = index
+    next_break = len(user_text)
+    for index, char in enumerate(user_text[trigger_end:], start=trigger_end):
+        if char in ".!?":
+            next_break = index
+            break
+    return user_text[last_break + 1 : next_break]
+
+
+def user_requested_caption_generation(user_text: str | None) -> bool:
+    """Return True when the current user turn explicitly asks to start captions."""
+    if not user_text or not user_text.strip():
+        return False
+    for match in _CAPTION_GENERATION_REQUEST_RE.finditer(user_text):
+        sentence = _sentence_containing(user_text, match.start(), match.end())
+        if _CAPTION_GENERATION_NEGATION_RE.search(sentence):
+            continue
+        return True
+    return False
 
 
 class LVSMediaStatus(StrEnum):
@@ -283,6 +328,8 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
 
     async def _lvs_config_media(lvs_input: LVSConfigMediaInput) -> LVSConfigMediaOutput:
         """
+        Do NOT call this tool for "summarize", "describe", "give a summary of", or "report" requests — those route to `lvs_stream_understanding`, `lvs_video_understanding`, or `report_agent`. This tool opens a HITL modal; calling it on a summarize query is always wrong.
+
         Set up a live stream for LVS caption generation.
 
         Trigger: call this tool ONLY when the user explicitly asks to start caption

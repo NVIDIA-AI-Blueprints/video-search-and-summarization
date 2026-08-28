@@ -44,6 +44,17 @@ app.kubernetes.io/name: {{ include "vss-rtvi-embed.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{- define "vss-rtvi-embed.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-rt-embed" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+
 {{- define "vss-rtvi-embed.kafkaBootstrap" -}}
 {{- if .Values.kafkaBootstrapServers }}
 {{- .Values.kafkaBootstrapServers }}

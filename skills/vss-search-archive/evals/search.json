@@ -102,8 +102,8 @@
       "scenario": "kubernetes-ingress-contract",
       "query": "Explain the exact host-side commands you would use to list registered sources and search the Kubernetes search profile exposed at `VSS_PUBLIC_URL=https://vss-search.example.com`. Search only the resolved `warehouse_sample` source for forklifts with the embed path and top-k 3. This is a contract check: show the commands but do not execute them or deploy anything.",
       "checks": [
-        "The answer trims the trailing slash and uses `https://vss-search.example.com/vst/api/v1/sensor/list` for source listing",
-        "The answer runs `vss configure --base-url https://vss-search.example.com` once, resolves `warehouse_sample` to its sensor ID from the listed source object, then runs `vss search run embed` with `--query`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3` \u2014 the same commands it would use for Compose",
+        "The answer trims the trailing slash, runs `vss configure --base-url https://vss-search.example.com`, and lists sources with `vss vios list` — which reads that recorded origin and takes no endpoint of its own. A hand-built `/vst/api/v1/sensor/list` URL does not satisfy this: the CLI owns source listing now.",
+        "The answer runs `vss configure --base-url https://vss-search.example.com` once, resolves `warehouse_sample` to its sensor ID from the listed source object, then runs `vss search run embed` with `--query`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3` — the same commands it would use for Compose",
         "The answer passes no endpoint, index, or model flags and does not use `--base-url` on the search command, `--deployment`, `--profile`, or `--search-mode`",
         "The answer does not use kubectl, port-forward, Kubernetes Service DNS, a NodePort, localhost, direct `:8000`, direct `:9200`, or direct `:30888`",
         "The answer explains that routes the Ingress does not expose are recorded as absent and that a search path needing one exits 4, rather than proposing to expose or forward them"

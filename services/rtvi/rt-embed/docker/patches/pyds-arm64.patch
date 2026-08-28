@@ -1,0 +1,100 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Enable the GPU surface layouts used by the RTVI raw-frame pipeline. The
+# upstream source is pinned and verified by docker/Dockerfile before this patch
+# is applied.
+diff --git a/bindings/src/bindfunctions.cpp b/bindings/src/bindfunctions.cpp
+index cc2c9cc..c4eafb8 100644
+--- a/bindings/src/bindfunctions.cpp
++++ b/bindings/src/bindfunctions.cpp
+@@ -384,10 +384,60 @@ namespace pydeepstream {
+                   auto *inputnvsurface = reinterpret_cast<NvBufSurface *>(inmap.data);
+                   gst_buffer_unmap(buffer, &inmap);
+-
++
+-                  if (inputnvsurface->surfaceList->colorFormat != NVBUF_COLOR_FORMAT_RGBA &&
+-                      inputnvsurface->surfaceList->colorFormat != NVBUF_COLOR_FORMAT_RGB) {
+-                      throw std::runtime_error(
+-                              "get_nvds_buf_surface_gpu: Currently we only support RGB/RGBA color Format");
++                  int channels = 4;
++                  auto dtype = py::dtype(
++                          py::format_descriptor<unsigned char>::format());
++                  int height = inputnvsurface->surfaceList[batchID].height;
++                  int width = inputnvsurface->surfaceList[batchID].width;
++                  int pitch = inputnvsurface->surfaceList[batchID].pitch;
++                  int size = inputnvsurface->surfaceList[batchID].dataSize;
++                  auto shape = py::make_tuple(height, width, channels);
++                  auto strides = py::make_tuple(
++                                                sizeof(unsigned char) * pitch,
++                                                sizeof(unsigned char) *
++                                                channels,
++                                                sizeof(unsigned char));
++
++                  switch (inputnvsurface->surfaceList->colorFormat) {
++                        case NVBUF_COLOR_FORMAT_RGBA:
++                              channels = 4;
++                              shape = py::make_tuple(height, width, channels);
++                              strides = py::make_tuple(
++                                                sizeof(unsigned char) * pitch,
++                                                sizeof(unsigned char) *
++                                                channels,
++                                                sizeof(unsigned char));
++                              break;
++                        case NVBUF_COLOR_FORMAT_RGB:
++                              channels = 3;
++                              shape = py::make_tuple(height, width, channels);
++                              strides = py::make_tuple(
++                                                sizeof(unsigned char) * pitch,
++                                                sizeof(unsigned char) *
++                                                channels,
++                                                sizeof(unsigned char));
++                              break;
++                        case NVBUF_COLOR_FORMAT_R8_G8_B8:
++                              channels = 3;
++                              shape = py::make_tuple(channels, height, width);
++                              strides = py::make_tuple(
++                                                pitch * height,
++                                                pitch,
++                                                sizeof(unsigned char));
++                              break;
++                        case NVBUF_COLOR_FORMAT_R32F_G32F_B32F:
++                              channels = 3;
++                              dtype = py::dtype(
++                                    py::format_descriptor<float>::format());
++                              shape = py::make_tuple(channels, height, width);
++                              strides = py::make_tuple(
++                                                pitch * height,
++                                                pitch,
++                                                sizeof(float));
++                              break;
++                        default:
++                              throw std::runtime_error(
++                                    "get_nvds_buf_surface_gpu: Currently we only support RGB/RGBA color Format");
+                   }
+-
++
+ #if defined __aarch64__ && !defined IS_SBSA
+@@ -396,20 +446,9 @@ namespace pydeepstream {
+                   throw std::runtime_error(
+                           "get_nvds_buf_surface_gpu: Currently we only support x86");
+ #else
+-                  int channels = inputnvsurface->surfaceList->colorFormat != NVBUF_COLOR_FORMAT_RGB ? 4:3;
+-                  int height = inputnvsurface->surfaceList[batchID].height;
+-                  int width = inputnvsurface->surfaceList[batchID].width;
+-                  int pitch = inputnvsurface->surfaceList[batchID].pitch;
+-                  int size = inputnvsurface->surfaceList[batchID].dataSize;
+-                  auto dtype = py::dtype(
+-                          py::format_descriptor<unsigned char>::format());
+                   return py::make_tuple(dtype,
+-                                        py::make_tuple(height, width, channels),
+-                                        py::make_tuple(
+-                                                sizeof(unsigned char) * pitch,
+-                                                sizeof(unsigned char) *
+-                                                channels,
+-                                                sizeof(unsigned char)),
++                                        shape,
++                                        strides,
+                                         py::cast(
+                                                 inputnvsurface->surfaceList[batchID].dataPtr),
+                                         size);

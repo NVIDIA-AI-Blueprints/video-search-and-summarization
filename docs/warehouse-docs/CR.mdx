@@ -1,0 +1,40 @@
+---
+title: "Cosmos Reasoner"
+description: ""
+position: 3
+---
+## Overview
+
+Cosmos3 Nano Reasoner is an open, customizable, reasoning vision language model (VLM) for physical AI and robotics. It enables vision AI agents to reason like humans, using prior knowledge, physics understanding, and common sense to understand and act in the real world.
+
+**Key Capabilities:**
+
+- Spatial-temporal understanding of space, time, and fundamental physics
+- Chain-of-thought reasoning to understand world dynamics without human annotations
+- Object detection with 2D/3D point localization and bounding-box coordinates
+- Long-context understanding up to 256K input tokens
+
+The model is post-trained with physical common sense and embodied reasoning data, including supervised fine-tuning and reinforcement learning.
+
+## Usage
+
+In the VSS Warehouse Blueprint, Cosmos3 Nano Reasoner serves as the Vision Language Model (VLM) for the agentic AI system, providing video understanding and analysis capabilities.
+
+**Key Functions:**
+
+- **Video Analysis**: Analyzes warehouse camera footage to understand safety incidents and events
+- **Incident Understanding**: Interprets video clips to identify what happened, when, and who was involved
+- **Report Generation**: Provides detailed analysis that feeds into structured incident reports
+
+**Integration:**
+
+The agent system uses Cosmos3 Nano Reasoner alongside the LLM (Nemotron) in a two-tier architecture:
+
+1. **LLM (Nemotron)**: Handles query routing, reasoning, and report generation
+2. **VLM (Cosmos3 Nano Reasoner)**: Performs video understanding and visual analysis
+
+For agent configuration and customization, see [Agents ](/warehouse-docs/agents).
+
+## Reference
+
+For more information, see the [Cosmos3 Reasoner NIM API Reference](https://docs.nvidia.com/nim/vision-language-models/1.7.0/examples/cosmos-reason3/api.html).

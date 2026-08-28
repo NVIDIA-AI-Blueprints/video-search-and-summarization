@@ -9,18 +9,19 @@
 #   helm upgrade --install vss-rtvi-embed . -n <ns> -f overrides_rtvi_embed.yaml
 #
 # Prerequisites in target namespace:
-#   - image pull secret for nvcr (example: ngc-image-pull-secret)
 #   - secret with HF token      (example: hf-token-secret, key HF_TOKEN)
 #   - if using private NGC model source, set ngcApiKey or adapt to secret flow
 #
 
-imagePullSecrets:
-  - name: ngc-image-pull-secret
+imagePullSecrets: []
 
-# Keep image aligned with chart defaults unless you need a specific build.
+# Shared managed-image channel. Set global.container_prefix and
+# global.container_tag when installing a promoted or alternate build.
+# For SBSA/DGX-Spark, retain the repository and set image.tag to
+# develop-latest-sbsa (or set global.container_tag when appropriate).
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-  tag: "3.3.0-26.08.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
+  tag: develop-latest
   pullPolicy: IfNotPresent
 
 # Model source and implementation paths

@@ -246,11 +246,16 @@ rtvi:
     # `search` mounts ds-main-config / ds-ppl-analytics from dev-profile-search vss-rtvi-cv-configmap (not the default `alerts` StatefulSet).
     profileMode: search
     replicas: 1
+    # image: inherited from the rtvi-cv subchart's managed GHCR channel.
+    # Pinning it here would override that default and silently keep this
+    # profile on NGC, like the other managed images which are not pinned in
+    # profile values.
+    #
+    # DGX-SPARK (SBSA) is a separate build -- different base image, same
+    # linux/arm64 platform -- but it shares the GHCR repository under an
+    # -sbsa tag suffix, so it needs a tag override only:
+    #   tag: develop-latest-sbsa
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      # For multi-arch: 3.3.0-26.07.2
-      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
-      tag: 3.3.0-26.07.2
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
@@ -334,9 +339,18 @@ rtvi:
   vss-rtvi-embed:
     enabled: true
     replicas: 1
+    # rtvi-embed accepts a per-chart pull-secret list; retain the profile-wide
+    # NGC secret here as an explicit safeguard for private managed images.
+    imagePullSecrets:
+      - name: ngc-docker-reg-secret
+    # Shared managed-image channel. Global container_prefix/container_tag values
+    # select a promoted image without changing this profile.
+    # SBSA/DGX-Spark shares the GHCR repository but needs its separate build
+    # tag: set image.tag to develop-latest-sbsa unless global.container_tag is
+    # already selecting that tag for the complete managed-image channel.
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-      tag: "3.3.0-26.08.1"
+      repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
+      tag: develop-latest
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -450,13 +464,9 @@ rtvi:
         value: "kafka"
       - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
         value: "true"
-      - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
-        value: "true"
-      - name: RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB
-        value: "1024"
-      - name: ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS
-        value: "false"
       # Optional EVS++ session controls.
+      - name: VIA_EVS_DECISION_LAG
+        value: ""
       - name: VIA_EVS_SESSION
         value: ""
       - name: VLLM_EVS_SIMILARITY_THRESHOLD
@@ -466,6 +476,26 @@ rtvi:
       - name: VIA_EVS_TOKEN_BUDGET
         value: ""
       - name: VIA_EVS_MAX_SESSIONS
+        value: ""
+      - name: VIA_EVS_MIN_CLIPS
+        value: ""
+      - name: VIA_EVS_EVENT_ONLY
+        value: ""
+      - name: VIA_EVS_EMA_MEMORY_S
+        value: ""
+      - name: VIA_EVS_SPIKE_STD_K
+        value: ""
+      - name: VIA_EVS_SETTLING_STD_K
+        value: ""
+      - name: VIA_EVS_STD_FLOOR_RATIO
+        value: ""
+      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
+        value: ""
+      - name: VIA_EVS_STREAMING_PREFILL
+        value: ""
+      - name: VIA_PD_SERVER_URL
+        value: ""
+      - name: VIA_PD_SERVER_TIMEOUT_S
         value: ""
       - name: VLLM_USE_AOT_COMPILE
         value: "0"
@@ -635,7 +665,10 @@ agent:
     profile: search
     replicas: 1
     rtviEmbedModelName: cosmos-embed1-448p-anomaly-detection
-    llmName: nvidia/nvidia-nemotron-nano-9b-v2
+    llmName: nvidia/nemotron-3.5-lightning-30b-a3b
+    # In-cluster LLM NIM Service name; feeds LLM_BASE_URL / EVAL_LLM_JUDGE_BASE_URL below.
+    # Keep in sync with the enabled nims.* model (nims.nemotron35).
+    llmServiceName: "nemotron-3.5-lightning-30b-a3b"
     # The VLM is served by rtvi-vlm (see rtvi.vss-rtvi-vlm) for both the critic and
     # video_understanding. Model id must match the rtvi-vlm /v1/models advertisement,
     # not the cosmos3-reasoner NIM id.
@@ -648,7 +681,7 @@ agent:
     rtviVlmBaseUrl: ''
     llmBaseUrl: ''
     vlmBaseUrl: ''
-    evalLlmJudgeName: nvidia/nvidia-nemotron-nano-9b-v2
+    evalLlmJudgeName: nvidia/nemotron-3.5-lightning-30b-a3b
     evalLlmJudgeBaseUrl: ''
     phoenixEndpoint: ''
     vstExternalUrl: ''
@@ -749,7 +782,7 @@ agent:
       - name: PHOENIX_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       # VLM endpoint (vss-rtvi-vlm) for the critic and video_understanding. Consumed by the rtvi_vlm agent profile.
       - name: RTVI_VLM_BASE_URL
         value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
@@ -760,13 +793,13 @@ agent:
       - name: VST_INTERNAL_URL
         value: '{{- if (trim (.Values.vstInternalUrl | default "")) }}{{ trim .Values.vstInternalUrl }}{{- else }}http://vss-vios-ingress:30888{{- end }}'
       - name: LLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nemotron-3.5-lightning-30b-a3b") }}'
       - name: VLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix") }}'
       - name: EVAL_LLM_JUDGE_NAME
-        value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nemotron-3.5-lightning-30b-a3b") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
       - name: VSS_AGENT_REPORTS_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ if .Values.reportsBaseUrl }}{{ printf "%s" .Values.reportsBaseUrl }}{{ else if and $useNip (ne $nipBase "") }}{{ printf "%s/static/" $nipBase }}{{ else if ne $globalBase "" }}{{ printf "%s/static/" $globalBase }}{{ else }}{{ printf "%s/static/" $vssAgentHttp }}{{ end }}'
       - name: VSS_AGENT_EXTERNAL_URL
@@ -923,8 +956,10 @@ nims:
     pullSecretName: ngc-nim-docker-reg-secret
     authSecretName: ngc-api
     storageClass: ""
+  # Nemotron Nano 9B v2: superseded by nemotron35 below. Set enabled: true (and
+  # flip nemotron35 off, plus agent.vss-agent.llmName/llmServiceName) to go back.
   nemotron:
-    enabled: true
+    enabled: false
     image:
       repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
       tag: '1'
@@ -949,6 +984,33 @@ nims:
         effect: NoSchedule
     env:
       CUDA_VISIBLE_DEVICES: '0'
+  # Nemotron 3.5 Lightning 30B A3B — search profile LLM (matches base/LVS).
+  # The subchart takes no env map; NIM runtime env comes from the
+  # nims gpuProfiles.<gpuType>.nemotron35 ConfigMap (see helm/services/nims/values.yaml).
+  nemotron35:
+    enabled: true
+    image:
+      repository: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b
+      tag: '2.0.9-variant'
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: '1'
+      requests:
+        nvidia.com/gpu: '1'
+    storage:
+      pvc:
+        storageClass: ''
+        size: 100Gi
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
   cosmos3:
     # Disabled: the VLM (used by the critic and video_understanding) is served by
     # rtvi.vss-rtvi-vlm (in-pod Cosmos3 checkpoint). Set true only to bypass RTVI and

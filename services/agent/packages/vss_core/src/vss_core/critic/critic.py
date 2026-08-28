@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.time import datetime_to_iso8601
-from vss_core.vst.client import map_interval_to_timeline
+from vss_core.vios.client import map_interval_to_timeline
 
 from .models import CriticAgentInput
 from .models import CriticAgentOutput
@@ -44,8 +44,8 @@ from .models import TimeFormat
 from .models import VideoResult
 
 if TYPE_CHECKING:
+    from vss_core.vios.protocols import VSTSnapshot
     from vss_core.vlm.protocols import VLMAnalyzer
-    from vss_core.vst.protocols import VSTSnapshot
 
     from .models import VideoInfo
 

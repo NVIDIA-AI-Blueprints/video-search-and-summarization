@@ -310,7 +310,7 @@ docker build \
   -t vss-configurator .
 ```
 
-The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidian/distroless/python:3.13-v4.0.5`**.
+The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidia/distroless/python:3.13-v4.1.1`**. Python and distroless versions are `ARG`s at the top of `docker/Dockerfile` (`PYTHON_VERSION`, `DISTROLESS_IMG`, `DISTROLESS_TAG`).
 
 **Legal requirements (container distribution):**
 
@@ -462,7 +462,8 @@ services:
 | `RECOMPUTE_BEV_CENTERS_ENABLED` | `false` | Recompute BEV group origins via `spatialai_data_utils` (3D mode only) |
 | `NVSTREAMER_STREAMS_ENDPOINT` | `http://localhost:30000/api/v1/live/streams` | NVStreamer streams endpoint |
 | `NVSTREAMER_SENSOR_STATUS_ENDPOINT` | `http://localhost:30000/api/v1/sensor/status` | NVStreamer status endpoint |
-| `NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT` | `100` | Timeout for NVStreamer endpoint (seconds) |
+| `NUM_STREAMS` | `0` | Expected NVStreamer camera count; wait until the stream list reaches this size before registering with VST (`0` = wait for a stable non-empty list instead) |
+| `NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT` | `120` | Seconds to keep waiting after NVStreamer returns a non-empty list that is still below `NUM_STREAMS` (or not yet stable when `NUM_STREAMS=0`). Then the partial list is used. Unreachable / non-200 / empty responses retry indefinitely |
 | `NVSTREAMER_STREAM_VALIDATION_MAX_RETRIES` | `50` | Max retries for stream validation |
 | `NVSTREAMER_STREAM_VALIDATION_RETRY_DELAY` | `5` | Delay between validation retries (seconds) |
 | **Video upload (NVStreamer / VMS)** | | |
@@ -476,6 +477,7 @@ services:
 | **VMS Integration** | | |
 | `CALL_SENSOR_ADD_API` | `true` | Enable sensor registration with VMS |
 | `VST_CAMERA_ADD_ENDPOINT` | `http://vms-vms-svc:30000/api/v1/sensor/add` | VMS camera registration endpoint |
+| `VST_CAMERA_ADD_TIMEOUT` | `15` | Request timeout in seconds for VMS sensor registration; keep this above expected ingress/VST cold-add latency so client timeouts do not create 499s while VST continues processing |
 | **Message Broker Configuration** | | |
 | `MESSAGE_BROKER_TYPE` | `kafka` | Message broker type: `kafka` or `redis` |
 | `SEND_CONFIG_TO_SDR` | `true` | Send sensor configuration events to message broker |
@@ -632,7 +634,7 @@ Status for NVStreamer/VMS video upload (for init-container polling).
 |------|--------|
 | Build context | monorepo root (`.`) |
 | Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` |
-| Runtime base | `nvcr.io/nvidian/distroless/python:3.13-v4.0.5` |
+| Runtime base | `nvcr.io/nvidia/distroless/python:3.13-v4.1.1` (`DISTROLESS_IMG`:`DISTROLESS_TAG`) |
 | Entrypoint | `python entrypoint.py` (no shell in image) |
 | Working directory | `/usr/src/app` |
 | Python deps | `PYTHONPATH=/usr/src/app/site-packages` |

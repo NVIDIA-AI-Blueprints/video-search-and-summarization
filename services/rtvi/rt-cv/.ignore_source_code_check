@@ -1,0 +1,23 @@
+# Paths under services/rtvi/rt-cv/ that are NOT built into the vss-rt-cv image.
+#
+# docker/Dockerfile uses selective COPY: only src/ (the app sources + Makefile)
+# and tests/ enter the container. Everything listed here never does, so changing
+# it must NOT flip the "Check vss-rt-cv tag source" container-source check.
+#
+# Format: gitignore-style, paths relative to services/rtvi/rt-cv/. Used by
+# .github/scripts/check_container_tag_source.py to decide whether a folder
+# tree-SHA difference is source-relevant.
+#
+# Deliberately NOT ignored:
+#   src/     - compiled into the binary.
+#   tests/   - COPYd into the image by docker/Dockerfile.
+#   docker/  - not shipped, but it IS a build input: a Dockerfile change really
+#              does make an existing image stale, so it must keep flipping the
+#              check.
+#
+# configs/ is bind-mounted by the compose services at runtime rather than baked
+# in, so a config edit cannot make the built image stale.
+configs/
+README.md
+LICENSE.3rdparty
+.ignore_source_code_check

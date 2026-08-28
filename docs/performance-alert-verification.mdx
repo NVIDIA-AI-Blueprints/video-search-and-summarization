@@ -1,0 +1,114 @@
+---
+title: "Alert Verification Performance"
+description: ""
+position: 1
+---
+
+## Overview
+
+The VSS Alert Bridge verification pipeline processes live RTSP streams through CV detection
+and analytics (RTVI-CV and video-analytics microservices) and a VLM stage to classify and
+confirm security alerts. Benchmarks measure end-to-end (E2E) latency, VLM and VST stage
+latency, and verified alert throughput across the NVIDIA RTX PRO 4500, RTX PRO 6000,
+DGX H100 SXM, DGX Spark, and AGX Thor platforms using RT-DETR and Grounding DINO
+(GDINO) with Cosmos3 Nano Reasoner (CR3) precision variants.
+
+## Test Configuration
+
+| Parameter | Value |
+| --- | --- |
+| VSS Release | 3.3 |
+| Platforms tested | NVIDIA RTX PRO 4500, RTX PRO 6000, DGX H100 SXM, DGX Spark, AGX Thor |
+| CV models | RT-DETR, Grounding DINO (GDINO) |
+| VLM | Cosmos3 Nano Reasoner (CR3) |
+| VLM precision | BF16, FP8, NVFP4 (platform- and model-dependent) |
+| Stream concurrency | 1–50 concurrent RTSP streams (platform-dependent) |
+| Configured stream FPS | 10 |
+| Video resolution | 1920x1080 (1080p) |
+| OSL | 1 |
+| Test date | July 2026 |
+
+## Performance by Platform
+
+<Tabs>
+<Tab title="RTX PRO 4500">
+RT-DETR with Cosmos3 Nano Reasoner (CR3).
+
+| Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | BF16 | 0.73 | 0.90 | 0.99 | 0.91 | 0.25 | 4.68 |
+| 40 | BF16 | 12.35 | 25.07 | 36.38 | 9.19 | 0.09 | 2.92 |
+| 40 | FP8 | 7.97 | 13.46 | 22.27 | 4.73 | 0.09 | 4.58 |
+| 40 | NVFP4 | 7.28 | 12.33 | 14.74 | 4.71 | 0.09 | 4.60 |
+
+</Tab>
+<Tab title="RTX PRO 6000">
+RT-DETR with Cosmos3 Nano Reasoner (CR3).
+
+| Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | BF16 | 0.51 | 0.90 | 0.99 | 0.45 | 0.26 | 4.48 |
+| 20 | BF16 | 1.44 | 2.33 | 2.49 | 1.87 | 0.24 | 4.49 |
+| 30 | BF16 | 1.95 | 3.75 | 4.88 | 2.77 | 0.24 | 4.53 |
+| 50 | BF16 | 4.62 | 8.97 | 13.08 | 4.55 | 0.17 | 4.73 |
+| 1 | FP8 | 0.51 | 0.90 | 0.99 | 0.45 | 0.25 | 4.57 |
+
+</Tab>
+<Tab title="DGX H100 SXM">
+RT-DETR with Cosmos3 Nano Reasoner (CR3).
+
+| Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | BF16 | 0.58 | 0.90 | 0.99 | 0.45 | 0.28 | 4.32 |
+| 20 | BF16 | 2.83 | 4.66 | 6.37 | 4.29 | 0.24 | 4.73 |
+| 30 | BF16 | 4.44 | 8.62 | 9.96 | 7.39 | 0.23 | 4.71 |
+| 50 | BF16 | 24.63 | 52.56 | 85.41 | 9.12 | 0.10 | 5.52 |
+| 1 | FP8 | 0.60 | 0.90 | 0.99 | 0.45 | 0.25 | 4.57 |
+| 20 | FP8 | 2.45 | 4.48 | 4.96 | 3.59 | 0.24 | 4.80 |
+| 30 | FP8 | 4.14 | 8.22 | 9.83 | 5.10 | 0.23 | 4.81 |
+| 50 | FP8 | 24.21 | 52.17 | 80.38 | 9.14 | 0.10 | 5.64 |
+
+</Tab>
+<Tab title="DGX Spark">
+GDINO and RT-DETR with Cosmos3 Nano Reasoner (CR3).
+
+| CV Model | Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GDINO | 1 | BF16 | 1.19 | 2.35 | 2.49 | 1.08 | 0.24 | 0.28 |
+| GDINO | 1 | FP8 | 1.11 | 2.35 | 2.49 | 0.95 | 0.24 | 0.28 |
+| GDINO | 1 | NVFP4 | 0.99 | 2.12 | 2.46 | 0.95 | 0.24 | 0.28 |
+| RT-DETR | 1 | BF16 | 0.95 | 0.94 | 2.21 | 0.95 | 0.24 | 0.44 |
+| RT-DETR | 1 | FP8 | 0.88 | 0.91 | 1.41 | 0.95 | 0.25 | 0.43 |
+| RT-DETR | 1 | NVFP4 | 0.82 | 0.91 | 1.43 | 0.94 | 0.25 | 0.42 |
+| RT-DETR | 14 | BF16 | 235.38 | 120.00 | 120.00 | 30.00 | 0.09 | 4.40 |
+| RT-DETR | 14 | FP8 | 546.79 | 120.00 | 120.00 | 30.00 | 0.09 | 4.05 |
+| RT-DETR | 14 | NVFP4 | 8.05 | 11.90 | 14.73 | 7.78 | 0.09 | 4.59 |
+
+<Note>
+Where E2E P90 and P99 are identical (for example, 120.00 s at 14
+streams for BF16 and FP8), this is a known limitation of the
+bucketing method used for data collection.
+</Note>
+
+</Tab>
+<Tab title="AGX Thor">
+GDINO and RT-DETR with Cosmos3 Nano Reasoner (CR3).
+
+| CV Model | Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GDINO | 1 | BF16 | 3.40 | 4.76 | 4.99 | 1.90 | 0.19 | 0.40 |
+| GDINO | 1 | FP8 | 3.39 | 4.76 | 4.99 | 1.90 | 0.20 | 0.40 |
+| GDINO | 1 | NVFP4 | 3.40 | 4.76 | 4.99 | 1.90 | 0.19 | 0.40 |
+| RT-DETR | 1 | BF16 | 3.39 | 4.76 | 4.98 | 1.90 | 0.24 | 0.67 |
+| RT-DETR | 1 | FP8 | 3.40 | 4.76 | 4.98 | 1.90 | 0.24 | 0.67 |
+| RT-DETR | 1 | NVFP4 | 3.42 | 4.76 | 4.99 | 1.90 | 0.24 | 0.66 |
+
+</Tab>
+</Tabs>
+
+<Note>
+All benchmarks use input streams at 1080p, H.264 input.
+
+For dGPU platform tests (NVIDIA RTX PRO 4500, RTX PRO 6000, and DGX H100 SXM),
+two GPUs were used: one GPU dedicated to RTVI-CV and one GPU dedicated to RTVI-VLM.
+</Note>

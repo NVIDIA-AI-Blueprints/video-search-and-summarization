@@ -54,12 +54,13 @@ Match the user's request to a mode, then load that mode's reference for input co
 
 ## Prerequisites (shared across calibration modes)
 
+- Platform preflight from [`references/deploy-auto-calibration-service.md` Step 0](references/deploy-auto-calibration-service.md#step-0--platform-preflight) passes before any AMC deploy or calibration API work. The calibration host needs `x86_64`, NVIDIA GPU access, and NVENC hardware encoder support. If the preflight fails, stop immediately, tell the user which requirement was not met, and ask them to provide an existing `calibration.json`, run calibration on a supported `x86_64` dGPU host, or transfer generated calibration artifacts. Do not continue AMC setup, VIOS probing, capture, upload, or calibration automatically. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
 - AMC microservice + UI running. If not, walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first.
 - Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready` → `{"code":0,...}`.
 - Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5--confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
 - Python 3 with `requests` installed (each input-mode reference includes a self-healing venv fallback for direct runs).
 
-Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) live in the respective references.
+Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) live in the respective references. The platform preflight applies even when an AMC service is already running.
 
 ## Shared Calibration Tail
 

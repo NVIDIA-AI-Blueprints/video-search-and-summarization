@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps.nvidia.com/v1alpha1
+kind: NIMService
+metadata:
+  name: {{ include "nemotron35.fullname" . }}
+  labels:
+    {{- include "nemotron35.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  authSecret: {{ .Values.global.authSecretName | quote }}
+  labels:
+    {{- include "nemotron35.selectorLabels" . | nindent 4 }}
+  {{- if .Values.metrics.enabled }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.service.port | quote }}
+    prometheus.io/path: "/v1/metrics"
+  {{- end }}
+  env:
+    - name: NIM_MODEL_NAME
+      value: nvidia/nemotron-3.5-lightning-30b-a3b
+    - name: NIM_SERVED_MODEL_NAME
+      value: nvidia/nemotron-3.5-lightning-30b-a3b
+    - name: NIM_PASSTHROUGH_ARGS
+      valueFrom:
+        configMapKeyRef:
+          name: {{ include "nemotron35.fullname" . }}-nim-env
+          key: NIM_PASSTHROUGH_ARGS
+          optional: true
+  {{- if .Values.metrics.enabled }}
+  metrics:
+    enabled: true
+  {{- end }}
+  expose:
+    service:
+      port: {{ .Values.service.port }}
+      type: {{ .Values.service.type }}
+  image:
+    pullPolicy: {{ .Values.image.pullPolicy }}
+    pullSecrets:
+      - {{ .Values.global.pullSecretName | quote }}
+    repository: {{ .Values.image.repository }}
+    tag: {{ .Values.image.tag | quote }}
+  replicas: {{ .Values.replicas }}
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  storage:
+    nimCache:
+      name: {{ include "nemotron35.fullname" . }}

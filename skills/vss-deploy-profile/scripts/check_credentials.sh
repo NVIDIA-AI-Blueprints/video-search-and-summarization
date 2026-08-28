@@ -10,6 +10,26 @@
 # a skip. Compare each result with the chosen deployment mode before continuing.
 set -u
 
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  check_credentials.sh [-h|--help]
+
+Probes NGC_CLI_API_KEY/NGC_API_KEY, NVIDIA_API_KEY, and HF_TOKEN from the
+environment against their services (NGC registry auth, build.nvidia.com,
+Hugging Face) and prints "ok" / "invalid" / "skip" per credential. Read-only —
+does not write generated.env. An unset credential is a skip, not a failure;
+compare each result against the profile's required credentials.
+
+Takes no arguments; reads credentials from the environment.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
 # NGC — local NIM image pulls. NGC_CLI_API_KEY (NGC CLI / VSS env) and
 # NGC_API_KEY (NIM / RT-VLM containers) are the SAME personal NGC key under two
 # names; resolve to one. Refuse to proceed if both are set and differ.
@@ -21,7 +41,7 @@ elif [[ -n "${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}" ]]; then
   # Probe the registry pull scope (what image pulls actually use), not
   # service=ngc - a key scoped only for nvcr.io pulls is valid for a deploy
   # but is rejected by the ngc platform scope (false negative).
-  curl -sf -u "\$oauthtoken:${ngc_resolved}" \
+  curl -sf --max-time 10 -u "\$oauthtoken:${ngc_resolved}" \
     "https://authn.nvidia.com/token?service=registry&scope=repository:nvidia/vss-core/vss-agent:pull" >/dev/null \
     && echo "NGC key ok" || echo "NGC key invalid (401/403)"
 else
@@ -30,7 +50,7 @@ fi
 
 # build.nvidia.com — remote NIM endpoints
 if [[ -n "${NVIDIA_API_KEY:-}" ]]; then
-  curl -sf -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
+  curl -sf --max-time 10 -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
     "https://integrate.api.nvidia.com/v1/models" >/dev/null \
     && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY invalid (401/403)"
 else
@@ -39,7 +59,7 @@ fi
 
 # HF — edge only (gated Edge 4B)
 if [[ -n "${HF_TOKEN:-}" ]]; then
-  status=$(curl -sf -o /dev/null -w '%{http_code}' \
+  status=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${HF_TOKEN}" \
     "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")
   [[ "$status" = "200" ]] \

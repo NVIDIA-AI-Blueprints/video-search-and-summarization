@@ -1,0 +1,758 @@
+---
+title: "Sparse4D (3D multi-camera)"
+description: ""
+position: 4
+---
+## Model Card
+
+Sparse4D is an advanced 3D Multi-Camera Detection and Tracking Network. We specifically adapt Sparse4D for indoor environments such as warehouses with static camera setups. It generates precise 3D bounding boxes and tracking IDs for a diverse set of objects across multiple camera views. The included model in the Perception Microservice is pre-trained on the MTMC Tracking 2025 subset from the [Nvidia PhysicalAI-SmartSpaces dataset](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main) and trained & evaluated on the following warehouse-centric classes: `Person`, `Fourier_GR1_T2_Humanoid`, `Agility_Digit_Humanoid`, `Nova_Carter`, `Transporter`, and `Forklift`. The latest release (v2.2) ships in two backbone flavors: a lower-latency `ResNet50` variant (the default for VSS 3.2.0) and a higher-accuracy `ResNet101` variant.
+
+![TAO Sparse4D Model Output](https://raw.githubusercontent.com/vpraveen-nv/model_card_images/main/cv/purpose_built_models/sparse4d/sample_output.gif)
+
+The Sparse4D model cards on NGC ([sparse4d_rn50](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50) and [sparse4d_rn101](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn101)) expand on data formats and evaluation methodology. The remainder of this page covers TAO fine-tuning (BEV grouping, dataset conversion, training, evaluation, inference, and export).
+
+![TAO Sparse4D Model Architecture](/assets/images/sparse4d/sparse4d_arch_diagram.png)
+
+## Inference using Perception Microservice
+
+Detailed information can be found in the [3D Multi-Camera Detection and Tracking (Sparse4D) ](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) page.
+
+## Model versions
+
+The VSS 3.2.0 Sparse4D model card lists **v2.2** as the latest trainable and deployable release:
+
+| Model version | Release date | Notes |
+| --- | --- | --- |
+| `v1.0` | 06/13/2025 | First commercial warehouse-focused 3D detection and tracking release |
+| `v1.1` | 11/30/2025 | Updated 960x540 input resolution, camera embeddings, broader training set, and lower-FPS robustness |
+| `v2.0` | 01/23/2026 | Expanded BEV groups, added COSMOS-augmented datasets, and improved multi-FPS training |
+| `v2.1` | 02/27/2026 | Expanded data coverage, SDU v1.2 camera grouping, and corrected forklift orientation annotations |
+| `v2.2` | 05/12/2026 | Latest `trainable_v2.2` / `deployable_v2.2` artifacts. Released for both backbones (`ResNet50` and `ResNet101`); added `pallet_truck` to the trained class set; expanded the training corpus to all available MTMC Tracking 2025 scenes (3K+ BEV groups); refreshed COSMOS-augmented data; refreshed kmeans anchor priors per backbone. |
+
+For new VSS 3.2.0 work, start from `trainable_v2.2` for fine-tuning and `deployable_v2.2` for DeepStream or TensorRT deployment unless you need to reproduce an older benchmark. The `ResNet50` backbone is the default for the VSS 3.2.0 release (lower latency, smaller footprint, built on top of an RT-DETR R50 pre-training initialization); pick the `ResNet101` backbone when accuracy headroom matters more than throughput.
+
+## Real-Time Inference Throughput & Latency
+
+Inference runs through the DeepStream pipeline on TensorRT with mixed precision (FP16+FP32). The TensorRT columns capture model-only latency, while the DeepStream columns add the instance-bank pre- and post-processing overhead. The table summarizes how many cameras each GPU supports at 30, 15, and 10 FPS for the v2.0 model.
+Numbers in **bold** are measured (all TensorRT values and certain DeepStream values); DeepStream values not in bold are estimates based on the guidance that the DS microservice adds approximately 30% overhead over Sparse4D TensorRT model performance.
+
+| GPU | TensorRT @30 FPS | DeepStream @30 FPS | TensorRT @15 FPS | DeepStream @15 FPS | TensorRT @10 FPS | DeepStream @10 FPS |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 x A100-SXM4-80GB | **13** | 9 | **28** | 19 | **43** | 30 |
+| 1 x B200 | **75** | 52 | **155** | 108 | **200** | 140 |
+| 1 x GB200 | **101** | 70 | **200** | 140 | **200** | 140 |
+| 1 x H100 NVL - 94GB | **23** | 16 | **48** | 33 | **72** | 50 |
+| 1 x H100 SXM HBM3 - 80GB | **28** | 19 | **58** | 40 | **89** | 62 |
+| 1 x H200 | **32** | 22 | **67** | 46 | **103** | 72 |
+| 1 x L4 - 24GB | **3** | 2 | **6** | 4 | **9** | 6 |
+| 1 x L40 | **8** | 5 | **16** | 11 | **26** | 18 |
+| 1 x L40S - 48GB | **9** | 6 | **20** | 14 | **30** | 21 |
+| 1 x RTX 6000 ADA | **9** | 6 | **19** | 13 | **27** | 18 |
+| 1 x RTX PRO 6000 Blackwell (Server) | **28** | 19 | **58** | 40 | **89** | 62 |
+| 1 x RTX PRO 6000 Blackwell (Workstation) | **29** | 20 | **59** | 41 | **90** | 63 |
+| 1 x IGX Thor - T7000 iGPU (no dGPU) | **5** | 3 | **11** | 7 | **17** | 11 |
+| 1 x IGX Thor - T7000 dGPU - RTX PRO 6000 Blackwell Max-Q Workstation Edition | **21** | 14 | **30** | 21 | **30** | 21 |
+| 1 x AGX Thor - T5000 | **4** | 2 | **8** | 5 | **14** | 9 |
+| 1 x DGX Spark | **5** | 3 | **11** | 7 | **17** | 11 |
+
+## KPI
+
+The key performance indicator is Higher Order Tracking Accuracy (HOTA) per-class and the average HOTA obtained across all classes. We utilize the HOTA evaluation methodology to assess multi-object tracking accuracy.
+
+Higher Order Tracking Accuracy (HOTA) is a metric that balances detection accuracy and association accuracy into a single unified score. It decomposes tracking performance into Detection Accuracy (DetA), which measures how well objects are localized, and Association Accuracy (AssA), which measures how well detections are linked over time into consistent tracks. HOTA is computed as the geometric mean of DetA and AssA, averaged over a range of localization thresholds. This provides a balanced, holistic measure of tracking quality that captures both spatial accuracy and temporal consistency.
+
+The following scores are for v2.2 models trained on MTMC Tracking 2025 subset. The evaluation set and training set is disjoint.
+
+| Object Class | HOTA | DetA | AssA | LocA |
+| --- | --- | --- | --- | --- |
+| Person | 53.93 | 59.13 | 49.54 | 73.34 |
+| Fourier_GR1_T2_Humanoid | 59.31 | 59.87 | 58.84 | 73.46 |
+| Agility_Digit_Humanoid | 52.69 | 52.57 | 53.50 | 70.72 |
+| Nova_Carter | 58.26 | 56.89 | 59.92 | 71.05 |
+| Transporter | 33.70 | 38.98 | 31.49 | 68.41 |
+| Forklift | 48.05 | 43.84 | 54.97 | 66.69 |
+| Average | 50.99 | 51.88 | 51.37 | 70.61 |
+
+| Object Class | HOTA | DetA | AssA | LocA |
+| --- | --- | --- | --- | --- |
+| Person | 57.96 | 58.99 | 57.11 | 73.29 |
+| Fourier_GR1_T2_Humanoid | 60.93 | 60.97 | 60.98 | 74.00 |
+| Agility_Digit_Humanoid | 54.00 | 53.32 | 55.32 | 71.02 |
+| Nova_Carter | 54.85 | 57.60 | 53.28 | 70.92 |
+| Transporter | 33.98 | 38.13 | 32.58 | 67.33 |
+| Forklift | 48.05 | 43.78 | 55.20 | 66.45 |
+| Average | 51.63 | 52.13 | 52.41 | 70.50 |
+
+Results highlighted in the above tables are for the latest v2.2 models on the test set of the MTMC Tracking 2025 dataset. Please refer to the [sparse4d_rn50](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50) and [sparse4d_rn101](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn101) model cards for more details.
+
+## Fine-tuning using NVIDIA TAO Toolkit
+
+### Hardware & Software Requirements
+
+  Please refer to the [Requirements section](https://docs.nvidia.com/tao/tao-toolkit/latest/text/getting_started.html) of the TAO Toolkit Quick Start Guide for more details.
+
+### Dataset Requirements
+
+  The Sparse4D model can be fine-tuned on existing MTMC Tracking 2025 scenes or your own dataset obtained by setting up a Digital Twin and generating synthetic data via Isaac Sim.
+  Please refer to the [Simulation and Synthetic Data Generation](/warehouse-docs/Simulation-and-Synthetic-Data-Generation) page for more details on the latter.
+
+  Performing 3D Multi-Camera Detection & Tracking in large regions such as warehouses with high-density cameras becomes computationally expensive. Therefore, we divide a region into a collection of groups called Bird's Eye View (BEV) groups. Each Bird's Eye View (BEV) group can contain multiple cameras, and these BEV groups may overlap with one another. Sparse4D is trained on such BEV groups.
+  The below image represents a top down view of a single scene with multiple BEV groups. Each unique color represents a BEV group highlighting its camera coverage in the entire scene.
+
+  ![BEV Groups](/assets/images/sparse4d/top_down_view_with_bev_groups.png)
+
+  **Minimum Requirements:**
+
+  1. **Number of Cameras in Scene**
+
+     - Refer to the camera placement guide for details based on scene size
+
+  2. **Number of RGB Frames**
+
+     - Minimum: 9,000 frames per camera (5 minutes @ 30 FPS)
+
+  3. **Number of Depth Map Frames**
+
+     - Optional but recommended for better model convergence
+     - Should match the number of RGB frames if included
+
+  4. **Number of BEV Groups (Bird's Eye View)**
+
+     - We recommend a minimum of 3 BEV groups for a scene with 12 cameras in total.
+     - The TAO Fine-tuning notebook will help generate randomized BEV groups based on the raw calibration data obtained from the SDG step.
+
+  5. **Number of Cameras per BEV Group**
+
+     - Range: 4-12 cameras per group
+
+  6. **Annotations**
+
+     - Ground Truth 3D & 2D bounding boxes in OV coordinates
+
+  7. **Calibration Data**
+
+     - Single calibration file containing all camera parameters (intrinsic & extrinsic)
+
+Information related to the file format for the above files can be found [here](/warehouse-docs/Dataset-Post-Processing).
+An example dataset can be found in the [Warehouse_014](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025/train/Warehouse_014) scene from the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) dataset.
+
+### Camera Grouping for Model Fine-tuning
+
+For Sparse4D fine-tuning, cameras need to be organized into BEV groups with overlapping fields of view. Unlike camera clustering (used for deployment, where each camera belongs to exactly one cluster), camera grouping for training allows cameras to appear in multiple groups to maximize training data coverage.
+
+Use `create_camera_groups.py` to create camera groups with duplication support based on overlapping FOV:
+
+We use the `spatialai_data_utils` library to create camera groups:
+
+```bash
+pip install spatialai-data-utils==2.0.1 --extra-index-url=https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple
+```
+
+The camera grouping tools are shipped with the full [spatialai-data-utils](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/libs/analytics/spatialai-data-utils) package in the VSS repository.
+
+**Navigate to the spatialai-data-utils camera grouping tools**
+
+```bash title="Navigate to the spatialai-data-utils camera grouping tools"
+export VSS_REPO_DIR=/path/to/video-search-and-summarization
+cd $VSS_REPO_DIR/libs/analytics/spatialai-data-utils/tools/camera_grouping/
+```
+
+```bash
+# Auto mode (recommended for training): one group each of sizes
+# 1, 2, ..., min(n_sensors, max_sensors_per_group). Overrides --cameras_per_group.
+python create_camera_groups.py data/scene --auto
+
+# Auto mode with a custom cap on the largest group size (default 18)
+python create_camera_groups.py data/scene --auto --max_sensors_per_group 12
+
+# Manual mode: 5 groups with 8 cameras each
+python create_camera_groups.py data/scene --n_groups 5 --cameras_per_group 8
+
+# Multiple size types: 2 groups × 3 sizes = 6 total groups
+# (2 groups with 5 cameras, 2 groups with 8 cameras, 2 groups with 6 cameras)
+python create_camera_groups.py data/scene --n_groups 2 --cameras_per_group 5 8 6
+
+# With visualization (generates separate images per group by default)
+python create_camera_groups.py data/scene --n_groups 5 --cameras_per_group 8 --visualize
+
+# Custom overlap threshold for stricter FOV requirements
+python create_camera_groups.py data/scene --n_groups 5 --cameras_per_group 8 \
+    --min_overlap_threshold 0.3 --visualize
+
+# Use existing FOV polygons from calibration instead of frustum calculation
+python create_camera_groups.py data/scene --n_groups 5 --cameras_per_group 8 \
+    --prefer_existing_fov
+```
+
+Use `--help` to list all available arguments.
+
+Key options:
+
+* `--auto`: Auto mode — set `--cameras_per_group` to [1, 2, ..., min(n_sensors, `--max_sensors_per_group`)], creating groups for every size (recommended for training). Overrides `--cameras_per_group`.
+* `--n_groups`: Number of groups to create per size (default: 1).
+* `--cameras_per_group`: Number of cameras per group (required unless `--auto` is used). Single value: all groups have that size. Multiple values: creates n_groups for EACH size (total = n_groups × count).
+* `--max_sensors_per_group`: Maximum sensors per group (default: 18). In auto mode, caps the largest generated group size.
+* `--output`: Output path for the grouped calibration file.
+* `--output_suffix`: Suffix for output files (default: "grouped").
+* `--map_file`: Path to map image for visualization (uses black background if not provided).
+* `--start_camera_index`: Starting camera index for seeding the first group (default: 0).
+* `--min_overlap_threshold`: Minimum FOV overlap (0-1) for group membership (default: 0.2).
+* `--max_distance_threshold`: Maximum centroid distance in meters for membership (default: inf).
+* `--prefer_existing_fov`: Use existing FOV polygons instead of calculating from frustum.
+* `--max_camera_distance`: Maximum distance in meters for frustum calculation (default: 30.0).
+* `--height_range`: Height range (min, max) in meters for ground plane intersection (default: 1.0 3.0).
+* `--image_size`: Image dimensions (width, height) in pixels for frustum calculation (default: 1920 1080).
+* `--dilation`: Buffer distance in meters for group bounding boxes (default: 8.0).
+* `--visualize`: Generate visualization of camera groups.
+* `--vis_no_camera_id_labels`: Disable drawing camera IDs on the visualization.
+* `--vis_combined`: Generate a single combined image instead of separate images per group.
+
+<Note>
+For deployment and inference use cases where cameras should be partitioned into non-overlapping clusters, refer to the [Camera Clustering](/warehouse-docs/3D-profile#camera-clustering) section in the 3D Vision AI Profile documentation.
+</Note>
+
+### Expected time for finetuning
+
+The expected data requirements and time to fine-tune the Sparse4D model on a single scene of the MTMC Tracking 2025 dataset are as follows:
+
+| Backbone Type | GPU Type | Image Size | No. of BEV groups | No. of cameras in each BEV group | No. of frames in each camera | Total No. of Epochs | Total Training Time |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Resnet101 | 8 x Nvidia H100 - 80GB SXM | 3x540x960 | 3 (Minimum BEV groups) | 4-12 | 9000 (5 mins @ 30 FPS) | 5 | 10 hours |
+
+We recommend a multi-gpu training setup for faster training.
+
+### TAO Fine-tuning via Notebook Walkthrough & Configuration Changes
+
+Sparse4D can be fine-tuned via the TAO containers and the TAO CLI Notebook.
+
+The documentation provided below accompanies the cells in the TAO fine-tuning notebook and offers guidance on how to execute them.
+TAO Sparse4D supports the following tasks via the Jupyter notebook:
+
+* dataset `convert`
+* model `train`
+* model `evaluate`
+* model `inference`
+* model `export`
+
+An experiment specification file (also known as a configuration file) is used for fine-tuning the model. It consists of several main components:
+
+* `dataset`
+* `model`
+* `train`
+* `evaluate`
+* `inference`
+* `export`
+* `visualize`
+
+The notebook utilizes the [Warehouse_014](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025/train/Warehouse_014) scene from the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) dataset for training.
+
+The following is an example spec file for training a Sparse4D model on one scene of the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) dataset.
+For field-level detail, use the TAO Sparse4D configuration documentation that matches your TAO Toolkit release.
+
+```yaml
+results_dir: /results
+
+train:
+  num_gpus: 1
+  gpu_ids:
+  - 0
+  num_nodes: 1
+  seed: 1234
+  cudnn:
+    benchmark: false
+    deterministic: true
+  num_epochs: 10
+  checkpoint_interval: 0.5
+  validation_interval: 0.5
+  resume_training_checkpoint_path: null
+  results_dir: null
+  pretrained_model_path: null
+  optim:
+    type: adamw
+    lr: 5.0e-05
+    weight_decay: 0.001
+    momentum: 0.9
+    paramwise_cfg:
+      custom_keys:
+        img_backbone:
+          lr_mult: 0.2
+    grad_clip:
+      max_norm: 25
+      norm_type: 2
+    lr_scheduler:
+      policy: cosine
+      warmup: linear
+      warmup_iters: 500
+      warmup_ratio: 0.333333
+      min_lr_ratio: 0.001
+
+model:
+  type: sparse4d
+  embed_dims: 256
+  use_grid_mask: true
+  use_deformable_func: true
+  input_shape:
+  - 960
+  - 540
+  backbone:
+    type: resnet_101
+  neck:
+    type: FPN
+    num_outs: 4
+    start_level: 0
+    out_channels: 256
+    in_channels:
+    - 256
+    - 512
+    - 1024
+    - 2048
+    add_extra_convs: on_output
+    relu_before_extra_convs: true
+  depth_branch:
+    type: dense_depth
+    embed_dims: 256
+    num_depth_layers: 3
+    loss_weight: 0.2
+  head:
+    type: sparse4d
+    num_output: 300
+    cls_threshold_to_reg: 0.05
+    decouple_attn: true
+    return_feature: true
+    use_reid_sampling: false
+    embed_dims: 256
+    reid_dims: 0
+    num_groups: 8
+    num_decoder: 6
+    num_single_frame_decoder: 1
+    drop_out: 0.1
+    temporal: true
+    with_quality_estimation: true
+    operation_order:
+    - deformable
+    - ffn
+    - norm
+    - refine
+    - temp_gnn
+    - gnn
+    - norm
+    - deformable
+    - ffn
+    - norm
+    - refine
+    - temp_gnn
+    - gnn
+    - norm
+    - deformable
+    - ffn
+    - norm
+    - refine
+    - temp_gnn
+    - gnn
+    - norm
+    - deformable
+    - ffn
+    - norm
+    - refine
+    - temp_gnn
+    - gnn
+    - norm
+    - deformable
+    - ffn
+    - norm
+    - refine
+    - temp_gnn
+    - gnn
+    - norm
+    - deformable
+    - ffn
+    - norm
+    - refine
+    visibility_net:
+      type: visibility_net
+      embedding_dim: 256
+      hidden_channels: 32
+    instance_bank:
+      num_anchor: 900
+      anchor: ''
+      num_temp_instances: 600
+      confidence_decay: 0.8
+      feat_grad: false
+      default_time_interval: 0.033333
+      embed_dims: 256
+      use_temporal_align: false
+      grid_size: null
+    anchor_encoder:
+      type: SparseBox3DEncoder
+      vel_dims: 3
+      embed_dims:
+      - 128
+      - 32
+      - 32
+      - 64
+      mode: cat
+      output_fc: false
+      in_loops: 1
+      out_loops: 4
+      pos_embed_only: false
+    sampler:
+      num_dn_groups: 5
+      num_temp_dn_groups: 3
+      dn_noise_scale:
+      - 2.0
+      - 2.0
+      - 2.0
+      - 0.5
+      - 0.5
+      - 0.5
+      - 0.5
+      - 0.5
+      - 0.5
+      - 0.5
+      - 0.5
+      max_dn_gt: 128
+      add_neg_dn: true
+      cls_weight: 2.0
+      box_weight: 0.25
+      reg_weights:
+      - 2.0
+      - 2.0
+      - 2.0
+      - 0.5
+      - 0.5
+      - 0.5
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      use_temporal_align: false
+      gt_assign_threshold: 0.5
+    reg_weights:
+    - 2.0
+    - 2.0
+    - 2.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    loss:
+      cls:
+        type: focal
+        use_sigmoid: true
+        gamma: 2.0
+        alpha: 0.25
+        loss_weight: 2.0
+      reg:
+        type: sparse_box_3d
+        box_weight: 0.25
+        cls_allow_reverse: []
+      id:
+        type: cross_entropy_label_smooth
+        num_ids: 70
+    bnneck:
+      type: bnneck
+      feat_dim: 256
+      num_ids: 70
+    deformable_model:
+      embed_dims: 256
+      num_groups: 8
+      num_levels: 4
+      attn_drop: 0.15
+      use_deformable_func: true
+      use_camera_embed: true
+      residual_mode: cat
+      num_cams: 6
+      max_num_cams: 20
+      proj_drop: 0.0
+      kps_generator:
+        embed_dims: 256
+        num_learnable_pts: 6
+        fix_scale:
+        - - 0
+          - 0
+          - 0
+        - - 0.45
+          - 0
+          - 0
+        - - -0.45
+          - 0
+          - 0
+        - - 0
+          - 0.45
+          - 0
+        - - 0
+          - -0.45
+          - 0
+        - - 0
+          - 0
+          - 0.45
+        - - 0
+          - 0
+          - -0.45
+    refine_layer:
+      type: sparse_box_3d_refinement_module
+      embed_dims: 256
+      refine_yaw: true
+      with_quality_estimation: true
+    valid_vel_weight: -1.0
+    graph_model:
+      type: MultiheadAttention
+      embed_dims: 512
+      num_heads: 8
+      batch_first: true
+      dropout: 0.1
+    temp_graph_model:
+      type: MultiheadAttention
+      embed_dims: 512
+      num_heads: 8
+      batch_first: true
+      dropout: 0.1
+    decoder:
+      type: SparseBox3DDecoder
+      score_threshold: 0.05
+    norm_layer:
+      type: LN
+      normalized_shape: 256
+    ffn:
+      type: AsymmetricFFN
+      in_channels: 512
+      pre_norm:
+        type: LN
+        normalized_shape: 256
+      embed_dims: 256
+      feedforward_channels: 1024
+      num_fcs: 2
+      ffn_drop: 0.1
+      act_cfg:
+        type: ReLU
+        inplace: true
+  use_temporal_align: false
+
+inference:
+  num_gpus: 1
+  gpu_ids:
+  - 0
+  num_nodes: 1
+  checkpoint: ???
+  trt_engine: null
+  results_dir: null
+  jsonfile_prefix: sparse4d_pred
+  output_nvschema: true
+  tracking:
+    enabled: true
+    threshold: 0.2
+
+evaluate:
+  num_gpus: 1
+  gpu_ids:
+  - 0
+  num_nodes: 1
+  checkpoint: ${results_dir}/train/sparse4d_model_latest.pth
+  trt_engine: null
+  results_dir: null
+  metrics:
+  - detection
+  tracking:
+    enabled: true
+    threshold: 0.2
+
+export:
+  results_dir: null
+  gpu_id: 0
+  checkpoint: ???
+  onnx_file: ???
+  on_cpu: false
+  input_channel: 3
+  input_width: 960
+  input_height: 544
+  opset_version: 17
+  batch_size: -1
+  verbose: false
+  format: onnx
+
+visualize:
+  show: true
+  vis_dir: ./vis
+  vis_score_threshold: 0.25
+  n_images_col: 6 # Update this based on the number of cameras in the scene
+  viz_down_sample: 3
+```
+
+### Dataset Preparation
+
+The data obtained from HuggingFace is stored in AICity format. We need to convert the AICity format to the OVPKL format required for model training.
+TAO Data Service can be used to convert the AICity format to the OVPKL format required for model training.
+The following configuration file can be used to convert the AICity format to the OVPKL format.
+
+```yaml
+data:
+  input_format: "AICity"
+  output_format: "OVPKL"
+aicity:
+  root: ??? # path to your dataset root directory
+  version: "2025"
+  split: "train"
+  class_config:
+    CLASS_LIST:
+      - "Person"
+      - "FourierGR1T2"
+      - "AgilityDigit"
+      - "Transporter"
+    SUB_CLASS_DICT: {}
+    MAP_CLASS_NAMES:
+      "Person": "Person"
+      "FourierGR1T2": "FourierGR1T2"
+      "AgilityDigit": "AgilityDigit"
+      "Transporter": "Transporter"
+    ATTRIBUTE_DICT:
+      "Person": "person.moving"
+      "FourierGR1T2": "fourier_gr1_t2.moving"
+      "AgilityDigit": "agility_digit.moving"
+      "Transporter": "transporter.moving"
+    CLASS_RANGE_DICT:
+      "Person": 40
+      "FourierGR1T2": 40
+      "AgilityDigit": 40
+      "Transporter": 40
+  recentering: true
+  rgb_format: "mp4" # For datasets obtained from HuggingFace, RGB images are stored in "mp4" format. For SDG generated dataset, RGB images are stored in "h5" format.
+  depth_format: "h5" # Depth maps are stored in "h5" both for HuggingFace & SDG generated datasets.
+  camera_grouping_mode: "train"
+  num_frames: -1
+  anchor_init_config:
+    output_file_name: "anchor_init_kmeans900.npy"
+results_dir: ??? # Path to where you want to store the data
+```
+
+Once the configurations are modified, launch dataset conversion by running the following command:
+
+![TAO Sparse4D Dataset Conversion](/assets/images/sparse4d/dataset_convert.png)
+
+### Launch Model Fine-tuning
+
+Below are the important configurations that need to be updated to launch training:
+
+```yaml
+dataset:
+  use_h5_file: true
+  num_frames: 9000
+  batch_size: 4 # Depending on your GPU memory
+  num_bev_groups: 3 # Depending on your scene size
+  num_workers: 4 # Depending on your CPU memory
+  num_ids: 70 # Depending on your dataset
+  classes: [ # Update this based on your dataset
+    "person",
+    "gr1_t2",
+    "agility_digit",
+    "nova_carter",
+    "transporter",
+    "forklift",
+  ]
+  data_root: ??? # Update this based on your dataset root directory
+  train_dataset:
+    ann_file: ??? # Update this based on your training dataset annotations file/folder.
+  val_dataset:
+    ann_file: ??? # Update this based on your validation dataset annotations file/folder.
+  test_dataset:
+    ann_file: ??? # Update this based on your test dataset annotations file/folder.
+```
+
+```yaml
+model:
+  head:
+    instance_bank:
+      anchor: ??? # Update this to the anchor file generated by the TAO Fine-tuning notebook.
+```
+
+```yaml
+train:
+  num_epochs: 5 # Update this based on your dataset size. 5 epochs is recommended for fine-tuning on a single scene.
+  num_nodes: 1 # Update this based on your GPU count
+  num_gpus: 1 # Update this based on your GPU count
+  validation_interval: 1 # Update this based on your dataset size
+  checkpoint_interval: 1 # Update this based on your dataset size
+  pretrained_model_path: ??? # Update this to the pretrained model path if you are fine-tuning on a pretrained model.
+  optim:
+    lr: 0.0001 # Update this based on your dataset size
+    paramwise_cfg:
+      custom_keys:
+        img_backbone:
+          lr_mult: 0.25
+```
+
+Once the configurations are modified, launch training by running the following command:
+
+![TAO Sparse4D Finetuning](/assets/images/sparse4d/training.png)
+
+### Evaluate the fine-tuned model
+
+The fine-tuned model's tracking accuracy can be evaluated using the Higher Order Tracking Accuracy (HOTA) metric, decomposed as Detection Accuracy (DetA), Association Accuracy (AssA), and Localization Accuracy (LocA). Please refer to the [KPI](/models/sparse4d#kpi) section above for more details on the metric definition and how to interpret per-class scores.
+
+Below are the important configurations that need to be updated to launch evaluation:
+
+```yaml
+evaluate:
+  checkpoint: ${results_dir}/train/sparse4d_model_latest.pth # Update this based on your fine-tuned model path
+```
+
+```bash
+dataset:
+  test_dataset:
+    ann_file: ??? # Update this based on your test dataset annotations file/folder.
+```
+
+![TAO Sparse4D Evaluation](/assets/images/sparse4d/evaluate.png)
+
+### Run Inference on the fine-tuned model using TAO
+
+The fine-tuned model's output can be inspected by running inference and visualizing the 3D bounding boxes and their tracking IDs.
+Below are the important configurations that need to be updated to launch inference:
+
+```yaml
+inference:
+  checkpoint: ??? # Update this based on your fine-tuned model path
+```
+
+```yaml
+dataset:
+  test_dataset:
+    ann_file: ??? # Update this based on your test dataset annotations file/folder.
+```
+
+```yaml
+visualize:
+  show: true
+  vis_dir: ./vis
+  vis_score_threshold: 0.25
+  n_images_col: 6 # Update this based on the number of cameras in the scene
+  viz_down_sample: 3
+```
+
+Once the configurations are modified, launch inference by running the following command:
+
+![TAO Sparse4D Inference](/assets/images/sparse4d/visualize.png)
+
+### Export the fine-tuned model
+
+Below are the important configurations that need to be updated to launch export:
+
+```yaml
+export:
+  results_dir: ??? # Update this based on your results directory
+  checkpoint: ??? # Update this based on your fine-tuned model path
+  onnx_file: ??? # Update this based on your desired model name
+```
+
+Once the configurations are modified, launch export by running the following command:
+
+![TAO Sparse4D Export](/assets/images/sparse4d/export.png)
+
+### Using the fine-tuned model in the Perception Microservice
+
+Once the model is fine-tuned and exported to ONNX format, it can be used in the Perception Microservice.
+Refer to the [Integrating a Sparse4D Model Checkpoint](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#integrating-a-sparse4d-model-checkpoint) section for more details.

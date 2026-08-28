@@ -69,7 +69,8 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.imagePullSecrets }}
+      {{- $ips := .Values.imagePullSecrets | default (index (.Values.global | default dict) "imagePullSecrets") }}
+      {{- with $ips }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -125,7 +126,7 @@ spec:
       {{- end }}
       containers:
         - name: vss-rtvi-embed
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "vss-rtvi-embed.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.securityContext }}
           securityContext:

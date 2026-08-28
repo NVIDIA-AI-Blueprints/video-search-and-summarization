@@ -1,0 +1,307 @@
+---
+title: "Agent Customization"
+description: ""
+position: 4
+---
+The VSS Agent is built on [NVIDIA NeMo Agent Toolkit (NAT)](https://docs.nvidia.com/nemo/agent-toolkit/1.3/),
+which allows you to extend the agent with custom functions, tools, and MCP servers.
+
+## Custom Functions
+
+Custom functions are registered in the `functions:` section of your config file. Each function references a registered Python function by its `_type` name.
+
+```yaml
+functions:
+  my_custom_tool:
+    _type: my_custom_tool
+    param1: value1
+    param2: value2
+
+workflow:
+  _type: top_agent
+  tool_names:
+    - my_custom_tool
+```
+
+For detailed documentation on writing and registering custom functions, see:
+[NAT Writing Custom Functions](https://docs.nvidia.com/nemo/agent-toolkit/1.3/extend/functions.html)
+
+## Adding Custom MCP Servers
+
+You can connect to your own MCP (Model Context Protocol) servers to extend the agent's capabilities.
+MCP clients are configured in the `function_groups:` section.
+
+**Supported Transports:**
+
+| Transport | Use Case |
+| --- | --- |
+| `streamable-http` | HTTP-based MCP servers (recommended) |
+| `sse` | Server-Sent Events transport |
+| `stdio` | Local process communication |
+
+**Configuration Example:**
+
+```yaml
+function_groups:
+  my_custom_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: http://localhost:9000/mcp
+    include:
+      - my_tool_1
+      - my_tool_2
+
+workflow:
+  _type: top_agent
+  tool_names:
+    - my_custom_mcp.my_tool_1
+    - my_custom_mcp.my_tool_2
+```
+
+**CLI Tool Inspection:**
+
+You can discover available tools from an MCP server before configuring:
+
+```bash
+# List all tools from an MCP server
+nat mcp client tool list --url http://localhost:9000/mcp
+
+# Get details about a specific tool
+nat mcp client tool list --url http://localhost:9000/mcp --tool my_tool_1
+``` For complete MCP client documentation including authentication, timeout configuration, reconnection settings, and troubleshooting, see: [NAT MCP Client Documentation](https://docs.nvidia.com/nemo/agent-toolkit/1.3/workflows/mcp/mcp-client.html) ## Building Your Own MCP Server To create your own MCP server that can be consumed by the VSS Agent: - [MCP Specification](https://modelcontextprotocol.io/) - [NAT as MCP Server](https://docs.nvidia.com/nemo/agent-toolkit/1.3/workflows/mcp/mcp-server.html) ## Customizing Report Generation To learn more about customizing agent report generation, see: [vss-agent-report-generation](/vss-agent/vss-agent-report-generation) ## Adding a Knowledge Layer (RAG) Opt-in. A pluggable retrieval surface registered as `_type: knowledge_retrieval`,
+exposed to the LLM as a named tool. Six backends ship today — two in the default
+agent image, four behind opt-in Python extras (marked *experimental* below):
+
+| Backend | Use case | `backend_config` fields |
+| --- | --- | --- |
+| `frag_api` | Document grounding via a deployed [NVIDIA RAG Blueprint](https://github.com/NVIDIA-AI-Blueprints/rag) rag-server. | \| `rag_url` \| `collection_name` \| `api_key` *(optional)* |
+| `es_caption` | Q&A over stored Video Summarization stream captions in Elasticsearch. | \| `elasticsearch_url` \| `index` (default: `default_*`) \| `api_key` *(optional)* |
+| `frag_lib` *(experimental)* | In-process document grounding via the [nvidia-rag](https://pypi.org/project/nvidia-rag/) Python library (no rag-server hop). | \| `milvus_uri` \| `collection_name` \| `embedder_base_url`, `embedder_model_name` \| `llm_base_url`, `llm_model_name` |
+| `langchain` *(experimental)* | Embedded Chroma vector store via LangChain. Requires a pre-built persist directory mounted into the agent. | \| `persist_dir` \| `collection_name` \| `embed_model`, `embed_base_url` \| `embed_api_key` |
+| `llama_index` *(experimental)* | Embedded Chroma vector store via LlamaIndex. Requires a pre-built persist directory mounted into the agent. | \| `persist_dir` \| `collection_name` \| `embed_model`, `embed_base_url` \| `embed_api_key` |
+| `arango_graph` *(experimental)* | Relationship-aware retrieval from an existing ArangoDB graph. The backend generates read-only ArangoDB Query Language (AQL) queries. | \| ArangoDB connection fields \| `allow_dangerous_requests` \| `schema_description` *(optional)* \| `graph_semantics` *(optional)* \| Collection allowlists *(optional)* |
+
+`frag_api` and `es_caption` also accept `verify_ssl` and `timeout`.
+`es_caption` is already wired into the Video Summarization profile as
+`lvs_caption_retrieval` (see [VSS-Agent-Profiles](/vss-agent/VSS-Agent-Profiles)).
+
+<Note>
+Filtering by stream name is not supported today; by default it searches all matching
+indices (per the `index` pattern) and uses the stream ID as a filter.
+</Note>
+
+To enable an experimental backend, add `--extra <backend>` to the `uv sync` line in
+`services/agent/docker/Dockerfile` and rebuild the agent image.
+
+To enable a retriever, update the profile's config file (or add a new one) with three
+patches:
+
+**1. Register the function block.**
+
+```yaml
+functions:
+  my_retriever:                 # tool name surfaced to the LLM
+    _type: knowledge_retrieval
+    backend: frag_api           # or es_caption
+    top_k: 5
+    backend_config:
+      # backend-specific fields per the table above
+```
+
+**2. Expose it to the workflow.**
+
+```yaml
+workflow:
+  tool_names:
+    - my_retriever
+```
+
+**3. Update the routing rules in `workflow.prompt`** to tell the LLM when to use
+this tool.
+
+### Example ArangoDB Graph Retrieval Setup
+
+The following example shows how to connect the VSS Agent to an existing
+ArangoDB graph through the experimental `arango_graph` knowledge retrieval
+backend. The VSS Agent reads graph data; it does not create, ingest, update, or
+model customer graphs.
+
+This example uses the following graph:
+
+```text
+node_a/a1 --related_to--> node_b/b1
+```
+
+Start ArangoDB for local testing:
+
+```bash
+docker run -d \
+  --name vss-arango-example \
+  -p 8529:8529 \
+  -e ARANGO_NO_AUTH=1 \
+  arangodb:3.12
+```
+
+If the VSS Agent runs in the `mdx_default` Docker network, attach the
+container to that network:
+
+```bash
+docker network connect mdx_default vss-arango-example
+```
+
+<Warning>
+`ARANGO_NO_AUTH=1` disables authentication. Use it only for an isolated
+local test. Use a read-only account with restricted collection permissions
+for other environments.
+</Warning>
+
+From the `services/agent` directory, run the following script to create
+the example graph:
+
+```bash
+uv run --extra arango-graph python - <<'PY'
+from arango import ArangoClient
+
+client = ArangoClient(hosts="http://localhost:8529")
+system_db = client.db("_system", username="root", password="")
+
+if not system_db.has_database("example_graphs"):
+    system_db.create_database("example_graphs")
+
+db = client.db("example_graphs", username="root", password="")
+for name, edge in (("node_a", False), ("node_b", False), ("related_to", True)):
+    if not db.has_collection(name):
+        db.create_collection(name, edge=edge)
+
+if not db.has_graph("example_graph"):
+    graph = db.create_graph("example_graph")
+    graph.create_edge_definition(
+        edge_collection="related_to",
+        from_vertex_collections=["node_a"],
+        to_vertex_collections=["node_b"],
+    )
+
+db.collection("node_a").insert(
+    {"_key": "a1", "name": "Alpha"},
+    overwrite=True,
+)
+db.collection("node_b").insert(
+    {"_key": "b1", "name": "Beta"},
+    overwrite=True,
+)
+db.collection("related_to").insert(
+    {
+        "_key": "a1_to_b1",
+        "_from": "node_a/a1",
+        "_to": "node_b/b1",
+        "reason": "Alpha is related to Beta.",
+    },
+    overwrite=True,
+)
+
+print("Seeded example_graphs/example_graph")
+PY
+```
+
+Add the retriever to the `functions` section of the VSS Agent config:
+
+```yaml
+functions:
+  graph_retrieval:
+    _type: knowledge_retrieval
+    backend: arango_graph
+    top_k: 5
+    llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+    backend_config:
+      arango_url: ${ARANGO_URL:-http://vss-arango-example:8529}
+      arango_database: ${ARANGO_DB:-example_graphs}
+      arango_username: ${ARANGO_USER:-root}
+      arango_password: ${ARANGO_PASSWORD:-}
+      arango_graph_name: ${ARANGO_GRAPH_NAME:-example_graph}
+      max_aql_generation_attempts: 3
+      # Required LangChain opt-in for generated AQL. This setting is not a
+      # security boundary; enforce read-only access with ArangoDB credentials.
+      allow_dangerous_requests: true
+
+      schema_description: |
+        node_a vertices connect to node_b vertices through related_to edges.
+        Traverse OUTBOUND from node_a through related_to to find node_b.
+
+      allowed_vertex_collections:
+        - node_a
+        - node_b
+      allowed_edge_collections:
+        - related_to
+
+      graph_semantics:
+        - name: example_relationship
+          user_terms: ["node", "related", "relationship", "connection"]
+          source_collection: node_a
+          edge_collection: related_to
+          target_collection: node_b
+          meaning: node_a records connect to related node_b records.
+```
+
+Add the tool to the workflow and update `workflow.prompt` to tell the LLM when
+to use it:
+
+```yaml
+workflow:
+  tool_names:
+    - graph_retrieval
+```
+
+`llm_name` selects the LLM that generates ArangoDB Query Language (AQL)
+queries and summarizes results. `schema_description` describes the graph, and
+`graph_semantics` maps user terms to relationships. Collection allowlists
+guide the LLM to use only the listed vertex and edge collections.
+
+`allow_dangerous_requests: true` is required before LangChain runs generated
+AQL. It does not make the query safe or restrict database access. Use read-only
+ArangoDB credentials to enforce retrieval-only access.
+
+Optionally add `arango_aql_examples` under `backend_config` when schema
+guidance alone does not produce reliable queries:
+
+```yaml
+arango_aql_examples: |
+  User input: Which node_b records are related to node_a a1?
+  ```aql
+  FOR source IN node_a
+    FILTER source._key == "a1"
+    FOR target IN 1..1 OUTBOUND source related_to
+      RETURN target
+  ```
+```
+
+Pair each question with valid, read-only AQL. These examples guide query
+generation; they do not train the LLM. Do not include credentials or sensitive
+data.
+
+After you restart the VSS Agent with the updated config, test the retriever with:
+
+```text
+Which node_b records are related to node_a a1?
+```
+
+The response should identify the `node_b/b1` record named `Beta`.
+
+<Note>
+Collection allowlists guide AQL generation but do not enforce database
+security. Restrict access with ArangoDB user permissions.
+</Note>
+
+Reference `config_rag.yml` files ship with the `dev-profile-base` and
+`dev-profile-lvs` Docker and Helm developer profiles. Use one of these — or
+your own custom config — by pointing `VSS_AGENT_CONFIG_FILE` at it in your
+deployment.
+
+## Related
+
+- [configure-vlm](/vss-agent/configure-vlm) — Configure local or remote VLMs including audio-enabled VLMs
+- [Model customization overview ](/models/model-customization) — Fine-tuning and swapping embedding models (RT-CV, RT-Embedding); see also [../models/index](/models)
+- [VSS-Agent-Configuration](/vss-agent/VSS-Agent-Configuration) - Configuration reference
+- [Video-Analytics-MCP-Server](/vss-agent/Video-Analytics-MCP-Server) - Video Analytics MCP tools reference
+- [vss-agent-report-generation](/vss-agent/vss-agent-report-generation) - Customizing report generation
+- [VSS-Agent-Evaluation](/vss-agent/VSS-Agent-Evaluation) - Test and evaluate custom agent behaviors

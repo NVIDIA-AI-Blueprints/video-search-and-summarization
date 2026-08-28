@@ -1,0 +1,271 @@
+---
+title: "Cosmos-Embed1 (video embedding)"
+description: ""
+position: 3
+---
+## Role in VSS
+
+The Real-Time Embedding microservice ([Real-Time Embedding ](/real-time-embedding)) loads **Cosmos-Embed1** variants by default (for example 224p / 336p / 448p Hugging Face checkpoints) and publishes **video** and **text** embeddings for semantic search and Kafka consumers. The updated model card also includes a 448p anomaly-detection variant fine-tuned with LoRA. Container variables such as `MODEL_PATH`, optional `MODEL_IMPLEMENTATION_PATH`, and Triton repo scripts are described under [Customizations](/real-time-embedding#customization) on [Real-Time Embedding ](/real-time-embedding).
+
+<Note>
+Full TAO reference for Cosmos-Embed1—including experiment schema tables, dataset configs, and optional Weights & Biases logging—lives in the published embedding chapter and mirrors the in-repo `tlt-docs/docs/text/embedding/cosmos_embed1.rst` (and `cosmos_embed1_tables.rst`) sources.
+</Note>
+
+## Architecture and tasks
+
+Cosmos-Embed1 is a **dual-encoder video–text** model: an **EVA-ViT-G** visual encoder on sampled frames, a **Q-Former** distilled from video features, a **BERT-style** text encoder, and **CLIP-style or SigLIP-style** contrastive alignment. Each forward pass runs in either text-encoding mode or video-encoding mode and produces a normalized embedding in a shared vector space. **LoRA** is supported for efficient fine-tuning of visual and Q-Former attention layers.
+
+TAO tasks:
+
+```bash
+tao model cosmos-embed1 <action> -e /path/to/spec.yaml [overrides]
+```
+
+Where `<action>` is one of `train`, `evaluate`, `inference`, or `export`.
+
+## Model variants
+
+The current [Cosmos-Embed1 model card](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/cosmos-embed1) lists these checkpoints:
+
+| Variant | Resolution | Frames | Embedding dim | Notes |
+| --- | --- | --- | --- | --- |
+| `Cosmos-Embed1-224p` | 224x224 | 8 | 256 | Base video-text embedder |
+| `Cosmos-Embed1-336p` | 336x336 | 8 | 768 | Base video-text embedder |
+| `Cosmos-Embed1-448p` | 448x448 | 8 | 768 | Base video-text embedder |
+| `Cosmos-Embed1-448p-anomaly-detection` | 448x448 | 8 | 768 | LoRA fine-tune from 448p on Vad-Reasoning for anomaly detection, anomaly classification, and video retrieval |
+
+The checkpoints default to their optimized square resolution, but the model card notes that arbitrary non-square resolutions are supported. If you switch between 224p and the 336p/448p variants, plan to re-index vector stores because the embedding dimension changes from 256 to 768.
+
+## Hardware requirements
+
+**Minimum (typical single-GPU training at 224p):** one NVIDIA GPU with **at least 40 GB** GPU memory; Ubuntu 20.04+; CUDA 12.1+.
+
+**Recommended:** multiple A100 or H100 GPUs, fast storage for video I/O, and sufficient CPU cores for dataloaders. Exact needs depend on resolution, batch size, and `train.max_iter`.
+
+## Data input (summary)
+
+Cosmos-Embed1 uses a **JSON or JSONL metadata** file mapping each video to a caption (and optional labels). The `dataset_type` field selects loaders. Common types include:
+
+| `dataset_type` | Description |
+| --- | --- |
+| `mock` | Synthetic data for pipeline tests (no real video files) |
+| `vad_r1` / `vad_r1_chunks` | VAD-R1 anomaly-style video with captions and optional temporal chunks |
+| `msrvtt` | MSR-VTT-style video–description pairs |
+| `kinetics` | Kinetics-style action clips with metadata CSV |
+| `http` | Videos referenced by HTTP URLs in metadata |
+
+Field-level requirements (paths, `caption_field`, chunking) are in the [Cosmos-Embed1 TAO chapter](https://docs.nvidia.com/tao/tao-toolkit/latest/text/embedding/cosmos_embed1.html). Align your **frame sampling** and **resolution** with the variant you deploy. The model card reports optimization around **8 frames**, typically sampled at **1-2 FPS**; confirm the production chunking in your runtime config.
+
+## TAO fine-tuning configuration
+
+Fine-tuning uses YAML experiment files that follow the `ExperimentConfig` schema. Full parameter tables live in the published [Cosmos-Embed1](https://docs.nvidia.com/tao/tao-toolkit/latest/text/embedding/cosmos_embed1.html) chapter; they are generated from `tlt-docs/docs/text/embedding/cosmos_embed1_tables.rst`.
+
+```bash
+tao model cosmos-embed1 <action> -e /path/to/spec.yaml [overrides]
+```
+
+Top-level sections in the experiment file:
+
+* `results_dir` — run output root
+* `wandb` — optional Weights & Biases logging
+* `model` — `pretrained_model_path`, `precision`, `input_hw`, `network` (EVA-ViT, Q-Former, frames, resolution, contrastive type), `lora`, `fsdp`
+* `dataset` — `train_dataset`, `val_dataset`, `test_dataset`, `inference_dataset` (each a `SingleDatasetConfig` with `dataset_type`, `metadata`, `data_root`, batching, etc.)
+* `train` — `max_iter`, `num_gpus`, `optim`, `loss_weights`, `callbacks`, `ema`, resume paths, `freeze_visual_encoder`, …
+* `evaluate` — checkpoint, callbacks (top-K, UMAP), optional embedding cache paths
+* `inference` — checkpoint, query config, `k`, corpus cache paths
+* `export` — `mode` (`video` / `text` / `combined` / Hugging Face), `onnx_file`, `opset_version`, `hf_output_dir`
+
+### Example experiment specification
+
+Illustrative 224p layout (`vad_r1`-style metadata). Replace `??` with your paths; align `network.num_video_frames` and `dataset.*.num_video_frames` with deployment. When available, start from the packaged `cosmos_embed1/configs/experiment_specs/*.yaml` files in your TAO Toolkit tree and merge overrides rather than authoring a spec from scratch.
+
+```yaml
+results_dir: /results/cosmos_experiment
+
+wandb:
+  enable: false
+  project: cosmos_embed1
+
+model:
+  pretrained_model_path: nvidia/Cosmos-Embed1-224p
+  pretrained_model_strict: true
+  precision: bf16
+  input_hw: [224, 224]
+  network:
+    embed_dim: 256
+    num_query_tokens: 32
+    max_txt_len: 128
+    num_video_frames: 8
+    spatial_resolution: [224, 224]
+    contrastive_type: clip
+  lora:
+    enabled: false
+    lora_rank: 8
+    lora_alpha: 16
+
+dataset:
+  train_dataset:
+    dataset_type: vad_r1
+    metadata: /data/train.jsonl
+    data_root: /data/videos
+    batch_size: 4
+    num_video_frames: 8
+    resolution: [224, 224]
+    caption_field: anomaly_type
+  val_dataset:
+    dataset_type: vad_r1
+    metadata: /data/val.jsonl
+    data_root: /data/videos
+    batch_size: 4
+    num_video_frames: 8
+    resolution: [224, 224]
+
+train:
+  max_iter: 50000
+  num_gpus: 1
+  num_nodes: 1
+  gpu_ids: [0]
+  validation_iter: 1000
+  checkpoint_iter: 1000
+  clip_grad_norm: 0.0
+  precision: bf16
+  resume_training_checkpoint_path: null
+  freeze_visual_encoder: true
+  use_captioning_loss: true
+  use_text_matching_loss: false
+  optim:
+    optim: adamw
+    lr: 1.0e-5
+    weight_decay: 1.0e-5
+    betas: [0.9, 0.98]
+    warmup_steps: 1000
+    policy: cosine
+    lr_decay_iters: 50000
+  loss_weights:
+    contrastive_loss: 1.0
+    captioning_loss: 1.0
+    matching_loss: 1.0
+
+evaluate:
+  checkpoint: /results/cosmos_experiment/train/cosmos_embed1_model_latest.pth
+  num_gpus: 1
+
+inference:
+  checkpoint: /results/cosmos_experiment/train/cosmos_embed1_model_latest.pth
+  k: 5
+
+export:
+  checkpoint: /results/cosmos_experiment/train/cosmos_embed1_model_latest.pth
+  mode: combined
+  opset_version: 17
+  batch_size: 1
+  simplify: false
+```
+
+### LoRA fine-tuning (config fragment)
+
+Use a LoRA spec (for example `finetune_224p_lora.yaml` in the TAO starter layouts) and ensure the visual encoder allows PEFT injection (`transformer_engine: false` on the visual encoder when required by the TAO release):
+
+```yaml
+model:
+  lora:
+    enabled: true
+    lora_rank: 8
+    lora_alpha: 16
+```
+
+### Launch model fine-tuning
+
+Update dataset paths and training budget, then run:
+
+```yaml
+dataset:
+  train_dataset:
+    metadata: ??  # JSON or JSONL
+    data_root: ??
+  val_dataset:
+    metadata: ??
+    data_root: ??
+```
+
+```yaml
+train:
+  max_iter: ??  # e.g. 10000–50000 depending on data
+  num_gpus: ??  # or train.num_gpus=-1 for all GPUs
+```
+
+```bash
+tao model cosmos-embed1 train \
+    -e /path/to/finetune_224p.yaml \
+    results_dir=/results/my_experiment \
+    model.pretrained_model_path=nvidia/Cosmos-Embed1-224p \
+    dataset.train_dataset.metadata=/data/train.jsonl \
+    dataset.train_dataset.data_root=/data/videos \
+    dataset.val_dataset.metadata=/data/val.jsonl \
+    dataset.val_dataset.data_root=/data/videos
+```
+
+Checkpoints are written under `<results_dir>/train/` (for example `cosmos_embed1_model_latest.pth`).
+
+### Evaluate the fine-tuned model
+
+```bash
+tao model cosmos-embed1 evaluate \
+    -e /path/to/evaluate_224p.yaml \
+    results_dir=/results/my_eval \
+    evaluate.checkpoint=/results/my_experiment/train/cosmos_embed1_model_latest.pth \
+    dataset.test_dataset.metadata=/data/test.jsonl \
+    dataset.test_dataset.data_root=/data/videos
+```
+
+Optional: set `evaluate.save_dataset_pkl` / `evaluate.load_dataset_pkl` to cache embeddings between runs.
+
+### Run inference (text / video search)
+
+```bash
+tao model cosmos-embed1 inference \
+    -e /path/to/inference_224p.yaml \
+    inference.checkpoint=/results/my_experiment/train/cosmos_embed1_model_latest.pth \
+    dataset.inference_dataset.metadata=/data/search_corpus.jsonl \
+    dataset.inference_dataset.data_root=/data/videos \
+    'inference.query.input_texts=["a car crash", "flooding on highway"]'
+```
+
+Use `inference.save_dataset_pkl` / `inference.load_dataset_pkl` to cache the encoded corpus.
+
+### Export ONNX and Hugging Face
+
+**ONNX** — `export.mode` selects `video`, `text`, `combined`, or Hugging Face export paths:
+
+```bash
+tao model cosmos-embed1 export \
+    -e /path/to/export_onnx_224p.yaml \
+    export.checkpoint=/results/my_experiment/train/cosmos_embed1_model_latest.pth \
+    export.mode=combined
+```
+
+**Hugging Face layout** (for drop-in `MODEL_PATH`):
+
+```bash
+tao model cosmos-embed1 export \
+    -e /path/to/export_hf_224p.yaml \
+    export.checkpoint=/results/my_experiment/train/cosmos_embed1_model_latest.pth \
+    export.hf_output_dir=/results/my_experiment/hf_export
+```
+
+## Integrating fine-tuned weights into RT-Embedding
+
+1. **Fine-tune** with TAO using resolution and sampling that match production (chunk length, frame count, variant).
+2. **Export** to ONNX or Hugging Face layout as required by your runtime.
+3. Set `MODEL_PATH` to a `git:` Hugging Face URL or a **mounted local directory** with the expected structure. If you change the Python implementation or Triton repository layout, set `MODEL_IMPLEMENTATION_PATH` and `MODEL_REPOSITORY_SCRIPT_PATH` consistently with [Real-Time Embedding ](/real-time-embedding).
+4. **Re-index** Elasticsearch (or other vector stores) if embedding dimension or semantics change; rerun integration tests for RTSP ingest, file ingest, and Kafka consumers.
+
+<Note>
+For embedding search and agent workflows, see [../agent-workflow-search](/agent-workflow-search) and [Model customization overview ](/models/model-customization).
+</Note>
+
+## Source material in this repo’s doc trees
+
+* `tlt-docs/docs/text/embedding/cosmos_embed1.rst` — full narrative, commands, and configuration
+* `tlt-docs/docs/text/embedding/cosmos_embed1_tables.rst` — generated parameter tables
+* `tlt-docs/docs/text/embedding/index.rst` — embedding overview and launcher pattern

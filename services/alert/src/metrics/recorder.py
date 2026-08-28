@@ -636,6 +636,63 @@ def inc_async_dispatch_fallback(reason: str) -> None:
     ).inc()
 
 
+def set_pipeline_process_counts(configured: int, alive: int, ready: int) -> None:
+    """Publish the fleet state the supervising process can see.
+
+    Throughput alone hides degraded capacity: an instance short of a process
+    keeps serving whatever the survivors still own.
+    """
+    if not PROMETHEUS_ENABLED:
+        return
+    from metrics.prometheus_metrics import (
+        PIPELINE_PROCESSES_ALIVE,
+        PIPELINE_PROCESSES_CONFIGURED,
+        PIPELINE_PROCESSES_READY,
+    )
+    PIPELINE_PROCESSES_CONFIGURED.set(max(0, configured))
+    PIPELINE_PROCESSES_ALIVE.set(max(0, alive))
+    PIPELINE_PROCESSES_READY.set(max(0, ready))
+
+
+def inc_pipeline_process_exit(reason: str) -> None:
+    """Count a pipeline process exit as expected or not."""
+    if not PROMETHEUS_ENABLED:
+        return
+    from metrics.prometheus_metrics import PIPELINE_PROCESS_EXITS
+    PIPELINE_PROCESS_EXITS.labels(reason=reason).inc()
+
+
+def inc_records_read_after_revoke(count: int = 1) -> None:
+    """Records that arrived for a partition this member had already lost.
+
+    The rebalance drain runs inside the revoke callback, which the same poll
+    delivers, so records read into that batch cannot have been counted by it.
+    They are processed here while the incoming owner starts on the same
+    sensors. Bounded by max_poll_records per partition per rebalance; this
+    makes the size of that residual observable instead of assumed.
+    """
+    if not PROMETHEUS_ENABLED or count <= 0:
+        return
+    from metrics.prometheus_metrics import RECORDS_READ_AFTER_REVOKE
+    RECORDS_READ_AFTER_REVOKE.inc(count)
+
+
+def set_assigned_partitions(count: int) -> None:
+    """Set the partitions this process holds; summed across the instance."""
+    if not PROMETHEUS_ENABLED:
+        return
+    from metrics.prometheus_metrics import ASSIGNED_PARTITIONS
+    ASSIGNED_PARTITIONS.set(max(0, count))
+
+
+def inc_rebalance_drain(outcome: str) -> None:
+    """Count a drain of revoked partitions as drained or timed out."""
+    if not PROMETHEUS_ENABLED:
+        return
+    from metrics.prometheus_metrics import REBALANCE_DRAINS
+    REBALANCE_DRAINS.labels(outcome=outcome).inc()
+
+
 def set_dispatch_in_flight(count: int) -> None:
     """Set the live count of in-flight dispatched messages."""
     if not PROMETHEUS_ENABLED:

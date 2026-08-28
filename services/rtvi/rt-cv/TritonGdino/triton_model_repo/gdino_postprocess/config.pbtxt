@@ -1,0 +1,74 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+name: "gdino_postprocess"
+backend: "python"
+max_batch_size: 8
+input [
+{
+    name: "pred_logits"
+    data_type: TYPE_FP32
+    dims: [ -1, 256]
+},
+{
+    name: "pred_boxes"
+    data_type: TYPE_FP32
+    dims: [ -1, 4]
+}
+,
+{
+    name: "pos_map"
+    data_type: TYPE_FP32
+    dims: [ -1,256]
+}
+,
+{
+    name: "target_sizes"
+    data_type: TYPE_INT32
+    dims: [4]
+}
+]
+
+output [
+{
+    name: "labels"
+    data_type: TYPE_INT32
+    dims: [ -1,-1]
+},
+{
+    name: "boxes"
+    data_type: TYPE_FP32
+    dims: [ -1,-1, 4]
+}
+,
+{
+    name: "scores"
+    data_type: TYPE_FP32
+    dims: [ -1,-1]
+}
+]
+
+instance_group [
+    {
+      count: 1
+      kind: KIND_GPU
+      gpus: [ 0 ]
+    }
+]
+
+
+
+#dynamic_batching {
+    # max_queue_delay_microseconds: 20000
+#}
+
+parameters: { key: "FORCE_CPU_ONLY_INPUT_TENSORS" value: {string_value:"no"}}

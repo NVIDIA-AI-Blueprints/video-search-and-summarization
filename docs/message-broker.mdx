@@ -1,0 +1,26 @@
+---
+title: "Message Broker"
+description: ""
+position: 3
+---
+Message broker services exchange data and control messages between microservices.
+
+## Broker options
+
+**Kafka**
+
+* The primary broker for exchanging data between microservices, and the default message broker for all blueprints.
+
+**Redis**
+
+* **Developer** and **Smart City** blueprint profiles: Redis is used as a message broker (Redis Streams) for control messages. For example, sending RTSP stream details to VST for dynamic addition.
+* **Warehouse** blueprint: Instead of Kafka, Redis can be used as the message broker to send and receive data between microservices. Redis also carries control messages.
+
+## How to choose between Kafka and Redis in the Warehouse blueprint
+
+The **Warehouse** blueprint supports both Kafka and Redis as message brokers. You can choose which one to use based on your deployment requirements.
+
+* If you need a high-throughput message broker with robust persistence and scalability, use Kafka.
+* If you need a lightweight message broker with minimal memory footprint and low latency, use Redis.
+
+The following sections document Kafka and Redis in detail.

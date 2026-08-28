@@ -1,0 +1,38 @@
+---
+title: "Observability"
+description: ""
+position: 6
+---
+This page provides basic information for accessing the observability stack that gets deployed with the Blueprint. The stack includes Grafana, Prometheus, cAdvisor, DCGM Exporter, and Node Exporter.
+
+## Components Overview
+
+| Component | What it does |
+| --- | --- |
+| Grafana | Visualization layer for metrics dashboards and alerts. |
+| Prometheus | Metrics collection and time-series storage for scraping exporters. |
+| cAdvisor | Container-level metrics for CPU, memory, filesystem, and network. |
+| DCGM Exporter | GPU telemetry exporter for temperature, power, clocks, and utilization. |
+| Node Exporter | Host-level metrics exporter for CPU, memory, disk, and network. |
+
+## Service Access Points
+
+| Service | URL |
+| --- | --- |
+| Grafana | `http://<HOST_IP>:35000` |
+| Prometheus | `http://<HOST_IP>:9090` |
+| cAdvisor | `http://<HOST_IP>:18080` |
+| DCGM Exporter | `http://<HOST_IP>:9400` |
+| Node Exporter | `http://<HOST_IP>:9100` |
+
+## Grafana Dashboards
+
+The following dashboards are available by default in Grafana:
+
+Default user and password are:
+- user: admin
+- password: admin
+
+- **nvidia-dcgm-exporter-dashboard**: GPU metrics such as temperature, power usage, SM clocks, and utilization.
+- **Node Exporter**: Host-level metrics for CPU, memory, disk, and network.
+- **Docker Monitoring**: Container-level metrics including running containers, total memory usage, CPU usage, and network RX.

@@ -43,7 +43,7 @@ from vss_core._foundation.errors import LibraryError
 from vss_core._foundation.sanitize import scrub_log
 from vss_core._foundation.time import datetime_to_iso8601
 from vss_core._foundation.time import safe_iso8601_to_datetime
-from vss_core.vst import get_sensor_id_from_stream_id
+from vss_core.vios import get_sensor_id_from_stream_id
 
 from .._internal.coerce import _coerce_float
 from .._internal.coerce import _coerce_str

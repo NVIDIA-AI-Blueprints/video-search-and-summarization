@@ -85,6 +85,7 @@ function get_detected_hardware_profile() {
   local _gpu_lower="${_gpu_name,,}"
   case "${_gpu_lower}" in
     *h100*) echo "H100" ;;
+    *gb300*|*b300*) echo "GB300" ;;
     *l40s*) echo "L40S" ;;
     *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
@@ -92,6 +93,18 @@ function get_detected_hardware_profile() {
     *thor*) echo "THOR" ;;
     *) echo "OTHER" ;;
   esac
+}
+
+# Returns success when any installed NVIDIA GPU matches a canonical hardware profile.
+# Mixed-GPU workstations must not be rejected merely because a different GPU is
+# listed first by nvidia-smi.
+function host_has_detected_hardware_profile() {
+  local _requested="${1}" _gpu_name _detected
+  while IFS= read -r _gpu_name; do
+    _detected="$(get_detected_hardware_profile "${_gpu_name}")"
+    [[ "${_detected}" == "${_requested}" ]] && return 0
+  done < <(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)
+  return 1
 }
 
 # Maps requested hardware_profile (CLI/env) to the same canonical type used by get_detected_hardware_profile.
@@ -120,6 +133,7 @@ function get_llm_slug() {
     nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
     nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
     nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
+    nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
     nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
     openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
     *) echo "" ;;
@@ -214,6 +228,40 @@ function set_alerts_ui_subtitle_from_mode() {
       echo "[INFO] Set NEXT_PUBLIC_APP_SUBTITLE for alerts (MODE=2d_vlm → Vision (Alerts - VLM))"
       ;;
   esac
+}
+
+# Expose the Manage Alerts editors for the selected pipeline.
+# generated.env overrides the stable .env when --mode real-time is selected
+# (CV verification off). Verification mode keeps both editors.
+function set_alerts_ui_rule_kinds_from_mode() {
+  local _generated_env="${1}"
+  local _mode _realtime _verification
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  case "${_mode}" in
+    2d_cv)
+      _realtime=true
+      _verification=true
+      ;;
+    2d_vlm)
+      _realtime=true
+      _verification=false
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  for _entry in \
+    "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=${_realtime}" \
+    "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=${_verification}"; do
+    local _name="${_entry%%=*}"
+    if grep -q "^${_name}=" "${_generated_env}"; then
+      sed -i "s|^${_name}=.*|${_entry}|" "${_generated_env}"
+    else
+      printf '%s\n' "${_entry}" >> "${_generated_env}"
+    fi
+  done
+  echo "[INFO] Set Alerts Manage tabs for MODE=${_mode} (real-time=${_realtime}, CV verification=${_verification})"
 }
 
 # Alerts RT-VLM Kafka publishing: overrides.env disables it for verification
@@ -404,7 +452,7 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
+      DGX-SPARK|GB300|H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -493,6 +541,7 @@ function usage() {
   echo "  -H, --hardware-profile           Hardware profile."
   echo "                                   • One of:"
   echo "                                     - H100"
+  echo "                                     - GB300"
   echo "                                     - L40S"
   echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
@@ -516,6 +565,7 @@ function usage() {
   echo "                                     - nvidia/nvidia-nemotron-nano-9b-v2"
   echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
   echo "                                     - nvidia/nemotron-3-nano"
+  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b"
   echo "                                     - nvidia/llama-3.3-nemotron-super-49b-v1.5"
   echo "                                     - openai/gpt-oss-20b"
   echo "                                   • When --use-remote-llm is passed, any model name can be passed"
@@ -798,24 +848,24 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'GB300' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
-      # Fail fast: requested hardware_profile must match detected GPU (from nvidia-smi display name).
+      # Fail fast: requested hardware_profile must match a detected GPU from nvidia-smi.
       # OTHER is a user-selected catch-all and intentionally bypasses the host GPU match.
       # Both sides use canonical types (AGX-THOR and IGX-THOR map to THOR for comparison).
       # Set SKIP_HARDWARE_CHECK=true to skip (e.g. in CI/tests without matching GPU).
       if [[ -n "${hardware_profile}" ]] && [[ "$(get_canonical_hardware_profile "${hardware_profile}")" != "OTHER" ]] && [[ "${SKIP_HARDWARE_CHECK,,}" != "true" ]]; then
-        local _gpu_name _detected_canonical
+        local _gpu_name
         _gpu_name="$(get_nvidia_smi_gpu_name)"
         if [[ -z "${_gpu_name}" ]]; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match detected hardware (no NVIDIA GPU detected)."
           ((_all_good++))
-        elif _detected_canonical="$(get_detected_hardware_profile "${_gpu_name}")" && [[ "$(get_canonical_hardware_profile "${hardware_profile}")" != "${_detected_canonical}" ]]; then
-          echo "[ERROR] Hardware profile '${hardware_profile}' does not match detected hardware '$(get_canonical_display_name "${_detected_canonical}")'."
+        elif ! host_has_detected_hardware_profile "$(get_canonical_hardware_profile "${hardware_profile}")"; then
+          echo "[ERROR] Hardware profile '${hardware_profile}' does not match any detected NVIDIA GPU."
           ((_all_good++))
         fi
       fi
@@ -1035,7 +1085,7 @@ function process_args() {
         # Validate LLM model name if provided (only for non-remote modes; known names map to a slug)
         if contains_element "llm" "${options_provided[@]}"; then
           if [[ -z "$(get_llm_slug "${llm}")" ]]; then
-            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nvidia-nemotron-nano-9b-v2, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8, nvidia/nemotron-3-nano, nvidia/llama-3.3-nemotron-super-49b-v1.5, openai/gpt-oss-20b"
+            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nvidia-nemotron-nano-9b-v2, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8, nvidia/nemotron-3-nano, nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/llama-3.3-nemotron-super-49b-v1.5, openai/gpt-oss-20b"
             ((_all_good++))
           fi
         fi
@@ -1334,6 +1384,7 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    set_alerts_ui_rule_kinds_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
     # Alerts VLM mode uses a different explicit service list than CV mode.
     if [[ "${mode_env}" == "2d_vlm" ]]; then
@@ -1549,10 +1600,10 @@ function state_up() {
     esac
   fi
 
-  # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
-  # comment the uncommented line (non-sbsa) and uncomment the sbsa line. Discover keys from the file.
-  # Comment format may be "# VAR=..." or "#VAR=..." (optional space after #).
-  if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
+  # ARM64 GPU systems use explicit SBSA image tags where profiles provide them.
+  # This includes DGX-SPARK and GB300 (Grace Blackwell), whose generic image
+  # manifests do not include the required DeepStream/Tegra runtime libraries.
+  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" ]]; then
     local _key
     while IFS= read -r _key; do
       [[ -z "${_key}" ]] && continue
@@ -1560,8 +1611,14 @@ function state_up() {
       sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
       # Uncomment the commented line for this key when value contains sbsa
       sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (DGX-SPARK): ${_key}"
+      echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
+  fi
+  # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
+  # override into generated.env where it wins during Compose interpolation.
+  if [[ "${hardware_profile}" == "GB300" ]]; then
+    set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
+    echo "[INFO] Selected SBSA RT-VLM image for GB300"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"

@@ -36,7 +36,7 @@ The base `.env` defaults both sides to shared local deployment:
 `LLM_DEVICE_ID=0` and `VLM_DEVICE_ID=0`. `dev-profile.sh` writes the same
 mode when LLM/VLM device IDs match and no remote flags are selected.
 
-**Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
+**Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/nemotron-3.5-lightning-30b-a3b`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
 
 **Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `nvidia/cosmos-reason2-8b`, `Qwen/Qwen3-VL-8B-Instruct`
 

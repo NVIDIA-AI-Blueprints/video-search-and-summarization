@@ -1,0 +1,7 @@
+Parameter,Type,Description
+_type,string,LLM provider type (e.g. ``nim`` for NVIDIA NIM)
+model_name,string,Model identifier (e.g. ``nvidia/nvidia-nemotron-nano-9b-v2``)
+base_url,string,API endpoint URL with ``/v1`` suffix
+max_tokens,int,Maximum tokens to generate
+temperature,float,Sampling temperature (0.0 = deterministic)
+

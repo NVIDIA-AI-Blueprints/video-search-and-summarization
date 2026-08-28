@@ -1,0 +1,8 @@
+Parameter,Description
+llm_name,LLM from llms section
+log_level,"DEBUG, INFO, WARNING, ERROR"
+max_iterations,Max reasoning iterations
+tool_names,Direct tools for agent
+subagent_names,Sub-agents for complex tasks
+prompt,System prompt
+

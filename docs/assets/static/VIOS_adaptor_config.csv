@@ -1,0 +1,15 @@
+"Key","Description",Typical Value
+"""enabled""","Enable/Disable the adaptor",true
+"""id""","Unique identifier for the adaptor","""8ada39c7-5e93-43c5-ae5e-21451c8a8d1b"""
+"""name""","Name of the adaptor","""milestone_onvif"""
+"""type""","Type of the adaptor (e.g., mms)","""mms"""
+"""ip""","IP address of the adaptor server","""<milestone-server-ip>"""
+"""user""","Username for adaptor authentication","""<onvif-username>"""
+"""password""","Password for adaptor authentication","""<onvif-password>"""
+"""port""","Port number for adaptor connection","""580"""
+"""need_rtsp_server""","Enable/Disable RTSP server for this adaptor",true
+"""need_stream_monitoring""","Enable/Disable stream monitoring for this adaptor",true
+"""need_recording""","Enable/Disable recording for this adaptor",true
+"""need_storage_management""","Enable/Disable storage management for this adaptor",true
+"""control_adaptor_lib_path""","Path to the control adaptor library","""prebuilts/arch/onvif_client.so"""
+"""media_adaptor_lib_path""","Path to the media adaptor library","""prebuilts/arch/vms_media.so"""

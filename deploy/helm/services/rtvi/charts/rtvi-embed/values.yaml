@@ -13,13 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-imagePullSecrets:
-  - name: ngc-docker-reg-secret
+imagePullSecrets: []
 
 replicas: 1
+# Shared managed-image channel. QA can select a promoted image through
+# global.container_prefix and global.container_tag.
+# SBSA/DGX-Spark is a separate arm64 build because it uses a different
+# DeepStream base than Jetson, but it shares this repository. Override only
+# the tag to select it: image.tag=develop-latest-sbsa (or set the same value
+# through global.container_tag when every managed image uses that channel).
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-  tag: "3.3.0-26.08.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
+  tag: develop-latest
   pullPolicy: IfNotPresent
 port: 8000
 service:
