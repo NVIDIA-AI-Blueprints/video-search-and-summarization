@@ -144,7 +144,7 @@ function get_removed_llm_message() {
   local _name="${1}"
   case "${_name}" in
     nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
-      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, or nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 on edge hardware (DGX-SPARK / AGX-THOR / IGX-THOR)." ;;
+      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, the default on every hardware profile." ;;
     *) echo "" ;;
   esac
 }
@@ -1402,15 +1402,9 @@ function state_up() {
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
-    # AGX/IGX Thor ship no hw-*.env for the default LLM, so a local deploy there
-    # must use the FP8 build. DGX Spark now has its own Lightning sizing files and
-    # keeps the blueprint default. Only applied when no --llm was given and the LLM
-    # is not remote.
-    if [[ "${llm_mode}" != "remote" ]] && [[ -z "${llm}" ]] \
-       && [[ "${hardware_profile}" != "DGX-SPARK" ]]; then
-      set_env_var "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
-      set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8"
-    fi
+    # Every edge platform now ships Lightning sizing files, so none of them needs
+    # the LLM rewritten away from the blueprint default. The FP8 build stays
+    # reachable through an explicit --llm.
   else
     if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
       set_env_var "LLM_DEVICE_ID" "${llm_device_id}"

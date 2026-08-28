@@ -1588,6 +1588,17 @@ run_dry_run_up_and_check_generated_env "generated.env LLM slugs and names" "base
  -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
   "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
 
+# Every edge platform keeps the blueprint default now that all three ship Lightning
+# sizing files; nothing rewrites LLM_NAME away from it. Guards the routing in
+# dev-profile.sh, which previously forced the FP8 build on AGX/IGX Thor.
+for _edge_hw in DGX-SPARK AGX-THOR IGX-THOR; do
+  run_dry_run_up_and_check_generated_env "generated.env ${_edge_hw} defaults to Nemotron 3.5 Lightning" "base" \
+   -i 127.0.0.1 -H "${_edge_hw}" -d -- \
+    "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+    "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
+    "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0"
+done
+
 run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM integrated checkpoint" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \

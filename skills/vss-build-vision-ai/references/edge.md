@@ -9,23 +9,22 @@ Base-profile deployment guidance for edge platforms.
 manifest carries the same profile id with only `min_vram_per_device_gb: 32.0`
 and no GPU allow-list, and Spark's GB10 has 128 GB of unified memory.
 
-On **AGX Thor and IGX Thor** the LLM is
-**`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`** (slug
-`nvidia-nemotron-nano-9b-v2-fp8`). It is served by raw vLLM, not a NIM:
+**AGX Thor and IGX Thor** run the same default. They ship
+`hw-AGX-THOR` / `hw-IGX-THOR` env pairs of their own, so `dev-profile.sh` no
+longer rewrites `LLM_NAME` on any edge platform.
+
+`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (slug `nvidia-nemotron-nano-9b-v2-fp8`)
+remains in the tree as an explicit `--llm` fallback for all three. It is served
+by raw vLLM rather than a NIM:
 
 ```text
 nvcr.io/nvidia/vllm:26.07-py3
 ```
 
-Unlike the older edge recipes, this LLM **is** wired into the blueprint compose
-graph — `deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml`,
-with `hw-DGX-SPARK`, `hw-AGX-THOR` and `hw-IGX-THOR` env pairs — so it deploys
-as a normal compose service and no standalone container is needed.
-
-`dev-profile.sh` rewrites `LLM_NAME` / `LLM_NAME_SLUG` to the FP8 build only for
-`AGX-THOR` and `IGX-THOR` — the two platforms with no Lightning sizing files —
-when no `--llm` was passed and the LLM is not remote. `DGX-SPARK` keeps the
-blueprint default.
+It is wired into the compose graph the same way — `hw-DGX-SPARK`, `hw-AGX-THOR`
+and `hw-IGX-THOR` env pairs under
+`deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/` — so selecting it
+needs no standalone container.
 
 > The Spark sizing (`NIM_GPU_MEM_FRACTION=0.3` of unified memory, ~38 GB against
 > the profile's 32 GB floor) has **not** been measured on Spark hardware. Verify
@@ -36,7 +35,7 @@ blueprint default.
 
 The edge local LLM runs on the device's shared/unified memory and is **slow** (on DGX Spark the LLM is the main latency bottleneck). **Before deploying, ask the user:**
 
-> The local edge LLM (Nemotron 3.5 Lightning on DGX Spark, Nano 9B v2 FP8 on Thor) runs on the device and is latency-limited. If you have a **remote LLM endpoint** (build.nvidia.com / NVIDIA API catalog, or your own OpenAI-compatible server), using it gives noticeably better latency. Use a remote LLM, or run the local one?
+> The local edge LLM (Nemotron 3.5 Lightning) runs on the device and is latency-limited. If you have a **remote LLM endpoint** (build.nvidia.com / NVIDIA API catalog, or your own OpenAI-compatible server), using it gives noticeably better latency. Use a remote LLM, or run the local one?
 
 - **Remote (recommended for latency):** the user supplies the endpoint + model. Set `LLM_MODE=remote`, `LLM_NAME_SLUG=none`, `LLM_BASE_URL=<endpoint, no trailing /v1>`, `LLM_NAME=<model the endpoint serves>`, and `NVIDIA_API_KEY=<key>` if required; probe `<endpoint>/v1/models` first (see [`credentials.md`](credentials.md)). Only the LLM goes remote; the VLM still deploys locally per the platform's VLM recipe below.
 - **Local:** proceed with the platform recipe below; expect higher latency.
@@ -46,7 +45,7 @@ The edge local LLM runs on the device's shared/unified memory and is **slow** (o
 | Situation | LLM path |
 |---|---|
 | DGX Spark, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
-| AGX Thor / IGX Thor, local LLM | In-tree `nvidia-nemotron-nano-9b-v2-fp8` compose service |
+| AGX Thor / IGX Thor, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
 | Any edge platform, remote-LLM mode | External endpoint; no local LLM needed |
 | Edge platform where even the FP8 9 B build is too heavy | Standalone small-model vLLM — see [Alternative](#alternative--standalone-small-model-vllm) |
 | Non-edge hardware (H100, GB300, L40S, RTX PRO) | Default `nemotron-3.5-lightning-30b-a3b` NIM compose path |
@@ -146,12 +145,12 @@ awk -v f="$free" -v t="$total" 'BEGIN{u=f/t-0.2; if(u<0)u=0; printf "max util ~ 
 ```
 
 The conservative per-service starting point is about `0.4`, so two
-co-resident services sum to at most `0.8`. The FP8 LLM's `-shared-gpu` service
-runs at `--gpu-memory-utilization 0.40`; set
+co-resident services sum to at most `0.8`. The Lightning NIM's shared env sets
+`NIM_GPU_MEM_FRACTION=0.30`; set
 `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4` (DGX Spark) or `0.35` (Thor) in the
 build override for RT-VLM. If other tenants are resident, lower the fractions
-to fit — for the LLM that means editing `--gpu-memory-utilization` in
-`services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml`. If `nvidia-smi`
+to fit — for the LLM that means lowering `NIM_GPU_MEM_FRACTION` in
+`services/nim/nemotron-3.5-lightning-30b-a3b/hw-<profile>-shared.env`. If `nvidia-smi`
 cannot read free memory (common on Thor/Tegra), start at `0.4` and reduce by
 `0.05` after the first `Free … less than desired` abort.
 
@@ -209,7 +208,7 @@ Expected model ID is `nvidia/nemotron-3.5-lightning-30b-a3b`. If `/v1/models`
 returns a different ID, use the returned ID as `LLM_NAME` in the build
 override.
 
-## AGX Thor / IGX Thor - Nano 9B v2 FP8 LLM + rtvi-vlm
+## AGX Thor / IGX Thor - default Nemotron 3.5 Lightning NIM + rtvi-vlm
 
 On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason3 Nano BF16
 in-process**. The standalone `cosmos-reason2-8b` NIM service does not run on
@@ -221,19 +220,21 @@ advertises it at `http://${HOST_IP}:8018/v1` under
 Remote VLM and `--vlm` swaps are not supported on Thor for `base` or
 `alerts`; this is the only deployed VLM shape documented by this skill.
 
-The Thor LLM is the same in-tree FP8 compose service as DGX Spark —
+Thor runs the same default Lightning NIM as every other platform:
 `hw-AGX-THOR.env` / `hw-AGX-THOR-shared.env` and `hw-IGX-THOR.env` /
-`hw-IGX-THOR-shared.env` all exist under
-`services/nim/nvidia-nemotron-nano-9b-v2-fp8/` — so nothing has to be started by
-hand and no `HF_TOKEN` is involved.
+`hw-IGX-THOR-shared.env` exist under
+`services/nim/nemotron-3.5-lightning-30b-a3b/`, so nothing has to be started by
+hand and no `HF_TOKEN` is involved. The NIM's arm64 image is `NVARCH=sbsa` with
+CUDA 13, which is what JetPack 7 Thor runs — Thor is an SBSA system, unlike
+Orin — and its kernels cover Thor's SM 11.0. Not yet run on Thor hardware.
 
 Add these values to `_builds/<name>/override.env`:
 
 | Key | Value |
 |---|---|
 | `LLM_MODE` | `local_shared` |
-| `LLM_NAME` | `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` |
-| `LLM_NAME_SLUG` | `nvidia-nemotron-nano-9b-v2-fp8` |
+| `LLM_NAME` | `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| `LLM_NAME_SLUG` | `nemotron-3.5-lightning-30b-a3b` |
 | `HARDWARE_PROFILE` | `AGX-THOR` or `IGX-THOR` |
 | `LLM_DEVICE_ID` | `0` |
 | `VLM_DEVICE_ID` | `0` |
@@ -246,7 +247,8 @@ Add these values to `_builds/<name>/override.env`:
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.35` |
 | `VSS_AGENT_CONFIG_FILE` | `./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml` |
 
-Then follow `SKILL.md` Steps 7–9.
+Then follow `SKILL.md` Steps 7–9. RT-VLM takes 35% of the shared unified
+memory alongside the LLM's 30%.
 
 ## Alternative — standalone small-model vLLM
 

@@ -125,7 +125,7 @@ function get_removed_llm_message() {
   local _name="${1}"
   case "${_name}" in
     nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
-      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, or nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 on edge hardware (DGX-SPARK / AGX-THOR / IGX-THOR)." ;;
+      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, the default on every hardware profile." ;;
     *) echo "" ;;
   esac
 }

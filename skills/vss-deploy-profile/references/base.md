@@ -205,8 +205,8 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 ### Hard rules
 
 - **L40S (48 GB) shared mode is tight.** Use the sizing math for the selected LLM/VLM pair. If the pair exceeds 40.8 GB usable, use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
-- **Edge hardware (DGX Spark / AGX Thor / IGX Thor) uses the Nano 9B v2 FP8 build.** The default `nemotron-3.5-lightning-30b-a3b` ships no `hw-DGX-SPARK` / `hw-AGX-THOR` / `hw-IGX-THOR` env files, so `dev-profile.sh` selects `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (`LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2-fp8`) on those hardware profiles when no `--llm` is given and the LLM is not remote. It is a compose-managed service, so `LLM_MODE` stays `local_shared` / `local` — see [`edge.md`](edge.md).
-- **AGX/IGX Thor: the VLM runs via RT-VLM, not a standalone NIM.** `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`). The LLM side is the same Nano 9B v2 FP8 compose service as DGX Spark.
+- **Edge hardware (DGX Spark / AGX Thor / IGX Thor) keeps the default LLM.** `nemotron-3.5-lightning-30b-a3b` now ships `hw-DGX-SPARK` / `hw-AGX-THOR` / `hw-IGX-THOR` env pairs, so `dev-profile.sh` no longer rewrites `LLM_NAME` on any edge profile. `LLM_MODE` stays `local_shared` / `local`; `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` is available through an explicit `--llm` — see [`edge.md`](edge.md).
+- **AGX/IGX Thor: the VLM runs via RT-VLM, not a standalone NIM.** `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`). The LLM side is the same default Lightning NIM as every other platform.
 - **`HARDWARE_PROFILE` is just an env-file label, not a sizing oracle.** It selects the path `nim/<slug>/hw-<HARDWARE_PROFILE>(-shared).env` — that's all. Pre-tuned env files exist for known platforms as a convenience, but missing != unsupported. Compute the right `NIM_KVCACHE_PERCENT` (or `--gpu-memory-utilization`) from the [Sizing math](#sizing-math) and write it into a fresh `hw-<HARDWARE_PROFILE>(-shared).env` (or set `HARDWARE_PROFILE=OTHER` and edit `hw-OTHER(-shared).env`). The agent's correctness check is the **resolved compose**: does it include the right LLM/VLM service for the chosen `LLM_NAME_SLUG` / `VLM_NAME_SLUG`, and does that service's env carry the computed sizing values? If yes, the deploy will work regardless of which `HARDWARE_PROFILE` label is used.
 - **Remote side — no local GPU needed.** When `LLM_MODE=remote` or `VLM_MODE=remote`, the matching local NIM/vLLM service is skipped entirely. Sizing math doesn't apply for the remote side.
 
@@ -325,7 +325,7 @@ services:
 
 Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-base/generated.env` to set `LLM_NAME` / `LLM_NAME_SLUG`. Use the [Tuning workflow](#tuning-workflow) to dial in `--gpu-memory-utilization`.
 
-> **Edge note.** On DGX Spark / Thor, follow [`edge.md`](edge.md) instead. AGX/IGX Thor run the in-tree `nvidia-nemotron-nano-9b-v2-fp8` service — the same DLFW shape shown above — while DGX Spark keeps the default Lightning NIM. Either way the LLM stays inside the compose stack and `LLM_MODE` stays local.
+> **Edge note.** On DGX Spark / Thor, follow [`edge.md`](edge.md) instead. All three edge hardware profiles keep the default Lightning NIM, each with its own `hw-*.env` sizing pair, so the LLM stays inside the compose stack and `LLM_MODE` stays local.
 
 ### Picking `--gpu-memory-utilization` quickly
 
@@ -335,14 +335,14 @@ For shared mode, compute it via the formula. As sanity-check defaults / in-tree 
 |---|---|---|---|
 | Nemotron 3.5 Lightning + Cosmos3 Reasoner Nano BF16 (shared) | 0.30 | 0.40 | Lightning + Cosmos3 `*-shared.env` |
 | Nemotron 3.5 Lightning + RT-VLM on DGX Spark | 0.30 | RT-VLM 0.40 | `edge.md` |
-| Nano 9B v2 FP8 + RT-VLM on Thor | 0.40 | RT-VLM 0.35 | `edge.md` |
+| Nemotron 3.5 Lightning + RT-VLM on Thor | 0.30 | RT-VLM 0.35 | `edge.md` |
 | Qwen3-VL 8B + Nemotron 3.5 Lightning (shared) | 0.30 | 0.40 | Lightning `*-shared.env`, Qwen3 compose command |
 
 Rules of thumb when adding a new model:
 
 - **FP8 / INT8 weights:** start at 0.40 shared, 0.85 dedicated.
 - **BF16 / FP16 weights:** start at 0.40–0.50 shared (only if the pair fits per the formula), 0.85 dedicated.
-- **Edge unified memory (DGX Spark / Thor):** cap aggressively. The in-tree Nano 9B v2 FP8 shared service starts at `0.40`; lower by `0.05` if startup or first inference reports memory pressure.
+- **Edge unified memory (DGX Spark / Thor):** cap aggressively. The Lightning `hw-*-shared.env` files start at `0.30`, leaving room for RT-VLM's `0.35`–`0.40`; lower by `0.05` if startup or first inference reports memory pressure.
 - **OOM at startup** → lower by 0.05. **OOM mid-inference** → also lower `NIM_MAX_MODEL_LEN` / `--max-model-len` and `NIM_MAX_NUM_SEQS`.
 
 If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endpoints) — no local sizing required.
