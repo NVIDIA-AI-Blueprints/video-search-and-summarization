@@ -116,7 +116,7 @@ for the remediation tree.
 leftovers). Use remote LLM/VLM only when (1) the user asked for / supplied a
 remote endpoint, (2) local sizing can't fit the selected models and the user
 agrees, or (3) an edge recipe needs a standalone local service VSS treats as
-`remote` (e.g. the standalone small-model vLLM alternative in `edge.md`
+`remote` (e.g. an external OpenAI-compatible endpoint per `edge.md`
 on `localhost:30081`). If an endpoint var is set but the user didn't ask
 for remote, surface it in Step 1 and ask — never silently deploy remote
 because a var happened to exist.

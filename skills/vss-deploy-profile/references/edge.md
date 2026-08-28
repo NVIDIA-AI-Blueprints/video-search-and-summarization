@@ -47,7 +47,6 @@ The edge local LLM runs on the device's shared/unified memory and is **slow** (o
 | DGX Spark, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
 | AGX Thor / IGX Thor, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
 | Any edge platform, remote-LLM mode | External endpoint; no local LLM needed |
-| Edge platform where even the FP8 9 B build is too heavy | Standalone small-model vLLM — see [Alternative](#alternative--standalone-small-model-vllm) |
 | Non-edge hardware (H100, GB300, L40S, RTX PRO) | Default `nemotron-3.5-lightning-30b-a3b` NIM compose path |
 
 ## Prerequisites
@@ -60,8 +59,7 @@ The edge local LLM runs on the device's shared/unified memory and is **slow** (o
   echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
   ```
 
-- `HF_TOKEN` is required only for the standalone small-model alternative below.
-- `NVIDIA_API_KEY` for agent-side NVIDIA API calls when the profile uses them.
+- - `NVIDIA_API_KEY` for agent-side NVIDIA API calls when the profile uses them.
 - GPU freed: `docker ps` should show no running VSS, NIM, or LLM containers
   before starting. Reboot the device if in doubt.
 - System cache cleaner running on DGX Spark / IGX Thor / AGX Thor - see
@@ -239,32 +237,11 @@ Apply env overrides to `dev-profile-base/generated.env`:
 Then follow `SKILL.md` Steps 3-5. On Thor, `dev-profile.sh` gives `rtvi-vlm` a
 35% GPU budget for `base`, alongside the LLM's shared 30%.
 
-## Alternative — standalone small-model vLLM
+## Alternative — a remote endpoint
 
-If the 9 B FP8 build is still too heavy for the device, the blueprint also
-supports running a smaller LLM as a standalone vLLM container and pointing the
-agent at it in remote mode. That path is **not** in the compose graph;
-`docs/edge-deployment.mdx` is the source of truth for it. In outline:
-
-- Run `nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8` on port `30081` —
-  `nvcr.io/nvidia/vllm:26.02-py3` on DGX Spark,
-  `ghcr.io/nvidia-ai-iot/vllm:latest-jetson-thor` on Thor — with
-  `--gpu-memory-utilization 0.25 --enable-auto-tool-choice --tool-call-parser qwen3_coder`.
-- Those weights need `HF_TOKEN`. Verify access before deploying:
-
-  ```bash
-  curl -sf -H "Authorization: Bearer $HF_TOKEN" \
-      https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
-      >/dev/null && echo "HF_TOKEN works" || echo "HF_TOKEN missing/invalid/no access"
-  ```
-
-  If the model is gated, the token's owner must request access on the HF page.
-- Then set `LLM_MODE=remote`, `LLM_BASE_URL=http://localhost:30081`,
-  `LLM_NAME=nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8`, `LLM_NAME_SLUG=none`, and
-  `VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml`.
-
-A user-supplied remote endpoint (build.nvidia.com or their own OpenAI-compatible
-server) is the other alternative, and is the better one for latency — see
+If the device cannot host the LLM at all, point the agent at an external
+OpenAI-compatible endpoint (build.nvidia.com or your own server). That is also
+the better option for latency — see
 [Ask first](#ask-first--the-local-edge-llm-is-latency-limited).
 
 ## Caveats
@@ -276,17 +253,16 @@ server) is the other alternative, and is the better one for latency — see
   `generated.env` directly, set each image tag to its `-sbsa` variant (the commented
   `# …-sbsa` line in the profile's `.env`): `RTVI_VLM_IMAGE_TAG` (RT-VLM),
   `VSS_RT_CV_TAG` (RT-CV), and `LVS_TAG` (LVS).
-- **The edge LLM is raw vLLM, not a NIM.** `NIM_*` keys in its `hw-*.env` files
-  are inert; the effective knobs are the flags in the compose `command:` block
-  (`--gpu-memory-utilization`, `--tensor-parallel-size`, …), and the health
-  path is `/health`, not the NIM's `/v1/health/ready`.
+- **The FP8 fallback is raw vLLM, not a NIM.** This applies only if you select
+  it with `--llm`; the default Lightning NIM reads its `NIM_*` keys normally. On
+  the FP8 build those keys are inert — the effective knobs are the flags in the
+  compose `command:` block (`--gpu-memory-utilization`, …) and the health path is
+  `/health`, not `/v1/health/ready`.
 - **Confirm the served model ID.** The expected ID is
-  `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (it is the vLLM `--model` value), but
-  `/v1/models` is the source of truth for `LLM_NAME`.
-- **No `HF_TOKEN` for the in-tree edge LLM.** Its init container fetches the
-  Nemotron tool-call parser from a public Hugging Face repo, and the compose
-  passes no `HF_TOKEN`. Use `NGC_API_KEY` / `NGC_CLI_API_KEY` for the images.
-  `HF_TOKEN` applies only to the standalone small-model alternative.
-- **Use `config.yml`, not `config_edge.yml`, with the 9 B FP8 LLM.**
-  `config_edge.yml` exists for smaller models and deliberately removes
-  clarifying-question behavior. It belongs to the standalone alternative above.
+  `nvidia/nemotron-3.5-lightning-30b-a3b`, or
+  `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` on the fallback (there it is the vLLM
+  `--model` value). Either way `/v1/models` is the source of truth for `LLM_NAME`.
+- **No `HF_TOKEN` for either in-tree edge LLM.** The default NIM needs none, and
+  the FP8 fallback's init container fetches the Nemotron tool-call parser from a
+  public Hugging Face repo. Use `NGC_API_KEY` / `NGC_CLI_API_KEY` for the images.
+  No in-tree edge path needs `HF_TOKEN`.

@@ -168,7 +168,9 @@ agent:
   vss-agent:
     enabled: true
     # Agent config files live at configs/vss-agent/config.yml (and optional config_edge.yml); see configs/vss-agent/README.md.
-    mountConfigEdge: true
+    # config_edge.yml was removed with the Edge-4B path; mounting it with subPath
+    # against a ConfigMap that no longer carries the key would fail the pod.
+    mountConfigEdge: false
     mountEvalOutput: true
     # Base routes VLM through vss-rtvi-vlm (rtvi subchart below).
     rtviVlmEnabled: true

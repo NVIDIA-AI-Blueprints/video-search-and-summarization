@@ -13,7 +13,7 @@ a cold NIM start.
   containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
 - `HF_TOKEN`: required only on edge targets that use the standalone
-  small-model vLLM alternative (see [`edge.md`](edge.md)); the in-tree edge
+  RT-VLM / RT-Embed Hugging Face checkpoints; no in-tree edge
   LLM does not need it.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
   remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
