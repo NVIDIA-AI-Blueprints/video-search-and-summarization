@@ -92,6 +92,13 @@ class SelectProjectsTest(unittest.TestCase):
         self.assertEqual(len(selected), len(dsp.PROJECTS))
         self.assertIn("contract", reason)
 
+    def test_diff_helper_contract_scans_everything(self):
+        selected, reason = dsp.select_projects(
+            [".github/scripts/detect_changed_images.py"]
+        )
+        self.assertEqual(len(selected), len(dsp.PROJECTS))
+        self.assertIn("contract", reason)
+
     def test_matrix_entry_omits_paths_and_sets_scan_runner(self):
         entry = dsp.matrix_entry(dsp.PROJECTS[0], scan=True)
         self.assertNotIn("paths", entry)
@@ -104,7 +111,7 @@ class SelectProjectsTest(unittest.TestCase):
         self.assertEqual(skip["runner"], dsp.SKIP_RUNNER)
 
     def test_pr_reports_every_project_as_noop_when_nothing_changed(self):
-        include = dsp.matrix_for([], "pull_request", "develop")
+        include = dsp.matrix_for([], "pull_request")
         self.assertEqual(len(include), len(dsp.PROJECTS))
         self.assertEqual({row["scan"] for row in include}, {"false"})
         self.assertEqual(
@@ -114,7 +121,7 @@ class SelectProjectsTest(unittest.TestCase):
 
     def test_pr_scans_only_the_changed_project(self):
         ui = next(project for project in dsp.PROJECTS if project["name"] == "ui")
-        include = dsp.matrix_for([ui], "pull_request", "main")
+        include = dsp.matrix_for([ui], "pull_request")
         by_name = {row["name"]: row["scan"] for row in include}
         self.assertEqual(len(by_name), len(dsp.PROJECTS))
         self.assertEqual(by_name["ui"], "true")
@@ -125,7 +132,7 @@ class SelectProjectsTest(unittest.TestCase):
 
     def test_push_does_not_pad_unselected_projects(self):
         ui = next(project for project in dsp.PROJECTS if project["name"] == "ui")
-        include = dsp.matrix_for([ui], "push", "develop")
+        include = dsp.matrix_for([ui], "push")
         self.assertEqual([(row["name"], row["scan"]) for row in include], [("ui", "true")])
 
     def test_project_names_are_unique(self):
@@ -139,7 +146,6 @@ class PlanTest(unittest.TestCase):
             repo = make_repo(tmp)
             commit_change(repo, "docs/readme.md", "v2\n", "docs")
             result = dsp.plan(repo, "push", "develop", "")
-            self.assertTrue(result["any"])
             self.assertEqual(result["count"], len(dsp.PROJECTS))
             self.assertIn("push", result["reason"])
 
@@ -158,7 +164,6 @@ class PlanTest(unittest.TestCase):
             result = dsp.plan(repo, "pull_request", "develop", base_sha)
             self.assertEqual(result["count"], 0)
             self.assertEqual(result["projects"], [])
-            self.assertTrue(result["any"])
             include = result["matrix"]["include"]
             self.assertEqual(len(include), len(dsp.PROJECTS))
             self.assertEqual({row["scan"] for row in include}, {"false"})
@@ -170,7 +175,6 @@ class PlanTest(unittest.TestCase):
             git(repo, "checkout", "-q", "-b", "feature")
             commit_change(repo, "docs/readme.md", "v2\n", "docs only")
             result = dsp.plan(repo, "pull_request", "main", base_sha)
-            self.assertTrue(result["any"])
             self.assertEqual(result["count"], 0)
             self.assertEqual(len(result["matrix"]["include"]), len(dsp.PROJECTS))
 
@@ -207,7 +211,7 @@ class PlanTest(unittest.TestCase):
                 line.split("=", 1)[0]: line.split("=", 1)[1]
                 for line in output.read_text().splitlines()
             }
-            self.assertEqual(lines["any"], "true")
+            self.assertNotIn("any", lines)
             self.assertEqual(int(lines["count"]), len(dsp.PROJECTS))
             self.assertNotIn("\n", lines["matrix"])
             parsed = json.loads(lines["matrix"])
