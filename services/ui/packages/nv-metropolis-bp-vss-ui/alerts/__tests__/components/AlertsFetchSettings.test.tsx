@@ -30,7 +30,6 @@ jest.mock('@nvidia/foundations-react-core', () => {
 const defaultProps = {
   isOpen: true,
   isDark: false,
-  onClose: jest.fn(),
   timeWindow: 10,
   onTimeWindowChange: jest.fn(),
   showCustomTimeInput: false,
@@ -60,7 +59,7 @@ describe('AlertsFetchSettings', () => {
 
   it('renders when isOpen is true', () => {
     render(<AlertsFetchSettings {...defaultProps} />);
-    expect(screen.getByText('Alerts Settings')).toBeInTheDocument();
+    expect(screen.getByText('Query range')).toBeInTheDocument();
   });
 
   // --- Sections and labels ---
@@ -68,14 +67,13 @@ describe('AlertsFetchSettings', () => {
   it('renders Query range section with hint', () => {
     render(<AlertsFetchSettings {...defaultProps} />);
     expect(screen.getByText('Query range')).toBeInTheDocument();
-    expect(screen.getByText('How far back to fetch alerts')).toBeInTheDocument();
+    expect(screen.getByTitle(/How far back to fetch alerts/i)).toBeInTheDocument();
   });
 
   it('renders Fetch size section with hint and warning', () => {
     render(<AlertsFetchSettings {...defaultProps} />);
     expect(screen.getByText('Fetch size')).toBeInTheDocument();
-    expect(screen.getByText('Max alerts per API call')).toBeInTheDocument();
-    expect(screen.getByText('Higher values may be slower')).toBeInTheDocument();
+    expect(screen.getByTitle(/Max alerts per API call/i)).toBeInTheDocument();
   });
 
   // --- Query range select ---
@@ -170,48 +168,19 @@ describe('AlertsFetchSettings', () => {
     expect(onFetchSizeChange).toHaveBeenCalledWith(2500);
   });
 
-  // --- Close behaviour ---
-
-  it('calls onClose when close button is clicked', () => {
-    render(<AlertsFetchSettings {...defaultProps} />);
-    const headerCloseBtn = screen.getAllByText('✕').find(
-      (btn) => btn.tagName === 'BUTTON' && !btn.getAttribute('data-foundation'),
-    );
-    fireEvent.click(headerCloseBtn!);
-    expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('calls onClose on Escape key', () => {
-    render(<AlertsFetchSettings {...defaultProps} />);
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('calls onClose on click outside', () => {
-    render(
-      <div>
-        <div data-testid="outside">Outside</div>
-        <AlertsFetchSettings {...defaultProps} />
-      </div>,
-    );
-
-    fireEvent.mouseDown(screen.getByTestId('outside'));
-    expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
-  });
-
   // --- Dark mode ---
 
   it('renders with dark theme styles', () => {
-    const { container } = render(
-      <AlertsFetchSettings {...defaultProps} isDark={true} />,
-    );
-    expect(container.querySelector('.bg-black')).toBeInTheDocument();
+    render(<AlertsFetchSettings {...defaultProps} isDark={true} />);
+    const periodSelect = screen.getByTestId('period-select');
+    expect(periodSelect).toHaveClass('border-gray-600');
+    expect(periodSelect).toHaveClass('text-white');
   });
 
   it('renders with light theme styles', () => {
-    const { container } = render(
-      <AlertsFetchSettings {...defaultProps} isDark={false} />,
-    );
-    expect(container.querySelector('.bg-white')).toBeInTheDocument();
+    render(<AlertsFetchSettings {...defaultProps} isDark={false} />);
+    const periodSelect = screen.getByTestId('period-select');
+    expect(periodSelect).toHaveClass('border-gray-300');
+    expect(periodSelect).toHaveClass('text-gray-600');
   });
 });

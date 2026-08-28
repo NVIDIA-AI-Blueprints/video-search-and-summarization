@@ -49,6 +49,9 @@ jest.mock('@nvidia/foundations-react-core', () => {
         onChange: (e: any) => onCheckedChange?.(e.target.checked),
       }),
     ),
+    Tag: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, 'data-foundation': 'Tag', type: 'button' }, children),
+    ),
   };
 });
 

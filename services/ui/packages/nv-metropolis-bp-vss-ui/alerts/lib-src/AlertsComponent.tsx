@@ -13,7 +13,6 @@ import { VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
 
 import {
   AlertsComponentProps,
-  FilterType,
   VlmVerdict,
   VLM_VERDICT,
   isValidVlmVerdict,
@@ -26,10 +25,9 @@ import { useTimeWindow } from './hooks/useTimeWindow';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
 import { useSessionState, parseIntRange } from './hooks/useSessionState';
 import { useSessionFilterState } from './hooks/useSessionFilterState';
-import { FilterTag } from './components/FilterTag';
 import { AlertsTable } from './components/AlertsTable';
 import { FilterControls } from './components/FilterControls';
-import { Controls, ALERTS_VIEW_PANEL_ID } from './components/Controls';
+import { AlertsSidebarControls, ALERTS_VIEW_PANEL_ID } from './components/AlertsSidebarControls';
 import { CreateAlertRulesView, triggerRealtimeAddDraft } from './components/CreateAlertRulesView';
 import { triggerVerificationAddDraft } from './components/CvAlertsVerificationTab';
 
@@ -85,25 +83,6 @@ function useSessionPersistedState<T>(
 
   return [value, setValue];
 }
-
-const FILTER_COLORS = {
-  sensors: {
-    dark: { bg: 'bg-transparent', border: 'border border-green-500', text: 'text-green-400', hover: 'hover:text-green-300' },
-    light: { bg: 'bg-green-100', border: 'border border-green-300', text: 'text-green-700', hover: 'hover:text-green-900' }
-  },
-  alertTypes: {
-    dark: { bg: 'bg-transparent', border: 'border border-orange-500', text: 'text-orange-400', hover: 'hover:text-orange-300' },
-    light: { bg: 'bg-purple-100', border: 'border border-purple-300', text: 'text-purple-700', hover: 'hover:text-purple-900' }
-  },
-  alertTriggered: {
-    dark: { bg: 'bg-transparent', border: 'border border-emerald-500', text: 'text-emerald-400', hover: 'hover:text-emerald-300' },
-    light: { bg: 'bg-emerald-100', border: 'border border-emerald-300', text: 'text-emerald-700', hover: 'hover:text-emerald-900' }
-  }
-} as const;
-
-const getFilterColors = (type: FilterType, isDark: boolean) => {
-  return FILTER_COLORS[type][isDark ? 'dark' : 'light'];
-};
 
 const FILTERS_STORAGE_KEY = 'alertsTabActiveFilters';
 
@@ -241,6 +220,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   const [maxResults, setMaxResults] = useSessionState('alertsTabMaxResults', defaultMaxResults, parseIntRange(10, 5000));
 
   const [activeFilters, setActiveFilters] = useSessionFilterState(FILTERS_STORAGE_KEY);
+  const [streamFilter, setStreamFilter] = React.useState('');
+  const [typeFilter, setTypeFilter] = React.useState('');
 
   // Maintain separate alertTypes & alertTriggered filter selections per
   // vlmVerified state. When the toggle flips, the current selections are saved
@@ -337,6 +318,14 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   );
   const { videoModal, openVideoModalFromAlert, closeVideoModal, loadingAlertId } = useVideoModal(vstApiUrl, { sensorMap, showObjectsBbox: mediaWithObjectsBbox });
 
+  const handleClearAllFilters = React.useCallback(() => {
+    setActiveFilters({
+      sensors: new Set<string>(),
+      alertTypes: new Set<string>(),
+      alertTriggered: new Set<string>(),
+    });
+  }, [setActiveFilters]);
+
   const handleTableLoadMore = React.useCallback(async () => {
     const ok = await loadMoreAlerts();
     if (ok) {
@@ -360,15 +349,70 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
 
   const controlsComponent = React.useMemo(
     () => (
-      <Controls
+      <AlertsSidebarControls
         isDark={isDark}
         alertsView={alertsView}
         onAlertsViewChange={setAlertsView}
         onAddNewAlertRule={handleAddNewAlertRule}
         manageAlertsEnabled={manageAlertsEnabled}
+        vlmVerified={vlmVerified}
+        vlmVerdict={vlmVerdict}
+        uniqueValues={uniqueValues}
+        onVlmVerifiedChange={handleVlmVerifiedChange}
+        onVlmVerdictChange={setVlmVerdict}
+        onAddFilter={addFilter}
+        activeFilters={activeFilters}
+        onRemoveFilter={removeFilter}
+        onClearAllFilters={handleClearAllFilters}
+        timeWindow={timeWindow}
+        showCustomTimeInput={showCustomTimeInput}
+        customTimeValue={customTimeValue}
+        customTimeError={customTimeError}
+        maxTimeLimitInMinutes={maxTimeLimitInMinutes}
+        onTimeWindowChange={setTimeWindow}
+        onCustomTimeValueChange={handleCustomTimeChange}
+        onCustomTimeApply={handleSetCustomTime}
+        onCustomTimeCancel={handleCancelCustomTime}
+        onOpenCustomTime={openCustomTimeInput}
+        fetchSize={maxResults}
+        onFetchSizeChange={setMaxResults}
+        createActiveKind={alertRulesKind}
+        streamFilter={streamFilter}
+        typeFilter={typeFilter}
+        onStreamFilterChange={setStreamFilter}
+        onTypeFilterChange={setTypeFilter}
       />
     ),
-    [isDark, alertsView, setAlertsView, handleAddNewAlertRule, manageAlertsEnabled],
+    [
+      isDark,
+      alertsView,
+      handleAddNewAlertRule,
+      manageAlertsEnabled,
+      vlmVerified,
+      vlmVerdict,
+      uniqueValues,
+      handleVlmVerifiedChange,
+      setVlmVerdict,
+      addFilter,
+      activeFilters,
+      removeFilter,
+      handleClearAllFilters,
+      timeWindow,
+      showCustomTimeInput,
+      customTimeValue,
+      customTimeError,
+      maxTimeLimitInMinutes,
+      setTimeWindow,
+      handleCustomTimeChange,
+      handleSetCustomTime,
+      handleCancelCustomTime,
+      openCustomTimeInput,
+      maxResults,
+      setMaxResults,
+      alertRulesKind,
+      streamFilter,
+      typeFilter,
+    ],
   );
 
   // Push control handlers to the parent whenever relevant state changes so
@@ -437,6 +481,10 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
             activeKind={alertRulesKind}
             onActiveKindChange={setAlertRulesKind}
             onAddNew={handleAddNewAlertRule}
+            streamFilter={streamFilter}
+            typeFilter={typeFilter}
+            onStreamFilterChange={setStreamFilter}
+            onTypeFilterChange={setTypeFilter}
             alertsApiUrl={alertsApiUrl}
             vstApiUrl={vstApiUrl}
             enableRealtimeAlerts={enableRealtimeAlerts}
@@ -453,61 +501,17 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         className={panelShellClass}
         style={{ display: alertsView === 'view' ? 'flex' : 'none' }}
       >
-      {/* Header with Filters */}
-      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'}`}>
-        {/* Filter Controls */}
+      {/* Header with refresh controls */}
+      <div className={`flex-shrink-0 px-4 py-2 border-b ${isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'}`}>
         <FilterControls
           isDark={isDark}
-          vlmVerified={vlmVerified}
-          vlmVerdict={vlmVerdict}
-          timeWindow={timeWindow}
-          showCustomTimeInput={showCustomTimeInput}
-          customTimeValue={customTimeValue}
-          customTimeError={customTimeError}
-          maxTimeLimitInMinutes={maxTimeLimitInMinutes}
-          uniqueValues={uniqueValues}
           loading={loading}
           autoRefreshEnabled={autoRefreshEnabled}
           autoRefreshInterval={autoRefreshInterval}
-          onVlmVerifiedChange={handleVlmVerifiedChange}
-          onVlmVerdictChange={setVlmVerdict}
-          onTimeWindowChange={setTimeWindow}
-          onCustomTimeValueChange={handleCustomTimeChange}
-          onCustomTimeApply={handleSetCustomTime}
-          onCustomTimeCancel={handleCancelCustomTime}
-          onOpenCustomTime={openCustomTimeInput}
-          onAddFilter={addFilter}
           onRefresh={refetch}
           onAutoRefreshToggle={toggleAutoRefresh}
           onAutoRefreshIntervalChange={setAutoRefreshInterval}
-          fetchSize={maxResults}
-          onFetchSizeChange={setMaxResults}
         />
-
-        {/* Active Filter Tags */}
-        {(activeFilters.sensors.size > 0 || activeFilters.alertTypes.size > 0) && (
-          <div className="flex items-center gap-2 flex-wrap mt-2">
-            {Array.from(activeFilters.sensors).map(filter => (
-              <FilterTag
-                key={`sensor-${filter}`}
-                type="sensors"
-                filter={filter}
-                colors={getFilterColors('sensors', isDark)}
-                onRemove={removeFilter}
-              />
-            ))}
-
-            {Array.from(activeFilters.alertTypes).map(filter => (
-              <FilterTag
-                key={`alertType-${filter}`}
-                type="alertTypes"
-                filter={filter}
-                colors={getFilterColors('alertTypes', isDark)}
-                onRemove={removeFilter}
-              />
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Alerts Table */}

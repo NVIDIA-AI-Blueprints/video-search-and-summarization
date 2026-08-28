@@ -233,15 +233,52 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
   }, [registerSidebarChatEventSubscriber, clearSearchResults]);
 
+  const hasSearchedRef = React.useRef(false);
+  const wrappedOnUpdateSearchParams = React.useCallback((params: any) => {
+    hasSearchedRef.current = true;
+    onUpdateSearchParams(params);
+  }, [onUpdateSearchParams]);
+  React.useEffect(() => {
+    if (!loading) hasSearchedRef.current = false;
+  }, [loading]);
+  const effectiveLoading = loading && hasSearchedRef.current;
+  const contentDisabled = !chatSidebarCollapsed || effectiveLoading || chatSidebarBusy;
+
   const controlsComponent = React.useMemo(
     () => (
       <SearchSidebarControls
         isDark={isDark}
+        theme={isDark ? 'dark' : 'light'}
+        compactLayout={renderControlsInLeftSidebar}
+        outerPadding={renderControlsInLeftSidebar ? '8px 8px 12px' : 0}
+        streams={streams}
+        filterParams={filterParams}
+        setFilterParams={setFilterParams}
+        onUpdateSearchParams={wrappedOnUpdateSearchParams}
+        addFilter={addFilter}
+        removeFilterTag={removeFilterTag}
+        filterTags={filterTags}
+        isSearching={effectiveLoading}
+        onCancelSearch={cancelSearch}
+        onGetPendingQuery={handleGetPendingQuery}
+        contentDisabled={contentDisabled}
         onRefresh={refetch}
       />
     ),
     [
       isDark,
+      renderControlsInLeftSidebar,
+      streams,
+      filterParams,
+      setFilterParams,
+      wrappedOnUpdateSearchParams,
+      addFilter,
+      removeFilterTag,
+      filterTags,
+      effectiveLoading,
+      cancelSearch,
+      handleGetPendingQuery,
+      contentDisabled,
       refetch,
     ]
   );
@@ -254,11 +291,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
         controlsComponent,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    onControlsReady,
-    renderControlsInLeftSidebar,
-  ]);
+  }, [onControlsReady, renderControlsInLeftSidebar, isDark, refetch, controlsComponent]);
 
   const searchByImageFooterElement = React.useMemo(() => {
     if (!searchByImageActive) return undefined;
@@ -342,7 +375,8 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       data-testid="search-component"
       className={`flex min-h-0 min-w-0 max-w-full flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
-      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
+      <div className={`flex-shrink-0 px-4 py-2 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
+        {!renderControlsInLeftSidebar && controlsComponent}
         <SearchHeader 
           theme={isDark ? 'dark' : 'light'} 
           streams={streams}
@@ -356,7 +390,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
           onCancelSearch={cancelSearch}
           onGetPendingQuery={handleGetPendingQuery}
           submitChatMessage={wrappedSubmitChatMessage}
-          contentDisabled={!chatSidebarCollapsed || loading || chatSidebarBusy}
+          contentDisabled={contentDisabled}
         />
       </div>
       <div className="flex-1 overflow-auto">

@@ -557,10 +557,11 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   }, []);
 
   const searchControlsReadyCallback = React.useCallback((handlers: SearchSidebarControlHandlers) => {
-    if (!searchHandlersSetRef.current) {
-      searchHandlersSetRef.current = true;
-      setSearchControlHandlers(handlers);
-    }
+    searchHandlersSetRef.current = true;
+    setSearchControlHandlers((prev: SearchSidebarControlHandlers | null) => {
+      if (prev && prev.controlsComponent === handlers.controlsComponent) return prev;
+      return handlers;
+    });
   }, []);
 
   const dashboardControlsReadyCallback = React.useCallback((handlers: DashboardSidebarControlHandlers) => {
@@ -578,10 +579,11 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   }, []);
 
   const videoManagementControlsReadyCallback = React.useCallback((handlers: VideoManagementSidebarControlHandlers) => {
-    if (!videoManagementHandlersSetRef.current) {
-      videoManagementHandlersSetRef.current = true;
-      setVideoManagementControlHandlers(handlers);
-    }
+    videoManagementHandlersSetRef.current = true;
+    setVideoManagementControlHandlers((prev: VideoManagementSidebarControlHandlers | null) => {
+      if (prev && prev.controlsComponent === handlers.controlsComponent) return prev;
+      return handlers;
+    });
   }, []);
 
   // Clear mode controls when switching tabs

@@ -23,7 +23,6 @@ const defaultProps = {
     topK: 10,
   },
   setFilterParams: jest.fn(),
-  containerRef: React.createRef<HTMLDivElement>(),
   disabled: false,
   sourceType: 'video_file',
 };
@@ -146,5 +145,11 @@ describe('FilterDialog', () => {
     expect(popoverInBody).toBeInTheDocument();
 
     document.body.removeChild(triggerDiv);
+  });
+
+  it('renders inline mode without absolute/fixed popover', () => {
+    const { getByTestId } = render(<FilterDialog {...defaultProps} inline />);
+    const popover = getByTestId('search-filter-dialog') as HTMLElement;
+    expect(popover.style.position).toBe('relative');
   });
 });
