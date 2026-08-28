@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.error import HTTPError
 
 SCRIPT = Path(__file__).with_name("cancel_downstream_pipeline.py")
@@ -14,6 +18,12 @@ SPEC = importlib.util.spec_from_file_location("cancel_downstream_pipeline", SCRI
 assert SPEC and SPEC.loader
 module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
+
+TRIGGER = Path(__file__).with_name("trigger_downstream_pipeline.py")
+TSPEC = importlib.util.spec_from_file_location("trigger_downstream_pipeline", TRIGGER)
+assert TSPEC and TSPEC.loader
+trigger = importlib.util.module_from_spec(TSPEC)
+TSPEC.loader.exec_module(trigger)
 
 
 class FakeResponse:
@@ -33,8 +43,8 @@ class CancelPipelineTest(unittest.TestCase):
             module.cancel_pipeline(
                 "https://gitlab.example/api/v4",
                 "token",
-                1,
                 99,
+                project_id=1,
                 open_func=lambda _req: FakeResponse(),
             ),
             "cancelled",
@@ -54,12 +64,52 @@ class CancelPipelineTest(unittest.TestCase):
             module.cancel_pipeline(
                 "https://gitlab.example/api/v4",
                 "token",
-                1,
                 99,
+                project_id=1,
                 open_func=open_func,
             ),
             "already finished (409)",
         )
+
+
+class HandoffTest(unittest.TestCase):
+    def test_handoff_survives_missing_step_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "downstream-pipeline.json"
+            with mock.patch.dict(
+                os.environ, {"DOWNSTREAM_HANDOFF_PATH": str(path)}, clear=False
+            ):
+                trigger.persist_handoff(project_id=11)
+                trigger.persist_handoff(pipeline_id=99)
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "DOWNSTREAM_HANDOFF_PATH": str(path),
+                        "DOWNSTREAM_PROJECT_ID": "",
+                        "DOWNSTREAM_PIPELINE_ID": "",
+                    },
+                    clear=False,
+                ):
+                    self.assertEqual(module.resolve_pipeline_ids(), ("11", "99"))
+            self.assertEqual(
+                json.loads(path.read_text()),
+                {"project_id": "11", "pipeline_id": "99"},
+            )
+
+    def test_env_ids_win_over_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "downstream-pipeline.json"
+            path.write_text('{"project_id":"1","pipeline_id":"2"}', encoding="utf-8")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "DOWNSTREAM_HANDOFF_PATH": str(path),
+                    "DOWNSTREAM_PROJECT_ID": "8",
+                    "DOWNSTREAM_PIPELINE_ID": "9",
+                },
+                clear=False,
+            ):
+                self.assertEqual(module.resolve_pipeline_ids(), ("8", "9"))
 
 
 class WorkflowWiringTest(unittest.TestCase):
@@ -69,6 +119,12 @@ class WorkflowWiringTest(unittest.TestCase):
         ).read_text()
         self.assertIn("cancel_downstream_pipeline.py", ci)
         self.assertIn("if: cancelled()", ci)
+        self.assertNotIn(
+            "steps.trigger.outputs.pipeline_id != ''",
+            ci.split("Cancel downstream if this GitHub job was cancelled", 1)[1].split(
+                "- name:", 1
+            )[0],
+        )
 
     def test_ci_runs_these_tests(self):
         ci = (

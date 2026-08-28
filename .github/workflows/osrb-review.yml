@@ -138,7 +138,7 @@ jobs:
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
       - name: Cancel downstream if this GitHub job was cancelled
-        if: cancelled() && steps.pr.outputs.skip != 'true' && steps.trigger.outputs.pipeline_id != ''
+        if: cancelled() && steps.pr.outputs.skip != 'true'
         env:
           DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
           DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}

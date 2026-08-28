@@ -8,6 +8,7 @@ import re
 import socket
 import ssl
 import sys
+from pathlib import Path
 from typing import Any
 from urllib.error import ContentTooShortError
 from urllib.error import HTTPError
@@ -378,6 +379,52 @@ def write_output(key: str, value: str) -> None:
         return
     with open(output_path, "a", encoding="utf-8") as output_file:
         output_file.write(f"{key}={value}\n")
+        output_file.flush()
+        os.fsync(output_file.fileno())
+
+
+DEFAULT_HANDOFF_PATH = ".ci/downstream-pipeline.json"
+
+
+def handoff_path() -> str:
+    return os.environ.get("DOWNSTREAM_HANDOFF_PATH", DEFAULT_HANDOFF_PATH).strip() or (
+        DEFAULT_HANDOFF_PATH
+    )
+
+
+def persist_handoff(*, project_id: str | int = "", pipeline_id: str | int = "") -> None:
+    """Record GitLab ids on disk so a cancelled trigger step can still cancel.
+
+    GitHub only publishes ``GITHUB_OUTPUT`` when the step finishes. A cancel
+    between ``POST /pipeline`` and step completion would otherwise lose the
+    new pipeline id.
+    """
+    path = Path(handoff_path())
+    payload: dict[str, str] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            for key in ("project_id", "pipeline_id"):
+                value = loaded.get(key)
+                if isinstance(value, (str, int)) and str(value):
+                    payload[key] = str(value)
+    if project_id:
+        payload["project_id"] = str(project_id)
+    if pipeline_id:
+        payload["pipeline_id"] = str(pipeline_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, encoded)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
 
 
 def extra_pipeline_variables() -> dict[str, str]:
@@ -469,6 +516,7 @@ def main() -> int:
             return 0
 
         project_id = fetch_project_id(base_url, token, project_path)
+        persist_handoff(project_id=project_id)
         pipeline = trigger_pipeline(
             base_url,
             token,
@@ -483,6 +531,10 @@ def main() -> int:
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
         pipeline_id = str(pipeline.get("id") or "")
+        persist_handoff(project_id=project_id, pipeline_id=pipeline_id)
+        write_output("pipeline_id", pipeline_id)
+        write_output("project_id", str(project_id))
+        write_output("pipeline_iid", pipeline_iid)
         pipeline_sha = str(pipeline.get("sha") or "")
         pipeline_url = str(pipeline.get("web_url") or "")
         pipeline_created_at = str(pipeline.get("created_at") or "")
@@ -525,14 +577,11 @@ def main() -> int:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))
 
-        # Expose identifiers to the poll step in the same job. Do NOT
-        # write the pipeline URL here - it is a secret and would appear
-        # in any caller that echoes the output.
-        write_output("pipeline_iid", pipeline_iid)
-        write_output("pipeline_id", pipeline_id)
+        # Remaining identifiers for the poll step. pipeline_id / project_id
+        # were already flushed above, immediately after GitLab created the
+        # pipeline, so a cancel during this summary still has a handoff file.
         write_output("pipeline_sha", pipeline_sha)
         write_output("pipeline_created_at", pipeline_created_at)
-        write_output("project_id", str(project_id))
         return 0
     except SystemExit:
         raise

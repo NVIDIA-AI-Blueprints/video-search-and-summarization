@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import tempfile
 import unittest
 from urllib.parse import parse_qs
 from pathlib import Path
@@ -106,6 +108,18 @@ class ExtraPipelineVariablesTest(unittest.TestCase):
         ):
             with self.assertRaises(SystemExit):
                 module.resolve_branches()
+
+    def test_persist_handoff_writes_ids_before_step_outputs_would_publish(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "handoff.json"
+            with mock.patch.dict(
+                os.environ, {"DOWNSTREAM_HANDOFF_PATH": str(path)}, clear=False
+            ):
+                module.persist_handoff(project_id=4, pipeline_id=88)
+            self.assertEqual(
+                json.loads(path.read_text()),
+                {"project_id": "4", "pipeline_id": "88"},
+            )
 
 
 if __name__ == "__main__":
