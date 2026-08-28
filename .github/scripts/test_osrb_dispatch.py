@@ -151,6 +151,27 @@ class DispatchTests(unittest.TestCase):
         self.assertIn("### What to do", license_workflow)
         self.assertIn("Developer instructions", license_workflow)
 
+    def test_license_diff_cancels_stale_pr_runs(self) -> None:
+        license_workflow = LICENSE_WORKFLOW.read_text()
+        self.assertIn("group: license-diff-${{ github.ref }}", license_workflow)
+        self.assertIn("cancel-in-progress: true", license_workflow)
+
+    def test_cancelled_license_diff_does_not_start_osrb(self) -> None:
+        """A superseded CSV must not launch the private reviewer.
+
+        License Diff is still allowed to *fail* (non-empty diffs fail on
+        develop) and OSRB Review must still run in that case.
+        """
+        workflow = WORKFLOW.read_text()
+        self.assertIn(
+            "github.event.workflow_run.conclusion != 'cancelled'",
+            workflow,
+        )
+        self.assertNotIn(
+            "github.event.workflow_run.conclusion == 'success'",
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
