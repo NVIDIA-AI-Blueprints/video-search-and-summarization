@@ -240,6 +240,18 @@ GPUs:
 * **NVIDIA Container Toolkit**: Latest version
 * **Git LFS**: For large file handling
 
+### NVIDIA MIG reference configuration
+
+RTVI-VLM supports deployment on an NVIDIA MIG slice when the host GPU, driver,
+and container runtime or Kubernetes device plugin are configured for MIG. NVIDIA
+defines the supported platforms, profile geometries, and valid instance
+placements in its [Supported MIG Profiles guide](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-mig-profiles.html).
+Use that guide for the exact GPU model rather than assuming profiles are portable
+between platforms.
+
+RTVI-VLM is validated on the 96 GB **NVIDIA RTX PRO 6000 Blackwell Server
+Edition** using two `MIG 2g.48gb` instances on one physical GPU.
+
 ### Quick Start
 
 Clone the blueprint repository and check out the release tag:
