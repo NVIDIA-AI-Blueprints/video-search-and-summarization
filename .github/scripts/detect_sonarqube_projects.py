@@ -21,8 +21,9 @@ Diff-range rules:
 * Unresolvable PR base, or a failed ``git diff`` → **scan everything**.
   Scanning too much is safe; skipping a project that changed is the
   failure mode this replaces.
-* A change to this script or ``.github/workflows/sonarqube.yml`` also
-  scans every project (the scan contract changed).
+* A change to this script, ``.github/workflows/sonarqube.yml``, or
+  ``detect_changed_images.py`` (diff helpers used for skip decisions)
+  also scans every project (the scan contract changed).
 
 Do not put a top-level ``paths:`` filter on the workflow. GitHub evaluates
 that against the pushed commits, not the cumulative PR, and can skip the
@@ -49,6 +50,7 @@ from detect_changed_images import (  # noqa: E402
 CONTRACT_PATHS = (
     ".github/workflows/sonarqube.yml",
     ".github/scripts/detect_sonarqube_projects.py",
+    ".github/scripts/detect_changed_images.py",
 )
 
 SONAR_RUNNER = "sonarqube-workflows-bp-sre"
@@ -213,7 +215,7 @@ def to_matrix(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def matrix_for(
-    selected: list[dict[str, Any]], event_name: str, _base_ref: str
+    selected: list[dict[str, Any]], event_name: str
 ) -> list[dict[str, Any]]:
     """On PRs, report every project; scan only those whose trees changed."""
     selected_names = {project["name"] for project in selected}
@@ -260,14 +262,13 @@ def plan(
         reason += "; diff failed; scanning all projects"
         changed = None
     selected, selection_reason = select_projects(changed)
-    include = matrix_for(selected, event_name, base_ref)
+    include = matrix_for(selected, event_name)
     noop_count = sum(1 for row in include if row["scan"] != "true")
     if noop_count:
         selection_reason += f"; {noop_count} no-op report(s)"
     return {
         "reason": f"{reason}; {selection_reason}",
         "count": len(selected),
-        "any": len(include) > 0,
         "projects": [project["name"] for project in selected],
         "matrix": to_matrix(include),
     }
@@ -277,7 +278,6 @@ def write_github_output(path: Path, result: dict[str, Any]) -> None:
     matrix_json = json.dumps(result["matrix"], separators=(",", ":"))
     projects_json = json.dumps(result["projects"], separators=(",", ":"))
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(f"any={str(result['any']).lower()}\n")
         handle.write(f"count={result['count']}\n")
         handle.write(f"projects={projects_json}\n")
         handle.write(f"matrix={matrix_json}\n")
@@ -293,7 +293,7 @@ def main() -> int:
         "--github-output",
         type=Path,
         default=None,
-        help="Append GITHUB_OUTPUT keys (any, count, projects, matrix).",
+        help="Append GITHUB_OUTPUT keys (count, projects, matrix).",
     )
     args = parser.parse_args()
     result = plan(
