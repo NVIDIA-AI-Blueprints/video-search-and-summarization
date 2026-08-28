@@ -13,22 +13,33 @@ artifact and, for six days, in the PR comment). The tarball already excludes
 the verifier files and rendered reports that stayed in.
 
 The scanner is TruffleHog — the same tool the repo's pre-commit hook trusts —
-run with `--no-verification`: verification would send candidate secrets to
-their providers, which is itself exfiltration, and a candidate is worth
-masking whether or not it still works. The tree pass is scan -> replace ->
-rescan: findings whose raw value is a literal substring are replaced in
-place; files still flagged on the rescan (encoded, composite, or binary
-representations the literal pass cannot reach) are quarantined -- their
-content replaced by a stub -- and a final scan must come back empty.
+run with `--no-verification` (verification would send candidate secrets to
+their providers, which is itself exfiltration) and `--fail-on-scan-errors`
+(an ordinary scan error otherwise exits 0, and an unscanned file must not
+read as a clean one). The pinned-image docker path is preferred over
+whatever `trufflehog` happens to be on PATH, so the publish gate does not
+drift with the host.
+
+The tree pass is scan -> replace -> verify -> quarantine -> verify:
+
+* literal `Raw`/`RawV2` values are replaced wherever they appear;
+* a finding whose values never matched literally anywhere is quarantined at
+  the source file — TruffleHog's `Raw` is often only the identifier half of
+  a multipart credential (AWS id vs `id:secret` in `RawV2`), and replacing
+  the identifier blinds the rescan while the secret half survives;
+* files still flagged on the rescan (encoded, composite, or binary
+  representations) are quarantined — content replaced by a stub;
+* a rescan finding that cannot be mapped to a file inside the tree is fatal,
+  and the final scan must come back empty, or the publish refuses.
 
 At a public-output boundary the scanner failing means the publish fails:
 `redact_tree` raises on a missing scanner, timeout, or scan error, and its
 callers (leg_report before it reads anything, the workflow pack step before
 `tar`) let that propagate. `skills_eval_agent.py` already fail-closes a leg
 whose report crashes, so a scanner outage reads as BLOCKED, not as green.
-Builtin layers (the `nvapi-` NGC shape; exact values of secret-named env
-vars) run unconditionally on top -- TruffleHog's NGC detector exists, but a
-shape guard costs nothing and catches truncated quotes.
+Builtin layers (the `nvapi-` NGC shape — as bytes too, so a binary carrying
+an ASCII token is quarantined even when the scanner misses it; exact values
+of secret-named env vars) run unconditionally on top.
 """
 
 from __future__ import annotations
@@ -39,11 +50,13 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 MARKER = "[REDACTED]"
 #: Keep the prefix so a rationale still says what kind of secret it saw.
 NVAPI = re.compile(r"nvapi-[A-Za-z0-9_-]{16,}")
+_NVAPI_BYTES = re.compile(rb"nvapi-[A-Za-z0-9_-]{16,}")
 #: Component match, not substring: NGC_CLI_API_KEY yes, KEYCLOAK_URL no.
 _SECRET_NAME = re.compile(
     r"(^|_)(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|CREDENTIALS)(_|$)", re.IGNORECASE)
@@ -55,6 +68,8 @@ _MIN_SECRET_LEN = 8
 #: Match the pre-commit hook's pinned rev — `latest` would make the publish
 #: gate drift under us.
 _TRUFFLEHOG_IMAGE = "trufflesecurity/trufflehog:3.94.2"
+_TRUFFLEHOG_ARGS = ["filesystem", "--json", "--no-update", "--no-verification",
+                    "--fail-on-scan-errors"]
 _TRUFFLEHOG_TIMEOUT_S = 300
 
 
@@ -64,59 +79,105 @@ class ScannerUnavailable(RuntimeError):
 
 def _env_secret_values() -> list[str]:
     values = [v for k, v in os.environ.items()
-              if _SECRET_NAME.search(k) and v and len(v) >= _MIN_SECRET_LEN]
+              if _SECRET_NAME.search(k) and v and len(v) >= _MIN_SECRET_LEN
+              # A value that is a substring of the marker (e.g. TOKEN=REDACTED)
+              # would grow "[REDACTED]" on every pass; masking it is a no-op
+              # security-wise and breaks idempotency.
+              and v not in MARKER]
     # Longest first, so a secret containing another leaves no usable tail.
     return sorted(set(values), key=len, reverse=True)
 
 
-def _trufflehog_cmd(target: Path) -> list[str]:
-    if shutil.which("trufflehog"):
-        return ["trufflehog", "filesystem", "--json", "--no-update",
-                "--no-verification", str(target)]
+def _run_scanner(target: Path) -> subprocess.CompletedProcess:
+    """One scanner invocation; docker-pinned preferred over PATH drift."""
     if shutil.which("docker"):
-        return ["docker", "run", "--rm", "-v", f"{target}:/scan:ro",
-                _TRUFFLEHOG_IMAGE, "filesystem", "--json",
-                "--no-update", "--no-verification", "/scan"]
-    raise ScannerUnavailable("trufflehog: no binary on PATH and no docker")
+        with tempfile.NamedTemporaryFile(suffix=".cid") as cid:
+            cmd = ["docker", "run", "--rm", "--network", "none",
+                   f"--cidfile={cid.name}.live",
+                   "-v", f"{target}:/scan:ro", _TRUFFLEHOG_IMAGE,
+                   *_TRUFFLEHOG_ARGS, "/scan"]
+            try:
+                return subprocess.run(cmd, capture_output=True, text=True,
+                                      timeout=_TRUFFLEHOG_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                # Killing the docker CLI does not kill the container.
+                try:
+                    container = Path(f"{cid.name}.live").read_text().strip()
+                    if container:
+                        subprocess.run(["docker", "rm", "-f", container],
+                                       capture_output=True, timeout=30)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                raise
+            finally:
+                Path(f"{cid.name}.live").unlink(missing_ok=True)
+    if shutil.which("trufflehog"):
+        version = subprocess.run(["trufflehog", "--version"], capture_output=True,
+                                 text=True, timeout=30)
+        print(f"redact_secrets: docker unavailable, using PATH scanner "
+              f"({(version.stdout or version.stderr).strip()})", file=sys.stderr)
+        return subprocess.run(["trufflehog", *_TRUFFLEHOG_ARGS, str(target)],
+                              capture_output=True, text=True,
+                              timeout=_TRUFFLEHOG_TIMEOUT_S)
+    raise ScannerUnavailable("trufflehog: no docker and no binary on PATH")
 
 
 def _scan(target: Path) -> list[dict]:
     """One TruffleHog pass; findings as dicts. Raises rather than degrades."""
-    cmd = _trufflehog_cmd(target)
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=_TRUFFLEHOG_TIMEOUT_S)
+        proc = _run_scanner(target)
     except subprocess.TimeoutExpired as exc:
         raise ScannerUnavailable(
             f"trufflehog: timed out after {_TRUFFLEHOG_TIMEOUT_S}s") from exc
-    # 183 is "findings present" under --fail; without it success is 0. Any
-    # other exit is a scan error, and an unscanned tree must not publish.
+    # 183 is "findings present" under --fail; success without it is 0. Any
+    # other exit — including --fail-on-scan-errors firing — means part of
+    # the tree went unscanned, and an unscanned tree must not publish.
     if proc.returncode not in (0, 183):
         raise ScannerUnavailable(
             f"trufflehog: exit {proc.returncode}: {proc.stderr.strip()[:300]}")
     findings = []
     for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
         try:
             obj = json.loads(line)
         except json.JSONDecodeError:
-            continue
+            # --json output is NDJSON findings only; anything else on stdout
+            # means we are not parsing what we think we are.
+            raise ScannerUnavailable(
+                f"trufflehog: unparseable stdout line: {line[:120]!r}")
         if isinstance(obj, dict) and (obj.get("Raw") or obj.get("RawV2")):
             findings.append(obj)
     return findings
 
 
-def _finding_file(finding: dict, target: Path) -> Path | None:
-    """The file a finding points at, mapped back from the docker mount."""
+def _finding_file(finding: dict, target: Path) -> Path:
+    """The file a finding points at, proven to live inside the tree.
+
+    A finding that cannot be pinned to a file under the target cannot be
+    redacted or quarantined, so it is fatal — returning None here would
+    let the publish proceed with a known live finding.
+    """
     meta = finding.get("SourceMetadata") or {}
-    data = meta.get("Data") or {}
-    fs = data.get("Filesystem") or {}
+    fs = (meta.get("Data") or {}).get("Filesystem") or {}
     raw_path = fs.get("file")
     if not raw_path:
-        return None
+        raise RuntimeError(
+            f"redact_secrets: finding without a file path "
+            f"(detector {finding.get('DetectorName')!r}); refusing to publish")
     path = Path(raw_path)
     if path.parts[:2] == ("/", "scan"):  # docker mount prefix
         path = target / Path(*path.parts[2:])
-    return path
+    resolved = path.resolve()
+    if not resolved.is_relative_to(target.resolve()):
+        raise RuntimeError(
+            f"redact_secrets: finding path {raw_path!r} escapes the tree; "
+            f"refusing to publish")
+    if not resolved.is_file():
+        raise RuntimeError(
+            f"redact_secrets: finding path {raw_path!r} does not exist; "
+            f"refusing to publish")
+    return resolved
 
 
 def redact_text(text: str, extra_secrets: list[str] | None = None) -> str:
@@ -147,18 +208,46 @@ def redact_obj(obj, extra_secrets: list[str] | None = None):
     return obj
 
 
-def _replace_literals(root: Path, secrets: list[str]) -> list[str]:
-    changed = []
+def _binary_has_builtin_hit(data: bytes, secrets: list[str]) -> bool:
+    if _NVAPI_BYTES.search(data):
+        return True
+    return any(s.encode("utf-8", "ignore") in data
+               for s in [*secrets, *_env_secret_values()])
+
+
+def _replace_literals(root: Path, secrets: list[str]) -> tuple[list[str], set[str]]:
+    """Rewrite text files in place; quarantine binaries with builtin hits.
+
+    Returns (summary lines, the secret values that were actually found and
+    replaced somewhere). A value never seen literally is the multipart /
+    encoded case the caller must quarantine at the finding's source file.
+    """
+    lines: list[str] = []
+    replaced: set[str] = set()
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
         try:
             original = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
+            # The builtin layers still apply to binaries: an ASCII nvapi-
+            # token inside a non-UTF-8 file leaks exactly the same, and a
+            # byte-level rewrite would corrupt the file, so quarantine it.
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if _binary_has_builtin_hit(data, secrets):
+                lines.append(_quarantine(path, root, ["builtin-binary"]))
             continue
-        cleaned = redact_text(original, extra_secrets=secrets)
+        cleaned = original
+        for value in secrets:
+            if value in cleaned:
+                cleaned = cleaned.replace(value, MARKER)
+                replaced.add(value)
+        cleaned = redact_text(cleaned)
         if cleaned != original:
             path.write_text(cleaned, encoding="utf-8")
-            changed.append(f"redacted: {path.relative_to(root)}")
-    return changed
+            lines.append(f"redacted: {path.relative_to(root)}")
+    return lines, replaced
 
 
 def _quarantine(path: Path, root: Path, detectors: list[str]) -> str:
@@ -166,22 +255,27 @@ def _quarantine(path: Path, root: Path, detectors: list[str]) -> str:
 
     Encoded (base64/UTF-16), composite (RawV2 joins fields that sit on
     different lines), and binary representations all defeat substring
-    replacement; the only safe artifact is no artifact.
+    replacement; the only safe artifact is no artifact. `.json` files get a
+    JSON stub so downstream readers (collect_leg, row_state) parse a
+    document that says what happened instead of crashing on prose.
     """
     names = ", ".join(sorted(set(detectors))) or "unknown"
-    path.write_text(
-        f"[REDACTED: quarantined by redact_secrets.py -- trufflehog "
-        f"detector(s) {names} still matched after literal redaction]\n",
-        encoding="utf-8")
+    message = (f"quarantined by redact_secrets.py -- trufflehog detector(s) "
+               f"{names} still matched after literal redaction")
+    if path.suffix == ".json":
+        path.write_text(json.dumps({"redacted": message}) + "\n", encoding="utf-8")
+    else:
+        path.write_text(f"[REDACTED: {message}]\n", encoding="utf-8")
     return f"quarantined: {path.relative_to(root)} ({names})"
 
 
 def redact_tree(root: Path) -> list[str]:
-    """Scan -> replace -> rescan -> quarantine -> verify; summary lines back.
+    """Scan -> replace -> verify -> quarantine -> verify; summary lines back.
 
     Raises ScannerUnavailable if TruffleHog cannot run, and RuntimeError if
-    findings survive quarantine — in both cases the caller must not publish
-    the tree. Summary lines name files and detectors, never secret values.
+    a finding cannot be pinned to a file in the tree or survives quarantine —
+    in every such case the caller must not publish. Summary lines name files
+    and detectors, never secret values.
     """
     root = Path(root)
     findings = _scan(root)
@@ -191,27 +285,38 @@ def redact_tree(root: Path) -> list[str]:
         key=len, reverse=True)
     summary = [f"trufflehog: {len(findings)} finding(s), "
                f"{len(secrets)} distinct value(s)"]
-    summary += _replace_literals(root, secrets)
+    lines, replaced = _replace_literals(root, secrets)
+    summary += lines
+    if not findings:
+        if len(summary) == 1:
+            summary.append("clean: no redactions needed")
+        return summary
 
-    if findings:
-        survivors: dict[Path, list[str]] = {}
-        for f in _scan(root):
+    # Multipart guard: a finding whose values never matched literally hides
+    # its secret half from the rescan once the identifier half is gone, so
+    # the source file is quarantined on the initial finding's evidence.
+    for f in findings:
+        values = [s for s in (f.get("Raw"), f.get("RawV2"))
+                  if isinstance(s, str) and len(s) >= _MIN_SECRET_LEN]
+        if values and not any(v in replaced for v in values):
             path = _finding_file(f, root)
-            detector = str(f.get("DetectorName") or "unknown")
-            if path is not None and path.is_file():
-                survivors.setdefault(path, []).append(detector)
-        for path, detectors in sorted(survivors.items()):
-            summary.append(_quarantine(path, root, detectors))
-        if survivors and (final := _scan(root)):
-            raise RuntimeError(
-                f"redact_secrets: {len(final)} finding(s) survived quarantine; "
-                f"refusing to publish {root}")
-    else:
-        # No scanner findings — still run the builtin layers over the tree.
-        summary += _replace_literals(root, [])
+            summary.append(_quarantine(
+                path, root, [f"{f.get('DetectorName') or 'unknown'} (unmatched)"]))
 
-    if len(summary) == 1:
-        summary.append("clean: no redactions needed")
+    # Rescan: representations the literal pass cannot reach.
+    survivors: dict[Path, list[str]] = {}
+    for f in _scan(root):
+        path = _finding_file(f, root)  # unmappable or escaping paths raise
+        survivors.setdefault(path, []).append(str(f.get("DetectorName") or "unknown"))
+    for path, detectors in sorted(survivors.items()):
+        summary.append(_quarantine(path, root, detectors))
+
+    # Final verification is unconditional once findings existed: the publish
+    # only proceeds over a tree the scanner can no longer flag.
+    if final := _scan(root):
+        raise RuntimeError(
+            f"redact_secrets: {len(final)} finding(s) survived quarantine; "
+            f"refusing to publish {root}")
     return summary
 
 

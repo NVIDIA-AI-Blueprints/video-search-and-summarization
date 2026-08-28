@@ -90,7 +90,7 @@ class TestRedactObj:
 
 class TestRedactTree:
     def test_scanner_unavailable_fails_closed(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(redact_secrets.shutil, "which", lambda _: None)
+        monkeypatch.setattr(redact_secrets.shutil, "which", lambda name: None)
         (tmp_path / "x.txt").write_text("hello")
         with pytest.raises(redact_secrets.ScannerUnavailable):
             redact_secrets.redact_tree(tmp_path)
@@ -139,9 +139,18 @@ class TestRedactTree:
             redact_secrets.redact_tree(tmp_path)
 
     def test_docker_mount_path_mapped_back(self, tmp_path):
+        real = tmp_path / "step-1" / "verifier" / "judge.json"
+        real.parent.mkdir(parents=True)
+        real.write_text("{}")
         finding = _finding("/scan/step-1/verifier/judge.json", "x")
-        mapped = redact_secrets._finding_file(finding, tmp_path)
-        assert mapped == tmp_path / "step-1" / "verifier" / "judge.json"
+        assert redact_secrets._finding_file(finding, tmp_path) == real
+
+    def test_missing_file_is_fatal(self, tmp_path):
+        """A finding pointing at a path that is not there cannot be redacted
+        or quarantined, so it must refuse the publish, not pass silently."""
+        finding = _finding("/scan/gone.txt", "x")
+        with pytest.raises(RuntimeError, match="does not exist"):
+            redact_secrets._finding_file(finding, tmp_path)
 
 
 class TestJudgeEndToEnd:
@@ -211,3 +220,73 @@ class TestReportBoundary:
         monkeypatch.setattr(redact_secrets, "redact_tree", boom)
         with pytest.raises(redact_secrets.ScannerUnavailable):
             leg_report.main(["--results-root", str(tmp_path)])
+
+
+class TestRoundFourGuards:
+    def test_multipart_finding_quarantined_when_values_never_match(self, tmp_path, monkeypatch):
+        """AWS-style: Raw is the id, RawV2 is id:secret on separate lines.
+        Replacing the id blinds the rescan while the secret survives — the
+        source file must be quarantined on the initial finding's evidence."""
+        f = tmp_path / "trial.log"
+        f.write_text("id AKIAFAKEID0000\nsecret wJalrXUtnFAKESECRET\n")
+        composite = "AKIAFAKEID0000:wJalrXUtnFAKESECRET"
+        calls = {"n": 0}
+
+        def fake_scan(root):
+            calls["n"] += 1
+            # Initial scan reports only the composite; rescans see nothing
+            # because the id got replaced.
+            return [_finding(f, composite, "AWS")] if calls["n"] == 1 else []
+        monkeypatch.setattr(redact_secrets, "_scan", fake_scan)
+        lines = redact_secrets.redact_tree(tmp_path)
+        text = f.read_text()
+        assert "wJalrXUtnFAKESECRET" not in text and "quarantined" in text
+        assert any("unmatched" in l for l in lines)
+
+    def test_unmappable_finding_is_fatal(self, tmp_path, monkeypatch):
+        bad = {"Raw": "x" * 20, "DetectorName": "X", "SourceMetadata": {}}
+        f = tmp_path / "a.txt"; f.write_text("x" * 20)
+        monkeypatch.setattr(redact_secrets, "_scan", lambda root: [bad])
+        with pytest.raises(RuntimeError, match="without a file path"):
+            redact_secrets.redact_tree(tmp_path)
+
+    def test_path_escape_is_fatal(self, tmp_path):
+        finding = _finding("/scan/../../etc/passwd", "x" * 20)
+        with pytest.raises(RuntimeError, match="escapes the tree"):
+            redact_secrets._finding_file(finding, tmp_path)
+
+    def test_binary_nvapi_quarantined_without_scanner_finding(self, tmp_path, monkeypatch):
+        """The builtin layer must cover binaries: an ASCII token inside a
+        non-UTF-8 file leaks the same, even when TruffleHog misses it."""
+        blob = tmp_path / "frame.bin"
+        blob.write_bytes(b"\xff\xfe" + FAKE_KEY.encode() + b"\x00")
+        monkeypatch.setattr(redact_secrets, "_scan", lambda root: [])
+        lines = redact_secrets.redact_tree(tmp_path)
+        assert FAKE_KEY not in blob.read_text()
+        assert any("builtin-binary" in l for l in lines)
+
+    def test_json_quarantine_stub_parses(self, tmp_path):
+        f = tmp_path / "judge.json"
+        f.write_text("{}")
+        redact_secrets._quarantine(f, tmp_path, ["NGC"])
+        assert "redacted" in json.loads(f.read_text())
+
+    def test_marker_idempotent_with_redacted_env_value(self, monkeypatch):
+        """TOKEN=REDACTED must not grow [REDACTED] into [[REDACTED]]."""
+        monkeypatch.setenv("WEIRD_TOKEN", "REDACTED")
+        assert redact_secrets.redact_text("[REDACTED]") == "[REDACTED]"
+
+    def test_malformed_scanner_stdout_is_fatal(self, tmp_path, monkeypatch):
+        class P:
+            returncode = 0
+            stdout = "not json at all"
+            stderr = ""
+        monkeypatch.setattr(redact_secrets, "_run_scanner", lambda target: P())
+        with pytest.raises(redact_secrets.ScannerUnavailable, match="unparseable"):
+            redact_secrets._scan(tmp_path)
+
+    def test_scan_error_flag_present(self):
+        """--fail-on-scan-errors verified to exist in trufflehog 3.94.2;
+        without it a partly-unscanned tree exits 0 and publishes."""
+        assert "--fail-on-scan-errors" in redact_secrets._TRUFFLEHOG_ARGS
+        assert "--no-verification" in redact_secrets._TRUFFLEHOG_ARGS
