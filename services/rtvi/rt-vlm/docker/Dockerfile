@@ -345,6 +345,10 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
+# Patch FlashInfer CUDA runtime discovery for the non-eager compile path.
+RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
+    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_flashinfer_cudart_patch.py
+
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-x86-evs-cython/ /tmp/evs-libs/x86/
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/igpu/
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-sbsa-evs-cython/ /tmp/evs-libs/sbsa/

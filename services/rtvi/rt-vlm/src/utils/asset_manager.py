@@ -924,8 +924,8 @@ class AssetManager:
             timeout = aiohttp.ClientTimeout(total=total_timeout, connect=connect_timeout)
 
             # SSL verification: enabled by default. To skip verification for specific
-            # trusted domains (e.g., internal artifactory with self-signed certs), set:
-            #   ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS=artifactory.nvidia.com,nv-wowza-pdc.nvidia.com
+            # trusted domains with self-signed certificates, set:
+            #   ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS=media.example.com
             # SSL is only relaxed for listed domains; all other URLs remain verified.
             ssl_skip_domains_env = os.environ.get("ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS", "")
             ssl_skip_domains = [
