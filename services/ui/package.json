@@ -29,6 +29,7 @@
     },
     "overrides": {
         "preact": "10.29.8",
+        "@ariakit/react": "0.4.26",
         "react": "19.2.8",
         "react-dom": "19.2.8",
         "next": {
