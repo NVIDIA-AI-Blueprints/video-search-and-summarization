@@ -45,9 +45,6 @@ LDFLAGS := -shared -rdynamic -L$(SYSROOT)/usr/lib/aarch64-linux-gnu \
             -Wl,--as-needed -pthread -ldl \
             -Wl,-rpath,/usr/lib/aarch64-linux-gnu
 
-# Custom compilation flags that exclude abseil-cpp include for aarch64
-COMPILE_CPPFLAGS = $(subst -I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp,,$(CPPFLAGS))
-
 CXX_SYSROOT = --sysroot=$(SYSROOT)
 
 else
@@ -55,12 +52,22 @@ else
 LDFLAGS := -shared -rdynamic -L$(TOP)/$(PREBUILT_DIR) -lgrpc -L/usr/local/lib `pkg-config --libs protobuf grpc++` -pthread \
             -Wl,--no-as-needed -lgrpc++_reflection -Wl,--as-needed -ldl
 
-# Use CPPFLAGS directly for x86
-COMPILE_CPPFLAGS = $(CPPFLAGS)
-
 CXX_SYSROOT =
 
 endif
+
+# Exclude the WebRTC-bundled abseil-cpp from the include path on EVERY arch.
+# vms_media links against libgrpc.so, which is built with abseil lts_20220623
+# (ABSL_OPTION_USE_INLINE_NAMESPACE=1). WebRTC bundles its own abseil with the
+# inline namespace disabled and Mutex::Lock/Unlock renamed to lock/unlock plus an
+# added Dtor(). Compiling against the WebRTC copy therefore emits references to
+# absl::Mutex::lock/unlock/Dtor that libgrpc.so cannot satisfy, and because this
+# is a -shared link with no --no-undefined, it builds cleanly and only fails at
+# dlopen: "vms_media.so: undefined symbol: _ZN4absl5Mutex4DtorEv", which aborts
+# the whole stream-processing module load. Stripping the include lets the system
+# abseil headers (/usr/local/include/absl, lts_20220623) match libgrpc.so.
+# This was previously applied to aarch64 only, leaving x86_64 broken.
+COMPILE_CPPFLAGS = $(subst -I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp,,$(CPPFLAGS))
 
 all: $(PROTO_SRCS:.proto=.pb.cc) $(PROTO_SRCS:.proto=.grpc.pb.cc) $(TARGET)
 
