@@ -13,4 +13,3 @@
 # then uses it as logical CUDA device 0.
 
 gpuResourceName: "nvidia.com/mig-3g.40gb"
-gpuResourceCount: 1

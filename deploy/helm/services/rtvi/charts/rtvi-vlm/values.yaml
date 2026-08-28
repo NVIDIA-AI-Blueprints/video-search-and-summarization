@@ -77,11 +77,11 @@ securityContext:
   runAsGroup: 1001
 shmSize: "16Gi"
 
-# Optional accelerator resource replacement. Set gpuResourceName to the MIG resource
+# Optional MIG resource replacement. Uncomment and set this to the MIG resource
 # advertised by the Kubernetes NVIDIA device plugin (for example,
-# nvidia.com/mig-3g.40gb). Empty retains nvidia.com/gpu.
-gpuResourceName: ""
-gpuResourceCount: 1
+# nvidia.com/mig-3g.40gb). The default remains one nvidia.com/gpu, as on develop.
+# A MIG deployment always requests one slice per pod.
+# gpuResourceName: "nvidia.com/mig-3g.40gb"
 
 resources:
   # CPU and memory resources can be added here. gpuResourceName replaces the
