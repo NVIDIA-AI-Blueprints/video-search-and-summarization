@@ -7,15 +7,20 @@ Used when the GitHub Actions job is cancelled (PR closed, superseded
 mirror push, or a human cancel). The poller is killed; GitLab would
 otherwise keep running.
 
-GitHub only publishes a step's ``GITHUB_OUTPUT`` when that step finishes,
-so this script also reads the fsynced handoff file the trigger writes
-immediately after GitLab creates the pipeline.
+GitHub only publishes a step's ``GITHUB_OUTPUT`` when that step finishes.
+The trigger also fsyncs a handoff file. If cancel hits after GitLab has
+created the pipeline but before the id is on disk, cleanup lists recent
+pipelines on the recorded ref whose variables match the recorded SHA.
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
+import time
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import ContentTooShortError
@@ -34,6 +39,15 @@ from trigger_downstream_pipeline import emit_error  # noqa: E402
 from trigger_downstream_pipeline import handoff_path  # noqa: E402
 from trigger_downstream_pipeline import require_env  # noqa: E402
 
+ACTIVE_PIPELINE_STATUSES = (
+    "created",
+    "waiting_for_resource",
+    "preparing",
+    "pending",
+    "running",
+    "scheduled",
+)
+
 
 def cancel_pipeline(
     base_url: str,
@@ -45,13 +59,7 @@ def cancel_pipeline(
     open_func: Any = urlopen,
 ) -> str:
     """POST GitLab's pipeline cancel. 404/409 mean it is already gone."""
-    if project_id is not None:
-        project = str(int(project_id))
-    elif project_path:
-        project = quote(project_path, safe="")
-    else:
-        emit_error("Need a GitLab project id or project path to cancel")
-        raise SystemExit(1)
+    project = encode_project(project_id=project_id, project_path=project_path)
     url = f"{base_url}/projects/{project}/pipelines/{int(pipeline_id)}/cancel"
     request = Request(
         url,
@@ -79,24 +87,190 @@ def cancel_pipeline(
     return "cancelled"
 
 
+def encode_project(*, project_id: int | None = None, project_path: str = "") -> str:
+    if project_id is not None:
+        return str(int(project_id))
+    if project_path:
+        return quote(project_path, safe="")
+    emit_error("Need a GitLab project id or project path to cancel")
+    raise SystemExit(1)
+
+
+def load_handoff() -> dict[str, str]:
+    path = Path(handoff_path())
+    if not path.is_file():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    payload: dict[str, str] = {}
+    for key, value in loaded.items():
+        if isinstance(key, str) and isinstance(value, (str, int)) and str(value):
+            payload[key] = str(value)
+    return payload
+
+
 def resolve_pipeline_ids() -> tuple[str, str]:
     """Prefer step env; fall back to the trigger step's fsynced handoff file."""
     env_project = os.environ.get("DOWNSTREAM_PROJECT_ID", "").strip()
     env_pipeline = os.environ.get("DOWNSTREAM_PIPELINE_ID", "").strip()
     if env_project and env_pipeline:
         return env_project, env_pipeline
-    path = Path(handoff_path())
-    payload: dict[str, Any] = {}
-    if path.is_file():
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            loaded = {}
-        if isinstance(loaded, dict):
-            payload = loaded
-    project_id = env_project or str(payload.get("project_id") or "").strip()
-    pipeline_id = env_pipeline or str(payload.get("pipeline_id") or "").strip()
+    payload = load_handoff()
+    project_id = env_project or payload.get("project_id", "")
+    pipeline_id = env_pipeline or payload.get("pipeline_id", "")
     return project_id, pipeline_id
+
+
+def parse_gitlab_time(value: str) -> datetime | None:
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def created_at_is_recent(created_at: str, started_at: str, slack_seconds: int = 60) -> bool:
+    created = parse_gitlab_time(created_at)
+    started = parse_gitlab_time(started_at)
+    if created is None or started is None:
+        return True
+    return created >= started - timedelta(seconds=slack_seconds)
+
+
+def pipeline_variables_match(
+    variables: list[Any], variable_name: str, commit_sha: str
+) -> bool:
+    for item in variables:
+        if not isinstance(item, dict):
+            continue
+        if item.get("key") == variable_name and str(item.get("value") or "") == commit_sha:
+            return True
+    return False
+
+
+def matching_pipeline_ids(
+    pipelines: list[Any],
+    variables_by_id: dict[int, list[Any]],
+    *,
+    variable_name: str,
+    commit_sha: str,
+    started_at: str,
+) -> list[int]:
+    found: list[int] = []
+    for pipe in pipelines:
+        if not isinstance(pipe, dict):
+            continue
+        pid = pipe.get("id")
+        if not isinstance(pid, int):
+            continue
+        if not created_at_is_recent(str(pipe.get("created_at") or ""), started_at):
+            continue
+        if pipeline_variables_match(
+            variables_by_id.get(pid) or [], variable_name, commit_sha
+        ):
+            found.append(pid)
+    return found
+
+
+def gitlab_json(
+    url: str,
+    token: str,
+    *,
+    method: str = "GET",
+    data: bytes | None = None,
+    open_func: Any = urlopen,
+    ignore_http: frozenset[int] | None = None,
+) -> Any:
+    request = Request(
+        url,
+        data=data,
+        method=method,
+        headers={
+            "PRIVATE-TOKEN": token,
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with open_func(request) as response:
+            body = response.read().decode("utf-8")
+    except HTTPError as exc:
+        if ignore_http and exc.code in ignore_http:
+            return []
+        emit_error(f"GitLab request failed with status {exc.code}")
+        raise SystemExit(1) from exc
+    except (URLError, ContentTooShortError) as exc:
+        emit_error(
+            "GitLab request failed due to a connection error: "
+            + connection_error_detail(exc)
+        )
+        raise SystemExit(1) from exc
+    if not body:
+        return None
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        emit_error("GitLab returned an unexpected response")
+        raise SystemExit(1) from exc
+
+
+def list_ref_pipelines(
+    base_url: str,
+    token: str,
+    project: str,
+    ref: str,
+    open_func: Any = urlopen,
+) -> list[Any]:
+    found: list[Any] = []
+    for status in ACTIVE_PIPELINE_STATUSES:
+        quoted_ref = quote(ref, safe="")
+        url = (
+            f"{base_url}/projects/{project}/pipelines"
+            f"?ref={quoted_ref}&status={status}&per_page=20&order_by=id&sort=desc"
+        )
+        payload = gitlab_json(url, token, open_func=open_func)
+        if isinstance(payload, list):
+            found.extend(payload)
+    return found
+
+
+def discover_matching_pipeline_ids(
+    base_url: str,
+    token: str,
+    *,
+    project: str,
+    ref: str,
+    variable_name: str,
+    commit_sha: str,
+    started_at: str,
+    open_func: Any = urlopen,
+) -> list[int]:
+    pipelines = list_ref_pipelines(base_url, token, project, ref, open_func)
+    variables_by_id: dict[int, list[Any]] = {}
+    for pipe in pipelines:
+        if not isinstance(pipe, dict) or not isinstance(pipe.get("id"), int):
+            continue
+        pid = int(pipe["id"])
+        url = f"{base_url}/projects/{project}/pipelines/{pid}/variables"
+        payload = gitlab_json(url, token, open_func=open_func)
+        variables_by_id[pid] = payload if isinstance(payload, list) else []
+    return matching_pipeline_ids(
+        pipelines,
+        variables_by_id,
+        variable_name=variable_name,
+        commit_sha=commit_sha,
+        started_at=started_at,
+    )
 
 
 def main() -> int:
@@ -104,20 +278,60 @@ def main() -> int:
     token = require_env("DOWNSTREAM_CI_TOKEN")
     project_path = os.environ.get("DOWNSTREAM_PROJECT_PATH", "").strip()
     project_id, pipeline_id = resolve_pipeline_ids()
-    if not pipeline_id:
-        print("No downstream pipeline id; trigger never published one")
-        return 0
+    handoff = load_handoff()
     base_url = api_base_url(raw_url)
     for value in (raw_url, base_url, token, project_path):
         add_mask(value)
-    outcome = cancel_pipeline(
-        base_url,
-        token,
-        int(pipeline_id),
-        project_id=int(project_id) if project_id.isdigit() else None,
-        project_path=project_path,
-    )
-    print(f"Downstream pipeline {pipeline_id}: {outcome}")
+
+    ids: list[int] = []
+    if pipeline_id.isdigit():
+        ids = [int(pipeline_id)]
+    else:
+        commit_sha = handoff.get("commit_sha", "")
+        variable_name = handoff.get("variable_name", "")
+        ref = handoff.get("ref", "") or os.environ.get("DOWNSTREAM_REF", "").strip()
+        started_at = handoff.get("trigger_started_at", "")
+        project = encode_project(
+            project_id=int(project_id) if project_id.isdigit() else None,
+            project_path=project_path,
+        ) if (project_id.isdigit() or project_path) else ""
+        if not (commit_sha and variable_name and ref and started_at and project):
+            print("No downstream pipeline id; trigger never published one")
+            return 0
+        print(
+            "Pipeline id missing after cancel; searching recent GitLab "
+            f"pipelines on {ref} for {variable_name}"
+        )
+        attempts = int(os.environ.get("DOWNSTREAM_CANCEL_SEARCH_ATTEMPTS", "3"))
+        delay = float(os.environ.get("DOWNSTREAM_CANCEL_SEARCH_SECONDS", "2"))
+        for attempt in range(max(1, attempts)):
+            ids = discover_matching_pipeline_ids(
+                base_url,
+                token,
+                project=project,
+                ref=ref,
+                variable_name=variable_name,
+                commit_sha=commit_sha,
+                started_at=started_at,
+            )
+            if ids:
+                break
+            if attempt + 1 < max(1, attempts) and delay > 0:
+                time.sleep(delay)
+        if not ids:
+            print("No matching live downstream pipeline found")
+            return 0
+
+    numeric_project = int(project_id) if project_id.isdigit() else None
+    for pid in ids:
+        outcome = cancel_pipeline(
+            base_url,
+            token,
+            pid,
+            project_id=numeric_project,
+            project_path=project_path,
+        )
+        print(f"Downstream pipeline {pid}: {outcome}")
     return 0
 
 

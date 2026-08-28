@@ -8,6 +8,8 @@ import re
 import socket
 import ssl
 import sys
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import ContentTooShortError
@@ -169,7 +171,16 @@ def trigger_pipeline(
         compare_branch=compare_branch,
         extra_variables=extra_variables,
     )
-    return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
+    response = request_json(
+        "Pipeline trigger",
+        f"{base_url}/projects/{project_id}/pipeline",
+        token,
+        data=payload,
+    )
+    pipeline_id = str(response.get("id") or "")
+    if pipeline_id:
+        persist_handoff(pipeline_id=pipeline_id)
+    return response
 
 
 def pipeline_request_data(
@@ -392,12 +403,13 @@ def handoff_path() -> str:
     )
 
 
-def persist_handoff(*, project_id: str | int = "", pipeline_id: str | int = "") -> None:
-    """Record GitLab ids on disk so a cancelled trigger step can still cancel.
+def persist_handoff(**fields: object) -> None:
+    """Record GitLab trigger identity on disk for a cancelled cleanup step.
 
-    GitHub only publishes ``GITHUB_OUTPUT`` when the step finishes. A cancel
-    between ``POST /pipeline`` and step completion would otherwise lose the
-    new pipeline id.
+    GitHub only publishes ``GITHUB_OUTPUT`` when the step finishes. The
+    pipeline id is written the instant GitLab returns it. ``ref`` /
+    ``commit_sha`` / ``trigger_started_at`` are written *before* POST so
+    cleanup can still find the pipeline if cancel lands in the HTTP window.
     """
     path = Path(handoff_path())
     payload: dict[str, str] = {}
@@ -407,14 +419,13 @@ def persist_handoff(*, project_id: str | int = "", pipeline_id: str | int = "") 
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             loaded = {}
         if isinstance(loaded, dict):
-            for key in ("project_id", "pipeline_id"):
-                value = loaded.get(key)
-                if isinstance(value, (str, int)) and str(value):
+            for key, value in loaded.items():
+                if isinstance(key, str) and isinstance(value, (str, int)) and str(value):
                     payload[key] = str(value)
-    if project_id:
-        payload["project_id"] = str(project_id)
-    if pipeline_id:
-        payload["pipeline_id"] = str(pipeline_id)
+    for key, value in fields.items():
+        if value is None or value == "":
+            continue
+        payload[str(key)] = str(value)
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     tmp = path.with_name(path.name + ".tmp")
@@ -516,7 +527,15 @@ def main() -> int:
             return 0
 
         project_id = fetch_project_id(base_url, token, project_path)
-        persist_handoff(project_id=project_id)
+        persist_handoff(
+            project_id=project_id,
+            ref=ref,
+            commit_sha=commit_sha,
+            variable_name=variable_name,
+            trigger_started_at=datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+        )
         pipeline = trigger_pipeline(
             base_url,
             token,

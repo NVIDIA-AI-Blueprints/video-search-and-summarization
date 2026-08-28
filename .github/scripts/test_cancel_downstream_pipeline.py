@@ -112,6 +112,40 @@ class HandoffTest(unittest.TestCase):
                 self.assertEqual(module.resolve_pipeline_ids(), ("8", "9"))
 
 
+class SearchFallbackTest(unittest.TestCase):
+    def test_matches_recent_pipeline_with_the_recorded_sha(self):
+        pipelines = [
+            {"id": 10, "created_at": "2026-08-28T08:12:30Z"},
+            {"id": 11, "created_at": "2026-08-28T07:00:00Z"},
+        ]
+        variables = {
+            10: [{"key": "VSS_SUBMODULE_HASH", "value": "abc"}],
+            11: [{"key": "VSS_SUBMODULE_HASH", "value": "abc"}],
+        }
+        self.assertEqual(
+            module.matching_pipeline_ids(
+                pipelines,
+                variables,
+                variable_name="VSS_SUBMODULE_HASH",
+                commit_sha="abc",
+                started_at="2026-08-28T08:12:00Z",
+            ),
+            [10],
+        )
+
+    def test_ignores_pipelines_for_a_different_sha(self):
+        self.assertEqual(
+            module.matching_pipeline_ids(
+                [{"id": 10, "created_at": "2026-08-28T08:12:30Z"}],
+                {10: [{"key": "VSS_SUBMODULE_HASH", "value": "other"}]},
+                variable_name="VSS_SUBMODULE_HASH",
+                commit_sha="abc",
+                started_at="2026-08-28T08:12:00Z",
+            ),
+            [],
+        )
+
+
 class WorkflowWiringTest(unittest.TestCase):
     def test_ci_cancels_downstream_when_the_github_job_is_cancelled(self):
         ci = (
