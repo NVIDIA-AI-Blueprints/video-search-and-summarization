@@ -1,52 +1,74 @@
 // SPDX-License-Identifier: MIT
 /**
- * Delete uploaded video via Agent API.
- *
- * Backend: DELETE /api/v1/videos/{video_id}
- * Handles VST (sensor + storage) and in "search" mode also ES + RTVI-CV.
+ * Delete an uploaded video's storage and sensor directly from VST.
  */
+import { createApiEndpoints } from './api';
 
 export interface DeleteVideoResult {
-  status: string;
-  message: string;
-  video_id: string;
+  sensorId: string;
+  spaceSaved?: number;
 }
 
-/**
- * Delete an uploaded video by sensor/video ID (UUID) via Agent API.
- * DELETE /api/v1/videos/{video_id}
- *
- * @param agentApiUrl - Base URL of the agent API (e.g., http://<IP>:8000/api/v1)
- * @param videoId - The sensor/video UUID (e.g., from the upload response)
- * @param signal - Optional AbortSignal for cancellation
- */
+async function getVstError(response: Response, fallback: string): Promise<string> {
+  const text = await response.text().catch(() => '');
+  if (!text) return fallback;
+  try {
+    const data = JSON.parse(text);
+    return data?.error_message || data?.message || data?.detail || text;
+  } catch {
+    return text;
+  }
+}
+
 export async function deleteVideo(
-  agentApiUrl: string,
-  videoId: string,
+  vstApiUrl: string,
+  sensorId: string,
+  startTime: string,
+  endTime: string,
   signal?: AbortSignal
 ): Promise<DeleteVideoResult> {
   if (signal?.aborted) {
     throw new Error('Delete video was cancelled');
   }
 
-  const response = await fetch(`${agentApiUrl}/videos/${encodeURIComponent(videoId)}`, {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
+  const endpoints = createApiEndpoints(vstApiUrl);
+  const storageResponse = await fetch(
+    endpoints.DELETE_STORAGE_FILES(sensorId, startTime, endTime),
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
     },
+  );
+
+  if (!storageResponse.ok && storageResponse.status !== 404) {
+    throw new Error(await getVstError(
+      storageResponse,
+      `Failed to delete video storage: ${storageResponse.statusText || storageResponse.status}`,
+    ));
+  }
+
+  let spaceSaved: number | undefined;
+  if (storageResponse.ok) {
+    const storageResult = await storageResponse.json().catch(() => null);
+    if (typeof storageResult?.spaceSaved === 'number') {
+      spaceSaved = storageResult.spaceSaved;
+    }
+  }
+
+  const sensorResponse = await fetch(endpoints.DELETE_SENSOR(sensorId), {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
     signal,
   });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(text || `Failed to delete video: ${response.statusText}`);
+  // Storage deletion may already remove the file-backed sensor.
+  if (!sensorResponse.ok && sensorResponse.status !== 404) {
+    throw new Error(await getVstError(
+      sensorResponse,
+      `Failed to delete video sensor: ${sensorResponse.statusText || sensorResponse.status}`,
+    ));
   }
 
-  const result: DeleteVideoResult = await response.json();
-
-  if (result.status === 'failure') {
-    throw new Error(result.message || `Failed to delete video: ${result.video_id}`);
-  }
-
-  return result;
+  return { sensorId, spaceSaved };
 }

@@ -2,9 +2,9 @@
 export const createApiEndpoints = (vstApiUrl: string) => ({
   STREAMS: `${vstApiUrl}/v1/replay/streams`,
   ADD_SENSOR: `${vstApiUrl}/v1/sensor/add`,
-  DELETE_SENSOR: (sensorId: string) => `${vstApiUrl}/v1/sensor/${sensorId}`,
+  DELETE_SENSOR: (sensorId: string) => `${vstApiUrl}/v1/sensor/${encodeURIComponent(sensorId)}`,
   DELETE_STORAGE_FILES: (sensorId: string, startTime: string, endTime: string) =>
-    `${vstApiUrl}/v1/storage/file/${sensorId}?startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`,
+    `${vstApiUrl}/v1/storage/file/${encodeURIComponent(sensorId)}?startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`,
   LIVE_PICTURE: (streamId: string) => `${vstApiUrl}/v1/live/stream/${streamId}/picture`,
   REPLAY_PICTURE: (streamId: string, startTime: string) =>
     `${vstApiUrl}/v1/replay/stream/${streamId}/picture?startTime=${encodeURIComponent(startTime)}`,

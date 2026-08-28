@@ -28,6 +28,20 @@ from handlers.alert_config import normalize_alert_type
 from handlers.prompt_handler.alert_type_config_loader import VlmParams
 
 
+def _validate_system_prompt(v: Optional[str]) -> Optional[str]:
+    """Strip padding and treat a blank system prompt as unset.
+
+    Unlike ``prompt``, a blank value is not a client error here — the field is
+    optional, so "" and "   " are both reasonable ways to say "I do not want to
+    set one". Normalizing to ``None`` at ingress makes that mean the same thing
+    as omitting it: the service default applies at inference time. Storing the
+    blank verbatim instead would round-trip padding to the VLM.
+    """
+    if v is None:
+        return None
+    return v.strip() or None
+
+
 def _validate_alert_type(v: str) -> str:
     if not v.replace('_', '').replace('-', '').replace(' ', '').isalnum():
         raise ValueError(
@@ -40,7 +54,7 @@ class AlertConfigRequest(BaseModel):
     """Create a new alert type configuration."""
     alert_type: str = Field(..., description="Alert type identifier", min_length=1, max_length=100)
     prompt: str = Field(..., description="User prompt text", min_length=1, max_length=5000)
-    system_prompt: Optional[str] = Field(None, description="System prompt text", max_length=5000)
+    system_prompt: Optional[str] = Field(None, description="System prompt text. Omit to use the service default (prompt.default_system_prompt)", max_length=5000)
     enrichment_prompt: Optional[str] = Field(None, description="Optional enrichment prompt for post-verification VLM call", max_length=5000)
     vlm_params: Optional[VlmParams] = Field(None, description="VLM parameter overrides")
     output_category: Optional[str] = Field(None, description="Display name for output", max_length=200)
@@ -55,6 +69,10 @@ class AlertConfigRequest(BaseModel):
         if not v:
             raise ValueError('Prompt cannot be empty')
         return v
+
+    @validator('system_prompt')
+    def validate_system_prompt(cls, v):
+        return _validate_system_prompt(v)
 
     class Config:
         extra = "forbid"
@@ -77,7 +95,7 @@ class AlertConfigRequest(BaseModel):
 class AlertConfigUpdateRequest(BaseModel):
     """Update an existing alert type configuration. All fields optional (partial update)."""
     prompt: Optional[str] = Field(None, description="User prompt text", max_length=5000)
-    system_prompt: Optional[str] = Field(None, description="System prompt text", max_length=5000)
+    system_prompt: Optional[str] = Field(None, description="System prompt text. Clear it to fall back to the service default (prompt.default_system_prompt)", max_length=5000)
     enrichment_prompt: Optional[str] = Field(None, description="Optional enrichment prompt for post-verification VLM call", max_length=5000)
     vlm_params: Optional[VlmParams] = Field(None, description="VLM parameter overrides")
     output_category: Optional[str] = Field(None, description="Display name for output", max_length=200)
@@ -89,6 +107,10 @@ class AlertConfigUpdateRequest(BaseModel):
             if not v:
                 raise ValueError('Prompt cannot be empty')
         return v
+
+    @validator('system_prompt')
+    def validate_system_prompt(cls, v):
+        return _validate_system_prompt(v)
 
     class Config:
         extra = "forbid"
@@ -107,7 +129,7 @@ class AlertConfigResponse(BaseModel):
     """Response for a single alert type configuration."""
     alert_type: str = Field(..., description="Alert type identifier")
     prompt: str = Field(..., description="User prompt text")
-    system_prompt: Optional[str] = Field(None, description="System prompt text")
+    system_prompt: Optional[str] = Field(None, description="System prompt text as stored; null means the service default is used at inference time")
     enrichment_prompt: Optional[str] = Field(None, description="Optional enrichment prompt")
     vlm_params: Optional[Dict[str, Any]] = Field(None, description="VLM parameter overrides")
     output_category: Optional[str] = Field(None, description="Display name for output")
