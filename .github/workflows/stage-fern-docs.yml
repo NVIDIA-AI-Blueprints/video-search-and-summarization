@@ -16,8 +16,12 @@
 # Publishes the current ref to the persistent Fern staging instance:
 #   https://nvidia-vss-staging.docs.buildwithfern.com/vss
 #
-# Manual only (Actions → Stage Fern Docs → Run workflow). Does not update
-# docs.nvidia.com. Production publish remains publish-fern-docs.yml.
+# Triggers:
+#   - workflow_dispatch (Actions → Stage Fern Docs → Run workflow)
+#   - pull_request closed, only when the PR was merged into develop
+#
+# Does not update docs.nvidia.com. Production publish remains
+# publish-fern-docs.yml.
 #
 # Requires the DOCS_FERN_TOKEN repo secret.
 
@@ -25,6 +29,12 @@ name: Stage Fern Docs
 
 on:
   workflow_dispatch: {}
+  pull_request:
+    types: [closed]
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - '.github/workflows/stage-fern-docs.yml'
 
 permissions:
   contents: read
@@ -38,12 +48,14 @@ concurrency:
 jobs:
   stage:
     name: Stage
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'develop')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js

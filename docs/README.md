@@ -48,6 +48,8 @@ fern generate --docs --instance nvidia-vss-staging.docs.buildwithfern.com/vss --
 6. Click **Run workflow** again.
 7. After the job succeeds, open https://nvidia-vss-staging.docs.buildwithfern.com/vss
 
+The same workflow also runs when a pull request that touches `docs/` or `fern/` is merged into `develop`. It does not run when a pull request is closed without merging, and it does not publish production.
+
 Do not run **Publish Fern Docs** to stage. That workflow publishes production.
 
 ## CI
