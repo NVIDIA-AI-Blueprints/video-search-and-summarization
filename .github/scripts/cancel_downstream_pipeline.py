@@ -12,7 +12,9 @@ The trigger also fsyncs a handoff file. If cancel hits after GitLab has
 created the pipeline but before the id is on disk, cleanup lists recent
 pipelines on the recorded ref and matches this trigger attempt's own
 correlation token — never the ref/SHA pair, which a concurrent run of the
-same commit would also carry.
+same commit would also carry. A sibling pipeline that finishes or 404s
+while its variables are fetched is skipped so discovery can still reach
+this run's pipeline.
 """
 from __future__ import annotations
 
@@ -199,6 +201,7 @@ def gitlab_json(
     data: bytes | None = None,
     open_func: Any = urlopen,
     ignore_http: frozenset[int] | None = None,
+    skip_connection_errors: bool = False,
 ) -> Any:
     request = Request(
         url,
@@ -218,6 +221,8 @@ def gitlab_json(
         emit_error(f"GitLab request failed with status {exc.code}")
         raise SystemExit(1) from exc
     except (URLError, ContentTooShortError) as exc:
+        if skip_connection_errors:
+            return []
         emit_error(
             "GitLab request failed due to a connection error: "
             + connection_error_detail(exc)
@@ -252,6 +257,37 @@ def list_ref_pipelines(
     return found
 
 
+# HTTP statuses that mean "this candidate is gone or temporarily unreadable".
+# 401 is not included: a bad token must still fail the whole cleanup.
+CANDIDATE_SKIP_HTTP = frozenset(
+    {400, 403, 404, 408, 409, 410, 422, 429, 500, 502, 503, 504}
+)
+
+
+def fetch_pipeline_variables(
+    base_url: str,
+    token: str,
+    project: str,
+    pipeline_id: int,
+    open_func: Any = urlopen,
+) -> list[Any]:
+    """Variables for one pipeline, or empty if that candidate cannot be inspected.
+
+    Discovery lists several live pipelines. One of them finishing (or a
+    transient 5xx) before ``/variables`` returns must not abort the search
+    for this run's correlation token.
+    """
+    url = f"{base_url}/projects/{project}/pipelines/{pipeline_id}/variables"
+    payload = gitlab_json(
+        url,
+        token,
+        open_func=open_func,
+        ignore_http=CANDIDATE_SKIP_HTTP,
+        skip_connection_errors=True,
+    )
+    return payload if isinstance(payload, list) else []
+
+
 def discover_matching_pipeline_ids(
     base_url: str,
     token: str,
@@ -268,9 +304,9 @@ def discover_matching_pipeline_ids(
         if not isinstance(pipe, dict) or not isinstance(pipe.get("id"), int):
             continue
         pid = int(pipe["id"])
-        url = f"{base_url}/projects/{project}/pipelines/{pid}/variables"
-        payload = gitlab_json(url, token, open_func=open_func)
-        variables_by_id[pid] = payload if isinstance(payload, list) else []
+        variables_by_id[pid] = fetch_pipeline_variables(
+            base_url, token, project, pid, open_func=open_func
+        )
     return matching_pipeline_ids(
         pipelines,
         variables_by_id,

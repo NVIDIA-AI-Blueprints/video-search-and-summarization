@@ -169,6 +169,77 @@ class SearchFallbackTest(unittest.TestCase):
             [],
         )
 
+    def test_skips_a_gone_candidate_and_still_finds_ours(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                if "status=running" in url:
+                    return JsonResponse(
+                        [
+                            {"id": 10, "created_at": "2026-08-28T08:12:30Z"},
+                            {"id": 11, "created_at": "2026-08-28T08:12:31Z"},
+                        ]
+                    )
+                return JsonResponse([])
+            if url.endswith("/pipelines/10/variables"):
+                raise HTTPError(
+                    url,
+                    404,
+                    "Not Found",
+                    hdrs=None,  # type: ignore[arg-type]
+                    fp=io.BytesIO(b"{}"),
+                )
+            if url.endswith("/pipelines/11/variables"):
+                return JsonResponse(
+                    [{"key": module.CORRELATION_VARIABLE, "value": "gh-1-1-mine"}]
+                )
+            raise AssertionError(url)
+
+        self.assertEqual(
+            module.discover_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                open_func=open_func,
+            ),
+            [11],
+        )
+
+    def test_unauthorized_still_aborts_discovery(self):
+        def open_func(req):
+            raise HTTPError(
+                req.full_url,
+                401,
+                "Unauthorized",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=io.BytesIO(b"{}"),
+            )
+
+        with self.assertRaises(SystemExit):
+            module.fetch_pipeline_variables(
+                "https://gitlab.example/api/v4",
+                "token",
+                "1",
+                10,
+                open_func=open_func,
+            )
+
 
 class WorkflowWiringTest(unittest.TestCase):
     def test_ci_cancels_downstream_when_the_github_job_is_cancelled(self):
