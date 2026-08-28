@@ -7,7 +7,7 @@ For a custom dataset, you should prepare the following items:
 
 * **Input videos or RTSP streams** — Camera video files **or** time-synchronized RTSP streams
 * **A floor map** — Layout/map image of the surveillance area (PNG)
-* **Alignment data** — `alignment_data.json` (upload or create in the UI; see [Alignment Data (alignment_data.json)](/autocalib-custom-dataset#alignment-data-alignment-data-json))
+* **Alignment data** — `alignment_data.json` (upload or create in the UI; see [Alignment Data (alignment_data.json)](/vss/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment-data-json))
 * **Ground truth data (optional)** — For calibration evaluation
 
 ## Input Requirements
@@ -27,13 +27,13 @@ A valid single-camera project needs:
 
 * One synchronized video (or one RTSP capture)
 * One layout/map image
-* `alignment_data.json` with at least **4** point sets; each set has **two** `[x, y]` pairs (camera + layout/BEV)—see [Alignment Data (alignment_data.json)](/autocalib-custom-dataset#alignment-data-alignment-data-json)
+* `alignment_data.json` with at least **4** point sets; each set has **two** `[x, y]` pairs (camera + layout/BEV)—see [Alignment Data (alignment_data.json)](/vss/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment-data-json)
 
 **Multi-camera datasets**
 
 * Two or more time-synchronized videos or RTSP streams
 * One layout/map image
-* `alignment_data.json` with at least **4** point sets; each set has one point per camera plus the layout (see [Alignment Data (alignment_data.json)](/autocalib-custom-dataset#alignment-data-alignment-data-json))
+* `alignment_data.json` with at least **4** point sets; each set has one point per camera plus the layout (see [Alignment Data (alignment_data.json)](/vss/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment-data-json))
 
 Users should pay close attention to upload and stream order, as this order implicitly determines camera pairing. For optimal results, consecutive camera pairs should have a significant amount of overlapping Field of View (FOV).
 
@@ -66,7 +66,7 @@ Alignment data maps corresponding points between camera views and the layout (bi
 
 For projects with more than two cameras, each point set includes one pair per camera plus the layout point (same pattern as multi-camera above, extended to all views).
 
-You can upload `alignment_data.json` on the Manual Alignment step or create it interactively in the UI. See [Workflow Steps](/autocalib-workflow-steps) for the full alignment workflow.
+You can upload `alignment_data.json` on the Manual Alignment step or create it interactively in the UI. See [Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for the full alignment workflow.
 
 ## Guidelines for Input Videos to Achieve Optimal Calibration Results
 

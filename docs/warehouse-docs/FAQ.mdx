@@ -140,7 +140,7 @@ Go inside **deployments/foundational/** and update the Kafka paramater **KAFKA_A
 
 A person may loiter along the tripwire and this will result in multiple `IN` & `OUT` events based on the tripwire definition which can be `x` number of detections before and after the tripwire.
 The web-API returns two counts: `effective count` and `actual count`. The UI displays the effective count which takes care of the loitering condition.
-See [metrics-tripwire-counts](/video-analytics-api-server#metrics-tripwire-counts) in the [Video Analytics API ](/video-analytics-api-server) documentation for more information.
+See [metrics-tripwire-counts](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api#metrics-tripwire-counts) in the [Video Analytics API ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api) documentation for more information.
 
 ### Why is the deepstream showing low FPS for certain sensors?
 
@@ -205,7 +205,7 @@ This section provides answers to some of the frequently asked questions on using
 
 ### I see 0 FPS after restarting the perception container
 
-  If perception is restarted, you may observe 0 FPS. SDR adds streams to perception only once, during application startup. To restore FPS and stream processing, restart the entire blueprint instead of restarting only the perception container. Follow the [Quickstart](/warehouse-docs/Quickstart-Guide#deploy-the-blueprint) to redeploy the blueprint.
+  If perception is restarted, you may observe 0 FPS. SDR adds streams to perception only once, during application startup. To restore FPS and stream processing, restart the entire blueprint instead of restarting only the perception container. Follow the [Quickstart](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to redeploy the blueprint.
 
 ## Handling Time Drift in ONVIF Cameras
 
@@ -291,12 +291,12 @@ This setting instructs VIOS to propagate the original timestamp from the camera 
 
 ### I finetuned my own Sparse4D model via the Nvidia TAO Toolkit. How do I replace the existing model in the perception microservice with my own?
 
-Refer to the [3D-multi-camera-detection-and-tracking-Sparse4D](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) page for more details.
+Refer to the [3D-multi-camera-detection-and-tracking-Sparse4D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) page for more details.
 
 ### How do modify the Sparse4D model to detect/track a different set of classes?
 
 Model Finetuning via TAO Toolkit will be required to modify the model to detect & track a different set of classes.
-Refer to the [Sparse4D model page ](/models/sparse4d) for more details.
+Refer to the [Sparse4D model page ](/vss/system-components/models/sparse4d-3d-multi-camera) for more details.
 
 **Install Fabric Manager**
 

@@ -13,16 +13,16 @@ If `ENABLE_AUDIO=true` but `VLM_NAME` does not contain `omni`, the agent logs a 
 
 **Omni model id**
 
-Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM_NAME`. A mismatch between `VLM_NAME` and the model `id` from `GET /v1/models` on your vLLM endpoint causes **HTTP 404** on chat completions. See [Using Nemotron Omni (audio-enabled VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm).
+Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM_NAME`. A mismatch between `VLM_NAME` and the model `id` from `GET /v1/models` on your vLLM endpoint causes **HTTP 404** on chat completions. See [Using Nemotron Omni (audio-enabled VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm).
 
 **Firewall ports (remote VLM)**
 
-- Remote VLM with model-type `nim` (not Omni audio path): the VLM must reach VST on **port 30888** on the host. See [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos).
-- Remote **Nemotron Omni** with `ENABLE_AUDIO=true` on the base profile: the agent inlines the MP4 in the API request; ensure **port 30082** (OpenAI-compatible VLM API) is reachable from the VSS host. See [Using Nemotron Omni (audio-enabled VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm) and [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos).
+- Remote VLM with model-type `nim` (not Omni audio path): the VLM must reach VST on **port 30888** on the host. See [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
+- Remote **Nemotron Omni** with `ENABLE_AUDIO=true` on the base profile: the agent inlines the MP4 in the API request; ensure **port 30082** (OpenAI-compatible VLM API) is reachable from the VSS host. See [Using Nemotron Omni (audio-enabled VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) and [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
 
 ## VA-MCP Slow Initialization (Hugging Face Rate Limiting)
 
-If VA-MCP initialization is slow or logs show HTTP 429 errors from Hugging Face, set `HF_TOKEN` before deploy. See [NGC + Hugging Face API Keys](/prerequisites#ngc-hugging-face-api-keys) in [../prerequisites](/prerequisites).
+If VA-MCP initialization is slow or logs show HTTP 429 errors from Hugging Face, set `HF_TOKEN` before deploy. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys) in [../prerequisites](/vss/getting-started/prerequisites).
 
 ## Cosmos3 Nano Reasoner NIM Restart Failures (Shared GPU Mode)
 
