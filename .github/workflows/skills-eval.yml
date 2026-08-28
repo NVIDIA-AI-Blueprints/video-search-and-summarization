@@ -79,6 +79,9 @@ env:
   # run_leg.py, and Harbor's isolated uvx environment. Do not fall back to the
   # self-hosted runner's system python3 (currently 3.10).
   SKILL_EVAL_PYTHON_VERSION: "3.12"
+  # Prebaked VIOS runtime-media packages (#1798). A repository variable so it
+  # toggles from Settings; unset is not forwarded, so the default stands.
+  VSS_VIOS_PREBAKE_PACKAGES: ${{ vars.VSS_VIOS_PREBAKE_PACKAGES }}
 
 jobs:
   # ---------------------------------------------------------------------
