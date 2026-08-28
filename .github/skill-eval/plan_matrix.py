@@ -147,7 +147,19 @@ def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
 # run it as a single spec. Real specs are named per scenario (deploy.json,
 # routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
 # never becomes a matrix leg.
-EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
+EXCLUDED_SPEC_NAMES = frozenset(
+    {
+        "evals.json",
+        # TEMPORARY -- revert before merge. Pins the vss-summarize-video sweep to
+        # a single leg while the nemoclaw deploy path is being validated: the two
+        # legs land on separate runner hosts, and the box lock in run_leg.py is a
+        # host-local flock, so both can claim the same GPU box and reset it under
+        # each other (observed in run 33201700555, both machine.txt = rtx-1g-12).
+        # Dropping this also removes lvs_api_ops from claude-code runs -- restore
+        # it once the lock is fleet-wide.
+        "lvs_api_ops.json",
+    }
+)
 
 # --- Runner labels -----------------------------------------------------
 # Every leg carries a `runs_on` label set derived from the spec's own
