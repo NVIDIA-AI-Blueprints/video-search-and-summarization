@@ -109,6 +109,7 @@ jobs:
           set -euo pipefail
           python .github/osrb/osrb_summary.py \
             --input license-diff.csv \
+            --inventory .github/osrb/inventory.csv \
             --output osrb-summary.md \
             --github-output "$GITHUB_OUTPUT"
 

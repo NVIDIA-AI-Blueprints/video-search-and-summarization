@@ -30,7 +30,65 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import sys
+from pathlib import Path
 from typing import TextIO
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+try:  # the repo's own permissive allowlist, same one the green-gate uses
+    from check_python_licenses import COMPILED_ALLOWLIST as _PERMISSIVE_RE
+except ImportError:  # pragma: no cover
+    _PERMISSIVE_RE = None
+
+
+def _is_permissive_expr(expr: str) -> bool:
+    """True when EVERY operand of a licence expression is permissive.
+
+    A single label is checked directly. A composite like
+    ``Apache-2.0 AND BSD-3-Clause AND MIT`` — which is what several PyPI wheels
+    (torch, numpy) report — is permissive iff each operand is, so it is split on
+    AND/OR/WITH and every part must match the allowlist. UNKNOWN/empty is never
+    permissive: absence of a licence is exactly what a reader must still see.
+    """
+    if _PERMISSIVE_RE is None:
+        return False
+    text = (expr or "").strip().strip('"')
+    if not text or text.upper() in {"UNKNOWN", "NOASSERTION", "SEE-LICENSE-TEXT"}:
+        return False
+    # Strip `WITH <exception>` first: it modifies a licence (Apache-2.0 WITH
+    # LLVM-exception is still Apache-2.0), it is not a separate operand. Then
+    # split on the real operators.
+    text = re.sub(r"\s+WITH\s+[\w.-]+", "", text, flags=re.IGNORECASE)
+    parts = [p.strip(" ()") for p in re.split(r"\b(?:AND|OR)\b", text) if p.strip(" ()")]
+    return bool(parts) and all(_PERMISSIVE_RE.match(p) for p in parts)
+
+
+def _load_inventory_licences(path: str | None) -> dict[str, str]:
+    """canonical package name -> resolved licence, from the committed inventory.
+
+    The use-side rows carry no licence themselves (a lockfile-free import has
+    nothing to read one from), so the permissive gate needs the inventory,
+    which already resolved each package. Missing file -> no gating, and the
+    section renders in full as before rather than silently hiding rows.
+    """
+    if not path:
+        return {}
+    licences: dict[str, str] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                lic = row.get("license", "")
+                if lic and lic != "UNKNOWN":
+                    licences.setdefault(_canon(row.get("package", "")), lic)
+    except OSError:
+        return {}
+    return licences
+
+
+def _canon(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", (name or "").strip().lower()).lstrip("@")
 
 UNKNOWN_LICENSES = {
     "",
@@ -203,16 +261,25 @@ def _write_uncovered_table(output: TextIO, rows: list[dict[str, str]]) -> None:
         )
 
 
-def _write_usage_table(output: TextIO, rows: list[dict[str, str]]) -> None:
-    print("| Imported name | Language | Module | Evidence |", file=output)
-    print("|---|---|---|---|", file=output)
+def _write_usage_table(
+    output: TextIO,
+    rows: list[dict[str, str]],
+    inventory_licences: dict[str, str] | None = None,
+) -> None:
+    inventory_licences = inventory_licences or {}
+    print("| Imported name | Language | Licence | Module | Evidence |", file=output)
+    print("|---|---|---|---|---|", file=output)
     for row in rows:
+        licence = row.get("new_license") or inventory_licences.get(
+            _canon(row.get("package") or ""), ""
+        )
         print(
             "| "
             + " | ".join(
                 [
                     markdown_cell(row.get("package") or ""),
                     markdown_cell(row.get("language") or ""),
+                    markdown_cell(licence or "unknown"),
                     markdown_cell(row.get("module") or ""),
                     code_cell(evidence_of(row)),
                 ]
@@ -222,8 +289,13 @@ def _write_usage_table(output: TextIO, rows: list[dict[str, str]]) -> None:
         )
 
 
-def render_summary(rows: list[dict[str, str]], output: TextIO) -> dict[str, int]:
+def render_summary(
+    rows: list[dict[str, str]],
+    output: TextIO,
+    inventory_licences: dict[str, str] | None = None,
+) -> dict[str, int]:
     grouped = classify_rows(rows)
+    inventory_licences = inventory_licences or {}
     review_rows = (
         len(grouped["added"])
         + len(grouped["license_changed"])
@@ -363,10 +435,28 @@ def render_summary(rows: list[dict[str, str]], output: TextIO) -> dict[str, int]
         print(file=output)
         _write_uncovered_table(output, advisory_uncovered)
 
-    if grouped["used_undeclared"]:
+    # Permissive imports are not worth a reviewer's attention: the same rule the
+    # OSRB review comment applies. Resolve each import's licence from the
+    # committed inventory (the use-side row carries none of its own) and split.
+    def _row_licence(row: dict[str, str]) -> str:
+        return row.get("new_license") or inventory_licences.get(
+            _canon(row.get("package", "")), ""
+        )
+
+    shown_undeclared = [
+        row for row in grouped["used_undeclared"]
+        if not _is_permissive_expr(_row_licence(row))
+    ]
+    permissive_undeclared = [
+        row for row in grouped["used_undeclared"]
+        if _is_permissive_expr(_row_licence(row))
+    ]
+    counts["used_undeclared_permissive"] = len(permissive_undeclared)
+
+    if shown_undeclared:
         print(file=output)
         print(
-            f"## Imported but not declared ({len(grouped['used_undeclared'])})",
+            f"## Imported but not declared ({len(shown_undeclared)})",
             file=output,
         )
         print(file=output)
@@ -387,7 +477,26 @@ def render_summary(rows: list[dict[str, str]], output: TextIO) -> dict[str, int]
             file=output,
         )
         print(file=output)
-        _write_usage_table(output, grouped["used_undeclared"])
+        _write_usage_table(output, shown_undeclared, inventory_licences)
+        if permissive_undeclared:
+            print(file=output)
+            print(
+                f"_{len(permissive_undeclared)} further imported-but-undeclared name(s) "
+                "resolve to a permissive licence and are omitted._",
+                file=output,
+            )
+    elif grouped["used_undeclared"]:
+        # Everything was permissive: say so rather than showing nothing.
+        print(file=output)
+        print(
+            f"## Imported but not declared (0 non-permissive)", file=output
+        )
+        print(file=output)
+        print(
+            f"_All {len(grouped['used_undeclared'])} imported-but-undeclared name(s) "
+            "resolve to a permissive licence; none needs review._",
+            file=output,
+        )
 
     return counts
 
@@ -406,12 +515,19 @@ def main() -> int:
     parser.add_argument("--input", default="license-diff.csv")
     parser.add_argument("--output", default="osrb-summary.md")
     parser.add_argument("--github-output", help="Optional path supplied by GitHub Actions.")
+    parser.add_argument(
+        "--inventory",
+        help="committed inventory.csv; supplies licences so the imported-but-"
+        "undeclared section can hide permissive names.",
+    )
     args = parser.parse_args()
 
     with open(args.input, newline="", encoding="utf-8-sig") as source:
         rows = list(csv.DictReader(source))
     with open(args.output, "w", encoding="utf-8") as output:
-        counts = render_summary(rows, output)
+        counts = render_summary(
+            rows, output, _load_inventory_licences(getattr(args, "inventory", None))
+        )
     if args.github_output:
         write_github_output(args.github_output, counts)
     return 0

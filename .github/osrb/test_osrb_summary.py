@@ -176,7 +176,7 @@ class RaggedRowTest(unittest.TestCase):
         counts = summary.render_summary(rows, output)
 
         self.assertEqual(counts["used_undeclared_rows"], 1)
-        self.assertIn("| httpx | python | — | — |", output.getvalue())
+        self.assertIn("| httpx | python | unknown | — | — |", output.getvalue())
 
 
 class UncoveredSourceTest(unittest.TestCase):
@@ -295,6 +295,58 @@ class GithubOutputTest(unittest.TestCase):
         self.assertEqual(emitted["used_undeclared_rows"], "1")
         self.assertEqual(emitted["raw_rows"], "3")
 
+
+
+class ImportedUndeclaredGateTest(unittest.TestCase):
+    """The imported-but-undeclared section hides permissive names.
+
+    Same rule the OSRB review comment applies: a reviewer's attention is for
+    the non-permissive. The use-side row carries no licence of its own, so the
+    licence is joined from the committed inventory.
+    """
+
+    def _render(self, rows, licences):
+        buf = io.StringIO()
+        summary.render_summary(rows, buf, licences)
+        return buf.getvalue()
+
+    def _usage(self, package, licence_in_row=""):
+        return {
+            "change": "used_undeclared", "language": "python", "package": package,
+            "module": "services/agent", "new_license": licence_in_row,
+            "source_file": f"services/agent/x.py#L1", "notes": "",
+        }
+
+    def test_permissive_imports_are_hidden(self) -> None:
+        rows = [self._usage("torch"), self._usage("numpy"), self._usage("pygobject")]
+        licences = {
+            "torch": "Apache-2.0 AND BSD-3-Clause AND MIT",
+            "numpy": "BSD-3-Clause AND MIT",
+            "pygobject": "LGPL-3.0-or-later",   # not on the 2.1 allowlist
+        }
+        out = self._render(rows, licences)
+        self.assertIn("Imported but not declared (1)", out)
+        self.assertIn("pygobject", out)
+        self.assertNotIn("| torch |", out)
+        self.assertNotIn("| numpy |", out)
+        self.assertIn("2 further imported-but-undeclared", out)
+
+    def test_all_permissive_says_so_rather_than_showing_nothing(self) -> None:
+        rows = [self._usage("torch"), self._usage("requests")]
+        out = self._render(rows, {"torch": "Apache-2.0 AND MIT", "requests": "Apache-2.0"})
+        self.assertIn("0 non-permissive", out)
+        self.assertIn("none needs review", out)
+
+    def test_unknown_licence_is_shown_not_assumed_permissive(self) -> None:
+        rows = [self._usage("mystery-lib")]
+        out = self._render(rows, {})   # no licence anywhere
+        self.assertIn("Imported but not declared (1)", out)
+        self.assertIn("mystery-lib", out)
+
+    def test_a_composite_with_a_copyleft_operand_is_shown(self) -> None:
+        rows = [self._usage("mixed")]
+        out = self._render(rows, {"mixed": "MIT AND GPL-2.0-only"})
+        self.assertIn("| mixed |", out)
 
 if __name__ == "__main__":
     unittest.main()
