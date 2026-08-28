@@ -27,6 +27,12 @@ services:
         condition: service_healthy
     environment:
       RUN_APP_NAME: nv-metropolis-bp-vss-ui
+      # Where the UI's server-side media proxy reaches the ingress. Not the
+      # public origin: that would send internal fetches out and back through
+      # whatever fronts the deployment, which haproxy then challenges for
+      # credentials the server does not have. Same compose network, fixed
+      # service name, so only the port can vary.
+      HAPROXY_PORT: ${HAPROXY_PORT:-7777}
       NEXT_PUBLIC_APP_TITLE: '${NEXT_PUBLIC_APP_TITLE:-VSS BLUEPRINT}'
       NEXT_PUBLIC_APP_SUBTITLE: '${NEXT_PUBLIC_APP_SUBTITLE:-VISION}'
       # === App wide chat sidebar ===

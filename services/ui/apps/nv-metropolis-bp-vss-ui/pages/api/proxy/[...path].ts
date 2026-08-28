@@ -14,7 +14,10 @@
  * which haproxy leaves unauthenticated (auth only fires for traffic arriving
  * via Cloudflare).
  *
- * Set VSS_INGRESS_ORIGIN to point at the ingress; defaults to the local one.
+ * The ingress address is derived, not configured. It is a fixed service on the
+ * same compose network, so only its port can vary -- and deriving it avoids a
+ * second "where is the ingress" setting alongside the public origin, which is
+ * the same haproxy seen from outside.
  *
  * SCOPE: deliberately narrow. This route is reachable from the public internet
  * and reaches the ingress by its internal address, which haproxy leaves
@@ -25,7 +28,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const INGRESS = (process.env.VSS_INGRESS_ORIGIN || 'http://127.0.0.1:7777').replace(/\/$/, '');
+const INGRESS = `http://vss-haproxy-ingress:${process.env.HAPROXY_PORT || '7777'}`;
 
 export const config = {
   api: {
