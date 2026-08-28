@@ -95,6 +95,25 @@ Set `enabled: true` ONLY on the entry whose `name` matches `VST_ADAPTOR`. All ot
 
 > **Credentials hygiene:** `adaptor_config.json` contains a plaintext password when configured for `mms`. Treat the file as a secret — do not commit it, or add it to `.gitignore` / `git update-index --skip-worktree`.
 
+### File C — `configs/vst_config.json` (mms-type adaptors only)
+
+For any `mms` adaptor, set:
+
+```json
+"always_recording": false
+```
+
+Both trees ship `"always_recording": true`, which is correct for `vst_rtsp` and the other vst-type adaptors — local recording is the point there. For `mms` it is wrong: the VMS already holds the recordings, so leaving it `true` makes the stream-processor pull and record the same streams a second time, burning disk and bandwidth for a duplicate copy.
+
+There is no environment override for this — it is read from the JSON only (`config.cpp`, `always_recording`), and consumed by the recorder in the stream-processor. So it has to be edited in the `vst_config.json` that the stream-processor mounts:
+
+| Deployment | File |
+|---|---|
+| standalone | `deployment/stream-processing/docker-compose/configs/vst_config.json` |
+| e2e docker | `deploy/docker/services/vios/configs/vst_config.json` |
+
+Change it back to `true` when switching the deployment off an mms adaptor.
+
 ---
 
 ## Step 2.5 — Credentials pre-flight (mms-type adaptors only)
