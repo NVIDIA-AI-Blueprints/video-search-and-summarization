@@ -1307,28 +1307,23 @@ class PoolCandidates(unittest.TestCase):
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
-            approved = run_leg._registered_pool_allowlist(
+            ask_video = run_leg._registered_pool_allowlist(
                 "vss-ask-video", "base_profile_video_understanding"
             )
-            unapproved = run_leg._registered_pool_allowlist(
+            search = run_leg._registered_pool_allowlist(
                 "vss-deploy-profile", "search"
             )
 
-        self.assertEqual(
-            approved,
-            {
-                "vss-eval-rtx-2g-vm1b",
-                "vss-eval-geforce-rtx4090-vm1",
-                "vss-eval-geforce-rtx4090-vm2",
-            },
-        )
-        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
+        # Capability tables are empty: RTX 4090 routing is opt-in via
+        # spec gpu_type, not a skill/spec allowlist.
+        self.assertEqual(ask_video, {"vss-eval-rtx-2g-vm1b"})
+        self.assertEqual(search, {"vss-eval-rtx-2g-vm1b"})
 
     def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
+        self.assertFalse(run_leg._rtx4090_supports(
             "vss-deploy-profile", "alerts_cv"
         ))
-        self.assertTrue(run_leg._rtx4090_supports(
+        self.assertFalse(run_leg._rtx4090_supports(
             "vss-manage-alerts", "subscriptions_lifecycle"
         ))
         self.assertFalse(run_leg._rtx4090_supports(
@@ -1358,17 +1353,17 @@ class PoolCandidates(unittest.TestCase):
         )
         requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
 
-        approved = run_leg.pool_candidates({
+        ask_video = run_leg.pool_candidates({
             **requirements,
             "skill": "vss-ask-video",
         }, "base_profile_video_understanding")
-        unapproved = run_leg.pool_candidates({
+        dense_captioning = run_leg.pool_candidates({
             **requirements,
             "skill": "vss-deploy-dense-captioning",
         }, "alerts_profile_api")
 
-        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
-        self.assertEqual(unapproved, [])
+        self.assertEqual(ask_video, [])
+        self.assertEqual(dense_captioning, [])
 
     def test_underprovisioned_registered_node_is_filtered(self):
         fleet = [
