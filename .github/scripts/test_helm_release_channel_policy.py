@@ -181,7 +181,9 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         managed = {
             image["name"]
             for image in inventory["images"]
-            if image.get("ghcr_build") is True and image.get("compose_image_names")
+            if image.get("ghcr_build") is True
+            and image.get("compose_image_names")
+            and not image.get("docker_only")
         }
         self.assertEqual(managed, set(HELM_VALUES))
 

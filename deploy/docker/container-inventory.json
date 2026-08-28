@@ -123,6 +123,7 @@
       "name": "vss-dt-based-calibration",
       "strategy": "build",
       "ghcr_build": true,
+      "docker_only": true,
       "source_path": "services/dt-based-calibration",
       "context": "services/dt-based-calibration",
       "dockerfile": "services/dt-based-calibration/Dockerfile",
