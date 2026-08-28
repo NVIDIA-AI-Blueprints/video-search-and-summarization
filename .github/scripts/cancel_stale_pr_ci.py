@@ -6,10 +6,12 @@
 PR CI is gated on copy-pr-bot updating the mirror (``/ok to test``). Until
 that push, GitHub concurrency cannot see a new run and will not cancel the
 old one. This helper is the source-PR side of that: on synchronize or close,
-cancel mirror runs whose tree is no longer the source head.
+cancel mirror runs that are not testing the current source head.
 
-Tree, not commit SHA: the bot may copy a fork onto a new commit with the
-same tree. Cancelling by SHA would kill the run that just started.
+copy-pr-bot often pushes a merge of the approved SHA into the PR base, so
+the run's tree is the merge result, not the source-head tree. A current run
+is one whose commit, or one of its parents, is the source SHA or shares its
+tree (fork copies rewrite SHAs).
 """
 from __future__ import annotations
 
@@ -19,14 +21,24 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 GITHUB_API = "https://api.github.com"
-ACTIVE_STATUSES = frozenset({"in_progress", "queued", "waiting"})
+# GitHub's workflow-run status filter. requested/pending are runs that have
+# been created but have not reached a runner yet.
+ACTIVE_STATUSES = frozenset(
+    {"in_progress", "pending", "queued", "requested", "waiting"}
+)
 
 
 class CancelError(RuntimeError):
     """A GitHub API call failed."""
+
+
+class CommitInfo(NamedTuple):
+    sha: str
+    tree: str | None
+    parent_shas: tuple[str, ...]
 
 
 def require_env(name: str) -> str:
@@ -68,15 +80,38 @@ def github(
         raise CancelError(f"{method} {path} failed: {exc.reason}") from exc
 
 
-def commit_tree_sha(repo: str, sha: str, get: Callable[..., Any] = github) -> str | None:
+def parse_commit(payload: dict[str, Any], sha: str) -> CommitInfo:
+    tree = (payload.get("commit") or {}).get("tree") or {}
+    tree_sha = tree.get("sha")
+    parents = tuple(
+        str(parent["sha"])
+        for parent in payload.get("parents") or []
+        if parent.get("sha")
+    )
+    return CommitInfo(
+        sha=str(payload.get("sha") or sha),
+        tree=str(tree_sha) if tree_sha else None,
+        parent_shas=parents,
+    )
+
+
+def load_commit(
+    repo: str,
+    sha: str,
+    cache: dict[str, CommitInfo | None],
+    get: Callable[..., Any] = github,
+) -> CommitInfo | None:
+    if sha in cache:
+        return cache[sha]
     try:
         payload = get("GET", repo, f"/commits/{urllib.parse.quote(sha)}")
     except CancelError as exc:
-        print(f"Could not resolve tree for {sha}: {exc}", file=sys.stderr)
+        print(f"Could not resolve commit {sha}: {exc}", file=sys.stderr)
+        cache[sha] = None
         return None
-    tree = (payload.get("commit") or {}).get("tree") or {}
-    tree_sha = tree.get("sha")
-    return str(tree_sha) if tree_sha else None
+    info = parse_commit(payload, sha)
+    cache[sha] = info
+    return info
 
 
 def list_active_runs(
@@ -94,7 +129,12 @@ def list_active_runs(
                 f"/actions/runs?branch={quoted}&status={status}"
                 f"&per_page=100&page={page}"
             )
-            payload = get("GET", repo, path)
+            try:
+                payload = get("GET", repo, path)
+            except CancelError as exc:
+                if "HTTP 422" in str(exc):
+                    break
+                raise
             batch = payload.get("workflow_runs") or []
             for run in batch:
                 run_id = run.get("id")
@@ -109,11 +149,33 @@ def list_active_runs(
     return runs
 
 
+def mirrors_current_source(
+    *,
+    source_sha: str,
+    source_tree: str | None,
+    run_sha: str,
+    run_tree: str | None,
+    parent_shas: tuple[str, ...],
+    parent_trees: tuple[str | None, ...],
+) -> bool:
+    """True when the run is CI for the current source head.
+
+    Direct copy: same SHA or same tree. Merge-into-base mirror: the source
+    SHA (or a same-tree fork copy of it) is a parent of the merge commit.
+    """
+    if source_sha and source_sha in {run_sha, *parent_shas}:
+        return True
+    if not source_tree:
+        return False
+    trees = {run_tree, *parent_trees}
+    trees.discard(None)
+    return source_tree in trees
+
+
 def should_cancel_run(
     *,
     run: dict[str, Any],
-    source_tree: str | None,
-    run_tree: str | None,
+    matches_source: bool,
     closed: bool,
     this_run_id: int | None,
 ) -> bool:
@@ -124,9 +186,7 @@ def should_cancel_run(
         return False
     if closed:
         return True
-    if not source_tree or not run_tree:
-        return False
-    return run_tree != source_tree
+    return not matches_source
 
 
 def cancel_run(repo: str, run_id: int, post: Callable[..., Any] = github) -> None:
@@ -140,6 +200,33 @@ def cancel_run(repo: str, run_id: int, post: Callable[..., Any] = github) -> Non
         raise
 
 
+def run_matches_source(
+    repo: str,
+    source_sha: str,
+    source_tree: str | None,
+    head_sha: str,
+    cache: dict[str, CommitInfo | None],
+    get: Callable[..., Any] = github,
+) -> bool:
+    if not head_sha:
+        return False
+    run_commit = load_commit(repo, head_sha, cache, get)
+    if run_commit is None:
+        return True
+    parent_trees: list[str | None] = []
+    for parent_sha in run_commit.parent_shas:
+        parent = load_commit(repo, parent_sha, cache, get)
+        parent_trees.append(None if parent is None else parent.tree)
+    return mirrors_current_source(
+        source_sha=source_sha,
+        source_tree=source_tree,
+        run_sha=run_commit.sha,
+        run_tree=run_commit.tree,
+        parent_shas=run_commit.parent_shas,
+        parent_trees=tuple(parent_trees),
+    )
+
+
 def main() -> int:
     repo = require_env("GITHUB_REPOSITORY")
     pr_number = require_env("PR_NUMBER")
@@ -148,11 +235,13 @@ def main() -> int:
     this_run_raw = os.environ.get("GITHUB_RUN_ID", "").strip()
     this_run_id = int(this_run_raw) if this_run_raw.isdigit() else None
     branch = f"pull-request/{pr_number}"
+    cache: dict[str, CommitInfo | None] = {}
 
-    source_tree = commit_tree_sha(repo, source_sha) if source_sha else None
-    if not closed and source_tree is None:
+    source_commit = load_commit(repo, source_sha, cache) if source_sha else None
+    source_tree = None if source_commit is None else source_commit.tree
+    if not closed and source_commit is None:
         print(
-            "Source tree unavailable; not cancelling (avoid killing a live "
+            "Source commit unavailable; not cancelling (avoid killing a live "
             "mirror copy of a fork SHA)."
         )
         return 0
@@ -163,11 +252,12 @@ def main() -> int:
         if not isinstance(run_id, int):
             continue
         head_sha = str(run.get("head_sha") or "")
-        run_tree = commit_tree_sha(repo, head_sha) if head_sha else None
+        matches = run_matches_source(
+            repo, source_sha, source_tree, head_sha, cache
+        )
         if not should_cancel_run(
             run=run,
-            source_tree=source_tree,
-            run_tree=run_tree,
+            matches_source=matches,
             closed=closed,
             this_run_id=this_run_id,
         ):

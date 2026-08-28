@@ -14,9 +14,82 @@ assert SPEC and SPEC.loader
 module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
 
+SOURCE = "s" * 40
+BASE = "b" * 40
+MERGE = "m" * 40
+SOURCE_TREE = "stree"
+MERGE_TREE = "mtree"
+BASE_TREE = "btree"
+OLD_SOURCE = "o" * 40
+OLD_TREE = "otree"
 
-def run(*, run_id: int = 1, status: str = "in_progress", head_sha: str = "a" * 40) -> dict:
+
+def run(*, run_id: int = 1, status: str = "in_progress", head_sha: str = MERGE) -> dict:
     return {"id": run_id, "status": status, "head_sha": head_sha, "name": "CI"}
+
+
+class MirrorsCurrentSourceTest(unittest.TestCase):
+    def test_exact_sha_copy(self):
+        self.assertTrue(
+            module.mirrors_current_source(
+                source_sha=SOURCE,
+                source_tree=SOURCE_TREE,
+                run_sha=SOURCE,
+                run_tree=SOURCE_TREE,
+                parent_shas=(BASE,),
+                parent_trees=(BASE_TREE,),
+            )
+        )
+
+    def test_fork_copy_same_tree_different_sha(self):
+        self.assertTrue(
+            module.mirrors_current_source(
+                source_sha=SOURCE,
+                source_tree=SOURCE_TREE,
+                run_sha="c" * 40,
+                run_tree=SOURCE_TREE,
+                parent_shas=(),
+                parent_trees=(),
+            )
+        )
+
+    def test_merge_into_base_keeps_current_run(self):
+        """CPR-bot merge result tree differs from the source head tree."""
+        self.assertTrue(
+            module.mirrors_current_source(
+                source_sha=SOURCE,
+                source_tree=SOURCE_TREE,
+                run_sha=MERGE,
+                run_tree=MERGE_TREE,
+                parent_shas=(BASE, SOURCE),
+                parent_trees=(BASE_TREE, SOURCE_TREE),
+            )
+        )
+
+    def test_merge_of_old_head_is_stale(self):
+        self.assertFalse(
+            module.mirrors_current_source(
+                source_sha=SOURCE,
+                source_tree=SOURCE_TREE,
+                run_sha=MERGE,
+                run_tree=MERGE_TREE,
+                parent_shas=(BASE, OLD_SOURCE),
+                parent_trees=(BASE_TREE, OLD_TREE),
+            )
+        )
+
+    def test_fork_merge_matches_parent_tree(self):
+        copied = "k" * 40
+        self.assertTrue(
+            module.mirrors_current_source(
+                source_sha=SOURCE,
+                source_tree=SOURCE_TREE,
+                run_sha=MERGE,
+                run_tree=MERGE_TREE,
+                parent_shas=(BASE, copied),
+                parent_trees=(BASE_TREE, SOURCE_TREE),
+            )
+        )
 
 
 class ShouldCancelTest(unittest.TestCase):
@@ -24,8 +97,7 @@ class ShouldCancelTest(unittest.TestCase):
         self.assertTrue(
             module.should_cancel_run(
                 run=run(),
-                source_tree="new",
-                run_tree="new",
+                matches_source=True,
                 closed=True,
                 this_run_id=99,
             )
@@ -35,57 +107,75 @@ class ShouldCancelTest(unittest.TestCase):
         self.assertFalse(
             module.should_cancel_run(
                 run=run(run_id=99),
-                source_tree="new",
-                run_tree="old",
+                matches_source=False,
                 closed=True,
                 this_run_id=99,
             )
         )
 
-    def test_same_tree_is_kept_even_when_sha_differs(self):
-        """copy-pr-bot may rewrite the commit; the tree is what CI is testing."""
+    def test_current_run_is_kept(self):
         self.assertFalse(
             module.should_cancel_run(
                 run=run(),
-                source_tree="same-tree",
-                run_tree="same-tree",
+                matches_source=True,
                 closed=False,
                 this_run_id=99,
             )
         )
 
-    def test_stale_tree_is_cancelled(self):
+    def test_stale_run_is_cancelled(self):
         self.assertTrue(
             module.should_cancel_run(
                 run=run(),
-                source_tree="after-rebase",
-                run_tree="before-rebase",
+                matches_source=False,
                 closed=False,
                 this_run_id=99,
             )
         )
 
-    def test_unknown_tree_is_not_cancelled(self):
-        self.assertFalse(
-            module.should_cancel_run(
-                run=run(),
-                source_tree=None,
-                run_tree="before-rebase",
-                closed=False,
-                this_run_id=99,
+    def test_requested_and_pending_are_active(self):
+        self.assertIn("requested", module.ACTIVE_STATUSES)
+        self.assertIn("pending", module.ACTIVE_STATUSES)
+        for status in ("requested", "pending"):
+            self.assertTrue(
+                module.should_cancel_run(
+                    run=run(status=status),
+                    matches_source=False,
+                    closed=False,
+                    this_run_id=99,
+                )
             )
-        )
 
     def test_completed_run_is_ignored(self):
         self.assertFalse(
             module.should_cancel_run(
                 run=run(status="completed"),
-                source_tree="new",
-                run_tree="old",
+                matches_source=False,
                 closed=False,
                 this_run_id=99,
             )
         )
+
+
+class ListActiveRunsTest(unittest.TestCase):
+    def test_skips_status_that_github_rejects(self):
+        calls: list[str] = []
+
+        def get(_method: str, _repo: str, path: str):
+            calls.append(path)
+            if "status=requested" in path:
+                raise module.CancelError("GET /actions/runs returned HTTP 422: invalid")
+            if "status=in_progress" in path:
+                return {
+                    "workflow_runs": [
+                        {"id": 7, "status": "in_progress", "head_sha": MERGE}
+                    ]
+                }
+            return {"workflow_runs": []}
+
+        runs = module.list_active_runs("owner/repo", "pull-request/1900", get)
+        self.assertEqual([run["id"] for run in runs], [7])
+        self.assertTrue(any("status=requested" in path for path in calls))
 
 
 class WorkflowTest(unittest.TestCase):

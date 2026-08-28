@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Cancel in-flight pull-request/N runs whose tree is stale
+      - name: Cancel in-flight pull-request/N runs that are not the current source head
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
