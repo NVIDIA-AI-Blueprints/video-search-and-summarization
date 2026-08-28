@@ -51,9 +51,9 @@ TEST_TARGET := vst_test
 
 # Version for projects
 # Applicable for Rosie, VST, Tokkio
-VST_VERSION = 1.4.0-26.08.1
-MMS_VERSION = 1.4.0-26.08.1
-STREAMER_VERSION = 1.4.0-26.08.1
+VST_VERSION = 1.4.0-26.08.2
+MMS_VERSION = 1.4.0-26.08.2
+STREAMER_VERSION = 1.4.0-26.08.2
 
 SRCS := \
 	src/app/Main.cpp \
