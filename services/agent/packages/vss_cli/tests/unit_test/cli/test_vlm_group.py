@@ -612,3 +612,33 @@ def test_sensor_path_uses_resolved_window_bounds(
     assert rec.input.window.start.timestamp.isoformat().startswith("2025-01-01T00:00:00")
     assert rec.input.window.end is not None
     assert rec.input.window.end.timestamp.isoformat().startswith("2025-01-01T00:00:30")
+
+
+def test_run_file_source_does_not_persist_local_path(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Local file paths must not be stored as output handles.
+
+    A path like /tmp/clip.mp4 is meaningless on any machine other than the
+    caller's, so output.handles must be None when --file is used.
+    """
+    video_file = tmp_path / "clip.mp4"
+    video_file.write_bytes(b"\x00\x01\x02video")
+
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("looks good"))))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", file=str(video_file))
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    records = store.service.list_jobs()
+    assert records, "expected one persisted record"
+    assert records[0].output.handles is None, "local file path must not be stored as output media handle"

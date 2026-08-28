@@ -457,7 +457,9 @@ class VlmGroup(CommandGroup):
         output = adapter.build_output(
             answer=answer,
             model=completion.get("model") or model,
-            media_url=media_url,
+            # Local file paths are machine-specific; do not persist them as a
+            # retrievable media handle. Sensor and URL sources are stable references.
+            media_url=None if inputs.file else media_url,
             intent=inputs.intent,
             completion_id=completion_id,
         )
