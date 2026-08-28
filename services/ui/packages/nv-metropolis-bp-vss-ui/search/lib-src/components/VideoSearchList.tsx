@@ -12,31 +12,41 @@ export const SEARCH_CLIP_PLAYBACK_TIMEOUT_MS = 15_000;
 function settleWithTimeout<T>(
   work: Promise<T> | T,
   timeoutMs: number,
-  timeoutRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      timeoutRef.current = null;
+): { promise: Promise<T>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let finished = false;
+
+  const clearTimer = () => {
+    if (!timer) return;
+    clearTimeout(timer);
+    timer = null;
+  };
+
+  const promise = new Promise<T>((resolve, reject) => {
+    timer = setTimeout(() => {
+      timer = null;
+      if (finished) return;
+      finished = true;
       reject(new Error('Search clip playback timed out'));
     }, timeoutMs);
+
     Promise.resolve(work).then(
       (value) => {
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
+        clearTimer();
+        if (finished) return;
+        finished = true;
         resolve(value);
       },
       (error) => {
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
+        clearTimer();
+        if (finished) return;
+        finished = true;
         reject(error);
       },
     );
   });
+
+  return { promise, cancel: clearTimer };
 }
 
 const AddContextButton: React.FC<{ item: SearchData; onAddContext?: (ctx: QueryDataContext) => void }> = ({ item, onAddContext }) => {
@@ -180,13 +190,13 @@ const VideoCard: React.FC<VideoCardProps> = ({
   const [playbackFailed, setPlaybackFailed] = useState(false);
   const isMountedRef = useRef(true);
   const playAttemptRef = useRef(0);
-  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPlaybackTimeoutRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
+      cancelPlaybackTimeoutRef.current?.();
     };
   }, []);
 
@@ -199,18 +209,22 @@ const VideoCard: React.FC<VideoCardProps> = ({
     const attempt = ++playAttemptRef.current;
     setIsOpeningVideo(true);
     setPlaybackFailed(false);
+    const { promise, cancel } = settleWithTimeout(
+      onPlayVideo(item, showObjectsBbox),
+      SEARCH_CLIP_PLAYBACK_TIMEOUT_MS,
+    );
+    cancelPlaybackTimeoutRef.current = cancel;
     try {
-      const opened = await settleWithTimeout(
-        onPlayVideo(item, showObjectsBbox),
-        SEARCH_CLIP_PLAYBACK_TIMEOUT_MS,
-        playbackTimeoutRef,
-      );
+      const opened = await promise;
       if (!isMountedRef.current || attempt !== playAttemptRef.current) return;
       if (opened === false) setPlaybackFailed(true);
     } catch {
       if (!isMountedRef.current || attempt !== playAttemptRef.current) return;
       setPlaybackFailed(true);
     } finally {
+      if (attempt === playAttemptRef.current) {
+        cancelPlaybackTimeoutRef.current = null;
+      }
       if (isMountedRef.current && attempt === playAttemptRef.current) {
         setIsOpeningVideo(false);
       }

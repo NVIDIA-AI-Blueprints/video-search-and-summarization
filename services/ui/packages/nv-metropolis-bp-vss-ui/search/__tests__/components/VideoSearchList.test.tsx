@@ -232,6 +232,42 @@ describe('VideoSearchList', () => {
         jest.useRealTimers();
       }
     });
+
+    it('keeps the retry timeout when a superseded hung request later settles', async () => {
+      jest.useFakeTimers();
+      try {
+        let resolveFirst: (opened: boolean) => void = () => undefined;
+        const onPlayVideo = jest.fn()
+          .mockImplementationOnce(() => new Promise<boolean>((resolve) => { resolveFirst = resolve; }))
+          .mockImplementationOnce(() => new Promise(() => undefined));
+        renderCard(onPlayVideo);
+
+        const playOverlay = screen.getByTestId('video-play-overlay');
+        fireEvent.click(playOverlay);
+
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(SEARCH_CLIP_PLAYBACK_TIMEOUT_MS);
+        });
+
+        fireEvent.click(await screen.findByTestId('search-playback-notice-retry'));
+        expect(playOverlay).toBeDisabled();
+
+        await act(async () => {
+          resolveFirst(false);
+        });
+
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(SEARCH_CLIP_PLAYBACK_TIMEOUT_MS);
+        });
+
+        expect(await screen.findByTestId('search-playback-notice')).toBeInTheDocument();
+        expect(playOverlay).not.toBeDisabled();
+        expect(screen.getByTestId('search-playback-notice-retry')).not.toBeDisabled();
+        expect(onPlayVideo).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   it('renders with dark mode styles', () => {
