@@ -1750,6 +1750,33 @@ async def _run_scp(
     )
 
 
+_BREV_EXEC_MAX_ATTEMPTS = 3
+_BREV_EXEC_RETRY_BACKOFF_SEC = 5.0
+# brev prints these to stderr when its SSH transport can't reach the target box
+# and its reconnect logic walks the org workspace list, timing out on
+# legacy-config / half-dead instances ("RUNNING, SHELL NOT READY").
+_BREV_TRANSPORT_TRANSIENT_MARKERS = (
+    "deadline_exceeded",
+    "context deadline exceeded",
+    "waiting for SSH connection",
+    "Connection failed, checking instance status",
+)
+
+
+def _is_transient_brev_transport_failure(result: "ExecResult") -> bool:
+    """True only for a brev SSH-transport / connection-establishment failure
+    that produced NO stdout — i.e. the command never reached the box, so
+    re-running cannot double-apply side effects. Guards against the
+    org-workspace-walk ``deadline_exceeded`` cascade. NOT for real command
+    failures (non-empty stdout) or the hard-timeout path (return_code 124)."""
+    if result.return_code == 0 or result.return_code == 124:
+        return False
+    if result.stdout and result.stdout.strip():
+        return False
+    stderr = result.stderr or ""
+    return any(marker in stderr for marker in _BREV_TRANSPORT_TRANSIENT_MARKERS)
+
+
 async def _run_brev_exec(
     instance: str,
     command: str,
@@ -1778,35 +1805,52 @@ async def _run_brev_exec(
     cmd = ["brev", "exec", instance, command]
     logger.debug("brev exec: %s", command[:200])
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
-    )
-    _register_transport_process(proc)
-
-    try:
-        stdout, stderr = await _communicate_with_cancellation_cleanup(
-            proc,
-            input_data=b"\n",
-            timeout=timeout,
+    last_result: ExecResult | None = None
+    for attempt in range(_BREV_EXEC_MAX_ATTEMPTS):
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
-    except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
-        return ExecResult(
+        _register_transport_process(proc)
+
+        try:
+            stdout, stderr = await _communicate_with_cancellation_cleanup(
+                proc,
+                input_data=b"\n",
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            _kill_proc_group(proc)
+            stdout, stderr = await proc.communicate()
+            return ExecResult(
+                stdout=stdout.decode() if stdout else None,
+                stderr="Command timed out",
+                return_code=124,
+            )
+
+        result = ExecResult(
             stdout=stdout.decode() if stdout else None,
-            stderr="Command timed out",
-            return_code=124,
+            stderr=stderr.decode() if stderr else None,
+            return_code=proc.returncode or 0,
         )
+        last_result = result
+        # Retry ONLY a brev transport/connection failure that produced no output
+        # (command never reached the box -> side-effect safe). This survives the
+        # org-workspace-walk deadline_exceeded cascade on legacy-config boxes.
+        if attempt + 1 < _BREV_EXEC_MAX_ATTEMPTS and _is_transient_brev_transport_failure(result):
+            logger.warning(
+                "brev exec transient transport failure on %s "
+                "(attempt %d/%d) — retrying after backoff",
+                instance, attempt + 1, _BREV_EXEC_MAX_ATTEMPTS,
+            )
+            await asyncio.sleep(_BREV_EXEC_RETRY_BACKOFF_SEC * (attempt + 1))
+            continue
+        return result
 
-    return ExecResult(
-        stdout=stdout.decode() if stdout else None,
-        stderr=stderr.decode() if stderr else None,
-        return_code=proc.returncode or 0,
-    )
+    return last_result  # last attempt's result (still a transient failure)
 
 
 async def _run_brev_copy(
