@@ -111,7 +111,8 @@ camera ID, and share a socket directory accessible to container UID/GID `1001`.
 Set `RTVI_EMBED_IPC_SOCKET_HOST_DIR` to that producer directory; Compose mounts
 it at `RTVI_EMBED_IPC_SOCKET_DIR` (default `/run/rtvi-ipc`). Send the stream
 processing request to both RTVI CV (producer) and Embed (consumer) with the
-same camera ID.
+same camera ID. IPC camera, sensor, and stream IDs must be non-empty and use
+only ASCII letters, digits, `.`, `_`, and `-`; standard UUIDs are valid.
 
 ## OpenTelemetry Defaults
 

@@ -220,6 +220,7 @@ start_rtvi_server() {
     fi
 
     EXTRA_ARGS="$RTVI_EXTRA_ARGS"
+    IPC_ARGS=()
     if [ "$ENABLE_AUDIO" = true ]; then
         EXTRA_ARGS+=" --enable-audio"
     fi
@@ -260,12 +261,12 @@ start_rtvi_server() {
     ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-}"
     ipc_socket_template="${RTVI_IPC_SOCKET_TEMPLATE:-}"
     if [ "$ipc_frame_copy" = "true" ] || [ "$ipc_frame_copy" = "1" ] || [ "$ipc_frame_copy" = "yes" ] || [ "$ipc_frame_copy" = "on" ]; then
-        EXTRA_ARGS+=" --ipc-frame-copy"
+        IPC_ARGS+=(--ipc-frame-copy)
         if [ -n "$ipc_socket_dir" ]; then
-            EXTRA_ARGS+=" --ipc-socket-dir $ipc_socket_dir"
+            IPC_ARGS+=(--ipc-socket-dir "$ipc_socket_dir")
         fi
         if [ -n "$ipc_socket_template" ]; then
-            EXTRA_ARGS+=" --ipc-socket-template $ipc_socket_template"
+            IPC_ARGS+=(--ipc-socket-template "$ipc_socket_template")
         fi
     fi
 
@@ -290,7 +291,7 @@ start_rtvi_server() {
         --vlm-model-type $VLM_MODEL_TO_USE \
         --vlm-batch-size $VLM_BATCH_SIZE \
         --asset-dir $ASSET_STORAGE_DIR --num-decoders-per-gpu $(( NUM_NVDEC_ENGINES + 1)) \
-        $EXTRA_ARGS &
+        $EXTRA_ARGS "${IPC_ARGS[@]}" &
     check_rtvi_process_status
 }
 

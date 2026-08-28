@@ -553,6 +553,10 @@ socket template, so camera `camera-1` resolves to `nvds_ipc_camera-1.sock` by
 default. Send the stream processing request to both RTVI CV (the producer) and
 RTVI Embed (the consumer) with that same camera ID.
 
+IPC camera, sensor, and stream IDs must be non-empty and use only ASCII letters,
+digits, `.`, `_`, and `-` (standard UUIDs are valid). Other characters are
+rejected to prevent distinct stream IDs from selecting the same socket.
+
 Set `RTVI_IPC_SOCKET_HOST_DIR` to the producer's host directory; Compose mounts
 it at `RTVI_IPC_SOCKET_DIR` without replacing the container's `/tmp`. The
 directory and socket must be accessible to the Embed container user (UID/GID
