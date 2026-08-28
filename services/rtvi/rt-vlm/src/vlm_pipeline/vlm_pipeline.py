@@ -44,6 +44,7 @@ from utils.asset_manager import Asset
 
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
 from .ipc_frame_source import DEFAULT_IPC_SOCKET_DIR, select_ipc_stream_identity
+from .model_path_policy import validate_model_config, validate_model_path_source
 from .ngc_model_downloader import download_model, download_model_git
 from .process_base import (
     ProcessBase,
@@ -1836,6 +1837,10 @@ class VlmPipeline:
         if args.vlm_model_type == VlmModelType.CUSTOM and not args.model_implementation_path:
             raise Exception("model-implementation-path not provided")
 
+        model_source = args.model_path
+        if model_source:
+            validate_model_path_source(model_source)
+
         if args.model_path and args.model_path.startswith("ngc:"):
             # NGC model path provided, download the model if not found in cache
 
@@ -1862,6 +1867,8 @@ class VlmPipeline:
             args.model_path = model_path_[0]
         if args.model_path and args.model_path.startswith("git:"):
             args.model_path = download_model_git(args.model_path[4:], NGC_MODEL_CACHE)
+        if args.model_path:
+            validate_model_config(args.model_path, model_source=model_source)
         if args.model_path and args.model_repository_script_path:
             logger.info(f"Running model repository script: {args.model_repository_script_path}")
             subprocess.run(
