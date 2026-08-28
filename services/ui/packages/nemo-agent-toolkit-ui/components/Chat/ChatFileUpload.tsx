@@ -77,7 +77,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   children,
 }) => {
   const {
-    state: { agentApiUrlBase, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
+    state: { vstApiUrl, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
   } = useContext(HomeContext);
 
   const fileInputId = useId();
@@ -318,7 +318,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
 
   // Upload a single file (for progress popup)
   const uploadSingleFileWithTracking = async (fileItem: FileWithFormData): Promise<{ filename: string; result?: FileUploadResult; error?: string; cancelled?: boolean }> => {
-    const { id: fileId, file, formData } = fileItem;
+    const { id: fileId, file } = fileItem;
     const filename = fileItem.uploadFilename ?? file.name;
     const cancelledResult = { filename, error: 'Upload was cancelled', cancelled: true };
 
@@ -327,8 +327,8 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       return cancelledResult;
     }
 
-    if (!agentApiUrlBase) {
-      const errorMessage = 'Agent API URL is not configured';
+    if (!vstApiUrl) {
+      const errorMessage = 'VST API URL is not configured';
       updateUploadingFileStatus(fileId, 'error', errorMessage);
       return { filename, error: errorMessage, cancelled: false };
     }
@@ -341,14 +341,10 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       const abortController = new AbortController();
       abortControllerMapRef.current.set(fileId, abortController);
 
-      // Three-step chunked upload: agent gives us the VST URL, we POST
-      // chunks straight to VST (bypassing Cloudflare's 100s timeout on
-      // large files), then the agent's /complete hook runs post-processing
-      // (timelines + RTVI register + embeddings on search profiles).
+      const uploadUrl = `${vstApiUrl.replace(/\/$/, '')}/v1/storage/file`;
       const result = await uploadFileChunked(
         file,
-        agentApiUrlBase,
-        formData,
+        uploadUrl,
         (progress: number) => updateUploadingFileProgress(fileId, progress),
         abortController.signal,
         fileItem.uploadFilename

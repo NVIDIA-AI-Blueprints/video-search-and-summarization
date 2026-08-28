@@ -155,6 +155,10 @@ spec:
             {{- end }}
             - name: NEXT_PUBLIC_ALERTS_API_URL
               value: {{ (index $ov "NEXT_PUBLIC_ALERTS_API_URL") | default .Values.alertsApiUrl | default "" | quote }}
+            - name: NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS
+              value: {{ .Values.alertsRealtimeEnabled | quote }}
+            - name: NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION
+              value: {{ .Values.alertsCvVerificationEnabled | quote }}
             {{- range .Values.extraEnv }}
             - name: {{ .name }}
               value: {{ .value | quote }}

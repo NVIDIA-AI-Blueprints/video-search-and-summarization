@@ -8,6 +8,13 @@ on:
     branches:
       - "pull-request/[0-9]+"
 
+# Same shape as ci.yml: one License Diff per PR mirror. A newer revision
+# cancels the stale run so OSRB's workflow_run follower is not launched
+# from an obsolete CSV.
+concurrency:
+  group: license-diff-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
