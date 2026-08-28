@@ -134,6 +134,7 @@ def prepare_environment(
     env["NEMOCLAW_ENDPOINT_URL"] = endpoint
     env["NEMOCLAW_MODEL"] = model
     env["COMPATIBLE_API_KEY"] = compatible_key
+    env["NEMOCLAW_PROVIDER"] = config.notebook_provider
     if config.provider == "nvidia-build":
         env["NVIDIA_API_KEY"] = config.api_key
 
