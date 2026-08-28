@@ -75,7 +75,15 @@ plus an **optional shared token**.
 
 `?token=` exists because `chat.ts` sends a fixed header set with no auth header but passes
 its configured URL through verbatim — a query param is the only way to authenticate
-without changing UI code.
+without changing UI code. It is redacted from the request log.
+
+> **Known limitation:** setting `ADAPTER_TOKEN` also gates the agent's own callbacks
+> (`/v1/skills*`, `/v1/search`), and the bootstrap hands the agent `ADAPTER_PUBLIC_URL`
+> without a token — so the agent gets `403` and cannot fetch skills or search. Until that
+> is resolved, rely on `ADAPTER_ALLOW_CIDRS` alone, which already restricts callers to the
+> docker bridges. Resolving it means either embedding the token in the bootstrap URLs
+> (putting a credential in the model's context) or requiring the token only on
+> `/chat/stream` — a call worth making deliberately.
 
 ## Archive search
 

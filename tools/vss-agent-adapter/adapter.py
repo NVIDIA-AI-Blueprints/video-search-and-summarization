@@ -496,7 +496,8 @@ BOOTSTRAPPED = set()
 _BOOTSTRAP_LOCK = threading.Lock()
 
 
-def run_turn_responses(message, session_key, out, *, url, token, model, label):
+def run_turn_responses(message, session_key, out, cancel=None, *,
+                       url, token, model, label):
     """Drive any harness that speaks the OpenAI **Responses** API.
 
     OpenClaw and Hermes both expose POST /v1/responses with identical request
@@ -528,6 +529,11 @@ def run_turn_responses(message, session_key, out, *, url, token, model, label):
     try:
         with urllib.request.urlopen(req, timeout=TURN_TIMEOUT) as resp:
             for raw in resp:
+                # The reader is the only thing holding the upstream turn open;
+                # if the browser is gone, stop rather than burning gateway and
+                # host resources until TURN_TIMEOUT.
+                if cancel is not None and cancel.is_set():
+                    break
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data: "):
                     continue
@@ -553,14 +559,14 @@ def run_turn_responses(message, session_key, out, *, url, token, model, label):
         out.put(None)
 
 
-def run_turn_openclaw_http(message, session_key, out):
-    return run_turn_responses(message, session_key, out, url=OPENCLAW_HTTP_URL,
+def run_turn_openclaw_http(message, session_key, out, cancel=None):
+    return run_turn_responses(message, session_key, out, cancel, url=OPENCLAW_HTTP_URL,
                               token=GATEWAY_TOKEN, model=OPENCLAW_HTTP_MODEL,
                               label="openclaw-http")
 
 
-def run_turn_hermes_responses(message, session_key, out):
-    return run_turn_responses(message, session_key, out,
+def run_turn_hermes_responses(message, session_key, out, cancel=None):
+    return run_turn_responses(message, session_key, out, cancel,
                               url=HERMES_RESPONSES_URL, token=HERMES_TOKEN,
                               model=HERMES_MODEL, label="hermes-responses")
 
@@ -572,7 +578,7 @@ def _first_turn(session_key):
     return first and BOOTSTRAP_ENABLED
 
 
-def run_turn_hermes(message, session_key, out):
+def run_turn_hermes(message, session_key, out, cancel=None):
     """Drive Hermes, which already speaks OpenAI-compatible streaming chat.
 
     Almost a passthrough: attach the bearer token, prepend the bootstrap on a
@@ -597,6 +603,11 @@ def run_turn_hermes(message, session_key, out):
     try:
         with urllib.request.urlopen(req, timeout=TURN_TIMEOUT) as resp:
             for raw in resp:
+                # The reader is the only thing holding the upstream turn open;
+                # if the browser is gone, stop rather than burning gateway and
+                # host resources until TURN_TIMEOUT.
+                if cancel is not None and cancel.is_set():
+                    break
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data: "):
                     continue
@@ -648,7 +659,7 @@ def run_turn_hermes(message, session_key, out):
         out.put(None)
 
 
-def run_turn(message: str, session_key: str, out: queue.Queue):
+def run_turn(message: str, session_key: str, out: queue.Queue, cancel=None):
     """Drive one agent turn, pushing SSE-ready strings onto `out`."""
     ws = None
     try:
@@ -697,6 +708,8 @@ def run_turn(message: str, session_key: str, out: queue.Queue):
         step = 0
         sentinels = SentinelFilter()
         while True:
+            if cancel is not None and cancel.is_set():
+                break
             msg = json.loads(ws.recv())
             if msg.get("type") == "res" and msg.get("ok") is False:
                 err = msg.get("error", {})
@@ -745,8 +758,14 @@ def run_turn(message: str, session_key: str, out: queue.Queue):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    # ?token= is a documented auth path (chat.ts cannot set an auth header),
+    # so the request line carries a credential. Redact before it reaches
+    # stdout or adapter.log.
+    _TOKEN_IN_URL = re.compile(r"([?&]token=)[^&\s]+")
+
     def log_message(self, fmt, *args):
-        print(f"[adapter] {self.address_string()} {fmt % args}", flush=True)
+        line = self._TOKEN_IN_URL.sub(r"\1[REDACTED]", fmt % args)
+        print(f"[adapter] {self.address_string()} {line}", flush=True)
 
     def _authorized(self):
         try:
@@ -949,8 +968,14 @@ class Handler(BaseHTTPRequestHandler):
             "hermes-chat": run_turn_hermes,
             "openclaw": run_turn,          # WebSocket: adds tool events
         }.get(AGENT_BACKEND, run_turn)
+        # Left unbounded deliberately: `cancel` stops the driver within one
+        # loop iteration, so the queue cannot grow far after a disconnect.
+        # Bounding it instead would make the driver's terminal put() block
+        # forever once the consumer is gone -- a wedged thread in place of a
+        # short-lived queue.
         out: queue.Queue = queue.Queue()
-        threading.Thread(target=driver, args=(user, session_key, out),
+        cancel = threading.Event()
+        threading.Thread(target=driver, args=(user, session_key, out, cancel),
                          daemon=True).start()
         while True:
             try:
@@ -965,7 +990,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
-                print("[adapter] client disconnected", flush=True)
+                # Tell the driver to abandon the turn; otherwise it keeps the
+                # upstream turn alive and writing until TURN_TIMEOUT.
+                cancel.set()
+                print("[adapter] client disconnected; cancelling turn",
+                      flush=True)
                 break
 
 
