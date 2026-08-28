@@ -27,13 +27,12 @@
 {{- $resources := deepCopy (.Values.resources | default dict) }}
 {{- $gpuResourceName := trim (.Values.gpuResourceName | default "") }}
 {{- if $gpuResourceName }}
-{{- $gpuResourceCount := .Values.gpuResourceCount | default 1 }}
 {{- $limits := $resources.limits | default dict }}
 {{- $requests := $resources.requests | default dict }}
 {{- $_ := unset $limits "nvidia.com/gpu" }}
 {{- $_ := unset $requests "nvidia.com/gpu" }}
-{{- $_ := set $limits $gpuResourceName $gpuResourceCount }}
-{{- $_ := set $requests $gpuResourceName $gpuResourceCount }}
+{{- $_ := set $limits $gpuResourceName 1 }}
+{{- $_ := set $requests $gpuResourceName 1 }}
 {{- $_ := set $resources "limits" $limits }}
 {{- $_ := set $resources "requests" $requests }}
 {{- end }}
