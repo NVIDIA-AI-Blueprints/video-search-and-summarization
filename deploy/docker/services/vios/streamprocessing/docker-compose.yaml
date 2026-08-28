@@ -73,6 +73,7 @@ services:
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - vios_apt_cache:/opt/apt-cache:ro
+      - ${VST_NOTIFICATION_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs/notification_config.json}:/home/vst/vst_release/configs/notification_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
