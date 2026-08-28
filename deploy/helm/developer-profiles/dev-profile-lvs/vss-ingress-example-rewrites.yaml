@@ -32,21 +32,21 @@ metadata:
   namespace: <NAMESPACE>
   annotations:
     haproxy.org/path-rewrite: |
-      /vios/(.*) /vst/\1
+      ^/vios/(.*) /vst/\1
       ^/vios$ /vst
-      /storage/(.*) /vst/storage/\1
+      ^/storage/(.*) /vst/storage/\1
       ^/storage$ /vst/storage
-      /vios/storage/(.*) /vst/storage/\1
+      ^/vios/storage/(.*) /vst/storage/\1
       ^/vios/storage$ /vst/storage
-      /elasticsearch/(.*) /\1
+      ^/elasticsearch/(.*) /\1
       ^/elasticsearch$ /
-      /rtvi-vlm/(.*) /\1
+      ^/rtvi-vlm/(.*) /\1
       ^/rtvi-vlm$ /
-      /lvs/(.*) /\1
+      ^/lvs/(.*) /\1
       ^/lvs$ /
-      /video-summarization/(.*) /\1
+      ^/video-summarization/(.*) /\1
       ^/video-summarization$ /
-      /phoenix/(.*) /\1
+      ^/phoenix/(.*) /\1
       ^/phoenix$ /
 spec:
   ingressClassName: haproxy

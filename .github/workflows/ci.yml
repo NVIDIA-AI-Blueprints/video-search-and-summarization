@@ -1346,6 +1346,7 @@ jobs:
           python3 .github/scripts/test_check_agent_http_endpoints.py
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
+          python3 .github/scripts/test_helm_ingress_rewrites.py
           python3 .github/scripts/test_helm_release_channel_policy.py
           python3 .github/scripts/test_diagnose_sonarqube_failure.py
 
