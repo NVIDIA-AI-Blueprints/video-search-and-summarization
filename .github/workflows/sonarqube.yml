@@ -1,5 +1,15 @@
 name: SonarQube Analysis
 
+# No top-level `paths:` filter: GitHub evaluates that against the pushed
+# commits, not the cumulative PR, and can skip this workflow on an
+# unrelated follow-up push. The per-project gate lives in the `detect`
+# job (detect_sonarqube_projects.py) and compares PR-base...HEAD.
+#
+# Protect develop currently requires SonarQube Scan (agent|ui|skills).
+# Every catalogued scan still reports on PRs: untouched legs no-op, only a
+# changed tree runs the scanner and can fail. Same pattern if more legs
+# are added to the ruleset later.
+
 on:
   push:
     branches:
@@ -21,75 +31,13 @@ permissions:
   contents: read
 
 jobs:
-  sonarqube:
-    name: SonarQube Scan (${{ matrix.name }})
-    runs-on: sonarqube-workflows-bp-sre
-    timeout-minutes: 30
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: agent
-            project_key: TEGRASW_metropolis_video-search-and-summarization-agent_video-search-and-summarization
-            project_name: video-search-and-summarization-agent
-            sources: services/agent
-            tests: services/agent/packages/vss_core/tests,services/agent/packages/vss_agents/tests,services/agent/packages/vss_cli/tests
-            python_version: "3.13"
-          - name: alert
-            project_key: TEGRASW_metropolis_vss-alert-verification_alert_agent
-            project_name: metropolis-vss-alert-verification
-            sources: services/alert/src
-            tests: services/alert/test/unit
-            python_version: "3.13"
-          - name: ui
-            project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
-            project_name: video-search-and-summarization-ui
-            sources: services/ui
-            tests: ""
-          - name: skills
-            project_key: TEGRASW_metropolis_video-search-and-summarization-skills_video-search-and-summarization
-            project_name: video-search-and-summarization-skills
-            sources: skills
-            tests: ""
-          - name: behavior-analytics
-            project_key: TEGRASW_metropolis_vss-behavior-analytics_py-analytics-stream
-            project_name: metropolis-vss-behavior-analytics
-            sources: services/analytics/behavior-analytics/src,services/analytics/behavior-analytics/docker
-            tests: services/analytics/behavior-analytics/tests
-            python_version: "3.13"
-          - name: video-analytics-api
-            project_key: TEGRASW_metropolis_vss-video-analytics-api_mdata_web-apis
-            project_name: metropolis-vss-video-analytics-api
-            sources: services/analytics/video-analytics-api/src,services/analytics/video-analytics-api/docker
-            tests: services/analytics/video-analytics-api/test
-            node_version: "22.22.3"
-          - name: spatialai-data-utils
-            project_key: TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization
-            project_name: METROPOLIS-spatialai-data-utils
-            sources: libs/analytics/spatialai-data-utils/spatialai_data_utils
-            tests: libs/analytics/spatialai-data-utils/tests
-            python_version: "3.13"
-          - name: sdr-mw-l
-            project_key: TEGRASW_A3IENG_embedded-metropolis-sdr_wdm
-            project_name: embedded-metropolis-sdr
-            sources: services/sdrc/app.py,services/sdrc/config.py,services/sdrc/run_workloads.py,services/sdrc/lib,services/sdrc/envoy
-            tests: services/sdrc/tests
-            python_version: "3.10"
-          - name: vss-configurator
-            project_key: TEGRASW_metropolis_vss-configurator_blueprint-configurator
-            project_name: metropolis-vss-configurator
-            sources: services/configurators/vss-configurator/app,services/configurators/vss-configurator/docker
-            tests: services/configurators/vss-configurator/tests
-            python_version: "3.13"
-          - name: vss-rt-config-adaptor
-            project_key: TEGRASW_metropolis_vss-rt-config-adaptor_ds-configurator
-            project_name: metropolis-vss-rt-config-adaptor
-            sources: services/configurators/vss-rt-config-adaptor/app,services/configurators/vss-rt-config-adaptor/docker
-            tests: services/configurators/vss-rt-config-adaptor/tests
-            python_version: "3.13"
-
+  detect:
+    name: Detect SonarQube projects
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      any: ${{ steps.plan.outputs.any }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -97,7 +45,44 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Plan SonarQube matrix
+        id: plan
+        run: |
+          python3 .github/scripts/detect_sonarqube_projects.py \
+            --event-name "${{ github.event_name }}" \
+            --base-ref "${{ github.base_ref }}" \
+            --pr-base-sha "${{ github.event.pull_request.base.sha }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+  sonarqube:
+    name: SonarQube Scan (${{ matrix.name }})
+    needs: detect
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    if: >-
+      needs.detect.outputs.any == 'true'
+      && (github.event_name != 'pull_request'
+          || github.event.pull_request.head.repo.full_name == github.repository)
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+
+    steps:
+      - name: Skip scan for untouched project
+        if: matrix.scan != 'true'
+        run: |
+          echo "No changes in ${{ matrix.name }}; reporting success without scanning."
+
+      - name: Checkout source
+        if: matrix.scan == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Validate SonarQube secrets
+        if: matrix.scan == 'true'
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -112,6 +97,7 @@ jobs:
           fi
 
       - name: Write SonarQube configuration
+        if: matrix.scan == 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -245,25 +231,25 @@ jobs:
           sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
 
       - name: Install uv
-        if: matrix.python_version != null
+        if: matrix.scan == 'true' && matrix.python_version != null
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           version: "0.6.2"
 
       - name: Set up Python
-        if: matrix.python_version != null
+        if: matrix.scan == 'true' && matrix.python_version != null
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python_version }}
 
       - name: Set up Node.js for Video Analytics API
-        if: matrix.node_version != null
+        if: matrix.scan == 'true' && matrix.node_version != null
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node_version }}
 
       - name: Generate agent coverage
-        if: matrix.name == 'agent'
+        if: matrix.scan == 'true' && matrix.name == 'agent'
         working-directory: services/agent
         run: |
           # The Sonar self-hosted runner cannot install system packages.
@@ -277,7 +263,7 @@ jobs:
             -m "not slow and not integration"
 
       - name: Generate lib coverage (NAT-free surface)
-        if: matrix.name == 'agent'
+        if: matrix.scan == 'true' && matrix.name == 'agent'
         working-directory: services/agent
         run: |
           # Both packages, matching the same invocation in ci.yml. The
@@ -294,14 +280,14 @@ jobs:
             -m "not slow and not integration"
 
       - name: Install Alert MS test dependencies
-        if: matrix.name == 'alert'
+        if: matrix.scan == 'true' && matrix.name == 'alert'
         working-directory: services/alert
         run: |
           uv venv --python "${{ matrix.python_version }}"
           uv pip install --python .venv/bin/python -r requirements.txt pytest pytest-asyncio pytest-cov
 
       - name: Generate Alert MS coverage
-        if: matrix.name == 'alert'
+        if: matrix.scan == 'true' && matrix.name == 'alert'
         working-directory: services/alert
         run: |
           .venv/bin/pytest test/unit \
@@ -310,7 +296,7 @@ jobs:
             --cov-report=term-missing
 
       - name: Generate Behavior Analytics coverage
-        if: matrix.name == 'behavior-analytics'
+        if: matrix.scan == 'true' && matrix.name == 'behavior-analytics'
         working-directory: services/analytics/behavior-analytics
         run: |
           python -m pip install --upgrade pip pipenv
@@ -321,7 +307,7 @@ jobs:
           pipenv run coverage report
 
       - name: Generate Video Analytics API coverage
-        if: matrix.name == 'video-analytics-api'
+        if: matrix.scan == 'true' && matrix.name == 'video-analytics-api'
         working-directory: services/analytics/video-analytics-api
         run: |
           cd src/web-api-core && npm install && cd ../..
@@ -329,7 +315,7 @@ jobs:
           cd test && npm install --save ../src/web-api-core && npm install --save ../src/app && npm install && npm run ci
 
       - name: Generate SDRC coverage
-        if: matrix.name == 'sdr-mw-l'
+        if: matrix.scan == 'true' && matrix.name == 'sdr-mw-l'
         working-directory: services/sdrc
         run: |
           mkdir -p test/coverage
@@ -344,7 +330,7 @@ jobs:
             --cov-report=term-missing
 
       - name: Generate VSS Configurator coverage
-        if: matrix.name == 'vss-configurator'
+        if: matrix.scan == 'true' && matrix.name == 'vss-configurator'
         working-directory: services/configurators/vss-configurator
         run: |
           mkdir -p test/coverage
@@ -362,7 +348,7 @@ jobs:
             --cov-report=term-missing
 
       - name: Generate VSS RT Config Adaptor coverage
-        if: matrix.name == 'vss-rt-config-adaptor'
+        if: matrix.scan == 'true' && matrix.name == 'vss-rt-config-adaptor'
         working-directory: services/configurators/vss-rt-config-adaptor
         run: |
           uv sync --python 3.13 --frozen --group dev
@@ -374,6 +360,7 @@ jobs:
             --cov-report=term-missing
 
       - name: Run SonarQube scanner
+        if: matrix.scan == 'true'
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -383,7 +370,34 @@ jobs:
       # NVIDIA SonarQube/network outages from repository-specific findings so a
       # transient "No route to host" failure is not misrouted to code owners.
       - name: Classify SonarQube connectivity failure
-        if: failure()
+        if: failure() && matrix.scan == 'true'
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: python3 .github/scripts/diagnose_sonarqube_failure.py
+
+  # Always-run wrap-up so a PR that touches none of the scanned trees still
+  # has a concluding check, and so a skipped matrix (empty / fork) is not
+  # reported as a scan failure.
+  sonarqube-gate:
+    name: SonarQube
+    needs: [detect, sonarqube]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check scan outcome
+        env:
+          DETECT: ${{ needs.detect.result }}
+          SCAN: ${{ needs.sonarqube.result }}
+        run: |
+          set -euo pipefail
+          if [ "$DETECT" != "success" ]; then
+            echo "detect job result: $DETECT"
+            exit 1
+          fi
+          # skipped = no matching projects, or a fork PR that cannot use secrets
+          if [ "$SCAN" = "failure" ]; then
+            echo "scan job result: $SCAN"
+            exit 1
+          fi
+          echo "detect=$DETECT scan=$SCAN"
