@@ -45,14 +45,24 @@ The adaptor choice is split across **two files** that **must agree**:
 ### File A — `services/vios/deployment/stream-processing/docker-compose/compose.env`
 
 ```bash
-# Pick one of: vst_rtsp, streamer, onvif, remote, native, milestone_onvif, milestone_soap, test_vms
+# SENSOR service block. Pick one of:
+#   vst_rtsp, streamer, onvif, remote, native, milestone_onvif, milestone_soap, test_vms
 VST_ADAPTOR=<adaptor-name>
 
-# Family from adaptor type: vst-type → vst ; mms-type → mms.
-# Append the -sdrc suffix when VST_USE_SDRC=true (SDRC is the default). The
-# -sdrc suffix is the SDRC toggle and is INDEPENDENT of the adaptor.
+# DEPLOYMENT MODE TOGGLE block.
 NGINX_MODE=<vst|vst-sdrc|mms>
 ```
+
+`NGINX_MODE` selects `configs/nginx-${NGINX_MODE}.conf`, and **only three of those files exist** — `nginx-vst.conf`, `nginx-vst-sdrc.conf`, `nginx-mms.conf`. So:
+
+| Adaptor family | `VST_USE_SDRC=false` | `VST_USE_SDRC=true` |
+|---|---|---|
+| vst-type (`vst_rtsp`, `onvif`, `streamer`, …) | `vst` | `vst-sdrc` |
+| mms-type (`milestone_onvif`, `milestone_soap`) | `mms` | `mms` |
+
+The `-sdrc` suffix applies to the **vst family only**. There is no `nginx-mms-sdrc.conf`, so an mms deployment uses plain `mms` in both modes — setting `mms-sdrc` makes nginx fail to start on a missing config file.
+
+For mms-type adaptors, also fill in the **Milestone adaptor** block in `compose.env` (`ADAPTOR_IP` / `ADAPTOR_USER` / `ADAPTOR_PASSWORD` / `ADAPTOR_PORT`), or leave it blank and use `adaptor_config.json` — see the precedence note below.
 
 ### File B — `services/vios/deployment/stream-processing/docker-compose/configs/adaptor_config.json`
 
