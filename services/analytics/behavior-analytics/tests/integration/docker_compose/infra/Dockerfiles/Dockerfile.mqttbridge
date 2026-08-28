@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG PYTHON_VERSION=3.11
-ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.5
+ARG PYTHON_VERSION=3.13
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.9
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
 
 # Build stage
-FROM python:${PYTHON_VERSION}-bookworm AS builder
+FROM python:${PYTHON_VERSION}-trixie AS builder
 
-RUN pip install --no-cache-dir paho-mqtt==2.1.0 confluent-kafka==2.3.0
+RUN pip install --no-cache-dir "paho-mqtt>=2.1.0" "confluent-kafka>=2.6.1"
 
 # Deploy stage
 FROM ${DISTROLESS_IMG}:${DISTROLESS_TAG}
@@ -28,7 +28,7 @@ FROM ${DISTROLESS_IMG}:${DISTROLESS_TAG}
 ENV LD_LIBRARY_PATH=/lib/distroless/
 
 # Copy installed python libraries
-COPY --from=builder /usr/local/lib/python${PY_VERSION}/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python${PY_VERSION}/site-packages /usr/local/lib/python${PY_VERSION}/site-packages
 
 # Copy the bridge script
 COPY ./scripts/mqtt_to_kafka_bridge.py /app/mqtt_to_kafka_bridge.py
