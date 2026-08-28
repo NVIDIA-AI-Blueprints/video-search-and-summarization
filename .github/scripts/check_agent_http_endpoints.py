@@ -13,7 +13,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG_SUFFIXES = {".env", ".yaml", ".yml"}
+ENV_SUFFIX = ".env"
+YAML_SUFFIXES = {".yaml", ".yml"}
 DOCKER_ONLY_HTTP_HOSTS = {
     "alert-bridge",
     "elasticsearch",
@@ -28,6 +29,11 @@ HTTP_URL = re.compile(
 )
 
 
+def is_env_file(path: Path) -> bool:
+    """Match env files including a bare ``.env``, whose ``Path.suffix`` is empty."""
+    return path.suffix == ENV_SUFFIX or path.name == ENV_SUFFIX
+
+
 def default_paths() -> list[Path]:
     """Return the agent-facing files governed by the gateway contract."""
     roots = (
@@ -38,10 +44,10 @@ def default_paths() -> list[Path]:
     paths: list[Path] = []
     for root in roots:
         for path in root.rglob("*"):
-            if path.suffix not in CONFIG_SUFFIXES:
+            if not (is_env_file(path) or path.suffix in YAML_SUFFIXES):
                 continue
             relative_parts = path.relative_to(root).parts
-            is_profile_env = path.suffix == ".env" and len(relative_parts) == 2
+            is_profile_env = is_env_file(path) and len(relative_parts) == 2
             if root.name == "agent" or "vss-agent" in path.parts or is_profile_env:
                 paths.append(path)
     return sorted(paths)
@@ -70,14 +76,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="*", type=Path)
     args = parser.parse_args(argv)
 
-    failures = scan_paths(args.paths or default_paths())
+    paths = args.paths or default_paths()
+    failures = scan_paths(paths)
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
 
-    print(
-        f"Agent HTTP endpoint lint passed ({len(args.paths or default_paths())} files)."
-    )
+    print(f"Agent HTTP endpoint lint passed ({len(paths)} files).")
     return 0
 
 

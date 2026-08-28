@@ -30,6 +30,17 @@ class AgentHttpEndpointsTest(unittest.TestCase):
         self.assertEqual(1, len(failures))
         self.assertIn("Docker-only HTTP host 'elasticsearch'", failures[0])
 
+    def test_bare_profile_env_files_are_covered(self) -> None:
+        # Path(".env").suffix is "", not ".env", so a suffix-only filter skips
+        # every profile .env -- the file class this lint exists to guard.
+        covered = {path.name for path in LINT.default_paths()}
+        self.assertIn(".env", covered)
+
+    def test_bare_env_filename_is_recognised(self) -> None:
+        self.assertTrue(LINT.is_env_file(Path("deploy/dev-profile-lvs/.env")))
+        self.assertTrue(LINT.is_env_file(Path("deploy/overrides.env")))
+        self.assertFalse(LINT.is_env_file(Path("deploy/config.yml")))
+
 
 if __name__ == "__main__":
     unittest.main()
