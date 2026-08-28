@@ -32,6 +32,7 @@ from api_models.nim_compat import (
     ChatCompletionUsage,
     ChatMessage,
     CompletionRequest,
+    VideoUrl,
 )
 from utils.media_io_kwargs import get_frame_sampling_params_from_media_io_kwargs
 from vlm_pipeline.vlm_pipeline import VlmRequestParams
@@ -57,6 +58,12 @@ class TestVlmQueryValidation:
         query = _vlm_query(system_prompt=system_prompt)
 
         assert query.system_prompt == system_prompt
+
+    def test_video_url_accepts_lossless_crf0_payload(self):
+        """Video data URLs should accept the measured CRF-0 evaluation payload."""
+        url = "data:video/mp4;base64," + "A" * 15_314_750
+
+        assert VideoUrl(url=url).url == url
 
     def test_system_prompt_rejects_above_10240_chars(self):
         """system_prompt should reject payloads above the documented limit."""
@@ -380,14 +387,22 @@ class TestNimApiRequestFormat:
         assert request["mm_processor_kwargs"]["size"]["shortest_edge"] == 1568
         assert request["media_io_kwargs"]["video"]["fps"] == 3.0
 
-    def test_media_io_kwargs_merges_into_mm_processor_kwargs(self):
-        """media_io_kwargs should merge into mm_processor_kwargs for vLLM engine."""
+    def test_media_io_kwargs_remains_separate_from_mm_processor_kwargs(self):
+        """media_io_kwargs controls frame extraction, not processor kwargs."""
         mm_processor_kwargs = {"chain_of_thought": True}
         media_io_kwargs = {"video": {"fps": 3.0}}
-        # Merge (same as vllm_compatible_model.py line 632)
-        mm_processor_kwargs.update(media_io_kwargs)
-        assert mm_processor_kwargs["chain_of_thought"] is True
-        assert mm_processor_kwargs["video"]["fps"] == 3.0
+        frame_params = get_frame_sampling_params_from_media_io_kwargs(media_io_kwargs)
+        query = _vlm_query(
+            mm_processor_kwargs=mm_processor_kwargs,
+            media_io_kwargs=media_io_kwargs,
+            **frame_params,
+        )
+        generation_config = VlmRequestParams.from_vlm_query(query).vlm_generation_config
+
+        assert generation_config.mm_processor_kwargs == {"chain_of_thought": True}
+        assert generation_config.media_io_kwargs == media_io_kwargs
+        assert query.num_frames_per_second_or_fixed_frames_chunk == 3.0
+        assert query.use_fps_for_chunking is True
 
 
 class TestChatCompletionResponseFormat:
