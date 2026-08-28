@@ -240,6 +240,25 @@ class SearchFallbackTest(unittest.TestCase):
                 open_func=open_func,
             )
 
+    def test_forbidden_variables_read_still_aborts_discovery(self):
+        def open_func(req):
+            raise HTTPError(
+                req.full_url,
+                403,
+                "Forbidden",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=io.BytesIO(b"{}"),
+            )
+
+        with self.assertRaises(SystemExit):
+            module.fetch_pipeline_variables(
+                "https://gitlab.example/api/v4",
+                "token",
+                "1",
+                10,
+                open_func=open_func,
+            )
+
 
 class WorkflowWiringTest(unittest.TestCase):
     def test_ci_cancels_downstream_when_the_github_job_is_cancelled(self):

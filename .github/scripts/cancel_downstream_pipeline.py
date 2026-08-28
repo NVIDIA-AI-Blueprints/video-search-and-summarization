@@ -258,9 +258,10 @@ def list_ref_pipelines(
 
 
 # HTTP statuses that mean "this candidate is gone or temporarily unreadable".
-# 401 is not included: a bad token must still fail the whole cleanup.
+# 401/403 are not included: a token that cannot read variables must fail
+# cleanup, not look like "no matching pipeline".
 CANDIDATE_SKIP_HTTP = frozenset(
-    {400, 403, 404, 408, 409, 410, 422, 429, 500, 502, 503, 504}
+    {400, 404, 408, 409, 410, 422, 429, 500, 502, 503, 504}
 )
 
 
