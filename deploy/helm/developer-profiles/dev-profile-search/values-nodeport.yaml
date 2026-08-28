@@ -41,7 +41,7 @@ global:
   ingress:
     enabled: false
 
-ingress:
+vssIngress:
   enabled: false
 
 agent:

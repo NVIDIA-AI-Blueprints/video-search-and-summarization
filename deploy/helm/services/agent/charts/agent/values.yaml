@@ -30,6 +30,10 @@ service:
   port: 8000
   type: ClusterIP
   nodePort: ""
+
+# Server-side ingress timeout for this backend. Empty leaves the controller
+# default; profiles whose agent runs long operations (search, LVS) raise it.
+ingressTimeoutServer: ""
 profile: base
 # Alerts profile only: mount ConfigMap key(s) under /etc/vss-agent/report-templates. Must match keys baked into
 # vss-agent-config (e.g. dev-profile-alerts `configs/vss-agent/incident_report_template.md`). If disabled, omit the

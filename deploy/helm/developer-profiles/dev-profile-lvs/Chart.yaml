@@ -20,6 +20,11 @@ type: application
 version: 3.3.0
 appVersion: "1.0"
 dependencies:
+  # Shared library chart: the canonical ingress route table. Templates only, no
+  # workloads. See deploy/helm/services/common/README.md.
+  - name: common
+    version: 3.3.0
+    repository: "file://../../services/common"
   - name: infra
     version: 3.3.0
     repository: "file://../../services/infra"
