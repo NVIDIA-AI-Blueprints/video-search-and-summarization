@@ -128,8 +128,7 @@ the main object makes it easy to miss.
 ## Checking it
 
 ```bash
-cd deploy/helm/developer-profiles
-python3 verify-ingress-routes.py --verbose
+python3 deploy/helm/scripts/verify-ingress-routes.py --verbose
 ```
 
 Renders all four profiles and asserts: no path or `pathType` outside this table, no backend

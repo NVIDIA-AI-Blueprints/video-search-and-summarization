@@ -35,7 +35,8 @@ What this asserts, and nothing more:
 It does NOT check parity with the Docker edge (haproxy.cfg.template): that
 config is aligned to this table separately and still carries Docker-only routes.
 
-Usage: python3 verify-ingress-routes.py [--verbose]
+Usage: python3 deploy/helm/scripts/verify-ingress-routes.py [--verbose]
+(location-independent: all paths resolve relative to this file)
 Requires: helm, PyYAML, and `helm dependency build` already run per profile.
 """
 
@@ -48,9 +49,11 @@ from pathlib import Path
 
 import yaml
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent.parent
-TABLE = HERE.parent / "services" / "common" / "templates" / "_ingress-routes.tpl"
+HERE = Path(__file__).resolve().parent  # deploy/helm/scripts
+HELM = HERE.parent
+REPO = HELM.parent.parent
+PROFILES_DIR = HELM / "developer-profiles"
+TABLE = HELM / "services" / "common" / "templates" / "_ingress-routes.tpl"
 CLI_CONFIG = REPO / "services/agent/packages/vss_cli/src/vss_cli/config.py"
 
 # Profiles whose vssIngress is off by default need it switched on to render.
@@ -101,7 +104,7 @@ def render(profile: str, extra: list[str]) -> list[dict]:
             *PROFILES[profile],
             *extra,
         ],
-        cwd=HERE,
+        cwd=PROFILES_DIR,
         capture_output=True,
         text=True,
     )
@@ -257,7 +260,7 @@ def check_examples(main_paths: dict[str, set]) -> list[str]:
     """The hand-applied examples must describe the same mounts as the chart."""
     fails = []
     for profile, rendered in main_paths.items():
-        files = sorted((HERE / profile).glob("vss-ingress-example*.yaml"))
+        files = sorted((PROFILES_DIR / profile).glob("vss-ingress-example*.yaml"))
         if not files:
             continue  # not every profile ships a manual example
         documented: set = set()
