@@ -230,12 +230,13 @@ node <node-name>`. The selected slice must have sufficient memory for the model.
 
 For the VSS deployment Compose manifest at
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`, set both
-variables to the same MIG UUID in the active deployment override or shell
-environment:
+variables to the same MIG UUID reported by `nvidia-smi -L` in the active
+deployment override or shell environment. Current drivers may report a compact
+`MIG-<uuid>` value; older drivers report `MIG-GPU-<gpu-uuid>/<gi>/<ci>`.
 
 ```bash
-RT_VLM_DEVICE_ID="MIG-GPU-<gpu-uuid>/<gpu-instance>/<compute-instance>"
-RTVI_VLM_NVIDIA_VISIBLE_DEVICES="MIG-GPU-<gpu-uuid>/<gpu-instance>/<compute-instance>"
+RT_VLM_DEVICE_ID="MIG-<uuid-from-nvidia-smi-L>"
+RTVI_VLM_NVIDIA_VISIBLE_DEVICES="MIG-<uuid-from-nvidia-smi-L>"
 ```
 
 `RT_VLM_DEVICE_ID` assigns the MIG device to the container.
@@ -250,7 +251,7 @@ existing `NVIDIA_VISIBLE_DEVICES` setting. Set it to the MIG UUID in that
 stack’s `.env` file:
 
 ```bash
-NVIDIA_VISIBLE_DEVICES="MIG-GPU-<gpu-uuid>/<gpu-instance>/<compute-instance>"
+NVIDIA_VISIBLE_DEVICES="MIG-<uuid-from-nvidia-smi-L>"
 ```
 
 ### Standalone Helm chart
@@ -261,7 +262,6 @@ instead. For a device plugin using the `mixed` MIG strategy, an example is:
 
 ```yaml
 gpuResourceName: "nvidia.com/mig-3g.40gb"
-gpuResourceCount: 1
 ```
 
 The repository provides `overrides_rtvi_vlm_mig.yaml` as a complete example.
@@ -1018,7 +1018,6 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | `resources.requests.nvidia.com/gpu` | Default full-GPU request; replaced when `gpuResourceName` is set | `1` |
 | `resources.limits.nvidia.com/gpu` | Default full-GPU limit; replaced when `gpuResourceName` is set | `1` |
 | `gpuResourceName` | Optional Kubernetes MIG resource name advertised by the NVIDIA device plugin | Empty (uses `nvidia.com/gpu`) |
-| `gpuResourceCount` | Number of the selected GPU or MIG resources to request | `1` |
 | `env` | List of service environment variables | See the next table |
 | `nodeSelector` | Kubernetes node selector | `{}` |
 | `tolerations` | Kubernetes tolerations | `[]` |
