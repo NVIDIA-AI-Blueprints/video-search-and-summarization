@@ -322,6 +322,8 @@ class Asset:
         self._media_type = media_type
         self._path = path
         self._use_count = 0
+        self._lifecycle_lock = RLock()
+        self._registered = True
         self._asset_dir = asset_dir
         self._description = description
         self._username = username
@@ -415,16 +417,32 @@ class Asset:
 
     def lock(self):
         """Lock the asset. Asset cannot be deleted if in use."""
-        self._use_count += 1
+        with self._lifecycle_lock:
+            if not self._registered:
+                raise ServiceException(
+                    f"Resource {self._asset_id} was removed before it could be used",
+                    "DependencyError",
+                    503,
+                )
+            self._use_count += 1
 
     def unlock(self):
         """Unock the asset"""
-        self._use_count -= 1
+        with self._lifecycle_lock:
+            self._use_count = max(0, self._use_count - 1)
 
     @property
     def use_count(self):
         """Reference count for the file"""
-        return self._use_count
+        with self._lifecycle_lock:
+            return self._use_count
+
+    def _register(self, lifecycle_lock: RLock):
+        self._lifecycle_lock = lifecycle_lock
+        self._registered = True
+
+    def _mark_removed(self):
+        self._registered = False
 
     @property
     def is_live(self):
@@ -593,6 +611,7 @@ class AssetManager:
 
     def _publish_asset(self, asset: Asset) -> None:
         with self._asset_lock:
+            asset._register(self._asset_lock)
             self._asset_map[asset.asset_id] = asset
             self._asset_id_reservations.discard(asset.asset_id)
             if asset.camera_id:
@@ -1353,8 +1372,7 @@ class AssetManager:
             creation_time=creation_time,
         )
 
-        self._asset_map[asset_id] = asset
-        self._storage_usage_cache = None
+        self._publish_asset(asset)
 
         logger.info(
             "[AssetManager] Saved base64 asset - asset-id: %s name: %s size: %d bytes",
@@ -1519,10 +1537,9 @@ class AssetManager:
                 ``None``, rmtree runs inline (preserves legacy behavior).
         """
         with self._asset_lock:
-            if asset_id in self._aged_out_assets:
-                raise ServiceException(f"{asset_id} already deleted", "BadParameter", 400)
-
             if asset_id not in self._asset_map:
+                if asset_id in self._aged_out_assets:
+                    raise ServiceException(f"{asset_id} already deleted", "BadParameter", 400)
                 raise ServiceException(f"No such resource {asset_id}", "BadParameter", 400)
 
             # Do not allow asset to be removed if it is in use.
@@ -1531,8 +1548,14 @@ class AssetManager:
                     f"Resource {asset_id} is currently being used", "ResourceInUse", 409
                 )
 
-            # Remove asset directory if it exists (only save_file creates directories now)
             asset = self._asset_map[asset_id]
+            asset._mark_removed()
+            if asset.camera_id and self._camera_id_map.get(asset.camera_id) == asset_id:
+                del self._camera_id_map[asset.camera_id]
+            del self._asset_map[asset_id]
+            self._storage_usage_cache = None
+
+            # Remove asset directory if it exists (only save_file creates directories now)
         asset_dir = asset.asset_dir if asset.asset_dir else None
 
         def _do_rmtree(path: str, aid: str) -> None:
@@ -1548,16 +1571,6 @@ class AssetManager:
                 executor.submit(_do_rmtree, asset_dir, asset_id)
             else:
                 _do_rmtree(asset_dir, asset_id)
-
-        with self._asset_lock:
-            # Clean up camera_id mapping if present
-            if asset.camera_id and self._camera_id_map.get(asset.camera_id) == asset_id:
-                del self._camera_id_map[asset.camera_id]
-
-            self._asset_map.pop(asset_id, None)
-
-            # Invalidate storage cache since we freed space
-            self._storage_usage_cache = None
 
         logger.info(f"Removed asset {asset_id} and cleaned up associated resources")
 
@@ -1592,14 +1605,17 @@ class AssetManager:
         Returns:
             Asset: The Asset object that matches the filename, or None if not found.
         """
-        for asset in self._asset_map.values():
+        with self._asset_lock:
+            assets = list(self._asset_map.values())
+        for asset in assets:
             if asset.path == filepath:
                 return asset
         return None
 
     def list_assets(self):
         """Get a list of all assets"""
-        return list(self._asset_map.values())
+        with self._asset_lock:
+            return list(self._asset_map.values())
 
     def check_asset_exists(self, asset_id: str):
         """Check if an asset exists.
@@ -1608,7 +1624,8 @@ class AssetManager:
         Returns:
             True if the asset exists, False otherwise.
         """
-        return asset_id in self._asset_map
+        with self._asset_lock:
+            return asset_id in self._asset_map
 
     def get_asset(self, asset_id: str):
         """Get asset information.
@@ -1619,14 +1636,16 @@ class AssetManager:
         Returns:
             Information of the asset.
         """
-        if asset_id in self._aged_out_assets:
-            raise ServiceException(
-                f"{asset_id} already deleted because of age out policy", "BadParameter", 400
-            )
-
-        if asset_id not in self._asset_map:
-            raise ServiceException(f"No such resource {asset_id}", "BadParameter", 400)
-        return self._asset_map[asset_id]
+        with self._asset_lock:
+            if asset_id not in self._asset_map:
+                if asset_id in self._aged_out_assets:
+                    raise ServiceException(
+                        f"{asset_id} already deleted because of age out policy",
+                        "BadParameter",
+                        400,
+                    )
+                raise ServiceException(f"No such resource {asset_id}", "BadParameter", 400)
+            return self._asset_map[asset_id]
 
     async def _get_storage_usage(self, use_cache=True):
         """Get the current storage usage of the assets directory in GB.
@@ -1688,9 +1707,11 @@ class AssetManager:
 
         # Get assets that have storage directories (only save_file creates directories)
         # add_file and add_live_stream don't use disk space so skip them
+        with self._asset_lock:
+            assets = list(self._asset_map.items())
         assets_with_dirs = [
             (asset_id, asset)
-            for asset_id, asset in self._asset_map.items()
+            for asset_id, asset in assets
             if asset.asset_dir and os.path.exists(asset.asset_dir)
         ]
 
@@ -1708,7 +1729,10 @@ class AssetManager:
         # Age out the oldest asset directories until the storage usage is below the threshold
         while await self._is_storage_above_threshold() and asset_ids:
             oldest_asset_dir = asset_ids.pop(0)
-            oldest_asset = self.get_asset(oldest_asset_dir)
+            try:
+                oldest_asset = self.get_asset(oldest_asset_dir)
+            except ServiceException:
+                continue
 
             if oldest_asset.use_count:
                 continue
@@ -1721,7 +1745,8 @@ class AssetManager:
                 ):
                     continue
                 await loop.run_in_executor(None, self.cleanup_asset, oldest_asset_dir)
-                self._aged_out_assets.append(oldest_asset_dir)
+                with self._asset_lock:
+                    self._aged_out_assets.append(oldest_asset_dir)
             except Exception:
                 continue
             logger.info(
@@ -1749,9 +1774,11 @@ class AssetManager:
         now = time.time()
         loop = asyncio.get_event_loop()
 
+        with self._asset_lock:
+            assets = list(self._asset_map.items())
         assets_with_dirs = [
             (asset_id, asset)
-            for asset_id, asset in list(self._asset_map.items())
+            for asset_id, asset in assets
             if asset.asset_dir and os.path.exists(asset.asset_dir)
         ]
 
@@ -1779,16 +1806,21 @@ class AssetManager:
                 ):
                     continue
                 await loop.run_in_executor(None, self.cleanup_asset, asset_id)
-                self._aged_out_assets.append(asset_id)
+                with self._asset_lock:
+                    self._aged_out_assets.append(asset_id)
             except Exception as e:
                 logger.warning("Failed to TTL-evict asset %s: %s", asset_id, e)
 
     def get_stats(self) -> dict:
         """Return asset storage statistics for monitoring."""
         now = time.time()
+        with self._asset_lock:
+            assets = list(self._asset_map.items())
+            asset_count = len(assets)
+            aged_out_count = len(self._aged_out_assets)
         assets_with_dirs = [
             (asset_id, asset)
-            for asset_id, asset in self._asset_map.items()
+            for asset_id, asset in assets
             if asset.asset_dir and os.path.exists(asset.asset_dir)
         ]
 
@@ -1803,9 +1835,9 @@ class AssetManager:
                 pass
 
         return {
-            "asset_count": len(self._asset_map),
+            "asset_count": asset_count,
             "asset_count_with_storage": len(assets_with_dirs),
-            "aged_out_count": len(self._aged_out_assets),
+            "aged_out_count": aged_out_count,
             "oldest_asset_age_hours": round(oldest_age_hours, 3),
             "max_storage_usage_gb": self._max_storage_usage_gb,
             "max_asset_age_hours": self._max_asset_age_hours or None,

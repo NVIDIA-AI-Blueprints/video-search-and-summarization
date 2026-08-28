@@ -30,7 +30,7 @@ import queue
 import uuid
 from threading import Event, Thread
 from time import monotonic, sleep
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 import torch
@@ -578,6 +578,69 @@ class TestLiveStreamManagement:
         assert "checks" in health_status
         assert "timestamp" in health_status
         assert "uptime_seconds" in health_status
+
+
+def test_file_query_locks_asset_before_media_inspection(stream_handler):
+    asset = Asset(
+        asset_id=str(uuid.uuid4()),
+        path="/tmp/file-query-lock.mp4",
+        purpose="vision",
+        media_type="video",
+        asset_dir="/tmp",
+    )
+    query = VlmQuery(
+        id=uuid.UUID(asset.asset_id),
+        model="test-model",
+        prompt="Describe the video.",
+        chunk_duration=10,
+        chunk_overlap_duration=10,
+    )
+    media_info = MagicMock(video_duration_nsec=1_000_000_000)
+
+    def inspect_media(_path):
+        assert asset.use_count == 1
+        return media_info
+
+    with patch(
+        "server.rtvi_stream_handler.MediaFileInfo.get_info", side_effect=inspect_media
+    ) as get_info:
+        with pytest.raises(ServiceException):
+            stream_handler.query([asset], query)
+
+    get_info.assert_called_once_with(asset.path)
+    assert asset.use_count == 0
+
+
+def test_file_query_rolls_back_when_trigger_fails(stream_handler):
+    asset = Asset(
+        asset_id=str(uuid.uuid4()),
+        path="/tmp/file-query-trigger.mp4",
+        purpose="vision",
+        media_type="video",
+        asset_dir="/tmp",
+    )
+    query = VlmQuery(
+        id=uuid.UUID(asset.asset_id),
+        model="test-model",
+        prompt="Describe the video.",
+        chunk_duration=10,
+    )
+    media_info = MagicMock(video_duration_nsec=1_000_000_000)
+    pending_counter = MagicMock()
+    stream_handler._metrics._queries_pending_counter = pending_counter
+    initial_request_ids = set(stream_handler._request_info_map)
+
+    with (
+        patch("server.rtvi_stream_handler.MediaFileInfo.get_info", return_value=media_info),
+        patch("server.rtvi_stream_handler.get_tracer", return_value=None),
+        patch.object(stream_handler, "_trigger_query", side_effect=RuntimeError("setup failed")),
+        pytest.raises(RuntimeError, match="setup failed"),
+    ):
+        stream_handler.query([asset], query)
+
+    assert set(stream_handler._request_info_map) == initial_request_ids
+    assert asset.use_count == 0
+    pending_counter.add.assert_has_calls([call(1), call(-1)])
 
 
 class TestMetrics:
