@@ -194,7 +194,18 @@ Agent Compose derives the agent's HTTP backends from the origin —
 `VST_EXTERNAL_URL` stays on `VSS_PUBLIC_*`. Non-HTTP data planes — Kafka, Redis,
 RTSP, raw media — are out of scope and keep their own addressing.
 
-Same-bridge check (native Compose; no helper script):
+Some process-local and bootstrap HTTP settings also remain on Docker DNS by
+design. `services/alert/alert.env` addresses the alert-bridge process itself;
+`services/vios/vst.env` is VST's own internal identity; Logstash, Kibana,
+`elasticsearch-init`, and analytics writers use Elasticsearch operations that
+the gateway ACL intentionally rejects. These are backend/service definitions,
+not agent defaults, and the endpoint lint excludes them.
+
+### Colocated and remote agents
+
+For a colocated agent, use the ordinary profile Compose files. The agent joins
+the deployment bridge and defaults to `http://vss.local:7777`; the bridge alias
+is published by HAProxy, not by the caller:
 
 ```bash
 cd deploy/docker
@@ -202,12 +213,17 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file developer-profiles/dev-profile-alerts/.env \
   --env-file developer-profiles/dev-profile-alerts/overrides.env \
-  config vss-agent vss-va-mcp vss-haproxy-ingress
+  up --detach vss-agent
 ```
 
-After `up -d`, from a container on the bridge:
+Check the rendered colocated contract, then verify it from the bridge:
 
 ```bash
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-alerts/.env \
+  --env-file developer-profiles/dev-profile-alerts/overrides.env \
+  config vss-agent vss-va-mcp vss-haproxy-ingress
 docker exec vss-agent getent hosts vss.local
 docker exec vss-agent curl -fsS http://vss.local:7777/va-mcp/health
 docker exec vss-agent curl -fsS http://vss.local:7777/elasticsearch/
@@ -226,17 +242,59 @@ vss configure --base-url "${VSS_PUBLIC_URL}"   # never http://vss.local:7777
 vss configure check
 ```
 
-Off-bridge: set `VSS_GATEWAY_HOST` and `VSS_GATEWAY_ORIGIN` to the externally
-resolvable name (and TLS scheme/port), then pass `-f compose.gateway-alias.yml`
-only when you also want that hostname aliased on the Compose network.
+To run the agent on another host against an already-running stack, copy
+`remote-agent.env.example` to a private operator file and replace every
+placeholder. `VSS_GATEWAY_ORIGIN` must be HTTP-reachable from that host, usually
+`http://<VSS_HOST_IP>:7777` or the deployment's public origin. Never use
+`vss.local`: it exists only on the deployment's Compose bridge.
+
+The remote overlay removes the agent's optional colocated dependencies, so the
+command starts exactly one service. It still uses the selected profile's agent
+config and image defaults:
 
 ```bash
-docker compose -f compose.yml -f compose.gateway-alias.yml \
+mkdir -p /absolute/path/to/remote-agent-data/agent_eval
+
+docker compose -f compose.yml -f compose.remote-agent.yml \
   --env-file containers.env \
   --env-file developer-profiles/dev-profile-alerts/.env \
   --env-file developer-profiles/dev-profile-alerts/overrides.env \
-  config vss-haproxy-ingress
+  --env-file /secure/path/remote-agent.env \
+  up --detach vss-agent
 ```
+
+The profile's `VSS_AGENT_CONFIG_FILE` selects base, alerts, search, or LVS
+behavior. Model APIs are not gateway mounts; if that workflow uses an LLM or
+VLM, the remote env file must replace profile-local model Docker names with
+origins reachable from the remote host.
+
+Before starting, validate DNS and every gateway path the selected agent needs:
+
+```bash
+set -a
+. /secure/path/remote-agent.env
+set +a
+
+getent hosts "${VSS_GATEWAY_HOST}"
+curl -fsS "${VSS_GATEWAY_ORIGIN}/va-mcp/health"
+curl -fsS "${VSS_GATEWAY_ORIGIN}/vst/api/v1/sensor/streams"
+curl -fsS "${VSS_GATEWAY_ORIGIN}/elasticsearch/"
+```
+
+Then configure the host-side CLI with the public origin. The CLI does not read
+service endpoints from process environment and must not be pointed at
+`vss.local`:
+
+```bash
+vss configure --base-url "${VSS_PUBLIC_URL}"
+vss configure check
+```
+
+On Brev, this is intentionally two origins: deployment containers keep
+`http://vss.local:7777`, while the remote agent and host CLI use the HTTPS
+secure-link `VSS_PUBLIC_URL`. TLS termination and production authentication or
+mTLS policy remain external ingress/operator concerns; this Compose path does
+not add either.
 
 Gateway path contract (HAProxy). Callers use `${VSS_GATEWAY_ORIGIN}<mount>` then
 the service's own path. Prefix is stripped only where the backend does not
