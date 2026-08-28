@@ -127,6 +127,12 @@ frontend fe_http
     acl known_host hdr(host) -i "${HOST_IP}"
     acl known_host hdr(host) -i "${HOST_IP}:${HAPROXY_PORT}"
     acl known_host hdr(host) -i localhost
+    # The UI's media proxy reaches the ingress container-to-container, so the
+    # Host it sends is the compose service name. Node's fetch will not let the
+    # proxy override Host, so the ingress has to accept it or every proxied
+    # thumbnail is denied 404 by the known_host guard.
+    acl known_host hdr(host) -i vss-haproxy-ingress
+    acl known_host hdr(host) -i "vss-haproxy-ingress:${HAPROXY_PORT}"
     acl known_host hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl known_host hdr(host) -i 127.0.0.1
     acl known_host hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
@@ -138,6 +144,12 @@ frontend fe_http
     acl h_main hdr(host) -i "${EXTERNAL_IP}:${HAPROXY_PORT}"
     acl h_main hdr(host) -i "${HOST_IP}"
     acl h_main hdr(host) -i "${HOST_IP}:${HAPROXY_PORT}"
+    # Same reason as the known_host entry: the UI's media proxy calls the
+    # ingress by compose service name, and backend selection keys off h_main,
+    # so without this every proxied request passes the host guard and then
+    # falls through to no backend (503).
+    acl h_main hdr(host) -i vss-haproxy-ingress
+    acl h_main hdr(host) -i "vss-haproxy-ingress:${HAPROXY_PORT}"
     acl h_main hdr(host) -i localhost
     acl h_main hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl h_main hdr(host) -i 127.0.0.1
@@ -239,6 +251,9 @@ frontend fe_http
     acl p_api_vss_chat path /api/vss-chat
     acl p_api_vss_chat path_beg /api/vss-chat/
     use_backend bk_vss_ui if h_main p_api_vss_chat
+
+    acl p_api_proxy path_beg /api/proxy/
+    use_backend bk_vss_ui if h_main p_api_proxy
 
     acl p_api path /api
     acl p_api path_beg /api/

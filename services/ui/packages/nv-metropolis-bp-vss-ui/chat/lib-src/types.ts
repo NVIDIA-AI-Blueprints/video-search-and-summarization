@@ -48,7 +48,11 @@ export interface ChatEndpointConfig {
  * package knowing anything about them. Returning true means the handler
  * consumed the answer.
  */
-export type ChatAnswerHandler = (answer: string) => boolean | void;
+export type ChatAnswerHandler = (
+  answer: string,
+  /** Scopes any per-conversation artifact the consumer fetches for this answer. */
+  conversationId: string,
+) => boolean | void;
 
 export interface ChatPanelProps {
   endpoint: Omit<ChatEndpointConfig, 'conversationId'> & {

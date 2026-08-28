@@ -567,7 +567,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           endpoint={{ url: vssChatConfig('sidebar').url }}
           title={vssChatConfig('sidebar').title}
           theme={theme === 'dark' ? 'dark' : 'light'}
-          onAnswer={(answer: string) => {
+          onAnswer={(answer: string, conversationId: string) => {
             // Feature tabs still receive the prose answer.
             handleSidebarAnswerCompleteWithContent(answer);
             // Search results reach the Search tab out of band. The existing
@@ -578,7 +578,12 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
             // parser already understands.
             void (async () => {
               try {
-                const r = await fetch('/api/vss-chat?surface=sidebar');
+                // Scoped to this conversation: the adapter's store is
+                // process-wide, so an unscoped read can return another
+                // conversation's media.
+                const r = await fetch(
+                  `/api/vss-chat?surface=sidebar&conversation=${encodeURIComponent(conversationId)}`,
+                );
                 if (!r.ok) return;
                 const last = await r.json();
                 if (!last?.data?.length) return;

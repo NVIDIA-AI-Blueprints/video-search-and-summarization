@@ -15,6 +15,13 @@
  * via Cloudflare).
  *
  * Set VSS_INGRESS_ORIGIN to point at the ingress; defaults to the local one.
+ *
+ * SCOPE: deliberately narrow. This route is reachable from the public internet
+ * and reaches the ingress by its internal address, which haproxy leaves
+ * unauthenticated -- so an unrestricted catch-all would let anyone relay
+ * arbitrary methods and paths to internal APIs (Elasticsearch writes, for one)
+ * with the public auth stripped off. It therefore forwards only safe methods to
+ * an allowlisted path prefix: the search-hit media it exists to serve.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -26,6 +33,19 @@ export const config = {
     responseLimit: false,
   },
 };
+
+/** Only these reach the ingress; everything else is refused. */
+const ALLOWED_METHODS = new Set(['GET', 'HEAD']);
+
+/**
+ * Path prefixes this proxy will relay. The sole caller is `proxyMediaUrl` in
+ * Home.tsx, rewriting `*_url` fields on search hits -- VST replay media. Widen
+ * only with a matching reason; every addition is publicly reachable.
+ */
+const ALLOWED_PREFIXES = (process.env.VSS_PROXY_ALLOWED_PREFIXES || '/vst/')
+  .split(',')
+  .map((p) => p.trim())
+  .filter(Boolean);
 
 const HOP_BY_HOP = new Set([
   'connection',
@@ -59,9 +79,23 @@ async function readBody(req: NextApiRequest): Promise<Buffer | undefined> {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!ALLOWED_METHODS.has((req.method || '').toUpperCase())) {
+    res.status(405).json({ error: 'method not allowed' });
+    return;
+  }
+
   const segments = Array.isArray(req.query.path) ? req.query.path : [req.query.path ?? ''];
   const search = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-  const target = `${INGRESS}/${segments.join('/')}${search}`;
+  const path = `/${segments.join('/')}`;
+
+  // Resolve before checking so `..` cannot walk out of an allowed prefix.
+  const normalised = new URL(path, 'http://placeholder').pathname;
+  if (!ALLOWED_PREFIXES.some((prefix) => normalised.startsWith(prefix))) {
+    res.status(403).json({ error: 'path not permitted by proxy allowlist' });
+    return;
+  }
+
+  const target = `${INGRESS}${normalised}${search}`;
 
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers)) {

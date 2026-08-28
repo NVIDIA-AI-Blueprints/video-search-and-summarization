@@ -95,7 +95,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     [endpoint, conversationId],
   );
 
-  const handleAnswer = useCallback((answer: string) => onAnswer?.(answer), [onAnswer]);
+  // The conversation goes with the answer: consumers fetch per-conversation
+  // artifacts, and a process-wide 'last result' would cross conversations.
+  const handleAnswer = useCallback(
+    (answer: string) => onAnswer?.(answer, conversationId),
+    [onAnswer, conversationId],
+  );
   const { messages, busy, send, abort } = useChatStream(config, handleAnswer);
 
   const [draft, setDraft] = useState('');

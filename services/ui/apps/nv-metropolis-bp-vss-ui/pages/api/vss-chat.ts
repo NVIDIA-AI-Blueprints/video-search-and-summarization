@@ -40,8 +40,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       /\/chat\/stream$/,
       '',
     );
+    // Forward the conversation so the adapter serves only that conversation's
+    // result rather than whatever ran last, process-wide.
+    const conversation = String(req.query.conversation ?? '');
+    const qs = conversation ? `?conversation=${encodeURIComponent(conversation)}` : '';
     try {
-      const upstream = await fetch(`${base}/v1/search/last`);
+      const upstream = await fetch(`${base}/v1/search/last${qs}`);
       res.status(upstream.status).json(await upstream.json());
     } catch (err) {
       res.status(502).json({
