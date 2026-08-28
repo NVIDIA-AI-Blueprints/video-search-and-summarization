@@ -61,8 +61,6 @@ nims:
   enabled: false
   nemotron35:
     enabled: false
-  nemotron35:
-    enabled: false
   cosmos3:
     enabled: false
 
