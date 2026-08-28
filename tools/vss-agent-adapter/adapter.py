@@ -20,7 +20,7 @@ Gateway protocol notes (discovered empirically against OpenClaw 2026.6.10):
   - sessions.messages.subscribe takes {"key": ...}, chat.send takes
     {"sessionKey", "message", "idempotencyKey"}
 """
-import io, ipaddress, json, os, queue, re, select, shutil, socket, subprocess, tarfile, threading, time, urllib.request, uuid
+import hashlib, hmac, io, ipaddress, json, os, queue, re, select, shutil, socket, subprocess, tarfile, threading, time, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import websocket
 
@@ -41,6 +41,37 @@ HOST_ALIAS = os.environ.get("VSS_HOST_ALIAS", "host.openshell.internal")
 # needs real translation; "hermes" already exposes an OpenAI-compatible API, so
 # its driver is mostly a passthrough that adds auth and the bootstrap.
 AGENT_BACKEND = os.environ.get("AGENT_BACKEND", "openclaw").strip().lower()
+
+# How the conversation is identified to the harness.
+#
+# Default is the OpenAI `user` body field, which OpenClaw and Hermes both
+# accept and both derive a stable session from -- so the common case needs no
+# configuration and stays vendor-neutral. Harnesses that want their own name or
+# a header instead are handled by config rather than code:
+#   AGENT_SESSION_FIELD=x-openclaw-session-key AGENT_SESSION_IN=header
+#   AGENT_SESSION_FIELD=conversation           AGENT_SESSION_IN=body
+# Set AGENT_SESSION_FIELD empty to send nothing.
+AGENT_SESSION_FIELD = os.environ.get("AGENT_SESSION_FIELD", "user").strip()
+AGENT_SESSION_IN = os.environ.get("AGENT_SESSION_IN", "body").strip().lower()
+
+# Stable across restarts only if set. Left unset the value is random per
+# process, which costs continuity after a restart but never reuses an
+# identity a previous process handed out.
+_SESSION_SALT = (os.environ.get("AGENT_SESSION_SALT", "").encode()
+                 or os.urandom(32))
+
+
+def session_identity(session_key: str) -> str:
+    """Opaque conversation identity derived here, never taken from the caller.
+
+    OpenClaw does not validate session-key ownership (openclaw#11793, CVSS 8.1,
+    closed as not planned) and its keys are predictable, so forwarding a
+    client-supplied conversation id would let one caller land on another's
+    session and read or drive it. Keying an HMAC with a process secret makes the
+    value unguessable and untargetable, while staying stable for a conversation.
+    """
+    digest = hmac.new(_SESSION_SALT, session_key.encode(), hashlib.sha256)
+    return f"{SESSION_PREFIX}-{digest.hexdigest()[:32]}"
 HERMES_API_URL = os.environ.get(
     "HERMES_API_URL", "http://127.0.0.1:8642/v1/chat/completions")
 HERMES_TOKEN = os.environ.get("HERMES_TOKEN", "").strip()
@@ -593,10 +624,15 @@ def run_turn_responses(message, session_key, out, cancel=None, *,
     """
     if _first_turn(session_key):
         message = BOOTSTRAP_TEXT() + message
-    body = json.dumps({"model": model, "input": message,
-                       "stream": True}).encode()
+    payload = {"model": model, "input": message, "stream": True}
+    identity = session_identity(session_key)
+    if AGENT_SESSION_FIELD and AGENT_SESSION_IN == "body":
+        payload[AGENT_SESSION_FIELD] = identity
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
+    if AGENT_SESSION_FIELD and AGENT_SESSION_IN == "header":
+        req.add_header(AGENT_SESSION_FIELD, identity)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     sentinels = SentinelFilter()

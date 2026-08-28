@@ -52,6 +52,9 @@ OPENCLAW_GATEWAY_TOKEN="$(nemoclaw <sandbox> gateway-token | head -1)" \
 | `ADAPTER_ALLOW_CIDRS` | `127.0.0.1/32,::1/128,172.16.0.0/12` | callers allowed to reach the adapter |
 | `ADAPTER_TOKEN` | *(unset)* | if set, required via `Authorization: Bearer`, `X-Adapter-Token`, or `?token=` |
 | `ADAPTER_SSE_KEEPALIVE` | `15` | seconds between SSE keepalive comments |
+| `AGENT_SESSION_FIELD` | `user` | how the conversation is named to the harness; empty to send nothing |
+| `AGENT_SESSION_IN` | `body` | `body` or `header` |
+| `AGENT_SESSION_SALT` | *(random per process)* | set to keep conversations continuous across restarts |
 | `AGENT_BACKEND` | `openclaw` | `openclaw` (WebSocket gateway) or `hermes` (OpenAI-compatible API) |
 | `HERMES_API_URL` | `http://127.0.0.1:8642/v1/chat/completions` | Hermes agent API |
 | `HERMES_TOKEN` | *(unset)* | `nemoclaw <sandbox> gateway-token --quiet` |
@@ -65,6 +68,29 @@ creation, event translation.
 `AGENT_BACKEND=hermes` drives Hermes, which already exposes an OpenAI-compatible API on
 `:8642/v1`. That driver is ~60 lines and mostly passthrough: attach the bearer, prepend the
 bootstrap, re-emit deltas. Both can run at once on different ports.
+
+## Conversation identity
+
+OpenClaw and Hermes both accept the OpenAI `user` body field and derive a stable
+session from it, so the default needs no configuration and stays vendor-neutral. Both
+also offer their own names, which differ (`x-openclaw-session-key` vs
+`X-Hermes-Session-Key`, `user` vs `conversation`) and sit in different places — so the
+name and its location are config, not code:
+
+```bash
+AGENT_SESSION_FIELD=x-openclaw-session-key AGENT_SESSION_IN=header
+AGENT_SESSION_FIELD=conversation           AGENT_SESSION_IN=body
+```
+
+Verified live in all three combinations: `user` on OpenClaw, `user` on Hermes, and
+`x-openclaw-session-key` as a header on OpenClaw.
+
+**The value is derived here, never forwarded from the caller.** OpenClaw does not
+validate session-key ownership ([openclaw#11793](https://github.com/openclaw/openclaw/issues/11793),
+CVSS 8.1, closed as not planned) and its keys are predictable, so passing a
+client-supplied conversation id straight through would let one caller land on another's
+session and read or drive it. The id is HMAC'd with a process secret first, which keeps
+it stable per conversation while making it unguessable.
 
 ## Access control
 
