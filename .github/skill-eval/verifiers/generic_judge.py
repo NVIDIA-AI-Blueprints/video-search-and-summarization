@@ -547,7 +547,11 @@ def _scrub_secrets(text: str) -> str:
     # Longest first, so a secret containing another leaves no usable tail.
     values = sorted(
         (v for k, v in os.environ.items()
-         if _SECRET_ENV_NAME.search(k) and v and len(v) >= _MIN_SECRET_LEN),
+         if _SECRET_ENV_NAME.search(k) and v and len(v) >= _MIN_SECRET_LEN
+         # A value that is a substring of the marker (e.g. TOKEN=REDACTED)
+         # would grow "[REDACTED]" on every pass; masking it is a no-op
+         # security-wise and breaks idempotency.
+         and v not in _REDACTED),
         key=len, reverse=True)
     for value in values:
         if value in text:

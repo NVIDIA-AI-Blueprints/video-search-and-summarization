@@ -188,12 +188,12 @@ class TestReportBoundary:
         """The comment posts from this render during the agent step, before
         the workflow pack step — the gate must run first, and both writes
         must come out clean."""
-        gate = {"ran_before_read": None}
+        order = []
         monkeypatch.setattr(redact_secrets, "redact_tree",
-                            lambda root: ["clean: no redactions needed"])
+                            lambda root: order.append("redact") or ["clean"])
 
         def fake_collect(root):
-            gate["ran_before_read"] = True
+            order.append("read")
             return {"trials": [{"checks": []}]}
         monkeypatch.setattr(leg_report, "collect_leg", fake_collect)
         monkeypatch.setattr(leg_report, "spec_steps", lambda f: 1)
@@ -207,7 +207,8 @@ class TestReportBoundary:
         out, summary = tmp_path / "body.md", tmp_path / "leg-summary.json"
         rc = leg_report.main(["--results-root", str(tmp_path),
                               "--out", str(out), "--summary-json", str(summary)])
-        assert rc == 0 and gate["ran_before_read"]
+        assert rc == 0 and order == ["redact", "read"], \
+            "the gate must run before anything reads the tree"
         assert FAKE_KEY not in out.read_text()
         assert "nvapi-[REDACTED]" in out.read_text()
         s = summary.read_text()
@@ -241,7 +242,7 @@ class TestRoundFourGuards:
         lines = redact_secrets.redact_tree(tmp_path)
         text = f.read_text()
         assert "wJalrXUtnFAKESECRET" not in text and "quarantined" in text
-        assert any("unmatched" in l for l in lines)
+        assert any("incomplete match" in l for l in lines)
 
     def test_unmappable_finding_is_fatal(self, tmp_path, monkeypatch):
         bad = {"Raw": "x" * 20, "DetectorName": "X", "SourceMetadata": {}}
@@ -290,3 +291,83 @@ class TestRoundFourGuards:
         without it a partly-unscanned tree exits 0 and publishes."""
         assert "--fail-on-scan-errors" in redact_secrets._TRUFFLEHOG_ARGS
         assert "--no-verification" in redact_secrets._TRUFFLEHOG_ARGS
+
+
+class TestRoundFiveGuards:
+    def test_partial_multipart_match_still_quarantines(self, tmp_path, monkeypatch):
+        """THE round-3/4 bug: Raw (the id) matches and is replaced, RawV2
+        (id:secret) does not because the halves sit on different lines.
+        Replacing the id blinds the rescan while the secret survives — the
+        finding is neutralized only if its COMPLETE representation (RawV2)
+        was replaced."""
+        f = tmp_path / "trial.log"
+        f.write_text("id AKIAFAKEID0000\nsecret wJalrXUtnFAKESECRET\n")
+        finding = _finding(f, "AKIAFAKEID0000", "AWS")
+        finding["RawV2"] = "AKIAFAKEID0000:wJalrXUtnFAKESECRET"
+        calls = {"n": 0}
+
+        def fake_scan(root):
+            calls["n"] += 1
+            return [finding] if calls["n"] == 1 else []
+        monkeypatch.setattr(redact_secrets, "_scan", fake_scan)
+        lines = redact_secrets.redact_tree(tmp_path)
+        text = f.read_text()
+        assert "wJalrXUtnFAKESECRET" not in text and "quarantined" in text
+        assert any("incomplete match" in l for l in lines)
+
+    def test_full_rawv2_match_is_not_quarantined(self, tmp_path, monkeypatch):
+        """When the composite itself occurs literally, replacement covers
+        both halves and quarantine would be a false positive."""
+        f = tmp_path / "trial.log"
+        f.write_text("cred AKIAFAKEID0000:wJalrXUtnFAKESECRET here\n")
+        finding = _finding(f, "AKIAFAKEID0000", "AWS")
+        finding["RawV2"] = "AKIAFAKEID0000:wJalrXUtnFAKESECRET"
+        calls = {"n": 0}
+
+        def fake_scan(root):
+            calls["n"] += 1
+            return [finding] if calls["n"] == 1 else []
+        monkeypatch.setattr(redact_secrets, "_scan", fake_scan)
+        lines = redact_secrets.redact_tree(tmp_path)
+        text = f.read_text()
+        assert "wJalrXUtnFAKESECRET" not in text and "quarantined" not in text
+        assert not any("quarantined:" in l for l in lines)
+
+    def test_bad_metadata_fatal_even_when_literal_replaced(self, tmp_path, monkeypatch):
+        """Findings are pinned to files BEFORE any rewrite: replacement can
+        blind the rescan, after which bad metadata would never be checked."""
+        f = tmp_path / "a.txt"
+        f.write_text("tok " + "x" * 20)
+        bad = {"Raw": "x" * 20, "DetectorName": "X", "SourceMetadata": {}}
+        monkeypatch.setattr(redact_secrets, "_scan", lambda root: [bad])
+        with pytest.raises(RuntimeError, match="without a file path"):
+            redact_secrets.redact_tree(tmp_path)
+        assert "x" * 20 in f.read_text(), "no rewrite before validation"
+
+    def test_file_symlink_replaced_not_followed(self, tmp_path, monkeypatch):
+        outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+        outside.write_text(f"precious {FAKE_KEY}")
+        tree = tmp_path / "tree"; tree.mkdir()
+        (tree / "link.txt").symlink_to(outside)
+        monkeypatch.setattr(redact_secrets, "_scan", lambda root: [])
+        lines = redact_secrets.redact_tree(tree)
+        assert outside.read_text() == f"precious {FAKE_KEY}", \
+            "the gate must never write outside the tree"
+        assert not (tree / "link.txt").is_symlink()
+        assert "symlink removed" in (tree / "link.txt").read_text() + str(lines)
+
+    def test_dir_symlink_not_traversed(self, tmp_path, monkeypatch):
+        outside_dir = tmp_path.parent / f"{tmp_path.name}-outdir"
+        outside_dir.mkdir()
+        victim = outside_dir / "victim.txt"
+        victim.write_text(f"target {FAKE_KEY}")
+        tree = tmp_path / "tree"; tree.mkdir()
+        (tree / "sub").symlink_to(outside_dir)
+        monkeypatch.setattr(redact_secrets, "_scan", lambda root: [])
+        redact_secrets.redact_tree(tree)
+        assert victim.read_text() == f"target {FAKE_KEY}"
+        assert not (tree / "sub").is_symlink()
+
+    def test_judge_marker_idempotent(self, monkeypatch):
+        monkeypatch.setenv("WEIRD_TOKEN", "REDACTED")
+        assert judge._scrub_secrets("[REDACTED]") == "[REDACTED]"

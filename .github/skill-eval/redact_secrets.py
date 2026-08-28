@@ -180,6 +180,28 @@ def _finding_file(finding: dict, target: Path) -> Path:
     return resolved
 
 
+def _neutralize_symlinks(root: Path) -> list[str]:
+    """Replace every symlink in the tree with a stub, links first.
+
+    The rewriter and the quarantine both write through paths; a symlink would
+    make this security gate mutate a file elsewhere on the runner, a
+    directory symlink would let rglob edit files outside the tree, and the
+    link target string itself is archive metadata that can carry a secret no
+    content scan sees. Depth-first so a link inside a linked directory is
+    never traversed.
+    """
+    lines = []
+    links = sorted((p for p in root.rglob("*") if p.is_symlink()),
+                   key=lambda p: len(p.parts), reverse=True)
+    for link in links:
+        link.unlink()
+        link.write_text(
+            "[REDACTED: symlink removed by redact_secrets.py -- targets are "
+            "not part of the published tree]\n", encoding="utf-8")
+        lines.append(f"symlink removed: {link.relative_to(root)}")
+    return lines
+
+
 def redact_text(text: str, extra_secrets: list[str] | None = None) -> str:
     """Mask known secret values and secret-shaped tokens in one string."""
     for value in (extra_secrets or []):
@@ -225,6 +247,8 @@ def _replace_literals(root: Path, secrets: list[str]) -> tuple[list[str], set[st
     lines: list[str] = []
     replaced: set[str] = set()
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        if path.is_symlink():  # pre-pass removes these; never write through one
+            continue
         try:
             original = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
@@ -278,30 +302,41 @@ def redact_tree(root: Path) -> list[str]:
     and detectors, never secret values.
     """
     root = Path(root)
+    summary = _neutralize_symlinks(root)
     findings = _scan(root)
+    # Every finding is pinned to a file inside the tree BEFORE any rewrite:
+    # replacement can blind the rescan, after which a finding with missing
+    # or escaping metadata would never be checked at all.
+    located = [(f, _finding_file(f, root)) for f in findings]
     secrets = sorted(
         {s for f in findings for s in (f.get("Raw"), f.get("RawV2"))
          if isinstance(s, str) and len(s) >= _MIN_SECRET_LEN},
         key=len, reverse=True)
-    summary = [f"trufflehog: {len(findings)} finding(s), "
-               f"{len(secrets)} distinct value(s)"]
+    summary.insert(len(summary), f"trufflehog: {len(findings)} finding(s), "
+                                 f"{len(secrets)} distinct value(s)")
     lines, replaced = _replace_literals(root, secrets)
     summary += lines
     if not findings:
-        if len(summary) == 1:
+        if len(summary) <= 1:
             summary.append("clean: no redactions needed")
         return summary
 
-    # Multipart guard: a finding whose values never matched literally hides
-    # its secret half from the rescan once the identifier half is gone, so
-    # the source file is quarantined on the initial finding's evidence.
-    for f in findings:
-        values = [s for s in (f.get("Raw"), f.get("RawV2"))
-                  if isinstance(s, str) and len(s) >= _MIN_SECRET_LEN]
-        if values and not any(v in replaced for v in values):
-            path = _finding_file(f, root)
+    # Multipart guard, judged per finding on its COMPLETE representation.
+    # TruffleHog's Raw is often only the identifier half of a credential and
+    # RawV2 the identifier+secret composite (AWS: `id` vs `id:secret`). When
+    # the halves sit on different lines, replacing the identifier blinds the
+    # rescan while the secret half survives — so replacing only Raw is not
+    # enough: the finding counts as neutralized only if its RawV2 (when it
+    # has one) was itself replaced somewhere.
+    for f, path in located:
+        raw, rawv2 = f.get("Raw"), f.get("RawV2")
+        required = next(
+            (v for v in (rawv2, raw)
+             if isinstance(v, str) and len(v) >= _MIN_SECRET_LEN), None)
+        if required is not None and required not in replaced:
             summary.append(_quarantine(
-                path, root, [f"{f.get('DetectorName') or 'unknown'} (unmatched)"]))
+                path, root,
+                [f"{f.get('DetectorName') or 'unknown'} (incomplete match)"]))
 
     # Rescan: representations the literal pass cannot reach.
     survivors: dict[Path, list[str]] = {}
