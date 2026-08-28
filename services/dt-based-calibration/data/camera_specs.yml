@@ -18,4 +18,3 @@ cameras:
     carla_map: HQ
     fps: 30
     geo_position: true
-    
