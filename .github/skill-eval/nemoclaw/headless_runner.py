@@ -20,6 +20,16 @@ _SESSION_PATH = re.compile(
     r"/sandbox/\.openclaw/agents/main/sessions/[A-Za-z0-9._-]+\.jsonl"
 )
 
+# GatewayClientRequestError when a route does not accept the requested thinking
+# level, e.g. `Thinking level "low" is not supported for
+# inference/aws/anthropic/bedrock-claude-opus-5. Use one of: off.` The capture
+# group holds the comma-separated levels the gateway does advertise.
+# The route id may itself contain dots (nvidia/nvidia/nemotron-3.5-lightning),
+# so match lazily up to the level list rather than to the first period.
+_THINKING_UNSUPPORTED = re.compile(
+    r"Thinking level \"[^\"]*\" is not supported.*?Use one of:\s*([^.]+)\."
+)
+
 
 def _load_env_file(path: Path) -> None:
     if not path.exists():
@@ -230,27 +240,54 @@ def _run_openclaw(
 ) -> tuple[dict[str, Any], str]:
     session_id = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid.uuid4().hex}"
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1"
-    # Thinking is ON by default: the agent-under-eval drives multi-step skills
-    # (deploy + configure + verify), and reasoning models (e.g. Nemotron
-    # Lightning) rely on the thinking trace. Running with thinking off makes the
-    # agent drop sub-steps and unfairly handicaps reasoning models. Overridable
-    # via NEMOCLAW_AGENT_THINKING (on|off) for tuning without a code change.
-    thinking = (os.environ.get("NEMOCLAW_AGENT_THINKING") or "on").strip() or "on"
-    command = (
-        "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
-        f"export NO_PROXY={shlex.quote(no_proxy)}; "
-        f"export no_proxy={shlex.quote(no_proxy)}; "
-        "export NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem; "
-        "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
-        f"openclaw agent --agent main --thinking {shlex.quote(thinking)} --json "
-        f"--timeout {int(timeout)} "
-        f"--session-id {shlex.quote(session_id)} "
-        f"--message {shlex.quote(prompt)}"
-    )
-    result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
+    # Thinking is OFF by default. `--thinking on` resolves to level "low" before
+    # it reaches the gateway, and the NemoClaw routes we eval against advertise
+    # only "off" -- both nvidia/nvidia/nemotron-3.5-lightning and
+    # aws/anthropic/bedrock-claude-opus-5 reject "low" with
+    # GatewayClientRequestError, so the agent exits 1 having taken zero turns.
+    # Overridable via NEMOCLAW_AGENT_THINKING (on|off); _run_openclaw falls back
+    # to a level the gateway advertises if the requested one is refused, so this
+    # default can be flipped back once the routes support a thinking level.
+    thinking = (os.environ.get("NEMOCLAW_AGENT_THINKING") or "off").strip() or "off"
+
+    def agent_command(level: str) -> str:
+        return (
+            "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
+            f"export NO_PROXY={shlex.quote(no_proxy)}; "
+            f"export no_proxy={shlex.quote(no_proxy)}; "
+            "export NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem; "
+            "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
+            f"openclaw agent --agent main --thinking {shlex.quote(level)} --json "
+            f"--timeout {int(timeout)} "
+            f"--session-id {shlex.quote(session_id)} "
+            f"--message {shlex.quote(prompt)}"
+        )
+
+    result = _nemoclaw_exec(sandbox, agent_command(thinking), timeout=timeout + 120)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "")[-1000:]
-        raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
+        # The gateway names the levels it accepts. Retry once on the first one
+        # rather than failing the leg on a route capability we can read off the
+        # error -- the agent exits before taking a turn, so nothing is repeated.
+        offered = _THINKING_UNSUPPORTED.search(detail)
+        levels = (
+            [item.strip() for item in offered.group(1).split(",") if item.strip()]
+            if offered
+            else []
+        )
+        if not levels or levels[0] == thinking:
+            raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
+        print(
+            f"Gateway refused thinking level {thinking!r}; "
+            f"retrying with {levels[0]!r} (advertised: {', '.join(levels)})",
+            file=sys.stderr,
+            flush=True,
+        )
+        thinking = levels[0]
+        result = _nemoclaw_exec(sandbox, agent_command(thinking), timeout=timeout + 120)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "")[-1000:]
+            raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
     envelope = _json_object(result.stdout)
     session = _sandbox_exec(
         sandbox,

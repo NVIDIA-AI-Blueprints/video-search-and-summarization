@@ -319,6 +319,11 @@ def write_runtime_environment(
         "HOST_INTERNAL_ALIAS": environment["HOST_INTERNAL_ALIAS"],
         "HARDWARE_PROFILE": environment.get("HARDWARE_PROFILE", "RTXPRO6000BW"),
     }
+    # headless_runner.py reads this from the env file, not the process env, so
+    # an override set on the dispatch never reaches the agent without this line.
+    thinking = environment.get("NEMOCLAW_AGENT_THINKING", "").strip()
+    if thinking:
+        values["NEMOCLAW_AGENT_THINKING"] = thinking
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "".join(
