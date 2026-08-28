@@ -200,6 +200,10 @@ agent:
   enabled: true
   vss-agent:
     enabled: true
+    # Search / summarization runs outlast the controller default; this backend
+    # carries its own server timeout instead of the ingress imposing one on
+    # every route.
+    ingressTimeoutServer: "3600s"
     # Subchart: keep `lvs` for deployment/env wiring (not used for ConfigMap paths).
     profile: lvs
     mountConfigEdge: false
@@ -450,18 +454,33 @@ vssIngress:
   enabled: false
   ingressClassName: haproxy
   host: ""
+  # Backend ports for the canonical route table (deploy/helm/services/common).
+  # Every service is mounted at its own name — LVS at /lvs, RT-VLM at
+  # /rtvi-vlm, Elasticsearch at /elasticsearch — which are the paths the Docker
+  # edge publishes and `vss configure` records. Neither LVS nor RT-VLM owns the
+  # origin root any more: use /lvs/v1/summarize and /rtvi-vlm/v1/models.
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
-  # Exact public API paths: /v1/ready and /v1/summarize route to LVS;
-  # /v1/models and /v1/chat/completions route to RT-VLM.
   lvsBackendPort: 38111
   rtviVlmPort: 8000
-  # CLI edge routes for `vss configure` discovery. Off by default -- see the
-  # comment in templates/vss-ingress.yaml for what enabling it exposes.
-  cliRoutes:
-    enabled: false
-    elasticsearchPort: 9200
+  vaMcpPort: 9901
+  # /elasticsearch is mounted whenever infra.elasticsearch is deployed. The edge
+  # guard is on the Elasticsearch Service (infra.elasticsearch.ingressGuard),
+  # not here, so it binds to that one backend. It denies PUT/DELETE,
+  # cluster-admin paths and the two-segment mutating operations, and allows a
+  # PUT to a unified-memory document path — but POST is allowed, so _bulk,
+  # _reindex and /<index>/_doc still reach Elasticsearch, exactly as on the
+  # Docker edge. This is not a read-only endpoint.
+  elasticsearchPort: 9200
+  # Rendered for continuity with earlier releases, but inert: this controller
+  # reads timeout-client only from its own ConfigMap, never from an Ingress
+  # annotation. Raising it is a cluster-wide controller setting, outside this
+  # chart. Server-side timeouts do work per backend and are set on the Services
+  # that need them (vss-summarization, vss-rtvi-vlm, vss-agent); set
+  # timeoutServer only to impose an ingress-wide floor on every backend as well.
+  timeoutClient: "3600s"
+  timeoutServer: ""
   # Optional; default kibana.<global.externalHost or vssIngress.host>.
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
@@ -483,6 +502,9 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
+    # Long generations outlast the controller default; this backend carries its
+    # own server timeout instead of the ingress imposing one on every route.
+    ingressTimeoutServer: "3600s"
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
     sharedNimPort: "8000"
     # Wait for the LVS Kafka broker and RTVI topics created by infra.kafka.topicJob.

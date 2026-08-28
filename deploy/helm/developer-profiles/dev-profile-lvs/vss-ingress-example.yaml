@@ -13,115 +13,103 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Manual equivalent of what this chart's templates/vss-ingress.yaml renders, for a
+# cluster where you apply the Ingress yourself. Regenerate after changing routes:
+#
+#   helm template <RELEASE_NAME> ./dev-profile-lvs --set global.externalHost=<HOST> \
+#     --set global.useReleaseNamePrefix=true --show-only templates/vss-ingress.yaml
+#
+# Mounts come from the canonical route table in deploy/helm/services/common; keep
+# them in step with it and with the Docker edge (haproxy.cfg.template).
+#
+# Routes forwarded as-is. The prefix-stripping ones are in
+# vss-ingress-example-rewrites.yaml — apply both.
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  annotations:
   name: <RELEASE_NAME>-vss-ingress
   namespace: <NAMESPACE>
 spec:
   ingressClassName: haproxy
   rules:
-  - host: vss.<EXTERNAL_HOST>.nip.io # e.g. vss.10.57.209.221.nip.io, Value of global.externalHost in values-lvs.yaml
+  - host: vss.<EXTERNAL_HOST>.nip.io
     http:
       paths:
-      - backend:
+      - path: /api/chat
+        pathType: Prefix
+        backend:
           service:
             name: <RELEASE_NAME>-vss-agent-ui
             port:
               number: 3000
-        path: /api/chat
+      - path: /api
         pathType: Prefix
-      - backend:
+        backend:
           service:
             name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /api
+      - path: /chat
         pathType: Prefix
-      - backend:
+        backend:
           service:
             name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /chat
+      - path: /websocket
         pathType: Prefix
-      - backend:
+        backend:
           service:
             name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /websocket
+      - path: /static
         pathType: Prefix
-      - backend:
+        backend:
           service:
             name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /static
+      - path: /docs
         pathType: Prefix
-      - backend:
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /redoc
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /generate
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /openapi.json
+        pathType: Exact
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /vst
+        pathType: Prefix
+        backend:
           service:
             name: <RELEASE_NAME>-vss-vios-ingress
             port:
               number: 30888
-        path: /vst
+      - path: /
         pathType: Prefix
-      - backend:
+        backend:
           service:
             name: <RELEASE_NAME>-vss-agent-ui
             port:
               number: 3000
-        path: /
-        pathType: Prefix
-      - backend:
-          service:
-            name: <RELEASE_NAME>-vss-behavior-analytics-alerts
-            port:
-              number: 8080
-        path: /behavior-analytics
-        pathType: Prefix
-      - backend:
-          service:
-            name: <RELEASE_NAME>-perception-sdr-alerts
-            port:
-              number: 4001
-        path: /perception-sdr
-        pathType: Prefix
-      - backend:
-          service:
-            name: <RELEASE_NAME>-vss-va-mcp
-            port:
-              number: 9901
-        path: /va-mcp
-        pathType: Prefix
-  - host: streamer.vss.<EXTERNAL_HOST>.nip.io # e.g. streamer.vss.10.57.209.221.nip.io
-    http:
-      paths:
-      - backend:
-          service:
-            name: <RELEASE_NAME>-nvstreamer-alerts
-            port:
-              number: 31000
-        path: /
-        pathType: Prefix
-  - host: kibana.vss.<EXTERNAL_HOST>.nip.io # e.g. kibana.vss.10.57.209.221.nip.io, Value of global.kibanaPublicUrl in values-lvs.yaml
-    http:
-      paths:
-      - backend:
-          service:
-            name: <RELEASE_NAME>-kibana
-            port:
-              number: 5601
-        path: /
-        pathType: Prefix
-  - host: phoenix.YOUR_IP.nip.io
-    http:
-      paths:
-      - backend:
-          service:
-            name: vss-alerts-phoenix
-            port:
-              number: 6006
-        path: /
-        pathType: Prefix

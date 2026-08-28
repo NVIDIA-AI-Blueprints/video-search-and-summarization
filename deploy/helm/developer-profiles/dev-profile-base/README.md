@@ -135,12 +135,16 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** (when **`vios.vstStorage.createSharedPvcs`** is **`true`**), or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | `true` | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | `""` | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | `false` in chart **`values.yaml`**; **`true`** in sample **`values-base.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: one **`Ingress`** routing **`/`** and **`/api/chat`** to **vss-agent-ui**, **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** to **vss-agent**, **`/vst`** to **vss-vios-ingress**, and (if Phoenix is enabled) **`phoenix.<host>/`** to Phoenix. No effect if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
+| **`vssIngress.enabled`** | `false` in chart **`values.yaml`**; **`true`** in sample **`values-base.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: one **`Ingress`** whose mounts come from the [canonical route table](../../services/common/README.md) — **`/`** and **`/api/chat`** to **vss-agent-ui**, **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** (and **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`**) to **vss-agent**, **`/vst`** and **`/storage`** to **vss-vios-ingress**, **`/rtvi-vlm`** to RT-VLM, **`/phoenix`** to Phoenix, plus an optional **`phoenix.<host>/`** rule. A service this profile does not deploy is not mounted. No effect if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
 | **`vssIngress.ingressClassName`** | `haproxy` | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** that already exists (for example the class created by **HAProxy Kubernetes Ingress**). Use another name (e.g. **`nginx`**) if your controller uses a different class. |
 | **`vssIngress.host`** | `""` | Ingress hostname rule. If empty, **`global.externalHost`** is used. Set only when the Ingress hostname must differ from **`global.externalHost`**. |
 | **`vssIngress.vssUiPort`** | `3000` | Backend **`Service`** port for **vss-agent-ui** paths. |
 | **`vssIngress.vssAgentPort`** | `8000` | Backend **`Service`** port for **vss-agent** paths. |
-| **`vssIngress.vstIngressPort`** | `30888` | Backend **`Service`** port for **vss-vios-ingress** (**`/vst`**). |
+| **`vssIngress.vstIngressPort`** | `30888` | Backend **`Service`** port for **vss-vios-ingress** (**`/vst`**, **`/storage`**). |
+| **`vssIngress.rtviVlmServiceName`** | `vss-rtvi-vlm` | **`Service`** behind **`/rtvi-vlm`**. Empty falls back to **`agent.vss-agent.rtviVlmServiceName`**, then **`vss-rtvi-vlm`**. Do not use **`vlmNameSlug`** — with **`vlmNameSlug=none`** it names no **`Service`**. |
+| **`vssIngress.rtviVlmPort`** | `8000` | Backend **`Service`** port for RT-VLM. The OpenAI-compatible root is **`<host>/rtvi-vlm/v1`**, **not** **`<host>/v1`**. |
+| **`vssIngress.vaMcpPort`** | `9901` | Backend **`Service`** port for **vss-va-mcp** (**`/va-mcp`**), mounted when **`agent.vss-va-mcp.enabled`**. |
+| **`vssIngress.elasticsearchPort`** | `9200` | Backend **`Service`** port for **`/elasticsearch`**, mounted when **`infra.elasticsearch.enabled`** (off in this profile). |
 | **`vssIngress.phoenixHost`** | `""` | Second rule host for Phoenix. If empty, defaults to **`phoenix.<global.externalHost or vssIngress.host>`**. |
 | **`vssIngress.phoenixPort`** | `6006` | Backend **`Service`** port for Phoenix when the Phoenix subchart is enabled. |
 | **`agent.enabled`** | `true` | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
@@ -257,7 +261,8 @@ The chart can create a single Kubernetes **`Ingress`** (**`templates/vss-ingress
 
 - **`Ingress`** name **`<release>-vss-ingress`** in the release namespace.
 - **`spec.ingressClassName`**: from **`vssIngress.ingressClassName`** (default **`haproxy`**).
-- Path rules: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**; optional second host **`phoenix.<main-host>`** → Phoenix when Phoenix is enabled.
+- Path rules from the [canonical route table](../../services/common/README.md): **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`**, **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`** → **vss-agent**; **`/vst`** and **`/storage`** → **vss-vios-ingress**; **`/rtvi-vlm`** → RT-VLM; **`/phoenix`** → Phoenix; optional second host **`phoenix.<main-host>`** → Phoenix.
+- RT-VLM is reached at **`<host>/rtvi-vlm/v1`**. It is no longer published at the origin root (**`<host>/v1`**), so a client no longer has to know which profile answered to find it.
 
 After install, confirm the **`Ingress`** exists (replace **`<NAMESPACE>`** with your release namespace):
 

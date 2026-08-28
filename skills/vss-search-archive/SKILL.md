@@ -63,7 +63,6 @@ if [ -z "${VSS_ORIGIN:-}" ]; then
     }
 fi
 VSS_ORIGIN="${VSS_ORIGIN%/}"
-AGENT_URL="${VSS_ORIGIN}"
 VST_URL="${VSS_ORIGIN}"
 VSS_VIOS_URL="${VSS_ORIGIN}/vst"
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1

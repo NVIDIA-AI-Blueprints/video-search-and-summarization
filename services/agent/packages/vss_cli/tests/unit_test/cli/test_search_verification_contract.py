@@ -360,7 +360,7 @@ vss_stub() {{
   esac
 }}
 VSS=(vss_stub)
-AGENT_URL=https://public.example
+VSS_ORIGIN=https://public.example
 ES_URL=http://elasticsearch:9200
 SAVED_SENSOR_ID=sensor-1
 SAVED_SOURCE_NAME=warehouse-ladder

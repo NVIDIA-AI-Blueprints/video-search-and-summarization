@@ -519,13 +519,33 @@ vssIngress:
   enabled: true
   ingressClassName: haproxy
   host: ""
+  # Backend ports for the canonical route table (deploy/helm/services/common).
+  # Every service is mounted at its own name — /va-mcp, /alert-bridge,
+  # /elasticsearch, /rtvi-cv — which are the paths the Docker edge publishes
+  # and `vss configure` records. A service this profile does not deploy is
+  # simply not mounted.
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
   alertBridgePort: 9080
   # Public VA-MCP path: ${VSS_PUBLIC_URL}/va-mcp/mcp → vss-va-mcp:/mcp
   vaMcpPort: 9901
+  # /elasticsearch is mounted whenever infra.elasticsearch is deployed. The edge
+  # guard is on the Elasticsearch Service (infra.elasticsearch.ingressGuard),
+  # not here, so it binds to that one backend. It denies PUT/DELETE,
+  # cluster-admin paths and the two-segment mutating operations, and allows a
+  # PUT to a unified-memory document path — but POST is allowed, so _bulk,
+  # _reindex and /<index>/_doc still reach Elasticsearch, exactly as on the
+  # Docker edge. This is not a read-only endpoint.
+  elasticsearchPort: 9200
+  # RT-CV's Service port in this profile is service.port (9010), not the
+  # httpPort (9000) the search profile publishes — rtvi-cv switches on
+  # profileMode. Keep this in step with rtvi.vss-rtvi-cv.
+  rtviCvPort: 9010
+  rtviEmbedPort: 8000
+  rtviVlmPort: 8000
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)

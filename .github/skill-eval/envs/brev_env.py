@@ -386,6 +386,9 @@ class BrevEnvironment(BaseEnvironment):
             # doesn't pre-deploy profiles or maintain an active-deploy
             # marker.
             "GITHUB_RUN_ID",
+            # Prebaked VIOS packages (#1798). The workflow setting it is not
+            # enough: dev-profile.sh reads it here, from ~/.eval_env.
+            "VSS_VIOS_PREBAKE_PACKAGES",
         ):
             val = os.environ.get(key)
             if val:

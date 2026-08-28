@@ -13,47 +13,49 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Publishes the Fern documentation site to production
-# (nvidia-vss.docs.buildwithfern.com/vss and docs.nvidia.com/vss).
+# Publishes the current ref to the persistent Fern staging instance:
+#   https://nvidia-vss-staging.docs.buildwithfern.com/vss
 #
-# Staging is a separate workflow: stage-fern-docs.yml.
-# After docs.yml lists more than one instance, this job must pass --instance
-# so it cannot publish to nvidia-vss-staging by accident.
+# Triggers:
+#   - workflow_dispatch (Actions → Stage Fern Docs → Run workflow)
+#   - pull_request closed, only when the PR was merged into develop
 #
-# Runs on a published GitHub Release, or manually. On a release event GitHub
-# already points the checkout at refs/tags/<tag>, so this publishes exactly the
-# tagged content without naming a branch.
-#
-# Docs versioning (a version picker on the site, serving frozen content per
-# release) is deliberately not here. It needs a release tag cut *after* the docs
-# landed, plus a fern/docs.yml restructured around `products:`. Neither exists
-# yet. See the follow-up issue.
+# Does not update docs.nvidia.com. Production publish remains
+# publish-fern-docs.yml.
 #
 # Requires the DOCS_FERN_TOKEN repo secret.
 
-name: Publish Fern Docs
+name: Stage Fern Docs
 
 on:
-  release:
-    types: [published]
   workflow_dispatch: {}
+  pull_request:
+    types: [closed]
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - '.github/workflows/stage-fern-docs.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: fern-publish
+  group: fern-stage
+  # Do not cancel an in-flight Fern upload. Killing the ledger mid-register
+  # can leave the shared staging site incomplete until a later run succeeds.
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish
+  stage:
+    name: Stage
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'develop')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -71,29 +73,30 @@ jobs:
           fi
           npm install -g "fern-api@${VERSION}"
 
-      - name: Publish docs
+      - name: Stage docs
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         run: |
           set -eo pipefail
           ATTEMPTS=3
           URL=""
+          INSTANCE="nvidia-vss-staging.docs.buildwithfern.com/vss"
           for i in $(seq 1 "$ATTEMPTS"); do
             echo "::group::fern generate attempt $i/$ATTEMPTS"
-            if fern generate --docs --instance nvidia-vss.docs.buildwithfern.com/vss 2>&1 | tee /tmp/fern-output.log; then
+            if fern generate --docs --instance "$INSTANCE" --force 2>&1 | tee /tmp/fern-output.log; then
               URL=$(grep -oP 'Published docs to \K.*(?= \()' /tmp/fern-output.log || true)
             fi
             echo "::endgroup::"
             if [ -n "$URL" ]; then
               break
             fi
-            echo "Publish failed on attempt $i/$ATTEMPTS"
+            echo "Stage failed on attempt $i/$ATTEMPTS"
             if [ "$i" -lt "$ATTEMPTS" ]; then
               sleep $((i * 20))
             fi
           done
           if [ -z "$URL" ]; then
-            echo "::error::Failed to publish docs after ${ATTEMPTS} attempts. See fern output above."
+            echo "::error::Failed to stage docs after ${ATTEMPTS} attempts. See fern output above."
             exit 1
           fi
-          echo "### Published: [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Staged: [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
