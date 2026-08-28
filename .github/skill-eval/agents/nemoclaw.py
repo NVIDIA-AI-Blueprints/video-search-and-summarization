@@ -54,6 +54,13 @@ class NemoClaw(OpenClaw):
         prompt_path = "/tmp/skill-eval/nemoclaw/current_prompt.md"
         command = f"""set -euo pipefail
 host_home=$HOME
+# Load the login profile so openshell/nemoclaw (often in ~/.local/bin) are on
+# PATH — mirrors the onboarding commands in nemoclaw_brev_env.py. Without this
+# headless_runner dies with FileNotFoundError: 'openshell' on boxes where the
+# CLI is not on the default non-login PATH.
+set +u
+. "$host_home/.profile" 2>/dev/null || true
+set -u
 repo="$host_home/video-search-and-summarization"
 export HOME="$host_home/.skill-eval/nemoclaw-home"
 cd "$repo"
