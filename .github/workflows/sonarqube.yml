@@ -6,9 +6,9 @@ name: SonarQube Analysis
 # job (detect_sonarqube_projects.py) and compares PR-base...HEAD.
 #
 # Protect develop currently requires SonarQube Scan (agent|ui|skills).
-# Every catalogued scan still reports on PRs: untouched legs no-op, only a
-# changed tree runs the scanner and can fail. Same pattern if more legs
-# are added to the ruleset later.
+# After this workflow lands, require the wrap-up job named SonarQube
+# instead of those three legs: a green per-leg check can be a no-op.
+# Untouched legs still report so a stale ruleset cannot stall merge.
 
 on:
   push:
@@ -36,7 +36,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      any: ${{ steps.plan.outputs.any }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Checkout source
@@ -60,9 +59,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     if: >-
-      needs.detect.outputs.any == 'true'
-      && (github.event_name != 'pull_request'
-          || github.event.pull_request.head.repo.full_name == github.repository)
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
 
     strategy:
       fail-fast: false
@@ -375,9 +373,9 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: python3 .github/scripts/diagnose_sonarqube_failure.py
 
-  # Always-run wrap-up so a PR that touches none of the scanned trees still
-  # has a concluding check, and so a skipped matrix (empty / fork) is not
-  # reported as a scan failure.
+  # Always-run wrap-up. Require this job name (SonarQube) on Protect
+  # develop: it fails when detect fails, and skipped per-leg scans are
+  # not a merge bypass. Fork PRs skip the scan job (no secrets) and pass.
   sonarqube-gate:
     name: SonarQube
     needs: [detect, sonarqube]
@@ -395,7 +393,7 @@ jobs:
             echo "detect job result: $DETECT"
             exit 1
           fi
-          # skipped = no matching projects, or a fork PR that cannot use secrets
+          # skipped = fork PR that cannot use secrets
           if [ "$SCAN" = "failure" ]; then
             echo "scan job result: $SCAN"
             exit 1
